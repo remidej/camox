@@ -2,40 +2,90 @@ import * as React from "react";
 import { useSelector } from "@xstate/store/react";
 import type { Id } from "camox/_generated/dataModel";
 import { previewStore } from "../previewStore";
+import type { Block } from "../../../core/createBlock";
 
-export const PeekedBlock = () => {
+interface PeekedBlockProps {
+  onExitComplete?: () => void;
+}
+
+export const PeekedBlock = ({ onExitComplete }: PeekedBlockProps) => {
   const peekedBlock = useSelector(
     previewStore,
     (state) => state.context.peekedBlock,
   );
+  const skipExitAnimation = useSelector(
+    previewStore,
+    (state) => state.context.skipPeekedBlockExitAnimation,
+  );
 
   const peekedBlockRef = React.useRef<HTMLDivElement>(null);
+  const [displayedBlock, setDisplayedBlock] = React.useState<Block | null>(
+    null,
+  );
+  const [isExpanded, setIsExpanded] = React.useState(false);
 
+  // When peekedBlock changes to non-null → latch it; when null → start collapse (or skip)
   React.useEffect(() => {
-    if (peekedBlock && peekedBlockRef.current) {
+    if (peekedBlock) {
+      setDisplayedBlock(peekedBlock);
+      return;
+    }
+
+    if (skipExitAnimation) {
+      setIsExpanded(false);
+      setDisplayedBlock(null);
+      onExitComplete?.();
+      previewStore.send({ type: "clearSkipPeekedBlockExitAnimation" });
+      return;
+    }
+
+    setIsExpanded(false);
+  }, [peekedBlock, skipExitAnimation, onExitComplete]);
+
+  // When displayedBlock becomes non-null → expand on next frame
+  React.useEffect(() => {
+    if (!displayedBlock) return;
+    const id = requestAnimationFrame(() => setIsExpanded(true));
+    return () => cancelAnimationFrame(id);
+  }, [displayedBlock]);
+
+  // Scroll into view when displayedBlock changes
+  React.useEffect(() => {
+    if (displayedBlock && peekedBlockRef.current) {
       peekedBlockRef.current.scrollIntoView({
         behavior: "instant",
         block: "start",
       });
     }
-  }, [peekedBlock]);
+  }, [displayedBlock]);
+
+  const handleTransitionEnd = React.useCallback(
+    (e: React.TransitionEvent<HTMLDivElement>) => {
+      if (
+        e.propertyName !== "grid-template-rows" ||
+        e.target !== e.currentTarget
+      ) {
+        return;
+      }
+      // Only clear on collapse (when not expanded)
+      if (!isExpanded) {
+        setDisplayedBlock(null);
+        onExitComplete?.();
+      }
+    },
+    [isExpanded, onExitComplete],
+  );
 
   // Normalize content to handle repeatableObject arrays
-  // In preview mode, getInitialContent() returns arrays as [{...}, {...}]
-  // But the Component expects arrays to be in full item format [{content: {...}, _id: ...}]
-  // when passed to Context, and content-only format when passed to options.component
   const normalizedContent = React.useMemo(() => {
-    if (!peekedBlock) return null;
+    if (!displayedBlock) return null;
 
-    const initialContent = peekedBlock.getInitialContent();
+    const initialContent = displayedBlock.getInitialContent();
     const result = { ...initialContent } as any;
 
-    // Transform array fields from content-only to full item objects for Context
-    // The Component will handle transforming them back to content-only for options.component
     for (const key in result) {
       const value = result[key];
       if (Array.isArray(value) && value.length > 0) {
-        // Check if this looks like a repeatableObject array (array of plain objects)
         const firstItem = value[0];
         if (
           firstItem &&
@@ -43,19 +93,18 @@ export const PeekedBlock = () => {
           !firstItem.content &&
           !firstItem._id
         ) {
-          // This is a content-only array - wrap each item in the full format
           result[key] = value.map((item: any) => ({
             content: item,
-            _id: undefined, // No _id in preview mode
+            _id: undefined,
           }));
         }
       }
     }
 
     return result;
-  }, [peekedBlock]);
+  }, [displayedBlock]);
 
-  if (!peekedBlock || !normalizedContent) {
+  if (!displayedBlock || !normalizedContent) {
     return null;
   }
 
@@ -64,20 +113,26 @@ export const PeekedBlock = () => {
       ref={peekedBlockRef}
       style={{
         scrollMargin: "5rem",
+        display: "grid",
+        gridTemplateRows: isExpanded ? "1fr" : "0fr",
+        transition: "grid-template-rows 300ms ease-out",
         background: "var(--background)",
       }}
+      onTransitionEnd={handleTransitionEnd}
     >
-      <div style={{ opacity: 0.5 }}>
-        <peekedBlock.Component
-          blockData={{
-            _id: "__preview__" as Id<"blocks">,
-            type: peekedBlock.id,
-            content: normalizedContent,
-            settings: peekedBlock.getInitialSettings(),
-            position: "",
-          }}
-          mode="peek"
-        />
+      <div style={{ overflow: "hidden" }}>
+        <div style={{ opacity: 0.5, background: "var(--background)" }}>
+          <displayedBlock.Component
+            blockData={{
+              _id: "__preview__" as Id<"blocks">,
+              type: displayedBlock.id,
+              content: normalizedContent,
+              settings: displayedBlock.getInitialSettings(),
+              position: "",
+            }}
+            mode="peek"
+          />
+        </div>
       </div>
     </div>
   );

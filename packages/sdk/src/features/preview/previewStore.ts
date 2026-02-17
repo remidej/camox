@@ -22,6 +22,7 @@ interface PreviewContext {
   peekedBlock: Block | null;
   peekedBlockPosition: string | null;
   peekedPagePathname: string | null;
+  skipPeekedBlockExitAnimation: boolean;
   selectionBreadcrumbs: SelectionBreadcrumb[];
   iframeElement: HTMLIFrameElement | null;
 }
@@ -38,6 +39,7 @@ export const previewStore = createStore({
     peekedBlock: null,
     peekedBlockPosition: null,
     peekedPagePathname: null,
+    skipPeekedBlockExitAnimation: false,
     selectionBreadcrumbs: [],
     iframeElement: null,
   } as PreviewContext,
@@ -279,6 +281,13 @@ export const previewStore = createStore({
         isAddBlockSheetOpen: false,
         peekedBlock: null,
         peekedBlockPosition: null,
+        skipPeekedBlockExitAnimation: true,
+      };
+    },
+    clearSkipPeekedBlockExitAnimation: (context) => {
+      return {
+        ...context,
+        skipPeekedBlockExitAnimation: false,
       };
     },
     toggleContentSheet: (context) => {

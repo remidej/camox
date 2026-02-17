@@ -796,7 +796,7 @@ export function createBlock<
       if (isBlockSelected && ref.current) {
         ref.current.scrollIntoView({
           behavior: isFirstRender ? "instant" : "smooth",
-          block: "nearest",
+          block: isFirstRender ? "start" : "nearest",
         });
       }
     }, [isBlockSelected, isFirstRender, isPageContentSheetOpen]);
@@ -883,7 +883,7 @@ export function createBlock<
       <div
         className="group visual-editing-block"
         ref={ref}
-        style={{ position: "relative" }}
+        style={{ position: "relative", scrollMargin: "5rem" }}
         data-camox-block-id={isContentEditable ? blockData._id : undefined}
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}

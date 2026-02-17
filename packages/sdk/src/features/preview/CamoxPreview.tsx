@@ -72,23 +72,35 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
     (state) => state.context.peekedBlockPosition,
   );
 
+  // Latch the last non-null position so the block doesn't jump during collapse
+  const displayedPositionRef = React.useRef<string | null>(null);
+  if (peekedBlockPosition !== null) {
+    displayedPositionRef.current = peekedBlockPosition;
+  }
+  const effectivePosition =
+    peekedBlockPosition ?? displayedPositionRef.current;
+
+  const onExitComplete = React.useCallback(() => {
+    displayedPositionRef.current = null;
+  }, []);
+
   const camoxApp = useCamoxApp();
 
   // Find the index where the peeked block should be inserted
-  // If peekedBlockPosition is null, insert at the end
-  // If peekedBlockPosition is "", insert at the beginning
+  // If effectivePosition is null, insert at the end
+  // If effectivePosition is "", insert at the beginning
   const peekedBlockIndex = React.useMemo(() => {
-    if (peekedBlockPosition === "") {
+    if (effectivePosition === "") {
       return 0; // Insert at the beginning
     }
 
-    if (peekedBlockPosition === null) {
+    if (effectivePosition === null) {
       return pageData.blocks.length; // Insert at the end
     }
 
     // Find the index after the block with the matching position
     const afterBlockIndex = pageData.blocks.findIndex(
-      (block) => String(block.position) === peekedBlockPosition,
+      (block) => String(block.position) === effectivePosition,
     );
 
     if (afterBlockIndex === -1) {
@@ -98,12 +110,14 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
 
     // Insert after the found block
     return afterBlockIndex + 1;
-  }, [pageData.blocks, peekedBlockPosition]);
+  }, [pageData.blocks, effectivePosition]);
 
   return (
     <main className="flex min-h-screen flex-col">
       {/* Render peeked block at the beginning if it should be before the first block */}
-      {peekedBlockIndex === 0 && pageData.blocks.length > 0 && <PeekedBlock />}
+      {peekedBlockIndex === 0 && pageData.blocks.length > 0 && (
+        <PeekedBlock onExitComplete={onExitComplete} />
+      )}
       {pageData.blocks.map((blockData, index) => {
         const block = camoxApp.getBlockById(String(blockData.type));
 
@@ -125,12 +139,16 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
               isFirstBlock={index === 0}
             />
             {/* Render peeked block after this block if this is the insertion point */}
-            {index === peekedBlockIndex - 1 && <PeekedBlock />}
+            {index === peekedBlockIndex - 1 && (
+              <PeekedBlock onExitComplete={onExitComplete} />
+            )}
           </React.Fragment>
         );
       })}
       {/* Render peeked block at the end if there are no blocks */}
-      {pageData.blocks.length === 0 && <PeekedBlock />}
+      {pageData.blocks.length === 0 && (
+        <PeekedBlock onExitComplete={onExitComplete} />
+      )}
     </main>
   );
 };
