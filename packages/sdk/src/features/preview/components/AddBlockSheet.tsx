@@ -36,7 +36,7 @@ const AddBlockSheet = () => {
 
     const afterPosition =
       peekedBlockPosition === ""
-        ? undefined
+        ? ""
         : (peekedBlockPosition ??
           page.blocks[page.blocks.length - 1]?.position);
 
@@ -54,7 +54,7 @@ const AddBlockSheet = () => {
   const handlePreviewBlock = (block: Block) => {
     const afterPosition =
       peekedBlockPosition === ""
-        ? undefined
+        ? ""
         : (peekedBlockPosition ??
           page?.blocks[page.blocks.length - 1]?.position);
 

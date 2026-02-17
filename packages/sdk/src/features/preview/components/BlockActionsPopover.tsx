@@ -86,7 +86,7 @@ const BlockActionsPopover = ({
 
     const blockIndex = page.blocks.findIndex((b) => b._id === block._id);
     const afterPosition =
-      blockIndex > 0 ? page.blocks[blockIndex - 1].position : null;
+      blockIndex > 0 ? page.blocks[blockIndex - 1].position : "";
 
     previewStore.send({
       type: "openAddBlockSheet",
@@ -539,7 +539,7 @@ function useBlockActionsShortcuts() {
           if (blockIndex === -1) return;
 
           const afterPosition =
-            blockIndex > 0 ? page.blocks[blockIndex - 1].position : null;
+            blockIndex > 0 ? page.blocks[blockIndex - 1].position : "";
 
           previewStore.send({
             type: "openAddBlockSheet",

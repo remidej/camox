@@ -76,7 +76,12 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
 
   // Find the index where the peeked block should be inserted
   // If peekedBlockPosition is null, insert at the end
+  // If peekedBlockPosition is "", insert at the beginning
   const peekedBlockIndex = React.useMemo(() => {
+    if (peekedBlockPosition === "") {
+      return 0; // Insert at the beginning
+    }
+
     if (peekedBlockPosition === null) {
       return pageData.blocks.length; // Insert at the end
     }
@@ -97,6 +102,8 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
 
   return (
     <main className="flex min-h-screen flex-col">
+      {/* Render peeked block at the beginning if it should be before the first block */}
+      {peekedBlockIndex === 0 && pageData.blocks.length > 0 && <PeekedBlock />}
       {pageData.blocks.map((blockData, index) => {
         const block = camoxApp.getBlockById(String(blockData.type));
 
@@ -122,7 +129,7 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
           </React.Fragment>
         );
       })}
-      {/* Render peeked block at the end if there are no blocks or if it should be at the end */}
+      {/* Render peeked block at the end if there are no blocks */}
       {pageData.blocks.length === 0 && <PeekedBlock />}
     </main>
   );

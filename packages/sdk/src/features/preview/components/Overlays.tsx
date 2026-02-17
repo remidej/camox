@@ -40,6 +40,8 @@ export const Overlays = ({ iframeElement }: OverlaysProps) => {
           );
           if (blockIndex !== undefined && blockIndex > 0) {
             afterPosition = page?.blocks[blockIndex - 1].position ?? null;
+          } else if (blockIndex === 0) {
+            afterPosition = "";
           }
         }
 
