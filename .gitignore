@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Production builds
+dist/
+build/
+.output/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+pnpm-debug.log*
+
+# Temporary folders
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+._*
+Thumbs.db
+
+# Claude Code
+.claude/settings.local.json
+CLAUDE.local.md
+
+# MCP servers
+.playwright-mcp
+
+# Nx
+.nx/cache
+.nx/workspace-data
+nx-graph.html
+static/

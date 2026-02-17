@@ -1,0 +1,187 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@14..32,100..900&display=swap");
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@clerk/themes/shadcn.css";
+
+@custom-variant dark (&:is(.dark *));
+
+body {
+  @apply m-0;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "Roboto",
+    "Oxygen",
+    "Ubuntu",
+    "Cantarell",
+    "Fira Sans",
+    "Droid Sans",
+    "Helvetica Neue",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family:
+    source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: theme(--color-zinc-950);
+  --card: oklch(1 0 0);
+  --card-foreground: theme(--color-zinc-950);
+  --popover: oklch(1 0 0);
+  --popover-foreground: theme(--color-zinc-950);
+  --primary: theme(--color-zinc-900);
+  --primary-foreground: theme(--color-zinc-50);
+  --secondary: theme(--color-zinc-100);
+  --secondary-foreground: theme(--color-zinc-900);
+  --muted: theme(--color-zinc-100);
+  --muted-foreground: theme(--color-zinc-500);
+  --accent: oklch(0.95 0.01 252); /* in between slate-100 and slate-200 */
+  --accent-foreground: theme(--color-zinc-900);
+  --destructive: theme(--color-red-600);
+  --destructive-foreground: theme(--color-red-600);
+  --border: theme(--color-zinc-200);
+  --input: theme(--color-zinc-200);
+  --ring: theme(--color-zinc-400);
+  --chart-1: theme(--color-orange-600);
+  --chart-2: theme(--color-teal-600);
+  --chart-3: theme(--color-cyan-900);
+  --chart-4: theme(--color-amber-400);
+  --chart-5: theme(--color-amber-500);
+  --radius: 0.625rem;
+  --sidebar: theme(--color-zinc-50);
+  --sidebar-foreground: theme(--color-zinc-950);
+  --sidebar-primary: theme(--color-zinc-900);
+  --sidebar-primary-foreground: theme(--color-zinc-50);
+  --sidebar-accent: theme(--color-zinc-100);
+  --sidebar-accent-foreground: theme(--color-zinc-900);
+  --sidebar-border: theme(--color-zinc-200);
+  --sidebar-ring: theme(--color-zinc-400);
+  /* Custom */
+  --color-draft-accent: theme(--color-indigo-400);
+  --color-published-accent: theme(--color-green-400);
+  --preview-background: oklch(0.98 0.005 264.531);
+  --color-checker-bg: #f8f9fa;
+  --color-checker: #e9ecef;
+  --invalid: theme(--color-red-400);
+}
+
+.dark {
+  --background: theme(--color-zinc-950);
+  --foreground: theme(--color-zinc-50);
+  --card: theme(--color-zinc-900);
+  --card-foreground: theme(--color-zinc-50);
+  --popover: theme(--color-zinc-900);
+  --popover-foreground: theme(--color-zinc-50);
+  --primary: theme(--color-zinc-200);
+  --primary-foreground: theme(--color-zinc-900);
+  --secondary: theme(--color-zinc-800);
+  --secondary-foreground: theme(--color-zinc-50);
+  --muted: theme(--color-zinc-800);
+  --muted-foreground: theme(--color-zinc-400);
+  --accent: theme(--color-slate-800);
+  --accent-foreground: theme(--color-slate-50);
+  /*--accent: theme(--color-zinc-800);*/
+  /*--accent-foreground: theme(--color-zinc-50);*/
+  --destructive: theme(--color-red-400);
+  --destructive-foreground: theme(--color-red-500);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: theme(--color-zinc-500);
+  --chart-1: theme(--color-blue-700);
+  --chart-2: theme(--color-emerald-500);
+  --chart-3: theme(--color-amber-500);
+  --chart-4: theme(--color-purple-500);
+  --chart-5: theme(--color-rose-600);
+  --sidebar: theme(--color-zinc-900);
+  --sidebar-foreground: theme(--color-zinc-50);
+  --sidebar-primary: theme(--color-blue-700);
+  --sidebar-primary-foreground: theme(--color-zinc-50);
+  --sidebar-accent: theme(--color-zinc-800);
+  --sidebar-accent-foreground: theme(--color-zinc-50);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: theme(--color-zinc-500);
+  /* Custom */
+  --color-draft-accent: theme(--color-indigo-500);
+  --color-published-accent: theme(--color-green-600);
+  --preview-background: oklch(0.18 0.025 264.665);
+  --color-checker-bg: #212529;
+  --color-checker: #1a1e22;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* Custom */
+  --color-draft-accent: var(--color-draft-accent);
+  --color-published-accent: var(--color-published-accent);
+  --color-checker-bg: var(--color-checker-bg);
+  --color-checker: var(--color-checker);
+  --color-invalid: var(--invalid);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .checkered {
+    background-color: var(--color-checker-bg);
+    background-image:
+      linear-gradient(45deg, var(--color-checker) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--color-checker) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--color-checker) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--color-checker) 75%);
+    background-size: 32px 32px;
+    background-position:
+      0 0,
+      0 16px,
+      16px -16px,
+      -16px 0px;
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "camox-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "nx run-many -t build --all",
+    "dev": "nx run-many -t dev --all --parallel",
+    "lint": "nx run-many -t lint --all",
+    "test": "nx run-many -t test --all",
+    "check": "nx run-many -t check --all",
+    "prepare": "husky"
+  },
+  "author": "",
+  "packageManager": "pnpm@10.18.1",
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.0",
+    "nx": "^21.6.3"
+  },
+  "lint-staged": {
+    "*": [
+      "nx affected -t check"
+    ]
+  }
+}

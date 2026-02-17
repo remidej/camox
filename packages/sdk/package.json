@@ -1,0 +1,122 @@
+{
+  "name": "camox",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "exports": {
+    "./createApp": {
+      "source": "./src/core/createApp.ts",
+      "types": "./dist/core/createApp.d.ts",
+      "import": "./dist/core/createApp.js"
+    },
+    "./createBlock": {
+      "source": "./src/core/createBlock.tsx",
+      "types": "./dist/core/createBlock.d.ts",
+      "import": "./dist/core/createBlock.js"
+    },
+    "./CamoxPreview": {
+      "source": "./src/features/preview/CamoxPreview.tsx",
+      "types": "./dist/features/preview/CamoxPreview.d.ts",
+      "import": "./dist/features/preview/CamoxPreview.js"
+    },
+    "./CamoxPlayground": {
+      "source": "./src/features/playground/CamoxPlayground.tsx",
+      "types": "./dist/features/playground/CamoxPlayground.d.ts",
+      "import": "./dist/features/playground/CamoxPlayground.js"
+    },
+    "./CamoxProvider": {
+      "source": "./src/features/provider/CamoxProvider.tsx",
+      "types": "./dist/features/provider/CamoxProvider.d.ts",
+      "import": "./dist/features/provider/CamoxProvider.js"
+    },
+    "./CamoxStudio": {
+      "source": "./src/features/studio/CamoxStudio.tsx",
+      "types": "./dist/features/studio/CamoxStudio.d.ts",
+      "import": "./dist/features/studio/CamoxStudio.js"
+    },
+    "./vite": {
+      "source": "./src/features/vite/vite.ts",
+      "types": "./dist/features/vite/vite.d.ts",
+      "import": "./dist/features/vite/vite.js"
+    },
+    "./_generated/api": {
+      "types": "./convex/_generated/api.d.ts",
+      "default": "./convex/_generated/api.js"
+    },
+    "./_generated/dataModel": {
+      "types": "./convex/_generated/dataModel.d.ts",
+      "default": "./convex/_generated/dataModel.js"
+    }
+  },
+  "scripts": {
+    "dev": "tailwindcss -i ./src/studio.css -o ./dist/studio.css --watch",
+    "build:css": "tailwindcss -i ./src/studio.css -o ./dist/studio.css --minify",
+    "build": "pnpm build:css && vite build",
+    "build:watch": "vite build --watch",
+    "lint": "oxlint",
+    "check": "tsc --noEmit && oxlint --fix"
+  },
+  "dependencies": {
+    "@clerk/clerk-react": "^5.22.13",
+    "@clerk/themes": "^2.4.21",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/modifiers": "^9.0.0",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@openrouter/ai-sdk-provider": "^1.2.0",
+    "@radix-ui/primitive": "1.1.2",
+    "@radix-ui/react-accordion": "^1.2.12",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-compose-refs": "1.1.2",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-primitive": "2.1.2",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-separator": "^1.1.7",
+    "@radix-ui/react-slider": "^1.3.6",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toggle": "^1.1.10",
+    "@radix-ui/react-toggle-group": "^1.1.11",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@sinclair/typebox": "^0.34.41",
+    "@tanstack/react-form": "^1.23.0",
+    "@window-splitter/react": "^1.1.2",
+    "@xstate/store": "^3.9.2",
+    "ai": "^5.0.86",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "convex": "^1.27.1",
+    "convex-helpers": "^0.1.104",
+    "fractional-indexing": "^3.2.0",
+    "lucide-react": "^0.476.0",
+    "outdent": "^0.8.0",
+    "react": "19.3.0-canary-d6cae440-20260106",
+    "react-dom": "19.3.0-canary-d6cae440-20260106",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.0.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.6",
+    "@types/node": "^24.6.2",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "oxlint": "^0.15.0",
+    "tailwindcss": "^4.0.6",
+    "tw-animate-css": "^1.3.6",
+    "typescript": "^5.7.2",
+    "vite": "npm:rolldown-vite@latest",
+    "vite-plugin-dts": "^4.5.4",
+    "vite-tsconfig-paths": "^5.1.4"
+  },
+  "peerDependencies": {
+    "@tanstack/react-router": "^1.130.2"
+  }
+}

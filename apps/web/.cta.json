@@ -1,0 +1,19 @@
+{
+  "projectName": "web",
+  "mode": "file-router",
+  "typescript": true,
+  "tailwind": true,
+  "packageManager": "pnpm",
+  "git": true,
+  "version": 1,
+  "framework": "react-cra",
+  "chosenAddOns": [
+    "start",
+    "convex",
+    "form",
+    "shadcn",
+    "t3env",
+    "tanstack-query",
+    "clerk"
+  ]
+}
