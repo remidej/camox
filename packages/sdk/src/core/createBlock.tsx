@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { useSelector } from "@xstate/store/react";
-import { useClerk } from "@clerk/clerk-react";
 import { useMutation } from "convex/react";
 import {
   Type as TypeBoxType,
@@ -16,9 +15,9 @@ import {
   postOverlayMessage,
 } from "../features/preview/overlayMessages";
 import {
-  OVERLAY_COLORS,
   OVERLAY_WIDTHS,
   OVERLAY_OFFSETS,
+  OVERLAY_COLORS,
 } from "../features/preview/overlayConstants";
 import { useFrame } from "../components/ui/frame";
 import {
@@ -31,7 +30,9 @@ import { Label } from "../components/ui/label";
 import { toast } from "../components/ui/toaster";
 import { Kbd } from "../components/ui/kbd";
 import type { Id } from "camox/_generated/dataModel";
-import type { FieldType } from "./fieldTypes.tsx";
+import type { FieldType } from "./lib/fieldTypes.tsx";
+import { useIsEditable } from "./hooks/useIsEditable.ts";
+import { AddBlockControlBar } from "./components/AddBlockControlBar.tsx";
 
 let hasShownEmbedLockToast = false;
 
@@ -176,104 +177,6 @@ export const Type = {
     });
   },
 } satisfies Record<FieldType, unknown>;
-
-/* -------------------------------------------------------------------------------------------------
- * useIsEditable
- * -----------------------------------------------------------------------------------------------*/
-
-function useIsEditable(mode: BlockComponentProps<any>["mode"]) {
-  const { isSignedIn } = useClerk();
-  const isPresentationMode = useSelector(
-    previewStore,
-    (state) => state.context.isPresentationMode,
-  );
-  const isContentLocked = useSelector(
-    previewStore,
-    (state) => state.context.isContentLocked,
-  );
-  return (
-    isSignedIn && mode === "site" && !isPresentationMode && !isContentLocked
-  );
-}
-
-/* -------------------------------------------------------------------------------------------------
- * AddBlockControlBar
- * -----------------------------------------------------------------------------------------------*/
-
-interface AddBlockControlBarProps {
-  position: "top" | "bottom";
-  hidden: boolean;
-  onClick: () => void;
-  onMouseLeave: () => void;
-}
-
-const AddBlockControlBar = ({
-  position,
-  hidden,
-  onClick,
-  onMouseLeave,
-}: AddBlockControlBarProps) => {
-  const [isExpanded, setIsExpanded] = React.useState(false);
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        top: position === "top" ? 0 : undefined,
-        bottom: position === "bottom" ? 0 : undefined,
-        left: 0,
-        right: 0,
-        height: "36px",
-        transform: position === "top" ? "translateY(-50%)" : "translateY(50%)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 11,
-        opacity: hidden ? 0 : 1,
-        pointerEvents: hidden ? "none" : "auto",
-        transition: "opacity 150ms ease",
-      }}
-      onMouseLeave={onMouseLeave}
-    >
-      <div
-        style={{
-          width: "120px",
-          height: "36px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-        onMouseEnter={() => setIsExpanded(true)}
-        onMouseLeave={() => setIsExpanded(false)}
-      >
-        <button
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: isExpanded ? "4px" : "0px",
-            padding: isExpanded ? "4px 8px" : "0px",
-            width: isExpanded ? "auto" : "20px",
-            height: isExpanded ? "auto" : "20px",
-            justifyContent: "center",
-            backgroundColor: OVERLAY_COLORS.selected,
-            color: "white",
-            border: "none",
-            borderRadius: "9999px",
-            fontSize: "12px",
-            fontWeight: 500,
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-            transition: "all 150ms ease",
-          }}
-          onClick={onClick}
-        >
-          <span style={{ lineHeight: 1 }}>+</span>
-          {isExpanded && <span>Add block</span>}
-        </button>
-      </div>
-    </div>
-  );
-};
 
 /* -------------------------------------------------------------------------------------------------
  * createBlock

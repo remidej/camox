@@ -33,7 +33,7 @@ import { usePreviewedPage } from "../CamoxPreview";
 import { useLocation } from "@tanstack/react-router";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import { fieldTypesDictionary } from "../../../core/fieldTypes";
+import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
 
 /* -------------------------------------------------------------------------------------------------
  * BlockFields
@@ -146,18 +146,12 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
               "flex items-center gap-1.5 rounded-lg pl-2 pr-1 py-2 cursor-default group/field",
               isSelected ? "bg-accent" : "hover:bg-accent/50",
             )}
-            onClick={() =>
-              fieldType && handleFieldClick(fieldName, fieldType)
-            }
+            onClick={() => fieldType && handleFieldClick(fieldName, fieldType)}
             onDoubleClick={() =>
               fieldType && handleFieldDoubleClick(fieldName, fieldType)
             }
-            onMouseEnter={() =>
-              handleFieldMouseEnter(fieldName, isRepeatable)
-            }
-            onMouseLeave={() =>
-              handleFieldMouseLeave(fieldName, isRepeatable)
-            }
+            onMouseEnter={() => handleFieldMouseEnter(fieldName, isRepeatable)}
+            onMouseLeave={() => handleFieldMouseLeave(fieldName, isRepeatable)}
           >
             <FieldIcon className="size-4 shrink-0" />
             <span className="text-accent-foreground select-none truncate">

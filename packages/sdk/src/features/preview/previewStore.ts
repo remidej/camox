@@ -2,7 +2,7 @@ import { createStore } from "@xstate/store";
 import { toast } from "@/components/ui/toaster";
 import { Block } from "@/core/createBlock";
 import { Id } from "camox/_generated/dataModel";
-import type { FieldType } from "@/core/fieldTypes.tsx";
+import type { FieldType } from "@/core/lib/fieldTypes";
 
 export type PublicationState = "draft" | "published";
 
@@ -259,10 +259,7 @@ export const previewStore = createStore({
         peekedPagePathname: null,
       };
     },
-    openAddBlockSheet: (
-      context,
-      event: { afterPosition?: string | null },
-    ) => {
+    openAddBlockSheet: (context, event: { afterPosition?: string | null }) => {
       return {
         ...context,
         isAddBlockSheetOpen: true,
