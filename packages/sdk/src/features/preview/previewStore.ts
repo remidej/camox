@@ -86,6 +86,10 @@ export const previewStore = createStore({
         isSidebarOpen: !context.isSidebarOpen,
       };
     },
+    setContentLocked: (context, event: { value: boolean }) => ({
+      ...context,
+      isContentLocked: event.value,
+    }),
     toggleLockContent: (context, _, enqueue) => {
       enqueue.effect(() => {
         toast(

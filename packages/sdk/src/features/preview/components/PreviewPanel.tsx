@@ -188,6 +188,13 @@ const KeyDownForwarder = () => {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Handle L key hold separately — forward as holdLockContent
+      if (e.key.toLowerCase() === "l" && !e.repeat && !checkIfInputFocused(iframeWindow.document)) {
+        e.preventDefault();
+        iframeWindow.parent.postMessage({ type: "holdLockContent" }, "*");
+        return;
+      }
+
       const matchingAction = actions.find((action) => {
         if (!action.shortcut) return false;
         if (!action.checkIfAvailable()) return false;
@@ -222,8 +229,18 @@ const KeyDownForwarder = () => {
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "l") {
+        iframeWindow.parent.postMessage({ type: "releaseLockContent" }, "*");
+      }
+    };
+
     iframeWindow.addEventListener("keydown", handleKeyDown);
-    return () => iframeWindow.removeEventListener("keydown", handleKeyDown);
+    iframeWindow.addEventListener("keyup", handleKeyUp);
+    return () => {
+      iframeWindow.removeEventListener("keydown", handleKeyDown);
+      iframeWindow.removeEventListener("keyup", handleKeyUp);
+    };
   }, [iframeWindow, actions]);
 
   return null;
@@ -300,7 +317,6 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
         groupLabel: "Preview",
         checkIfAvailable: () => true,
         execute: () => previewStore.send({ type: "toggleLockContent" }),
-        shortcut: { key: "l" },
         icon: "Lock",
       },
       {
