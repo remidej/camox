@@ -4,6 +4,7 @@ import {
   ChevronDown as ChevronDownIcon,
   ToggleLeft as ToggleLeftIcon,
   type LucideProps,
+  FrameIcon,
 } from "lucide-react";
 
 const fieldTypesDictionary = {
@@ -30,6 +31,12 @@ const fieldTypesDictionary = {
     isScalar: true,
     isContentEditable: false,
     Icon: (props: LucideProps) => <ToggleLeftIcon {...props} />,
+  },
+  Embed: {
+    label: "Embed",
+    isScalar: true,
+    isContentEditable: false,
+    Icon: (props: LucideProps) => <FrameIcon {...props} />,
   },
 } satisfies Record<
   string,

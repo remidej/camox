@@ -5,7 +5,6 @@ import {
   ChevronDown,
   Ellipsis,
   GripVertical,
-  List,
   Plus,
   ToggleLeft,
   Type,
@@ -41,6 +40,7 @@ import { usePreviewedPage } from "../CamoxPreview";
 import { useLocation } from "@tanstack/react-router";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
+import { fieldTypesDictionary } from "../../../core/fieldTypes";
 
 /* -------------------------------------------------------------------------------------------------
  * BlockFields
@@ -153,6 +153,12 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
           const title = fieldSchema?.title;
           const isRepeatable = fieldType === "RepeatableObject";
           const isSelected = selectedFieldName === fieldName;
+          const FieldIcon =
+            fieldType != null
+              ? (fieldTypesDictionary[
+                  fieldType as keyof typeof fieldTypesDictionary
+                ]?.Icon ?? Type)
+              : Type;
 
           return (
             <li
@@ -174,11 +180,7 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
                 handleFieldMouseLeave(fieldName, isRepeatable)
               }
             >
-              {isRepeatable ? (
-                <List className="size-4 shrink-0" />
-              ) : (
-                <Type className="size-4 shrink-0" />
-              )}
+              <FieldIcon className="size-4 shrink-0" />
               <span className="text-accent-foreground select-none truncate">
                 {isRepeatable
                   ? title || fieldName

@@ -21,8 +21,23 @@ import {
   OVERLAY_OFFSETS,
 } from "../features/preview/overlayConstants";
 import { useFrame } from "../components/ui/frame";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "../components/ui/popover";
+import { Input } from "../components/ui/input";
+import { toast } from "../components/ui/toaster";
+import { Kbd } from "../components/ui/kbd";
 import type { Id } from "camox/_generated/dataModel";
 import type { FieldType } from "./fieldTypes.tsx";
+
+/* -------------------------------------------------------------------------------------------------
+ * EmbedURL branded type
+ * -----------------------------------------------------------------------------------------------*/
+
+declare const EmbedURLBrand: unique symbol;
+type EmbedURL = string & { readonly [EmbedURLBrand]: true };
 
 /* -------------------------------------------------------------------------------------------------
  * Typebox wrapper used for content schemas
@@ -130,6 +145,31 @@ export const Type = {
       default: options.default,
       title: options.title,
       fieldType: "Boolean" as const,
+    });
+  },
+
+  /**
+   * Creates an embed field for URLs matching a specific pattern.
+   *
+   * @example
+   * Type.Embed({
+   *   pattern: 'https:\\/\\/(www\\.)?youtube\\.com\\/watch\\?v=.+',
+   *   default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+   *   title: 'YouTube URL'
+   * })
+   */
+  Embed: (options: { pattern: string; default: string; title?: string }) => {
+    if (!new RegExp(options.pattern).test(options.default)) {
+      throw new Error(
+        `Embed default value "${options.default}" does not match pattern "${options.pattern}"`,
+      );
+    }
+    return TypeBoxType.Unsafe<EmbedURL>({
+      type: "string",
+      pattern: options.pattern,
+      default: options.default,
+      title: options.title,
+      fieldType: "Embed" as const,
     });
   },
 } satisfies Record<FieldType, unknown>;
@@ -329,7 +369,14 @@ export function createBlock<
       }
     : undefined;
 
-  // Extract defaults manually since Value.Create doesn't support Unsafe types (used by Type.Enum)
+  // Extract defaults manually since Value.Create doesn't support Unsafe types (used by Type.Enum and Type.Embed)
+  const contentDefaults: Record<string, unknown> = {};
+  for (const [key, prop] of Object.entries(typeboxSchema.properties)) {
+    if ("default" in prop) {
+      contentDefaults[key] = prop.default;
+    }
+  }
+
   const settingsDefaults: Record<string, unknown> = {};
   if (settingsTypeboxSchema) {
     for (const [key, prop] of Object.entries(
@@ -367,9 +414,18 @@ export function createBlock<
   // Context to track if the parent repeater container is being hovered from sidebar
   const RepeaterHoverContext = React.createContext<boolean>(false);
 
-  // Only allow string fields - not objects or arrays
+  // Only allow string fields - not objects, arrays, or embed URLs
   type StringFields = {
-    [K in keyof TContent as TContent[K] extends string
+    [K in keyof TContent as TContent[K] extends EmbedURL
+      ? never
+      : TContent[K] extends string
+        ? K
+        : never]: TContent[K];
+  };
+
+  // Only allow embed URL fields
+  type EmbedFields = {
+    [K in keyof TContent as TContent[K] extends EmbedURL
       ? K
       : never]: TContent[K];
   };
@@ -572,6 +628,132 @@ export function createBlock<
       >
         {children(displayValue)}
       </Slot>
+    );
+  };
+
+  const Embed = <K extends keyof EmbedFields>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (url: string) => React.ReactNode;
+  }) => {
+    const blockContext = React.use(Context);
+    if (!blockContext) {
+      throw new Error("Embed must be used within a Block Component");
+    }
+
+    const { blockId, content, mode } = blockContext;
+    const isContentEditable = useIsEditable(mode);
+    const fieldValue = content[name] as string;
+
+    const [isOpen, setIsOpen] = React.useState(false);
+    const [urlValue, setUrlValue] = React.useState(fieldValue);
+    const [isHovered, setIsHovered] = React.useState(false);
+    const timerRef = React.useRef<number | null>(null);
+
+    const updateBlockContent = useMutation(api.blocks.updateBlockContent);
+
+    // Sync urlValue with fieldValue when popover is closed
+    React.useEffect(() => {
+      if (!isOpen) {
+        setUrlValue(fieldValue);
+      }
+    }, [fieldValue, isOpen]);
+
+    // Cleanup timer on unmount
+    React.useEffect(() => {
+      return () => {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
+      };
+    }, []);
+
+    const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newValue = e.target.value;
+      setUrlValue(newValue);
+
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+
+      timerRef.current = window.setTimeout(() => {
+        updateBlockContent({
+          blockId,
+          content: { [name]: newValue },
+        });
+      }, 500);
+    };
+
+    const handleOpenChange = (open: boolean) => {
+      setIsOpen(open);
+      if (open) {
+        previewStore.send({
+          type: "setSelectedField",
+          blockId,
+          fieldName: name.toString(),
+          fieldType: "Embed",
+        });
+      }
+    };
+
+    return (
+      <Popover
+        open={isContentEditable ? isOpen : false}
+        onOpenChange={isContentEditable ? handleOpenChange : undefined}
+      >
+        <PopoverTrigger asChild>
+          <div
+            style={{ position: "relative" }}
+            onMouseEnter={
+              isContentEditable ? () => setIsHovered(true) : undefined
+            }
+            onMouseLeave={
+              isContentEditable ? () => setIsHovered(false) : undefined
+            }
+          >
+            {children(fieldValue)}
+            {isContentEditable && (
+              <>
+                {/* Transparent full-coverage overlay to intercept iframe pointer events */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 10,
+                  }}
+                  onClick={() =>
+                    toast(
+                      <span>
+                        Hold <Kbd>L</Kbd> to interact with the embed content
+                      </span>,
+                    )
+                  }
+                />
+                {(isHovered || isOpen) && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: isOpen
+                        ? OVERLAY_OFFSETS.blockSelected
+                        : OVERLAY_OFFSETS.blockHover,
+                      border: `${isOpen ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isOpen ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+                      pointerEvents: "none",
+                      zIndex: 11,
+                    }}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </PopoverTrigger>
+        {isContentEditable && (
+          <PopoverContent>
+            <Input type="url" value={urlValue} onChange={handleUrlChange} />
+          </PopoverContent>
+        )}
+      </Popover>
     );
   };
 
@@ -883,7 +1065,11 @@ export function createBlock<
       <div
         className="group visual-editing-block"
         ref={ref}
-        style={{ position: "relative", scrollMargin: "5rem" }}
+        style={{
+          position: "relative",
+          scrollMargin: "5rem",
+          background: "var(--background)",
+        }}
         data-camox-block-id={isContentEditable ? blockData._id : undefined}
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
@@ -958,6 +1144,7 @@ export function createBlock<
      */
     Component: BlockComponent,
     Field,
+    Embed,
     Repeater,
     useSetting,
     id: options.id,
@@ -966,8 +1153,7 @@ export function createBlock<
     contentSchema,
     settingsSchema,
     getInitialContent: () => {
-      // Create an instance with all default values
-      return Value.Create(typeboxSchema) as TContent;
+      return { ...contentDefaults } as TContent;
     },
     getInitialSettings: () => {
       return { ...settingsDefaults };

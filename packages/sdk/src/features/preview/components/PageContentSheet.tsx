@@ -23,6 +23,7 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { generateKeyBetween } from "fractional-indexing";
 import { GripVertical } from "lucide-react";
 
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -50,7 +51,7 @@ import { actionsStore, type Action } from "@/features/provider/actionsStore";
 
 interface SchemaField {
   name: string;
-  fieldType: "String" | "RepeatableObject" | "Enum" | "Boolean";
+  fieldType: "String" | "RepeatableObject" | "Enum" | "Boolean" | "Embed";
   label?: string;
   enumLabels?: Record<string, string>;
   enumValues?: string[];
@@ -415,7 +416,7 @@ const PageContentSheet = () => {
   // Get only scalar fields for form
   const scalarFields = React.useMemo(() => {
     return schemaFields
-      .filter((f) => f.fieldType === "String")
+      .filter((f) => f.fieldType === "String" || f.fieldType === "Embed")
       .map((f) => f.name);
   }, [schemaFields]);
 
@@ -613,6 +614,48 @@ const PageContentSheet = () => {
                           }
                           onBlur={() => handleFieldBlur(field.name)}
                           rows={4}
+                        />
+                      </div>
+                    )}
+                  </form.Field>
+                );
+              }
+
+              if (field.fieldType === "Embed") {
+                return (
+                  <form.Field key={field.name} name={field.name}>
+                    {(fieldApi) => (
+                      <div
+                        className="space-y-2"
+                        onMouseEnter={() =>
+                          postToIframe({
+                            type: "CAMOX_HOVER_FIELD",
+                            fieldId: `${block._id}__${field.name}`,
+                          })
+                        }
+                        onMouseLeave={() =>
+                          postToIframe({
+                            type: "CAMOX_HOVER_FIELD_END",
+                            fieldId: `${block._id}__${field.name}`,
+                          })
+                        }
+                      >
+                        <Label htmlFor={field.name}>{label}</Label>
+                        <Input
+                          id={field.name}
+                          type="url"
+                          value={fieldApi.state.value}
+                          onChange={(e) =>
+                            handleFieldChange(
+                              field.name,
+                              e.target.value,
+                              fieldApi,
+                            )
+                          }
+                          onFocus={() =>
+                            handleFieldFocus(field.name, field.fieldType)
+                          }
+                          onBlur={() => handleFieldBlur(field.name)}
                         />
                       </div>
                     )}
