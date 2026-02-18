@@ -10,7 +10,7 @@ const youtubeVideo = createBlock({
     url: Type.Embed({
       pattern:
         "https:\\/\\/(www\\.)?(youtube\\.com\\/(watch\\?v=|embed\\/|shorts\\/)|youtu\\.be\\/).+",
-      default: "https://www.youtube.com/watch?v=wTcNtgA6gHs",
+      default: "https://www.youtube.com/watch?v=-W_nFlIAWFM",
       title: "YouTube URL",
     }),
   },

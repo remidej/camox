@@ -1,14 +1,7 @@
 import * as React from "react";
 import { useMutation } from "convex/react";
 import * as Accordion from "@radix-ui/react-accordion";
-import {
-  ChevronDown,
-  Ellipsis,
-  GripVertical,
-  Plus,
-  ToggleLeft,
-  Type,
-} from "lucide-react";
+import { Ellipsis, GripVertical, Plus, Type } from "lucide-react";
 import { useSelector } from "@xstate/store/react";
 import {
   DndContext,
@@ -131,111 +124,53 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
     }
   };
 
-  const settingsProperties = blockDef?.settingsSchema?.properties as
-    | Record<
-        string,
-        {
-          fieldType: string;
-          title?: string;
-          enumLabels?: Record<string, string>;
-          default?: unknown;
-        }
-      >
-    | undefined;
-  const settingsValues = (block.settings ?? {}) as Record<string, unknown>;
-
   return (
-    <>
-      <ul className="pl-7 pr-1 my-1 space-y-1">
-        {Object.entries(block.content).map(([fieldName, value]) => {
-          const fieldSchema = schemaProperties?.[fieldName];
-          const fieldType = fieldSchema?.fieldType;
-          const title = fieldSchema?.title;
-          const isRepeatable = fieldType === "RepeatableObject";
-          const isSelected = selectedFieldName === fieldName;
-          const FieldIcon =
-            fieldType != null
-              ? (fieldTypesDictionary[
-                  fieldType as keyof typeof fieldTypesDictionary
-                ]?.Icon ?? Type)
-              : Type;
+    <ul className="pl-7 pr-1 my-1 space-y-1">
+      {Object.entries(block.content).map(([fieldName, value]) => {
+        const fieldSchema = schemaProperties?.[fieldName];
+        const fieldType = fieldSchema?.fieldType;
+        const title = fieldSchema?.title;
+        const isRepeatable = fieldType === "RepeatableObject";
+        const isSelected = selectedFieldName === fieldName;
+        const FieldIcon =
+          fieldType != null
+            ? (fieldTypesDictionary[
+                fieldType as keyof typeof fieldTypesDictionary
+              ]?.Icon ?? Type)
+            : Type;
 
-          return (
-            <li
-              key={fieldName}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg pl-2 pr-1 py-2 cursor-default group/field",
-                isSelected ? "bg-accent" : "hover:bg-accent/50",
-              )}
-              onClick={() =>
-                fieldType && handleFieldClick(fieldName, fieldType)
-              }
-              onDoubleClick={() =>
-                fieldType && handleFieldDoubleClick(fieldName, fieldType)
-              }
-              onMouseEnter={() =>
-                handleFieldMouseEnter(fieldName, isRepeatable)
-              }
-              onMouseLeave={() =>
-                handleFieldMouseLeave(fieldName, isRepeatable)
-              }
-            >
-              <FieldIcon className="size-4 shrink-0" />
-              <span className="text-accent-foreground select-none truncate">
-                {isRepeatable
-                  ? title || fieldName
-                  : typeof value === "string"
-                    ? value
-                    : JSON.stringify(value)}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      {settingsProperties && Object.keys(settingsProperties).length > 0 && (
-        <ul className="pl-7 pr-1 mb-1 space-y-1">
-          <li className="px-2 pt-1 text-xs text-muted-foreground/60 select-none">
-            Settings
-          </li>
-          {Object.entries(settingsProperties).map(([name, schema]) => {
-            const value = settingsValues[name] ?? schema.default;
-
-            let displayValue: string;
-            if (schema.fieldType === "Enum") {
-              displayValue =
-                schema.enumLabels?.[value as string] ?? String(value);
-            } else {
-              displayValue = value ? "On" : "Off";
+        return (
+          <li
+            key={fieldName}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg pl-2 pr-1 py-2 cursor-default group/field",
+              isSelected ? "bg-accent" : "hover:bg-accent/50",
+            )}
+            onClick={() =>
+              fieldType && handleFieldClick(fieldName, fieldType)
             }
-
-            return (
-              <li
-                key={name}
-                className="flex items-center gap-1.5 rounded-lg pl-2 pr-1 py-2 cursor-default hover:bg-accent/50"
-                onClick={() => {
-                  previewStore.send({
-                    type: "openBlockContentSheet",
-                    blockId: block._id,
-                  });
-                }}
-              >
-                {schema.fieldType === "Enum" ? (
-                  <ChevronDown className="size-4 shrink-0" />
-                ) : (
-                  <ToggleLeft className="size-4 shrink-0" />
-                )}
-                <span className="text-accent-foreground select-none truncate">
-                  {schema.title || name}
-                </span>
-                <span className="text-muted-foreground text-xs ml-auto shrink-0 select-none">
-                  {displayValue}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </>
+            onDoubleClick={() =>
+              fieldType && handleFieldDoubleClick(fieldName, fieldType)
+            }
+            onMouseEnter={() =>
+              handleFieldMouseEnter(fieldName, isRepeatable)
+            }
+            onMouseLeave={() =>
+              handleFieldMouseLeave(fieldName, isRepeatable)
+            }
+          >
+            <FieldIcon className="size-4 shrink-0" />
+            <span className="text-accent-foreground select-none truncate">
+              {isRepeatable
+                ? title || fieldName
+                : typeof value === "string"
+                  ? value
+                  : JSON.stringify(value)}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 };
 

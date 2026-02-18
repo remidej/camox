@@ -27,10 +27,13 @@ import {
   PopoverContent,
 } from "../components/ui/popover";
 import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 import { toast } from "../components/ui/toaster";
 import { Kbd } from "../components/ui/kbd";
 import type { Id } from "camox/_generated/dataModel";
 import type { FieldType } from "./fieldTypes.tsx";
+
+let hasShownEmbedLockToast = false;
 
 /* -------------------------------------------------------------------------------------------------
  * EmbedURL branded type
@@ -723,13 +726,15 @@ export function createBlock<
                     inset: 0,
                     zIndex: 10,
                   }}
-                  onClick={() =>
+                  onClick={() => {
+                    if (hasShownEmbedLockToast) return;
+                    hasShownEmbedLockToast = true;
                     toast(
                       <span>
                         Hold <Kbd>L</Kbd> to interact with the embed content
                       </span>,
-                    )
-                  }
+                    );
+                  }}
                 />
                 {(isHovered || isOpen) && (
                   <div
@@ -749,8 +754,19 @@ export function createBlock<
           </div>
         </PopoverTrigger>
         {isContentEditable && (
-          <PopoverContent>
-            <Input type="url" value={urlValue} onChange={handleUrlChange} />
+          <PopoverContent className="w-96 gap-2">
+            <form className="grid gap-2">
+              <Label htmlFor="url">
+                {(options.content[name] as { title?: string }).title ??
+                  String(name)}
+              </Label>
+              <Input
+                type="url"
+                id="url"
+                value={urlValue}
+                onChange={handleUrlChange}
+              />
+            </form>
           </PopoverContent>
         )}
       </Popover>

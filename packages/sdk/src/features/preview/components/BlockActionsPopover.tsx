@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Copy, Pen, Trash2 } from "lucide-react";
+import { Copy, Pen, Settings, Trash2 } from "lucide-react";
 
 import {
   Command,
@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { formatShortcut } from "@/lib/utils";
 import { actionsStore } from "../../provider/actionsStore";
 import type { Action } from "../../provider/actionsStore";
+import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 
 interface BlockActionsPopoverProps {
   block: Doc<"blocks"> | undefined | null;
@@ -54,6 +55,7 @@ const BlockActionsPopover = ({
   const [blockToDelete, setBlockToDelete] =
     React.useState<Doc<"blocks"> | null>(null);
 
+  const camoxApp = useCamoxApp();
   const page = usePreviewedPage();
   const deleteBlockMutation = useMutation(api.blocks.deleteBlock);
   const deleteBlocksMutation = useMutation(api.blocks.deleteBlocks);
@@ -169,6 +171,31 @@ const BlockActionsPopover = ({
                     </div>
                     {formatShortcut({ key: "j", withMeta: true })}
                   </CommandItem>
+                  {(() => {
+                    const blockDef = camoxApp.getBlockById(block.type);
+                    const hasSettings =
+                      blockDef?.settingsSchema?.properties &&
+                      Object.keys(blockDef.settingsSchema.properties).length >
+                        0;
+                    if (!hasSettings) return null;
+                    return (
+                      <CommandItem
+                        className="justify-between"
+                        onSelect={() => {
+                          previewStore.send({
+                            type: "openBlockContentSheet",
+                            blockId: block._id,
+                          });
+                          onOpenChange(false);
+                        }}
+                      >
+                        <div className="flex gap-2 items-center">
+                          <Settings className="h-4 w-4" />
+                          Open settings
+                        </div>
+                      </CommandItem>
+                    );
+                  })()}
                 </CommandGroup>
                 <CommandSeparator />
                 <CommandGroup>
@@ -299,6 +326,7 @@ function findClosestActionable(breadcrumbs: SelectionBreadcrumb[]) {
 }
 
 function useBlockActionsShortcuts() {
+  const camoxApp = useCamoxApp();
   const page = usePreviewedPage();
   const selectionBreadcrumbs = useSelector(
     previewStore,
@@ -560,6 +588,7 @@ function useBlockActionsShortcuts() {
   }, [
     selectionBreadcrumbs,
     page,
+    camoxApp,
     deleteBlockMutation,
     duplicateBlockMutation,
     updateBlockPositionMutation,
