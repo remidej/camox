@@ -36,6 +36,93 @@ import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
 
 /* -------------------------------------------------------------------------------------------------
+ * useEmbedTitle
+ * -----------------------------------------------------------------------------------------------*/
+
+function useEmbedTitle(url: string | null) {
+  const [title, setTitle] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!url) return;
+    setTitle(null);
+    const controller = new AbortController();
+    fetch(url, { signal: controller.signal })
+      .then((res) => res.text())
+      .then((html) => {
+        const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+        if (match?.[1]) setTitle(match[1].trim());
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [url]);
+
+  return title;
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * FieldItem
+ * -----------------------------------------------------------------------------------------------*/
+
+type FieldItemProps = {
+  fieldName: string;
+  value: unknown;
+  fieldType: string | undefined;
+  schemaTitle: string | undefined;
+  isSelected: boolean;
+  onFieldClick: () => void;
+  onFieldDoubleClick: () => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+};
+
+const FieldItem = ({
+  fieldName,
+  value,
+  fieldType,
+  schemaTitle,
+  isSelected,
+  onFieldClick,
+  onFieldDoubleClick,
+  onMouseEnter,
+  onMouseLeave,
+}: FieldItemProps) => {
+  const embedUrl = fieldType === "Embed" ? (value as string) : null;
+  const fetchedEmbedTitle = useEmbedTitle(embedUrl);
+
+  const fieldDef =
+    fieldType != null
+      ? fieldTypesDictionary[fieldType as keyof typeof fieldTypesDictionary]
+      : null;
+  const displayValue = fieldDef
+    ? fieldDef.getLabel(value, {
+        schemaTitle,
+        fieldName,
+        fetchedTitle: fetchedEmbedTitle,
+      })
+    : JSON.stringify(value);
+
+  const FieldIcon = fieldDef?.Icon ?? Type;
+
+  return (
+    <li
+      className={cn(
+        "flex items-center gap-1.5 rounded-lg pl-2 pr-1 py-2 cursor-default group/field",
+        isSelected ? "bg-accent" : "hover:bg-accent/50",
+      )}
+      onClick={() => fieldType && onFieldClick()}
+      onDoubleClick={() => fieldType && onFieldDoubleClick()}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      <FieldIcon className="size-4 shrink-0" />
+      <span className="text-accent-foreground select-none truncate">
+        {displayValue}
+      </span>
+    </li>
+  );
+};
+
+/* -------------------------------------------------------------------------------------------------
  * BlockFields
  * -----------------------------------------------------------------------------------------------*/
 
@@ -129,39 +216,22 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
       {Object.entries(block.content).map(([fieldName, value]) => {
         const fieldSchema = schemaProperties?.[fieldName];
         const fieldType = fieldSchema?.fieldType;
-        const title = fieldSchema?.title;
         const isRepeatable = fieldType === "RepeatableObject";
-        const isSelected = selectedFieldName === fieldName;
-        const FieldIcon =
-          fieldType != null
-            ? (fieldTypesDictionary[
-                fieldType as keyof typeof fieldTypesDictionary
-              ]?.Icon ?? Type)
-            : Type;
-
         return (
-          <li
+          <FieldItem
             key={fieldName}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg pl-2 pr-1 py-2 cursor-default group/field",
-              isSelected ? "bg-accent" : "hover:bg-accent/50",
-            )}
-            onClick={() => fieldType && handleFieldClick(fieldName, fieldType)}
-            onDoubleClick={() =>
-              fieldType && handleFieldDoubleClick(fieldName, fieldType)
+            fieldName={fieldName}
+            value={value}
+            fieldType={fieldType}
+            schemaTitle={fieldSchema?.title}
+            isSelected={selectedFieldName === fieldName}
+            onFieldClick={() => handleFieldClick(fieldName, fieldType!)}
+            onFieldDoubleClick={() =>
+              handleFieldDoubleClick(fieldName, fieldType!)
             }
             onMouseEnter={() => handleFieldMouseEnter(fieldName, isRepeatable)}
             onMouseLeave={() => handleFieldMouseLeave(fieldName, isRepeatable)}
-          >
-            <FieldIcon className="size-4 shrink-0" />
-            <span className="text-accent-foreground select-none truncate">
-              {isRepeatable
-                ? title || fieldName
-                : typeof value === "string"
-                  ? value
-                  : JSON.stringify(value)}
-            </span>
-          </li>
+          />
         );
       })}
     </ul>

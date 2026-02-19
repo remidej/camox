@@ -51,7 +51,7 @@ import { actionsStore, type Action } from "@/features/provider/actionsStore";
 
 interface SchemaField {
   name: string;
-  fieldType: "String" | "RepeatableObject" | "Enum" | "Boolean" | "Embed";
+  fieldType: "String" | "RepeatableObject" | "Enum" | "Boolean" | "Embed" | "Link";
   label?: string;
   enumLabels?: Record<string, string>;
   enumValues?: string[];
@@ -65,7 +65,7 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
     const prop = properties[fieldName] as any;
     return {
       name: fieldName,
-      fieldType: prop.fieldType as "String" | "RepeatableObject",
+      fieldType: prop.fieldType as SchemaField["fieldType"],
       label: prop.title as string | undefined,
     };
   });
@@ -362,6 +362,114 @@ const RepeatableItemsList = ({ items, blockId }: RepeatableItemsListProps) => {
 };
 
 /* -------------------------------------------------------------------------------------------------
+ * LinkFieldEditor
+ * -----------------------------------------------------------------------------------------------*/
+
+interface LinkFieldEditorProps {
+  fieldName: string;
+  label: string;
+  linkValue: { text: string; href: string; newTab: boolean };
+  blockId: Id<"blocks">;
+}
+
+const LinkFieldEditor = ({
+  fieldName,
+  label,
+  linkValue,
+  blockId,
+}: LinkFieldEditorProps) => {
+  const updateBlockContent = useMutation(api.blocks.updateBlockContent);
+  const timerRef = React.useRef<number | null>(null);
+  const [text, setText] = React.useState(linkValue.text);
+  const [href, setHref] = React.useState(linkValue.href);
+  const linkValueRef = React.useRef(linkValue);
+
+  React.useEffect(() => {
+    linkValueRef.current = linkValue;
+  }, [linkValue]);
+
+  React.useEffect(() => {
+    setText(linkValue.text);
+  }, [linkValue.text]);
+
+  React.useEffect(() => {
+    setHref(linkValue.href);
+  }, [linkValue.href]);
+
+  React.useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const handleChange = (subField: string, value: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      updateBlockContent({
+        blockId,
+        content: { [fieldName]: { ...linkValueRef.current, [subField]: value } },
+      });
+    }, 500);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label
+            htmlFor={`${fieldName}-text`}
+            className="text-xs text-muted-foreground"
+          >
+            Text
+          </Label>
+          <Input
+            id={`${fieldName}-text`}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              handleChange("text", e.target.value);
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label
+            htmlFor={`${fieldName}-href`}
+            className="text-xs text-muted-foreground"
+          >
+            URL
+          </Label>
+          <Input
+            id={`${fieldName}-href`}
+            type="url"
+            value={href}
+            onChange={(e) => {
+              setHref(e.target.value);
+              handleChange("href", e.target.value);
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            id={`${fieldName}-newtab`}
+            checked={linkValue.newTab}
+            onCheckedChange={(checked) => {
+              updateBlockContent({
+                blockId,
+                content: {
+                  [fieldName]: { ...linkValueRef.current, newTab: checked },
+                },
+              });
+            }}
+          />
+          <Label htmlFor={`${fieldName}-newtab`}>Open in new tab</Label>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------------------------------
  * PageContentSheet
  * -----------------------------------------------------------------------------------------------*/
 
@@ -413,7 +521,7 @@ const PageContentSheet = () => {
     return blockDef ? getSettingsFields(blockDef.settingsSchema) : [];
   }, [blockDef]);
 
-  // Get only scalar fields for form
+  // Get only scalar fields for form (Link is handled separately as it's an object)
   const scalarFields = React.useMemo(() => {
     return schemaFields
       .filter((f) => f.fieldType === "String" || f.fieldType === "Embed")
@@ -660,6 +768,23 @@ const PageContentSheet = () => {
                       </div>
                     )}
                   </form.Field>
+                );
+              }
+
+              if (field.fieldType === "Link") {
+                const linkValue = block.content[field.name] as
+                  | { text: string; href: string; newTab: boolean }
+                  | undefined;
+                if (!linkValue) return null;
+
+                return (
+                  <LinkFieldEditor
+                    key={field.name}
+                    fieldName={field.name}
+                    label={label}
+                    linkValue={linkValue}
+                    blockId={block._id}
+                  />
                 );
               }
 

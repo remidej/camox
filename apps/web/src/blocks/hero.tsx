@@ -18,9 +18,9 @@ const hero = createBlock({
       maxLength: 280,
       title: "Description",
     }),
-    primaryButtonText: Type.String({
-      default: "Start building",
-      title: "Primary Button Text",
+    cta: Type.Link({
+      default: { text: "Start building", href: "/", newTab: false },
+      title: "CTA",
     }),
   },
   settings: {
@@ -81,13 +81,15 @@ function HeroComponent() {
               )}
             </hero.Field>
             <div className="flex flex-col sm:flex-row gap-4 items-start">
-              <hero.Field name="primaryButtonText">
-                {(content) => (
-                  <Button size={compact ? "default" : "lg"} variant="default">
-                    {content}
+              <hero.Link name="cta">
+                {({ text, href, newTab }) => (
+                  <Button size={compact ? "default" : "lg"} asChild>
+                    <a href={href} target={newTab ? "_blank" : undefined} rel={newTab ? "noreferrer" : undefined}>
+                      {text}
+                    </a>
                   </Button>
                 )}
-              </hero.Field>
+              </hero.Link>
             </div>
           </div>
         </div>

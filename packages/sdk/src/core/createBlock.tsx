@@ -27,6 +27,7 @@ import {
 } from "../components/ui/popover";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Switch } from "../components/ui/switch";
 import { toast } from "../components/ui/toaster";
 import { Kbd } from "../components/ui/kbd";
 import type { Id } from "camox/_generated/dataModel";
@@ -42,6 +43,15 @@ let hasShownEmbedLockToast = false;
 
 declare const EmbedURLBrand: unique symbol;
 type EmbedURL = string & { readonly [EmbedURLBrand]: true };
+
+/* -------------------------------------------------------------------------------------------------
+ * LinkValue branded type
+ * -----------------------------------------------------------------------------------------------*/
+
+declare const LinkBrand: unique symbol;
+type LinkValue = { text: string; href: string; newTab: boolean } & {
+  readonly [LinkBrand]: true;
+};
 
 /* -------------------------------------------------------------------------------------------------
  * Typebox wrapper used for content schemas
@@ -174,6 +184,29 @@ export const Type = {
       default: options.default,
       title: options.title,
       fieldType: "Embed" as const,
+    });
+  },
+
+  /**
+   * Creates a link field with text, href, and newTab properties.
+   *
+   * @example
+   * Type.Link({ default: { text: 'Learn more', href: '/', newTab: false }, title: 'CTA' })
+   */
+  Link: (options: {
+    default: { text: string; href: string; newTab: boolean };
+    title?: string;
+  }) => {
+    return TypeBoxType.Unsafe<LinkValue>({
+      type: "object",
+      properties: {
+        text: { type: "string" },
+        href: { type: "string", format: "uri" },
+        newTab: { type: "boolean" },
+      },
+      default: options.default,
+      title: options.title,
+      fieldType: "Link" as const,
     });
   },
 } satisfies Record<FieldType, unknown>;
@@ -332,6 +365,13 @@ export function createBlock<
   // Only allow embed URL fields
   type EmbedFields = {
     [K in keyof TContent as TContent[K] extends EmbedURL
+      ? K
+      : never]: TContent[K];
+  };
+
+  // Only allow link fields
+  type LinkFields = {
+    [K in keyof TContent as TContent[K] extends LinkValue
       ? K
       : never]: TContent[K];
   };
@@ -669,6 +709,176 @@ export function createBlock<
                 value={urlValue}
                 onChange={handleUrlChange}
               />
+            </form>
+          </PopoverContent>
+        )}
+      </Popover>
+    );
+  };
+
+  const Link = <K extends keyof LinkFields>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (link: {
+      text: string;
+      href: string;
+      newTab: boolean;
+    }) => React.ReactNode;
+  }) => {
+    const blockContext = React.use(Context);
+    if (!blockContext) {
+      throw new Error("Link must be used within a Block Component");
+    }
+
+    const { blockId, content, mode } = blockContext;
+    const isContentEditable = useIsEditable(mode);
+    const fieldValue = content[name] as LinkValue;
+
+    const [isOpen, setIsOpen] = React.useState(false);
+    const [text, setText] = React.useState(fieldValue.text);
+    const [href, setHref] = React.useState(fieldValue.href);
+    const [newTab, setNewTab] = React.useState(fieldValue.newTab);
+    const [isHovered, setIsHovered] = React.useState(false);
+    const timerRef = React.useRef<number | null>(null);
+
+    const updateBlockContent = useMutation(api.blocks.updateBlockContent);
+
+    React.useEffect(() => {
+      if (!isOpen) {
+        setText(fieldValue.text);
+        setHref(fieldValue.href);
+        setNewTab(fieldValue.newTab);
+      }
+    }, [fieldValue.text, fieldValue.href, fieldValue.newTab, isOpen]);
+
+    React.useEffect(() => {
+      return () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+      };
+    }, []);
+
+    const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newValue = e.target.value;
+      setText(newValue);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => {
+        updateBlockContent({
+          blockId,
+          content: { [name]: { ...fieldValue, text: newValue } },
+        });
+      }, 500);
+    };
+
+    const handleHrefChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newValue = e.target.value;
+      setHref(newValue);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => {
+        updateBlockContent({
+          blockId,
+          content: { [name]: { ...fieldValue, href: newValue } },
+        });
+      }, 500);
+    };
+
+    const handleNewTabChange = (checked: boolean) => {
+      setNewTab(checked);
+      updateBlockContent({
+        blockId,
+        content: { [name]: { ...fieldValue, newTab: checked } },
+      });
+    };
+
+    const handleOpenChange = (open: boolean) => {
+      setIsOpen(open);
+      if (open) {
+        previewStore.send({
+          type: "setSelectedField",
+          blockId,
+          fieldName: name.toString(),
+          fieldType: "Link",
+        });
+      }
+    };
+
+    return (
+      <Popover
+        open={isContentEditable ? isOpen : false}
+        onOpenChange={isContentEditable ? handleOpenChange : undefined}
+      >
+        <PopoverTrigger asChild>
+          <div
+            style={{ position: "relative" }}
+            onMouseEnter={
+              isContentEditable ? () => setIsHovered(true) : undefined
+            }
+            onMouseLeave={
+              isContentEditable ? () => setIsHovered(false) : undefined
+            }
+          >
+            {children({
+              text: fieldValue.text,
+              href: fieldValue.href,
+              newTab: fieldValue.newTab,
+            })}
+            {isContentEditable && (
+              <>
+                {/* Transparent overlay to intercept clicks — opens popover, prevents <a> navigation */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 10,
+                  }}
+                />
+                {(isHovered || isOpen) && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: isOpen
+                        ? OVERLAY_OFFSETS.blockSelected
+                        : OVERLAY_OFFSETS.blockHover,
+                      border: `${isOpen ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isOpen ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+                      pointerEvents: "none",
+                      zIndex: 11,
+                    }}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </PopoverTrigger>
+        {isContentEditable && (
+          <PopoverContent className="w-80 gap-2">
+            <form className="grid gap-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="link-text">Text</Label>
+                <Input
+                  id="link-text"
+                  value={text}
+                  onChange={handleTextChange}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="link-href">URL</Label>
+                <Input
+                  type="url"
+                  id="link-href"
+                  placeholder="https://"
+                  value={href}
+                  onChange={handleHrefChange}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="link-newtab"
+                  checked={newTab}
+                  onCheckedChange={handleNewTabChange}
+                />
+                <Label htmlFor="link-newtab">Open in new tab</Label>
+              </div>
             </form>
           </PopoverContent>
         )}
@@ -1064,6 +1274,7 @@ export function createBlock<
     Component: BlockComponent,
     Field,
     Embed,
+    Link,
     Repeater,
     useSetting,
     id: options.id,
