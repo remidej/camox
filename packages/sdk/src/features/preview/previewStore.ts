@@ -9,6 +9,7 @@ export type PublicationState = "draft" | "published";
 export type SelectionBreadcrumb = {
   type: FieldType | "Block";
   id: string;
+  fieldName?: string;
 };
 
 interface PreviewContext {
@@ -200,14 +201,47 @@ export const previewStore = createStore({
     },
     setSelectedRepeatableItem: (
       context,
-      event: { blockId: Id<"blocks">; itemId: Id<"repeatableItems"> },
+      event: {
+        blockId: Id<"blocks">;
+        itemId: Id<"repeatableItems">;
+        fieldName?: string;
+      },
     ) => {
       return {
         ...context,
         selectionBreadcrumbs: [
           { type: "Block" as const, id: event.blockId },
-          { type: "RepeatableObject" as const, id: event.itemId },
+          {
+            type: "RepeatableObject" as const,
+            id: event.itemId,
+            fieldName: event.fieldName,
+          },
         ],
+      };
+    },
+    drillIntoRepeatableItem: (
+      context,
+      event: { itemId: string; fieldName: string },
+    ) => {
+      return {
+        ...context,
+        selectionBreadcrumbs: [
+          ...context.selectionBreadcrumbs,
+          {
+            type: "RepeatableObject" as const,
+            id: event.itemId,
+            fieldName: event.fieldName,
+          },
+        ],
+      };
+    },
+    navigateBreadcrumb: (context, event: { depth: number }) => {
+      return {
+        ...context,
+        selectionBreadcrumbs: context.selectionBreadcrumbs.slice(
+          0,
+          event.depth + 1,
+        ),
       };
     },
     setSelectedField: (

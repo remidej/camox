@@ -96,6 +96,7 @@
     "fractional-indexing": "^3.2.0",
     "lucide-react": "^0.476.0",
     "outdent": "^0.8.0",
+    "radix-ui": "^1.4.3",
     "react": "19.3.0-canary-d6cae440-20260106",
     "react-dom": "19.3.0-canary-d6cae440-20260106",
     "sonner": "^2.0.7",

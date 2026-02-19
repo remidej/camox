@@ -516,6 +516,7 @@ export function createBlock<
           type: "setSelectedRepeatableItem",
           blockId,
           itemId: repeaterContext.itemId,
+          fieldName: repeaterContext.arrayFieldName,
         });
       } else {
         previewStore.send({
