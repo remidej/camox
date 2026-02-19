@@ -30,6 +30,7 @@ import type { OverlayMessage } from "../overlayMessages";
 import { actionsStore, type Action } from "@/features/provider/actionsStore";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
+import { LinkFieldEditor } from "./LinkFieldEditor";
 
 /* -------------------------------------------------------------------------------------------------
  * Helper: Get settings fields from schema
@@ -203,6 +204,13 @@ const PageContentSheet = () => {
     | Id<"repeatableItems">
     | undefined;
 
+  // Detect if the last breadcrumb is a Link drill-in
+  const lastBreadcrumb =
+    selectionBreadcrumbs[selectionBreadcrumbs.length - 1];
+  const isViewingLink =
+    lastBreadcrumb?.type === "Link" && !!lastBreadcrumb.fieldName;
+  const linkFieldName = isViewingLink ? lastBreadcrumb.fieldName : null;
+
   // Auto-focus selected field when sheet opens
   const selectedFieldName =
     selectionBreadcrumbs.length === 2 &&
@@ -319,7 +327,7 @@ const PageContentSheet = () => {
           <Breadcrumb>
             <BreadcrumbList className="flex-nowrap">
               <BreadcrumbItem className="min-w-0">
-                {depth === 0 ? (
+                {depth === 0 && !isViewingLink ? (
                   <BreadcrumbPage className="truncate">
                     {blockDef.title}
                   </BreadcrumbPage>
@@ -359,6 +367,24 @@ const PageContentSheet = () => {
                       lastCrumb,
                       parentSchema,
                     );
+
+                    if (isViewingLink) {
+                      return (
+                        <BreadcrumbItem className="min-w-0">
+                          <BreadcrumbLink
+                            className="cursor-pointer truncate"
+                            onClick={() =>
+                              previewStore.send({
+                                type: "selectParentBreadcrumb",
+                              })
+                            }
+                          >
+                            {crumbLabel}
+                          </BreadcrumbLink>
+                        </BreadcrumbItem>
+                      );
+                    }
+
                     return (
                       <BreadcrumbItem className="min-w-0">
                         <BreadcrumbPage className="truncate">
@@ -369,22 +395,65 @@ const PageContentSheet = () => {
                   })()}
                 </>
               )}
+              {isViewingLink && (
+                <>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem className="min-w-0">
+                    <BreadcrumbPage className="truncate">
+                      {(() => {
+                        const parentSchema = getSchemaAtDepth(
+                          blockDef.contentSchema,
+                          repeatableBreadcrumbs,
+                        );
+                        const prop = (parentSchema as any)?.properties?.[
+                          linkFieldName!
+                        ];
+                        return (
+                          prop?.title ?? formatFieldName(linkFieldName!)
+                        );
+                      })()}
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                </>
+              )}
             </BreadcrumbList>
           </Breadcrumb>
         </SheetParts.SheetDescription>
       </SheetParts.SheetHeader>
       <div className="flex-1 overflow-auto">
-        <ItemFieldsEditor
-          schema={currentSchema}
-          data={currentData}
-          blockId={block._id}
-          itemId={currentItemId}
-          onFieldChange={
-            depth === 0 ? handleBlockFieldChange : handleItemFieldChange
-          }
-          postToIframe={postToIframe}
-        />
-        {depth === 0 && settingsFields.length > 0 && (
+        {isViewingLink && linkFieldName ? (
+          <div className="py-4 px-4">
+            <LinkFieldEditor
+              fieldName={linkFieldName}
+              linkValue={
+                (currentData[linkFieldName] as {
+                  text: string;
+                  href: string;
+                  newTab: boolean;
+                }) ?? { text: "", href: "", newTab: false }
+              }
+              onSave={(fieldName, value) => {
+                const handler =
+                  depth === 0
+                    ? handleBlockFieldChange
+                    : handleItemFieldChange;
+                handler(fieldName, value);
+              }}
+            />
+          </div>
+        ) : (
+          <ItemFieldsEditor
+            schema={currentSchema}
+            data={currentData}
+            blockId={block._id}
+            itemId={currentItemId}
+            onFieldChange={
+              depth === 0 ? handleBlockFieldChange : handleItemFieldChange
+            }
+            postToIframe={postToIframe}
+          />
+        )}
+        {depth === 0 && !isViewingLink && settingsFields.length > 0 && (
           <div className="space-y-4 py-4 px-4 border-t border-border">
             <Label className="text-muted-foreground">Settings</Label>
             {settingsFields.map((field) => {

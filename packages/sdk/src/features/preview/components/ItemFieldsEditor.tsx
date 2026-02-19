@@ -1,12 +1,14 @@
 import * as React from "react";
 import { useForm } from "@tanstack/react-form";
 
+import { Link2 as Link2Icon } from "lucide-react";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Doc, Id } from "camox/_generated/dataModel";
 import type { OverlayMessage } from "../overlayMessages";
-import { LinkFieldEditor } from "./LinkFieldEditor";
+import { previewStore } from "../previewStore";
 import { RepeatableItemsList } from "./RepeatableItemsList";
 
 /* -------------------------------------------------------------------------------------------------
@@ -218,16 +220,26 @@ const ItemFieldsEditor = ({
           const linkValue = data[field.name] as
             | { text: string; href: string; newTab: boolean }
             | undefined;
-          if (!linkValue) return null;
+
+          const preview = linkValue?.text || linkValue?.href || "Empty link";
 
           return (
-            <LinkFieldEditor
-              key={field.name}
-              fieldName={field.name}
-              label={label}
-              linkValue={linkValue}
-              onSave={(fn, value) => onFieldChange(fn, value)}
-            />
+            <div key={field.name} className="space-y-2">
+              <Label>{label}</Label>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full rounded-lg px-2 py-2 text-sm text-left hover:bg-accent/75 transition-colors"
+                onClick={() =>
+                  previewStore.send({
+                    type: "drillIntoLink",
+                    fieldName: field.name,
+                  })
+                }
+              >
+                <Link2Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{preview}</span>
+              </button>
+            </div>
           );
         }
 

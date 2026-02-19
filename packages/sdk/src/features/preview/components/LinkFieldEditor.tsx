@@ -10,7 +10,6 @@ import { Switch } from "@/components/ui/switch";
 
 interface LinkFieldEditorProps {
   fieldName: string;
-  label: string;
   linkValue: { text: string; href: string; newTab: boolean };
   onSave: (
     fieldName: string,
@@ -20,7 +19,6 @@ interface LinkFieldEditorProps {
 
 const LinkFieldEditor = ({
   fieldName,
-  label,
   linkValue,
   onSave,
 }: LinkFieldEditorProps) => {
@@ -55,54 +53,42 @@ const LinkFieldEditor = ({
   };
 
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="space-y-3">
-        <div className="space-y-1.5">
-          <Label
-            htmlFor={`${fieldName}-text`}
-            className="text-xs text-muted-foreground"
-          >
-            Text
-          </Label>
-          <Input
-            id={`${fieldName}-text`}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              handleChange("text", e.target.value);
-            }}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label
-            htmlFor={`${fieldName}-href`}
-            className="text-xs text-muted-foreground"
-          >
-            URL
-          </Label>
-          <Input
-            id={`${fieldName}-href`}
-            type="url"
-            value={href}
-            onChange={(e) => {
-              setHref(e.target.value);
-              handleChange("href", e.target.value);
-            }}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            id={`${fieldName}-newtab`}
-            checked={linkValue.newTab}
-            onCheckedChange={(checked) => {
-              onSave(fieldName, { ...linkValueRef.current, newTab: checked });
-            }}
-          />
-          <Label htmlFor={`${fieldName}-newtab`}>Open in new tab</Label>
-        </div>
+    <form className="grid gap-3">
+      <div className="grid gap-1.5">
+        <Label htmlFor={`${fieldName}-text`}>Text</Label>
+        <Input
+          id={`${fieldName}-text`}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            handleChange("text", e.target.value);
+          }}
+        />
       </div>
-    </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor={`${fieldName}-href`}>URL</Label>
+        <Input
+          type="url"
+          id={`${fieldName}-href`}
+          placeholder="https://"
+          value={href}
+          onChange={(e) => {
+            setHref(e.target.value);
+            handleChange("href", e.target.value);
+          }}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch
+          id={`${fieldName}-newtab`}
+          checked={linkValue.newTab}
+          onCheckedChange={(checked) => {
+            onSave(fieldName, { ...linkValueRef.current, newTab: checked });
+          }}
+        />
+        <Label htmlFor={`${fieldName}-newtab`}>Open in new tab</Label>
+      </div>
+    </form>
   );
 };
 
