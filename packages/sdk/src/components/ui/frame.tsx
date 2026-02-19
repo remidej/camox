@@ -63,6 +63,21 @@ export const Frame = ({
       );
       iframeDoc.close();
 
+      // Navigate the top-level window when a native <a> is clicked inside the
+      // iframe. Links managed by a client-side router (e.g. TanStack Router's
+      // <Link>) call e.preventDefault() themselves, so we skip those.
+      // We listen on `iframeWin` (not `iframeDoc`) so that this handler fires
+      // AFTER React's event delegation (which is on the document/body), giving
+      // React a chance to call preventDefault() first.
+      iframeWin.addEventListener("click", (e) => {
+        if (e.defaultPrevented) return;
+        const anchor = (e.target as Element).closest("a");
+        if (!anchor?.href) return;
+        if (anchor.target === "_blank") return;
+        e.preventDefault();
+        window.top?.location.assign(anchor.href);
+      });
+
       // Copy styles from parent document if requested
       if (copyStyles) {
         const headStyles = Array.from(

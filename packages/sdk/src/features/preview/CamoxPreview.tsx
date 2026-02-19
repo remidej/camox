@@ -31,6 +31,17 @@ export function usePreviewedPage() {
   );
   const pagePathnameToFetch = peekedPagePathname ?? pathname;
 
+  // When the actual route changes, clear any stale peeked page so it doesn't
+  // override the new pathname. This handles the race condition where the
+  // PagePicker's Command `onValueChange` fires after `clearPeekedPage`.
+  const prevPathnameRef = React.useRef(pathname);
+  React.useEffect(() => {
+    if (prevPathnameRef.current !== pathname) {
+      prevPathnameRef.current = pathname;
+      previewStore.send({ type: "clearPeekedPage" });
+    }
+  }, [pathname]);
+
   /**
    * Only live update the page data if the user is signed in (i.e. an admin)
    * to avoid unnecessary load on the backend and layout shifts for regular visitors.
@@ -77,8 +88,7 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
   if (peekedBlockPosition !== null) {
     displayedPositionRef.current = peekedBlockPosition;
   }
-  const effectivePosition =
-    peekedBlockPosition ?? displayedPositionRef.current;
+  const effectivePosition = peekedBlockPosition ?? displayedPositionRef.current;
 
   const onExitComplete = React.useCallback(() => {
     displayedPositionRef.current = null;

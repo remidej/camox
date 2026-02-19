@@ -1,6 +1,7 @@
 import { Type, createBlock } from "camox/createBlock";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Link } from "@tanstack/react-router";
 
 const hero = createBlock({
   id: "hero",
@@ -84,9 +85,13 @@ function HeroComponent() {
               <hero.Link name="cta">
                 {({ text, href, newTab }) => (
                   <Button size={compact ? "default" : "lg"} asChild>
-                    <a href={href} target={newTab ? "_blank" : undefined} rel={newTab ? "noreferrer" : undefined}>
+                    <Link
+                      to={href}
+                      target={newTab ? "_blank" : undefined}
+                      rel={newTab ? "noreferrer" : undefined}
+                    >
                       {text}
-                    </a>
+                    </Link>
                   </Button>
                 )}
               </hero.Link>
