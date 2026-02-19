@@ -166,7 +166,6 @@ export const previewStore = createStore({
         ...context,
         peekedBlock: event.block,
         peekedBlockPosition: event.afterPosition ?? null,
-        selectionBreadcrumbs: [],
       };
     },
     exitPeekedBlock: (context) => {

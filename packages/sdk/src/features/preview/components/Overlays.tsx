@@ -17,6 +17,10 @@ export const Overlays = ({ iframeElement }: OverlaysProps) => {
     previewStore,
     (state) => state.context.selectionBreadcrumbs,
   );
+  const peekedBlock = useSelector(
+    previewStore,
+    (state) => state.context.peekedBlock,
+  );
   const page = usePreviewedPage();
 
   // Listen for messages from iframe
@@ -59,6 +63,7 @@ export const Overlays = ({ iframeElement }: OverlaysProps) => {
   // Send focus command to iframe when selection changes externally
   React.useEffect(() => {
     if (isPageContentSheetOpen) return;
+    if (peekedBlock) return;
     if (selectionBreadcrumbs.length === 0) return;
 
     // Get the last breadcrumb which should be the field
@@ -87,7 +92,7 @@ export const Overlays = ({ iframeElement }: OverlaysProps) => {
       fieldId,
     };
     iframeElement?.contentWindow?.postMessage(message, "*");
-  }, [selectionBreadcrumbs, isPageContentSheetOpen, iframeElement]);
+  }, [selectionBreadcrumbs, isPageContentSheetOpen, peekedBlock, iframeElement]);
 
   return null;
 };
