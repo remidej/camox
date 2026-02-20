@@ -116,44 +116,52 @@ const AddBlockSheet = () => {
         <Command
           value={highlightedValue}
           onValueChange={handleValueChange}
-          className="bg-background"
+          className="bg-background overflow-visible"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               previewStore.send({ type: "closeAddBlockSheet" });
             }
           }}
         >
-          <CommandInput placeholder="Search blocks..." autoFocus />
-          <CommandList>
+          <CommandInput
+            placeholder="Search blocks..."
+            autoFocus
+            wrapperClassName="border border-input rounded-md shadow-xs focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]"
+          />
+          <CommandList className="max-h-full mt-1">
             <CommandEmpty>No blocks found.</CommandEmpty>
             <CommandGroup>
-              {availableBlocks.map((block: Block) => (
-                <CommandItem
-                  key={block.id}
-                  value={block.title}
-                  onSelect={() => {
-                    handleAddBlock(block);
-                  }}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <div>
-                    <span>{block.title}</span>
-                    <span className="text-muted-foreground block">
-                      {totalCounts[block.id]
-                        ? `${pageCounts[block.id]} use${pageCounts[block.id] > 1 ? "s" : ""} on this page, ${totalCounts[block.id]} in total`
-                        : "Not used yet"}
-                    </span>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <InfoIcon />
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-[300px]" side="right">
-                      {block.description}
-                    </TooltipContent>
-                  </Tooltip>
-                </CommandItem>
-              ))}
+              {availableBlocks
+                .sort(
+                  (a, b) => (totalCounts[b.id] ?? 0) - (totalCounts[a.id] ?? 0),
+                )
+                .map((block: Block) => (
+                  <CommandItem
+                    key={block.id}
+                    value={block.title}
+                    onSelect={() => {
+                      handleAddBlock(block);
+                    }}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <div>
+                      <span>{block.title}</span>
+                      <span className="text-muted-foreground block">
+                        {totalCounts[block.id] ?? 0} use
+                        {totalCounts[block.id] > 1 ? "s" : ""} (
+                        {pageCounts[block.id] ?? "none"} here)
+                      </span>
+                    </div>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <InfoIcon />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[300px]" side="right">
+                        {block.description}
+                      </TooltipContent>
+                    </Tooltip>
+                  </CommandItem>
+                ))}
             </CommandGroup>
           </CommandList>
         </Command>
