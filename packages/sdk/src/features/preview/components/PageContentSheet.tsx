@@ -20,6 +20,12 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PreviewSideSheet, SheetParts } from "./PreviewSideSheet";
 import { api } from "camox/_generated/api";
 import { Doc, Id } from "camox/_generated/dataModel";
@@ -205,8 +211,7 @@ const PageContentSheet = () => {
     | undefined;
 
   // Detect if the last breadcrumb is a Link drill-in
-  const lastBreadcrumb =
-    selectionBreadcrumbs[selectionBreadcrumbs.length - 1];
+  const lastBreadcrumb = selectionBreadcrumbs[selectionBreadcrumbs.length - 1];
   const isViewingLink =
     lastBreadcrumb?.type === "Link" && !!lastBreadcrumb.fieldName;
   const linkFieldName = isViewingLink ? lastBreadcrumb.fieldName : null;
@@ -351,7 +356,38 @@ const PageContentSheet = () => {
                     <>
                       <BreadcrumbSeparator />
                       <BreadcrumbItem>
-                        <BreadcrumbEllipsis />
+                        <DropdownMenu>
+                          <DropdownMenuTrigger className="flex items-center gap-1">
+                            <BreadcrumbEllipsis className="size-5" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            {repeatableBreadcrumbs
+                              .slice(0, -1)
+                              .map((crumb, index) => {
+                                const parentSchema = getSchemaAtDepth(
+                                  blockDef.contentSchema,
+                                  repeatableBreadcrumbs.slice(0, index),
+                                );
+                                const label = getBreadcrumbLabel(
+                                  crumb,
+                                  parentSchema,
+                                );
+                                return (
+                                  <DropdownMenuItem
+                                    key={crumb.id}
+                                    onClick={() =>
+                                      previewStore.send({
+                                        type: "navigateBreadcrumb",
+                                        depth: index + 1,
+                                      })
+                                    }
+                                  >
+                                    {label}
+                                  </DropdownMenuItem>
+                                );
+                              })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </BreadcrumbItem>
                     </>
                   )}
@@ -408,9 +444,7 @@ const PageContentSheet = () => {
                         const prop = (parentSchema as any)?.properties?.[
                           linkFieldName!
                         ];
-                        return (
-                          prop?.title ?? formatFieldName(linkFieldName!)
-                        );
+                        return prop?.title ?? formatFieldName(linkFieldName!);
                       })()}
                     </BreadcrumbPage>
                   </BreadcrumbItem>
@@ -434,9 +468,7 @@ const PageContentSheet = () => {
               }
               onSave={(fieldName, value) => {
                 const handler =
-                  depth === 0
-                    ? handleBlockFieldChange
-                    : handleItemFieldChange;
+                  depth === 0 ? handleBlockFieldChange : handleItemFieldChange;
                 handler(fieldName, value);
               }}
             />

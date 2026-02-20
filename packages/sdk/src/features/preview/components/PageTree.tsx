@@ -308,14 +308,14 @@ const SortableBlock = ({ block, isSelected }: SortableBlockProps) => {
       type="single"
       collapsible
       value={isSelected ? block._id : ""}
-      onMouseEnter={handleBlockMouseEnter}
-      onMouseLeave={handleBlockMouseLeave}
     >
       <Accordion.Item
         value={block._id}
         ref={setNodeRef}
         style={style}
         className="group"
+        onMouseEnter={handleBlockMouseEnter}
+        onMouseLeave={handleBlockMouseLeave}
       >
         <Accordion.Header asChild>
           <div
