@@ -1,6 +1,8 @@
 import * as React from "react";
 import * as Sheet from "@/components/ui/sheet";
 import { SHEET_WIDTH } from "../previewConstants";
+import { useSelector } from "@xstate/store/react";
+import { previewStore } from "../previewStore";
 
 interface PreviewSideSheetProps {
   open: boolean;
@@ -22,7 +24,7 @@ const PreviewSideSheet = ({
       <Sheet.SheetContent
         className={className}
         side="left"
-        overlayClassName="bg-black/0"
+        overlayClassName="bg-black/0" // overlay is managed on individual blocks instead
         style={{ minWidth: SHEET_WIDTH }}
         onOpenAutoFocus={onOpenAutoFocus}
       >
@@ -32,7 +34,17 @@ const PreviewSideSheet = ({
   );
 };
 
-export {
-  PreviewSideSheet,
-  Sheet as SheetParts,
-};
+export function useIsPreviewSheetOpen() {
+  const isPageContentSheetOpen = useSelector(
+    previewStore,
+    (state) => state.context.isPageContentSheetOpen,
+  );
+  const isPeekingBlock = useSelector(
+    previewStore,
+    (state) => state.context.peekedBlock != null,
+  );
+
+  return isPageContentSheetOpen || isPeekingBlock;
+}
+
+export { PreviewSideSheet, Sheet as SheetParts };

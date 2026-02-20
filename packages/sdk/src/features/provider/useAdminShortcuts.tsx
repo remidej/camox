@@ -23,7 +23,9 @@ export function useAdminShortcuts() {
         if (previousLockState.current === null) {
           lockKeyDownTime.current = Date.now();
           previousLockState.current = previewStore.getSnapshot().context.isContentLocked;
-          previewStore.send({ type: "setContentLocked", value: true });
+          if (!previousLockState.current) {
+            previewStore.send({ type: "toggleLockContent" });
+          }
         }
         return;
       }
@@ -63,13 +65,15 @@ export function useAdminShortcuts() {
       if (previousLockState.current === null) return;
       const holdDuration = lockKeyDownTime.current !== null ? Date.now() - lockKeyDownTime.current : Infinity;
       lockKeyDownTime.current = null;
-      if (holdDuration < HOLD_THRESHOLD_MS) {
-        // Short tap: toggle permanently
-        previewStore.send({ type: "setContentLocked", value: !previousLockState.current });
-      } else {
-        // Long hold: restore previous state
-        previewStore.send({ type: "setContentLocked", value: previousLockState.current });
+
+      const wasShortTap = holdDuration < HOLD_THRESHOLD_MS;
+      const desiredState = wasShortTap ? !previousLockState.current : previousLockState.current;
+      const currentState = previewStore.getSnapshot().context.isContentLocked;
+
+      if (desiredState !== currentState) {
+        previewStore.send({ type: "toggleLockContent" });
       }
+
       previousLockState.current = null;
     };
 
@@ -79,7 +83,9 @@ export function useAdminShortcuts() {
         if (previousLockState.current === null) {
           lockKeyDownTime.current = Date.now();
           previousLockState.current = previewStore.getSnapshot().context.isContentLocked;
-          previewStore.send({ type: "setContentLocked", value: true });
+          if (!previousLockState.current) {
+            previewStore.send({ type: "toggleLockContent" });
+          }
         }
         return;
       }

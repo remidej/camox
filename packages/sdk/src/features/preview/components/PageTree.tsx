@@ -161,12 +161,19 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
   };
 
   const handleFieldDoubleClick = (fieldName: string, fieldType: string) => {
-    previewStore.send({
-      type: "setSelectedField",
-      blockId: block._id,
-      fieldName,
-      fieldType: fieldType as "String" | "RepeatableObject",
-    });
+    if (fieldType === "RepeatableObject") {
+      previewStore.send({
+        type: "setFocusedBlock",
+        blockId: block._id,
+      });
+    } else {
+      previewStore.send({
+        type: "setSelectedField",
+        blockId: block._id,
+        fieldName,
+        fieldType: fieldType as "String" | "RepeatableObject",
+      });
+    }
     previewStore.send({
       type: "openBlockContentSheet",
       blockId: block._id,

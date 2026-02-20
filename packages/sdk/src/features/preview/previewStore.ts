@@ -87,21 +87,15 @@ export const previewStore = createStore({
         isSidebarOpen: !context.isSidebarOpen,
       };
     },
-    setContentLocked: (context, event: { value: boolean }) => ({
-      ...context,
-      isContentLocked: event.value,
-    }),
     toggleLockContent: (context, _, enqueue) => {
       enqueue.effect(() => {
-        toast(
-          context.isContentLocked ? "Unlocking content" : "Locking content",
-        );
+        toast(context.isContentLocked ? "Enabling edits" : "Preventing edits");
       });
 
       if (context.publicationState === "published" && context.isContentLocked) {
         enqueue.effect(() => {
           toast(
-            "Can't unlock content while in published mode. Switch to draft mode first.",
+            "Can't enable edits while in published mode. Switch to draft mode first.",
           );
         });
         return context;

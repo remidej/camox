@@ -34,6 +34,7 @@ import type { Id } from "camox/_generated/dataModel";
 import type { FieldType } from "./lib/fieldTypes.tsx";
 import { useIsEditable } from "./hooks/useIsEditable.ts";
 import { AddBlockControlBar } from "./components/AddBlockControlBar.tsx";
+import { useIsPreviewSheetOpen } from "@/features/preview/components/PreviewSideSheet.tsx";
 
 let hasShownEmbedLockToast = false;
 
@@ -1090,7 +1091,7 @@ export function createBlock<
       previewStore,
       (state) => state.context.isAddBlockSheetOpen,
     );
-    const isAnySideSheetOpen = isPageContentSheetOpen || isAddBlockSheetOpen;
+    const isAnySideSheetOpen = useIsPreviewSheetOpen();
     const focusedBlockId = selectionBreadcrumbs[0]?.id ?? null;
     const isBlockSelected = focusedBlockId === blockData._id;
     const ref = React.useRef<HTMLDivElement>(null);
@@ -1189,7 +1190,18 @@ export function createBlock<
       });
     };
 
-    const showOverlay = isContentEditable && (isHovered || isBlockSelected);
+    // The bright colors overlays to show selection and editable content
+    const shouldShowOverlay =
+      isContentEditable &&
+      (isHovered || isBlockSelected) &&
+      !isAddBlockSheetOpen;
+
+    // The overlay to darken everything but one block when a preview sheet is open
+    const shouldShowSheetOverlay =
+      // When adding a block elsewhere
+      (isAddBlockSheetOpen && mode !== "peek") ||
+      // Another block is being edited in the sheet
+      (isPageContentSheetOpen && !isBlockSelected);
 
     return (
       <div
@@ -1218,9 +1230,24 @@ export function createBlock<
         >
           <options.component content={normalizedContent} />
         </Context.Provider>
-
+        {/* Sheet overlay */}
+        <div
+          style={{
+            position: "absolute",
+            width: "100%",
+            height: "100%",
+            top: 0,
+            left: 0,
+            background: "#000",
+            opacity: shouldShowSheetOverlay ? 0.6 : 0,
+            transition: "opacity 0.3s ease-in-out",
+            pointerEvents: "none",
+            zIndex: 20,
+          }}
+          id="hello"
+        />
         {/* Overlay UI */}
-        {showOverlay && (
+        {shouldShowOverlay && (
           <>
             {/* Border overlay */}
             <div

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useQuery } from "convex/react";
 import { api } from "camox/_generated/api";
 import * as icons from "lucide-react";
+import { useIsPreviewSheetOpen } from "@/features/preview/components/PreviewSideSheet";
 
 const links = [
   {
@@ -66,8 +67,17 @@ const Navbar = () => {
   const { pathname } = useLocation();
   const isPreviewPage = pages?.some((page) => page.fullPath === pathname);
 
+  const isPreviewSheetOpen = useIsPreviewSheetOpen();
+
   return (
-    <nav className="bg-transparent py-2 px-2 flex items-center justify-between gap-4 border-b-2">
+    <nav className="bg-transparent py-2 px-2 flex items-center justify-between gap-4 border-b-2 relative">
+      {/* Preview sheet overlay */}
+      <div
+        className={cn(
+          "absolute top-0 left-0 w-full h-[calc(100%+2px)] bg-black transition-opacity z-10 will-change-auto pointer-events-none",
+          isPreviewSheetOpen ? "opacity-60" : "opacity-0",
+        )}
+      />
       <div className="flex flex-row gap-2">
         <ProjectMenu />
         <ul className="flex items-center gap-1">

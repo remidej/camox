@@ -121,18 +121,18 @@ export const PeekedBlock = ({ onExitComplete }: PeekedBlockProps) => {
       onTransitionEnd={handleTransitionEnd}
     >
       <div style={{ overflow: "hidden" }}>
-        <div style={{ opacity: 0.5, background: "var(--background)" }}>
-          <displayedBlock.Component
-            blockData={{
-              _id: "__preview__" as Id<"blocks">,
-              type: displayedBlock.id,
-              content: normalizedContent,
-              settings: displayedBlock.getInitialSettings(),
-              position: "",
-            }}
-            mode="peek"
-          />
-        </div>
+        {/*<div style={{ opacity: 0.5, background: "var(--background)" }}>*/}
+        <displayedBlock.Component
+          blockData={{
+            _id: "__preview__" as Id<"blocks">,
+            type: displayedBlock.id,
+            content: normalizedContent,
+            settings: displayedBlock.getInitialSettings(),
+            position: "",
+          }}
+          mode="peek"
+        />
+        {/*</div>*/}
       </div>
     </div>
   );
