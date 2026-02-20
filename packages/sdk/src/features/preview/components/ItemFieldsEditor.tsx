@@ -27,6 +27,8 @@ export interface SchemaField {
   label?: string;
   enumLabels?: Record<string, string>;
   enumValues?: string[];
+  minItems?: number;
+  maxItems?: number;
 }
 
 export const formatFieldName = (fieldName: string): string => {
@@ -47,6 +49,8 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       name: fieldName,
       fieldType: prop.fieldType as SchemaField["fieldType"],
       label: prop.title as string | undefined,
+      minItems: prop.minItems as number | undefined,
+      maxItems: prop.maxItems as number | undefined,
     };
   });
 };
@@ -247,15 +251,18 @@ const ItemFieldsEditor = ({
           const items = data[field.name] as
             | Doc<"repeatableItems">[]
             | undefined;
-          if (!items || items.length === 0) return null;
+          const fieldSchema = (schema as any)?.properties?.[field.name];
 
           return (
             <div key={field.name} className="space-y-2">
               <Label>{label}</Label>
               <RepeatableItemsList
-                items={items}
+                items={items ?? []}
                 blockId={blockId}
                 fieldName={field.name}
+                minItems={field.minItems}
+                maxItems={field.maxItems}
+                schema={fieldSchema}
               />
             </div>
           );

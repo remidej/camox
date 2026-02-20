@@ -19,7 +19,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { generateKeyBetween } from "fractional-indexing";
-import { GripVertical } from "lucide-react";
+import { CircleMinus, CirclePlus, GripVertical } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,11 @@ import { api } from "camox/_generated/api";
 import { Doc, Id } from "camox/_generated/dataModel";
 import { previewStore } from "../previewStore";
 import type { OverlayMessage } from "../overlayMessages";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /* -------------------------------------------------------------------------------------------------
  * SortableRepeatableItem
@@ -36,12 +41,16 @@ interface SortableRepeatableItemProps {
   item: Doc<"repeatableItems">;
   blockId: Id<"blocks">;
   fieldName: string;
+  canRemove: boolean;
+  onRemove: (itemId: Id<"repeatableItems">) => void;
 }
 
 const SortableRepeatableItem = ({
   item,
   blockId,
   fieldName,
+  canRemove,
+  onRemove,
 }: SortableRepeatableItemProps) => {
   const {
     attributes,
@@ -134,6 +143,26 @@ const SortableRepeatableItem = ({
             {item.summary}
           </p>
         </div>
+
+        {canRemove && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="hidden group-hover:flex group-focus-within:flex text-muted-foreground hover:text-foreground shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(item._id);
+                }}
+              >
+                <CircleMinus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Remove item</TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </li>
   );
@@ -147,12 +176,18 @@ interface RepeatableItemsListProps {
   items: Doc<"repeatableItems">[];
   blockId: Id<"blocks">;
   fieldName: string;
+  minItems?: number;
+  maxItems?: number;
+  schema: unknown;
 }
 
 const RepeatableItemsList = ({
   items,
   blockId,
   fieldName,
+  minItems,
+  maxItems,
+  schema,
 }: RepeatableItemsListProps) => {
   const { pathname } = useLocation();
   const updatePositionMutation = useMutation(
@@ -230,6 +265,33 @@ const RepeatableItemsList = ({
     );
   });
 
+  const createItemMutation = useMutation(
+    api.repeatableItems.createRepeatableItem,
+  );
+  const deleteItemMutation = useMutation(
+    api.repeatableItems.deleteRepeatableItem,
+  );
+
+  const canAdd = maxItems === undefined || items.length < maxItems;
+  const canRemove = minItems === undefined || items.length > minItems;
+
+  const handleAddItem = () => {
+    const defaultContent: Record<string, unknown> = {};
+    const itemsSchema = (schema as any)?.items;
+    if (itemsSchema?.properties) {
+      for (const [key, prop] of Object.entries(itemsSchema.properties)) {
+        if ("default" in (prop as any)) {
+          defaultContent[key] = (prop as { default: unknown }).default;
+        }
+      }
+    }
+    createItemMutation({ blockId, fieldName, content: defaultContent });
+  };
+
+  const handleRemoveItem = (itemId: Id<"repeatableItems">) => {
+    deleteItemMutation({ itemId });
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -276,31 +338,48 @@ const RepeatableItemsList = ({
     });
   };
 
-  if (items.length === 0) return null;
-
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={handleDragEnd}
-      modifiers={[restrictToVerticalAxis]}
-    >
-      <SortableContext
-        items={items.map((item) => item._id)}
-        strategy={verticalListSortingStrategy}
-      >
-        <ul className="flex flex-col gap-1">
-          {items.map((item) => (
-            <SortableRepeatableItem
-              key={item._id}
-              item={item}
-              blockId={blockId}
-              fieldName={fieldName}
-            />
-          ))}
-        </ul>
-      </SortableContext>
-    </DndContext>
+    <div className="flex flex-col gap-1">
+      {items.length > 0 && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+          modifiers={[restrictToVerticalAxis]}
+        >
+          <SortableContext
+            items={items.map((item) => item._id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul className="flex flex-col gap-1">
+              {items.map((item) => (
+                <SortableRepeatableItem
+                  key={item._id}
+                  item={item}
+                  blockId={blockId}
+                  fieldName={fieldName}
+                  canRemove={canRemove}
+                  onRemove={handleRemoveItem}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
+      )}
+
+      {canAdd && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground justify-start self-start"
+          onClick={handleAddItem}
+        >
+          <CirclePlus className="h-4 w-4" />
+          Add item
+        </Button>
+      )}
+    </div>
   );
 };
 
