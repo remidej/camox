@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { generateKeyBetween } from "fractional-indexing";
 import {
+  query,
   mutation,
   internalAction,
   internalMutation,
@@ -349,6 +350,18 @@ export const updateBlockSummary = internalMutation({
       scheduledSummarizationJobId: undefined,
       updatedAt: Date.now(),
     });
+  },
+});
+
+export const getBlockUsageCounts = query({
+  args: {},
+  handler: async (ctx) => {
+    const blocks = await ctx.db.query("blocks").collect();
+    const counts: Record<string, number> = {};
+    for (const block of blocks) {
+      counts[block.type] = (counts[block.type] ?? 0) + 1;
+    }
+    return counts;
   },
 });
 

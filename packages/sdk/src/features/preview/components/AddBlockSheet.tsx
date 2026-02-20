@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useSelector } from "@xstate/store/react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   Command,
   CommandEmpty,
@@ -15,12 +15,28 @@ import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { PreviewSideSheet, SheetParts } from "./PreviewSideSheet";
 import { api } from "camox/_generated/api";
 import type { Block } from "@/core/createBlock";
+import { InfoIcon } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const AddBlockSheet = () => {
   const [highlightedValue, setHighlightedValue] = React.useState<string>("");
   const createBlockMutation = useMutation(api.blocks.createBlock);
   const availableBlocks = useCamoxApp().getBlocks();
   const page = usePreviewedPage();
+  const totalCounts = useQuery(api.blocks.getBlockUsageCounts) ?? {};
+
+  const pageCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!page) return counts;
+    for (const block of page.blocks) {
+      counts[block.type] = (counts[block.type] ?? 0) + 1;
+    }
+    return counts;
+  }, [page]);
 
   const isOpen = useSelector(
     previewStore,
@@ -88,7 +104,7 @@ const AddBlockSheet = () => {
     <PreviewSideSheet
       open={isOpen}
       onOpenChange={handleOpenChange}
-      className="flex flex-col"
+      className="flex flex-col gap-0"
     >
       <SheetParts.SheetHeader className="border-b border-border">
         <SheetParts.SheetTitle>Add new block</SheetParts.SheetTitle>
@@ -118,9 +134,24 @@ const AddBlockSheet = () => {
                   onSelect={() => {
                     handleAddBlock(block);
                   }}
-                  className="flex items-center gap-2"
+                  className="flex items-center justify-between gap-2"
                 >
-                  {block.title}
+                  <div>
+                    <span>{block.title}</span>
+                    <span className="text-muted-foreground block">
+                      {totalCounts[block.id]
+                        ? `${pageCounts[block.id]} use${pageCounts[block.id] > 1 ? "s" : ""} on this page, ${totalCounts[block.id]} in total`
+                        : "Not used yet"}
+                    </span>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <InfoIcon />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px]" side="right">
+                      {block.description}
+                    </TooltipContent>
+                  </Tooltip>
                 </CommandItem>
               ))}
             </CommandGroup>
