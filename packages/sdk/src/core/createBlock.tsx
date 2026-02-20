@@ -7,7 +7,6 @@ import {
   type TSchema,
   type Static,
 } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
 import { api } from "camox/_generated/api";
 import { previewStore } from "../features/preview/previewStore";
 import {
@@ -108,8 +107,13 @@ export const Type = {
 
     const objectSchema = TypeBoxType.Object(shape);
 
-    // Auto-generate default array using Value.Create
-    const defaultItem = Value.Create(objectSchema);
+    // Extract defaults manually since Value.Create doesn't support Unsafe types (used by Type.Enum, Type.Embed, Type.Link)
+    const defaultItem: Record<string, unknown> = {};
+    for (const [key, prop] of Object.entries(objectSchema.properties)) {
+      if ("default" in prop) {
+        defaultItem[key] = (prop as { default: unknown }).default;
+      }
+    }
     const defaultArray = Array(options.minItems)
       .fill(null)
       .map(() => ({ ...defaultItem }));
@@ -345,6 +349,13 @@ export function createBlock<
     itemIndex: number;
     itemContent: any;
     itemId?: Id<"repeatableItems">;
+    nested?: {
+      parentItemId: Id<"repeatableItems">;
+      parentContent: any;
+      parentArrayFieldName: string;
+      nestedFieldName: string;
+      nestedIndex: number;
+    };
   }
 
   const Context = React.createContext<BlockContextValue | null>(null);
@@ -391,6 +402,27 @@ export function createBlock<
   // Extract string fields from a repeatable item type
   type ItemStringFields<K extends keyof RepeatableFields> = {
     [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends string
+      ? F
+      : never]: RepeatableItemType<K>[F];
+  };
+
+  // Extract link fields from a repeatable item type
+  type ItemLinkFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends LinkValue
+      ? F
+      : never]: RepeatableItemType<K>[F];
+  };
+
+  // Extract embed URL fields from a repeatable item type
+  type ItemEmbedFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends EmbedURL
+      ? F
+      : never]: RepeatableItemType<K>[F];
+  };
+
+  // Extract repeatable array fields from a repeatable item type
+  type ItemRepeatableFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<any>
       ? F
       : never]: RepeatableItemType<K>[F];
   };
@@ -593,7 +625,10 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
-    const fieldValue = content[name] as string;
+    const repeaterContext = React.use(RepeaterItemContext);
+    const fieldValue = repeaterContext
+      ? (repeaterContext.itemContent[name] as string)
+      : (content[name] as string);
 
     const [isOpen, setIsOpen] = React.useState(false);
     const [urlValue, setUrlValue] = React.useState(fieldValue);
@@ -601,6 +636,9 @@ export function createBlock<
     const timerRef = React.useRef<number | null>(null);
 
     const updateBlockContent = useMutation(api.blocks.updateBlockContent);
+    const updateRepeatableItemContent = useMutation(
+      api.repeatableItems.updateRepeatableItemContent,
+    );
 
     // Sync urlValue with fieldValue when popover is closed
     React.useEffect(() => {
@@ -627,22 +665,57 @@ export function createBlock<
       }
 
       timerRef.current = window.setTimeout(() => {
-        updateBlockContent({
-          blockId,
-          content: { [name]: newValue },
-        });
+        if (repeaterContext?.nested) {
+          const { parentItemId, parentContent, nestedFieldName, nestedIndex } =
+            repeaterContext.nested;
+          const nestedArray = [...(parentContent[nestedFieldName] || [])];
+          nestedArray[nestedIndex] = {
+            ...nestedArray[nestedIndex],
+            [name]: newValue,
+          };
+          updateRepeatableItemContent({
+            itemId: parentItemId,
+            content: { [nestedFieldName]: nestedArray },
+          });
+        } else if (repeaterContext?.itemId) {
+          updateRepeatableItemContent({
+            itemId: repeaterContext.itemId,
+            content: { [name]: newValue },
+          });
+        } else {
+          updateBlockContent({
+            blockId,
+            content: { [name]: newValue },
+          });
+        }
       }, 500);
     };
 
     const handleOpenChange = (open: boolean) => {
       setIsOpen(open);
       if (open) {
-        previewStore.send({
-          type: "setSelectedField",
-          blockId,
-          fieldName: name.toString(),
-          fieldType: "Embed",
-        });
+        if (repeaterContext?.nested) {
+          previewStore.send({
+            type: "setSelectedRepeatableItem",
+            blockId,
+            itemId: repeaterContext.nested.parentItemId,
+            fieldName: repeaterContext.nested.parentArrayFieldName,
+          });
+        } else if (repeaterContext?.itemId) {
+          previewStore.send({
+            type: "setSelectedRepeatableItem",
+            blockId,
+            itemId: repeaterContext.itemId,
+            fieldName: repeaterContext.arrayFieldName,
+          });
+        } else {
+          previewStore.send({
+            type: "setSelectedField",
+            blockId,
+            fieldName: name.toString(),
+            fieldType: "Embed",
+          });
+        }
       }
     };
 
@@ -702,7 +775,7 @@ export function createBlock<
           <PopoverContent className="w-96 gap-2">
             <form className="grid gap-2">
               <Label htmlFor="url">
-                {(options.content[name] as { title?: string }).title ??
+                {(options.content[name] as { title?: string })?.title ??
                   String(name)}
               </Label>
               <Input
@@ -736,7 +809,10 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
-    const fieldValue = content[name] as LinkValue;
+    const repeaterContext = React.use(RepeaterItemContext);
+    const fieldValue = repeaterContext
+      ? (repeaterContext.itemContent[name] as LinkValue)
+      : (content[name] as LinkValue);
 
     const [isOpen, setIsOpen] = React.useState(false);
     const [text, setText] = React.useState(fieldValue.text);
@@ -746,6 +822,9 @@ export function createBlock<
     const timerRef = React.useRef<number | null>(null);
 
     const updateBlockContent = useMutation(api.blocks.updateBlockContent);
+    const updateRepeatableItemContent = useMutation(
+      api.repeatableItems.updateRepeatableItemContent,
+    );
 
     React.useEffect(() => {
       if (!isOpen) {
@@ -761,15 +840,38 @@ export function createBlock<
       };
     }, []);
 
+    const saveLinkValue = (newLinkValue: Record<string, unknown>) => {
+      if (repeaterContext?.nested) {
+        const { parentItemId, parentContent, nestedFieldName, nestedIndex } =
+          repeaterContext.nested;
+        const nestedArray = [...(parentContent[nestedFieldName] || [])];
+        nestedArray[nestedIndex] = {
+          ...nestedArray[nestedIndex],
+          [name]: newLinkValue,
+        };
+        updateRepeatableItemContent({
+          itemId: parentItemId,
+          content: { [nestedFieldName]: nestedArray },
+        });
+      } else if (repeaterContext?.itemId) {
+        updateRepeatableItemContent({
+          itemId: repeaterContext.itemId,
+          content: { [name]: newLinkValue },
+        });
+      } else {
+        updateBlockContent({
+          blockId,
+          content: { [name]: newLinkValue },
+        });
+      }
+    };
+
     const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = e.target.value;
       setText(newValue);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => {
-        updateBlockContent({
-          blockId,
-          content: { [name]: { ...fieldValue, text: newValue } },
-        });
+        saveLinkValue({ ...fieldValue, text: newValue });
       }, 500);
     };
 
@@ -778,30 +880,40 @@ export function createBlock<
       setHref(newValue);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => {
-        updateBlockContent({
-          blockId,
-          content: { [name]: { ...fieldValue, href: newValue } },
-        });
+        saveLinkValue({ ...fieldValue, href: newValue });
       }, 500);
     };
 
     const handleNewTabChange = (checked: boolean) => {
       setNewTab(checked);
-      updateBlockContent({
-        blockId,
-        content: { [name]: { ...fieldValue, newTab: checked } },
-      });
+      saveLinkValue({ ...fieldValue, newTab: checked });
     };
 
     const handleOpenChange = (open: boolean) => {
       setIsOpen(open);
       if (open) {
-        previewStore.send({
-          type: "setSelectedField",
-          blockId,
-          fieldName: name.toString(),
-          fieldType: "Link",
-        });
+        if (repeaterContext?.nested) {
+          previewStore.send({
+            type: "setSelectedRepeatableItem",
+            blockId,
+            itemId: repeaterContext.nested.parentItemId,
+            fieldName: repeaterContext.nested.parentArrayFieldName,
+          });
+        } else if (repeaterContext?.itemId) {
+          previewStore.send({
+            type: "setSelectedRepeatableItem",
+            blockId,
+            itemId: repeaterContext.itemId,
+            fieldName: repeaterContext.arrayFieldName,
+          });
+        } else {
+          previewStore.send({
+            type: "setSelectedField",
+            blockId,
+            fieldName: name.toString(),
+            fieldType: "Link",
+          });
+        }
       }
     };
 
@@ -1012,6 +1124,46 @@ export function createBlock<
           name: F;
           children: (content: ItemStringFields<K>[F]) => React.ReactNode;
         }) => React.ReactNode;
+        Link: <F extends keyof ItemLinkFields<K>>(props: {
+          name: F;
+          children: (link: {
+            text: string;
+            href: string;
+            newTab: boolean;
+          }) => React.ReactNode;
+        }) => React.ReactNode;
+        Embed: <F extends keyof ItemEmbedFields<K>>(props: {
+          name: F;
+          children: (url: string) => React.ReactNode;
+        }) => React.ReactNode;
+        Repeater: <F extends keyof ItemRepeatableFields<K>>(props: {
+          name: F;
+          children: (
+            item: {
+              Field: (props: {
+                name: string;
+                children: (content: any) => React.ReactNode;
+              }) => React.ReactNode;
+              Link: (props: {
+                name: string;
+                children: (link: {
+                  text: string;
+                  href: string;
+                  newTab: boolean;
+                }) => React.ReactNode;
+              }) => React.ReactNode;
+              Embed: (props: {
+                name: string;
+                children: (url: string) => React.ReactNode;
+              }) => React.ReactNode;
+              Repeater: (props: {
+                name: string;
+                children: (item: any, index: number) => React.ReactNode;
+              }) => React.ReactNode;
+            },
+            index: number,
+          ) => React.ReactNode;
+        }) => React.ReactNode;
       },
       index: number,
     ) => React.ReactNode;
@@ -1023,27 +1175,115 @@ export function createBlock<
 
     const { blockId, content } = blockContext;
 
+    // Check if we're inside another repeater (nested)
+    const parentRepeaterContext = React.use(RepeaterItemContext);
+    const fieldName = String(name);
+
+    // Type-cast components to work with item fields
+    // This is safe because each component checks RepeaterItemContext at runtime
+    const ItemField = Field as <F extends keyof ItemStringFields<K>>(props: {
+      name: F;
+      children: (content: ItemStringFields<K>[F]) => React.ReactNode;
+    }) => React.ReactNode;
+
+    const ItemLink = Link as <F extends keyof ItemLinkFields<K>>(props: {
+      name: F;
+      children: (link: {
+        text: string;
+        href: string;
+        newTab: boolean;
+      }) => React.ReactNode;
+    }) => React.ReactNode;
+
+    const ItemEmbed = Embed as <F extends keyof ItemEmbedFields<K>>(props: {
+      name: F;
+      children: (url: string) => React.ReactNode;
+    }) => React.ReactNode;
+
+    const ItemRepeater = Repeater as <
+      F extends keyof ItemRepeatableFields<K>,
+    >(props: {
+      name: F;
+      children: (
+        item: {
+          Field: (props: {
+            name: string;
+            children: (content: any) => React.ReactNode;
+          }) => React.ReactNode;
+          Link: (props: {
+            name: string;
+            children: (link: {
+              text: string;
+              href: string;
+              newTab: boolean;
+            }) => React.ReactNode;
+          }) => React.ReactNode;
+          Embed: (props: {
+            name: string;
+            children: (url: string) => React.ReactNode;
+          }) => React.ReactNode;
+          Repeater: (props: {
+            name: string;
+            children: (item: any, index: number) => React.ReactNode;
+          }) => React.ReactNode;
+        },
+        index: number,
+      ) => React.ReactNode;
+    }) => React.ReactNode;
+
+    const itemComponents = {
+      Field: ItemField,
+      Link: ItemLink,
+      Embed: ItemEmbed,
+      Repeater: ItemRepeater,
+    };
+
+    // Nested repeater: items are plain objects in parent item's content
+    if (parentRepeaterContext) {
+      const nestedArray = (parentRepeaterContext.itemContent[name] ??
+        []) as any[];
+
+      if (!Array.isArray(nestedArray)) {
+        throw new Error(`Field "${String(name)}" is not an array`);
+      }
+
+      return (
+        <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
+          {nestedArray.map((item: any, index: number) => (
+            <RepeaterItemContext.Provider
+              key={index}
+              value={{
+                arrayFieldName: fieldName,
+                itemIndex: index,
+                itemContent: item,
+                nested: {
+                  parentItemId: parentRepeaterContext.itemId!,
+                  parentContent: parentRepeaterContext.itemContent,
+                  parentArrayFieldName: parentRepeaterContext.arrayFieldName,
+                  nestedFieldName: fieldName,
+                  nestedIndex: index,
+                },
+              }}
+            >
+              {children(itemComponents, index)}
+            </RepeaterItemContext.Provider>
+          ))}
+        </RepeaterHoverProvider>
+      );
+    }
+
+    // Top-level repeater: items are { _id, content, ... } documents
     const arrayValue = content[name] as RepeatableFields[K];
 
     if (!Array.isArray(arrayValue)) {
       throw new Error(`Field "${String(name)}" is not an array`);
     }
 
-    const fieldName = String(name);
-
     type TItem = RepeatableItemType<K>;
-
-    // Type-cast Field to work with item fields
-    // This is safe because Field checks RepeaterItemContext at runtime
-    const ItemField = Field as <F extends keyof ItemStringFields<K>>(props: {
-      name: F;
-      children: (content: ItemStringFields<K>[F]) => React.ReactNode;
-    }) => React.ReactNode;
 
     return (
       <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
         {arrayValue.map((item: any, index: number) => {
-          // Extract the content and _id from the full item object
           const itemContent = item.content as TItem;
           const itemId = item._id as Id<"repeatableItems"> | undefined;
 
@@ -1058,7 +1298,7 @@ export function createBlock<
               }}
             >
               <RepeaterItemWrapper itemId={itemId} blockId={blockId}>
-                {children({ Field: ItemField }, index)}
+                {children(itemComponents, index)}
               </RepeaterItemWrapper>
             </RepeaterItemContext.Provider>
           );
