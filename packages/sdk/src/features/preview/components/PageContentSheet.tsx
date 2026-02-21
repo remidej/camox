@@ -562,6 +562,8 @@ const PageContentSheet = () => {
             data={currentData}
             blockId={block._id}
             itemId={currentItemId}
+            parentItemId={currentDepthResult?.parentItemId}
+            parentFieldName={currentDepthResult?.parentFieldName}
             onFieldChange={activeFieldChangeHandler}
             postToIframe={postToIframe}
           />

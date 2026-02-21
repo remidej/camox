@@ -186,6 +186,28 @@ export function createBlock<
   // Context to track if the parent repeater container is being hovered from sidebar
   const RepeaterHoverContext = React.createContext<boolean>(false);
 
+  /**
+   * Build a field ID that matches the sidebar's `getFieldId` format.
+   * Root fields:          blockId__fieldName
+   * Repeater item fields: blockId__itemId__fieldName
+   * Nested item fields:   blockId__parentItemId:nestedFieldName:index__fieldName
+   */
+  const getOverlayFieldId = (
+    blockId: Id<"blocks">,
+    repeaterContext: RepeaterItemContextValue | null,
+    fieldName: string,
+  ): string => {
+    if (repeaterContext?.itemId) {
+      return `${blockId}__${repeaterContext.itemId}__${fieldName}`;
+    }
+    if (repeaterContext?.nested) {
+      const { parentItemId, nestedFieldName, nestedIndex } =
+        repeaterContext.nested;
+      return `${blockId}__${parentItemId}:${nestedFieldName}:${nestedIndex}__${fieldName}`;
+    }
+    return `${blockId}__${fieldName}`;
+  };
+
   // Only allow string fields - not objects, arrays, or embed URLs
   type StringFields = {
     [K in keyof TContent as TContent[K] extends EmbedURL
@@ -269,9 +291,7 @@ export function createBlock<
     const repeaterContext = React.use(RepeaterItemContext);
 
     // Generate unique field ID for overlay tracking
-    const fieldId = repeaterContext?.itemId
-      ? `${blockId}__${repeaterContext.itemId}__${String(name)}`
-      : `${blockId}__${String(name)}`;
+    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
     // Get field value based on context
     const fieldValue = repeaterContext
@@ -434,15 +454,30 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeaterItemContext);
     const fieldValue = repeaterContext
       ? (repeaterContext.itemContent[name] as string)
       : (content[name] as string);
 
+    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
+
     const [isOpen, setIsOpen] = React.useState(false);
     const [urlValue, setUrlValue] = React.useState(fieldValue);
     const [isHovered, setIsHovered] = React.useState(false);
     const timerRef = React.useRef<number | null>(null);
+
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+
+    React.useEffect(() => {
+      setIsHovered(isHoveredFromSidebar);
+    }, [isHoveredFromSidebar]);
 
     const updateBlockContent = useMutation(api.blocks.updateBlockContent);
     const updateRepeatableItemContent = useMutation(
@@ -618,10 +653,13 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeaterItemContext);
     const fieldValue = repeaterContext
       ? (repeaterContext.itemContent[name] as LinkValue)
       : (content[name] as LinkValue);
+
+    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
     const [isOpen, setIsOpen] = React.useState(false);
     const [text, setText] = React.useState(fieldValue.text);
@@ -629,6 +667,18 @@ export function createBlock<
     const [newTab, setNewTab] = React.useState(fieldValue.newTab);
     const [isHovered, setIsHovered] = React.useState(false);
     const timerRef = React.useRef<number | null>(null);
+
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+
+    React.useEffect(() => {
+      setIsHovered(isHoveredFromSidebar);
+    }, [isHoveredFromSidebar]);
 
     const updateBlockContent = useMutation(api.blocks.updateBlockContent);
     const updateRepeatableItemContent = useMutation(
@@ -815,7 +865,7 @@ export function createBlock<
     blockId,
     children,
   }: {
-    itemId: Id<"repeatableItems"> | undefined;
+    itemId: string | undefined;
     blockId: Id<"blocks">;
     children: React.ReactNode;
   }) => {
@@ -1018,27 +1068,34 @@ export function createBlock<
         throw new Error(`Field "${String(name)}" is not an array`);
       }
 
+      const parentItemId = parentRepeaterContext.itemId!;
+
       return (
         <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
-          {nestedArray.map((item: any, index: number) => (
-            <RepeaterItemContext.Provider
-              key={index}
-              value={{
-                arrayFieldName: fieldName,
-                itemIndex: index,
-                itemContent: item,
-                nested: {
-                  parentItemId: parentRepeaterContext.itemId!,
-                  parentContent: parentRepeaterContext.itemContent,
-                  parentArrayFieldName: parentRepeaterContext.arrayFieldName,
-                  nestedFieldName: fieldName,
-                  nestedIndex: index,
-                },
-              }}
-            >
-              {children(itemComponents, index)}
-            </RepeaterItemContext.Provider>
-          ))}
+          {nestedArray.map((item: any, index: number) => {
+            const nestedItemId = `nested:${parentItemId}:${fieldName}:${index}`;
+            return (
+              <RepeaterItemContext.Provider
+                key={index}
+                value={{
+                  arrayFieldName: fieldName,
+                  itemIndex: index,
+                  itemContent: item,
+                  nested: {
+                    parentItemId,
+                    parentContent: parentRepeaterContext.itemContent,
+                    parentArrayFieldName: parentRepeaterContext.arrayFieldName,
+                    nestedFieldName: fieldName,
+                    nestedIndex: index,
+                  },
+                }}
+              >
+                <RepeaterItemWrapper itemId={nestedItemId} blockId={blockId}>
+                  {children(itemComponents, index)}
+                </RepeaterItemWrapper>
+              </RepeaterItemContext.Provider>
+            );
+          })}
         </RepeaterHoverProvider>
       );
     }

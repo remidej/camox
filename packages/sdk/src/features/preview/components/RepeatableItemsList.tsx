@@ -197,6 +197,8 @@ const getInlineItemLabel = (
 interface SortableInlineRepeatableItemProps {
   item: Record<string, unknown>;
   index: number;
+  blockId: Id<"blocks">;
+  parentItemId: Id<"repeatableItems">;
   fieldName: string;
   canRemove: boolean;
   onRemove: (index: number) => void;
@@ -205,12 +207,20 @@ interface SortableInlineRepeatableItemProps {
 const SortableInlineRepeatableItem = ({
   item,
   index,
+  blockId,
+  parentItemId,
   fieldName,
   canRemove,
   onRemove,
 }: SortableInlineRepeatableItemProps) => {
   const sortableId = `idx:${index}`;
   const label = getInlineItemLabel(item, index);
+  const nestedItemId = `nested:${parentItemId}:${fieldName}:${index}`;
+
+  const iframeElement = useSelector(
+    previewStore,
+    (state) => state.context.iframeElement,
+  );
 
   const {
     attributes,
@@ -227,6 +237,26 @@ const SortableInlineRepeatableItem = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const handleMouseEnter = () => {
+    if (!iframeElement?.contentWindow) return;
+    const message: OverlayMessage = {
+      type: "CAMOX_HOVER_REPEATER_ITEM",
+      blockId,
+      itemId: nestedItemId,
+    };
+    iframeElement.contentWindow.postMessage(message, "*");
+  };
+
+  const handleMouseLeave = () => {
+    if (!iframeElement?.contentWindow) return;
+    const message: OverlayMessage = {
+      type: "CAMOX_HOVER_REPEATER_ITEM_END",
+      blockId,
+      itemId: nestedItemId,
+    };
+    iframeElement.contentWindow.postMessage(message, "*");
+  };
+
   return (
     <li>
       <div
@@ -234,8 +264,10 @@ const SortableInlineRepeatableItem = ({
         style={style}
         className={cn(
           "flex flex-row justify-between items-center gap-2 px-1 py-1 max-w-full rounded-lg text-foreground transition-none group",
-          "hover:bg-accent/75",
+          !isDragging && "hover:bg-accent/75",
         )}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         <Button
           type="button"
@@ -253,6 +285,7 @@ const SortableInlineRepeatableItem = ({
             className="cursor-default flex-1 truncate py-1 text-sm"
             title={label}
             onClick={() => {
+              handleMouseLeave();
               previewStore.send({
                 type: "drillIntoRepeatableItem",
                 itemId: sortableId,
@@ -537,6 +570,8 @@ const RepeatableItemsList = ({
                     key={index}
                     item={item}
                     index={index}
+                    blockId={blockId}
+                    parentItemId={parentItemId!}
                     fieldName={fieldName}
                     canRemove={canRemove}
                     onRemove={handleRemoveInlineItem}

@@ -64,7 +64,11 @@ interface ItemFieldsEditorProps {
   data: Record<string, unknown>;
   blockId: Id<"blocks">;
   /** When editing a repeatable item's fields, pass its ID for correct overlay targeting */
-  itemId?: Id<"repeatableItems">;
+  itemId?: string;
+  /** For nested inline items, the parent DB document's ID */
+  parentItemId?: string;
+  /** For nested inline items, the parent's array field name */
+  parentFieldName?: string;
   onFieldChange: (fieldName: string, value: unknown) => void;
   postToIframe: (message: OverlayMessage) => void;
 }
@@ -74,6 +78,8 @@ const ItemFieldsEditor = ({
   data,
   blockId,
   itemId,
+  parentItemId,
+  parentFieldName,
   onFieldChange,
   postToIframe,
 }: ItemFieldsEditorProps) => {
@@ -81,9 +87,18 @@ const ItemFieldsEditor = ({
   const timerRef = React.useRef<number | null>(null);
   const focusedFieldIdRef = React.useRef<string | null>(null);
 
-  // Build field ID with the correct pattern: blockId__fieldName or blockId__itemId__fieldName
-  const getFieldId = (fieldName: string) =>
-    itemId ? `${blockId}__${itemId}__${fieldName}` : `${blockId}__${fieldName}`;
+  // Build field ID matching the iframe's getOverlayFieldId format
+  const getFieldId = (fieldName: string) => {
+    if (itemId && parentItemId && parentFieldName) {
+      // Nested inline item: parentItemId:parentFieldName:index__fieldName
+      const index = parseInt(itemId.slice(4), 10);
+      return `${blockId}__${parentItemId}:${parentFieldName}:${index}__${fieldName}`;
+    }
+    if (itemId) {
+      return `${blockId}__${itemId}__${fieldName}`;
+    }
+    return `${blockId}__${fieldName}`;
+  };
 
   const scalarFields = React.useMemo(() => {
     return fields
@@ -228,7 +243,22 @@ const ItemFieldsEditor = ({
           const preview = linkValue?.text || linkValue?.href || "Empty link";
 
           return (
-            <div key={field.name} className="space-y-2">
+            <div
+              key={field.name}
+              className="space-y-2"
+              onMouseEnter={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_FIELD",
+                  fieldId,
+                })
+              }
+              onMouseLeave={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_FIELD_END",
+                  fieldId,
+                })
+              }
+            >
               <Label>{label}</Label>
               <button
                 type="button"
@@ -263,7 +293,7 @@ const ItemFieldsEditor = ({
                 minItems={field.minItems}
                 maxItems={field.maxItems}
                 schema={fieldSchema}
-                parentItemId={itemId}
+                parentItemId={itemId as Id<"repeatableItems">}
               />
             </div>
           );
