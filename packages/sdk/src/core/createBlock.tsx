@@ -9,10 +9,7 @@ import {
 } from "@sinclair/typebox";
 import { api } from "camox/_generated/api";
 import { previewStore } from "../features/preview/previewStore";
-import {
-  isOverlayMessage,
-  postOverlayMessage,
-} from "../features/preview/overlayMessages";
+import { postOverlayMessage } from "../features/preview/overlayMessages";
 import {
   OVERLAY_WIDTHS,
   OVERLAY_OFFSETS,
@@ -30,191 +27,15 @@ import { Switch } from "../components/ui/switch";
 import { toast } from "../components/ui/toaster";
 import { Kbd } from "../components/ui/kbd";
 import type { Id } from "camox/_generated/dataModel";
-import type { FieldType } from "./lib/fieldTypes.tsx";
 import { useIsEditable } from "./hooks/useIsEditable.ts";
+import { useOverlayMessage } from "./hooks/useOverlayMessage.ts";
 import { AddBlockControlBar } from "./components/AddBlockControlBar.tsx";
 import { useIsPreviewSheetOpen } from "@/features/preview/components/PreviewSideSheet.tsx";
+import { Type, type EmbedURL, type LinkValue } from "./lib/contentType.ts";
+
+export { Type };
 
 let hasShownEmbedLockToast = false;
-
-/* -------------------------------------------------------------------------------------------------
- * EmbedURL branded type
- * -----------------------------------------------------------------------------------------------*/
-
-declare const EmbedURLBrand: unique symbol;
-type EmbedURL = string & { readonly [EmbedURLBrand]: true };
-
-/* -------------------------------------------------------------------------------------------------
- * LinkValue branded type
- * -----------------------------------------------------------------------------------------------*/
-
-declare const LinkBrand: unique symbol;
-type LinkValue = { text: string; href: string; newTab: boolean } & {
-  readonly [LinkBrand]: true;
-};
-
-/* -------------------------------------------------------------------------------------------------
- * Typebox wrapper used for content schemas
- * -----------------------------------------------------------------------------------------------*/
-
-/**
- * Type builders for createBlock content schemas.
- * All fields must have default values.
- */
-export const Type = {
-  /**
-   * Creates a string field with a required default value.
-   *
-   * @example
-   * Type.String({ default: 'Hello' })
-   * Type.String({ default: 'Hello', maxLength: 100, title: 'Title' })
-   */
-  String: (options: {
-    default: string;
-    title?: string;
-    maxLength?: number;
-    minLength?: number;
-    pattern?: string;
-  }) => {
-    return TypeBoxType.String({
-      ...options,
-      fieldType: "String" as const,
-    });
-  },
-
-  /**
-   * Creates a repeatable array of objects.
-   * Arrays and objects must always be used together - no standalone arrays or objects.
-   * The default array is auto-generated based on minItems.
-   *
-   * @example
-   * Type.RepeatableObject({
-   *   title: Type.String({ default: 'Item' }),
-   *   description: Type.String({ default: 'Description' })
-   * }, {
-   *   minItems: 1,
-   *   maxItems: 10,
-   *   title: 'Items'
-   * })
-   */
-  RepeatableObject: <T extends Record<string, TSchema>>(
-    shape: T,
-    options: { minItems: number; maxItems: number; title?: string },
-  ) => {
-    if (options.minItems < 1) {
-      throw new Error("RepeatableObject requires minItems to be at least 1");
-    }
-
-    const objectSchema = TypeBoxType.Object(shape);
-
-    // Extract defaults manually since Value.Create doesn't support Unsafe types (used by Type.Enum, Type.Embed, Type.Link)
-    const defaultItem: Record<string, unknown> = {};
-    for (const [key, prop] of Object.entries(objectSchema.properties)) {
-      if ("default" in prop) {
-        defaultItem[key] = (prop as { default: unknown }).default;
-      }
-    }
-    const defaultArray = Array(options.minItems)
-      .fill(null)
-      .map(() => ({ ...defaultItem }));
-
-    return TypeBoxType.Array(objectSchema, {
-      minItems: options.minItems,
-      maxItems: options.maxItems,
-      default: defaultArray,
-      title: options.title,
-      fieldType: "RepeatableObject" as const,
-    });
-  },
-
-  /**
-   * Creates an enum field with a set of predefined options.
-   *
-   * @example
-   * Type.Enum({
-   *   default: 'left',
-   *   options: { left: 'Left', center: 'Center', right: 'Right' },
-   *   title: 'Alignment'
-   * })
-   */
-  Enum: (options: {
-    default: string;
-    options: Record<string, string>;
-    title?: string;
-  }) => {
-    const enumValues = Object.keys(options.options);
-    return TypeBoxType.Unsafe<string>({
-      type: "string",
-      enum: enumValues,
-      default: options.default,
-      title: options.title,
-      enumLabels: options.options,
-      fieldType: "Enum" as const,
-    });
-  },
-
-  /**
-   * Creates a boolean toggle field.
-   *
-   * @example
-   * Type.Boolean({ default: false, title: 'Show background' })
-   */
-  Boolean: (options: { default: boolean; title?: string }) => {
-    return TypeBoxType.Boolean({
-      default: options.default,
-      title: options.title,
-      fieldType: "Boolean" as const,
-    });
-  },
-
-  /**
-   * Creates an embed field for URLs matching a specific pattern.
-   *
-   * @example
-   * Type.Embed({
-   *   pattern: 'https:\\/\\/(www\\.)?youtube\\.com\\/watch\\?v=.+',
-   *   default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-   *   title: 'YouTube URL'
-   * })
-   */
-  Embed: (options: { pattern: string; default: string; title?: string }) => {
-    if (!new RegExp(options.pattern).test(options.default)) {
-      throw new Error(
-        `Embed default value "${options.default}" does not match pattern "${options.pattern}"`,
-      );
-    }
-    return TypeBoxType.Unsafe<EmbedURL>({
-      type: "string",
-      pattern: options.pattern,
-      default: options.default,
-      title: options.title,
-      fieldType: "Embed" as const,
-    });
-  },
-
-  /**
-   * Creates a link field with text, href, and newTab properties.
-   *
-   * @example
-   * Type.Link({ default: { text: 'Learn more', href: '/', newTab: false }, title: 'CTA' })
-   */
-  Link: (options: {
-    default: { text: string; href: string; newTab: boolean };
-    title?: string;
-  }) => {
-    return TypeBoxType.Unsafe<LinkValue>({
-      type: "object",
-      properties: {
-        text: { type: "string" },
-        href: { type: "string", format: "uri" },
-        newTab: { type: "boolean" },
-      },
-      default: options.default,
-      title: options.title,
-      fieldType: "Link" as const,
-    });
-  },
-} satisfies Record<FieldType, unknown>;
 
 /* -------------------------------------------------------------------------------------------------
  * createBlock
@@ -473,41 +294,29 @@ export function createBlock<
       }
     }, [fieldValue, isEditing]);
 
-    // Listen for sidebar-triggered hover messages
+    // Listen for sidebar-triggered hover/focus messages
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+    const isFocusedFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_FOCUS_FIELD",
+      "CAMOX_FOCUS_FIELD_END",
+      { fieldId },
+    );
+
     React.useEffect(() => {
-      if (!isContentEditable || !iframeWindow) return;
+      setIsHovered(isHoveredFromSidebar);
+    }, [isHoveredFromSidebar]);
 
-      const handleMessage = (event: MessageEvent) => {
-        if (!isOverlayMessage(event.data)) return;
-        if (
-          event.data.type === "CAMOX_HOVER_FIELD" &&
-          event.data.fieldId === fieldId
-        ) {
-          setIsHovered(true);
-        }
-        if (
-          event.data.type === "CAMOX_HOVER_FIELD_END" &&
-          event.data.fieldId === fieldId
-        ) {
-          setIsHovered(false);
-        }
-        if (
-          event.data.type === "CAMOX_FOCUS_FIELD" &&
-          event.data.fieldId === fieldId
-        ) {
-          setIsFocused(true);
-        }
-        if (
-          event.data.type === "CAMOX_FOCUS_FIELD_END" &&
-          event.data.fieldId === fieldId
-        ) {
-          setIsFocused(false);
-        }
-      };
-
-      iframeWindow.addEventListener("message", handleMessage);
-      return () => iframeWindow.removeEventListener("message", handleMessage);
-    }, [isContentEditable, fieldId, iframeWindow]);
+    React.useEffect(() => {
+      setIsFocused(isFocusedFromSidebar);
+    }, [isFocusedFromSidebar]);
 
     const updateBlockContent = useMutation(api.blocks.updateBlockContent);
     const updateRepeatableItemContent = useMutation(
@@ -1012,36 +821,17 @@ export function createBlock<
   }) => {
     const isContentEditable = useIsEditable("site");
     const { window: iframeWindow } = useFrame();
-    const [isHovered, setIsHovered] = React.useState(false);
 
     // Check if the parent repeater container is being hovered from sidebar
     const isRepeaterHovered = React.useContext(RepeaterHoverContext);
 
-    // Listen for CAMOX_HOVER_REPEATER_ITEM messages
-    React.useEffect(() => {
-      if (!isContentEditable || !iframeWindow || !itemId) return;
-
-      const handleMessage = (event: MessageEvent) => {
-        if (!isOverlayMessage(event.data)) return;
-        if (
-          event.data.type === "CAMOX_HOVER_REPEATER_ITEM" &&
-          event.data.blockId === blockId &&
-          event.data.itemId === itemId
-        ) {
-          setIsHovered(true);
-        }
-        if (
-          event.data.type === "CAMOX_HOVER_REPEATER_ITEM_END" &&
-          event.data.blockId === blockId &&
-          event.data.itemId === itemId
-        ) {
-          setIsHovered(false);
-        }
-      };
-
-      iframeWindow.addEventListener("message", handleMessage);
-      return () => iframeWindow.removeEventListener("message", handleMessage);
-    }, [isContentEditable, blockId, itemId, iframeWindow]);
+    const isHovered = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_REPEATER_ITEM",
+      "CAMOX_HOVER_REPEATER_ITEM_END",
+      { blockId, itemId },
+    );
 
     const showOverlay = isContentEditable && (isHovered || isRepeaterHovered);
 
@@ -1078,33 +868,14 @@ export function createBlock<
   }) => {
     const isContentEditable = useIsEditable("site");
     const { window: iframeWindow } = useFrame();
-    const [isHovered, setIsHovered] = React.useState(false);
 
-    // Listen for CAMOX_HOVER_REPEATER messages
-    React.useEffect(() => {
-      if (!isContentEditable || !iframeWindow) return;
-
-      const handleMessage = (event: MessageEvent) => {
-        if (!isOverlayMessage(event.data)) return;
-        if (
-          event.data.type === "CAMOX_HOVER_REPEATER" &&
-          event.data.blockId === blockId &&
-          event.data.fieldName === fieldName
-        ) {
-          setIsHovered(true);
-        }
-        if (
-          event.data.type === "CAMOX_HOVER_REPEATER_END" &&
-          event.data.blockId === blockId &&
-          event.data.fieldName === fieldName
-        ) {
-          setIsHovered(false);
-        }
-      };
-
-      iframeWindow.addEventListener("message", handleMessage);
-      return () => iframeWindow.removeEventListener("message", handleMessage);
-    }, [isContentEditable, blockId, fieldName, iframeWindow]);
+    const isHovered = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_REPEATER",
+      "CAMOX_HOVER_REPEATER_END",
+      { blockId, fieldName },
+    );
 
     return (
       <RepeaterHoverContext.Provider value={isHovered}>
@@ -1355,28 +1126,17 @@ export function createBlock<
     }, [isBlockSelected, isFirstRender, isPageContentSheetOpen]);
 
     // Listen for sidebar-triggered hover messages
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_BLOCK",
+      "CAMOX_HOVER_BLOCK_END",
+      { blockId: blockData._id },
+    );
+
     React.useEffect(() => {
-      if (!isContentEditable || !iframeWindow) return;
-
-      const handleMessage = (event: MessageEvent) => {
-        if (!isOverlayMessage(event.data)) return;
-        if (
-          event.data.type === "CAMOX_HOVER_BLOCK" &&
-          event.data.blockId === blockData._id
-        ) {
-          setIsHovered(true);
-        }
-        if (
-          event.data.type === "CAMOX_HOVER_BLOCK_END" &&
-          event.data.blockId === blockData._id
-        ) {
-          setIsHovered(false);
-        }
-      };
-
-      iframeWindow.addEventListener("message", handleMessage);
-      return () => iframeWindow.removeEventListener("message", handleMessage);
-    }, [isContentEditable, blockData._id, iframeWindow]);
+      setIsHovered(isHoveredFromSidebar);
+    }, [isHoveredFromSidebar]);
 
     // Normalize content: keep full item objects for internal use, but prepare content-only version for display
     // We need to keep blockData.content as-is because Repeater needs the full objects with _id
