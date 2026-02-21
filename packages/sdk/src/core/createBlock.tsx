@@ -20,10 +20,10 @@ import {
   Popover,
   PopoverTrigger,
   PopoverContent,
+  PopoverAnchor,
 } from "../components/ui/popover";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { Switch } from "../components/ui/switch";
 import { toast } from "../components/ui/toaster";
 import { Kbd } from "../components/ui/kbd";
 import type { Id } from "camox/_generated/dataModel";
@@ -653,6 +653,7 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeaterItemContext);
     const fieldValue = repeaterContext
@@ -661,12 +662,16 @@ export function createBlock<
 
     const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
-    const [isOpen, setIsOpen] = React.useState(false);
-    const [text, setText] = React.useState(fieldValue.text);
-    const [href, setHref] = React.useState(fieldValue.href);
-    const [newTab, setNewTab] = React.useState(fieldValue.newTab);
+    const [isEditing, setIsEditing] = React.useState(false);
+    const [displayText, setDisplayText] = React.useState(fieldValue.text);
     const [isHovered, setIsHovered] = React.useState(false);
-    const timerRef = React.useRef<number | null>(null);
+    const [isFocused, setIsFocused] = React.useState(false);
+
+    React.useEffect(() => {
+      if (!isEditing) {
+        setDisplayText(fieldValue.text);
+      }
+    }, [fieldValue.text, isEditing]);
 
     const isHoveredFromSidebar = useOverlayMessage(
       iframeWindow,
@@ -684,20 +689,6 @@ export function createBlock<
     const updateRepeatableItemContent = useMutation(
       api.repeatableItems.updateRepeatableItemContent,
     );
-
-    React.useEffect(() => {
-      if (!isOpen) {
-        setText(fieldValue.text);
-        setHref(fieldValue.href);
-        setNewTab(fieldValue.newTab);
-      }
-    }, [fieldValue.text, fieldValue.href, fieldValue.newTab, isOpen]);
-
-    React.useEffect(() => {
-      return () => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-      };
-    }, []);
 
     const saveLinkValue = (newLinkValue: Record<string, unknown>) => {
       if (repeaterContext?.nested) {
@@ -725,134 +716,127 @@ export function createBlock<
       }
     };
 
-    const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newValue = e.target.value;
-      setText(newValue);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => {
-        saveLinkValue({ ...fieldValue, text: newValue });
-      }, 500);
+    const handleInput = (e: React.FormEvent<HTMLElement>) => {
+      const newText = (e.target as HTMLElement).textContent || "";
+      saveLinkValue({ ...fieldValue, text: newText });
     };
 
-    const handleHrefChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newValue = e.target.value;
-      setHref(newValue);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => {
-        saveLinkValue({ ...fieldValue, href: newValue });
-      }, 500);
-    };
+    const buildLinkBreadcrumbs = () => {
+      const crumbs: Array<{
+        type: "Block" | "RepeatableObject" | "Link";
+        id: string;
+        fieldName?: string;
+      }> = [{ type: "Block", id: blockId }];
 
-    const handleNewTabChange = (checked: boolean) => {
-      setNewTab(checked);
-      saveLinkValue({ ...fieldValue, newTab: checked });
-    };
-
-    const handleOpenChange = (open: boolean) => {
-      setIsOpen(open);
-      if (open) {
-        if (repeaterContext?.nested) {
-          previewStore.send({
-            type: "setSelectedRepeatableItem",
-            blockId,
-            itemId: repeaterContext.nested.parentItemId,
-            fieldName: repeaterContext.nested.parentArrayFieldName,
-          });
-        } else if (repeaterContext?.itemId) {
-          previewStore.send({
-            type: "setSelectedRepeatableItem",
-            blockId,
-            itemId: repeaterContext.itemId,
-            fieldName: repeaterContext.arrayFieldName,
-          });
-        } else {
-          previewStore.send({
-            type: "setSelectedField",
-            blockId,
-            fieldName: name.toString(),
-            fieldType: "Link",
-          });
-        }
+      if (repeaterContext?.nested) {
+        crumbs.push({
+          type: "RepeatableObject",
+          id: repeaterContext.nested.parentItemId,
+          fieldName: repeaterContext.nested.parentArrayFieldName,
+        });
+        crumbs.push({
+          type: "RepeatableObject",
+          id: `idx:${repeaterContext.nested.nestedIndex}`,
+          fieldName: repeaterContext.nested.nestedFieldName,
+        });
+      } else if (repeaterContext?.itemId) {
+        crumbs.push({
+          type: "RepeatableObject",
+          id: repeaterContext.itemId,
+          fieldName: repeaterContext.arrayFieldName,
+        });
       }
+
+      crumbs.push({
+        type: "Link",
+        id: String(name),
+        fieldName: String(name),
+      });
+
+      return crumbs;
+    };
+
+    const handleFocus = () => {
+      setIsEditing(true);
+      setIsFocused(true);
+      previewStore.send({
+        type: "setSelectionBreadcrumbs",
+        breadcrumbs: buildLinkBreadcrumbs(),
+      });
+    };
+
+    const handleBlur = () => {
+      setIsEditing(false);
+      setIsFocused(false);
+    };
+
+    const handleEditLink = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      previewStore.send({ type: "toggleContentSheet" });
+      setIsFocused(false);
+      setIsEditing(false);
     };
 
     return (
-      <Popover
-        open={isContentEditable ? isOpen : false}
-        onOpenChange={isContentEditable ? handleOpenChange : undefined}
-      >
-        <PopoverTrigger asChild>
-          <div
-            style={{ position: "relative" }}
+      <Popover open={isContentEditable && isFocused}>
+        <PopoverAnchor asChild>
+          <Slot
+            ref={elementRef}
+            data-camox-field-id={isContentEditable ? fieldId : undefined}
+            contentEditable={isContentEditable}
+            onClick={
+              isContentEditable
+                ? (e: React.MouseEvent) => e.preventDefault()
+                : undefined
+            }
+            onInput={handleInput}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             onMouseEnter={
               isContentEditable ? () => setIsHovered(true) : undefined
             }
             onMouseLeave={
               isContentEditable ? () => setIsHovered(false) : undefined
             }
+            onKeyDown={(e: React.KeyboardEvent) => {
+              if (e.key === "Escape") {
+                (e.target as HTMLElement).blur();
+              }
+            }}
+            spellCheck={false}
+            suppressContentEditableWarning={true}
+            style={
+              isContentEditable && (isHovered || isFocused)
+                ? {
+                    outline: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+                    outlineOffset: isFocused
+                      ? OVERLAY_OFFSETS.fieldSelected
+                      : OVERLAY_OFFSETS.fieldHover,
+                  }
+                : undefined
+            }
           >
             {children({
-              text: fieldValue.text,
+              text: displayText,
               href: fieldValue.href,
               newTab: fieldValue.newTab,
             })}
-            {isContentEditable && (
-              <>
-                {/* Transparent overlay to intercept clicks — opens popover, prevents <a> navigation */}
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    zIndex: 10,
-                  }}
-                />
-                {(isHovered || isOpen) && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: isOpen
-                        ? OVERLAY_OFFSETS.blockSelected
-                        : OVERLAY_OFFSETS.blockHover,
-                      border: `${isOpen ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isOpen ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
-                      pointerEvents: "none",
-                      zIndex: 11,
-                    }}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        </PopoverTrigger>
+          </Slot>
+        </PopoverAnchor>
         {isContentEditable && (
-          <PopoverContent className="w-80 gap-2">
-            <form className="grid gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="link-text">Text</Label>
-                <Input
-                  id="link-text"
-                  value={text}
-                  onChange={handleTextChange}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="link-href">URL</Label>
-                <Input
-                  type="url"
-                  id="link-href"
-                  placeholder="https://"
-                  value={href}
-                  onChange={handleHrefChange}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="link-newtab"
-                  checked={newTab}
-                  onCheckedChange={handleNewTabChange}
-                />
-                <Label htmlFor="link-newtab">Open in new tab</Label>
-              </div>
-            </form>
+          <PopoverContent
+            className="w-auto p-2"
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            align="end"
+          >
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-accent transition-colors"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleEditLink}
+            >
+              Edit link
+            </button>
           </PopoverContent>
         )}
       </Popover>

@@ -63,6 +63,7 @@ const LinkFieldEditor = ({
             setText(e.target.value);
             handleChange("text", e.target.value);
           }}
+          autoFocus
         />
       </div>
       <div className="grid gap-1.5">

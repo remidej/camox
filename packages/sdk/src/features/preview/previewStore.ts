@@ -348,6 +348,15 @@ export const previewStore = createStore({
           : [{ type: "Block" as const, id: event.blockId }],
       };
     },
+    setSelectionBreadcrumbs: (
+      context,
+      event: { breadcrumbs: SelectionBreadcrumb[] },
+    ) => {
+      return {
+        ...context,
+        selectionBreadcrumbs: event.breadcrumbs,
+      };
+    },
     closeBlockContentSheet: (context) => {
       return {
         ...context,
@@ -364,4 +373,10 @@ export const previewStore = createStore({
       };
     },
   },
+});
+
+previewStore.inspect((event) => {
+  if (event.type === "@xstate.snapshot") {
+    console.log("inspect", event);
+  }
 });
