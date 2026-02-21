@@ -172,13 +172,135 @@ const SortableRepeatableItem = ({
  * RepeatableItemsList
  * -----------------------------------------------------------------------------------------------*/
 
+/* -------------------------------------------------------------------------------------------------
+ * Inline item helpers
+ * -----------------------------------------------------------------------------------------------*/
+
+const getInlineItemLabel = (
+  item: Record<string, unknown>,
+  index: number,
+): string => {
+  for (const value of Object.values(item)) {
+    if (typeof value === "string" && value.trim()) return value;
+    if (value && typeof value === "object" && "text" in value) {
+      const text = (value as any).text;
+      if (typeof text === "string" && text.trim()) return text;
+    }
+  }
+  return `Item ${index + 1}`;
+};
+
+/* -------------------------------------------------------------------------------------------------
+ * SortableInlineRepeatableItem — drag-and-drop with index-based identification
+ * -----------------------------------------------------------------------------------------------*/
+
+interface SortableInlineRepeatableItemProps {
+  item: Record<string, unknown>;
+  index: number;
+  fieldName: string;
+  canRemove: boolean;
+  onRemove: (index: number) => void;
+}
+
+const SortableInlineRepeatableItem = ({
+  item,
+  index,
+  fieldName,
+  canRemove,
+  onRemove,
+}: SortableInlineRepeatableItemProps) => {
+  const sortableId = `idx:${index}`;
+  const label = getInlineItemLabel(item, index);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: sortableId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <li>
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={cn(
+          "flex flex-row justify-between items-center gap-2 px-1 py-1 max-w-full rounded-lg text-foreground transition-none group",
+          "hover:bg-accent/75",
+        )}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground flex"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </Button>
+
+        <div className="flex items-center gap-1 flex-1 overflow-x-hidden">
+          <p
+            className="cursor-default flex-1 truncate py-1 text-sm"
+            title={label}
+            onClick={() => {
+              previewStore.send({
+                type: "drillIntoRepeatableItem",
+                itemId: sortableId,
+                fieldName,
+              });
+            }}
+          >
+            {label}
+          </p>
+        </div>
+
+        {canRemove && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="hidden group-hover:flex group-focus-within:flex text-muted-foreground hover:text-foreground shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(index);
+                }}
+              >
+                <CircleMinus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Remove item</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    </li>
+  );
+};
+
+/* -------------------------------------------------------------------------------------------------
+ * RepeatableItemsList
+ * -----------------------------------------------------------------------------------------------*/
+
 interface RepeatableItemsListProps {
-  items: Doc<"repeatableItems">[];
+  items: Doc<"repeatableItems">[] | Record<string, unknown>[];
   blockId: Id<"blocks">;
   fieldName: string;
   minItems?: number;
   maxItems?: number;
   schema: unknown;
+  /** When set, items are inline objects managed through the parent item's content */
+  parentItemId?: Id<"repeatableItems">;
 }
 
 const RepeatableItemsList = ({
@@ -188,8 +310,13 @@ const RepeatableItemsList = ({
   minItems,
   maxItems,
   schema,
+  parentItemId,
 }: RepeatableItemsListProps) => {
+  const isInline = !!parentItemId;
   const { pathname } = useLocation();
+  const updateRepeatableItemContent = useMutation(
+    api.repeatableItems.updateRepeatableItemContent,
+  );
   const updatePositionMutation = useMutation(
     api.repeatableItems.updateRepeatableItemPosition,
   ).withOptimisticUpdate((localStore, args) => {
@@ -292,6 +419,51 @@ const RepeatableItemsList = ({
     deleteItemMutation({ itemId });
   };
 
+  const handleAddInlineItem = () => {
+    if (!parentItemId) return;
+    const defaultContent: Record<string, unknown> = {};
+    const itemsSchema = (schema as any)?.items;
+    if (itemsSchema?.properties) {
+      for (const [key, prop] of Object.entries(itemsSchema.properties)) {
+        if ("default" in (prop as any)) {
+          defaultContent[key] = (prop as { default: unknown }).default;
+        }
+      }
+    }
+    const currentItems = items as Record<string, unknown>[];
+    updateRepeatableItemContent({
+      itemId: parentItemId,
+      content: { [fieldName]: [...currentItems, defaultContent] },
+    });
+  };
+
+  const handleRemoveInlineItem = (index: number) => {
+    if (!parentItemId) return;
+    const currentItems = items as Record<string, unknown>[];
+    updateRepeatableItemContent({
+      itemId: parentItemId,
+      content: { [fieldName]: currentItems.filter((_, i) => i !== index) },
+    });
+  };
+
+  const handleInlineDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !parentItemId) return;
+
+    const oldIndex = parseInt((active.id as string).slice(4), 10);
+    const newIndex = parseInt((over.id as string).slice(4), 10);
+    if (isNaN(oldIndex) || isNaN(newIndex)) return;
+
+    const currentItems = [...(items as Record<string, unknown>[])];
+    const [moved] = currentItems.splice(oldIndex, 1);
+    currentItems.splice(newIndex, 0, moved);
+
+    updateRepeatableItemContent({
+      itemId: parentItemId,
+      content: { [fieldName]: currentItems },
+    });
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -306,9 +478,11 @@ const RepeatableItemsList = ({
       return;
     }
 
+    const dbItems = items as Doc<"repeatableItems">[];
+
     // Find the old and new indices
-    const oldIndex = items.findIndex((item) => item._id === active.id);
-    const newIndex = items.findIndex((item) => item._id === over.id);
+    const oldIndex = dbItems.findIndex((item) => item._id === active.id);
+    const newIndex = dbItems.findIndex((item) => item._id === over.id);
 
     if (oldIndex === -1 || newIndex === -1) {
       return;
@@ -322,13 +496,16 @@ const RepeatableItemsList = ({
 
     if (oldIndex < newIndex) {
       // Dragging down: insert after the target position
-      afterPosition = items[newIndex].position;
+      afterPosition = dbItems[newIndex].position;
       beforePosition =
-        newIndex < items.length - 1 ? items[newIndex + 1].position : undefined;
+        newIndex < dbItems.length - 1
+          ? dbItems[newIndex + 1].position
+          : undefined;
     } else {
       // Dragging up: insert before the target position
-      afterPosition = newIndex > 0 ? items[newIndex - 1].position : undefined;
-      beforePosition = items[newIndex].position;
+      afterPosition =
+        newIndex > 0 ? dbItems[newIndex - 1].position : undefined;
+      beforePosition = dbItems[newIndex].position;
     }
 
     await updatePositionMutation({
@@ -340,31 +517,64 @@ const RepeatableItemsList = ({
 
   return (
     <div className="flex flex-col gap-1">
-      {items.length > 0 && (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-          modifiers={[restrictToVerticalAxis]}
-        >
-          <SortableContext
-            items={items.map((item) => item._id)}
-            strategy={verticalListSortingStrategy}
+      {isInline ? (
+        items.length > 0 && (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleInlineDragEnd}
+            modifiers={[restrictToVerticalAxis]}
           >
-            <ul className="flex flex-col gap-1">
-              {items.map((item) => (
-                <SortableRepeatableItem
-                  key={item._id}
-                  item={item}
-                  blockId={blockId}
-                  fieldName={fieldName}
-                  canRemove={canRemove}
-                  onRemove={handleRemoveItem}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
+            <SortableContext
+              items={(items as Record<string, unknown>[]).map(
+                (_, i) => `idx:${i}`,
+              )}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="flex flex-col gap-1">
+                {(items as Record<string, unknown>[]).map((item, index) => (
+                  <SortableInlineRepeatableItem
+                    key={index}
+                    item={item}
+                    index={index}
+                    fieldName={fieldName}
+                    canRemove={canRemove}
+                    onRemove={handleRemoveInlineItem}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        )
+      ) : (
+        items.length > 0 && (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+            modifiers={[restrictToVerticalAxis]}
+          >
+            <SortableContext
+              items={(items as Doc<"repeatableItems">[]).map(
+                (item) => item._id,
+              )}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="flex flex-col gap-1">
+                {(items as Doc<"repeatableItems">[]).map((item) => (
+                  <SortableRepeatableItem
+                    key={item._id}
+                    item={item}
+                    blockId={blockId}
+                    fieldName={fieldName}
+                    canRemove={canRemove}
+                    onRemove={handleRemoveItem}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        )
       )}
 
       {canAdd && (
@@ -373,7 +583,7 @@ const RepeatableItemsList = ({
           variant="ghost"
           size="sm"
           className="text-muted-foreground justify-start self-start"
-          onClick={handleAddItem}
+          onClick={isInline ? handleAddInlineItem : handleAddItem}
         >
           <CirclePlus className="h-4 w-4" />
           Add item

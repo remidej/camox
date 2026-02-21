@@ -248,21 +248,22 @@ const ItemFieldsEditor = ({
         }
 
         if (field.fieldType === "RepeatableObject") {
-          const items = data[field.name] as
+          const items = (data[field.name] ?? []) as
             | Doc<"repeatableItems">[]
-            | undefined;
+            | Record<string, unknown>[];
           const fieldSchema = (schema as any)?.properties?.[field.name];
 
           return (
             <div key={field.name} className="space-y-2">
               <Label>{label}</Label>
               <RepeatableItemsList
-                items={items ?? []}
+                items={items}
                 blockId={blockId}
                 fieldName={field.name}
                 minItems={field.minItems}
                 maxItems={field.maxItems}
                 schema={fieldSchema}
+                parentItemId={itemId}
               />
             </div>
           );

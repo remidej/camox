@@ -82,14 +82,22 @@ const getSchemaAtDepth = (
 
 /**
  * Walks through content arrays to find the current item's data.
- * Returns the data object and the deepest item's ID.
+ * Returns the data object, the deepest item's ID, and for inline items
+ * the parent DB document's ID and field name.
  */
 const getDataAtDepth = (
   blockContent: Record<string, unknown>,
   breadcrumbs: SelectionBreadcrumb[],
-): { data: Record<string, unknown>; itemId: string } | null => {
+): {
+  data: Record<string, unknown>;
+  itemId: string;
+  parentItemId?: string;
+  parentFieldName?: string;
+} | null => {
   let currentData: Record<string, unknown> = blockContent;
   let lastItemId = "";
+  let parentItemId: string | undefined;
+  let parentFieldName: string | undefined;
 
   for (const crumb of breadcrumbs) {
     if (crumb.type !== "RepeatableObject" || !crumb.fieldName) continue;
@@ -97,15 +105,29 @@ const getDataAtDepth = (
     const items = currentData[crumb.fieldName] as any[] | undefined;
     if (!items) return null;
 
-    const item = items.find((i) => i._id === crumb.id);
-    if (!item) return null;
+    if (crumb.id.startsWith("idx:")) {
+      // Inline item: access by index, no .content unwrap
+      const idx = parseInt(crumb.id.slice(4), 10);
+      if (isNaN(idx) || idx < 0 || idx >= items.length) return null;
 
-    lastItemId = crumb.id;
-    currentData = item.content as Record<string, unknown>;
+      parentItemId = lastItemId || undefined;
+      parentFieldName = crumb.fieldName;
+      lastItemId = crumb.id;
+      currentData = items[idx] as Record<string, unknown>;
+    } else {
+      // DB document item: find by _id, unwrap .content
+      const item = items.find((i) => i._id === crumb.id);
+      if (!item) return null;
+
+      lastItemId = crumb.id;
+      currentData = item.content as Record<string, unknown>;
+      parentItemId = undefined;
+      parentFieldName = undefined;
+    }
   }
 
   if (!lastItemId) return null;
-  return { data: currentData, itemId: lastItemId };
+  return { data: currentData, itemId: lastItemId, parentItemId, parentFieldName };
 };
 
 /* -------------------------------------------------------------------------------------------------
@@ -281,6 +303,52 @@ const PageContentSheet = () => {
     [currentItemId, updateRepeatableItemContent],
   );
 
+  const isNestedInlineItem = !!currentDepthResult?.parentItemId;
+
+  const handleNestedItemFieldChange = React.useCallback(
+    (fieldName: string, value: unknown) => {
+      if (
+        !block ||
+        !currentDepthResult?.parentItemId ||
+        !currentDepthResult?.parentFieldName
+      )
+        return;
+
+      const idx = parseInt(currentDepthResult.itemId.slice(4), 10);
+      if (isNaN(idx)) return;
+
+      // Get parent level data to find the current inline array
+      const parentResult = getDataAtDepth(
+        block.content,
+        repeatableBreadcrumbs.slice(0, -1),
+      );
+      if (!parentResult) return;
+
+      const parentArray = [
+        ...((parentResult.data[currentDepthResult.parentFieldName] as any[]) ??
+          []),
+      ];
+      parentArray[idx] = { ...parentArray[idx], [fieldName]: value };
+
+      updateRepeatableItemContent({
+        itemId: currentDepthResult.parentItemId as Id<"repeatableItems">,
+        content: { [currentDepthResult.parentFieldName]: parentArray },
+      });
+    },
+    [
+      block,
+      currentDepthResult,
+      repeatableBreadcrumbs,
+      updateRepeatableItemContent,
+    ],
+  );
+
+  const activeFieldChangeHandler = isNestedInlineItem
+    ? handleNestedItemFieldChange
+    : depth === 0
+      ? handleBlockFieldChange
+      : handleItemFieldChange;
+
   const handleOpenChange = (open: boolean) => {
     if (open) return;
     if (block && selectedFieldName) {
@@ -312,6 +380,23 @@ const PageContentSheet = () => {
     if (!crumb.fieldName) return crumb.id;
     const prop = (schema as any)?.properties?.[crumb.fieldName];
     const fieldLabel = prop?.title ?? formatFieldName(crumb.fieldName);
+
+    if (crumb.id.startsWith("idx:")) {
+      // Inline item: derive label from data
+      const crumbIndex = repeatableBreadcrumbs.indexOf(crumb);
+      const pathCrumbs = repeatableBreadcrumbs.slice(0, crumbIndex + 1);
+      const result = getDataAtDepth(block.content, pathCrumbs);
+      if (result?.data) {
+        for (const value of Object.values(result.data)) {
+          if (typeof value === "string" && value.trim()) return value;
+          if (value && typeof value === "object" && "text" in value) {
+            const text = (value as any).text;
+            if (typeof text === "string" && text.trim()) return text;
+          }
+        }
+      }
+      return fieldLabel;
+    }
 
     // Try to find the item summary from block content
     const item = findItemById(block.content, selectionBreadcrumbs, crumb.id);
@@ -467,9 +552,7 @@ const PageContentSheet = () => {
                 }) ?? { text: "", href: "", newTab: false }
               }
               onSave={(fieldName, value) => {
-                const handler =
-                  depth === 0 ? handleBlockFieldChange : handleItemFieldChange;
-                handler(fieldName, value);
+                activeFieldChangeHandler(fieldName, value);
               }}
             />
           </div>
@@ -479,9 +562,7 @@ const PageContentSheet = () => {
             data={currentData}
             blockId={block._id}
             itemId={currentItemId}
-            onFieldChange={
-              depth === 0 ? handleBlockFieldChange : handleItemFieldChange
-            }
+            onFieldChange={activeFieldChangeHandler}
             postToIframe={postToIframe}
           />
         )}
