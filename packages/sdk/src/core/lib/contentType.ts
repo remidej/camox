@@ -16,7 +16,10 @@ export type EmbedURL = string & { readonly [EmbedURLBrand]: true };
  * -----------------------------------------------------------------------------------------------*/
 
 declare const LinkBrand: unique symbol;
-export type LinkValue = { text: string; href: string; newTab: boolean } & {
+export type LinkValue = (
+  | { type: "external"; href: string }
+  | { type: "page"; pageId: string }
+) & { text: string; newTab: boolean } & {
   readonly [LinkBrand]: true;
 };
 
@@ -160,7 +163,8 @@ export const Type = {
   },
 
   /**
-   * Creates a link field with text, href, and newTab properties.
+   * Creates a link field with text, href/pageId, and newTab properties.
+   * Supports both external URLs and internal page links.
    *
    * @example
    * Type.Link({ default: { text: 'Learn more', href: '/', newTab: false }, title: 'CTA' })
@@ -172,11 +176,13 @@ export const Type = {
     return TypeBoxType.Unsafe<LinkValue>({
       type: "object",
       properties: {
+        type: { type: "string", enum: ["external", "page"] },
         text: { type: "string" },
-        href: { type: "string", format: "uri" },
+        href: { type: "string" },
+        pageId: { type: "string" },
         newTab: { type: "boolean" },
       },
-      default: options.default,
+      default: { ...options.default, type: "external" },
       title: options.title,
       fieldType: "Link" as const,
     });

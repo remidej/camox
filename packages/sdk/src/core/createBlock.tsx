@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { useSelector } from "@xstate/store/react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   Type as TypeBoxType,
   type TSchema,
@@ -34,6 +34,26 @@ import { useIsPreviewSheetOpen } from "@/features/preview/components/PreviewSide
 import { Type, type EmbedURL, type LinkValue } from "./lib/contentType.ts";
 
 export { Type };
+
+/** Normalize legacy links (no `type` field) to the new union shape */
+const normalizeLinkValue = (value: Record<string, unknown>): LinkValue => {
+  if (!value.type) {
+    return { type: "external", ...value } as LinkValue;
+  }
+  return value as LinkValue;
+};
+
+/** Resolve a LinkValue to an href string */
+const resolveLinkHref = (
+  link: LinkValue,
+  pages: Array<{ _id: string; fullPath: string }> | undefined,
+): string => {
+  if (link.type === "page") {
+    const page = pages?.find((p) => p._id === link.pageId);
+    return page?.fullPath ?? "#";
+  }
+  return link.href;
+};
 
 let hasShownEmbedLockToast = false;
 
@@ -656,9 +676,14 @@ export function createBlock<
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeaterItemContext);
-    const fieldValue = repeaterContext
+    const rawFieldValue = repeaterContext
       ? (repeaterContext.itemContent[name] as LinkValue)
       : (content[name] as LinkValue);
+    const fieldValue = normalizeLinkValue(
+      rawFieldValue as unknown as Record<string, unknown>,
+    );
+    const pages = useQuery(api.pages.listPages);
+    const resolvedHref = resolveLinkHref(fieldValue, pages);
 
     const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
@@ -818,7 +843,7 @@ export function createBlock<
           >
             {children({
               text: displayText,
-              href: fieldValue.href,
+              href: resolvedHref,
               newTab: fieldValue.newTab,
             })}
           </Slot>

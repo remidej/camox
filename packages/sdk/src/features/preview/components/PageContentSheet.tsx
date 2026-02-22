@@ -545,11 +545,8 @@ const PageContentSheet = () => {
             <LinkFieldEditor
               fieldName={linkFieldName}
               linkValue={
-                (currentData[linkFieldName] as {
-                  text: string;
-                  href: string;
-                  newTab: boolean;
-                }) ?? { text: "", href: "", newTab: false }
+                (currentData[linkFieldName] as Record<string, unknown>) ??
+                ({ type: "external", text: "", href: "", newTab: false } as Record<string, unknown>)
               }
               onSave={(fieldName, value) => {
                 activeFieldChangeHandler(fieldName, value);
