@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { Globe, Image, PencilRuler, SearchIcon } from "lucide-react";
+import { Globe, PencilRuler, SearchIcon } from "lucide-react";
 import type { LinkProps } from "@tanstack/react-router";
 import type { Action } from "../../provider/actionsStore";
 import { UserButton } from "./UserButton";
@@ -28,23 +28,12 @@ const links = [
     icon: "Globe",
   },
   {
-    to: "/studio/assets" as LinkProps["to"],
-    title: "Assets",
-    children: (
-      <>
-        <Image className="h-4 w-4" />
-        Assets
-      </>
-    ),
-    icon: "Image",
-  },
-  {
-    to: "/studio/playground" as LinkProps["to"],
-    title: "Playground",
+    to: "/cmx-studio/blocks" as LinkProps["to"],
+    title: "Blocks",
     children: (
       <>
         <PencilRuler className="h-4 w-4" />
-        Playground
+        Blocks
       </>
     ),
     icon: "PencilRuler",

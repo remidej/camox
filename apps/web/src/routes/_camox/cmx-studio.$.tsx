@@ -1,7 +1,7 @@
-import { Outlet, createFileRoute } from '@tanstack/react-router';
-import { CamoxStudio } from 'camox/CamoxStudio';
+import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { CamoxStudio } from "camox/CamoxStudio";
 
-export const Route = createFileRoute('/_camox/studio')({
+export const Route = createFileRoute("/_camox/cmx-studio/$")({
   component: RouteComponent,
   notFoundComponent: () => <div>Studio page not found</div>,
 });

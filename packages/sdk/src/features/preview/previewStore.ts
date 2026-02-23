@@ -374,9 +374,3 @@ export const previewStore = createStore({
     },
   },
 });
-
-previewStore.inspect((event) => {
-  if (event.type === "@xstate.snapshot") {
-    console.log("inspect", event);
-  }
-});

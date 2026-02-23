@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { CamoxPlayground } from 'camox/CamoxPlayground';
 
-export const Route = createFileRoute('/_camox/studio/playground')({
+export const Route = createFileRoute('/_camox/cmx-studio/blocks')({
   component: RouteComponent,
 });
 

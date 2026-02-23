@@ -117,12 +117,12 @@ export const ProjectMenu = () => {
                   setOpen(false);
                 }}
               >
-                <Settings className="mr-2 h-4 w-4" />
+                <Settings className="mr-2 h-4 w-4 text-muted-foreground" />
                 Settings
               </Button>
               <Link to="/studio/team" onClick={() => setOpen(false)}>
                 <Button variant="ghost" className="w-full justify-start">
-                  <Users className="mr-2 h-4 w-4" />
+                  <Users className="mr-2 h-4 w-4 text-muted-foreground" />
                   Team
                 </Button>
               </Link>
