@@ -17,6 +17,7 @@ interface PreviewContext {
   isSidebarOpen: boolean;
   isPageContentSheetOpen: boolean;
   isAddBlockSheetOpen: boolean;
+  isAgentChatSheetOpen: boolean;
   isContentLocked: boolean;
   isMobileMode: boolean;
   publicationState: PublicationState;
@@ -34,6 +35,7 @@ export const previewStore = createStore({
     isSidebarOpen: true,
     isPageContentSheetOpen: false,
     isAddBlockSheetOpen: false,
+    isAgentChatSheetOpen: false,
     isContentLocked: false,
     isMobileMode: false,
     publicationState: "draft",
@@ -361,6 +363,18 @@ export const previewStore = createStore({
       return {
         ...context,
         isPageContentSheetOpen: false,
+      };
+    },
+    openAgentChatSheet: (context) => {
+      return {
+        ...context,
+        isAgentChatSheetOpen: true,
+      };
+    },
+    closeAgentChatSheet: (context) => {
+      return {
+        ...context,
+        isAgentChatSheetOpen: false,
       };
     },
     setIframeElement: (

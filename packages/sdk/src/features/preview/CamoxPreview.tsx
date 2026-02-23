@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Sidebar } from "./components/Sidebar";
 import { PageContentSheet } from "./components/PageContentSheet";
 import { AddBlockSheet } from "./components/AddBlockSheet";
+import { AgentChatSheet } from "./components/AgentChatSheet";
 
 /* -------------------------------------------------------------------------------------------------
  * PageContent
@@ -237,6 +238,7 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
           </div>
           <PageContentSheet />
           <AddBlockSheet />
+          <AgentChatSheet />
         </div>
       </SignedIn>
       <SignedOut>{children}</SignedOut>

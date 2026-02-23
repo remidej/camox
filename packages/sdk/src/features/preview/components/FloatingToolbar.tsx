@@ -31,7 +31,12 @@ export const FloatingToolbar = () => {
     previewStore,
     (state) => state.context.isAddBlockSheetOpen,
   );
-  const isAnySideSheetOpen = isPageContentSheetOpen || isAddBlockSheetOpen;
+  const isAgentChatSheetOpen = useSelector(
+    previewStore,
+    (state) => state.context.isAgentChatSheetOpen,
+  );
+  const isAnySideSheetOpen =
+    isPageContentSheetOpen || isAddBlockSheetOpen || isAgentChatSheetOpen;
   const actions = useSelector(actionsStore, (state) => state.context.actions);
   const isMobileMode = useSelector(
     previewStore,
@@ -123,6 +128,9 @@ export const FloatingToolbar = () => {
         <Button
           variant="outline"
           className="flex-1 justify-between bg-transparent dark:bg-transparent gap-4"
+          onClick={() =>
+            previewStore.send({ type: "openAgentChatSheet" })
+          }
         >
           <span className="text-muted-foreground">Ask for changes...</span>
           <Kbd className="ml-4">⌘ I</Kbd>

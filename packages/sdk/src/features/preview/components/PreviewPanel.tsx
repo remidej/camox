@@ -145,7 +145,12 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
     previewStore,
     (state) => state.context.isAddBlockSheetOpen,
   );
-  const isAnySideSheetOpen = isPageContentSheetOpen || isAddBlockSheetOpen;
+  const isAgentChatSheetOpen = useSelector(
+    previewStore,
+    (state) => state.context.isAgentChatSheetOpen,
+  );
+  const isAnySideSheetOpen =
+    isPageContentSheetOpen || isAddBlockSheetOpen || isAgentChatSheetOpen;
   const publicationState = useSelector(
     previewStore,
     (state) => state.context.publicationState,
@@ -222,6 +227,15 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
           }),
         icon: "CheckCircle2",
       },
+      {
+        id: "open-agent-chat",
+        label: "Ask for changes",
+        groupLabel: "Preview",
+        checkIfAvailable: () => !isAgentChatSheetOpen,
+        execute: () => previewStore.send({ type: "openAgentChatSheet" }),
+        shortcut: { key: "i", withMeta: true },
+        icon: "MessageSquare",
+      },
     ] satisfies Action[];
 
     actionsStore.send({ type: "registerManyActions", actions });
@@ -232,7 +246,7 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [publicationState]);
+  }, [publicationState, isAgentChatSheetOpen]);
 
   return (
     <>
