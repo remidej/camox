@@ -177,10 +177,6 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
     previewStore,
     (state) => state.context.isSidebarOpen,
   );
-  const isContentLocked = useSelector(
-    previewStore,
-    (state) => state.context.isContentLocked,
-  );
 
   React.useEffect(() => {
     const actions = [
@@ -234,7 +230,7 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
             )}
             <PreviewPanel>
               {children}
-              {!isContentLocked && (
+              {!isPresentationMode && isSignedIn && (
                 <div style={{ height: "80px", background: "transparent" }} />
               )}
             </PreviewPanel>
