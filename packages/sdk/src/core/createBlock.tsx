@@ -126,7 +126,7 @@ interface BlockData<TContent> {
 
 export interface BlockComponentProps<TContent> {
   blockData: BlockData<TContent>;
-  mode: "site" | "peek" | "playground";
+  mode: "site" | "peek";
   isFirstBlock?: boolean;
 }
 

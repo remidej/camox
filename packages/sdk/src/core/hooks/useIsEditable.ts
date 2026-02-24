@@ -2,7 +2,7 @@ import { useSelector } from "@xstate/store/react";
 import { useClerk } from "@clerk/clerk-react";
 import { previewStore } from "@/features/preview/previewStore";
 
-export function useIsEditable(mode: "site" | "peek" | "playground") {
+export function useIsEditable(mode: "site" | "peek") {
   const { isSignedIn } = useClerk();
   const isPresentationMode = useSelector(
     previewStore,
