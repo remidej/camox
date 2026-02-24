@@ -6,6 +6,7 @@ import {
   type LucideProps,
   FrameIcon,
   Link2 as Link2Icon,
+  ImageIcon,
 } from "lucide-react";
 
 type FieldLabelMeta = {
@@ -66,6 +67,16 @@ const fieldTypesDictionary = {
     isContentEditable: false,
     Icon: (props: LucideProps) => <Link2Icon {...props} />,
     getLabel: (value: unknown) => (value as { text: string }).text,
+  },
+  Media: {
+    label: "Media",
+    isScalar: false,
+    isContentEditable: false,
+    Icon: (props: LucideProps) => <ImageIcon {...props} />,
+    getLabel: (value: unknown, { schemaTitle, fieldName }: FieldLabelMeta) =>
+      (value as { filename?: string } | null)?.filename ??
+      schemaTitle ??
+      fieldName,
   },
 } satisfies Record<
   string,

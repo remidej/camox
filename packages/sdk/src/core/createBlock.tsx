@@ -31,7 +31,12 @@ import { useIsEditable } from "./hooks/useIsEditable.ts";
 import { useOverlayMessage } from "./hooks/useOverlayMessage.ts";
 import { AddBlockControlBar } from "./components/AddBlockControlBar.tsx";
 import { useIsPreviewSheetOpen } from "@/features/preview/components/PreviewSideSheet.tsx";
-import { Type, type EmbedURL, type LinkValue } from "./lib/contentType.ts";
+import {
+  Type,
+  type EmbedURL,
+  type LinkValue,
+  type MediaValue,
+} from "./lib/contentType.ts";
 
 export { Type };
 
@@ -251,6 +256,15 @@ export function createBlock<
       : never]: TContent[K];
   };
 
+  // Only allow media fields
+  type MediaFields = {
+    [K in keyof TContent as MediaValue | null extends TContent[K]
+      ? TContent[K] extends MediaValue | null
+        ? K
+        : never
+      : never]: TContent[K];
+  };
+
   // Only allow array fields (from repeatableObject)
   type RepeatableFields = {
     [K in keyof TContent as TContent[K] extends Array<any>
@@ -280,6 +294,15 @@ export function createBlock<
   type ItemEmbedFields<K extends keyof RepeatableFields> = {
     [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends EmbedURL
       ? F
+      : never]: RepeatableItemType<K>[F];
+  };
+
+  // Extract media fields from a repeatable item type
+  type ItemMediaFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as MediaValue | null extends RepeatableItemType<K>[F]
+      ? RepeatableItemType<K>[F] extends MediaValue | null
+        ? F
+        : never
       : never]: RepeatableItemType<K>[F];
   };
 
@@ -868,6 +891,27 @@ export function createBlock<
     );
   };
 
+  const Media = <K extends keyof MediaFields>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (media: MediaValue | null) => React.ReactNode;
+  }) => {
+    const blockContext = React.use(Context);
+    if (!blockContext) {
+      throw new Error("Media must be used within a Block Component");
+    }
+
+    const { content } = blockContext;
+    const repeaterContext = React.use(RepeaterItemContext);
+    const fieldValue = repeaterContext
+      ? (repeaterContext.itemContent[name] as MediaValue | null)
+      : (content[name] as MediaValue | null);
+
+    return <>{children(fieldValue)}</>;
+  };
+
   // RepeaterItemWrapper - wraps each repeater item with overlay support
   const RepeaterItemWrapper = ({
     itemId,
@@ -966,6 +1010,10 @@ export function createBlock<
           name: F;
           children: (url: string) => React.ReactNode;
         }) => React.ReactNode;
+        Media: <F extends keyof ItemMediaFields<K>>(props: {
+          name: F;
+          children: (media: MediaValue | null) => React.ReactNode;
+        }) => React.ReactNode;
         Repeater: <F extends keyof ItemRepeatableFields<K>>(props: {
           name: F;
           children: (
@@ -985,6 +1033,12 @@ export function createBlock<
               Embed: (props: {
                 name: string;
                 children: (url: string) => React.ReactNode;
+              }) => React.ReactNode;
+              Media: (props: {
+                name: string;
+                children: (
+                  media: MediaValue | null,
+                ) => React.ReactNode;
               }) => React.ReactNode;
               Repeater: (props: {
                 name: string;
@@ -1030,6 +1084,11 @@ export function createBlock<
       children: (url: string) => React.ReactNode;
     }) => React.ReactNode;
 
+    const ItemMedia = Media as <F extends keyof ItemMediaFields<K>>(props: {
+      name: F;
+      children: (media: MediaValue | null) => React.ReactNode;
+    }) => React.ReactNode;
+
     const ItemRepeater = Repeater as <
       F extends keyof ItemRepeatableFields<K>,
     >(props: {
@@ -1052,6 +1111,12 @@ export function createBlock<
             name: string;
             children: (url: string) => React.ReactNode;
           }) => React.ReactNode;
+          Media: (props: {
+            name: string;
+            children: (
+              media: MediaValue | null,
+            ) => React.ReactNode;
+          }) => React.ReactNode;
           Repeater: (props: {
             name: string;
             children: (item: any, index: number) => React.ReactNode;
@@ -1065,6 +1130,7 @@ export function createBlock<
       Field: ItemField,
       Link: ItemLink,
       Embed: ItemEmbed,
+      Media: ItemMedia,
       Repeater: ItemRepeater,
     };
 
@@ -1369,6 +1435,7 @@ export function createBlock<
     Field,
     Embed,
     Link,
+    Media,
     Repeater,
     useSetting,
     id: options.id,

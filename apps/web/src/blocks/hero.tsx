@@ -19,6 +19,10 @@ const hero = createBlock({
       maxLength: 280,
       title: "Description",
     }),
+    illustration: Type.Media({
+      accept: ["image/*"],
+      title: "Illustration",
+    }),
     cta: Type.Link({
       default: { text: "Start building", href: "/", newTab: false },
       title: "CTA",
@@ -81,6 +85,17 @@ function HeroComponent() {
                 </p>
               )}
             </hero.Field>
+            <hero.Media name="illustration">
+              {(media) =>
+                media && (
+                  <img
+                    src={media.url}
+                    alt={media.alt}
+                    className="mb-8 max-w-full rounded-lg"
+                  />
+                )
+              }
+            </hero.Media>
             <div className="flex flex-col sm:flex-row gap-4 items-start">
               <hero.Link name="cta">
                 {({ text, href, newTab }) => (

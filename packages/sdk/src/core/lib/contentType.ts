@@ -24,6 +24,18 @@ export type LinkValue = (
 };
 
 /* -------------------------------------------------------------------------------------------------
+ * MediaValue branded type
+ * -----------------------------------------------------------------------------------------------*/
+
+declare const MediaBrand: unique symbol;
+export type MediaValue = {
+  url: string;
+  alt: string;
+  filename: string;
+  mimeType: string;
+} & { readonly [MediaBrand]: true };
+
+/* -------------------------------------------------------------------------------------------------
  * Typebox wrapper used for content schemas
  * -----------------------------------------------------------------------------------------------*/
 
@@ -185,6 +197,31 @@ export const Type = {
       default: { ...options.default, type: "external" },
       title: options.title,
       fieldType: "Link" as const,
+    });
+  },
+
+  /**
+   * Creates a media field for images, videos, or other file assets.
+   * The `accept` array uses MIME type patterns (same as HTML `<input accept>`).
+   *
+   * @example
+   * Type.Media({ accept: ['image/*'], title: 'Cover image' })
+   * Type.Media({ accept: ['image/*', 'video/*'], title: 'Hero media' })
+   * Type.Media({ accept: ['application/pdf'], title: 'Document' })
+   */
+  Media: (options: { accept: string[]; title?: string }) => {
+    return TypeBoxType.Unsafe<MediaValue | null>({
+      type: ["object", "null"],
+      properties: {
+        url: { type: "string" },
+        alt: { type: "string" },
+        filename: { type: "string" },
+        mimeType: { type: "string" },
+      },
+      accept: options.accept,
+      default: null,
+      title: options.title,
+      fieldType: "Media" as const,
     });
   },
 } satisfies Record<FieldType, unknown>;
