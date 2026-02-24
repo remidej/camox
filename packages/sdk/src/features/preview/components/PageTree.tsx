@@ -161,23 +161,9 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
   };
 
   const handleFieldDoubleClick = (fieldName: string, fieldType: string) => {
-    if (fieldType === "RepeatableObject") {
-      previewStore.send({
-        type: "setFocusedBlock",
-        blockId: block._id,
-      });
-    } else {
-      previewStore.send({
-        type: "setSelectedField",
-        blockId: block._id,
-        fieldName,
-        fieldType: fieldType as "String" | "RepeatableObject",
-      });
-    }
-    previewStore.send({
-      type: "openBlockContentSheet",
-      blockId: block._id,
-    });
+    const fieldDef =
+      fieldTypesDictionary[fieldType as keyof typeof fieldTypesDictionary];
+    fieldDef.onTreeDoubleClick({ blockId: block._id, fieldName });
   };
 
   const handleFieldMouseEnter = (fieldName: string, isRepeatable: boolean) => {

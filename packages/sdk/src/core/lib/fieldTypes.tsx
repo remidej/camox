@@ -8,11 +8,18 @@ import {
   Link2 as Link2Icon,
   ImageIcon,
 } from "lucide-react";
+import type { Id } from "camox/_generated/dataModel";
+import { previewStore } from "@/features/preview/previewStore";
 
 type FieldLabelMeta = {
   schemaTitle?: string;
   fieldName: string;
   fetchedTitle?: string | null;
+};
+
+type TreeDoubleClickParams = {
+  blockId: Id<"blocks">;
+  fieldName: string;
 };
 
 const fieldTypesDictionary = {
@@ -22,6 +29,10 @@ const fieldTypesDictionary = {
     isContentEditable: true,
     Icon: (props: LucideProps) => <TypeIcon {...props} />,
     getLabel: (value: unknown) => value as string,
+    onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
+      previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "String" });
+      previewStore.send({ type: "openBlockContentSheet", blockId });
+    },
   },
   RepeatableObject: {
     label: "Repeatable object",
@@ -30,6 +41,10 @@ const fieldTypesDictionary = {
     Icon: (props: LucideProps) => <ListIcon {...props} />,
     getLabel: (_value: unknown, { schemaTitle, fieldName }: FieldLabelMeta) =>
       schemaTitle ?? fieldName,
+    onTreeDoubleClick: ({ blockId }: TreeDoubleClickParams) => {
+      previewStore.send({ type: "setFocusedBlock", blockId });
+      previewStore.send({ type: "openBlockContentSheet", blockId });
+    },
   },
   Enum: {
     label: "Enum",
@@ -37,6 +52,10 @@ const fieldTypesDictionary = {
     isContentEditable: false,
     Icon: (props: LucideProps) => <ChevronDownIcon {...props} />,
     getLabel: (value: unknown) => value as string,
+    onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
+      previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "Enum" });
+      previewStore.send({ type: "openBlockContentSheet", blockId });
+    },
   },
   Boolean: {
     label: "Boolean",
@@ -44,6 +63,10 @@ const fieldTypesDictionary = {
     isContentEditable: false,
     Icon: (props: LucideProps) => <ToggleLeftIcon {...props} />,
     getLabel: (value: unknown) => JSON.stringify(value),
+    onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
+      previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "Boolean" });
+      previewStore.send({ type: "openBlockContentSheet", blockId });
+    },
   },
   Embed: {
     label: "Embed",
@@ -60,6 +83,10 @@ const fieldTypesDictionary = {
       } catch {}
       return fetchedTitle ?? schemaTitle ?? domain ?? fieldName;
     },
+    onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
+      previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "Embed" });
+      previewStore.send({ type: "openBlockContentSheet", blockId });
+    },
   },
   Link: {
     label: "Link",
@@ -67,6 +94,11 @@ const fieldTypesDictionary = {
     isContentEditable: false,
     Icon: (props: LucideProps) => <Link2Icon {...props} />,
     getLabel: (value: unknown) => (value as { text: string }).text,
+    onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
+      previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "Link" });
+      previewStore.send({ type: "openBlockContentSheet", blockId });
+      previewStore.send({ type: "drillIntoLink", fieldName });
+    },
   },
   Media: {
     label: "Media",
@@ -77,6 +109,10 @@ const fieldTypesDictionary = {
       (value as { filename?: string } | null)?.filename ??
       schemaTitle ??
       fieldName,
+    onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
+      previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "Media" });
+      previewStore.send({ type: "openBlockContentSheet", blockId });
+    },
   },
 } satisfies Record<
   string,
@@ -86,6 +122,7 @@ const fieldTypesDictionary = {
     Icon: (props: LucideProps) => React.ReactNode;
     isContentEditable: boolean;
     getLabel: (value: unknown, meta: FieldLabelMeta) => string;
+    onTreeDoubleClick: (params: TreeDoubleClickParams) => void;
   }
 >;
 
