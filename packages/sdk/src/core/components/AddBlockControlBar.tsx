@@ -22,10 +22,14 @@ export const AddBlockControlBar = ({
         position: "absolute",
         top: position === "top" ? 0 : undefined,
         bottom: position === "bottom" ? 0 : undefined,
-        left: 0,
+        left: "50%",
         right: 0,
         height: "36px",
-        transform: position === "top" ? "translateY(-50%)" : "translateY(50%)",
+        transform:
+          position === "top"
+            ? "translateX(-50%) translateY(-50%)"
+            : "translateX(-50%) translateY(50%)",
+        width: "fit-content",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
