@@ -96,19 +96,18 @@ export const ProjectMenu = () => {
             <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-72" align="start" side="bottom">
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-2">
-              <h3 className="font-semibold leading-none">{project.name}</h3>
+        <PopoverContent className="w-72 p-0" align="start" side="bottom">
+          <div className="flex flex-col">
+            <div className="flex flex-col gap-2 p-4">
+              <h3 className="text-sm leading-none font-mono">
+                {project.domain}
+              </h3>
               <p className="text-sm text-muted-foreground">
                 {project.description}
               </p>
-              <p className="text-xs text-accent-foreground font-mono">
-                {project.domain}
-              </p>
             </div>
             <Separator />
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 p-2">
               <Button
                 variant="ghost"
                 className="w-full justify-start"
@@ -117,12 +116,12 @@ export const ProjectMenu = () => {
                   setOpen(false);
                 }}
               >
-                <Settings className="mr-2 h-4 w-4 text-muted-foreground" />
+                <Settings className="size-4 text-muted-foreground" />
                 Settings
               </Button>
               <Link to="/studio/team" onClick={() => setOpen(false)}>
                 <Button variant="ghost" className="w-full justify-start">
-                  <Users className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <Users className="size-4 text-muted-foreground" />
                   Team
                 </Button>
               </Link>
