@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 import { useMutation } from "convex/react";
-import { buildDownloadUrl } from "convex-fs";
 import { ImageIcon, Trash2, Upload } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { api } from "camox/_generated/api";
@@ -19,20 +18,26 @@ function getSiteUrl() {
   );
 }
 
+export interface FileRef {
+  _fileId: string;
+}
+
 interface ImageValue {
   url: string;
   alt: string;
   filename: string;
   mimeType: string;
+  _fileId?: string;
 }
 
 interface FileUploadProps {
   initialValue?: ImageValue;
   multiple?: boolean;
-  onUploadComplete: (value: ImageValue) => void;
+  onUploadComplete: (ref: FileRef) => void;
+  onClear?: () => void;
 }
 
-export function FileUpload({ initialValue, multiple, onUploadComplete }: FileUploadProps) {
+export function FileUpload({ initialValue, multiple, onUploadComplete, onClear }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -42,7 +47,7 @@ export function FileUpload({ initialValue, multiple, onUploadComplete }: FileUpl
   const siteUrl = getSiteUrl();
 
   const uploadSingleFile = useCallback(
-    async (file: File): Promise<ImageValue> => {
+    async (file: File): Promise<FileRef> => {
       // 1. Upload blob to ConvexFS endpoint with progress tracking
       const blobId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -75,16 +80,15 @@ export function FileUpload({ initialValue, multiple, onUploadComplete }: FileUpl
         xhr.send(file);
       });
 
-      // 2. Commit the file to ConvexFS
-      const { path } = await commitFile({
+      // 2. Commit the file — creates a record in the files table
+      const { fileId } = await commitFile({
         blobId,
         filename: file.name,
         contentType: file.type,
+        siteUrl,
       });
 
-      // 3. Build download URL
-      const url = buildDownloadUrl(siteUrl, FS_PREFIX, blobId, path);
-      return { url, alt: "", filename: file.name, mimeType: file.type };
+      return { _fileId: fileId };
     },
     [siteUrl, commitFile],
   );
@@ -100,12 +104,12 @@ export function FileUpload({ initialValue, multiple, onUploadComplete }: FileUpl
       try {
         if (multiple) {
           for (const file of Array.from(files)) {
-            const value = await uploadSingleFile(file);
-            onUploadComplete(value);
+            const ref = await uploadSingleFile(file);
+            onUploadComplete(ref);
           }
         } else {
-          const value = await uploadSingleFile(files[0]);
-          onUploadComplete(value);
+          const ref = await uploadSingleFile(files[0]);
+          onUploadComplete(ref);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed");
@@ -155,14 +159,7 @@ export function FileUpload({ initialValue, multiple, onUploadComplete }: FileUpl
               variant="ghost"
               size="icon-sm"
               className="bg-transparent! hover:text-red-500"
-              onClick={() =>
-                onUploadComplete({
-                  url: "",
-                  alt: "",
-                  filename: "",
-                  mimeType: "",
-                })
-              }
+              onClick={() => onClear?.()}
             >
               <Trash2 className="h-4 w-4" />
             </Button>

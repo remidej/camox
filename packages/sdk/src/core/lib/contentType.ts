@@ -35,6 +35,7 @@ export type ImageValue = {
   alt: string;
   filename: string;
   mimeType: string;
+  _fileId?: string;
 } & { readonly __brand: "ImageValue" };
 
 /* -------------------------------------------------------------------------------------------------
@@ -46,6 +47,7 @@ export type FileValue = {
   alt: string;
   filename: string;
   mimeType: string;
+  _fileId?: string;
 } & { readonly __brand: "FileValue" };
 
 /* -------------------------------------------------------------------------------------------------

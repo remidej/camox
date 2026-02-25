@@ -2,6 +2,122 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generateKeyBetween } from "fractional-indexing";
+import type { Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
+
+/* -------------------------------------------------------------------------------------------------
+ * File reference resolution helpers
+ * -----------------------------------------------------------------------------------------------*/
+
+/** Recursively collect all _fileId values from a content object. */
+function collectFileIds(
+  content: Record<string, unknown>,
+  fileIds: Set<string>,
+) {
+  for (const value of Object.values(content)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const obj = value as Record<string, unknown>;
+      if ("_fileId" in obj && typeof obj._fileId === "string") {
+        fileIds.add(obj._fileId);
+      } else {
+        collectFileIds(obj, fileIds);
+      }
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === "object" && "content" in item) {
+          collectFileIds(
+            (item as { content: Record<string, unknown> }).content,
+            fileIds,
+          );
+        } else if (item && typeof item === "object" && !Array.isArray(item)) {
+          collectFileIds(item as Record<string, unknown>, fileIds);
+        }
+      }
+    }
+  }
+}
+
+type FileDoc = {
+  _id: Id<"files">;
+  url: string;
+  alt: string;
+  filename: string;
+  mimeType: string;
+};
+
+/**
+ * Recursively resolve { _fileId } references in content to full file objects.
+ * Old inline {url, alt, filename, mimeType} objects pass through unchanged.
+ */
+function resolveFileRefs(
+  content: Record<string, unknown>,
+  fileMap: Map<string, FileDoc>,
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(content)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const obj = value as Record<string, unknown>;
+      if ("_fileId" in obj && typeof obj._fileId === "string") {
+        const file = fileMap.get(obj._fileId);
+        if (file) {
+          resolved[key] = {
+            url: file.url,
+            alt: file.alt,
+            filename: file.filename,
+            mimeType: file.mimeType,
+            _fileId: obj._fileId,
+          };
+        } else {
+          // File was deleted or not found
+          resolved[key] = { url: "", alt: "", filename: "", mimeType: "" };
+        }
+      } else {
+        // Other object (e.g. legacy inline image, link, etc.) — recurse
+        resolved[key] = resolveFileRefs(obj, fileMap);
+      }
+    } else if (Array.isArray(value)) {
+      resolved[key] = value.map((item) => {
+        if (item && typeof item === "object" && "content" in item) {
+          // DB-backed repeatable item
+          return {
+            ...item,
+            content: resolveFileRefs(
+              (item as { content: Record<string, unknown> }).content,
+              fileMap,
+            ),
+          };
+        } else if (item && typeof item === "object" && !Array.isArray(item)) {
+          return resolveFileRefs(item as Record<string, unknown>, fileMap);
+        }
+        return item;
+      });
+    } else {
+      resolved[key] = value;
+    }
+  }
+  return resolved;
+}
+
+/** Batch-fetch all referenced files and build a lookup map. */
+async function buildFileMap(
+  ctx: QueryCtx,
+  fileIds: Set<string>,
+): Promise<Map<string, FileDoc>> {
+  const fileMap = new Map<string, FileDoc>();
+  await Promise.all(
+    [...fileIds].map(async (id) => {
+      try {
+        const file = await ctx.db.get(id as Id<"files">);
+        if (file) {
+          fileMap.set(id, file);
+        }
+      } catch {
+        // Not a valid ID, skip
+      }
+    }),
+  );
+  return fileMap;
+}
 
 export const createPageInternal = internalMutation({
   args: {
@@ -204,6 +320,21 @@ export const getPage = query({
         content: reconstructedContent,
       };
     });
+
+    // Resolve file references (_fileId) to full file objects
+    const allFileIds = new Set<string>();
+    for (const block of blocksWithItems) {
+      collectFileIds(block.content, allFileIds);
+    }
+
+    if (allFileIds.size > 0) {
+      const fileMap = await buildFileMap(ctx, allFileIds);
+      const resolvedBlocks = blocksWithItems.map((block) => ({
+        ...block,
+        content: resolveFileRefs(block.content, fileMap),
+      }));
+      return { page, blocks: resolvedBlocks };
+    }
 
     return {
       page,

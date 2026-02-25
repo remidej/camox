@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FileUpload } from "@/components/file-upload";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ImageIcon, Trash2 } from "lucide-react";
 import { PreviewSideSheet, SheetParts } from "./PreviewSideSheet";
@@ -168,6 +169,53 @@ function findItemById(
 }
 
 /* -------------------------------------------------------------------------------------------------
+ * AltTextEditor — debounced input for editing alt text on a file record
+ * -----------------------------------------------------------------------------------------------*/
+
+const AltTextEditor = ({
+  fileId,
+  initialAlt,
+  updateFileAlt,
+}: {
+  fileId: Id<"files">;
+  initialAlt: string;
+  updateFileAlt: (args: { fileId: Id<"files">; alt: string }) => Promise<unknown>;
+}) => {
+  const [value, setValue] = React.useState(initialAlt);
+  const timerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    setValue(initialAlt);
+  }, [initialAlt]);
+
+  const handleChange = (newValue: string) => {
+    setValue(newValue);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      updateFileAlt({ fileId, alt: newValue });
+    }, 500);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="alt-text">Alt text</Label>
+      <Input
+        id="alt-text"
+        value={value}
+        onChange={(e) => handleChange(e.target.value)}
+        placeholder="Describe this image..."
+      />
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------------------------------
  * PageContentSheet
  * -----------------------------------------------------------------------------------------------*/
 
@@ -184,6 +232,7 @@ const PageContentSheet = () => {
   const deleteRepeatableItem = useMutation(
     api.repeatableItems.deleteRepeatableItem,
   );
+  const updateFileAlt = useMutation(api.files.updateFileAlt);
 
   // Get state from store
   const isOpen = useSelector(
@@ -706,18 +755,18 @@ const PageContentSheet = () => {
             })()}
             <FileUpload
               multiple
-              onUploadComplete={(value) => {
+              onUploadComplete={(ref) => {
                 if (!blockId) return;
                 createRepeatableItem({
                   blockId,
                   fieldName: imageFieldName,
-                  content: { image: value },
+                  content: { image: ref },
                 });
               }}
             />
           </div>
         ) : isViewingImage && imageFieldName ? (
-          <div className="py-4 px-4">
+          <div className="py-4 px-4 space-y-4">
             <FileUpload
               initialValue={
                 currentData[imageFieldName] as
@@ -726,13 +775,35 @@ const PageContentSheet = () => {
                       alt: string;
                       filename: string;
                       mimeType: string;
+                      _fileId?: string;
                     }
                   | undefined
               }
-              onUploadComplete={(value) => {
-                activeFieldChangeHandler(imageFieldName, value);
+              onUploadComplete={(ref) => {
+                activeFieldChangeHandler(imageFieldName, ref);
+              }}
+              onClear={() => {
+                activeFieldChangeHandler(imageFieldName, {
+                  url: "",
+                  alt: "",
+                  filename: "",
+                  mimeType: "",
+                });
               }}
             />
+            {(() => {
+              const img = currentData[imageFieldName] as
+                | { _fileId?: string; alt?: string }
+                | undefined;
+              if (!img?._fileId) return null;
+              return (
+                <AltTextEditor
+                  fileId={img._fileId as Id<"files">}
+                  initialAlt={img.alt ?? ""}
+                  updateFileAlt={updateFileAlt}
+                />
+              );
+            })()}
           </div>
         ) : isViewingLink && linkFieldName ? (
           <div className="py-4 px-4">

@@ -51,6 +51,17 @@ export default defineSchema({
     .index("by_block_field", ["blockId", "fieldName"])
     .index("by_block", ["blockId"]),
 
+  files: defineTable({
+    url: v.string(),
+    alt: v.string(),
+    filename: v.string(),
+    mimeType: v.string(),
+    blobId: v.string(),
+    path: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_blobId", ["blobId"]),
+
   blockDefinitions: defineTable({
     projectId: v.id("projects"),
     blockId: v.string(),
