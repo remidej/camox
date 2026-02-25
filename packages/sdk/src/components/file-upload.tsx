@@ -33,11 +33,12 @@ interface ImageValue {
 interface FileUploadProps {
   initialValue?: ImageValue;
   multiple?: boolean;
+  hidePreview?: boolean;
   onUploadComplete: (ref: FileRef) => void;
   onClear?: () => void;
 }
 
-export function FileUpload({ initialValue, multiple, onUploadComplete, onClear }: FileUploadProps) {
+export function FileUpload({ initialValue, multiple, hidePreview, onUploadComplete, onClear }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -139,7 +140,7 @@ export function FileUpload({ initialValue, multiple, onUploadComplete, onClear }
 
   return (
     <div className="space-y-4">
-      {hasImage && (
+      {hasImage && !hidePreview && (
         <div className="space-y-2">
           <div className="relative rounded-md overflow-hidden border border-border">
             <img

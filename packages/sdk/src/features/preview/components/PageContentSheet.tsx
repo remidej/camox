@@ -248,12 +248,6 @@ const PageContentSheet = () => {
     lastBreadcrumb?.type === "Image" && !!lastBreadcrumb.fieldName;
   const imageFieldName = isViewingImage ? lastBreadcrumb.fieldName : null;
 
-  // Detect if we're viewing a multi-image field (RepeatableObject with arrayItemType: "Image")
-  const isMultiImage = React.useMemo(() => {
-    if (!isViewingImage || !imageFieldName || !currentSchema) return false;
-    const fieldSchema = (currentSchema as any)?.properties?.[imageFieldName];
-    return fieldSchema?.arrayItemType === "Image";
-  }, [isViewingImage, imageFieldName, currentSchema]);
 
   // Redirect RepeatableObject drill-ins for multi-image fields to the Image view.
   // Clicking an image in the iframe produces breadcrumbs like
@@ -640,9 +634,7 @@ const PageContentSheet = () => {
         {isViewingImage && imageFieldName ? (
           <ImageFieldEditor
             imageFieldName={imageFieldName}
-            isMultiImage={isMultiImage}
             currentData={currentData}
-            blockId={block._id}
             onFieldChange={activeFieldChangeHandler}
           />
         ) : isViewingLink && linkFieldName ? (

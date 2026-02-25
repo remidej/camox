@@ -47,6 +47,19 @@ export const updateFileAlt = mutation({
   },
 });
 
+export const updateFileFilename = mutation({
+  args: {
+    fileId: v.id("files"),
+    filename: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.fileId, {
+      filename: args.filename,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const getFile = query({
   args: { fileId: v.id("files") },
   handler: async (ctx, args) => {

@@ -3,37 +3,41 @@ import { useMutation } from "convex/react";
 
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { FileUpload } from "@/components/file-upload";
-import { ImageIcon, Trash2 } from "lucide-react";
 import { api } from "camox/_generated/api";
 import type { Id } from "camox/_generated/dataModel";
 
 /* -------------------------------------------------------------------------------------------------
- * AltTextEditor — debounced input for editing alt text on a file record
+ * DebouncedFieldEditor — debounced input for editing a file field
  * -----------------------------------------------------------------------------------------------*/
 
-const AltTextEditor = ({
+const DebouncedFieldEditor = ({
   fileId,
-  initialAlt,
-  updateFileAlt,
+  label,
+  placeholder,
+  initialValue,
+  onSave,
 }: {
   fileId: Id<"files">;
-  initialAlt: string;
-  updateFileAlt: (args: { fileId: Id<"files">; alt: string }) => Promise<unknown>;
+  label: string;
+  placeholder: string;
+  initialValue: string;
+  onSave: (args: { fileId: Id<"files">; value: string }) => void;
 }) => {
-  const [value, setValue] = React.useState(initialAlt);
+  const [value, setValue] = React.useState(initialValue);
   const timerRef = React.useRef<number | null>(null);
+  const inputId = React.useId();
 
   React.useEffect(() => {
-    setValue(initialAlt);
-  }, [initialAlt]);
+    setValue(initialValue);
+  }, [initialValue]);
 
   const handleChange = (newValue: string) => {
     setValue(newValue);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
-      updateFileAlt({ fileId, alt: newValue });
+      onSave({ fileId, value: newValue });
     }, 500);
   };
 
@@ -45,12 +49,12 @@ const AltTextEditor = ({
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="alt-text">Alt text</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <Input
-        id="alt-text"
+        id={inputId}
         value={value}
         onChange={(e) => handleChange(e.target.value)}
-        placeholder="Describe this image..."
+        placeholder={placeholder}
       />
     </div>
   );
@@ -62,96 +66,15 @@ const AltTextEditor = ({
 
 const ImageFieldEditor = ({
   imageFieldName,
-  isMultiImage,
   currentData,
-  blockId,
   onFieldChange,
 }: {
   imageFieldName: string;
-  isMultiImage: boolean;
   currentData: Record<string, unknown>;
-  blockId: Id<"blocks">;
   onFieldChange: (fieldName: string, value: unknown) => void;
 }) => {
-  const createRepeatableItem = useMutation(
-    api.repeatableItems.createRepeatableItem,
-  );
-  const deleteRepeatableItem = useMutation(
-    api.repeatableItems.deleteRepeatableItem,
-  );
   const updateFileAlt = useMutation(api.files.updateFileAlt);
-
-  if (isMultiImage) {
-    const items = (currentData[imageFieldName] ?? []) as Array<{
-      _id: Id<"repeatableItems">;
-      content: {
-        image: {
-          url: string;
-          alt: string;
-          filename: string;
-          mimeType: string;
-        };
-      };
-    }>;
-    const validImages = items.filter(
-      (item) =>
-        item.content?.image?.url &&
-        !item.content.image.url.includes("placehold.co"),
-    );
-
-    return (
-      <div className="py-4 px-4 space-y-4">
-        {validImages.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            {validImages.map((item) => (
-              <div
-                key={item._id}
-                className="relative group rounded-md overflow-hidden border border-border"
-              >
-                <img
-                  src={item.content.image.url}
-                  alt={
-                    item.content.image.alt || item.content.image.filename
-                  }
-                  className="w-full h-24 object-cover"
-                />
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1 min-w-0">
-                      <ImageIcon className="h-3 w-3 shrink-0 text-white/80" />
-                      <span className="text-xs text-white/80 truncate">
-                        {item.content.image.filename}
-                      </span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="bg-transparent! h-5 w-5 text-white/80 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() =>
-                        deleteRepeatableItem({ itemId: item._id })
-                      }
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <FileUpload
-          multiple
-          onUploadComplete={(ref) => {
-            createRepeatableItem({
-              blockId,
-              fieldName: imageFieldName,
-              content: { image: ref },
-            });
-          }}
-        />
-      </div>
-    );
-  }
+  const updateFileFilename = useMutation(api.files.updateFileFilename);
 
   const img = currentData[imageFieldName] as
     | {
@@ -163,10 +86,66 @@ const ImageFieldEditor = ({
       }
     | undefined;
 
+  const hasImage = img?.url && !img.url.includes("placehold.co");
+  const [lightboxOpen, setLightboxOpen] = React.useState(false);
+
   return (
     <div className="py-4 px-4 space-y-4">
+      {hasImage && (
+        <>
+          <button
+            type="button"
+            className="relative rounded-md overflow-hidden border border-border w-full cursor-zoom-in"
+            onClick={() => setLightboxOpen(true)}
+          >
+            <img
+              src={img.url}
+              alt={img.alt || img.filename}
+              className="w-full h-auto object-cover max-h-48"
+            />
+          </button>
+          <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+            <DialogContent
+              className="w-fit max-w-[90vw] max-h-[90vh] p-0 overflow-hidden border-none bg-transparent shadow-none sm:max-w-[90vw] gap-0"
+              showCloseButton={false}
+            >
+              <DialogTitle className="sr-only">
+                {img.alt || img.filename || "Image preview"}
+              </DialogTitle>
+              <img
+                src={img.url}
+                alt={img.alt || img.filename}
+                className="max-w-[90vw] max-h-[90vh] object-contain rounded-md"
+              />
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+      {img?._fileId && (
+        <>
+          <DebouncedFieldEditor
+            fileId={img._fileId as Id<"files">}
+            label="File name"
+            placeholder="File name..."
+            initialValue={img.filename ?? ""}
+            onSave={({ fileId, value }) =>
+              updateFileFilename({ fileId, filename: value })
+            }
+          />
+          <DebouncedFieldEditor
+            fileId={img._fileId as Id<"files">}
+            label="Alt text"
+            placeholder="Describe this image..."
+            initialValue={img.alt ?? ""}
+            onSave={({ fileId, value }) =>
+              updateFileAlt({ fileId, alt: value })
+            }
+          />
+        </>
+      )}
       <FileUpload
         initialValue={img}
+        hidePreview
         onUploadComplete={(ref) => {
           onFieldChange(imageFieldName, ref);
         }}
@@ -179,13 +158,6 @@ const ImageFieldEditor = ({
           });
         }}
       />
-      {img?._fileId && (
-        <AltTextEditor
-          fileId={img._fileId as Id<"files">}
-          initialAlt={img.alt ?? ""}
-          updateFileAlt={updateFileAlt}
-        />
-      )}
     </div>
   );
 };
