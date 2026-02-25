@@ -92,6 +92,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "convex": "^1.27.1",
+    "convex-fs": "^0.2.1",
     "convex-helpers": "^0.1.104",
     "fractional-indexing": "^3.2.0",
     "lucide-react": "^0.476.0",
