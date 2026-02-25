@@ -244,6 +244,19 @@ export const previewStore = createStore({
         ],
       };
     },
+    drillIntoImage: (context, event: { fieldName: string }) => {
+      return {
+        ...context,
+        selectionBreadcrumbs: [
+          ...context.selectionBreadcrumbs,
+          {
+            type: "Image" as const,
+            id: event.fieldName,
+            fieldName: event.fieldName,
+          },
+        ],
+      };
+    },
     navigateBreadcrumb: (context, event: { depth: number }) => {
       return {
         ...context,

@@ -54,6 +54,7 @@ const getSettingsFields = (schema: unknown): SchemaField[] => {
       label: prop.title as string | undefined,
       enumLabels: prop.enumLabels as Record<string, string> | undefined,
       enumValues: prop.enum as string[] | undefined,
+      arrayItemType: prop.arrayItemType as "Image" | "File" | undefined,
     };
   });
 };
@@ -238,6 +239,71 @@ const PageContentSheet = () => {
     lastBreadcrumb?.type === "Link" && !!lastBreadcrumb.fieldName;
   const linkFieldName = isViewingLink ? lastBreadcrumb.fieldName : null;
 
+  const isViewingImage =
+    lastBreadcrumb?.type === "Image" && !!lastBreadcrumb.fieldName;
+  const imageFieldName = isViewingImage ? lastBreadcrumb.fieldName : null;
+
+  // Redirect RepeatableObject drill-ins for multi-image fields to the Image view.
+  // Clicking an image in the iframe produces breadcrumbs like
+  // [Block, RepeatableObject(itemId, "images"), Image("image")].
+  // Collapse to [Block, Image("images")] so we show "Gallery > Images".
+  React.useEffect(() => {
+    if (!blockDef) return;
+    const last = selectionBreadcrumbs[selectionBreadcrumbs.length - 1];
+    const secondToLast = selectionBreadcrumbs[selectionBreadcrumbs.length - 2];
+
+    // Case 1: [... RepeatableObject, Image] — from Image component click
+    if (
+      last?.type === "Image" &&
+      secondToLast?.type === "RepeatableObject" &&
+      secondToLast.fieldName
+    ) {
+      const parentSchema = getSchemaAtDepth(
+        blockDef.contentSchema,
+        repeatableBreadcrumbs.slice(0, -1),
+      );
+      const fieldProp = (parentSchema as any)?.properties?.[
+        secondToLast.fieldName
+      ];
+      if (fieldProp?.arrayItemType === "Image") {
+        previewStore.send({
+          type: "setSelectionBreadcrumbs",
+          breadcrumbs: [
+            ...selectionBreadcrumbs.slice(0, -2),
+            {
+              type: "Image" as const,
+              id: secondToLast.fieldName,
+              fieldName: secondToLast.fieldName,
+            },
+          ],
+        });
+        return;
+      }
+    }
+
+    // Case 2: [... RepeatableObject] — from setSelectedRepeatableItem
+    if (last?.type === "RepeatableObject" && last.fieldName) {
+      const parentSchema = getSchemaAtDepth(
+        blockDef.contentSchema,
+        repeatableBreadcrumbs.slice(0, -1),
+      );
+      const fieldProp = (parentSchema as any)?.properties?.[last.fieldName];
+      if (fieldProp?.arrayItemType === "Image") {
+        previewStore.send({
+          type: "setSelectionBreadcrumbs",
+          breadcrumbs: [
+            ...selectionBreadcrumbs.slice(0, -1),
+            {
+              type: "Image" as const,
+              id: last.fieldName,
+              fieldName: last.fieldName,
+            },
+          ],
+        });
+      }
+    }
+  }, [blockDef, selectionBreadcrumbs, repeatableBreadcrumbs]);
+
   // Auto-focus selected field when sheet opens
   const selectedFieldName =
     selectionBreadcrumbs.length === 2 &&
@@ -417,7 +483,7 @@ const PageContentSheet = () => {
           <Breadcrumb>
             <BreadcrumbList className="flex-nowrap">
               <BreadcrumbItem className="min-w-0">
-                {depth === 0 && !isViewingLink ? (
+                {depth === 0 && !isViewingLink && !isViewingImage ? (
                   <BreadcrumbPage className="truncate">
                     {blockDef.title}
                   </BreadcrumbPage>
@@ -489,7 +555,7 @@ const PageContentSheet = () => {
                       parentSchema,
                     );
 
-                    if (isViewingLink) {
+                    if (isViewingLink || isViewingImage) {
                       return (
                         <BreadcrumbItem className="min-w-0">
                           <BreadcrumbLink
@@ -535,12 +601,33 @@ const PageContentSheet = () => {
                   </BreadcrumbItem>
                 </>
               )}
+              {isViewingImage && (
+                <>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem className="min-w-0">
+                    <BreadcrumbPage className="truncate">
+                      {(() => {
+                        const parentSchema = getSchemaAtDepth(
+                          blockDef.contentSchema,
+                          repeatableBreadcrumbs,
+                        );
+                        const prop = (parentSchema as any)?.properties?.[
+                          imageFieldName!
+                        ];
+                        return prop?.title ?? formatFieldName(imageFieldName!);
+                      })()}
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                </>
+              )}
             </BreadcrumbList>
           </Breadcrumb>
         </SheetParts.SheetDescription>
       </SheetParts.SheetHeader>
       <div className="flex-1 overflow-auto">
-        {isViewingLink && linkFieldName ? (
+        {isViewingImage && imageFieldName ? (
+          <div className="py-4 px-4" />
+        ) : isViewingLink && linkFieldName ? (
           <div className="py-4 px-4">
             <LinkFieldEditor
               fieldName={linkFieldName}
@@ -565,7 +652,7 @@ const PageContentSheet = () => {
             postToIframe={postToIframe}
           />
         )}
-        {depth === 0 && !isViewingLink && settingsFields.length > 0 && (
+        {depth === 0 && !isViewingLink && !isViewingImage && settingsFields.length > 0 && (
           <div className="space-y-4 py-4 px-4 border-t border-border">
             <Label className="text-muted-foreground">Settings</Label>
             {settingsFields.map((field) => {

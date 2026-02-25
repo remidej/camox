@@ -35,7 +35,8 @@ import {
   Type,
   type EmbedURL,
   type LinkValue,
-  type MediaValue,
+  type ImageValue,
+  type FileValue,
 } from "./lib/contentType.ts";
 
 export { Type };
@@ -256,10 +257,19 @@ export function createBlock<
       : never]: TContent[K];
   };
 
-  // Only allow media fields
-  type MediaFields = {
-    [K in keyof TContent as MediaValue | null extends TContent[K]
-      ? TContent[K] extends MediaValue | null
+  // Only allow image fields
+  type ImageFields = {
+    [K in keyof TContent as ImageValue extends TContent[K]
+      ? TContent[K] extends ImageValue
+        ? K
+        : never
+      : never]: TContent[K];
+  };
+
+  // Only allow file fields
+  type FileFields = {
+    [K in keyof TContent as FileValue extends TContent[K]
+      ? TContent[K] extends FileValue
         ? K
         : never
       : never]: TContent[K];
@@ -297,10 +307,19 @@ export function createBlock<
       : never]: RepeatableItemType<K>[F];
   };
 
-  // Extract media fields from a repeatable item type
-  type ItemMediaFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as MediaValue | null extends RepeatableItemType<K>[F]
-      ? RepeatableItemType<K>[F] extends MediaValue | null
+  // Extract image fields from a repeatable item type
+  type ItemImageFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as ImageValue extends RepeatableItemType<K>[F]
+      ? RepeatableItemType<K>[F] extends ImageValue
+        ? F
+        : never
+      : never]: RepeatableItemType<K>[F];
+  };
+
+  // Extract file fields from a repeatable item type
+  type ItemFileFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as FileValue extends RepeatableItemType<K>[F]
+      ? RepeatableItemType<K>[F] extends FileValue
         ? F
         : never
       : never]: RepeatableItemType<K>[F];
@@ -891,23 +910,147 @@ export function createBlock<
     );
   };
 
-  const Media = <K extends keyof MediaFields>({
+  const Image = <K extends keyof ImageFields>({
     name,
     children,
   }: {
     name: K;
-    children: (media: MediaValue | null) => React.ReactNode;
+    children: (image: ImageValue) => React.ReactNode;
   }) => {
     const blockContext = React.use(Context);
     if (!blockContext) {
-      throw new Error("Media must be used within a Block Component");
+      throw new Error("Image must be used within a Block Component");
+    }
+
+    const { blockId, content, mode } = blockContext;
+    const isContentEditable = useIsEditable(mode);
+    const { window: iframeWindow } = useFrame();
+    const repeaterContext = React.use(RepeaterItemContext);
+    const fieldValue = repeaterContext
+      ? (repeaterContext.itemContent[name] as ImageValue)
+      : (content[name] as ImageValue);
+
+    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
+
+    const [isHovered, setIsHovered] = React.useState(false);
+    const [isFocused, setIsFocused] = React.useState(false);
+
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+    const isFocusedFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_FOCUS_FIELD",
+      "CAMOX_FOCUS_FIELD_END",
+      { fieldId },
+    );
+
+    React.useEffect(() => {
+      setIsHovered(isHoveredFromSidebar);
+    }, [isHoveredFromSidebar]);
+
+    React.useEffect(() => {
+      setIsFocused(isFocusedFromSidebar);
+    }, [isFocusedFromSidebar]);
+
+    const buildImageBreadcrumbs = () => {
+      const crumbs: Array<{
+        type: "Block" | "RepeatableObject" | "Image";
+        id: string;
+        fieldName?: string;
+      }> = [{ type: "Block", id: blockId }];
+
+      if (repeaterContext?.nested) {
+        crumbs.push({
+          type: "RepeatableObject",
+          id: repeaterContext.nested.parentItemId,
+          fieldName: repeaterContext.nested.parentArrayFieldName,
+        });
+        crumbs.push({
+          type: "RepeatableObject",
+          id: `idx:${repeaterContext.nested.nestedIndex}`,
+          fieldName: repeaterContext.nested.nestedFieldName,
+        });
+      } else if (repeaterContext?.itemId) {
+        crumbs.push({
+          type: "RepeatableObject",
+          id: repeaterContext.itemId,
+          fieldName: repeaterContext.arrayFieldName,
+        });
+      }
+
+      crumbs.push({
+        type: "Image",
+        id: String(name),
+        fieldName: String(name),
+      });
+
+      return crumbs;
+    };
+
+    const handleClick = () => {
+      if (!isContentEditable) return;
+      previewStore.send({
+        type: "setSelectionBreadcrumbs",
+        breadcrumbs: buildImageBreadcrumbs(),
+      });
+      previewStore.send({ type: "toggleContentSheet" });
+    };
+
+    if (!isContentEditable) {
+      return <>{children(fieldValue)}</>;
+    }
+
+    const showOverlay = isHovered || isFocused;
+
+    return (
+      <div
+        style={{ position: "relative" }}
+        data-camox-field-id={fieldId}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={handleClick}
+      >
+        {children(fieldValue)}
+        {showOverlay && (
+          <div
+            style={{
+              position: "absolute",
+              inset: isFocused
+                ? OVERLAY_OFFSETS.blockSelected
+                : OVERLAY_OFFSETS.blockHover,
+              border: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+              pointerEvents: "none",
+              zIndex: 10,
+            }}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const File = <K extends keyof FileFields>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (file: FileValue) => React.ReactNode;
+  }) => {
+    const blockContext = React.use(Context);
+    if (!blockContext) {
+      throw new Error("File must be used within a Block Component");
     }
 
     const { content } = blockContext;
     const repeaterContext = React.use(RepeaterItemContext);
     const fieldValue = repeaterContext
-      ? (repeaterContext.itemContent[name] as MediaValue | null)
-      : (content[name] as MediaValue | null);
+      ? (repeaterContext.itemContent[name] as FileValue)
+      : (content[name] as FileValue);
 
     return <>{children(fieldValue)}</>;
   };
@@ -1010,9 +1153,13 @@ export function createBlock<
           name: F;
           children: (url: string) => React.ReactNode;
         }) => React.ReactNode;
-        Media: <F extends keyof ItemMediaFields<K>>(props: {
+        Image: <F extends keyof ItemImageFields<K>>(props: {
           name: F;
-          children: (media: MediaValue | null) => React.ReactNode;
+          children: (image: ImageValue) => React.ReactNode;
+        }) => React.ReactNode;
+        File: <F extends keyof ItemFileFields<K>>(props: {
+          name: F;
+          children: (file: FileValue) => React.ReactNode;
         }) => React.ReactNode;
         Repeater: <F extends keyof ItemRepeatableFields<K>>(props: {
           name: F;
@@ -1034,11 +1181,13 @@ export function createBlock<
                 name: string;
                 children: (url: string) => React.ReactNode;
               }) => React.ReactNode;
-              Media: (props: {
+              Image: (props: {
                 name: string;
-                children: (
-                  media: MediaValue | null,
-                ) => React.ReactNode;
+                children: (image: ImageValue) => React.ReactNode;
+              }) => React.ReactNode;
+              File: (props: {
+                name: string;
+                children: (file: FileValue) => React.ReactNode;
               }) => React.ReactNode;
               Repeater: (props: {
                 name: string;
@@ -1084,9 +1233,14 @@ export function createBlock<
       children: (url: string) => React.ReactNode;
     }) => React.ReactNode;
 
-    const ItemMedia = Media as <F extends keyof ItemMediaFields<K>>(props: {
+    const ItemImage = Image as <F extends keyof ItemImageFields<K>>(props: {
       name: F;
-      children: (media: MediaValue | null) => React.ReactNode;
+      children: (image: ImageValue) => React.ReactNode;
+    }) => React.ReactNode;
+
+    const ItemFile = File as <F extends keyof ItemFileFields<K>>(props: {
+      name: F;
+      children: (file: FileValue) => React.ReactNode;
     }) => React.ReactNode;
 
     const ItemRepeater = Repeater as <
@@ -1111,11 +1265,13 @@ export function createBlock<
             name: string;
             children: (url: string) => React.ReactNode;
           }) => React.ReactNode;
-          Media: (props: {
+          Image: (props: {
             name: string;
-            children: (
-              media: MediaValue | null,
-            ) => React.ReactNode;
+            children: (image: ImageValue) => React.ReactNode;
+          }) => React.ReactNode;
+          File: (props: {
+            name: string;
+            children: (file: FileValue) => React.ReactNode;
           }) => React.ReactNode;
           Repeater: (props: {
             name: string;
@@ -1130,7 +1286,8 @@ export function createBlock<
       Field: ItemField,
       Link: ItemLink,
       Embed: ItemEmbed,
-      Media: ItemMedia,
+      Image: ItemImage,
+      File: ItemFile,
       Repeater: ItemRepeater,
     };
 
@@ -1176,7 +1333,7 @@ export function createBlock<
     }
 
     // Top-level repeater: items are { _id, content, ... } documents
-    const arrayValue = content[name] as RepeatableFields[K];
+    const arrayValue = (content[name] ?? []) as RepeatableFields[K];
 
     if (!Array.isArray(arrayValue)) {
       throw new Error(`Field "${String(name)}" is not an array`);
@@ -1435,7 +1592,8 @@ export function createBlock<
     Field,
     Embed,
     Link,
-    Media,
+    Image,
+    File,
     Repeater,
     useSetting,
     id: options.id,

@@ -1,6 +1,9 @@
 import {
   Type as TypeBoxType,
   type TSchema,
+  type TUnsafe,
+  type TArray,
+  type TObject,
 } from "@sinclair/typebox";
 import type { FieldType } from "./fieldTypes.tsx";
 
@@ -24,20 +27,145 @@ export type LinkValue = (
 };
 
 /* -------------------------------------------------------------------------------------------------
- * MediaValue branded type
+ * ImageValue branded type
  * -----------------------------------------------------------------------------------------------*/
 
-declare const MediaBrand: unique symbol;
-export type MediaValue = {
+export type ImageValue = {
   url: string;
   alt: string;
   filename: string;
   mimeType: string;
-} & { readonly [MediaBrand]: true };
+} & { readonly __brand: "ImageValue" };
+
+/* -------------------------------------------------------------------------------------------------
+ * FileValue branded type
+ * -----------------------------------------------------------------------------------------------*/
+
+export type FileValue = {
+  url: string;
+  alt: string;
+  filename: string;
+  mimeType: string;
+} & { readonly __brand: "FileValue" };
 
 /* -------------------------------------------------------------------------------------------------
  * Typebox wrapper used for content schemas
  * -----------------------------------------------------------------------------------------------*/
+
+/* -------------------------------------------------------------------------------------------------
+ * Image / File type builders (overloaded for single vs multiple)
+ * -----------------------------------------------------------------------------------------------*/
+
+function _imageType(options: {
+  title?: string;
+  multiple: true;
+  defaultItems: number;
+}): TArray<TObject<{ image: TUnsafe<ImageValue> }>>;
+function _imageType(options: {
+  title?: string;
+  multiple?: false;
+}): TUnsafe<ImageValue>;
+function _imageType(options: {
+  title?: string;
+  multiple?: boolean;
+  defaultItems?: number;
+}): TArray<TObject<{ image: TUnsafe<ImageValue> }>> | TUnsafe<ImageValue> {
+  const imageDefault = {
+    url: `https://placehold.co/1200x800/f4f4f5/a1a1aa.png?text=${options?.title || "image"}`,
+    alt: "",
+    filename: "placeholder.png",
+    mimeType: "image/png",
+  };
+
+  const singleSchema = TypeBoxType.Unsafe<ImageValue>({
+    type: "object",
+    properties: {
+      url: { type: "string" },
+      alt: { type: "string" },
+      filename: { type: "string" },
+      mimeType: { type: "string" },
+    },
+    accept: ["image/*"],
+    default: imageDefault,
+    title: options.title,
+    fieldType: "Image" as const,
+  });
+
+  if (!options.multiple) {
+    return singleSchema;
+  }
+
+  const defaultItems = options.defaultItems ?? 0;
+  const itemSchema = TypeBoxType.Object({ image: singleSchema });
+  const defaultArray = Array.from({ length: defaultItems }, () => ({
+    image: imageDefault,
+  }));
+  return TypeBoxType.Array(itemSchema, {
+    minItems: 0,
+    maxItems: 100,
+    default: defaultArray,
+    title: options.title,
+    fieldType: "RepeatableObject" as const,
+    arrayItemType: "Image" as const,
+  });
+}
+
+function _fileType(options: {
+  accept: string[];
+  title?: string;
+  multiple: true;
+  defaultItems: number;
+}): TArray<TObject<{ file: TUnsafe<FileValue> }>>;
+function _fileType(options: {
+  accept: string[];
+  title?: string;
+  multiple?: false;
+}): TUnsafe<FileValue>;
+function _fileType(options: {
+  accept: string[];
+  title?: string;
+  multiple?: boolean;
+  defaultItems?: number;
+}): TArray<TObject<{ file: TUnsafe<FileValue> }>> | TUnsafe<FileValue> {
+  const fileDefault = {
+    url: "https://placehold.co/file-placeholder",
+    alt: "",
+    filename: "placeholder",
+    mimeType: "application/octet-stream",
+  };
+
+  const singleSchema = TypeBoxType.Unsafe<FileValue>({
+    type: "object",
+    properties: {
+      url: { type: "string" },
+      alt: { type: "string" },
+      filename: { type: "string" },
+      mimeType: { type: "string" },
+    },
+    accept: options.accept,
+    default: fileDefault,
+    title: options.title,
+    fieldType: "File" as const,
+  });
+
+  if (!options.multiple) {
+    return singleSchema;
+  }
+
+  const defaultItems = options.defaultItems ?? 0;
+  const itemSchema = TypeBoxType.Object({ file: singleSchema });
+  const defaultArray = Array.from({ length: defaultItems }, () => ({
+    file: fileDefault,
+  }));
+  return TypeBoxType.Array(itemSchema, {
+    minItems: 0,
+    maxItems: 100,
+    default: defaultArray,
+    title: options.title,
+    fieldType: "RepeatableObject" as const,
+    arrayItemType: "File" as const,
+  });
+}
 
 /**
  * Type builders for createBlock content schemas.
@@ -200,28 +328,7 @@ export const Type = {
     });
   },
 
-  /**
-   * Creates a media field for images, videos, or other file assets.
-   * The `accept` array uses MIME type patterns (same as HTML `<input accept>`).
-   *
-   * @example
-   * Type.Media({ accept: ['image/*'], title: 'Cover image' })
-   * Type.Media({ accept: ['image/*', 'video/*'], title: 'Hero media' })
-   * Type.Media({ accept: ['application/pdf'], title: 'Document' })
-   */
-  Media: (options: { accept: string[]; title?: string }) => {
-    return TypeBoxType.Unsafe<MediaValue | null>({
-      type: ["object", "null"],
-      properties: {
-        url: { type: "string" },
-        alt: { type: "string" },
-        filename: { type: "string" },
-        mimeType: { type: "string" },
-      },
-      accept: options.accept,
-      default: null,
-      title: options.title,
-      fieldType: "Media" as const,
-    });
-  },
+  Image: _imageType,
+
+  File: _fileType,
 } satisfies Record<FieldType, unknown>;

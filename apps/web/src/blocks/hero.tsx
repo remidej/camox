@@ -19,8 +19,7 @@ const hero = createBlock({
       maxLength: 280,
       title: "Description",
     }),
-    illustration: Type.Media({
-      accept: ["image/*"],
+    illustration: Type.Image({
       title: "Illustration",
     }),
     cta: Type.Link({
@@ -58,59 +57,64 @@ function HeroComponent() {
         )}
       >
         <div className="container mx-auto px-4">
-          <div className="max-w-5xl mx-auto text-left">
-            <hero.Field name="title">
-              {(content) => (
-                <h1
-                  className={cn(
-                    "font-bold tracking-tight text-foreground leading-tight",
-                    compact
-                      ? "mb-4 text-2xl sm:text-3xl lg:text-4xl"
-                      : "mb-8 text-4xl sm:text-6xl lg:text-7xl",
-                  )}
-                >
-                  {content}
-                </h1>
-              )}
-            </hero.Field>
-            <hero.Field name="description">
-              {(content) => (
-                <p
-                  className={cn(
-                    "text-red-900/70 dark:text-red-200",
-                    compact ? "mb-6 text-base" : "mb-12 text-xl",
-                  )}
-                >
-                  {content}
-                </p>
-              )}
-            </hero.Field>
-            <hero.Media name="illustration">
-              {(media) =>
-                media && (
-                  <img
-                    src={media.url}
-                    alt={media.alt}
-                    className="mb-8 max-w-full rounded-lg"
-                  />
-                )
-              }
-            </hero.Media>
-            <div className="flex flex-col sm:flex-row gap-4 items-start">
-              <hero.Link name="cta">
-                {({ text, href, newTab }) => (
-                  <Button size={compact ? "default" : "lg"} asChild>
-                    <Link
-                      to={href}
-                      target={newTab ? "_blank" : undefined}
-                      rel={newTab ? "noreferrer" : undefined}
-                    >
-                      {text}
-                    </Link>
-                  </Button>
+          <div
+            className={cn(
+              "max-w-5xl mx-auto",
+              "flex flex-col lg:flex-row lg:items-center lg:gap-12",
+            )}
+          >
+            <div className="flex-1 text-left">
+              <hero.Field name="title">
+                {(content) => (
+                  <h1
+                    className={cn(
+                      "font-bold tracking-tight text-foreground leading-tight",
+                      compact
+                        ? "mb-4 text-2xl sm:text-3xl lg:text-4xl"
+                        : "mb-8 text-4xl sm:text-6xl lg:text-7xl",
+                    )}
+                  >
+                    {content}
+                  </h1>
                 )}
-              </hero.Link>
+              </hero.Field>
+              <hero.Field name="description">
+                {(content) => (
+                  <p
+                    className={cn(
+                      "text-red-900/70 dark:text-red-200",
+                      compact ? "mb-6 text-base" : "mb-12 text-xl",
+                    )}
+                  >
+                    {content}
+                  </p>
+                )}
+              </hero.Field>
+              <div className="flex flex-col sm:flex-row gap-4 items-start">
+                <hero.Link name="cta">
+                  {({ text, href, newTab }) => (
+                    <Button size={compact ? "default" : "lg"} asChild>
+                      <Link
+                        to={href}
+                        target={newTab ? "_blank" : undefined}
+                        rel={newTab ? "noreferrer" : undefined}
+                      >
+                        {text}
+                      </Link>
+                    </Button>
+                  )}
+                </hero.Link>
+              </div>
             </div>
+            <hero.Image name="illustration">
+              {(img) => (
+                <img
+                  src={img.url}
+                  alt={img.alt}
+                  className="mt-10 lg:mt-0 w-full max-w-xs lg:max-w-sm rounded-lg"
+                />
+              )}
+            </hero.Image>
           </div>
         </div>
       </div>

@@ -68,6 +68,7 @@ type FieldItemProps = {
   value: unknown;
   fieldType: string | undefined;
   schemaTitle: string | undefined;
+  arrayItemType?: string;
   isSelected: boolean;
   onFieldClick: () => void;
   onFieldDoubleClick: () => void;
@@ -80,6 +81,7 @@ const FieldItem = ({
   value,
   fieldType,
   schemaTitle,
+  arrayItemType,
   isSelected,
   onFieldClick,
   onFieldDoubleClick,
@@ -101,7 +103,7 @@ const FieldItem = ({
       })
     : JSON.stringify(value);
 
-  const FieldIcon = fieldDef?.Icon ?? Type;
+  const FieldIcon = fieldDef?.getIcon({ arrayItemType }) ?? Type;
 
   return (
     <li
@@ -218,6 +220,7 @@ const BlockFields = ({ block }: BlockFieldsProps) => {
             value={value}
             fieldType={fieldType}
             schemaTitle={fieldSchema?.title}
+            arrayItemType={fieldSchema?.arrayItemType}
             isSelected={selectedFieldName === fieldName}
             onFieldClick={() => handleFieldClick(fieldName, fieldType!)}
             onFieldDoubleClick={() =>

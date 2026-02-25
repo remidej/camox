@@ -1,7 +1,11 @@
 import * as React from "react";
 import { useForm } from "@tanstack/react-form";
 
-import { Link2 as Link2Icon } from "lucide-react";
+import {
+  Link2 as Link2Icon,
+  Images as ImagesIcon,
+  ImageIcon,
+} from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,12 +27,14 @@ export interface SchemaField {
     | "Enum"
     | "Boolean"
     | "Embed"
-    | "Link";
+    | "Link"
+    | "Image";
   label?: string;
   enumLabels?: Record<string, string>;
   enumValues?: string[];
   minItems?: number;
   maxItems?: number;
+  arrayItemType?: "Image" | "File";
 }
 
 export const formatFieldName = (fieldName: string): string => {
@@ -51,6 +57,7 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       label: prop.title as string | undefined,
       minItems: prop.minItems as number | undefined,
       maxItems: prop.maxItems as number | undefined,
+      arrayItemType: prop.arrayItemType as "Image" | "File" | undefined,
     };
   });
 };
@@ -271,6 +278,97 @@ const ItemFieldsEditor = ({
                 }
               >
                 <Link2Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{preview}</span>
+              </button>
+            </div>
+          );
+        }
+
+        if (
+          field.fieldType === "RepeatableObject" &&
+          field.arrayItemType === "Image"
+        ) {
+          const items = (data[field.name] ?? []) as unknown[];
+          const count = items.length;
+          const preview =
+            count === 0
+              ? "No images"
+              : count === 1
+                ? "1 image"
+                : `${count} images`;
+
+          return (
+            <div
+              key={field.name}
+              className="space-y-2"
+              onMouseEnter={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_REPEATER",
+                  blockId,
+                  fieldName: field.name,
+                })
+              }
+              onMouseLeave={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_REPEATER_END",
+                  blockId,
+                  fieldName: field.name,
+                })
+              }
+            >
+              <Label>{label}</Label>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full rounded-lg px-2 py-2 text-sm text-left hover:bg-accent/75 transition-colors"
+                onClick={() =>
+                  previewStore.send({
+                    type: "drillIntoImage",
+                    fieldName: field.name,
+                  })
+                }
+              >
+                <ImagesIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{preview}</span>
+              </button>
+            </div>
+          );
+        }
+
+        if (field.fieldType === "Image") {
+          const imageValue = data[field.name] as
+            | { filename?: string }
+            | undefined;
+          const preview = imageValue?.filename || "No image";
+
+          return (
+            <div
+              key={field.name}
+              className="space-y-2"
+              onMouseEnter={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_FIELD",
+                  fieldId,
+                })
+              }
+              onMouseLeave={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_FIELD_END",
+                  fieldId,
+                })
+              }
+            >
+              <Label>{label}</Label>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full rounded-lg px-2 py-2 text-sm text-left hover:bg-accent/75 transition-colors"
+                onClick={() =>
+                  previewStore.send({
+                    type: "drillIntoImage",
+                    fieldName: field.name,
+                  })
+                }
+              >
+                <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="truncate">{preview}</span>
               </button>
             </div>
