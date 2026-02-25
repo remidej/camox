@@ -10,6 +10,7 @@
 
 import type * as blockDefinitions from "../blockDefinitions.js";
 import type * as blocks from "../blocks.js";
+import type * as files from "../files.js";
 import type * as fs from "../fs.js";
 import type * as functions from "../functions.js";
 import type * as http from "../http.js";
@@ -36,6 +37,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   blockDefinitions: typeof blockDefinitions;
   blocks: typeof blocks;
+  files: typeof files;
   fs: typeof fs;
   functions: typeof functions;
   http: typeof http;

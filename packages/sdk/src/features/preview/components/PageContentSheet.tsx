@@ -26,6 +26,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FileUpload } from "@/components/file-upload";
+import { Button } from "@/components/ui/button";
+import { ImageIcon, Trash2 } from "lucide-react";
 import { PreviewSideSheet, SheetParts } from "./PreviewSideSheet";
 import { api } from "camox/_generated/api";
 import { Doc, Id } from "camox/_generated/dataModel";
@@ -128,7 +131,12 @@ const getDataAtDepth = (
   }
 
   if (!lastItemId) return null;
-  return { data: currentData, itemId: lastItemId, parentItemId, parentFieldName };
+  return {
+    data: currentData,
+    itemId: lastItemId,
+    parentItemId,
+    parentFieldName,
+  };
 };
 
 /* -------------------------------------------------------------------------------------------------
@@ -169,6 +177,12 @@ const PageContentSheet = () => {
   const updateBlockSettings = useMutation(api.blocks.updateBlockSettings);
   const updateRepeatableItemContent = useMutation(
     api.repeatableItems.updateRepeatableItemContent,
+  );
+  const createRepeatableItem = useMutation(
+    api.repeatableItems.createRepeatableItem,
+  );
+  const deleteRepeatableItem = useMutation(
+    api.repeatableItems.deleteRepeatableItem,
   );
 
   // Get state from store
@@ -242,6 +256,13 @@ const PageContentSheet = () => {
   const isViewingImage =
     lastBreadcrumb?.type === "Image" && !!lastBreadcrumb.fieldName;
   const imageFieldName = isViewingImage ? lastBreadcrumb.fieldName : null;
+
+  // Detect if we're viewing a multi-image field (RepeatableObject with arrayItemType: "Image")
+  const isMultiImage = React.useMemo(() => {
+    if (!isViewingImage || !imageFieldName || !currentSchema) return false;
+    const fieldSchema = (currentSchema as any)?.properties?.[imageFieldName];
+    return fieldSchema?.arrayItemType === "Image";
+  }, [isViewingImage, imageFieldName, currentSchema]);
 
   // Redirect RepeatableObject drill-ins for multi-image fields to the Image view.
   // Clicking an image in the iframe produces breadcrumbs like
@@ -625,15 +646,106 @@ const PageContentSheet = () => {
         </SheetParts.SheetDescription>
       </SheetParts.SheetHeader>
       <div className="flex-1 overflow-auto">
-        {isViewingImage && imageFieldName ? (
-          <div className="py-4 px-4" />
+        {isViewingImage && imageFieldName && isMultiImage ? (
+          <div className="py-4 px-4 space-y-4">
+            {(() => {
+              const items = (currentData[imageFieldName] ?? []) as Array<{
+                _id: Id<"repeatableItems">;
+                content: {
+                  image: {
+                    url: string;
+                    alt: string;
+                    filename: string;
+                    mimeType: string;
+                  };
+                };
+              }>;
+              const validImages = items.filter(
+                (item) =>
+                  item.content?.image?.url &&
+                  !item.content.image.url.includes("placehold.co"),
+              );
+              return validImages.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {validImages.map((item) => (
+                    <div
+                      key={item._id}
+                      className="relative group rounded-md overflow-hidden border border-border"
+                    >
+                      <img
+                        src={item.content.image.url}
+                        alt={
+                          item.content.image.alt || item.content.image.filename
+                        }
+                        className="w-full h-24 object-cover"
+                      />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <ImageIcon className="h-3 w-3 shrink-0 text-white/80" />
+                            <span className="text-xs text-white/80 truncate">
+                              {item.content.image.filename}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="bg-transparent! h-5 w-5 text-white/80 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() =>
+                              deleteRepeatableItem({ itemId: item._id })
+                            }
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null;
+            })()}
+            <FileUpload
+              multiple
+              onUploadComplete={(value) => {
+                if (!blockId) return;
+                createRepeatableItem({
+                  blockId,
+                  fieldName: imageFieldName,
+                  content: { image: value },
+                });
+              }}
+            />
+          </div>
+        ) : isViewingImage && imageFieldName ? (
+          <div className="py-4 px-4">
+            <FileUpload
+              initialValue={
+                currentData[imageFieldName] as
+                  | {
+                      url: string;
+                      alt: string;
+                      filename: string;
+                      mimeType: string;
+                    }
+                  | undefined
+              }
+              onUploadComplete={(value) => {
+                activeFieldChangeHandler(imageFieldName, value);
+              }}
+            />
+          </div>
         ) : isViewingLink && linkFieldName ? (
           <div className="py-4 px-4">
             <LinkFieldEditor
               fieldName={linkFieldName}
               linkValue={
                 (currentData[linkFieldName] as Record<string, unknown>) ??
-                ({ type: "external", text: "", href: "", newTab: false } as Record<string, unknown>)
+                ({
+                  type: "external",
+                  text: "",
+                  href: "",
+                  newTab: false,
+                } as Record<string, unknown>)
               }
               onSave={(fieldName, value) => {
                 activeFieldChangeHandler(fieldName, value);
@@ -652,81 +764,84 @@ const PageContentSheet = () => {
             postToIframe={postToIframe}
           />
         )}
-        {depth === 0 && !isViewingLink && !isViewingImage && settingsFields.length > 0 && (
-          <div className="space-y-4 py-4 px-4 border-t border-border">
-            <Label className="text-muted-foreground">Settings</Label>
-            {settingsFields.map((field) => {
-              const label = field.label ?? formatFieldName(field.name);
-              const settingsValues = (block.settings ?? {}) as Record<
-                string,
-                unknown
-              >;
+        {depth === 0 &&
+          !isViewingLink &&
+          !isViewingImage &&
+          settingsFields.length > 0 && (
+            <div className="space-y-4 py-4 px-4 border-t border-border">
+              <Label className="text-muted-foreground">Settings</Label>
+              {settingsFields.map((field) => {
+                const label = field.label ?? formatFieldName(field.name);
+                const settingsValues = (block.settings ?? {}) as Record<
+                  string,
+                  unknown
+                >;
 
-              if (field.fieldType === "Enum") {
-                const value =
-                  (settingsValues[field.name] as string | undefined) ??
-                  (blockDef.settingsSchema?.properties?.[field.name] as any)
-                    ?.default ??
-                  "";
+                if (field.fieldType === "Enum") {
+                  const value =
+                    (settingsValues[field.name] as string | undefined) ??
+                    (blockDef.settingsSchema?.properties?.[field.name] as any)
+                      ?.default ??
+                    "";
 
-                return (
-                  <div key={field.name} className="space-y-2">
-                    <Label htmlFor={`setting-${field.name}`}>{label}</Label>
-                    <Select
-                      value={value}
-                      onValueChange={(newValue) => {
-                        updateBlockSettings({
-                          blockId: block._id,
-                          settings: { [field.name]: newValue },
-                        });
-                      }}
+                  return (
+                    <div key={field.name} className="space-y-2">
+                      <Label htmlFor={`setting-${field.name}`}>{label}</Label>
+                      <Select
+                        value={value}
+                        onValueChange={(newValue) => {
+                          updateBlockSettings({
+                            blockId: block._id,
+                            settings: { [field.name]: newValue },
+                          });
+                        }}
+                      >
+                        <SelectTrigger id={`setting-${field.name}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {field.enumValues?.map((enumValue) => (
+                            <SelectItem key={enumValue} value={enumValue}>
+                              {field.enumLabels?.[enumValue] ?? enumValue}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                }
+
+                if (field.fieldType === "Boolean") {
+                  const checked =
+                    (settingsValues[field.name] as boolean | undefined) ??
+                    (blockDef.settingsSchema?.properties?.[field.name] as any)
+                      ?.default ??
+                    false;
+
+                  return (
+                    <div
+                      key={field.name}
+                      className="flex items-center justify-between"
                     >
-                      <SelectTrigger id={`setting-${field.name}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {field.enumValues?.map((enumValue) => (
-                          <SelectItem key={enumValue} value={enumValue}>
-                            {field.enumLabels?.[enumValue] ?? enumValue}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                );
-              }
+                      <Label htmlFor={`setting-${field.name}`}>{label}</Label>
+                      <Switch
+                        id={`setting-${field.name}`}
+                        checked={checked}
+                        onCheckedChange={(newValue) => {
+                          updateBlockSettings({
+                            blockId: block._id,
+                            settings: { [field.name]: newValue },
+                          });
+                        }}
+                      />
+                    </div>
+                  );
+                }
 
-              if (field.fieldType === "Boolean") {
-                const checked =
-                  (settingsValues[field.name] as boolean | undefined) ??
-                  (blockDef.settingsSchema?.properties?.[field.name] as any)
-                    ?.default ??
-                  false;
-
-                return (
-                  <div
-                    key={field.name}
-                    className="flex items-center justify-between"
-                  >
-                    <Label htmlFor={`setting-${field.name}`}>{label}</Label>
-                    <Switch
-                      id={`setting-${field.name}`}
-                      checked={checked}
-                      onCheckedChange={(newValue) => {
-                        updateBlockSettings({
-                          blockId: block._id,
-                          settings: { [field.name]: newValue },
-                        });
-                      }}
-                    />
-                  </div>
-                );
-              }
-
-              return null;
-            })}
-          </div>
-        )}
+                return null;
+              })}
+            </div>
+          )}
       </div>
     </PreviewSideSheet>
   );

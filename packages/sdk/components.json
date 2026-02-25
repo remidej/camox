@@ -18,5 +18,7 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "registries": {}
+  "registries": {
+    "@blocks": "https://blocks.so/r/{name}.json"
+  }
 }

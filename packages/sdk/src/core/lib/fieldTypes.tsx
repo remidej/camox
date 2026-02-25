@@ -121,6 +121,7 @@ const fieldTypesDictionary = {
     onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
       previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "Image" });
       previewStore.send({ type: "openBlockContentSheet", blockId });
+      previewStore.send({ type: "drillIntoImage", fieldName });
     },
   },
   File: {

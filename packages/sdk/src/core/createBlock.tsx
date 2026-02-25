@@ -1339,11 +1339,26 @@ export function createBlock<
       throw new Error(`Field "${String(name)}" is not an array`);
     }
 
+    // For image arrays, hide placeholder items when real images exist
+    let filteredArray = arrayValue;
+    if (arrayValue.length > 0 && (arrayValue as any[])[0]?.content?.image?.url) {
+      const hasReal = (arrayValue as any[]).some(
+        (item: any) =>
+          item.content?.image?.url &&
+          !item.content.image.url.includes("placehold.co"),
+      );
+      if (hasReal) {
+        filteredArray = (arrayValue as any[]).filter(
+          (item: any) => !item.content?.image?.url?.includes("placehold.co"),
+        ) as typeof arrayValue;
+      }
+    }
+
     type TItem = RepeatableItemType<K>;
 
     return (
       <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
-        {arrayValue.map((item: any, index: number) => {
+        {filteredArray.map((item: any, index: number) => {
           const itemContent = item.content as TItem;
           const itemId = item._id as Id<"repeatableItems"> | undefined;
 
@@ -1441,8 +1456,22 @@ export function createBlock<
           value.length > 0 &&
           value[0]?.content !== undefined
         ) {
-          // This is an array of full item objects - extract just the content for the component prop
-          result[key] = value.map((item: any) => item.content);
+          let items = value;
+          // For image arrays, filter out placeholders when real images exist
+          if (items[0]?.content?.image?.url) {
+            const hasReal = items.some(
+              (item: any) =>
+                item.content?.image?.url &&
+                !item.content.image.url.includes("placehold.co"),
+            );
+            if (hasReal) {
+              items = items.filter(
+                (item: any) => !item.content?.image?.url?.includes("placehold.co"),
+              );
+            }
+          }
+          // Extract just the content for the component prop
+          result[key] = items.map((item: any) => item.content);
         }
       }
 
