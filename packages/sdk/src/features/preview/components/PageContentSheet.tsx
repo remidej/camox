@@ -37,7 +37,8 @@ import { actionsStore, type Action } from "@/features/provider/actionsStore";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
-import { ImageFieldEditor } from "./ImageFieldEditor";
+import { SingleImageFieldEditor } from "./ImageFieldEditor";
+import { MultipleImageFieldEditor } from "./MultipleImageFieldEditor";
 
 /* -------------------------------------------------------------------------------------------------
  * Helper: Get settings fields from schema
@@ -248,6 +249,15 @@ const PageContentSheet = () => {
     lastBreadcrumb?.type === "Image" && !!lastBreadcrumb.fieldName;
   const imageFieldName = isViewingImage ? lastBreadcrumb.fieldName : null;
 
+  const isMultipleImage = React.useMemo(() => {
+    if (!isViewingImage || !imageFieldName || !blockDef) return false;
+    const schema = getSchemaAtDepth(
+      blockDef.contentSchema,
+      repeatableBreadcrumbs,
+    );
+    const prop = (schema as any)?.properties?.[imageFieldName];
+    return prop?.arrayItemType === "Image";
+  }, [isViewingImage, imageFieldName, blockDef, repeatableBreadcrumbs]);
 
   // Redirect RepeatableObject drill-ins for multi-image fields to the Image view.
   // Clicking an image in the iframe produces breadcrumbs like
@@ -631,8 +641,14 @@ const PageContentSheet = () => {
         </SheetParts.SheetDescription>
       </SheetParts.SheetHeader>
       <div className="flex-1 overflow-auto">
-        {isViewingImage && imageFieldName ? (
-          <ImageFieldEditor
+        {isViewingImage && imageFieldName && isMultipleImage ? (
+          <MultipleImageFieldEditor
+            imageFieldName={imageFieldName}
+            currentData={currentData}
+            blockId={block._id}
+          />
+        ) : isViewingImage && imageFieldName ? (
+          <SingleImageFieldEditor
             imageFieldName={imageFieldName}
             currentData={currentData}
             onFieldChange={activeFieldChangeHandler}

@@ -61,10 +61,10 @@ const DebouncedFieldEditor = ({
 };
 
 /* -------------------------------------------------------------------------------------------------
- * ImageFieldEditor
+ * SingleImageFieldEditor
  * -----------------------------------------------------------------------------------------------*/
 
-const ImageFieldEditor = ({
+const SingleImageFieldEditor = ({
   imageFieldName,
   currentData,
   onFieldChange,
@@ -162,4 +162,4 @@ const ImageFieldEditor = ({
   );
 };
 
-export { ImageFieldEditor };
+export { SingleImageFieldEditor };
