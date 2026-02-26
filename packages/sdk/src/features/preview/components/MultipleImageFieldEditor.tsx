@@ -35,13 +35,13 @@ import { ImageLightbox } from "./ImageLightbox";
 interface SortableImageItemProps {
   item: Doc<"repeatableItems">;
   onRemove: (itemId: Id<"repeatableItems">) => void;
-  onThumbnailClick: (item: Doc<"repeatableItems">) => void;
+  onImageOpen: (item: Doc<"repeatableItems">) => void;
 }
 
 const SortableImageItem = ({
   item,
   onRemove,
-  onThumbnailClick,
+  onImageOpen,
 }: SortableImageItemProps) => {
   const {
     attributes,
@@ -89,19 +89,21 @@ const SortableImageItem = ({
 
         <button
           type="button"
-          className="w-10 h-10 rounded border border-border overflow-hidden shrink-0 cursor-zoom-in"
-          onClick={() => onThumbnailClick(item)}
+          className="flex flex-1 items-center gap-2 min-w-0 cursor-zoom-in"
+          onClick={() => onImageOpen(item)}
         >
-          <img
-            src={url}
-            alt={alt || filename}
-            className="w-full h-full object-cover"
-          />
-        </button>
+          <div className="w-12 h-12 rounded border border-border overflow-hidden shrink-0">
+            <img
+              src={url}
+              alt={alt || filename}
+              className="w-full h-full object-cover"
+            />
+          </div>
 
-        <p className="flex-1 truncate text-sm" title={filename}>
-          {filename}
-        </p>
+          <p className="flex-1 truncate text-sm text-left" title={filename}>
+            {filename}
+          </p>
+        </button>
 
         <Button
           type="button"
@@ -206,17 +208,13 @@ const MultipleImageFieldEditor = ({
     );
   });
 
-  const allItems = (currentData[imageFieldName] ?? []) as Doc<
-    "repeatableItems"
-  >[];
+  const allItems = (currentData[imageFieldName] ??
+    []) as Doc<"repeatableItems">[];
 
   const items = allItems.filter((item) => {
     const image = item.content?.image as { url?: string } | undefined;
     return image?.url && !image.url.includes("placehold.co");
   });
-
-  const updateFileAlt = useMutation(api.files.updateFileAlt);
-  const updateFileFilename = useMutation(api.files.updateFileFilename);
 
   // Lightbox state
   const [lightboxItem, setLightboxItem] =
@@ -249,8 +247,7 @@ const MultipleImageFieldEditor = ({
           ? dbItems[newIndex + 1].position
           : undefined;
     } else {
-      afterPosition =
-        newIndex > 0 ? dbItems[newIndex - 1].position : undefined;
+      afterPosition = newIndex > 0 ? dbItems[newIndex - 1].position : undefined;
       beforePosition = dbItems[newIndex].position;
     }
 
@@ -273,7 +270,7 @@ const MultipleImageFieldEditor = ({
     });
   };
 
-  const handleThumbnailClick = (item: Doc<"repeatableItems">) => {
+  const handleImageOpen = (item: Doc<"repeatableItems">) => {
     setLightboxItem(item);
   };
 
@@ -296,7 +293,7 @@ const MultipleImageFieldEditor = ({
                   key={item._id}
                   item={item}
                   onRemove={handleRemove}
-                  onThumbnailClick={handleThumbnailClick}
+                  onImageOpen={handleImageOpen}
                 />
               ))}
             </ul>
@@ -312,25 +309,16 @@ const MultipleImageFieldEditor = ({
 
       {(() => {
         const image = lightboxItem?.content?.image as
-          | { url: string; alt: string; filename: string; _fileId?: string }
+          | { _fileId?: string }
           | undefined;
+        if (!image?._fileId) return null;
         return (
           <ImageLightbox
             open={!!lightboxItem}
             onOpenChange={(open) => {
               if (!open) setLightboxItem(null);
             }}
-            imageUrl={image?.url ?? ""}
-            imageAlt={image?.alt || image?.filename || ""}
-            fileId={image?._fileId as Id<"files"> | undefined}
-            filename={image?.filename ?? ""}
-            alt={image?.alt ?? ""}
-            onSaveFilename={({ fileId, value }) =>
-              updateFileFilename({ fileId, filename: value })
-            }
-            onSaveAlt={({ fileId, value }) =>
-              updateFileAlt({ fileId, alt: value })
-            }
+            fileId={image._fileId as Id<"files">}
           />
         );
       })()}

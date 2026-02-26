@@ -1,8 +1,10 @@
-import { Download, Link } from "lucide-react";
-import { useState } from "react";
+import { Download, Link, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Tooltip,
@@ -10,45 +12,45 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { api } from "camox/_generated/api";
 import type { Id } from "camox/_generated/dataModel";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 
 interface ImageLightboxProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  imageUrl: string;
-  imageAlt: string;
-  fileId?: Id<"files">;
-  filename: string;
-  alt: string;
-  onSaveFilename: (args: { fileId: Id<"files">; value: string }) => void;
-  onSaveAlt: (args: { fileId: Id<"files">; value: string }) => void;
+  fileId: Id<"files">;
 }
 
-const ImageLightbox = ({
-  open,
-  onOpenChange,
-  imageUrl,
-  imageAlt,
-  fileId,
-  filename,
-  alt,
-  onSaveFilename,
-  onSaveAlt,
-}: ImageLightboxProps) => {
+const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
+  const file = useQuery(api.files.getFile, { fileId });
   const [zoomed, setZoomed] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const updateFileFilename = useMutation(api.files.updateFileFilename);
+  const updateFileAlt = useMutation(api.files.updateFileAlt);
+  const deleteFile = useMutation(api.files.deleteFile);
 
   const handleCopyUrl = async () => {
-    await navigator.clipboard.writeText(imageUrl);
+    if (!file) return;
+    await navigator.clipboard.writeText(file.url);
     toast("Link copied to clipboard");
   };
 
   const handleDownload = () => {
+    if (!file) return;
     const a = document.createElement("a");
-    a.href = imageUrl;
-    a.download = filename || "image";
+    a.href = file.url;
+    a.download = file.filename || "image";
     a.click();
   };
+
+  const handleDelete = async () => {
+    await deleteFile({ fileId });
+    onOpenChange(false);
+  };
+
+  if (!file) return null;
 
   return (
     <Dialog
@@ -63,19 +65,42 @@ const ImageLightbox = ({
         showCloseButton={false}
       >
         <DialogTitle className="sr-only">
-          {imageAlt || filename || "Image preview"}
+          {file.alt || file.filename || "Image preview"}
         </DialogTitle>
         <div className="flex flex-row max-h-[90vh]">
           <div
+            ref={containerRef}
             className={cn(
               "checkered flex-1 min-w-0",
-              zoomed ? "overflow-auto" : "overflow-hidden flex items-center justify-center p-6",
+              zoomed
+                ? "overflow-auto"
+                : "overflow-hidden flex items-center justify-center p-6",
             )}
-            onClick={() => setZoomed((z) => !z)}
+            onClick={(e) => {
+              if (!zoomed) {
+                const img = e.currentTarget.querySelector("img");
+                if (!img) return;
+                const rect = img.getBoundingClientRect();
+                const fracX = (e.clientX - rect.left) / rect.width;
+                const fracY = (e.clientY - rect.top) / rect.height;
+
+                setZoomed(true);
+                requestAnimationFrame(() => {
+                  const container = containerRef.current;
+                  if (!container) return;
+                  container.scrollLeft =
+                    fracX * container.scrollWidth - container.clientWidth / 2;
+                  container.scrollTop =
+                    fracY * container.scrollHeight - container.clientHeight / 2;
+                });
+              } else {
+                setZoomed(false);
+              }
+            }}
           >
             <img
-              src={imageUrl}
-              alt={imageAlt}
+              src={file.url}
+              alt={file.alt || file.filename}
               className={cn(
                 "shadow-lg",
                 zoomed
@@ -84,52 +109,67 @@ const ImageLightbox = ({
               )}
             />
           </div>
-          {fileId && (
-            <div className="w-72 shrink-0 border-l border-border bg-background p-6 space-y-4 overflow-y-auto">
-              <div className="flex justify-end gap-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={handleCopyUrl}
-                    >
-                      <Link />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy URL</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={handleDownload}
-                    >
-                      <Download />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Download</TooltipContent>
-                </Tooltip>
-              </div>
-              <DebouncedFieldEditor
-                fileId={fileId}
-                label="File name"
-                placeholder="File name..."
-                initialValue={filename}
-                onSave={onSaveFilename}
-              />
-              <DebouncedFieldEditor
-                fileId={fileId}
-                label="Alt text"
-                placeholder="Describe this image..."
-                initialValue={alt}
-                onSave={onSaveAlt}
-              />
-            </div>
-          )}
+          <div className="w-80 shrink-0 border-l border-border bg-background p-4 space-y-4 overflow-y-auto">
+            <ButtonGroup>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleCopyUrl}
+                  >
+                    <Link />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Copy URL</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleDownload}
+                  >
+                    <Download />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Download</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleDelete}
+                  >
+                    <Trash2 />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete</TooltipContent>
+              </Tooltip>
+            </ButtonGroup>
+            <DebouncedFieldEditor
+              fileId={fileId}
+              label="File name"
+              placeholder="File name..."
+              initialValue={file.filename}
+              onSave={({ fileId, value }) =>
+                updateFileFilename({ fileId, filename: value })
+              }
+            />
+            <DebouncedFieldEditor
+              fileId={fileId}
+              label="Alt text"
+              placeholder="Describe this image..."
+              initialValue={file.alt}
+              onSave={({ fileId, value }) =>
+                updateFileAlt({ fileId, alt: value })
+              }
+            />
+          </div>
         </div>
       </DialogContent>
     </Dialog>
