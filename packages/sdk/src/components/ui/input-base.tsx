@@ -129,7 +129,14 @@ function InputBaseAdornment({
   children,
   ...props
 }: InputBaseAdornmentProps) {
-  const Comp = asChild ? Slot : typeof children === "string" ? "p" : "div";
+  let Comp: typeof Slot | "p" | "div";
+  if (asChild) {
+    Comp = Slot;
+  } else if (typeof children === "string") {
+    Comp = "p";
+  } else {
+    Comp = "div";
+  }
 
   return (
     <Comp

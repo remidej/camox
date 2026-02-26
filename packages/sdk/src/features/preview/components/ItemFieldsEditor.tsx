@@ -290,12 +290,14 @@ const ItemFieldsEditor = ({
         ) {
           const items = (data[field.name] ?? []) as unknown[];
           const count = items.length;
-          const preview =
-            count === 0
-              ? "No images"
-              : count === 1
-                ? "1 image"
-                : `${count} images`;
+          let preview: string;
+          if (count === 0) {
+            preview = "No images";
+          } else if (count === 1) {
+            preview = "1 image";
+          } else {
+            preview = `${count} images`;
+          }
 
           return (
             <div

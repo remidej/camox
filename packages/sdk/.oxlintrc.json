@@ -103,7 +103,8 @@
     "no-class-assign": "warn",
     "react/no-direct-mutation-state": "warn",
     "no-ex-assign": "warn",
-    "no-unsafe-negation": "warn"
+    "no-unsafe-negation": "warn",
+    "no-nested-ternary": "warn"
   },
   "settings": {
     "jsx-a11y": {

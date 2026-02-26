@@ -425,11 +425,14 @@ const PageContentSheet = () => {
     ],
   );
 
-  const activeFieldChangeHandler = isNestedInlineItem
-    ? handleNestedItemFieldChange
-    : depth === 0
-      ? handleBlockFieldChange
-      : handleItemFieldChange;
+  let activeFieldChangeHandler: typeof handleNestedItemFieldChange;
+  if (isNestedInlineItem) {
+    activeFieldChangeHandler = handleNestedItemFieldChange;
+  } else if (depth === 0) {
+    activeFieldChangeHandler = handleBlockFieldChange;
+  } else {
+    activeFieldChangeHandler = handleItemFieldChange;
+  }
 
   const handleOpenChange = (open: boolean) => {
     if (open) return;
@@ -641,19 +644,21 @@ const PageContentSheet = () => {
         </SheetParts.SheetDescription>
       </SheetParts.SheetHeader>
       <div className="flex-1 overflow-auto">
-        {isViewingImage && imageFieldName && isMultipleImage ? (
+        {isViewingImage && imageFieldName && isMultipleImage && (
           <MultipleImageFieldEditor
             imageFieldName={imageFieldName}
             currentData={currentData}
             blockId={block._id}
           />
-        ) : isViewingImage && imageFieldName ? (
+        )}
+        {isViewingImage && imageFieldName && !isMultipleImage && (
           <SingleImageFieldEditor
             imageFieldName={imageFieldName}
             currentData={currentData}
             onFieldChange={activeFieldChangeHandler}
           />
-        ) : isViewingLink && linkFieldName ? (
+        )}
+        {!isViewingImage && isViewingLink && linkFieldName && (
           <div className="py-4 px-4">
             <LinkFieldEditor
               fieldName={linkFieldName}
@@ -671,7 +676,8 @@ const PageContentSheet = () => {
               }}
             />
           </div>
-        ) : (
+        )}
+        {!isViewingImage && !isViewingLink && (
           <ItemFieldsEditor
             schema={currentSchema}
             data={currentData}

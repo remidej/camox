@@ -138,6 +138,15 @@ export function FileUpload({ initialValue, multiple, hidePreview, onUploadComple
   const hasImage =
     initialValue?.url && !initialValue.url.includes("placehold.co");
 
+  let uploadLabel: string;
+  if (multiple) {
+    uploadLabel = "Upload images";
+  } else if (hasImage) {
+    uploadLabel = "Replace image";
+  } else {
+    uploadLabel = "Upload an image";
+  }
+
   return (
     <div className="space-y-4">
       {hasImage && !hidePreview && (
@@ -178,7 +187,7 @@ export function FileUpload({ initialValue, multiple, hidePreview, onUploadComple
           <Upload className="h-5 w-5 text-muted-foreground" />
         </div>
         <p className="text-pretty text-sm font-medium text-foreground">
-          {multiple ? "Upload images" : hasImage ? "Replace image" : "Upload an image"}
+          {uploadLabel}
         </p>
         <p className="text-pretty text-sm text-muted-foreground mt-1">
           or,{" "}
