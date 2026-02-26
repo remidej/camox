@@ -22,11 +22,11 @@ import { generateKeyBetween } from "fractional-indexing";
 import { GripVertical, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { FileUpload, type FileRef } from "@/components/file-upload";
 import { cn } from "@/lib/utils";
 import { api } from "camox/_generated/api";
-import { Doc, Id } from "camox/_generated/dataModel";
+import type { Doc, Id } from "camox/_generated/dataModel";
+import { ImageLightbox } from "./ImageLightbox";
 
 /* -------------------------------------------------------------------------------------------------
  * SortableImageItem
@@ -35,7 +35,7 @@ import { Doc, Id } from "camox/_generated/dataModel";
 interface SortableImageItemProps {
   item: Doc<"repeatableItems">;
   onRemove: (itemId: Id<"repeatableItems">) => void;
-  onThumbnailClick: (url: string, alt: string) => void;
+  onThumbnailClick: (item: Doc<"repeatableItems">) => void;
 }
 
 const SortableImageItem = ({
@@ -90,7 +90,7 @@ const SortableImageItem = ({
         <button
           type="button"
           className="w-10 h-10 rounded border border-border overflow-hidden shrink-0 cursor-zoom-in"
-          onClick={() => onThumbnailClick(url, alt || filename)}
+          onClick={() => onThumbnailClick(item)}
         >
           <img
             src={url}
@@ -215,9 +215,12 @@ const MultipleImageFieldEditor = ({
     return image?.url && !image.url.includes("placehold.co");
   });
 
+  const updateFileAlt = useMutation(api.files.updateFileAlt);
+  const updateFileFilename = useMutation(api.files.updateFileFilename);
+
   // Lightbox state
-  const [lightboxUrl, setLightboxUrl] = React.useState<string | null>(null);
-  const [lightboxAlt, setLightboxAlt] = React.useState("");
+  const [lightboxItem, setLightboxItem] =
+    React.useState<Doc<"repeatableItems"> | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -270,9 +273,8 @@ const MultipleImageFieldEditor = ({
     });
   };
 
-  const handleThumbnailClick = (url: string, alt: string) => {
-    setLightboxUrl(url);
-    setLightboxAlt(alt);
+  const handleThumbnailClick = (item: Doc<"repeatableItems">) => {
+    setLightboxItem(item);
   };
 
   return (
@@ -308,28 +310,30 @@ const MultipleImageFieldEditor = ({
         onUploadComplete={handleUploadComplete}
       />
 
-      <Dialog
-        open={!!lightboxUrl}
-        onOpenChange={(open) => {
-          if (!open) setLightboxUrl(null);
-        }}
-      >
-        <DialogContent
-          className="w-fit max-w-[90vw] max-h-[90vh] p-0 overflow-hidden border-none bg-transparent shadow-none sm:max-w-[90vw] gap-0"
-          showCloseButton={false}
-        >
-          <DialogTitle className="sr-only">
-            {lightboxAlt || "Image preview"}
-          </DialogTitle>
-          {lightboxUrl && (
-            <img
-              src={lightboxUrl}
-              alt={lightboxAlt}
-              className="max-w-[90vw] max-h-[90vh] object-contain rounded-md"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {(() => {
+        const image = lightboxItem?.content?.image as
+          | { url: string; alt: string; filename: string; _fileId?: string }
+          | undefined;
+        return (
+          <ImageLightbox
+            open={!!lightboxItem}
+            onOpenChange={(open) => {
+              if (!open) setLightboxItem(null);
+            }}
+            imageUrl={image?.url ?? ""}
+            imageAlt={image?.alt || image?.filename || ""}
+            fileId={image?._fileId as Id<"files"> | undefined}
+            filename={image?.filename ?? ""}
+            alt={image?.alt ?? ""}
+            onSaveFilename={({ fileId, value }) =>
+              updateFileFilename({ fileId, filename: value })
+            }
+            onSaveAlt={({ fileId, value }) =>
+              updateFileAlt({ fileId, alt: value })
+            }
+          />
+        );
+      })()}
     </div>
   );
 };
