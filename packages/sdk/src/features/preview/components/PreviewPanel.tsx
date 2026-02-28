@@ -264,7 +264,7 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
         >
           {isMobileMode ? (
             <div className="flex h-full justify-center checkered">
-              <div className="border-2 mt-8 border-border rounded-sm shadow-xl relative w-[393px] h-[700px] overflow-hidden">
+              <div className="mt-8 relative w-[393px] h-[700px] overflow-hidden">
                 <PreviewFrame
                   className="overflow-auto"
                   onIframeReady={handleIframeReady}
