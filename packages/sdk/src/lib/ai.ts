@@ -87,6 +87,46 @@ export async function generatePageDraft(options: {
   return JSON.parse(jsonStr) as GeneratedBlock[];
 }
 
+export async function generateImageMetadata(
+  imageUrl: string,
+  currentFilename: string,
+) {
+  const { text } = await generateText({
+    model: openRouter.chat("google/gemini-2.5-flash-lite"),
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            image: new URL(imageUrl),
+          },
+          {
+            type: "text",
+            text: outdent`
+              Analyze this image and return a JSON object with two fields:
+              - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${currentFilename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
+              - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max).
+
+              Return ONLY the JSON object, no explanation or markdown.
+            `,
+          },
+        ],
+      },
+    ],
+  });
+
+  let jsonStr = text.trim();
+  if (jsonStr.startsWith("```")) {
+    jsonStr = jsonStr
+      .replace(/```json?\n?/g, "")
+      .replace(/```$/g, "")
+      .trim();
+  }
+
+  return JSON.parse(jsonStr) as { filename: string; alt: string };
+}
+
 type GenerateObjectSummaryOptions = {
   type: string;
   content: string;

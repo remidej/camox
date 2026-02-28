@@ -1,7 +1,14 @@
-import { mutation, query } from "./_generated/server";
+import {
+  mutation,
+  query,
+  internalAction,
+  internalMutation,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { buildDownloadUrl } from "convex-fs";
 import { fs } from "./fs";
+import { generateImageMetadata } from "../src/lib/ai";
 
 const FS_PREFIX = "/fs";
 
@@ -26,9 +33,17 @@ export const commitFile = mutation({
       mimeType: args.contentType,
       blobId: args.blobId,
       path,
+      aiMetadataEnabled: true,
       createdAt: now,
       updatedAt: now,
     });
+
+    const scheduledMetadataJobId = await ctx.scheduler.runAfter(
+      0,
+      internal.files.generateFileMetadata,
+      { fileId, imageUrl: url, currentFilename: args.filename },
+    );
+    await ctx.db.patch(fileId, { scheduledMetadataJobId });
 
     return { fileId, url, filename: args.filename, mimeType: args.contentType };
   },
@@ -129,5 +144,78 @@ export const getFile = query({
   args: { fileId: v.id("files") },
   handler: async (ctx, args) => {
     return ctx.db.get(args.fileId);
+  },
+});
+
+export const generateFileMetadata = internalAction({
+  args: {
+    fileId: v.id("files"),
+    imageUrl: v.string(),
+    currentFilename: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const metadata = await generateImageMetadata(
+      args.imageUrl,
+      args.currentFilename,
+    );
+    await ctx.runMutation(internal.files.applyFileMetadata, {
+      fileId: args.fileId,
+      filename: metadata.filename,
+      alt: metadata.alt,
+    });
+  },
+});
+
+export const applyFileMetadata = internalMutation({
+  args: {
+    fileId: v.id("files"),
+    filename: v.string(),
+    alt: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.fileId, {
+      filename: args.filename,
+      alt: args.alt,
+      scheduledMetadataJobId: undefined,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const setAiMetadata = mutation({
+  args: {
+    fileId: v.id("files"),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const file = await ctx.db.get(args.fileId);
+    if (!file) throw new Error("File not found");
+
+    if (file.scheduledMetadataJobId) {
+      await ctx.scheduler.cancel(file.scheduledMetadataJobId);
+    }
+
+    if (args.enabled) {
+      const scheduledMetadataJobId = await ctx.scheduler.runAfter(
+        0,
+        internal.files.generateFileMetadata,
+        {
+          fileId: args.fileId,
+          imageUrl: file.url,
+          currentFilename: file.filename,
+        },
+      );
+      await ctx.db.patch(args.fileId, {
+        aiMetadataEnabled: true,
+        scheduledMetadataJobId,
+        updatedAt: Date.now(),
+      });
+    } else {
+      await ctx.db.patch(args.fileId, {
+        aiMetadataEnabled: false,
+        scheduledMetadataJobId: undefined,
+        updatedAt: Date.now(),
+      });
+    }
   },
 });

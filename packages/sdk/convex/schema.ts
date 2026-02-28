@@ -58,6 +58,8 @@ export default defineSchema({
     mimeType: v.string(),
     blobId: v.string(),
     path: v.string(),
+    aiMetadataEnabled: v.optional(v.boolean()),
+    scheduledMetadataJobId: v.optional(v.id("_scheduled_functions")),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_blobId", ["blobId"]),

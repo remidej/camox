@@ -35,7 +35,7 @@ const SingleImageFieldEditor = ({
   return (
     <div className="py-4 px-4 space-y-4">
       {hasImage && (
-        <div className="flex flex-row items-center gap-2 px-1 py-1 max-w-full rounded-lg text-foreground hover:bg-accent/75 group">
+        <div className="flex flex-row items-center gap-2 px-1 py-1 max-w-full rounded-lg text-foreground hover:bg-accent/75 border-2">
           <button
             type="button"
             className="flex flex-1 items-center gap-2 min-w-0 cursor-zoom-in"
@@ -61,7 +61,7 @@ const SingleImageFieldEditor = ({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="hidden group-hover:flex group-focus-within:flex text-muted-foreground hover:text-foreground shrink-0"
+            className="text-muted-foreground hover:text-foreground shrink-0"
             onClick={() => {
               onFieldChange(imageFieldName, {
                 url: "",

@@ -1,4 +1,4 @@
-import { Download, Link, Trash2 } from "lucide-react";
+import { Download, Link, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -30,6 +32,7 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
   const updateFileFilename = useMutation(api.files.updateFileFilename);
   const updateFileAlt = useMutation(api.files.updateFileAlt);
   const deleteFile = useMutation(api.files.deleteFile);
+  const setAiMetadata = useMutation(api.files.setAiMetadata);
 
   const handleCopyUrl = async () => {
     if (!file) return;
@@ -67,6 +70,15 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
         <DialogTitle className="sr-only">
           {file.alt || file.filename || "Image preview"}
         </DialogTitle>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute top-2 right-2 z-10"
+          onClick={() => onOpenChange(false)}
+        >
+          <X />
+        </Button>
         <div className="flex flex-row max-h-[90vh]">
           <div
             ref={containerRef}
@@ -151,11 +163,22 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
                 <TooltipContent>Delete</TooltipContent>
               </Tooltip>
             </ButtonGroup>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="ai-metadata"
+                checked={file.aiMetadataEnabled !== false}
+                onCheckedChange={(checked) =>
+                  setAiMetadata({ fileId, enabled: checked })
+                }
+              />
+              <Label htmlFor="ai-metadata">AI metadata</Label>
+            </div>
             <DebouncedFieldEditor
               fileId={fileId}
               label="File name"
               placeholder="File name..."
               initialValue={file.filename}
+              disabled={file.aiMetadataEnabled !== false}
               onSave={({ fileId, value }) =>
                 updateFileFilename({ fileId, filename: value })
               }
@@ -165,6 +188,8 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
               label="Alt text"
               placeholder="Describe this image..."
               initialValue={file.alt}
+              disabled={file.aiMetadataEnabled !== false}
+              rows={2}
               onSave={({ fileId, value }) =>
                 updateFileAlt({ fileId, alt: value })
               }
