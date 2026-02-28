@@ -1,4 +1,4 @@
-import { Download, Link, Trash2, X } from "lucide-react";
+import { Download, FileIcon, Link, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -18,13 +18,13 @@ import { api } from "camox/_generated/api";
 import type { Id } from "camox/_generated/dataModel";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 
-interface ImageLightboxProps {
+interface AssetLightboxProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   fileId: Id<"files">;
 }
 
-const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
+const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
   const file = useQuery(api.files.getFile, { fileId });
   const [zoomed, setZoomed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,7 +44,7 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
     if (!file) return;
     const a = document.createElement("a");
     a.href = file.url;
-    a.download = file.filename || "image";
+    a.download = file.filename || "file";
     a.click();
   };
 
@@ -54,6 +54,8 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
   };
 
   if (!file) return null;
+
+  const isImage = file.mimeType?.startsWith("image/");
 
   return (
     <Dialog
@@ -68,7 +70,7 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
         showCloseButton={false}
       >
         <DialogTitle className="sr-only">
-          {file.alt || file.filename || "Image preview"}
+          {file.alt || file.filename || "File preview"}
         </DialogTitle>
         <Button
           type="button"
@@ -80,47 +82,54 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
           <X />
         </Button>
         <div className="flex flex-row max-h-[90vh]">
-          <div
-            ref={containerRef}
-            className={cn(
-              "checkered flex-1 min-w-0",
-              zoomed
-                ? "overflow-auto"
-                : "overflow-hidden flex items-center justify-center p-6",
-            )}
-            onClick={(e) => {
-              if (!zoomed) {
-                const img = e.currentTarget.querySelector("img");
-                if (!img) return;
-                const rect = img.getBoundingClientRect();
-                const fracX = (e.clientX - rect.left) / rect.width;
-                const fracY = (e.clientY - rect.top) / rect.height;
-
-                setZoomed(true);
-                requestAnimationFrame(() => {
-                  const container = containerRef.current;
-                  if (!container) return;
-                  container.scrollLeft =
-                    fracX * container.scrollWidth - container.clientWidth / 2;
-                  container.scrollTop =
-                    fracY * container.scrollHeight - container.clientHeight / 2;
-                });
-              } else {
-                setZoomed(false);
-              }
-            }}
-          >
-            <img
-              src={file.url}
-              alt={file.alt || file.filename}
+          {isImage ? (
+            <div
+              ref={containerRef}
               className={cn(
-                "shadow-lg",
+                "checkered flex-1 min-w-0",
                 zoomed
-                  ? "w-[200%] max-w-none cursor-zoom-out"
-                  : "max-w-full max-h-[calc(90vh-48px)] object-contain cursor-zoom-in",
+                  ? "overflow-auto"
+                  : "overflow-hidden flex items-center justify-center p-6",
               )}
-            />
-          </div>
+              onClick={(e) => {
+                if (!zoomed) {
+                  const img = e.currentTarget.querySelector("img");
+                  if (!img) return;
+                  const rect = img.getBoundingClientRect();
+                  const fracX = (e.clientX - rect.left) / rect.width;
+                  const fracY = (e.clientY - rect.top) / rect.height;
+
+                  setZoomed(true);
+                  requestAnimationFrame(() => {
+                    const container = containerRef.current;
+                    if (!container) return;
+                    container.scrollLeft =
+                      fracX * container.scrollWidth - container.clientWidth / 2;
+                    container.scrollTop =
+                      fracY * container.scrollHeight -
+                      container.clientHeight / 2;
+                  });
+                } else {
+                  setZoomed(false);
+                }
+              }}
+            >
+              <img
+                src={file.url}
+                alt={file.alt || file.filename}
+                className={cn(
+                  "shadow-lg",
+                  zoomed
+                    ? "w-[200%] max-w-none cursor-zoom-out"
+                    : "max-w-full max-h-[calc(90vh-48px)] object-contain cursor-zoom-in",
+                )}
+              />
+            </div>
+          ) : (
+            <div className="flex-1 min-w-0 min-h-[70vh] flex items-center justify-center p-6 bg-muted/30">
+              <FileIcon className="h-16 w-16 text-muted-foreground" />
+            </div>
+          )}
           <div className="w-80 shrink-0 border-l border-border bg-background p-4 space-y-4 overflow-y-auto">
             <ButtonGroup>
               <Tooltip>
@@ -186,7 +195,7 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
             <DebouncedFieldEditor
               fileId={fileId}
               label="Alt text"
-              placeholder="Describe this image..."
+              placeholder="Describe this file..."
               initialValue={file.alt}
               disabled={file.aiMetadataEnabled !== false}
               rows={2}
@@ -201,4 +210,4 @@ const ImageLightbox = ({ open, onOpenChange, fileId }: ImageLightboxProps) => {
   );
 };
 
-export { ImageLightbox };
+export { AssetLightbox };

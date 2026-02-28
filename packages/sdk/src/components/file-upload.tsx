@@ -34,11 +34,12 @@ interface FileUploadProps {
   initialValue?: ImageValue;
   multiple?: boolean;
   hidePreview?: boolean;
+  accept?: string;
   onUploadComplete: (ref: FileRef) => void;
   onClear?: () => void;
 }
 
-export function FileUpload({ initialValue, multiple, hidePreview, onUploadComplete, onClear }: FileUploadProps) {
+export function FileUpload({ initialValue, multiple, hidePreview, accept = "image/*", onUploadComplete, onClear }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -138,13 +139,14 @@ export function FileUpload({ initialValue, multiple, hidePreview, onUploadComple
   const hasImage =
     initialValue?.url && !initialValue.url.includes("placehold.co");
 
+  const isImageOnly = accept === "image/*";
   let uploadLabel: string;
   if (multiple) {
-    uploadLabel = "Upload images";
+    uploadLabel = isImageOnly ? "Upload images" : "Upload files";
   } else if (hasImage) {
-    uploadLabel = "Replace image";
+    uploadLabel = isImageOnly ? "Replace image" : "Replace file";
   } else {
-    uploadLabel = "Upload an image";
+    uploadLabel = isImageOnly ? "Upload an image" : "Upload a file";
   }
 
   return (
@@ -205,7 +207,7 @@ export function FileUpload({ initialValue, multiple, hidePreview, onUploadComple
           id="fileUpload"
           ref={fileInputRef}
           className="hidden"
-          accept="image/*"
+          accept={accept}
           multiple={multiple}
           disabled={uploading}
           onChange={(e) => {

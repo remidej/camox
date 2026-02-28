@@ -5,6 +5,7 @@ import {
   Link2 as Link2Icon,
   Images as ImagesIcon,
   ImageIcon,
+  FileIcon,
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -28,7 +29,8 @@ export interface SchemaField {
     | "Boolean"
     | "Embed"
     | "Link"
-    | "Image";
+    | "Image"
+    | "File";
   label?: string;
   enumLabels?: Record<string, string>;
   enumValues?: string[];
@@ -336,6 +338,58 @@ const ItemFieldsEditor = ({
           );
         }
 
+        if (
+          field.fieldType === "RepeatableObject" &&
+          field.arrayItemType === "File"
+        ) {
+          const items = (data[field.name] ?? []) as unknown[];
+          const count = items.length;
+          let preview: string;
+          if (count === 0) {
+            preview = "No files";
+          } else if (count === 1) {
+            preview = "1 file";
+          } else {
+            preview = `${count} files`;
+          }
+
+          return (
+            <div
+              key={field.name}
+              className="space-y-2"
+              onMouseEnter={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_REPEATER",
+                  blockId,
+                  fieldName: field.name,
+                })
+              }
+              onMouseLeave={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_REPEATER_END",
+                  blockId,
+                  fieldName: field.name,
+                })
+              }
+            >
+              <Label>{label}</Label>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full rounded-lg px-2 py-2 text-sm text-left hover:bg-accent/75 transition-colors"
+                onClick={() =>
+                  previewStore.send({
+                    type: "drillIntoFile",
+                    fieldName: field.name,
+                  })
+                }
+              >
+                <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{preview}</span>
+              </button>
+            </div>
+          );
+        }
+
         if (field.fieldType === "Image") {
           const imageValue = data[field.name] as
             | { filename?: string }
@@ -371,6 +425,47 @@ const ItemFieldsEditor = ({
                 }
               >
                 <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{preview}</span>
+              </button>
+            </div>
+          );
+        }
+
+        if (field.fieldType === "File") {
+          const fileValue = data[field.name] as
+            | { filename?: string }
+            | undefined;
+          const preview = fileValue?.filename || "No file";
+
+          return (
+            <div
+              key={field.name}
+              className="space-y-2"
+              onMouseEnter={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_FIELD",
+                  fieldId,
+                })
+              }
+              onMouseLeave={() =>
+                postToIframe({
+                  type: "CAMOX_HOVER_FIELD_END",
+                  fieldId,
+                })
+              }
+            >
+              <Label>{label}</Label>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full rounded-lg px-2 py-2 text-sm text-left hover:bg-accent/75 transition-colors"
+                onClick={() =>
+                  previewStore.send({
+                    type: "drillIntoFile",
+                    fieldName: field.name,
+                  })
+                }
+              >
+                <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="truncate">{preview}</span>
               </button>
             </div>

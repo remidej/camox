@@ -46,6 +46,7 @@ const fieldTypesDictionary = {
     isContentEditable: false,
     getIcon: ({ arrayItemType }: SchemaFieldMeta) => {
       if (arrayItemType === "Image") return (props: LucideProps) => <ImagesIcon {...props} />;
+      if (arrayItemType === "File") return (props: LucideProps) => <FileIcon {...props} />;
       return (props: LucideProps) => <ListIcon {...props} />;
     },
     getLabel: (_value: unknown, { schemaTitle, fieldName }: FieldLabelMeta) =>
@@ -136,6 +137,7 @@ const fieldTypesDictionary = {
     onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
       previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "File" });
       previewStore.send({ type: "openBlockContentSheet", blockId });
+      previewStore.send({ type: "drillIntoFile", fieldName });
     },
   },
 } satisfies Record<

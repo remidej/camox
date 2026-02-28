@@ -37,8 +37,8 @@ import { actionsStore, type Action } from "@/features/provider/actionsStore";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
-import { SingleImageFieldEditor } from "./ImageFieldEditor";
-import { MultipleImageFieldEditor } from "./MultipleImageFieldEditor";
+import { SingleAssetFieldEditor } from "./AssetFieldEditor";
+import { MultipleAssetFieldEditor } from "./MultipleAssetFieldEditor";
 
 /* -------------------------------------------------------------------------------------------------
  * Helper: Get settings fields from schema
@@ -249,18 +249,26 @@ const PageContentSheet = () => {
     lastBreadcrumb?.type === "Image" && !!lastBreadcrumb.fieldName;
   const imageFieldName = isViewingImage ? lastBreadcrumb.fieldName : null;
 
-  const isMultipleImage = React.useMemo(() => {
-    if (!isViewingImage || !imageFieldName || !blockDef) return false;
+  const isViewingFile =
+    lastBreadcrumb?.type === "File" && !!lastBreadcrumb.fieldName;
+  const fileFieldName = isViewingFile ? lastBreadcrumb.fieldName : null;
+
+  const isViewingAsset = isViewingImage || isViewingFile;
+  const assetFieldName = imageFieldName ?? fileFieldName;
+  const assetType: "Image" | "File" = isViewingImage ? "Image" : "File";
+
+  const isMultipleAsset = React.useMemo(() => {
+    if (!isViewingAsset || !assetFieldName || !blockDef) return false;
     const schema = getSchemaAtDepth(
       blockDef.contentSchema,
       repeatableBreadcrumbs,
     );
-    const prop = (schema as any)?.properties?.[imageFieldName];
-    return prop?.arrayItemType === "Image";
-  }, [isViewingImage, imageFieldName, blockDef, repeatableBreadcrumbs]);
+    const prop = (schema as any)?.properties?.[assetFieldName];
+    return prop?.arrayItemType === "Image" || prop?.arrayItemType === "File";
+  }, [isViewingAsset, assetFieldName, blockDef, repeatableBreadcrumbs]);
 
-  // Redirect RepeatableObject drill-ins for multi-image fields to the Image view.
-  // Clicking an image in the iframe produces breadcrumbs like
+  // Redirect RepeatableObject drill-ins for multi-asset fields to the asset view.
+  // Clicking an asset in the iframe produces breadcrumbs like
   // [Block, RepeatableObject(itemId, "images"), Image("image")].
   // Collapse to [Block, Image("images")] so we show "Gallery > Images".
   React.useEffect(() => {
@@ -268,9 +276,9 @@ const PageContentSheet = () => {
     const last = selectionBreadcrumbs[selectionBreadcrumbs.length - 1];
     const secondToLast = selectionBreadcrumbs[selectionBreadcrumbs.length - 2];
 
-    // Case 1: [... RepeatableObject, Image] — from Image component click
+    // Case 1: [... RepeatableObject, Image/File] — from component click
     if (
-      last?.type === "Image" &&
+      (last?.type === "Image" || last?.type === "File") &&
       secondToLast?.type === "RepeatableObject" &&
       secondToLast.fieldName
     ) {
@@ -281,13 +289,14 @@ const PageContentSheet = () => {
       const fieldProp = (parentSchema as any)?.properties?.[
         secondToLast.fieldName
       ];
-      if (fieldProp?.arrayItemType === "Image") {
+      if (fieldProp?.arrayItemType === "Image" || fieldProp?.arrayItemType === "File") {
+        const drillType = fieldProp.arrayItemType as "Image" | "File";
         previewStore.send({
           type: "setSelectionBreadcrumbs",
           breadcrumbs: [
             ...selectionBreadcrumbs.slice(0, -2),
             {
-              type: "Image" as const,
+              type: drillType,
               id: secondToLast.fieldName,
               fieldName: secondToLast.fieldName,
             },
@@ -304,13 +313,14 @@ const PageContentSheet = () => {
         repeatableBreadcrumbs.slice(0, -1),
       );
       const fieldProp = (parentSchema as any)?.properties?.[last.fieldName];
-      if (fieldProp?.arrayItemType === "Image") {
+      if (fieldProp?.arrayItemType === "Image" || fieldProp?.arrayItemType === "File") {
+        const drillType = fieldProp.arrayItemType as "Image" | "File";
         previewStore.send({
           type: "setSelectionBreadcrumbs",
           breadcrumbs: [
             ...selectionBreadcrumbs.slice(0, -1),
             {
-              type: "Image" as const,
+              type: drillType,
               id: last.fieldName,
               fieldName: last.fieldName,
             },
@@ -502,7 +512,7 @@ const PageContentSheet = () => {
           <Breadcrumb>
             <BreadcrumbList className="flex-nowrap">
               <BreadcrumbItem className="min-w-0">
-                {depth === 0 && !isViewingLink && !isViewingImage ? (
+                {depth === 0 && !isViewingLink && !isViewingAsset ? (
                   <BreadcrumbPage className="truncate">
                     {blockDef.title}
                   </BreadcrumbPage>
@@ -574,7 +584,7 @@ const PageContentSheet = () => {
                       parentSchema,
                     );
 
-                    if (isViewingLink || isViewingImage) {
+                    if (isViewingLink || isViewingAsset) {
                       return (
                         <BreadcrumbItem className="min-w-0">
                           <BreadcrumbLink
@@ -620,7 +630,7 @@ const PageContentSheet = () => {
                   </BreadcrumbItem>
                 </>
               )}
-              {isViewingImage && (
+              {isViewingAsset && assetFieldName && (
                 <>
                   <BreadcrumbSeparator />
                   <BreadcrumbItem className="min-w-0">
@@ -631,9 +641,9 @@ const PageContentSheet = () => {
                           repeatableBreadcrumbs,
                         );
                         const prop = (parentSchema as any)?.properties?.[
-                          imageFieldName!
+                          assetFieldName
                         ];
-                        return prop?.title ?? formatFieldName(imageFieldName!);
+                        return prop?.title ?? formatFieldName(assetFieldName);
                       })()}
                     </BreadcrumbPage>
                   </BreadcrumbItem>
@@ -644,21 +654,23 @@ const PageContentSheet = () => {
         </SheetParts.SheetDescription>
       </SheetParts.SheetHeader>
       <div className="flex-1 overflow-auto">
-        {isViewingImage && imageFieldName && isMultipleImage && (
-          <MultipleImageFieldEditor
-            imageFieldName={imageFieldName}
+        {isViewingAsset && assetFieldName && isMultipleAsset && (
+          <MultipleAssetFieldEditor
+            fieldName={assetFieldName}
+            assetType={assetType}
             currentData={currentData}
             blockId={block._id}
           />
         )}
-        {isViewingImage && imageFieldName && !isMultipleImage && (
-          <SingleImageFieldEditor
-            imageFieldName={imageFieldName}
+        {isViewingAsset && assetFieldName && !isMultipleAsset && (
+          <SingleAssetFieldEditor
+            fieldName={assetFieldName}
+            assetType={assetType}
             currentData={currentData}
             onFieldChange={activeFieldChangeHandler}
           />
         )}
-        {!isViewingImage && isViewingLink && linkFieldName && (
+        {!isViewingAsset && isViewingLink && linkFieldName && (
           <div className="py-4 px-4">
             <LinkFieldEditor
               fieldName={linkFieldName}
@@ -677,7 +689,7 @@ const PageContentSheet = () => {
             />
           </div>
         )}
-        {!isViewingImage && !isViewingLink && (
+        {!isViewingAsset && !isViewingLink && (
           <ItemFieldsEditor
             schema={currentSchema}
             data={currentData}
@@ -691,7 +703,7 @@ const PageContentSheet = () => {
         )}
         {depth === 0 &&
           !isViewingLink &&
-          !isViewingImage &&
+          !isViewingAsset &&
           settingsFields.length > 0 && (
             <div className="space-y-4 py-4 px-4 border-t border-border">
               <Label className="text-muted-foreground">Settings</Label>

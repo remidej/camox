@@ -257,6 +257,19 @@ export const previewStore = createStore({
         ],
       };
     },
+    drillIntoFile: (context, event: { fieldName: string }) => {
+      return {
+        ...context,
+        selectionBreadcrumbs: [
+          ...context.selectionBreadcrumbs,
+          {
+            type: "File" as const,
+            id: event.fieldName,
+            fieldName: event.fieldName,
+          },
+        ],
+      };
+    },
     navigateBreadcrumb: (context, event: { depth: number }) => {
       return {
         ...context,

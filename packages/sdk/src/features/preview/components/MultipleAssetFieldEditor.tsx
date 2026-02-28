@@ -19,30 +19,34 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { generateKeyBetween } from "fractional-indexing";
-import { GripVertical, X } from "lucide-react";
+import { FileIcon, GripVertical, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FileUpload, type FileRef } from "@/components/file-upload";
 import { cn } from "@/lib/utils";
 import { api } from "camox/_generated/api";
 import type { Doc, Id } from "camox/_generated/dataModel";
-import { ImageLightbox } from "./ImageLightbox";
+import { AssetLightbox } from "./AssetLightbox";
 
 /* -------------------------------------------------------------------------------------------------
- * SortableImageItem
+ * SortableAssetItem
  * -----------------------------------------------------------------------------------------------*/
 
-interface SortableImageItemProps {
+interface SortableAssetItemProps {
   item: Doc<"repeatableItems">;
+  assetType: "Image" | "File";
+  contentKey: "image" | "file";
   onRemove: (itemId: Id<"repeatableItems">) => void;
-  onImageOpen: (item: Doc<"repeatableItems">) => void;
+  onAssetOpen: (item: Doc<"repeatableItems">) => void;
 }
 
-const SortableImageItem = ({
+const SortableAssetItem = ({
   item,
+  assetType,
+  contentKey,
   onRemove,
-  onImageOpen,
-}: SortableImageItemProps) => {
+  onAssetOpen,
+}: SortableAssetItemProps) => {
   const {
     attributes,
     listeners,
@@ -58,13 +62,13 @@ const SortableImageItem = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const image = item.content?.image as
+  const asset = item.content?.[contentKey] as
     | { url: string; alt: string; filename: string }
     | undefined;
 
-  const url = image?.url ?? "";
-  const alt = image?.alt ?? "";
-  const filename = image?.filename ?? "Untitled";
+  const url = asset?.url ?? "";
+  const alt = asset?.alt ?? "";
+  const filename = asset?.filename ?? "Untitled";
 
   return (
     <li>
@@ -90,15 +94,21 @@ const SortableImageItem = ({
         <button
           type="button"
           className="flex flex-1 items-center gap-2 min-w-0 cursor-zoom-in"
-          onClick={() => onImageOpen(item)}
+          onClick={() => onAssetOpen(item)}
         >
-          <div className="w-12 h-12 rounded border border-border overflow-hidden shrink-0">
-            <img
-              src={url}
-              alt={alt || filename}
-              className="w-full h-full object-cover"
-            />
-          </div>
+          {assetType === "Image" ? (
+            <div className="w-12 h-12 rounded border border-border overflow-hidden shrink-0">
+              <img
+                src={url}
+                alt={alt || filename}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          ) : (
+            <div className="w-12 h-12 rounded border border-border overflow-hidden shrink-0 flex items-center justify-center bg-muted">
+              <FileIcon className="h-6 w-6 text-muted-foreground" />
+            </div>
+          )}
 
           <p className="flex-1 truncate text-sm text-left" title={filename}>
             {filename}
@@ -123,21 +133,24 @@ const SortableImageItem = ({
 };
 
 /* -------------------------------------------------------------------------------------------------
- * MultipleImageFieldEditor
+ * MultipleAssetFieldEditor
  * -----------------------------------------------------------------------------------------------*/
 
-interface MultipleImageFieldEditorProps {
-  imageFieldName: string;
+interface MultipleAssetFieldEditorProps {
+  fieldName: string;
+  assetType: "Image" | "File";
   currentData: Record<string, unknown>;
   blockId: Id<"blocks">;
 }
 
-const MultipleImageFieldEditor = ({
-  imageFieldName,
+const MultipleAssetFieldEditor = ({
+  fieldName,
+  assetType,
   currentData,
   blockId,
-}: MultipleImageFieldEditorProps) => {
+}: MultipleAssetFieldEditorProps) => {
   const { pathname } = useLocation();
+  const contentKey = assetType === "Image" ? "image" : "file";
 
   const createItemMutation = useMutation(
     api.repeatableItems.createRepeatableItem,
@@ -208,12 +221,12 @@ const MultipleImageFieldEditor = ({
     );
   });
 
-  const allItems = (currentData[imageFieldName] ??
+  const allItems = (currentData[fieldName] ??
     []) as Doc<"repeatableItems">[];
 
   const items = allItems.filter((item) => {
-    const image = item.content?.image as { url?: string } | undefined;
-    return image?.url && !image.url.includes("placehold.co");
+    const asset = item.content?.[contentKey] as { url?: string } | undefined;
+    return asset?.url && !asset.url.includes("placehold.co");
   });
 
   // Lightbox state
@@ -265,12 +278,12 @@ const MultipleImageFieldEditor = ({
   const handleUploadComplete = (ref: FileRef) => {
     createItemMutation({
       blockId,
-      fieldName: imageFieldName,
-      content: { image: ref },
+      fieldName,
+      content: { [contentKey]: ref },
     });
   };
 
-  const handleImageOpen = (item: Doc<"repeatableItems">) => {
+  const handleAssetOpen = (item: Doc<"repeatableItems">) => {
     setLightboxItem(item);
   };
 
@@ -289,11 +302,13 @@ const MultipleImageFieldEditor = ({
           >
             <ul className="flex flex-col gap-1">
               {items.map((item) => (
-                <SortableImageItem
+                <SortableAssetItem
                   key={item._id}
                   item={item}
+                  assetType={assetType}
+                  contentKey={contentKey}
                   onRemove={handleRemove}
-                  onImageOpen={handleImageOpen}
+                  onAssetOpen={handleAssetOpen}
                 />
               ))}
             </ul>
@@ -304,21 +319,22 @@ const MultipleImageFieldEditor = ({
       <FileUpload
         multiple
         hidePreview
+        accept={assetType === "Image" ? "image/*" : "*/*"}
         onUploadComplete={handleUploadComplete}
       />
 
       {(() => {
-        const image = lightboxItem?.content?.image as
+        const asset = lightboxItem?.content?.[contentKey] as
           | { _fileId?: string }
           | undefined;
-        if (!image?._fileId) return null;
+        if (!asset?._fileId) return null;
         return (
-          <ImageLightbox
+          <AssetLightbox
             open={!!lightboxItem}
             onOpenChange={(open) => {
               if (!open) setLightboxItem(null);
             }}
-            fileId={image._fileId as Id<"files">}
+            fileId={asset._fileId as Id<"files">}
           />
         );
       })()}
@@ -326,4 +342,4 @@ const MultipleImageFieldEditor = ({
   );
 };
 
-export { MultipleImageFieldEditor };
+export { MultipleAssetFieldEditor };
