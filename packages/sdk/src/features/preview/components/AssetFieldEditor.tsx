@@ -31,7 +31,7 @@ const SingleAssetFieldEditor = ({
       }
     | undefined;
 
-  const hasAsset = asset?.url && !asset.url.includes("placehold.co");
+  const hasAsset = !!asset?.url;
   const [lightboxOpen, setLightboxOpen] = React.useState(false);
   const isImage = assetType === "Image";
 

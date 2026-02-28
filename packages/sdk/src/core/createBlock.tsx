@@ -162,9 +162,34 @@ export function createBlock<
 
   // Extract defaults manually since Value.Create doesn't support Unsafe types (used by Type.Enum and Type.Embed)
   const contentDefaults: Record<string, unknown> = {};
+  const contentDefaultsForStorage: Record<string, unknown> = {};
   for (const [key, prop] of Object.entries(typeboxSchema.properties)) {
     if ("default" in prop) {
       contentDefaults[key] = prop.default;
+      // Exclude asset fields from storage defaults — placeholders should only exist at the rendering layer
+      const ft = (prop as any).fieldType;
+      const ait = (prop as any).arrayItemType;
+      if (ft === "Image" || ft === "File" || ait === "Image" || ait === "File") {
+        continue;
+      }
+      contentDefaultsForStorage[key] = prop.default;
+    }
+  }
+
+  // Extract per-item defaults for repeatable (array) fields
+  const repeatableItemDefaults: Record<string, Record<string, unknown>> = {};
+  for (const [key, prop] of Object.entries(typeboxSchema.properties)) {
+    const p = prop as any;
+    if (p.type === "array" && p.items?.properties) {
+      const itemDefaults: Record<string, unknown> = {};
+      for (const [itemKey, itemProp] of Object.entries(p.items.properties)) {
+        if (itemProp && typeof itemProp === "object" && "default" in itemProp) {
+          itemDefaults[itemKey] = (itemProp as any).default;
+        }
+      }
+      if (Object.keys(itemDefaults).length > 0) {
+        repeatableItemDefaults[key] = itemDefaults;
+      }
     }
   }
 
@@ -1312,7 +1337,7 @@ export function createBlock<
                 value={{
                   arrayFieldName: fieldName,
                   itemIndex: index,
-                  itemContent: item,
+                  itemContent: { ...repeatableItemDefaults[fieldName], ...item },
                   nested: {
                     parentItemId,
                     parentContent: parentRepeaterContext.itemContent,
@@ -1339,27 +1364,12 @@ export function createBlock<
       throw new Error(`Field "${String(name)}" is not an array`);
     }
 
-    // For image arrays, hide placeholder items when real images exist
-    let filteredArray = arrayValue;
-    if (arrayValue.length > 0 && (arrayValue as any[])[0]?.content?.image?.url) {
-      const hasReal = (arrayValue as any[]).some(
-        (item: any) =>
-          item.content?.image?.url &&
-          !item.content.image.url.includes("placehold.co"),
-      );
-      if (hasReal) {
-        filteredArray = (arrayValue as any[]).filter(
-          (item: any) => !item.content?.image?.url?.includes("placehold.co"),
-        ) as typeof arrayValue;
-      }
-    }
-
     type TItem = RepeatableItemType<K>;
 
     return (
       <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
-        {filteredArray.map((item: any, index: number) => {
-          const itemContent = item.content as TItem;
+        {arrayValue.map((item: any, index: number) => {
+          const itemContent = { ...repeatableItemDefaults[fieldName], ...item.content } as TItem;
           const itemId = item._id as Id<"repeatableItems"> | undefined;
 
           return (
@@ -1456,22 +1466,8 @@ export function createBlock<
           value.length > 0 &&
           value[0]?.content !== undefined
         ) {
-          let items = value;
-          // For image arrays, filter out placeholders when real images exist
-          if (items[0]?.content?.image?.url) {
-            const hasReal = items.some(
-              (item: any) =>
-                item.content?.image?.url &&
-                !item.content.image.url.includes("placehold.co"),
-            );
-            if (hasReal) {
-              items = items.filter(
-                (item: any) => !item.content?.image?.url?.includes("placehold.co"),
-              );
-            }
-          }
           // Extract just the content for the component prop
-          result[key] = items.map((item: any) => item.content);
+          result[key] = value.map((item: any) => item.content);
         }
       }
 
@@ -1631,7 +1627,7 @@ export function createBlock<
     contentSchema,
     settingsSchema,
     getInitialContent: () => {
-      return { ...contentDefaults } as TContent;
+      return { ...contentDefaultsForStorage } as TContent;
     },
     getInitialSettings: () => {
       return { ...settingsDefaults };

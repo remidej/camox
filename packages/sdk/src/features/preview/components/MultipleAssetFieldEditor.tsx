@@ -221,12 +221,9 @@ const MultipleAssetFieldEditor = ({
     );
   });
 
-  const allItems = (currentData[fieldName] ??
-    []) as Doc<"repeatableItems">[];
-
-  const items = allItems.filter((item) => {
+  const items = ((currentData[fieldName] ?? []) as Doc<"repeatableItems">[]).filter((item) => {
     const asset = item.content?.[contentKey] as { url?: string } | undefined;
-    return asset?.url && !asset.url.includes("placehold.co");
+    return !!asset?.url;
   });
 
   // Lightbox state

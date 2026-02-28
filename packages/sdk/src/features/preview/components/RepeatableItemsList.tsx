@@ -440,6 +440,8 @@ const RepeatableItemsList = ({
     const itemsSchema = (schema as any)?.items;
     if (itemsSchema?.properties) {
       for (const [key, prop] of Object.entries(itemsSchema.properties)) {
+        const ft = (prop as any).fieldType;
+        if (ft === "Image" || ft === "File") continue;
         if ("default" in (prop as any)) {
           defaultContent[key] = (prop as { default: unknown }).default;
         }
@@ -458,6 +460,8 @@ const RepeatableItemsList = ({
     const itemsSchema = (schema as any)?.items;
     if (itemsSchema?.properties) {
       for (const [key, prop] of Object.entries(itemsSchema.properties)) {
+        const ft = (prop as any).fieldType;
+        if (ft === "Image" || ft === "File") continue;
         if ("default" in (prop as any)) {
           defaultContent[key] = (prop as { default: unknown }).default;
         }

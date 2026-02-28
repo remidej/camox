@@ -136,8 +136,7 @@ export function FileUpload({ initialValue, multiple, hidePreview, accept = "imag
     handleFileSelect(e.dataTransfer.files);
   };
 
-  const hasImage =
-    initialValue?.url && !initialValue.url.includes("placehold.co");
+  const hasImage = !!initialValue?.url;
 
   const isImageOnly = accept === "image/*";
   let uploadLabel: string;
