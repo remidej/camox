@@ -1,6 +1,7 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import { outdent } from "outdent";
+import { z } from "zod";
 
 if (!process.env.OPEN_ROUTER_API_KEY) {
   throw new Error("OPEN_ROUTER_API_KEY is not set");
@@ -27,7 +28,7 @@ type GeneratedBlock = {
 export async function generatePageDraft(options: {
   contentDescription: string;
   blockDefinitions: BlockDefinition[];
-}): Promise<GeneratedBlock[]> {
+}) {
   const { contentDescription, blockDefinitions } = options;
 
   const blockDefsForPrompt = blockDefinitions.map((def) => ({
@@ -38,7 +39,7 @@ export async function generatePageDraft(options: {
     ...(def.settingsSchema ? { settingsSchema: def.settingsSchema } : {}),
   }));
 
-  const { text } = await generateText({
+  const { output } = await generateText({
     model: openRouter.chat("google/gemini-3-flash-preview"),
     messages: [
       {
@@ -66,33 +67,26 @@ export async function generatePageDraft(options: {
             For RepeatableObject fields (arrays), provide an array of objects matching the nested schema.
             For settings, pick values from the enum options or boolean values defined in the settingsSchema.
           </output_format>
-
-          <response>
-            Return ONLY the JSON array, no explanation or markdown.
-          </response>
         `,
       },
     ],
   });
 
-  // Extract JSON from response (handle potential markdown code blocks)
-  let jsonStr = text.trim();
-  if (jsonStr.startsWith("```")) {
-    jsonStr = jsonStr
-      .replace(/```json?\n?/g, "")
-      .replace(/```$/g, "")
-      .trim();
-  }
-
-  return JSON.parse(jsonStr) as GeneratedBlock[];
+  return JSON.parse(output) as GeneratedBlock[];
 }
 
 export async function generateImageMetadata(
   imageUrl: string,
   currentFilename: string,
 ) {
-  const { text } = await generateText({
+  const { output } = await generateText({
     model: openRouter.chat("google/gemini-2.5-flash-lite"),
+    output: Output.object({
+      schema: z.object({
+        filename: z.string(),
+        alt: z.string(),
+      }),
+    }),
     messages: [
       {
         role: "user",
@@ -104,11 +98,9 @@ export async function generateImageMetadata(
           {
             type: "text",
             text: outdent`
-              Analyze this image and return a JSON object with two fields:
+              Analyze this image and generate metadata for it:
               - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${currentFilename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
               - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max).
-
-              Return ONLY the JSON object, no explanation or markdown.
             `,
           },
         ],
@@ -116,15 +108,7 @@ export async function generateImageMetadata(
     ],
   });
 
-  let jsonStr = text.trim();
-  if (jsonStr.startsWith("```")) {
-    jsonStr = jsonStr
-      .replace(/```json?\n?/g, "")
-      .replace(/```$/g, "")
-      .trim();
-  }
-
-  return JSON.parse(jsonStr) as { filename: string; alt: string };
+  return output;
 }
 
 type GenerateObjectSummaryOptions = {
@@ -182,4 +166,3 @@ export async function generateObjectSummary(
 
   return summary;
 }
-

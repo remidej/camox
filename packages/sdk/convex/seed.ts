@@ -71,7 +71,7 @@ export const seedWebsite = mutation({
         title: "Websites you'll love to maintain",
         description:
           "Meet Camox, the web toolkit designed for developers, LLMs and content editors.",
-        primaryButtonText: "Start building",
+        cta: { type: "external", text: "Start building", href: "/", newTab: false },
       },
       summary: "Camox benefits",
             position: pos0,
@@ -183,7 +183,7 @@ export const seedWebsite = mutation({
         title: "Studio: Edit Within Your Website",
         description:
           "Experience the future of web content management with Camox Studio. Edit directly on your live website with instant feedback and real-time collaboration.",
-        primaryButtonText: "Try Studio Now",
+        cta: { type: "external", text: "Try Studio Now", href: "/", newTab: false },
       },
       summary: "Camox Studio hero",
             position: studioPos0,

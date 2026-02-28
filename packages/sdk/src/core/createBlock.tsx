@@ -1538,7 +1538,7 @@ export function createBlock<
         <Context.Provider
           value={{
             blockId: blockData._id,
-            content: blockData.content,
+            content: { ...contentDefaults, ...blockData.content },
             settings: {
               ...settingsDefaults,
               ...blockData.settings,

@@ -10,7 +10,7 @@ const DEFAULT_HERO_BLOCK = {
   content: {
     title: "A page title",
     description: "An engaging block description",
-    primaryButtonText: "Get started",
+    cta: { type: "external", text: "Get started", href: "/", newTab: false },
   },
 };
 
