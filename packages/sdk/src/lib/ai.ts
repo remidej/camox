@@ -113,13 +113,13 @@ export async function generateImageMetadata(
 
 type GenerateObjectSummaryOptions = {
   type: string;
-  content: string;
+  content: Record<string, unknown>;
 };
 export async function generateObjectSummary(
   options: GenerateObjectSummaryOptions,
 ) {
   const { text: summary } = await generateText({
-    model: openRouter.chat("mistralai/mistral-7b-instruct"),
+    model: openRouter.chat("openai/gpt-oss-safeguard-20b:nitro"),
     messages: [
       {
         role: "user",

@@ -8,6 +8,7 @@ import {
 import { internal } from "./_generated/api";
 import { generateKeyBetween } from "fractional-indexing";
 import { generateObjectSummary } from "../src/lib/ai";
+import { sortByPosition, assembleItemContent } from "./lib/contentAssembly";
 
 export const createRepeatableItem = mutation({
   args: {
@@ -27,12 +28,7 @@ export const createRepeatableItem = mutation({
       )
       .collect();
 
-    // Sort items by position
-    const sortedItems = items.sort((a, b) => {
-      if (a.position < b.position) return -1;
-      if (a.position > b.position) return 1;
-      return 0;
-    });
+    const sortedItems = sortByPosition(items);
 
     // Calculate new position
     let newPosition: string;
@@ -66,11 +62,7 @@ export const createRepeatableItem = mutation({
     await ctx.scheduler.runAfter(
       0,
       internal.repeatableItems.generateRepeatableItemSummary,
-      {
-        itemId,
-        type: args.fieldName,
-        content: args.content,
-      }
+      { itemId },
     );
 
     return itemId;
@@ -140,11 +132,7 @@ export const duplicateRepeatableItem = mutation({
       )
       .collect();
 
-    const sortedItems = items.sort((a, b) => {
-      if (a.position < b.position) return -1;
-      if (a.position > b.position) return 1;
-      return 0;
-    });
+    const sortedItems = sortByPosition(items);
 
     const originalIndex = sortedItems.findIndex((i) => i._id === args.itemId);
     const nextItem = sortedItems[originalIndex + 1];
@@ -167,11 +155,7 @@ export const duplicateRepeatableItem = mutation({
     await ctx.scheduler.runAfter(
       0,
       internal.repeatableItems.generateRepeatableItemSummary,
-      {
-        itemId: newItemId,
-        type: item.fieldName,
-        content: item.content,
-      }
+      { itemId: newItemId },
     );
 
     return newItemId;
@@ -192,26 +176,37 @@ export const deleteRepeatableItem = mutation({
   },
 });
 
+export const getAssembledItemContent = internalQuery({
+  args: {
+    itemId: v.id("repeatableItems"),
+  },
+  handler: async (ctx, args) => {
+    return assembleItemContent(ctx, args.itemId);
+  },
+});
+
 export const generateRepeatableItemSummary = internalAction({
   args: {
     itemId: v.id("repeatableItems"),
-    type: v.string(),
-    content: v.any(),
   },
   handler: async (ctx, args) => {
-    // Generate the summary using AI
+    const assembled = await ctx.runQuery(
+      internal.repeatableItems.getAssembledItemContent,
+      { itemId: args.itemId },
+    );
+    if (!assembled) return;
+
     const summary = await generateObjectSummary({
-      type: args.type,
-      content: args.content,
+      type: assembled.type,
+      content: assembled.content,
     });
 
-    // Update the repeatable item with the generated summary
     await ctx.runMutation(
       internal.repeatableItems.updateRepeatableItemSummary,
       {
         itemId: args.itemId,
         summary,
-      }
+      },
     );
   },
 });
@@ -239,11 +234,6 @@ export const getRepeatableItemsByBlockInternal = internalQuery({
       .withIndex("by_block", (q) => q.eq("blockId", args.blockId))
       .collect();
 
-    // Sort by position
-    return items.sort((a, b) => {
-      if (a.position < b.position) return -1;
-      if (a.position > b.position) return 1;
-      return 0;
-    });
+    return sortByPosition(items);
   },
 });

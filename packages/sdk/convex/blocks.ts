@@ -9,6 +9,11 @@ import {
 } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { generateObjectSummary } from "../src/lib/ai";
+import {
+  sortByPosition,
+  splitContent,
+  assembleBlockContent,
+} from "./lib/contentAssembly";
 
 const SUMMARIZATION_DEBOUNCE_DELAY_MS = 5000;
 
@@ -29,12 +34,7 @@ export const createBlock = mutation({
       .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
       .collect();
 
-    // Sort blocks by position (binary comparison for fractional indexing)
-    const sortedBlocks = blocks.sort((a, b) => {
-      if (a.position < b.position) return -1;
-      if (a.position > b.position) return 1;
-      return 0;
-    });
+    const sortedBlocks = sortByPosition(blocks);
 
     // Calculate new position
     let newPosition: string;
@@ -58,17 +58,7 @@ export const createBlock = mutation({
       );
     }
 
-    // Separate scalar content from array content (repeatableObjects)
-    const scalarContent: Record<string, any> = {};
-    const arrayFields: Record<string, any[]> = {};
-
-    for (const [key, value] of Object.entries(args.content)) {
-      if (Array.isArray(value)) {
-        arrayFields[key] = value;
-      } else {
-        scalarContent[key] = value;
-      }
-    }
+    const { scalarContent, arrayFields } = splitContent(args.content);
 
     // Create the block with only scalar content
     const blockId = await ctx.db.insert("blocks", {
@@ -107,8 +97,6 @@ export const createBlock = mutation({
     // Schedule summary generation to run in the background
     await ctx.scheduler.runAfter(0, internal.blocks.generateBlockSummary, {
       blockId,
-      type: args.type,
-      content: scalarContent,
     });
 
     return blockId;
@@ -147,8 +135,6 @@ export const updateBlockContent = mutation({
       internal.blocks.generateBlockSummary,
       {
         blockId: args.blockId,
-        type: block.type,
-        content: { ...block.content, ...args.content },
       }
     );
 
@@ -268,11 +254,7 @@ export const duplicateBlock = mutation({
       .withIndex("by_page", (q) => q.eq("pageId", block.pageId))
       .collect();
 
-    const sortedBlocks = blocks.sort((a, b) => {
-      if (a.position < b.position) return -1;
-      if (a.position > b.position) return 1;
-      return 0;
-    });
+    const sortedBlocks = sortByPosition(blocks);
 
     // Find the block after the original to calculate new position
     const originalIndex = sortedBlocks.findIndex((b) => b._id === args.blockId);
@@ -318,20 +300,43 @@ export const duplicateBlock = mutation({
   },
 });
 
+export const getAssembledBlockContent = internalQuery({
+  args: {
+    blockId: v.id("blocks"),
+  },
+  handler: async (ctx, args) => {
+    return assembleBlockContent(ctx, args.blockId);
+  },
+});
+
 export const generateBlockSummary = internalAction({
   args: {
     blockId: v.id("blocks"),
-    type: v.string(),
-    content: v.any(),
   },
   handler: async (ctx, args) => {
-    // Generate the summary using AI
-    const summary = await generateObjectSummary({
-      type: args.type,
-      content: args.content,
-    });
+    const assembled = await ctx.runQuery(
+      internal.blocks.getAssembledBlockContent,
+      { blockId: args.blockId },
+    );
+    if (!assembled) return;
 
-    // Update the block with the generated summary
+    let summary: string;
+    try {
+      summary = await generateObjectSummary({
+        type: assembled.type,
+        content: assembled.content,
+      });
+    } catch (error: any) {
+      console.error("generateBlockSummary failed:", {
+        statusCode: error?.statusCode,
+        responseBody: error?.responseBody,
+        message: error?.message,
+        cause: error?.cause,
+        content: JSON.stringify(assembled.content).slice(0, 500),
+      });
+      throw error;
+    }
+
     await ctx.runMutation(internal.blocks.updateBlockSummary, {
       blockId: args.blockId,
       summary,

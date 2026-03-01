@@ -2,122 +2,15 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generateKeyBetween } from "fractional-indexing";
-import type { Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
-
-/* -------------------------------------------------------------------------------------------------
- * File reference resolution helpers
- * -----------------------------------------------------------------------------------------------*/
-
-/** Recursively collect all _fileId values from a content object. */
-function collectFileIds(
-  content: Record<string, unknown>,
-  fileIds: Set<string>,
-) {
-  for (const value of Object.values(content)) {
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const obj = value as Record<string, unknown>;
-      if ("_fileId" in obj && typeof obj._fileId === "string") {
-        fileIds.add(obj._fileId);
-      } else {
-        collectFileIds(obj, fileIds);
-      }
-    } else if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item && typeof item === "object" && "content" in item) {
-          collectFileIds(
-            (item as { content: Record<string, unknown> }).content,
-            fileIds,
-          );
-        } else if (item && typeof item === "object" && !Array.isArray(item)) {
-          collectFileIds(item as Record<string, unknown>, fileIds);
-        }
-      }
-    }
-  }
-}
-
-type FileDoc = {
-  _id: Id<"files">;
-  url: string;
-  alt: string;
-  filename: string;
-  mimeType: string;
-};
-
-/**
- * Recursively resolve { _fileId } references in content to full file objects.
- * Old inline {url, alt, filename, mimeType} objects pass through unchanged.
- */
-function resolveFileRefs(
-  content: Record<string, unknown>,
-  fileMap: Map<string, FileDoc>,
-): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(content)) {
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const obj = value as Record<string, unknown>;
-      if ("_fileId" in obj && typeof obj._fileId === "string") {
-        const file = fileMap.get(obj._fileId);
-        if (file) {
-          resolved[key] = {
-            url: file.url,
-            alt: file.alt,
-            filename: file.filename,
-            mimeType: file.mimeType,
-            _fileId: obj._fileId,
-          };
-        } else {
-          // File was deleted or not found
-          resolved[key] = { url: "", alt: "", filename: "", mimeType: "" };
-        }
-      } else {
-        // Other object (e.g. legacy inline image, link, etc.) — recurse
-        resolved[key] = resolveFileRefs(obj, fileMap);
-      }
-    } else if (Array.isArray(value)) {
-      resolved[key] = value.map((item) => {
-        if (item && typeof item === "object" && "content" in item) {
-          // DB-backed repeatable item
-          return {
-            ...item,
-            content: resolveFileRefs(
-              (item as { content: Record<string, unknown> }).content,
-              fileMap,
-            ),
-          };
-        } else if (item && typeof item === "object" && !Array.isArray(item)) {
-          return resolveFileRefs(item as Record<string, unknown>, fileMap);
-        }
-        return item;
-      });
-    } else {
-      resolved[key] = value;
-    }
-  }
-  return resolved;
-}
-
-/** Batch-fetch all referenced files and build a lookup map. */
-async function buildFileMap(
-  ctx: QueryCtx,
-  fileIds: Set<string>,
-): Promise<Map<string, FileDoc>> {
-  const fileMap = new Map<string, FileDoc>();
-  await Promise.all(
-    [...fileIds].map(async (id) => {
-      try {
-        const file = await ctx.db.get(id as Id<"files">);
-        if (file) {
-          fileMap.set(id, file);
-        }
-      } catch {
-        // Not a valid ID, skip
-      }
-    }),
-  );
-  return fileMap;
-}
+import {
+  sortByPosition,
+  splitContent,
+  collectFileIds,
+  resolveFileRefs,
+  groupItemsByBlockAndField,
+  reconstructBlockContent,
+  buildFileMap,
+} from "./lib/contentAssembly";
 
 export const createPageInternal = internalMutation({
   args: {
@@ -174,17 +67,7 @@ export const createPageInternal = internalMutation({
     for (const block of args.blocks) {
       const position = generateKeyBetween(prevPosition, null);
 
-      // Separate scalar vs array content (arrays go to repeatableItems)
-      const scalarContent: Record<string, unknown> = {};
-      const arrayFields: Record<string, unknown[]> = {};
-
-      for (const [key, value] of Object.entries(block.content)) {
-        if (Array.isArray(value)) {
-          arrayFields[key] = value;
-        } else {
-          scalarContent[key] = value;
-        }
-      }
+      const { scalarContent, arrayFields } = splitContent(block.content);
 
       const blockId = await ctx.db.insert("blocks", {
         pageId,
@@ -200,8 +83,6 @@ export const createPageInternal = internalMutation({
       // Schedule block summary generation
       await ctx.scheduler.runAfter(0, internal.blocks.generateBlockSummary, {
         blockId,
-        type: block.type,
-        content: scalarContent,
       });
 
       // Create repeatableItems for array fields
@@ -223,11 +104,7 @@ export const createPageInternal = internalMutation({
           await ctx.scheduler.runAfter(
             0,
             internal.repeatableItems.generateRepeatableItemSummary,
-            {
-              itemId,
-              type: fieldName,
-              content: itemContent,
-            }
+            { itemId },
           );
 
           itemPrevPosition = itemPosition;
@@ -261,14 +138,9 @@ export const getPage = query({
       .order("asc")
       .collect();
 
-    // Sort blocks by position (binary comparison for fractional indexing)
-    const sortedBlocks = blocks.sort((a, b) => {
-      if (a.position < b.position) return -1;
-      if (a.position > b.position) return 1;
-      return 0;
-    });
+    const sortedBlocks = sortByPosition(blocks);
 
-    // Fetch all repeatableItems for all blocks in one query
+    // Fetch all repeatableItems for all blocks
     const blockIds = sortedBlocks.map((block) => block._id);
     const allRepeatableItems = await Promise.all(
       blockIds.map((blockId) =>
@@ -279,47 +151,19 @@ export const getPage = query({
       )
     );
 
-    // Flatten and sort repeatableItems by position
-    const flattenedItems = allRepeatableItems.flat();
-    const sortedItems = flattenedItems.sort((a, b) => {
-      if (a.position < b.position) return -1;
-      if (a.position > b.position) return 1;
-      return 0;
-    });
+    const sortedItems = sortByPosition(allRepeatableItems.flat());
+    const itemsByBlockAndField = groupItemsByBlockAndField(sortedItems);
 
-    // Group items by blockId and fieldName
-    const itemsByBlockAndField = sortedItems.reduce((acc, item) => {
-      const key = `${item.blockId}:${item.fieldName}`;
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(item);
-      return acc;
-    }, {} as Record<string, typeof sortedItems>);
-
-    // Reconstruct blocks with their repeatableItems as arrays in content
-    const blocksWithItems = sortedBlocks.map((block) => {
-      const reconstructedContent = { ...block.content };
-
-      // Find all field names for this block's repeatableItems
-      const fieldNames = new Set(
-        sortedItems
-          .filter((item) => item.blockId === block._id)
-          .map((item) => item.fieldName)
-      );
-
-      // Add full item objects (with _id, position, content, etc.) to content
-      for (const fieldName of fieldNames) {
-        const key = `${block._id}:${fieldName}`;
-        const items = itemsByBlockAndField[key] || [];
-        reconstructedContent[fieldName] = items;
-      }
-
-      return {
-        ...block,
-        content: reconstructedContent,
-      };
-    });
+    // Reconstruct blocks with their repeatableItems merged into content
+    const blocksWithItems = sortedBlocks.map((block) => ({
+      ...block,
+      content: reconstructBlockContent(
+        block.content,
+        itemsByBlockAndField,
+        block._id,
+        sortedItems,
+      ),
+    }));
 
     // Resolve file references (_fileId) to full file objects
     const allFileIds = new Set<string>();
