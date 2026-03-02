@@ -18,6 +18,8 @@ import { PagePicker } from "./components/PagePicker";
 import { PageContentSheet } from "./components/PageContentSheet";
 import { AddBlockSheet } from "./components/AddBlockSheet";
 import { AgentChatSheet } from "./components/AgentChatSheet";
+import { CreatePageSheet } from "./components/CreatePageSheet";
+import { EditPageSheet } from "./components/EditPageSheet";
 
 /* -------------------------------------------------------------------------------------------------
  * PageContent
@@ -247,6 +249,8 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
           <PageContentSheet />
           <AddBlockSheet />
           <AgentChatSheet />
+          <CreatePageSheet />
+          <EditPageSheet />
         </div>
       </SignedIn>
       <SignedOut>{children}</SignedOut>
@@ -256,12 +260,37 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
 
 export function usePreviewPagesActions() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const pages = useQuery(api.pages.listPages);
 
   React.useEffect(() => {
     const GO_TO_PAGE_ID = "go-to-page";
+    const currentPage = pages?.find((p) => p.fullPath === pathname);
 
     const actions: Action[] = [
+      {
+        id: "create-page",
+        label: "Create page",
+        groupLabel: "Preview",
+        icon: "FilePlus",
+        checkIfAvailable: () => true,
+        execute: () =>
+          previewStore.send({ type: "openCreatePageSheet" }),
+      },
+      {
+        id: "edit-current-page",
+        label: "Edit current page",
+        groupLabel: "Preview",
+        icon: "Pencil",
+        checkIfAvailable: () => !!currentPage,
+        execute: () => {
+          if (!currentPage) return;
+          previewStore.send({
+            type: "openEditPageSheet",
+            page: currentPage,
+          });
+        },
+      },
       {
         id: GO_TO_PAGE_ID,
         label: "Go to page",
@@ -299,5 +328,5 @@ export function usePreviewPagesActions() {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [navigate, pages]);
+  }, [navigate, pages, pathname]);
 }

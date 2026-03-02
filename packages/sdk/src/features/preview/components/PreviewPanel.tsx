@@ -12,6 +12,7 @@ import { OverlayTracker } from "./OverlayTracker";
 import { SHEET_WIDTH } from "../previewConstants";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FloatingToolbar } from "./FloatingToolbar";
+import { useIsPreviewSheetOpen } from "./PreviewSideSheet";
 
 /* -------------------------------------------------------------------------------------------------
  * Frame
@@ -137,20 +138,11 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
     previewStore,
     (state) => state.context.isMobileMode,
   );
-  const isPageContentSheetOpen = useSelector(
-    previewStore,
-    (state) => state.context.isPageContentSheetOpen,
-  );
-  const isAddBlockSheetOpen = useSelector(
-    previewStore,
-    (state) => state.context.isAddBlockSheetOpen,
-  );
   const isAgentChatSheetOpen = useSelector(
     previewStore,
     (state) => state.context.isAgentChatSheetOpen,
   );
-  const isAnySideSheetOpen =
-    isPageContentSheetOpen || isAddBlockSheetOpen || isAgentChatSheetOpen;
+  const isAnySideSheetOpen = useIsPreviewSheetOpen();
   const wrapperRef = React.useRef<HTMLDivElement>(null);
   const [panelWidth, setPanelWidth] = React.useState(0);
   const [panelLeft, setPanelLeft] = React.useState(0);

@@ -35,7 +35,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PageSheet } from "./PageSheet";
 
 /* -------------------------------------------------------------------------------------------------
  * PagePicker
@@ -45,9 +44,6 @@ const CREATE_PAGE_VALUE = "__create_page__";
 
 const PagePicker = () => {
   const [open, setOpen] = React.useState(false);
-  const [sheetOpen, setSheetOpen] = React.useState(false);
-  const [sheetMode, setSheetMode] = React.useState<"create" | "edit">("create");
-  const [pageToEdit, setPageToEdit] = React.useState<Doc<"pages"> | null>(null);
   const [pageToDelete, setPageToDelete] = React.useState<Doc<"pages"> | null>(
     null,
   );
@@ -167,32 +163,28 @@ const PagePicker = () => {
                         </p>
                       </div>
                     </div>
-                    {page.fullPath !== "/" && (
-                      <div className="hidden group-data-[selected=true]/item:flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={(e) => {
+                    <div className="hidden group-data-[selected=true]/item:flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          previewStore.send({ type: "openEditPageSheet", page });
+                          setOpen(false);
+                        }}
+                        onKeyDown={(e) => {
+                          // Prevent the button keyboard events from being hyjacked by CommandItem
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
                             e.stopPropagation();
-                            setPageToEdit(page);
-                            setSheetMode("edit");
-                            setSheetOpen(true);
+                            previewStore.send({ type: "openEditPageSheet", page });
                             setOpen(false);
-                          }}
-                          onKeyDown={(e) => {
-                            // Prevent the button keyboard events from being hyjacked by CommandItem
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setPageToEdit(page);
-                              setSheetMode("edit");
-                              setSheetOpen(true);
-                              setOpen(false);
-                            }
-                          }}
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
+                          }
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      {page.fullPath !== "/" && (
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -211,8 +203,8 @@ const PagePicker = () => {
                         >
                           <Trash2 className="size-4" />
                         </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -222,9 +214,7 @@ const PagePicker = () => {
               <CommandItem
                 onSelect={() => {
                   setOpen(false);
-                  setSheetMode("create");
-                  setPageToEdit(null);
-                  setSheetOpen(true);
+                  previewStore.send({ type: "openCreatePageSheet" });
                 }}
                 value={CREATE_PAGE_VALUE}
               >
@@ -235,12 +225,6 @@ const PagePicker = () => {
           </Command>
         </PopoverContent>
       </Popover>
-      <PageSheet
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        mode={sheetMode}
-        pageToEdit={pageToEdit ?? undefined}
-      />
       <AlertDialog
         open={!!pageToDelete}
         onOpenChange={(open) => !open && setPageToDelete(null)}

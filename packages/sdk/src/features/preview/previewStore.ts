@@ -1,7 +1,7 @@
 import { createStore } from "@xstate/store";
 import { toast } from "@/components/ui/toaster";
 import { Block } from "@/core/createBlock";
-import { Id } from "camox/_generated/dataModel";
+import { Doc, Id } from "camox/_generated/dataModel";
 import type { FieldType } from "@/core/lib/fieldTypes";
 
 export type SelectionBreadcrumb = {
@@ -16,6 +16,8 @@ interface PreviewContext {
   isPageContentSheetOpen: boolean;
   isAddBlockSheetOpen: boolean;
   isAgentChatSheetOpen: boolean;
+  isCreatePageSheetOpen: boolean;
+  editingPage: Doc<"pages"> | null;
   isContentLocked: boolean;
   isMobileMode: boolean;
   peekedBlock: Block | null;
@@ -33,6 +35,8 @@ export const previewStore = createStore({
     isPageContentSheetOpen: false,
     isAddBlockSheetOpen: false,
     isAgentChatSheetOpen: false,
+    isCreatePageSheetOpen: false,
+    editingPage: null,
     isContentLocked: false,
     isMobileMode: false,
     peekedBlock: null,
@@ -357,6 +361,30 @@ export const previewStore = createStore({
       return {
         ...context,
         isAgentChatSheetOpen: false,
+      };
+    },
+    openCreatePageSheet: (context) => {
+      return {
+        ...context,
+        isCreatePageSheetOpen: true,
+      };
+    },
+    closeCreatePageSheet: (context) => {
+      return {
+        ...context,
+        isCreatePageSheetOpen: false,
+      };
+    },
+    openEditPageSheet: (context, event: { page: Doc<"pages"> }) => {
+      return {
+        ...context,
+        editingPage: event.page,
+      };
+    },
+    closeEditPageSheet: (context) => {
+      return {
+        ...context,
+        editingPage: null,
       };
     },
     setIframeElement: (
