@@ -82,3 +82,16 @@ export function getActionShortcut(actions: Action[], actionId: string) {
   const action = actions.find((a) => a.id === actionId);
   return action?.shortcut ? formatShortcut(action.shortcut) : null;
 }
+
+/**
+ * Converts a URL path segment into a human-readable title.
+ * Replaces dashes and underscores with spaces and capitalizes each word.
+ *
+ * @example formatPathSegment("about-us") // "About Us"
+ * @example formatPathSegment("studio_ui") // "Studio Ui"
+ */
+export function formatPathSegment(segment: string): string {
+  return segment
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}

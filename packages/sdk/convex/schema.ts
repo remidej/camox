@@ -15,7 +15,6 @@ export default defineSchema({
     pathSegment: v.string(),
     fullPath: v.string(),
     parentPageId: v.optional(v.id("pages")),
-    nickname: v.string(),
     metaTitle: v.optional(v.string()),
     metaDescription: v.optional(v.string()),
     createdAt: v.number(),

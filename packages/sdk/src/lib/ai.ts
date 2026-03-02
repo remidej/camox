@@ -180,3 +180,63 @@ export async function generateObjectSummary(
 
   return summary;
 }
+
+type GeneratePageSeoOptions = {
+  fullPath: string;
+  blocks: { type: string; content: Record<string, unknown> }[];
+  previousMetaTitle?: string;
+  previousMetaDescription?: string;
+};
+
+export async function generatePageSeo(options: GeneratePageSeoOptions) {
+  const stabilityBlock =
+    options.previousMetaTitle || options.previousMetaDescription
+      ? outdent`
+
+      <previous_metadata>
+        <metaTitle>${options.previousMetaTitle ?? ""}</metaTitle>
+        <metaDescription>${options.previousMetaDescription ?? ""}</metaDescription>
+      </previous_metadata>
+      <stability_instruction>
+        Metadata was previously generated for this page.
+        Return the SAME metadata unless it is no longer accurate.
+        Only change it if the page content has meaningfully changed.
+      </stability_instruction>
+    `
+      : "";
+
+  const { output } = await generateText({
+    model: openRouter.chat("google/gemini-3-flash-preview"),
+    output: Output.object({
+      schema: z.object({
+        metaTitle: z.string(),
+        metaDescription: z.string(),
+      }),
+    }),
+    messages: [
+      {
+        role: "user",
+        content: outdent`
+          <instruction>
+            Generate SEO metadata for a web page.
+          </instruction>
+
+          <constraints>
+            - metaTitle: under 60 characters, concise and descriptive
+            - metaDescription: under 160 characters, compelling summary of the page
+            - Be specific to the actual content, not generic
+            - Don't use markdown, just plain text
+          </constraints>
+
+          <page>
+            <path>${options.fullPath}</path>
+            <blocks>${JSON.stringify(options.blocks)}</blocks>
+          </page>
+          ${stabilityBlock}
+        `,
+      },
+    ],
+  });
+
+  return output;
+}

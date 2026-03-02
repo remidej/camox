@@ -15,7 +15,6 @@ import {
 export const createPageInternal = internalMutation({
   args: {
     projectId: v.id("projects"),
-    nickname: v.string(),
     pathSegment: v.string(),
     parentPageId: v.optional(v.id("pages")),
     blocks: v.array(
@@ -54,7 +53,6 @@ export const createPageInternal = internalMutation({
     // Create the page
     const pageId = await ctx.db.insert("pages", {
       projectId: args.projectId,
-      nickname: args.nickname,
       pathSegment: args.pathSegment,
       parentPageId: args.parentPageId,
       fullPath,
@@ -198,7 +196,6 @@ export const listPages = query({
 export const updatePage = mutation({
   args: {
     pageId: v.id("pages"),
-    nickname: v.string(),
     pathSegment: v.string(),
     parentPageId: v.optional(v.id("pages")),
   },
@@ -235,7 +232,6 @@ export const updatePage = mutation({
 
     // Update the page
     await ctx.db.patch(args.pageId, {
-      nickname: args.nickname,
       pathSegment: args.pathSegment,
       parentPageId: args.parentPageId,
       fullPath,

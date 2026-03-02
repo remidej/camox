@@ -55,7 +55,6 @@ export const seedWebsite = mutation({
       projectId,
       pathSegment: "",
       fullPath: "/",
-      nickname: "Home",
       metaTitle: "Camox - Websites you'll love to maintain",
       metaDescription:
         "Meet Camox, the web toolkit designed for developers, LLMs and content editors.",
@@ -167,7 +166,6 @@ export const seedWebsite = mutation({
       projectId,
       pathSegment: "studio-ui",
       fullPath: "/studio-ui",
-      nickname: "Studio",
       metaTitle: "Camox Studio - Edit Within Your Website",
       metaDescription:
         "Discover the power of Camox Studio: edit content directly within your website with instant feedback and real-time collaboration.",

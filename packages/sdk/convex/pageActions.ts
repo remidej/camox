@@ -17,7 +17,6 @@ const DEFAULT_HERO_BLOCK = {
 export const createPage = action({
   args: {
     projectId: v.id("projects"),
-    nickname: v.string(),
     pathSegment: v.string(),
     parentPageId: v.optional(v.id("pages")),
     contentDescription: v.optional(v.string()),
@@ -58,7 +57,6 @@ export const createPage = action({
     // Create the page and blocks via internal mutation
     return ctx.runMutation(internal.pages.createPageInternal, {
       projectId: args.projectId,
-      nickname: args.nickname,
       pathSegment: args.pathSegment,
       parentPageId: args.parentPageId,
       blocks,

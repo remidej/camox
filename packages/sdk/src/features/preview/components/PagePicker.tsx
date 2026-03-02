@@ -21,7 +21,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useSelector } from "@xstate/store/react";
 import { previewStore } from "../previewStore";
-import { cn } from "@/lib/utils";
+import { cn, formatPathSegment } from "@/lib/utils";
 import { Doc } from "camox/_generated/dataModel";
 import { toast } from "@/components/ui/toaster";
 import {
@@ -62,16 +62,17 @@ const PagePicker = () => {
   const navigate = useNavigate();
 
   const handleDeletePage = async (page: Doc<"pages">) => {
+    const displayName = page.metaTitle ?? formatPathSegment(page.pathSegment);
     try {
       await deletePage({ pageId: page._id });
-      toast.success(`Deleted ${page.nickname} page`);
+      toast.success(`Deleted ${displayName} page`);
 
       if (pathname === page.fullPath) {
         navigate({ to: "/" });
       }
     } catch (error) {
       console.error("Failed to delete page:", error);
-      toast.error(`Could not delete ${page.nickname} page`);
+      toast.error(`Could not delete ${displayName} page`);
     } finally {
       setPageToDelete(null);
     }
@@ -111,9 +112,11 @@ const PagePicker = () => {
           <Button
             variant="outline"
             role="combobox"
-            className="min-w-[150px] grow justify-between"
+            className="w-full grow justify-between"
           >
-            {currentPage.nickname}
+            <span className="truncate">
+              {currentPage.metaTitle ?? currentPage.fullPath}
+            </span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
@@ -155,7 +158,10 @@ const PagePicker = () => {
                         )}
                       />
                       <div className="flex flex-col">
-                        <p>{page.nickname}</p>
+                        <p>
+                          {page.metaTitle ??
+                            formatPathSegment(page.pathSegment)}
+                        </p>
                         <p className="text-xs text-muted-foreground font-mono">
                           {page.fullPath}
                         </p>
@@ -244,8 +250,13 @@ const PagePicker = () => {
             <AlertDialogTitle>Delete page</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete{" "}
-              <strong>{pageToDelete?.nickname}</strong>? This action cannot be
-              undone.
+              <strong>
+                {pageToDelete
+                  ? (pageToDelete.metaTitle ??
+                    formatPathSegment(pageToDelete.pathSegment))
+                  : ""}
+              </strong>
+              ? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
+import { cn, formatPathSegment } from "@/lib/utils";
 import { api } from "camox/_generated/api";
 import type { LinkValue } from "@/core/lib/contentType.ts";
 
@@ -157,7 +157,10 @@ const LinkFieldEditor = ({
                 className="justify-between font-normal"
               >
                 {selectedPage ? (
-                  <span className="truncate">{selectedPage.nickname}</span>
+                  <span className="truncate">
+                    {selectedPage.metaTitle ??
+                      formatPathSegment(selectedPage.pathSegment)}
+                  </span>
                 ) : (
                   <span className="text-muted-foreground">Select a page</span>
                 )}
@@ -185,7 +188,10 @@ const LinkFieldEditor = ({
                           )}
                         />
                         <div className="flex flex-col">
-                          <span>{page.nickname}</span>
+                          <span>
+                            {page.metaTitle ??
+                              formatPathSegment(page.pathSegment)}
+                          </span>
                           <span className="text-xs text-muted-foreground font-mono">
                             {page.fullPath}
                           </span>

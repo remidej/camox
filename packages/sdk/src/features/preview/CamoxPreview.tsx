@@ -11,6 +11,7 @@ import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { api } from "camox/_generated/api";
 import { useQuery } from "convex/react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import { formatPathSegment } from "@/lib/utils";
 import { Sidebar } from "./components/Sidebar";
 import { PageContentSheet } from "./components/PageContentSheet";
 import { AddBlockSheet } from "./components/AddBlockSheet";
@@ -270,7 +271,7 @@ export function usePreviewPagesActions() {
               ({
                 id: `go-to-page-${page._id}`,
                 parentActionId: GO_TO_PAGE_ID,
-                label: `Go to "${page.nickname}"`,
+                label: `Go to "${page.metaTitle ?? formatPathSegment(page.pathSegment)}"`,
                 groupLabel: "Preview",
                 checkIfAvailable: () => true,
                 execute: () => navigate({ to: page.fullPath }),

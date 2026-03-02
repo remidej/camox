@@ -25,18 +25,15 @@ import { InputBase, InputBaseAdornment } from "@/components/ui/input-base";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { formatPathSegment } from "@/lib/utils";
 
 const NO_PARENT_VALUE = "__no_parent__";
 
-type PageFormValues = Pick<
-  Doc<"pages">,
-  "nickname" | "pathSegment" | "parentPageId"
-> & {
+type PageFormValues = Pick<Doc<"pages">, "pathSegment" | "parentPageId"> & {
   contentDescription: string;
 };
 
 const defaultPageFormValues: PageFormValues = {
-  nickname: "",
   parentPageId: undefined,
   pathSegment: "",
   contentDescription: "",
@@ -64,7 +61,6 @@ const PageSheet = ({
   const form = useForm({
     defaultValues: isEditMode
       ? {
-          nickname: pageToEdit.nickname,
           pathSegment: pageToEdit.pathSegment,
           parentPageId: pageToEdit.parentPageId,
           contentDescription: "",
@@ -75,12 +71,14 @@ const PageSheet = ({
         if (isEditMode) {
           const { fullPath } = await updatePage({
             pageId: pageToEdit._id,
-            nickname: values.value.nickname,
             pathSegment: values.value.pathSegment,
             parentPageId: values.value.parentPageId,
           });
 
-          toast.success(`Updated ${values.value.nickname} page`);
+          const displayName =
+            pageToEdit.metaTitle ??
+            formatPathSegment(values.value.pathSegment);
+          toast.success(`Updated ${displayName} page`);
           onOpenChange(false);
           form.reset();
 
@@ -93,7 +91,6 @@ const PageSheet = ({
 
           const createPagePromise = createPage({
             projectId: project._id,
-            nickname: values.value.nickname,
             pathSegment: values.value.pathSegment,
             parentPageId: values.value.parentPageId,
             contentDescription: values.value.contentDescription || undefined,
@@ -101,7 +98,7 @@ const PageSheet = ({
 
           toast.promise(createPagePromise, {
             loading: "Creating page...",
-            success: `Created ${values.value.nickname} page`,
+            success: "Page created",
             error: "Failed to create page",
           });
 
@@ -119,9 +116,7 @@ const PageSheet = ({
           error,
         );
         toast.error(
-          `Could not ${isEditMode ? "update" : "create"} ${
-            values.value.nickname
-          } page`,
+          `Could not ${isEditMode ? "update" : "create"} page`,
         );
       }
     },
@@ -132,7 +127,6 @@ const PageSheet = ({
     if (isEditMode && open) {
       form.update({
         defaultValues: {
-          nickname: pageToEdit.nickname,
           pathSegment: pageToEdit.pathSegment,
           parentPageId: pageToEdit.parentPageId,
           contentDescription: "",
@@ -171,22 +165,6 @@ const PageSheet = ({
           }}
           className="space-y-4 py-4 px-4"
         >
-          <form.Field name="nickname">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor="nickname">Page nickname</Label>
-                <Input
-                  id="nickname"
-                  value={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="e.g. Home, About Us"
-                />
-                <p className="text-muted-foreground text-xs">
-                  Used to identify the page within Camox. Does not affect SEO.
-                </p>
-              </div>
-            )}
-          </form.Field>
           <form.Field name="parentPageId">
             {(field) => (
               <div className="space-y-2">
@@ -212,7 +190,8 @@ const PageSheet = ({
                     <SelectSeparator />
                     {pages?.map((page) => (
                       <SelectItem key={page._id} value={page._id}>
-                        {page.nickname}
+                        {page.metaTitle ??
+                          formatPathSegment(page.pathSegment)}
                       </SelectItem>
                     ))}
                   </SelectContent>

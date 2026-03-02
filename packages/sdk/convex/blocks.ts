@@ -8,7 +8,10 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { generateObjectSummary } from "../src/lib/ai";
+import {
+  generateObjectSummary,
+  generatePageSeo as generatePageSeoAI,
+} from "../src/lib/ai";
 import {
   sortByPosition,
   splitContent,
@@ -388,27 +391,130 @@ export const cascadeToPage = internalMutation({
   },
 });
 
-/** No-op placeholder — will contain actual SEO generation logic later. */
+const SEO_STRIP_KEYS = new Set([
+  "_id",
+  "createdAt",
+  "updatedAt",
+  "position",
+  "settings",
+  "pageId",
+  "blockId",
+  "fieldName",
+  "summary",
+  "_fileId",
+]);
+
+function stripNonSeoFields(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (SEO_STRIP_KEYS.has(key)) continue;
+    if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        item && typeof item === "object" && !Array.isArray(item)
+          ? stripNonSeoFields(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (value && typeof value === "object") {
+      result[key] = stripNonSeoFields(value as Record<string, unknown>);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+export const getAssembledPageContent = internalQuery({
+  args: {
+    pageId: v.id("pages"),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.get(args.pageId);
+    if (!page) return null;
+
+    const blocks = await ctx.db
+      .query("blocks")
+      .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
+      .collect();
+
+    const sortedBlocks = sortByPosition(blocks);
+
+    const assembledBlocks = await Promise.all(
+      sortedBlocks.map(async (block) => {
+        const assembled = await assembleBlockContent(ctx, block._id);
+        if (!assembled) return null;
+        return {
+          type: assembled.type,
+          content: stripNonSeoFields(assembled.content),
+        };
+      }),
+    );
+
+    return {
+      fullPath: page.fullPath,
+      blocks: assembledBlocks.filter(
+        (b): b is { type: string; content: Record<string, unknown> } =>
+          b !== null,
+      ),
+      previousMetaTitle: page.metaTitle,
+      previousMetaDescription: page.metaDescription,
+    };
+  },
+});
+
+export const updatePageSeo = internalMutation({
+  args: {
+    pageId: v.id("pages"),
+    metaTitle: v.string(),
+    metaDescription: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.pageId, {
+      metaTitle: args.metaTitle,
+      metaDescription: args.metaDescription,
+      updatedAt: Date.now(),
+    });
+
+    await clearAiJob(ctx, {
+      entityTable: "pages",
+      entityId: args.pageId,
+      type: "seo",
+    });
+  },
+});
+
 export const generatePageSeo = internalAction({
   args: {
     pageId: v.id("pages"),
   },
   handler: async (ctx, args) => {
-    await ctx.runMutation(internal.blocks.clearPageSeoJob, {
-      pageId: args.pageId,
-    });
-  },
-});
+    const assembled = await ctx.runQuery(
+      internal.blocks.getAssembledPageContent,
+      { pageId: args.pageId },
+    );
+    if (!assembled) return;
 
-export const clearPageSeoJob = internalMutation({
-  args: {
-    pageId: v.id("pages"),
-  },
-  handler: async (ctx, args) => {
-    await clearAiJob(ctx, {
-      entityTable: "pages",
-      entityId: args.pageId,
-      type: "seo",
+    let seo: { metaTitle: string; metaDescription: string };
+    try {
+      seo = await generatePageSeoAI({
+        fullPath: assembled.fullPath,
+        blocks: assembled.blocks,
+        previousMetaTitle: assembled.previousMetaTitle,
+        previousMetaDescription: assembled.previousMetaDescription,
+      });
+    } catch (error: any) {
+      console.error("generatePageSeo failed:", {
+        statusCode: error?.statusCode,
+        responseBody: error?.responseBody,
+        message: error?.message,
+        cause: error?.cause,
+      });
+      throw error;
+    }
+
+    await ctx.runMutation(internal.blocks.updatePageSeo, {
+      pageId: args.pageId,
+      metaTitle: seo.metaTitle,
+      metaDescription: seo.metaDescription,
     });
   },
 });
