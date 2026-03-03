@@ -3,10 +3,8 @@ import * as React from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { Id } from "camox/_generated/dataModel";
 
 const DebouncedFieldEditor = ({
-  fileId,
   label,
   placeholder,
   initialValue,
@@ -14,11 +12,10 @@ const DebouncedFieldEditor = ({
   disabled,
   rows,
 }: {
-  fileId: Id<"files">;
   label: string;
   placeholder: string;
   initialValue: string;
-  onSave: (args: { fileId: Id<"files">; value: string }) => void;
+  onSave: (value: string) => void;
   disabled?: boolean;
   rows?: number;
 }) => {
@@ -36,7 +33,7 @@ const DebouncedFieldEditor = ({
     setValue(newValue);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
-      onSave({ fileId, value: newValue });
+      onSave(newValue);
     }, 500);
   };
 

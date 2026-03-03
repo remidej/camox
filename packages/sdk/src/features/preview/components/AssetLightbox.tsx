@@ -183,25 +183,21 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
               <Label htmlFor="ai-metadata">AI metadata</Label>
             </div>
             <DebouncedFieldEditor
-              fileId={fileId}
               label="File name"
               placeholder="File name..."
               initialValue={file.filename}
               disabled={file.aiMetadataEnabled !== false}
-              onSave={({ fileId, value }) =>
+              onSave={(value) =>
                 updateFileFilename({ fileId, filename: value })
               }
             />
             <DebouncedFieldEditor
-              fileId={fileId}
               label="Alt text"
               placeholder="Describe this file..."
               initialValue={file.alt}
               disabled={file.aiMetadataEnabled !== false}
               rows={2}
-              onSave={({ fileId, value }) =>
-                updateFileAlt({ fileId, alt: value })
-              }
+              onSave={(value) => updateFileAlt({ fileId, alt: value })}
             />
           </div>
         </div>

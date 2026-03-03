@@ -17,6 +17,7 @@ export default defineSchema({
     parentPageId: v.optional(v.id("pages")),
     metaTitle: v.optional(v.string()),
     metaDescription: v.optional(v.string()),
+    aiSeoEnabled: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

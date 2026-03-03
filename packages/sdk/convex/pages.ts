@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { scheduleAiJob } from "./lib/aiJobs";
+import { scheduleAiJob, clearAiJob } from "./lib/aiJobs";
 import { generateKeyBetween } from "fractional-indexing";
 import {
   sortByPosition,
@@ -124,6 +124,15 @@ export const createPageInternal = internalMutation({
     });
 
     return { pageId, fullPath };
+  },
+});
+
+export const getPageById = query({
+  args: {
+    pageId: v.id("pages"),
+  },
+  handler: async (ctx, args) => {
+    return ctx.db.get(args.pageId);
   },
 });
 
@@ -289,5 +298,67 @@ export const deletePage = mutation({
 
     // Delete the page
     await ctx.db.delete(args.pageId);
+  },
+});
+
+export const setAiSeo = mutation({
+  args: {
+    pageId: v.id("pages"),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.get(args.pageId);
+    if (!page) throw new Error("Page not found");
+
+    if (args.enabled) {
+      await scheduleAiJob(ctx, {
+        entityTable: "pages",
+        entityId: args.pageId,
+        type: "seo",
+        delayMs: 0,
+        fn: internal.blocks.generatePageSeo,
+        fnArgs: { pageId: args.pageId },
+      });
+      await ctx.db.patch(args.pageId, {
+        aiSeoEnabled: true,
+        updatedAt: Date.now(),
+      });
+    } else {
+      await clearAiJob(ctx, {
+        entityTable: "pages",
+        entityId: args.pageId,
+        type: "seo",
+      });
+      await ctx.db.patch(args.pageId, {
+        aiSeoEnabled: false,
+        updatedAt: Date.now(),
+      });
+    }
+  },
+});
+
+export const updatePageMetaTitle = mutation({
+  args: {
+    pageId: v.id("pages"),
+    metaTitle: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.pageId, {
+      metaTitle: args.metaTitle,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const updatePageMetaDescription = mutation({
+  args: {
+    pageId: v.id("pages"),
+    metaDescription: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.pageId, {
+      metaDescription: args.metaDescription,
+      updatedAt: Date.now(),
+    });
   },
 });

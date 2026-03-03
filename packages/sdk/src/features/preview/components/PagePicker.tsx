@@ -143,14 +143,14 @@ const PagePicker = () => {
                       setOpen(false);
                     }}
                   >
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2 flex-1 min-w-0">
                       <Check
                         className={cn(
-                          "size-4 mt-0.5",
+                          "size-4 mt-0.5 shrink-0",
                           currentPage.fullPath !== page.fullPath && "invisible",
                         )}
                       />
-                      <div className="flex flex-col">
+                      <div className="flex flex-col min-w-0">
                         <p className="truncate">
                           {page.metaTitle ??
                             formatPathSegment(page.pathSegment)}

@@ -380,6 +380,9 @@ export const cascadeToPage = internalMutation({
     pageId: v.id("pages"),
   },
   handler: async (ctx, args) => {
+    const page = await ctx.db.get(args.pageId);
+    if (!page || page.aiSeoEnabled === false) return;
+
     await scheduleAiJob(ctx, {
       entityTable: "pages",
       entityId: args.pageId,
@@ -451,6 +454,7 @@ export const getAssembledPageContent = internalQuery({
 
     return {
       fullPath: page.fullPath,
+      aiSeoEnabled: page.aiSeoEnabled,
       blocks: assembledBlocks.filter(
         (b): b is { type: string; content: Record<string, unknown> } =>
           b !== null,
@@ -491,7 +495,7 @@ export const generatePageSeo = internalAction({
       internal.blocks.getAssembledPageContent,
       { pageId: args.pageId },
     );
-    if (!assembled) return;
+    if (!assembled || assembled.aiSeoEnabled === false) return;
 
     let seo: { metaTitle: string; metaDescription: string };
     try {

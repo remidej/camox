@@ -145,6 +145,7 @@ export async function generateObjectSummary(
               - MAXIMUM 4 WORDS
               - Capture the main idea or purpose
               - Be descriptive and specific to the content type
+              - Use sentence case (only capitalize the first word and proper nouns)
               - Don't use markdown, just plain text
               - Don't use punctuation
               - Use abbreviations or acronyms where appropriate
