@@ -132,7 +132,7 @@ export async function generateObjectSummary(
     : "";
 
   const { text: summary } = await generateText({
-    model: openRouter.chat("openai/gpt-oss-safeguard-20b:nitro"),
+    model: openRouter.chat("openai/gpt-oss-20b"),
     messages: [
       {
         role: "user",
@@ -222,7 +222,7 @@ export async function generatePageSeo(options: GeneratePageSeoOptions) {
           </instruction>
 
           <constraints>
-            - metaTitle: under 60 characters, concise and descriptive
+            - metaTitle: under 60 characters, concise and descriptive. Use sentence case (only capitalize the first word and proper nouns). Do NOT include the site/brand name — it will be appended automatically. Do NOT use separators like "-", "|", or ":" to split the title into parts.
             - metaDescription: under 160 characters, compelling summary of the page
             - Be specific to the actual content, not generic
             - Don't use markdown, just plain text

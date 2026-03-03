@@ -51,8 +51,7 @@ const PageLocationFieldset = ({
     <>
       <div className="space-y-2">
         <Label>
-          Parent page{" "}
-          <span className="text-muted-foreground">(optional)</span>
+          Parent page <span className="text-muted-foreground">(optional)</span>
         </Label>
         <Select
           value={parentPageId ?? ""}
@@ -72,19 +71,21 @@ const PageLocationFieldset = ({
             <SelectItem value={NO_PARENT_VALUE}>No parent</SelectItem>
             <SelectSeparator />
             {pages
-              ?.filter((page) => page._id !== excludePageId && page.fullPath !== "/")
+              ?.filter(
+                (page) => page._id !== excludePageId && page.fullPath !== "/",
+              )
               .map((page) => (
-              <SelectItem key={page._id} value={page._id}>
-                <div className="flex flex-col items-start">
-                  <span>
-                    {page.metaTitle ?? formatPathSegment(page.pathSegment)}
-                  </span>
-                  <span className="text-xs text-muted-foreground font-mono [[data-slot=select-value]_&]:hidden">
-                    {page.fullPath}
-                  </span>
-                </div>
-              </SelectItem>
-            ))}
+                <SelectItem key={page._id} value={page._id}>
+                  <div className="flex flex-col items-start">
+                    <span>
+                      {page.metaTitle ?? formatPathSegment(page.pathSegment)}
+                    </span>
+                    <span className="text-xs text-muted-foreground font-mono [[data-slot=select-value]_&]:hidden">
+                      {page.fullPath}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
         <p className="text-muted-foreground text-xs">
@@ -105,7 +106,7 @@ const PageLocationFieldset = ({
               value={pathSegment}
               disabled={disabled}
               onChange={(e) => onPathSegmentChange(e.target.value)}
-              placeholder="e.g. home, about-us"
+              placeholder="e.g. pricing, about-us"
             />
           </ControlGroup.ControlGroupItem>
         </ControlGroup.ControlGroup>

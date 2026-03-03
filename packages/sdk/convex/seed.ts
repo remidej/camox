@@ -24,6 +24,11 @@ export const seedWebsite = mutation({
       await ctx.db.delete(item._id);
     }
 
+    const existingFiles = await ctx.db.query("files").collect();
+    for (const file of existingFiles) {
+      await ctx.db.delete(file._id);
+    }
+
     const existingProjects = await ctx.db.query("projects").collect();
     for (const project of existingProjects) {
       await ctx.db.delete(project._id);
@@ -55,7 +60,7 @@ export const seedWebsite = mutation({
       projectId,
       pathSegment: "",
       fullPath: "/",
-      metaTitle: "Camox - Websites you'll love to maintain",
+      metaTitle: "The website framework for agents",
       metaDescription:
         "Meet Camox, the web toolkit designed for developers, LLMs and content editors.",
       createdAt: now,
@@ -70,10 +75,15 @@ export const seedWebsite = mutation({
         title: "Websites you'll love to maintain",
         description:
           "Meet Camox, the web toolkit designed for developers, LLMs and content editors.",
-        cta: { type: "external", text: "Start building", href: "/", newTab: false },
+        cta: {
+          type: "external",
+          text: "Start building",
+          href: "/",
+          newTab: false,
+        },
       },
       summary: "Camox benefits",
-            position: pos0,
+      position: pos0,
       createdAt: now,
       updatedAt: now,
     });
@@ -89,7 +99,7 @@ export const seedWebsite = mutation({
           "Camox empowers developers to build and deploy websites with unprecedented speed and flexibility. Our platform handles millions of page views and serves content globally with enterprise-grade reliability.",
       },
       summary: "Camox platform statistics",
-            position: pos1,
+      position: pos1,
       createdAt: now,
       updatedAt: now,
     });
@@ -98,7 +108,7 @@ export const seedWebsite = mutation({
     const [statPos0, statPos1, statPos2, statPos3] = generateNKeysBetween(
       null,
       null,
-      4
+      4,
     );
 
     // Create statistics repeatableItems
@@ -154,125 +164,12 @@ export const seedWebsite = mutation({
       updatedAt: now,
     });
 
-    // Generate positions for studio page blocks
-    const [studioPos0, studioPos1, studioPos2] = generateNKeysBetween(
-      null,
-      null,
-      3
-    );
-
-    // Create studio page
-    const studioPageId = await ctx.db.insert("pages", {
-      projectId,
-      pathSegment: "studio-ui",
-      fullPath: "/studio-ui",
-      metaTitle: "Camox Studio - Edit Within Your Website",
-      metaDescription:
-        "Discover the power of Camox Studio: edit content directly within your website with instant feedback and real-time collaboration.",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Create hero block for Studio page
-    await ctx.db.insert("blocks", {
-      pageId: studioPageId,
-      type: "hero",
-      content: {
-        title: "Studio: Edit Within Your Website",
-        description:
-          "Experience the future of web content management with Camox Studio. Edit directly on your live website with instant feedback and real-time collaboration.",
-        cta: { type: "external", text: "Try Studio Now", href: "/", newTab: false },
-      },
-      summary: "Camox Studio hero",
-            position: studioPos0,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Create statistics block to showcase Studio benefits
-    const studioStatisticsBlockId = await ctx.db.insert("blocks", {
-      pageId: studioPageId,
-      type: "statistics",
-      content: {
-        title: "Why Choose Camox Studio?",
-        subtitle: "The modern way to manage website content",
-        description:
-          "Edit your website content without leaving your live site. See changes instantly, collaborate in real-time, and maintain consistency across your entire project.",
-      },
-      summary: "Camox Studio statistics",
-            position: studioPos1,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Generate positions for statistics items
-    const [studioStatPos0, studioStatPos1, studioStatPos2] =
-      generateNKeysBetween(null, null, 3);
-
-    // Create statistics items showcasing Studio features
-    await ctx.db.insert("repeatableItems", {
-      blockId: studioStatisticsBlockId,
-      fieldName: "statistics",
-      content: {
-        number: "Edit Within",
-        label: "your website - no more context switching.",
-      },
-      summary: "Contained editing",
-      position: studioStatPos0,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await ctx.db.insert("repeatableItems", {
-      blockId: studioStatisticsBlockId,
-      fieldName: "statistics",
-      content: {
-        number: "Instant",
-        label: "feedback - see changes as you type.",
-      },
-      summary: "Instant feedback",
-      position: studioStatPos1,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await ctx.db.insert("repeatableItems", {
-      blockId: studioStatisticsBlockId,
-      fieldName: "statistics",
-      content: {
-        number: "Real-Time",
-        label: "collaboration with your entire team.",
-      },
-      summary: "Live collaboration",
-      position: studioStatPos2,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Create testimonial block
-    await ctx.db.insert("blocks", {
-      pageId: studioPageId,
-      type: "testimonial",
-      content: {
-        quote:
-          "Camox Studio changed how we manage our website. Editing within the site itself saves us hours every week.",
-        author: "Alex Johnson",
-        title: "Content Manager",
-        company: "Modern Web Co.",
-      },
-      summary: "Alex Johnson testimonial",
-            position: studioPos2,
-      createdAt: now,
-      updatedAt: now,
-    });
-
     console.log("Website seeded successfully!");
     return {
       success: true,
-      message: "Homepage and studio page created",
+      message: "Homepage created",
       projectId,
       homepageId,
-      studioPageId,
     };
   },
 });

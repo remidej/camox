@@ -151,11 +151,11 @@ const PagePicker = () => {
                         )}
                       />
                       <div className="flex flex-col">
-                        <p>
+                        <p className="truncate">
                           {page.metaTitle ??
                             formatPathSegment(page.pathSegment)}
                         </p>
-                        <p className="text-xs text-muted-foreground font-mono">
+                        <p className="text-xs text-muted-foreground font-mono truncate">
                           {page.fullPath}
                         </p>
                       </div>

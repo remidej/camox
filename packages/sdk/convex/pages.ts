@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { scheduleAiJob } from "./lib/aiJobs";
 import { generateKeyBetween } from "fractional-indexing";
 import {
   sortByPosition,
@@ -111,6 +112,16 @@ export const createPageInternal = internalMutation({
 
       prevPosition = position;
     }
+
+    // Schedule SEO generation immediately for new pages
+    await scheduleAiJob(ctx, {
+      entityTable: "pages",
+      entityId: pageId,
+      type: "seo",
+      delayMs: 0,
+      fn: internal.blocks.generatePageSeo,
+      fnArgs: { pageId },
+    });
 
     return { pageId, fullPath };
   },
