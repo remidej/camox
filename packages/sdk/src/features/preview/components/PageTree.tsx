@@ -1,7 +1,13 @@
 import * as React from "react";
 import { useMutation } from "convex/react";
 import * as Accordion from "@radix-ui/react-accordion";
-import { Ellipsis, GripVertical, LayoutTemplate, Plus, Type } from "lucide-react";
+import {
+  Ellipsis,
+  GripVertical,
+  LayoutTemplate,
+  Plus,
+  Type,
+} from "lucide-react";
 import { useSelector } from "@xstate/store/react";
 import {
   DndContext,
@@ -33,6 +39,11 @@ import { useLocation } from "@tanstack/react-router";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /* -------------------------------------------------------------------------------------------------
  * useEmbedTitle
@@ -392,10 +403,17 @@ const SortableBlock = ({ block, isSelected }: SortableBlockProps) => {
 interface TemplateBlockItemProps {
   block: Doc<"blocks">;
   isSelected: boolean;
+  templateName: string;
 }
 
-const TemplateBlockItem = ({ block, isSelected }: TemplateBlockItemProps) => {
+const TemplateBlockItem = ({
+  block,
+  isSelected,
+  templateName,
+}: TemplateBlockItemProps) => {
   const [ellipsisPopoverOpen, setEllipsisPopoverOpen] = React.useState(false);
+  const camoxApp = useCamoxApp();
+  const blockDef = camoxApp.getBlockById(block.type);
 
   const selectionBreadcrumbs = useSelector(
     previewStore,
@@ -440,15 +458,27 @@ const TemplateBlockItem = ({ block, isSelected }: TemplateBlockItemProps) => {
         <Accordion.Header asChild>
           <div
             className={cn(
-              "flex flex-row justify-between items-center gap-1 px-1 max-w-full rounded-lg text-muted-foreground transition-all hover:transition-none",
+              "flex flex-row justify-between items-center gap-1 px-1 max-w-full rounded-lg text-foreground transition-all hover:transition-none",
               !isSelected && "hover:bg-accent/50",
-              isSelected && !isParentOfSelection && "bg-accent text-accent-foreground",
+              isSelected &&
+                !isParentOfSelection &&
+                "bg-accent text-accent-foreground",
               isParentOfSelection && "bg-accent/25",
               "data-[state=open]:rounded-b-none",
             )}
           >
-            <div className="flex items-center justify-center size-8 shrink-0">
-              <LayoutTemplate className="h-4 w-4" />
+            <div className="flex items-center justify-center size-7 shrink-0 text-muted-foreground">
+              <Tooltip delayDuration={500}>
+                <TooltipTrigger>
+                  <LayoutTemplate className="h-4 w-4" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  From <span className="font-semibold">{templateName}</span>{" "}
+                  template.
+                  <br />
+                  Changing the content may affect other pages
+                </TooltipContent>
+              </Tooltip>
             </div>
             <div className="flex items-center gap-1 flex-1 overflow-x-hidden">
               <Accordion.Trigger asChild>
@@ -457,7 +487,7 @@ const TemplateBlockItem = ({ block, isSelected }: TemplateBlockItemProps) => {
                     "cursor-default flex-1 truncate py-2 text-sm text-left rounded-sm",
                     "focus-visible:underline outline-none focus-visible:decoration-ring/50 focus-visible:decoration-4",
                   )}
-                  title={block.summary}
+                  title={blockDef?.title ?? block.type}
                   onClick={() => {
                     if (isSelected) {
                       previewStore.send({ type: "clearSelection" });
@@ -469,7 +499,7 @@ const TemplateBlockItem = ({ block, isSelected }: TemplateBlockItemProps) => {
                     }
                   }}
                 >
-                  {block.summary}
+                  {blockDef?.title ?? block.type}
                 </button>
               </Accordion.Trigger>
             </div>
@@ -516,6 +546,7 @@ const PageTree = () => {
   const focusedBlockId = selectionBreadcrumbs[0]?.id ?? null;
   const { pathname } = useLocation();
   const page = usePreviewedPage();
+  const camoxApp = useCamoxApp();
 
   const updatePositionMutation = useMutation(
     api.blocks.updateBlockPosition,
@@ -623,33 +654,33 @@ const PageTree = () => {
     return null;
   }
 
+  const template = page.template
+    ? camoxApp.getTemplateById(page.template.templateId)
+    : undefined;
   const beforeBlocks = page.template?.beforeBlocks ?? [];
   const afterBlocks = page.template?.afterBlocks ?? [];
 
   return (
     <>
-      {beforeBlocks.length > 0 && (
-        <div className="flex flex-col gap-0.5">
-          {beforeBlocks.map((block) => (
-            <TemplateBlockItem
-              key={block._id}
-              block={block}
-              isSelected={focusedBlockId === block._id}
-            />
-          ))}
-        </div>
-      )}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-        modifiers={[restrictToVerticalAxis]}
-      >
-        <SortableContext
-          items={page.blocks.map((block) => block._id)}
-          strategy={verticalListSortingStrategy}
+      <div className="flex flex-col gap-0.5">
+        {beforeBlocks.map((block) => (
+          <TemplateBlockItem
+            key={block._id}
+            block={block}
+            isSelected={focusedBlockId === block._id}
+            templateName={template?.title ?? "Unknown"}
+          />
+        ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+          modifiers={[restrictToVerticalAxis]}
         >
-          <div className="flex flex-col gap-0.5">
+          <SortableContext
+            items={page.blocks.map((block) => block._id)}
+            strategy={verticalListSortingStrategy}
+          >
             {page.blocks.map((block) => (
               <SortableBlock
                 key={block._id}
@@ -657,9 +688,17 @@ const PageTree = () => {
                 isSelected={focusedBlockId === block._id}
               />
             ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+          </SortableContext>
+        </DndContext>
+        {afterBlocks.map((block) => (
+          <TemplateBlockItem
+            key={block._id}
+            block={block}
+            isSelected={focusedBlockId === block._id}
+            templateName={template?.title ?? "Unknown"}
+          />
+        ))}
+      </div>
       <Button
         variant="outline"
         onClick={() =>
@@ -671,17 +710,6 @@ const PageTree = () => {
         <Plus />
         Add block
       </Button>
-      {afterBlocks.length > 0 && (
-        <div className="flex flex-col gap-0.5">
-          {afterBlocks.map((block) => (
-            <TemplateBlockItem
-              key={block._id}
-              block={block}
-              isSelected={focusedBlockId === block._id}
-            />
-          ))}
-        </div>
-      )}
     </>
   );
 };
