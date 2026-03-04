@@ -47,6 +47,11 @@ const PageLocationFieldset = ({
     return page ? page.fullPath + "/" : "/";
   };
 
+  const nonRootPages = pages?.filter(
+    (page) => page._id !== excludePageId && page.fullPath !== "/",
+  );
+  const hasParentOptions = nonRootPages && nonRootPages.length > 0;
+
   return (
     <>
       <div className="space-y-2">
@@ -55,7 +60,7 @@ const PageLocationFieldset = ({
         </Label>
         <Select
           value={parentPageId ?? ""}
-          disabled={disabled}
+          disabled={disabled || !hasParentOptions}
           onValueChange={(value) =>
             onParentPageIdChange(
               ["", NO_PARENT_VALUE].includes(value)
@@ -70,11 +75,7 @@ const PageLocationFieldset = ({
           <SelectContent>
             <SelectItem value={NO_PARENT_VALUE}>No parent</SelectItem>
             <SelectSeparator />
-            {pages
-              ?.filter(
-                (page) => page._id !== excludePageId && page.fullPath !== "/",
-              )
-              .map((page) => (
+            {nonRootPages?.map((page) => (
                 <SelectItem key={page._id} value={page._id}>
                   <div className="flex flex-col items-start">
                     <span>

@@ -191,13 +191,13 @@ export const getPage = query({
       collectFileIds(block.content, allFileIds);
     }
 
+    let resolvedPageBlocks = blocksWithItems;
     if (allFileIds.size > 0) {
       const fileMap = await buildFileMap(ctx, allFileIds);
-      const resolvedBlocks = blocksWithItems.map((block) => ({
+      resolvedPageBlocks = blocksWithItems.map((block) => ({
         ...block,
         content: resolveFileRefs(block.content, fileMap),
       }));
-      return { page, blocks: resolvedBlocks };
     }
 
     // Fetch template data if page has a template
@@ -255,13 +255,22 @@ export const getPage = query({
           }));
         }
 
+        const beforeBlocks = resolvedTemplateBlocks.filter(
+          (b) => b.placement === "before",
+        );
+        const afterBlocks = resolvedTemplateBlocks.filter(
+          (b) => b.placement === "after",
+        );
+
         return {
           page,
-          blocks: blocksWithItems,
+          blocks: resolvedPageBlocks,
           template: {
             _id: template._id,
             templateId: template.templateId,
             blocks: resolvedTemplateBlocks,
+            beforeBlocks,
+            afterBlocks,
           },
         };
       }
@@ -269,7 +278,7 @@ export const getPage = query({
 
     return {
       page,
-      blocks: blocksWithItems,
+      blocks: resolvedPageBlocks,
     };
   },
 });

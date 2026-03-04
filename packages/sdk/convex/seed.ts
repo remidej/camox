@@ -60,11 +60,52 @@ export const seedWebsite = mutation({
     // Generate fractional index positions for two blocks
     const [pos0, pos1] = generateNKeysBetween(null, null, 2);
 
+    // Create landing-page template
+    const templateId = await ctx.db.insert("templates", {
+      projectId,
+      templateId: "landing-page",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [tplPos0, tplPos1] = generateNKeysBetween(null, null, 2);
+
+    // Navbar block (before)
+    await ctx.db.insert("blocks", {
+      templateId,
+      type: "navbar",
+      content: {
+        title: { type: "external", text: "Acme", href: "/", newTab: false },
+        cta: { type: "external", text: "Get Started", href: "#", newTab: false },
+      },
+      settings: { floating: true },
+      placement: "before",
+      summary: "navbar",
+      position: tplPos0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Footer block (after)
+    await ctx.db.insert("blocks", {
+      templateId,
+      type: "footer",
+      content: {
+        title: "Acme",
+      },
+      placement: "after",
+      summary: "footer",
+      position: tplPos1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
     // Create homepage
     const homepageId = await ctx.db.insert("pages", {
       projectId,
       pathSegment: "",
       fullPath: "/",
+      templateId,
       metaTitle: "The website framework for agents",
       metaDescription:
         "Meet Camox, the web toolkit designed for developers, LLMs and content editors.",

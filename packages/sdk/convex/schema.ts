@@ -41,6 +41,7 @@ export default defineSchema({
     type: v.string(),
     content: v.any(),
     settings: v.optional(v.any()),
+    placement: v.optional(v.union(v.literal("before"), v.literal("after"))),
     summary: v.string(),
     position: v.string(),
     createdAt: v.number(),

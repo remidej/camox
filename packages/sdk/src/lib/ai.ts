@@ -39,7 +39,7 @@ export async function generatePageDraft(options: {
     ...(def.settingsSchema ? { settingsSchema: def.settingsSchema } : {}),
   }));
 
-  const { output } = await generateText({
+  const { text } = await generateText({
     model: openRouter.chat("google/gemini-3-flash-preview"),
     messages: [
       {
@@ -66,13 +66,15 @@ export async function generatePageDraft(options: {
             Only use blocks from available_blocks. Ensure content matches schema constraints (maxLength, etc.).
             For RepeatableObject fields (arrays), provide an array of objects matching the nested schema.
             For settings, pick values from the enum options or boolean values defined in the settingsSchema.
+
+            IMPORTANT: Return ONLY the raw JSON array. Do NOT wrap it in markdown code fences or any other formatting. The response must be valid JSON that can be parsed directly.
           </output_format>
         `,
       },
     ],
   });
 
-  return JSON.parse(output) as GeneratedBlock[];
+  return JSON.parse(text) as GeneratedBlock[];
 }
 
 export async function generateImageMetadata(

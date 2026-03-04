@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation } from "convex/react";
 import * as Accordion from "@radix-ui/react-accordion";
-import { Ellipsis, GripVertical, Plus, Type } from "lucide-react";
+import { Ellipsis, GripVertical, LayoutTemplate, Plus, Type } from "lucide-react";
 import { useSelector } from "@xstate/store/react";
 import {
   DndContext,
@@ -386,6 +386,124 @@ const SortableBlock = ({ block, isSelected }: SortableBlockProps) => {
 };
 
 /* -------------------------------------------------------------------------------------------------
+ * TemplateBlockItem
+ * -----------------------------------------------------------------------------------------------*/
+
+interface TemplateBlockItemProps {
+  block: Doc<"blocks">;
+  isSelected: boolean;
+}
+
+const TemplateBlockItem = ({ block, isSelected }: TemplateBlockItemProps) => {
+  const [ellipsisPopoverOpen, setEllipsisPopoverOpen] = React.useState(false);
+
+  const selectionBreadcrumbs = useSelector(
+    previewStore,
+    (state) => state.context.selectionBreadcrumbs,
+  );
+  const iframeElement = useSelector(
+    previewStore,
+    (state) => state.context.iframeElement,
+  );
+  const isParentOfSelection = selectionBreadcrumbs.at(-2)?.id === block._id;
+
+  const handleBlockMouseEnter = () => {
+    if (!iframeElement?.contentWindow) return;
+    const message: OverlayMessage = {
+      type: "CAMOX_HOVER_BLOCK",
+      blockId: block._id,
+    };
+    iframeElement.contentWindow.postMessage(message, "*");
+  };
+
+  const handleBlockMouseLeave = () => {
+    if (!iframeElement?.contentWindow) return;
+    const message: OverlayMessage = {
+      type: "CAMOX_HOVER_BLOCK_END",
+      blockId: block._id,
+    };
+    iframeElement.contentWindow.postMessage(message, "*");
+  };
+
+  return (
+    <Accordion.Root
+      type="single"
+      collapsible
+      value={isSelected ? block._id : ""}
+    >
+      <Accordion.Item
+        value={block._id}
+        className="group"
+        onMouseEnter={handleBlockMouseEnter}
+        onMouseLeave={handleBlockMouseLeave}
+      >
+        <Accordion.Header asChild>
+          <div
+            className={cn(
+              "flex flex-row justify-between items-center gap-1 px-1 max-w-full rounded-lg text-muted-foreground transition-all hover:transition-none",
+              !isSelected && "hover:bg-accent/50",
+              isSelected && !isParentOfSelection && "bg-accent text-accent-foreground",
+              isParentOfSelection && "bg-accent/25",
+              "data-[state=open]:rounded-b-none",
+            )}
+          >
+            <div className="flex items-center justify-center size-8 shrink-0">
+              <LayoutTemplate className="h-4 w-4" />
+            </div>
+            <div className="flex items-center gap-1 flex-1 overflow-x-hidden">
+              <Accordion.Trigger asChild>
+                <button
+                  className={cn(
+                    "cursor-default flex-1 truncate py-2 text-sm text-left rounded-sm",
+                    "focus-visible:underline outline-none focus-visible:decoration-ring/50 focus-visible:decoration-4",
+                  )}
+                  title={block.summary}
+                  onClick={() => {
+                    if (isSelected) {
+                      previewStore.send({ type: "clearSelection" });
+                    } else {
+                      previewStore.send({
+                        type: "setFocusedBlock",
+                        blockId: block._id,
+                      });
+                    }
+                  }}
+                >
+                  {block.summary}
+                </button>
+              </Accordion.Trigger>
+            </div>
+            <BlockActionsPopover
+              block={block}
+              open={ellipsisPopoverOpen}
+              onOpenChange={setEllipsisPopoverOpen}
+              isTemplateBlock
+              templatePlacement={block.placement as "before" | "after"}
+            >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "text-muted-foreground hover:text-foreground",
+                  ellipsisPopoverOpen
+                    ? "flex"
+                    : "hidden group-hover:flex group-focus-within:flex",
+                )}
+              >
+                <Ellipsis className="size-4" />
+              </Button>
+            </BlockActionsPopover>
+          </div>
+        </Accordion.Header>
+        <Accordion.Content className="data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down overflow-hidden text-sm text-muted-foreground rounded-b-lg data-[state=open]:bg-accent/25">
+          <BlockFields block={block} />
+        </Accordion.Content>
+      </Accordion.Item>
+    </Accordion.Root>
+  );
+};
+
+/* -------------------------------------------------------------------------------------------------
  * PageTree
  * -----------------------------------------------------------------------------------------------*/
 
@@ -505,8 +623,22 @@ const PageTree = () => {
     return null;
   }
 
+  const beforeBlocks = page.template?.beforeBlocks ?? [];
+  const afterBlocks = page.template?.afterBlocks ?? [];
+
   return (
     <>
+      {beforeBlocks.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {beforeBlocks.map((block) => (
+            <TemplateBlockItem
+              key={block._id}
+              block={block}
+              isSelected={focusedBlockId === block._id}
+            />
+          ))}
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -539,6 +671,17 @@ const PageTree = () => {
         <Plus />
         Add block
       </Button>
+      {afterBlocks.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {afterBlocks.map((block) => (
+            <TemplateBlockItem
+              key={block._id}
+              block={block}
+              isSelected={focusedBlockId === block._id}
+            />
+          ))}
+        </div>
+      )}
     </>
   );
 };

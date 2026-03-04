@@ -26,6 +26,9 @@ export const syncTemplates = mutation({
             type: v.string(),
             content: v.any(),
             settings: v.optional(v.any()),
+            placement: v.optional(
+              v.union(v.literal("before"), v.literal("after")),
+            ),
           }),
         ),
       }),
@@ -68,6 +71,7 @@ export const syncTemplates = mutation({
           type: block.type,
           content: scalarContent,
           settings: block.settings,
+          placement: block.placement,
           summary: block.type,
           position,
           createdAt: now,

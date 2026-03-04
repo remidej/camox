@@ -7,7 +7,7 @@ const landingPageTemplate = createTemplate({
   title: "Landing page",
   description:
     "Use for the home page, or other pages that are designed to be the first introduction of your site to visitors",
-  blocks: { navbar: navbarBlock, footer: footerBlock },
+  blocks: { before: [navbarBlock], after: [footerBlock] },
   component: LandingPageTemplate,
 });
 

@@ -43,6 +43,8 @@ interface BlockActionsPopoverProps {
   align?: "start" | "center" | "end";
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  isTemplateBlock?: boolean;
+  templatePlacement?: "before" | "after";
 }
 
 const BlockActionsPopover = ({
@@ -51,6 +53,8 @@ const BlockActionsPopover = ({
   open,
   onOpenChange,
   align = "start",
+  isTemplateBlock,
+  templatePlacement,
 }: BlockActionsPopoverProps) => {
   const [blockToDelete, setBlockToDelete] =
     React.useState<Doc<"blocks"> | null>(null);
@@ -171,113 +175,162 @@ const BlockActionsPopover = ({
                     </div>
                     {formatShortcut({ key: "j", withMeta: true })}
                   </CommandItem>
-                  {(() => {
-                    const blockDef = camoxApp.getBlockById(block.type);
-                    const hasSettings =
-                      blockDef?.settingsSchema?.properties &&
-                      Object.keys(blockDef.settingsSchema.properties).length >
-                        0;
-                    if (!hasSettings) return null;
-                    return (
+                  {!isTemplateBlock &&
+                    (() => {
+                      const blockDef = camoxApp.getBlockById(block.type);
+                      const hasSettings =
+                        blockDef?.settingsSchema?.properties &&
+                        Object.keys(blockDef.settingsSchema.properties)
+                          .length > 0;
+                      if (!hasSettings) return null;
+                      return (
+                        <CommandItem
+                          className="justify-between"
+                          onSelect={() => {
+                            previewStore.send({
+                              type: "openBlockContentSheet",
+                              blockId: block._id,
+                            });
+                            onOpenChange(false);
+                          }}
+                        >
+                          <div className="flex gap-2 items-center">
+                            <Settings className="h-4 w-4" />
+                            Open settings
+                          </div>
+                        </CommandItem>
+                      );
+                    })()}
+                </CommandGroup>
+                {isTemplateBlock && templatePlacement === "before" && (
+                  <>
+                    <CommandSeparator />
+                    <CommandGroup>
                       <CommandItem
-                        className="justify-between"
                         onSelect={() => {
                           previewStore.send({
-                            type: "openBlockContentSheet",
-                            blockId: block._id,
+                            type: "openAddBlockSheet",
+                            afterPosition: "",
                           });
                           onOpenChange(false);
                         }}
                       >
                         <div className="flex gap-2 items-center">
-                          <Settings className="h-4 w-4" />
-                          Open settings
+                          <span className="w-4" />
+                          Add block below
                         </div>
                       </CommandItem>
-                    );
-                  })()}
-                </CommandGroup>
-                <CommandSeparator />
-                <CommandGroup>
-                  <CommandItem
-                    className="justify-between"
-                    onSelect={() => {
-                      handleAddBlockBelow(block);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <div className="flex gap-2 items-center">
-                      <span className="w-4" />
-                      Add block below
-                    </div>
-                    {formatShortcut({ key: "o" })}
-                  </CommandItem>
-                  <CommandItem
-                    className="justify-between"
-                    onSelect={() => {
-                      handleAddBlockAbove(block);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <div className="flex gap-2 items-center">
-                      <span className="w-4" />
-                      Add block above
-                    </div>
-                    {formatShortcut({ key: "o", withShift: true })}
-                  </CommandItem>
-                </CommandGroup>
-                <CommandSeparator />
-                <CommandGroup>
-                  <CommandItem
-                    className="justify-between"
-                    onSelect={() => {
-                      handleDuplicateBlock(block);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <div className="flex gap-2 items-center">
-                      <Copy className="h-4 w-4" />
-                      Duplicate block
-                    </div>
-                    {formatShortcut({ key: "d", withMeta: true })}
-                  </CommandItem>
-                </CommandGroup>
-                <CommandSeparator />
-                <CommandGroup>
-                  <CommandItem
-                    onSelect={() => {
-                      handleDeleteBlocksAbove(block);
-                      onOpenChange(false);
-                    }}
-                    disabled={getBlocksAbove(block).length === 0}
-                  >
-                    <span className="w-4" />
-                    Delete blocks above
-                  </CommandItem>
-                  <CommandItem
-                    onSelect={() => {
-                      handleDeleteBlocksBelow(block);
-                      onOpenChange(false);
-                    }}
-                    disabled={getBlocksBelow(block).length === 0}
-                  >
-                    <span className="w-4" />
-                    Delete blocks below
-                  </CommandItem>
-                  <CommandItem
-                    className="justify-between"
-                    onSelect={() => {
-                      handleDeleteBlock(block);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <div className="flex gap-2 items-center">
-                      <Trash2 className="h-4 w-4" />
-                      Delete block
-                    </div>
-                    {formatShortcut({ key: "Backspace", withMeta: true })}
-                  </CommandItem>
-                </CommandGroup>
+                    </CommandGroup>
+                  </>
+                )}
+                {isTemplateBlock && templatePlacement === "after" && (
+                  <>
+                    <CommandSeparator />
+                    <CommandGroup>
+                      <CommandItem
+                        onSelect={() => {
+                          const lastPageBlock =
+                            page?.blocks[page.blocks.length - 1];
+                          previewStore.send({
+                            type: "openAddBlockSheet",
+                            afterPosition: lastPageBlock?.position,
+                          });
+                          onOpenChange(false);
+                        }}
+                      >
+                        <div className="flex gap-2 items-center">
+                          <span className="w-4" />
+                          Add block above
+                        </div>
+                      </CommandItem>
+                    </CommandGroup>
+                  </>
+                )}
+                {!isTemplateBlock && (
+                  <>
+                    <CommandSeparator />
+                    <CommandGroup>
+                      <CommandItem
+                        className="justify-between"
+                        onSelect={() => {
+                          handleAddBlockBelow(block);
+                          onOpenChange(false);
+                        }}
+                      >
+                        <div className="flex gap-2 items-center">
+                          <span className="w-4" />
+                          Add block below
+                        </div>
+                        {formatShortcut({ key: "o" })}
+                      </CommandItem>
+                      <CommandItem
+                        className="justify-between"
+                        onSelect={() => {
+                          handleAddBlockAbove(block);
+                          onOpenChange(false);
+                        }}
+                      >
+                        <div className="flex gap-2 items-center">
+                          <span className="w-4" />
+                          Add block above
+                        </div>
+                        {formatShortcut({ key: "o", withShift: true })}
+                      </CommandItem>
+                    </CommandGroup>
+                    <CommandSeparator />
+                    <CommandGroup>
+                      <CommandItem
+                        className="justify-between"
+                        onSelect={() => {
+                          handleDuplicateBlock(block);
+                          onOpenChange(false);
+                        }}
+                      >
+                        <div className="flex gap-2 items-center">
+                          <Copy className="h-4 w-4" />
+                          Duplicate block
+                        </div>
+                        {formatShortcut({ key: "d", withMeta: true })}
+                      </CommandItem>
+                    </CommandGroup>
+                    <CommandSeparator />
+                    <CommandGroup>
+                      <CommandItem
+                        onSelect={() => {
+                          handleDeleteBlocksAbove(block);
+                          onOpenChange(false);
+                        }}
+                        disabled={getBlocksAbove(block).length === 0}
+                      >
+                        <span className="w-4" />
+                        Delete blocks above
+                      </CommandItem>
+                      <CommandItem
+                        onSelect={() => {
+                          handleDeleteBlocksBelow(block);
+                          onOpenChange(false);
+                        }}
+                        disabled={getBlocksBelow(block).length === 0}
+                      >
+                        <span className="w-4" />
+                        Delete blocks below
+                      </CommandItem>
+                      <CommandItem
+                        className="justify-between"
+                        onSelect={() => {
+                          handleDeleteBlock(block);
+                          onOpenChange(false);
+                        }}
+                      >
+                        <div className="flex gap-2 items-center">
+                          <Trash2 className="h-4 w-4" />
+                          Delete block
+                        </div>
+                        {formatShortcut({ key: "Backspace", withMeta: true })}
+                      </CommandItem>
+                    </CommandGroup>
+                  </>
+                )}
               </CommandList>
             </Command>
           </PopoverContent>
@@ -325,6 +378,18 @@ function findClosestActionable(breadcrumbs: SelectionBreadcrumb[]) {
   return null;
 }
 
+function isTemplateBlockId(
+  page: ReturnType<typeof usePreviewedPage>,
+  blockId: string,
+): boolean {
+  if (!page?.template) return false;
+  const allTemplateBlocks = [
+    ...(page.template.beforeBlocks ?? []),
+    ...(page.template.afterBlocks ?? []),
+  ];
+  return allTemplateBlocks.some((b) => b._id === blockId);
+}
+
 function useBlockActionsShortcuts() {
   const camoxApp = useCamoxApp();
   const page = usePreviewedPage();
@@ -357,12 +422,14 @@ function useBlockActionsShortcuts() {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.isContentLocked || ctx.isPresentationMode) return false;
           const breadcrumbs = ctx.selectionBreadcrumbs;
+          const blockCrumb = breadcrumbs.find((b) => b.type === "Block");
+          if (blockCrumb && isTemplateBlockId(page, blockCrumb.id))
+            return false;
           const target = findClosestActionable(breadcrumbs);
           if (!target) return false;
 
           if (target.type === "RepeatableObject") {
             if (!page) return false;
-            const blockCrumb = breadcrumbs.find((b) => b.type === "Block");
             if (!blockCrumb) return false;
             const block = page.blocks.find((b) => b._id === blockCrumb.id);
             if (!block) return false;
@@ -413,6 +480,11 @@ function useBlockActionsShortcuts() {
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.isContentLocked || ctx.isPresentationMode) return false;
+          const blockCrumb = ctx.selectionBreadcrumbs.find(
+            (b) => b.type === "Block",
+          );
+          if (blockCrumb && isTemplateBlockId(page, blockCrumb.id))
+            return false;
           return findClosestActionable(ctx.selectionBreadcrumbs) !== null;
         },
         execute: () => {
@@ -451,6 +523,7 @@ function useBlockActionsShortcuts() {
             (b) => b.type === "Block",
           );
           if (!blockCrumb || !page) return false;
+          if (isTemplateBlockId(page, blockCrumb.id)) return false;
           const index = page.blocks.findIndex((b) => b._id === blockCrumb.id);
           return index > 0;
         },
@@ -490,6 +563,7 @@ function useBlockActionsShortcuts() {
             (b) => b.type === "Block",
           );
           if (!blockCrumb || !page) return false;
+          if (isTemplateBlockId(page, blockCrumb.id)) return false;
           const index = page.blocks.findIndex((b) => b._id === blockCrumb.id);
           return index !== -1 && index < page.blocks.length - 1;
         },

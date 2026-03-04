@@ -28,7 +28,7 @@ interface CreateTemplateOptions {
   id: string;
   title: string;
   description: string;
-  blocks: Record<string, TemplateBlock>;
+  blocks: { before: TemplateBlock[]; after: TemplateBlock[] };
   component: React.ComponentType<{ children: React.ReactNode }>;
 }
 
@@ -45,17 +45,17 @@ export function createTemplate(options: CreateTemplateOptions) {
     templateBlocks: Record<string, TemplateBlockData>;
   } | null>(null);
 
-  const blockEntries = Object.entries(options.blocks);
+  const allBlocks = [...options.blocks.before, ...options.blocks.after];
 
-  // Build slot components keyed by PascalCase name
+  // Build slot components keyed by PascalCase(block.id)
   const slotComponents: Record<string, React.ComponentType> = {};
 
-  for (const [key, block] of blockEntries) {
+  for (const block of allBlocks) {
     const SlotComponent = () => {
       const ctx = React.use(TemplateContext);
       if (!ctx) {
         throw new Error(
-          `Template slot "${key}" must be rendered inside a TemplateContextProvider`,
+          `Template slot "${block.id}" must be rendered inside a TemplateContextProvider`,
         );
       }
 
@@ -64,8 +64,8 @@ export function createTemplate(options: CreateTemplateOptions) {
 
       return <block.Component blockData={blockData} mode="template" />;
     };
-    SlotComponent.displayName = `TemplateSlot(${toPascalCase(key)})`;
-    slotComponents[toPascalCase(key)] = SlotComponent;
+    SlotComponent.displayName = `TemplateSlot(${toPascalCase(block.id)})`;
+    slotComponents[toPascalCase(block.id)] = SlotComponent;
   }
 
   // Provider component that wraps the template — shares context with slots
@@ -88,11 +88,20 @@ export function createTemplate(options: CreateTemplateOptions) {
   };
 
   // Build block definitions array for sync
-  const blockDefinitions = blockEntries.map(([, block]) => ({
-    type: block.id,
-    content: block.getInitialContent(),
-    settings: block.getInitialSettings(),
-  }));
+  const blockDefinitions = [
+    ...options.blocks.before.map((block) => ({
+      type: block.id,
+      content: block.getInitialContent(),
+      settings: block.getInitialSettings(),
+      placement: "before" as const,
+    })),
+    ...options.blocks.after.map((block) => ({
+      type: block.id,
+      content: block.getInitialContent(),
+      settings: block.getInitialSettings(),
+      placement: "after" as const,
+    })),
+  ];
 
   return {
     id: options.id,

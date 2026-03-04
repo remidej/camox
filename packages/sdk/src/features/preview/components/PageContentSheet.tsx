@@ -212,7 +212,12 @@ const PageContentSheet = () => {
 
   // Look up the actual block document from page data
   const page = usePreviewedPage();
-  const block = blockId ? page?.blocks.find((b) => b._id === blockId) : null;
+  const block = blockId
+    ? (page?.blocks.find((b) => b._id === blockId) ??
+      page?.template?.beforeBlocks?.find((b) => b._id === blockId) ??
+      page?.template?.afterBlocks?.find((b) => b._id === blockId) ??
+      null)
+    : null;
 
   // Get block definition
   const blockDef = block ? camoxApp.getBlockById(block.type) : null;

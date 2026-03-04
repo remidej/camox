@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Id } from "camox/_generated/dataModel";
 import { useSelector } from "@xstate/store/react";
+import { useEffect } from "react";
 import { previewStore } from "../previewStore";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { PageLocationFieldset } from "./PageLocationFieldset";
@@ -58,9 +59,7 @@ const CreatePageSheet = () => {
           projectId: project._id,
           pathSegment: values.value.pathSegment,
           parentPageId: values.value.parentPageId,
-          templateId: (values.value.templateId || undefined) as
-            | Id<"templates">
-            | undefined,
+          templateId: values.value.templateId as Id<"templates">,
           contentDescription: values.value.contentDescription || undefined,
         });
 
@@ -83,6 +82,12 @@ const CreatePageSheet = () => {
       }
     },
   });
+
+  useEffect(() => {
+    if (templates && templates.length > 0 && !form.getFieldValue("templateId")) {
+      form.setFieldValue("templateId", templates[0]._id);
+    }
+  }, [templates]);
 
   return (
     <Sheet.Sheet
@@ -122,31 +127,30 @@ const CreatePageSheet = () => {
               </form.Field>
             )}
           </form.Field>
-          {templates && templates.length > 0 && (
-            <form.Field name="templateId">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor="templateId">Template</Label>
-                  <Select
-                    value={field.state.value}
-                    onValueChange={field.handleChange}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a template" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {templates.map((t) => (
-                        <SelectItem key={t._id} value={t._id}>
-                          {camoxApp.getTemplateById(t.templateId)?.title ??
-                            t.templateId}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </form.Field>
-          )}
+          <form.Field name="templateId">
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor="templateId">Template</Label>
+                <Select
+                  value={field.state.value}
+                  onValueChange={field.handleChange}
+                  disabled={templates != null && templates.length <= 1}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates?.map((t) => (
+                      <SelectItem key={t._id} value={t._id}>
+                        {camoxApp.getTemplateById(t.templateId)?.title ??
+                          t.templateId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </form.Field>
           <form.Field name="contentDescription">
             {(field) => (
               <div className="space-y-2">
