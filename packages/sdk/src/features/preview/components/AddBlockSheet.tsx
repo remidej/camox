@@ -25,7 +25,7 @@ import {
 const AddBlockSheet = () => {
   const [highlightedValue, setHighlightedValue] = React.useState<string>("");
   const createBlockMutation = useMutation(api.blocks.createBlock);
-  const availableBlocks = useCamoxApp().getBlocks();
+  const availableBlocks = useCamoxApp().getBlocks().filter((b) => !b.templateOnly);
   const page = usePreviewedPage();
   const totalCounts = useQuery(api.blocks.getBlockUsageCounts) ?? {};
 

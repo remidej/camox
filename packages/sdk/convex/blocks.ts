@@ -348,7 +348,7 @@ export const generateBlockSummary = internalAction({
     });
 
     // Cascade: if summary changed, schedule page SEO regeneration
-    if (summary !== assembled.previousSummary) {
+    if (summary !== assembled.previousSummary && assembled.pageId) {
       await ctx.runMutation(internal.blocks.cascadeToPage, {
         pageId: assembled.pageId,
       });
@@ -543,14 +543,20 @@ export const getBlockInternal = internalQuery({
     const block = await ctx.db.get(args.blockId);
     if (!block) return null;
 
-    // Get the page to find the projectId
-    const page = await ctx.db.get(block.pageId);
-    if (!page) return null;
+    // Get the projectId from the page or template
+    if (block.pageId) {
+      const page = await ctx.db.get(block.pageId);
+      if (!page) return null;
+      return { ...block, projectId: page.projectId };
+    }
 
-    return {
-      ...block,
-      projectId: page.projectId,
-    };
+    if (block.templateId) {
+      const template = await ctx.db.get(block.templateId);
+      if (!template) return null;
+      return { ...block, projectId: template.projectId };
+    }
+
+    return null;
   },
 });
 

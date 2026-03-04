@@ -14,6 +14,7 @@ import {
   OVERLAY_WIDTHS,
   OVERLAY_OFFSETS,
   OVERLAY_COLORS,
+  TEMPLATE_OVERLAY_COLORS,
 } from "../features/preview/overlayConstants";
 import { useFrame } from "../components/ui/frame";
 import {
@@ -108,6 +109,11 @@ interface CreateBlockOptions<
    */
   settings?: TSettingsShape;
   /**
+   * When true, this block can only be used inside templates and won't appear in the AddBlockSheet
+   * or be available for AI page generation.
+   */
+  templateOnly?: boolean;
+  /**
    * React component that renders the block.
    * Must be defined as a separate function (not inline, not an arrow function).
    * Should use the Field component returned by createBlock to render editable content.
@@ -127,7 +133,7 @@ interface BlockData<TContent> {
 
 export interface BlockComponentProps<TContent> {
   blockData: BlockData<TContent>;
-  mode: "site" | "peek";
+  mode: "site" | "peek" | "template";
   isFirstBlock?: boolean;
 }
 
@@ -371,6 +377,7 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const colors = mode === "template" ? TEMPLATE_OVERLAY_COLORS : OVERLAY_COLORS;
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
 
@@ -514,7 +521,7 @@ export function createBlock<
         style={
           isContentEditable && (isHovered || isFocused)
             ? {
-                outline: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+                outline: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? colors.selected : colors.hover}`,
                 outlineOffset: isFocused
                   ? OVERLAY_OFFSETS.fieldSelected
                   : OVERLAY_OFFSETS.fieldHover,
@@ -541,6 +548,7 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const colors = mode === "template" ? TEMPLATE_OVERLAY_COLORS : OVERLAY_COLORS;
     const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeaterItemContext);
     const fieldValue = repeaterContext
@@ -692,7 +700,7 @@ export function createBlock<
                       inset: isOpen
                         ? OVERLAY_OFFSETS.blockSelected
                         : OVERLAY_OFFSETS.blockHover,
-                      border: `${isOpen ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isOpen ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+                      border: `${isOpen ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isOpen ? colors.selected : colors.hover}`,
                       pointerEvents: "none",
                       zIndex: 11,
                     }}
@@ -740,6 +748,7 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const colors = mode === "template" ? TEMPLATE_OVERLAY_COLORS : OVERLAY_COLORS;
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeaterItemContext);
@@ -900,7 +909,7 @@ export function createBlock<
             style={
               isContentEditable && (isHovered || isFocused)
                 ? {
-                    outline: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+                    outline: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? colors.selected : colors.hover}`,
                     outlineOffset: isFocused
                       ? OVERLAY_OFFSETS.fieldSelected
                       : OVERLAY_OFFSETS.fieldHover,
@@ -949,6 +958,7 @@ export function createBlock<
 
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
+    const colors = mode === "template" ? TEMPLATE_OVERLAY_COLORS : OVERLAY_COLORS;
     const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeaterItemContext);
     const fieldValue = repeaterContext
@@ -1049,7 +1059,7 @@ export function createBlock<
               inset: isFocused
                 ? OVERLAY_OFFSETS.blockSelected
                 : OVERLAY_OFFSETS.blockHover,
-              border: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
+              border: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? colors.selected : colors.hover}`,
               pointerEvents: "none",
               zIndex: 10,
             }}
@@ -1084,13 +1094,16 @@ export function createBlock<
   const RepeaterItemWrapper = ({
     itemId,
     blockId,
+    mode,
     children,
   }: {
     itemId: string | undefined;
     blockId: Id<"blocks">;
+    mode: "site" | "peek" | "template";
     children: React.ReactNode;
   }) => {
-    const isContentEditable = useIsEditable("site");
+    const isContentEditable = useIsEditable(mode);
+    const colors = mode === "template" ? TEMPLATE_OVERLAY_COLORS : OVERLAY_COLORS;
     const { window: iframeWindow } = useFrame();
 
     // Check if the parent repeater container is being hovered from sidebar
@@ -1117,7 +1130,7 @@ export function createBlock<
             style={{
               position: "absolute",
               inset: OVERLAY_OFFSETS.blockHover,
-              border: `${OVERLAY_WIDTHS.hover} solid ${OVERLAY_COLORS.hover}`,
+              border: `${OVERLAY_WIDTHS.hover} solid ${colors.hover}`,
               pointerEvents: "none",
               zIndex: 10,
             }}
@@ -1231,7 +1244,7 @@ export function createBlock<
       throw new Error("Repeater must be used within a Block Component");
     }
 
-    const { blockId, content } = blockContext;
+    const { blockId, content, mode } = blockContext;
 
     // Check if we're inside another repeater (nested)
     const parentRepeaterContext = React.use(RepeaterItemContext);
@@ -1347,7 +1360,7 @@ export function createBlock<
                   },
                 }}
               >
-                <RepeaterItemWrapper itemId={nestedItemId} blockId={blockId}>
+                <RepeaterItemWrapper itemId={nestedItemId} blockId={blockId} mode={mode}>
                   {children(itemComponents, index)}
                 </RepeaterItemWrapper>
               </RepeaterItemContext.Provider>
@@ -1382,7 +1395,7 @@ export function createBlock<
                 itemId: itemId,
               }}
             >
-              <RepeaterItemWrapper itemId={itemId} blockId={blockId}>
+              <RepeaterItemWrapper itemId={itemId} blockId={blockId} mode={mode}>
                 {children(itemComponents, index)}
               </RepeaterItemWrapper>
             </RepeaterItemContext.Provider>
@@ -1561,40 +1574,47 @@ export function createBlock<
           id="hello"
         />
         {/* Overlay UI */}
-        {shouldShowOverlay && (
-          <>
-            {/* Border overlay */}
-            <div
-              style={{
-                position: "absolute",
-                inset: isBlockSelected
-                  ? OVERLAY_OFFSETS.blockSelected
-                  : OVERLAY_OFFSETS.blockHover,
-                border: `${isBlockSelected ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isBlockSelected ? OVERLAY_COLORS.selected : OVERLAY_COLORS.hover}`,
-                pointerEvents: "none",
-                zIndex: 10,
-              }}
-            />
-
-            {/* Top control bar - add block above (hidden for first block) */}
-            {!isFirstBlock && (
-              <AddBlockControlBar
-                position="top"
-                hidden={isAnySideSheetOpen}
-                onMouseLeave={() => setIsHovered(false)}
-                onClick={() => handleAddBlockClick("before")}
+        {shouldShowOverlay && (() => {
+          const colors = mode === "template" ? TEMPLATE_OVERLAY_COLORS : OVERLAY_COLORS;
+          return (
+            <>
+              {/* Border overlay */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: isBlockSelected
+                    ? OVERLAY_OFFSETS.blockSelected
+                    : OVERLAY_OFFSETS.blockHover,
+                  border: `${isBlockSelected ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isBlockSelected ? colors.selected : colors.hover}`,
+                  pointerEvents: "none",
+                  zIndex: 10,
+                }}
               />
-            )}
 
-            {/* Bottom control bar - add block below */}
-            <AddBlockControlBar
-              position="bottom"
-              hidden={isAnySideSheetOpen}
-              onMouseLeave={() => setIsHovered(false)}
-              onClick={() => handleAddBlockClick("after")}
-            />
-          </>
-        )}
+              {mode !== "template" && (
+                <>
+                  {/* Top control bar - add block above (hidden for first block) */}
+                  {!isFirstBlock && (
+                    <AddBlockControlBar
+                      position="top"
+                      hidden={isAnySideSheetOpen}
+                      onMouseLeave={() => setIsHovered(false)}
+                      onClick={() => handleAddBlockClick("before")}
+                    />
+                  )}
+
+                  {/* Bottom control bar - add block below */}
+                  <AddBlockControlBar
+                    position="bottom"
+                    hidden={isAnySideSheetOpen}
+                    onMouseLeave={() => setIsHovered(false)}
+                    onClick={() => handleAddBlockClick("after")}
+                  />
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
     );
   };
@@ -1632,6 +1652,7 @@ export function createBlock<
     getInitialSettings: () => {
       return { ...settingsDefaults };
     },
+    templateOnly: options.templateOnly ?? false,
   };
 }
 

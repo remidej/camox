@@ -15,6 +15,7 @@ export default defineSchema({
     pathSegment: v.string(),
     fullPath: v.string(),
     parentPageId: v.optional(v.id("pages")),
+    templateId: v.optional(v.id("templates")),
     metaTitle: v.optional(v.string()),
     metaDescription: v.optional(v.string()),
     aiSeoEnabled: v.optional(v.boolean()),
@@ -25,8 +26,18 @@ export default defineSchema({
     .index("by_parent", ["parentPageId"])
     .index("by_project", ["projectId"]),
 
+  templates: defineTable({
+    projectId: v.id("projects"),
+    templateId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_templateId", ["projectId", "templateId"]),
+
   blocks: defineTable({
-    pageId: v.id("pages"),
+    pageId: v.optional(v.id("pages")),
+    templateId: v.optional(v.id("templates")),
     type: v.string(),
     content: v.any(),
     settings: v.optional(v.any()),
@@ -36,6 +47,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_page", ["pageId"])
+    .index("by_template", ["templateId"])
     .index("by_type", ["type"]),
 
   repeatableItems: defineTable({
@@ -86,6 +98,7 @@ export default defineSchema({
     description: v.string(),
     contentSchema: v.any(),
     settingsSchema: v.optional(v.any()),
+    templateOnly: v.optional(v.boolean()),
     code: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

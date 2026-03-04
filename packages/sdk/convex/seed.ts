@@ -34,6 +34,11 @@ export const seedWebsite = mutation({
       await ctx.db.delete(project._id);
     }
 
+    const existingTemplates = await ctx.db.query("templates").collect();
+    for (const tmpl of existingTemplates) {
+      await ctx.db.delete(tmpl._id);
+    }
+
     const existingBlockDefinitions = await ctx.db
       .query("blockDefinitions")
       .collect();

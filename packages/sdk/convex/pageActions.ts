@@ -19,6 +19,7 @@ export const createPage = action({
     projectId: v.id("projects"),
     pathSegment: v.string(),
     parentPageId: v.optional(v.id("pages")),
+    templateId: v.optional(v.id("templates")),
     contentDescription: v.optional(v.string()),
   },
   handler: async (
@@ -36,9 +37,12 @@ export const createPage = action({
     // If contentDescription provided, generate blocks with AI
     if (args.contentDescription) {
       try {
-        const blockDefinitions = await ctx.runQuery(
+        const allBlockDefinitions = await ctx.runQuery(
           internal.blockDefinitions.getBlockDefinitionsInternal,
           { projectId: args.projectId },
+        );
+        const blockDefinitions = allBlockDefinitions.filter(
+          (d) => !d.templateOnly,
         );
 
         if (blockDefinitions.length > 0) {
@@ -59,6 +63,7 @@ export const createPage = action({
       projectId: args.projectId,
       pathSegment: args.pathSegment,
       parentPageId: args.parentPageId,
+      templateId: args.templateId,
       blocks,
     });
   },

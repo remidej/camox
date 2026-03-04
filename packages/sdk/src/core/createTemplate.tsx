@@ -1,0 +1,108 @@
+import * as React from "react";
+
+/* -------------------------------------------------------------------------------------------------
+ * createTemplate
+ * -----------------------------------------------------------------------------------------------*/
+
+export interface TemplateBlockData {
+  _id: string;
+  type: string;
+  content: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+  position: string;
+}
+
+/** Minimal block interface — avoids importing the full generic Block type. */
+interface TemplateBlock {
+  id: string;
+  Component: React.ComponentType<{
+    blockData: any;
+    mode: "site" | "peek" | "template";
+    isFirstBlock?: boolean;
+  }>;
+  getInitialContent: () => Record<string, unknown>;
+  getInitialSettings: () => Record<string, unknown>;
+}
+
+interface CreateTemplateOptions {
+  id: string;
+  title: string;
+  description: string;
+  blocks: Record<string, TemplateBlock>;
+  component: React.ComponentType<{ children: React.ReactNode }>;
+}
+
+function toPascalCase(str: string): string {
+  return str
+    .split(/[-_\s]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join("");
+}
+
+export function createTemplate(options: CreateTemplateOptions) {
+  // Each template gets its own context — avoids cross-module identity issues
+  const TemplateContext = React.createContext<{
+    templateBlocks: Record<string, TemplateBlockData>;
+  } | null>(null);
+
+  const blockEntries = Object.entries(options.blocks);
+
+  // Build slot components keyed by PascalCase name
+  const slotComponents: Record<string, React.ComponentType> = {};
+
+  for (const [key, block] of blockEntries) {
+    const SlotComponent = () => {
+      const ctx = React.use(TemplateContext);
+      if (!ctx) {
+        throw new Error(
+          `Template slot "${key}" must be rendered inside a TemplateContextProvider`,
+        );
+      }
+
+      const blockData = ctx.templateBlocks[block.id];
+      if (!blockData) return null;
+
+      return <block.Component blockData={blockData} mode="template" />;
+    };
+    SlotComponent.displayName = `TemplateSlot(${toPascalCase(key)})`;
+    slotComponents[toPascalCase(key)] = SlotComponent;
+  }
+
+  // Provider component that wraps the template — shares context with slots
+  const Provider = ({
+    templateBlocks,
+    children,
+  }: {
+    templateBlocks: Record<string, TemplateBlockData>;
+    children: React.ReactNode;
+  }) => {
+    const value = React.useMemo(
+      () => ({ templateBlocks }),
+      [templateBlocks],
+    );
+    return (
+      <TemplateContext.Provider value={value}>
+        {children}
+      </TemplateContext.Provider>
+    );
+  };
+
+  // Build block definitions array for sync
+  const blockDefinitions = blockEntries.map(([, block]) => ({
+    type: block.id,
+    content: block.getInitialContent(),
+    settings: block.getInitialSettings(),
+  }));
+
+  return {
+    id: options.id,
+    title: options.title,
+    description: options.description,
+    blockDefinitions,
+    component: options.component,
+    Provider,
+    blocks: slotComponents as Record<string, React.ComponentType>,
+  };
+}
+
+export type Template = ReturnType<typeof createTemplate>;

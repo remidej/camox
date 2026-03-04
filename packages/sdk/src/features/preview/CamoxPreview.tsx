@@ -128,8 +128,38 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
     return afterBlockIndex + 1;
   }, [pageData.blocks, effectivePosition]);
 
-  return (
-    <main className="flex min-h-screen flex-col">
+  // Look up template
+  const template = pageData.template
+    ? camoxApp.getTemplateById(pageData.template.templateId)
+    : undefined;
+
+  // Build template block data map by type
+  const templateBlocks = React.useMemo(() => {
+    if (!pageData.template) return null;
+    const blocks: Record<
+      string,
+      {
+        _id: string;
+        type: string;
+        content: Record<string, unknown>;
+        settings?: Record<string, unknown>;
+        position: string;
+      }
+    > = {};
+    for (const block of pageData.template.blocks) {
+      blocks[block.type] = {
+        _id: block._id,
+        type: block.type,
+        content: block.content,
+        settings: block.settings,
+        position: String(block.position),
+      };
+    }
+    return blocks;
+  }, [pageData.template]);
+
+  const pageBlocksContent = (
+    <>
       {/* Render peeked block at the beginning if it should be before the first block */}
       {peekedBlockIndex === 0 && pageData.blocks.length > 0 && (
         <PeekedBlock onExitComplete={onExitComplete} />
@@ -165,7 +195,20 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
       {pageData.blocks.length === 0 && (
         <PeekedBlock onExitComplete={onExitComplete} />
       )}
-    </main>
+    </>
+  );
+
+  if (template && templateBlocks) {
+    const TemplateComponent = template.component;
+    return (
+      <template.Provider templateBlocks={templateBlocks}>
+        <TemplateComponent>{pageBlocksContent}</TemplateComponent>
+      </template.Provider>
+    );
+  }
+
+  return (
+    <main className="flex min-h-screen flex-col">{pageBlocksContent}</main>
   );
 };
 

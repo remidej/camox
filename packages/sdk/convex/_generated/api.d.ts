@@ -21,6 +21,7 @@ import type * as pages from "../pages.js";
 import type * as projects from "../projects.js";
 import type * as repeatableItems from "../repeatableItems.js";
 import type * as seed from "../seed.js";
+import type * as templates from "../templates.js";
 
 import type {
   ApiFromModules,
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   repeatableItems: typeof repeatableItems;
   seed: typeof seed;
+  templates: typeof templates;
 }>;
 
 /**

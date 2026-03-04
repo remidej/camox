@@ -6,7 +6,7 @@ import * as Sheet from "@/components/ui/sheet";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import { api } from "camox/_generated/api";
-import { Doc } from "camox/_generated/dataModel";
+import { Doc, Id } from "camox/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -14,9 +14,17 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatPathSegment } from "@/lib/utils";
 import { useSelector } from "@xstate/store/react";
 import { previewStore } from "../previewStore";
+import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { PageLocationFieldset } from "./PageLocationFieldset";
 
@@ -38,7 +46,14 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
   const page = livePage ?? pageToEdit;
   const isRootPage = page.fullPath === "/";
   const pages = useQuery(api.pages.listPages);
+  const project = useQuery(api.projects.getFirstProject);
+  const templates = useQuery(
+    api.templates.listTemplates,
+    project ? { projectId: project._id } : "skip",
+  );
+  const camoxApp = useCamoxApp();
   const updatePage = useMutation(api.pages.updatePage);
+  const setPageTemplate = useMutation(api.pages.setPageTemplate);
   const setAiSeo = useMutation(api.pages.setAiSeo);
   const updatePageMetaTitle = useMutation(api.pages.updatePageMetaTitle);
   const updatePageMetaDescription = useMutation(
@@ -134,6 +149,34 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
             </Button>
           </form>
         </div>
+        {templates && templates.length > 0 && (
+          <div className="space-y-4 py-4 px-4">
+            <p className="text-xs font-medium text-muted-foreground">
+              Template
+            </p>
+            <Select
+              value={page.templateId ?? ""}
+              onValueChange={(value) => {
+                setPageTemplate({
+                  pageId: page._id,
+                  templateId: value as Id<"templates">,
+                });
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a template" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((t) => (
+                  <SelectItem key={t._id} value={t._id}>
+                    {camoxApp.getTemplateById(t.templateId)?.title ??
+                      t.templateId}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="space-y-4 py-4 px-4">
           <p className="text-xs font-medium text-muted-foreground">SEO</p>
           <div className="flex items-center gap-2">

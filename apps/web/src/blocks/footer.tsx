@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 const footer = createBlock({
   id: "footer",
   title: "Footer",
+  templateOnly: true,
   description:
     "At the bottom of a page to provide the user with links and miscellaneous information.",
   content: {

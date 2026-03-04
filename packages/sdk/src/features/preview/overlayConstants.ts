@@ -3,6 +3,11 @@ export const OVERLAY_COLORS = {
   selected: "#F472B6", // pink400
 } as const;
 
+export const TEMPLATE_OVERLAY_COLORS = {
+  hover: "#c084fcBF", // purple400 at 75% opacity
+  selected: "#c084fc", // purple400
+} as const;
+
 export const OVERLAY_WIDTHS = {
   hover: "3px",
   selected: "1px",
