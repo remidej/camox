@@ -19,6 +19,9 @@ interface TemplateBlock {
     blockData: any;
     mode: "site" | "peek" | "template";
     isFirstBlock?: boolean;
+    showAddBlockTop?: boolean;
+    showAddBlockBottom?: boolean;
+    addBlockAfterPosition?: string | null;
   }>;
   getInitialContent: () => Record<string, unknown>;
   getInitialSettings: () => Record<string, unknown>;
@@ -50,7 +53,13 @@ export function createTemplate(options: CreateTemplateOptions) {
   // Build slot components keyed by PascalCase(block.id)
   const slotComponents: Record<string, React.ComponentType> = {};
 
+  const lastBeforeBlock = options.blocks.before[options.blocks.before.length - 1];
+  const firstAfterBlock = options.blocks.after[0];
+
   for (const block of allBlocks) {
+    const isLastBefore = block === lastBeforeBlock;
+    const isFirstAfter = block === firstAfterBlock;
+
     const SlotComponent = () => {
       const ctx = React.use(TemplateContext);
       if (!ctx) {
@@ -62,7 +71,19 @@ export function createTemplate(options: CreateTemplateOptions) {
       const blockData = ctx.templateBlocks[block.id];
       if (!blockData) return null;
 
-      return <block.Component blockData={blockData} mode="template" />;
+      return (
+        <block.Component
+          blockData={blockData}
+          mode="template"
+          showAddBlockTop={isFirstAfter || undefined}
+          showAddBlockBottom={isLastBefore || undefined}
+          addBlockAfterPosition={(() => {
+            if (isLastBefore) return "";
+            if (isFirstAfter) return null;
+            return undefined;
+          })()}
+        />
+      );
     };
     SlotComponent.displayName = `TemplateSlot(${toPascalCase(block.id)})`;
     slotComponents[toPascalCase(block.id)] = SlotComponent;

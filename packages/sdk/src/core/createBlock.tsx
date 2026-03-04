@@ -135,6 +135,9 @@ export interface BlockComponentProps<TContent> {
   blockData: BlockData<TContent>;
   mode: "site" | "peek" | "template";
   isFirstBlock?: boolean;
+  showAddBlockTop?: boolean;
+  showAddBlockBottom?: boolean;
+  addBlockAfterPosition?: string | null;
 }
 
 export function createBlock<
@@ -1409,6 +1412,9 @@ export function createBlock<
     blockData,
     mode,
     isFirstBlock,
+    showAddBlockTop,
+    showAddBlockBottom,
+    addBlockAfterPosition,
   }: BlockComponentProps<TContent>) => {
     const isContentEditable = useIsEditable(mode);
     const { window: iframeWindow } = useFrame();
@@ -1514,6 +1520,7 @@ export function createBlock<
         type: "CAMOX_ADD_BLOCK_REQUEST",
         blockPosition: blockData.position,
         insertPosition,
+        ...(addBlockAfterPosition !== undefined && { afterPosition: addBlockAfterPosition }),
       });
     };
 
@@ -1591,27 +1598,31 @@ export function createBlock<
                 }}
               />
 
-              {mode !== "template" && (
-                <>
-                  {/* Top control bar - add block above (hidden for first block) */}
-                  {!isFirstBlock && (
-                    <AddBlockControlBar
-                      position="top"
-                      hidden={isAnySideSheetOpen}
-                      onMouseLeave={() => setIsHovered(false)}
-                      onClick={() => handleAddBlockClick("before")}
-                    />
-                  )}
-
-                  {/* Bottom control bar - add block below */}
-                  <AddBlockControlBar
-                    position="bottom"
-                    hidden={isAnySideSheetOpen}
-                    onMouseLeave={() => setIsHovered(false)}
-                    onClick={() => handleAddBlockClick("after")}
-                  />
-                </>
-              )}
+              {(() => {
+                // Use explicit show flags if provided, otherwise fall back to legacy behavior
+                const displayTop = showAddBlockTop ?? (mode !== "template" && !isFirstBlock);
+                const displayBottom = showAddBlockBottom ?? (mode !== "template");
+                return (
+                  <>
+                    {displayTop && (
+                      <AddBlockControlBar
+                        position="top"
+                        hidden={isAnySideSheetOpen}
+                        onMouseLeave={() => setIsHovered(false)}
+                        onClick={() => handleAddBlockClick("before")}
+                      />
+                    )}
+                    {displayBottom && (
+                      <AddBlockControlBar
+                        position="bottom"
+                        hidden={isAnySideSheetOpen}
+                        onMouseLeave={() => setIsHovered(false)}
+                        onClick={() => handleAddBlockClick("after")}
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </>
           );
         })()}

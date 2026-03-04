@@ -182,7 +182,12 @@ export const PageContent = ({ page: initialPageData }: PageContentProps) => {
                 position: String(blockData.position),
               }}
               mode="site"
-              isFirstBlock={index === 0}
+              showAddBlockTop={
+                index === 0
+                  ? (template?.blockDefinitions.some((b) => b.placement === "before") ?? false)
+                  : true
+              }
+              showAddBlockBottom={true}
             />
             {/* Render peeked block after this block if this is the insertion point */}
             {index === peekedBlockIndex - 1 && (

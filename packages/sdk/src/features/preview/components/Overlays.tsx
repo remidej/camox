@@ -35,7 +35,9 @@ export const Overlays = ({ iframeElement }: OverlaysProps) => {
         const { blockPosition, insertPosition } = message;
 
         let afterPosition: string | null = null;
-        if (insertPosition === "after") {
+        if (message.afterPosition !== undefined) {
+          afterPosition = message.afterPosition;
+        } else if (insertPosition === "after") {
           afterPosition = blockPosition;
         } else {
           // Insert before: find the previous block's position

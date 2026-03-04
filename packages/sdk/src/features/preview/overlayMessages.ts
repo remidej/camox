@@ -25,6 +25,7 @@ export type OverlayMessage =
       type: "CAMOX_ADD_BLOCK_REQUEST";
       blockPosition: string;
       insertPosition: "before" | "after";
+      afterPosition?: string | null;
     };
 
 export function isOverlayMessage(data: unknown): data is OverlayMessage {
