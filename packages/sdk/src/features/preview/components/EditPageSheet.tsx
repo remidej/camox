@@ -10,8 +10,7 @@ import { Doc, Id } from "camox/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import * as React from "react";
 import { toast } from "sonner";
-import { SocialPreview, type SocialPreviewProvider } from "react-og-preview";
-import "react-og-preview/styles.css";
+import { Globe, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
@@ -29,6 +28,11 @@ import { previewStore } from "../previewStore";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { PageLocationFieldset } from "./PageLocationFieldset";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const EditPageSheet = () => {
   const editingPage = useSelector(
@@ -62,6 +66,19 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
     api.pages.updatePageMetaDescription,
   );
   const navigate = useNavigate();
+
+  const pageLayoutRecord = layouts?.find((l) => l._id === page.layoutId);
+  const layoutDef = pageLayoutRecord
+    ? camoxApp.getLayoutById(pageLayoutRecord.layoutId)
+    : undefined;
+
+  const metaTitle = layoutDef
+    ? layoutDef.buildMetaTitle({
+        pageMetaTitle: page.metaTitle ?? "",
+        projectName: project?.name ?? "",
+        pageFullPath: page.fullPath,
+      })
+    : (page.metaTitle ?? "");
 
   const form = useForm({
     defaultValues: {
@@ -129,7 +146,7 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
             <div>
               <p className="text-sm font-medium">Page structure</p>
               <p className="text-xs text-muted-foreground mt-1">
-                URL path and layout used to render the page.
+                URL path and layout used to render the page
               </p>
             </div>
             <div className="space-y-4">
@@ -175,8 +192,8 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
                           <SelectContent>
                             {layouts.map((t) => (
                               <SelectItem key={t._id} value={t._id}>
-                                {camoxApp.getLayoutById(t.layoutId)
-                                  ?.title ?? t.layoutId}
+                                {camoxApp.getLayoutById(t.layoutId)?.title ??
+                                  t.layoutId}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -204,9 +221,9 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
           </div>
           <div className="grid grid-cols-[200px_1fr] gap-x-8 py-6 px-6">
             <div>
-              <p className="text-sm font-medium">SEO</p>
+              <p className="text-sm font-medium">SEO data</p>
               <p className="text-xs text-muted-foreground mt-1">
-                How the page appears to search engines and bots.
+                How the page appears when shared across the web
               </p>
             </div>
             <div className="space-y-4">
@@ -242,7 +259,18 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
                   })
                 }
               />
-              <SocialPreviewSection page={page} domain={project?.domain} />
+              <SearchEnginePreview
+                page={page}
+                domain={project?.domain}
+                metaTitle={metaTitle}
+                metaDescription={page.metaDescription ?? ""}
+              />
+              <SocialPreviewSection
+                page={page}
+                domain={project?.domain}
+                metaTitle={metaTitle}
+                metaDescription={page.metaDescription ?? ""}
+              />
             </div>
           </div>
         </div>
@@ -251,37 +279,16 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
   );
 };
 
-const SOCIAL_PROVIDERS: { value: SocialPreviewProvider; label: string }[] = [
-  { value: "twitter", label: "Twitter" },
-  { value: "facebook", label: "Facebook" },
-  { value: "linkedin", label: "LinkedIn" },
-  { value: "slack", label: "Slack" },
-  { value: "discord", label: "Discord" },
-  { value: "bluesky", label: "Bluesky" },
-  { value: "mastodon", label: "Mastodon" },
-  { value: "whatsapp", label: "WhatsApp" },
-];
-
-function useHeadMeta() {
-  const [meta, setMeta] = React.useState({
-    title: "",
-    description: "",
-    image: "",
-  });
+function useOgImage() {
+  const [image, setImage] = React.useState("");
 
   React.useEffect(() => {
     const read = () =>
-      setMeta({
-        title: document.title,
-        description:
-          document
-            .querySelector('meta[name="description"]')
-            ?.getAttribute("content") ?? "",
-        image:
-          document
-            .querySelector('meta[property="og:image"]')
-            ?.getAttribute("content") ?? "",
-      });
+      setImage(
+        document
+          .querySelector('meta[property="og:image"]')
+          ?.getAttribute("content") ?? "",
+      );
 
     read();
 
@@ -295,48 +302,100 @@ function useHeadMeta() {
     return () => observer.disconnect();
   }, []);
 
-  return meta;
+  return image;
 }
+
+function truncateText(text: string, maxLen: number) {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen) + "...";
+}
+
+const SearchEnginePreview = ({
+  page,
+  domain,
+  metaTitle,
+  metaDescription,
+}: {
+  page: Doc<"pages">;
+  domain?: string;
+  metaTitle: string;
+  metaDescription: string;
+}) => {
+  const url = domain ? `${domain}${page.fullPath}` : page.fullPath;
+
+  return (
+    <div className="space-y-1 pt-2">
+      <div className="flex items-center gap-1.5">
+        <Label>Search engine preview</Label>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="size-3.5 text-muted-foreground" />
+          </TooltipTrigger>
+          <TooltipContent>
+            Titles are cropped after 60 characters and descriptions after 155,
+            like Google typically does.
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <div className="space-y-0.5 rounded-lg border border-border p-3">
+        <p className="text-xs text-muted-foreground truncate">{url}</p>
+        <p className="text-base text-blue-600 dark:text-blue-400 font-medium">
+          {truncateText(metaTitle || "Untitled", 60)}
+        </p>
+        <p className="text-xs text-muted-foreground line-clamp-2">
+          {truncateText(metaDescription || "No description", 155)}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 const SocialPreviewSection = ({
   page,
   domain,
+  metaTitle,
+  metaDescription,
 }: {
   page: Doc<"pages">;
   domain?: string;
+  metaTitle: string;
+  metaDescription: string;
 }) => {
-  const [provider, setProvider] =
-    React.useState<SocialPreviewProvider>("twitter");
-  const headMeta = useHeadMeta();
-
+  const ogImage = useOgImage();
   const url = domain ? `${domain}${page.fullPath}` : page.fullPath;
 
   return (
     <div className="space-y-2 pt-2">
       <Label>Social preview</Label>
-      <Select
-        value={provider}
-        onValueChange={(value) => setProvider(value as SocialPreviewProvider)}
-      >
-        <SelectTrigger className="w-[160px]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {SOCIAL_PROVIDERS.map((p) => (
-            <SelectItem key={p.value} value={p.value}>
-              {p.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <SocialPreview
-        provider={provider}
-        url={url}
-        title={headMeta.title || null}
-        description={headMeta.description || null}
-        image={headMeta.image || null}
-        disableLink
-      />
+      <div className="rounded-lg border border-border bg-background overflow-hidden">
+        {ogImage ? (
+          <img
+            src={ogImage}
+            alt=""
+            className="w-full object-cover"
+            style={{ aspectRatio: "1200 / 630" }}
+          />
+        ) : (
+          <div
+            className="w-full bg-muted"
+            style={{ aspectRatio: "1200 / 630" }}
+          />
+        )}
+        <div className="px-3 py-2.5 space-y-1.5 border-t">
+          <p className="text-sm font-semibold text-foreground truncate">
+            {metaTitle || "Untitled"}
+          </p>
+          <p className="text-xs text-muted-foreground line-clamp-2">
+            {metaDescription || "No description"}
+          </p>
+          <div className="pt-1.5">
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <Globe className="size-3 shrink-0" />
+              <span className="truncate">{url}</span>
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
