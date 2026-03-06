@@ -19,6 +19,7 @@ import {
   splitContent,
   assembleBlockContent,
 } from "./lib/contentAssembly";
+import { contentToMarkdown } from "./lib/contentMarkdown";
 import { scheduleAiJob, clearAiJob } from "./lib/aiJobs";
 
 async function getProjectIdForBlock(
@@ -36,21 +37,17 @@ async function getProjectIdForBlock(
   return null;
 }
 
-async function getFieldOrderForType(
+async function getBlockDefinition(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   blockType: string,
-): Promise<string[] | undefined> {
-  const def = await ctx.db
+) {
+  return ctx.db
     .query("blockDefinitions")
     .withIndex("by_project_blockId", (q) =>
       q.eq("projectId", projectId).eq("blockId", blockType),
     )
     .first();
-  if (def?.contentSchema?.properties) {
-    return Object.keys(def.contentSchema.properties);
-  }
-  return undefined;
 }
 
 const SUMMARIZATION_DEBOUNCE_DELAY_MS = 5000;
@@ -336,10 +333,13 @@ export const getAssembledBlockContent = internalQuery({
     const block = await ctx.db.get(args.blockId);
     if (!block) return null;
 
-    // Look up field order from block definition
+    // Look up block definition for field order and content schema
     const projectId = await getProjectIdForBlock(ctx, block);
-    const fieldOrder = projectId
-      ? await getFieldOrderForType(ctx, projectId, block.type)
+    const def = projectId
+      ? await getBlockDefinition(ctx, projectId, block.type)
+      : null;
+    const fieldOrder = def?.contentSchema?.properties
+      ? Object.keys(def.contentSchema.properties)
       : undefined;
 
     const assembled = await assembleBlockContent(ctx, args.blockId, fieldOrder);
@@ -347,6 +347,7 @@ export const getAssembledBlockContent = internalQuery({
 
     return {
       ...assembled,
+      contentSchema: def?.contentSchema ?? null,
       previousSummary: block.summary,
       pageId: block.pageId,
     };
@@ -364,11 +365,15 @@ export const generateBlockSummary = internalAction({
     );
     if (!assembled) return;
 
+    const markdown = assembled.contentSchema?.toMarkdown && assembled.contentSchema?.properties
+      ? contentToMarkdown(assembled.contentSchema.toMarkdown, assembled.contentSchema.properties, assembled.content)
+      : null;
+
     let summary: string;
     try {
       summary = await generateObjectSummary({
         type: assembled.type,
-        content: assembled.content,
+        markdown: markdown ?? JSON.stringify(assembled.content),
         previousSummary: assembled.previousSummary,
       });
     } catch (error: any) {
@@ -481,18 +486,20 @@ export const getAssembledPageContent = internalQuery({
 
     const sortedBlocks = sortByPosition(blocks);
 
-    // Fetch block definitions to get field order
+    // Fetch block definitions to get field order and content schemas
     const blockDefs = await ctx.db
       .query("blockDefinitions")
       .withIndex("by_project", (q) => q.eq("projectId", page.projectId))
       .collect();
     const fieldOrderByType = new Map<string, string[]>();
+    const contentSchemaByType = new Map<string, any>();
     for (const def of blockDefs) {
       if (def.contentSchema?.properties) {
         fieldOrderByType.set(
           def.blockId,
           Object.keys(def.contentSchema.properties),
         );
+        contentSchemaByType.set(def.blockId, def.contentSchema);
       }
     }
 
@@ -507,6 +514,7 @@ export const getAssembledPageContent = internalQuery({
         return {
           type: assembled.type,
           content: stripNonSeoFields(assembled.content),
+          contentSchema: contentSchemaByType.get(block.type) ?? null,
         };
       }),
     );
@@ -515,7 +523,7 @@ export const getAssembledPageContent = internalQuery({
       fullPath: page.fullPath,
       aiSeoEnabled: page.aiSeoEnabled,
       blocks: assembledBlocks.filter(
-        (b): b is { type: string; content: Record<string, unknown> } =>
+        (b): b is { type: string; content: Record<string, unknown>; contentSchema: any } =>
           b !== null,
       ),
       previousMetaTitle: page.metaTitle,
@@ -556,11 +564,18 @@ export const generatePageSeo = internalAction({
     );
     if (!assembled || assembled.aiSeoEnabled === false) return;
 
+    const markdownBlocks = assembled.blocks.map((block) => ({
+      type: block.type,
+      markdown: block.contentSchema?.toMarkdown && block.contentSchema?.properties
+        ? contentToMarkdown(block.contentSchema.toMarkdown, block.contentSchema.properties, block.content)
+        : JSON.stringify(block.content),
+    }));
+
     let seo: { metaTitle: string; metaDescription: string };
     try {
       seo = await generatePageSeoAI({
         fullPath: assembled.fullPath,
-        blocks: assembled.blocks,
+        blocks: markdownBlocks,
         previousMetaTitle: assembled.previousMetaTitle,
         previousMetaDescription: assembled.previousMetaDescription,
       });
@@ -579,6 +594,80 @@ export const generatePageSeo = internalAction({
       metaTitle: seo.metaTitle,
       metaDescription: seo.metaDescription,
     });
+  },
+});
+
+export const getPageMarkdown = query({
+  args: {
+    pageId: v.id("pages"),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.get(args.pageId);
+    if (!page) return null;
+
+    const blockDefs = await ctx.db
+      .query("blockDefinitions")
+      .withIndex("by_project", (q) => q.eq("projectId", page.projectId))
+      .collect();
+    const fieldOrderByType = new Map<string, string[]>();
+    const contentSchemaByType = new Map<string, any>();
+    for (const def of blockDefs) {
+      if (def.contentSchema?.properties) {
+        fieldOrderByType.set(
+          def.blockId,
+          Object.keys(def.contentSchema.properties),
+        );
+        contentSchemaByType.set(def.blockId, def.contentSchema);
+      }
+    }
+
+    async function blocksToMarkdown(blocks: Doc<"blocks">[]) {
+      const parts = await Promise.all(
+        blocks.map(async (block) => {
+          const assembled = await assembleBlockContent(
+            ctx,
+            block._id,
+            fieldOrderByType.get(block.type),
+          );
+          if (!assembled) return null;
+
+          const schema = contentSchemaByType.get(block.type);
+          if (!schema?.toMarkdown || !schema?.properties) return null;
+
+          return contentToMarkdown(schema.toMarkdown, schema.properties, assembled.content);
+        }),
+      );
+      return parts.filter(Boolean) as string[];
+    }
+
+    // Page blocks
+    const pageBlocks = await ctx.db
+      .query("blocks")
+      .withIndex("by_page", (q) => q.eq("pageId", args.pageId))
+      .collect();
+    const sortedPageBlocks = sortByPosition(pageBlocks);
+    const pageMarkdown = await blocksToMarkdown(sortedPageBlocks);
+
+    // Layout blocks (before/after page blocks)
+    let beforeMarkdown: string[] = [];
+    let afterMarkdown: string[] = [];
+    if (page.layoutId) {
+      const layout = await ctx.db.get(page.layoutId);
+      if (layout) {
+        const layoutBlocks = await ctx.db
+          .query("blocks")
+          .withIndex("by_layout", (q) => q.eq("layoutId", layout._id))
+          .collect();
+        const sortedLayoutBlocks = sortByPosition(layoutBlocks);
+        const before = sortedLayoutBlocks.filter((b) => b.placement === "before");
+        const after = sortedLayoutBlocks.filter((b) => b.placement === "after");
+        beforeMarkdown = await blocksToMarkdown(before);
+        afterMarkdown = await blocksToMarkdown(after);
+      }
+    }
+
+    return [...beforeMarkdown, ...pageMarkdown, ...afterMarkdown]
+      .join("\n\n---\n\n");
   },
 });
 

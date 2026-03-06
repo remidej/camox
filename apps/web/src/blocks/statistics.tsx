@@ -5,6 +5,7 @@ const statistics = createBlock({
   title: "Statistics",
   description:
     'Use this block to showcase key metrics, achievements, or performance indicators. Ideal for displaying platform statistics, product metrics, company milestones, or any quantifiable data. Place this block in sections where you want to build credibility or highlight important numbers. Each statistic should have a number (can include units like "M+", "%", "ms") and a descriptive label.',
+  toMarkdown: ["## {{subtitle}}", "{{description}}", "{{statistics}}"],
   content: {
     title: Type.String({
       default: "Platform performance",
@@ -36,6 +37,7 @@ const statistics = createBlock({
         minItems: 4,
         maxItems: 8,
         title: "Statistics",
+        toMarkdown: ["**{{number}}** — {{label}}"],
       },
     ),
   },

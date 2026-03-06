@@ -5,6 +5,7 @@ const testimonial = createBlock({
   title: "Testimonial",
   description:
     "Display customer testimonials or user reviews. Ideal for building trust and social proof. Place after product features or before call-to-action sections. The quote should be a genuine customer statement, and include attribution with the author name, their title, and company. Best used when you have compelling customer feedback to share.",
+  toMarkdown: ["> {{quote}}", "— {{author}}, {{title}}, {{company}}"],
   content: {
     quote: Type.String({
       default:

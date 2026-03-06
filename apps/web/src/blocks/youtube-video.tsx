@@ -6,6 +6,7 @@ const youtubeVideo = createBlock({
   title: "YouTube Video",
   description:
     "Embeds a YouTube video. Use this block to display a single YouTube video on a page.",
+  toMarkdown: ["{{url}}"],
   content: {
     url: Type.Embed({
       pattern:

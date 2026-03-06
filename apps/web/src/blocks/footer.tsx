@@ -7,6 +7,7 @@ const footer = createBlock({
   layoutOnly: true,
   description:
     "At the bottom of a page to provide the user with links and miscellaneous information.",
+  toMarkdown: ["{{title}}", "{{columns}}"],
   content: {
     title: Type.String({ default: "Acme" }),
     columns: Type.RepeatableObject(
@@ -26,6 +27,7 @@ const footer = createBlock({
           {
             minItems: 1,
             maxItems: 999,
+            toMarkdown: ["{{link}}"],
           },
         ),
       },
@@ -33,6 +35,7 @@ const footer = createBlock({
         minItems: 2,
         maxItems: 4,
         title: "Columns",
+        toMarkdown: ["### {{title}}", "{{links}}"],
       },
     ),
   },

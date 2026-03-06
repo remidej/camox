@@ -8,6 +8,18 @@ import {
 import type { FieldType } from "./fieldTypes.tsx";
 
 /* -------------------------------------------------------------------------------------------------
+ * Template literal types for toMarkdown validation
+ * -----------------------------------------------------------------------------------------------*/
+
+export type ExtractPlaceholders<S extends string> =
+  S extends `${string}{{${infer Key}}}${infer Rest}`
+    ? Key | ExtractPlaceholders<Rest>
+    : never;
+
+export type ExtractAllPlaceholders<T extends readonly string[]> =
+  ExtractPlaceholders<T[number]>;
+
+/* -------------------------------------------------------------------------------------------------
  * EmbedURL branded type
  * -----------------------------------------------------------------------------------------------*/
 
@@ -209,9 +221,20 @@ export const Type = {
    *   title: 'Items'
    * })
    */
-  RepeatableObject: <T extends Record<string, TSchema>>(
+  RepeatableObject: <
+    T extends Record<string, TSchema>,
+    const TMarkdown extends readonly string[] = readonly string[],
+  >(
     shape: T,
-    options: { minItems: number; maxItems: number; title?: string },
+    options: { minItems: number; maxItems: number; title?: string } & (
+      [ExtractAllPlaceholders<TMarkdown>] extends [Extract<keyof T, string>]
+        ? { toMarkdown?: TMarkdown }
+        : {
+            toMarkdown?: readonly [
+              `Invalid toMarkdown placeholder: "{{${Exclude<ExtractAllPlaceholders<TMarkdown>, Extract<keyof T, string>>}}}"`,
+            ];
+          }
+    ),
   ) => {
     if (options.minItems < 1) {
       throw new Error("RepeatableObject requires minItems to be at least 1");
@@ -236,6 +259,9 @@ export const Type = {
       default: defaultArray,
       title: options.title,
       fieldType: "RepeatableObject" as const,
+      ...("toMarkdown" in options && options.toMarkdown
+        ? { toMarkdown: options.toMarkdown }
+        : {}),
     });
   },
 

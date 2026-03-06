@@ -6,6 +6,7 @@ const gallery = createBlock({
   title: "Gallery",
   description:
     "A grid of images. Use this block to showcase a collection of visuals such as product screenshots, team photos, or portfolio pieces. Works well as a standalone section or between text-heavy blocks to break up the page.",
+  toMarkdown: ["## {{title}}", "{{images}}"],
   content: {
     title: Type.String({
       default: "Gallery",

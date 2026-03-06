@@ -8,6 +8,7 @@ const hero = createBlock({
   title: "Hero",
   description:
     "Use this block as the main landing section at the top of a page. It should capture attention immediately with a clear value proposition. Typically the first block on a homepage or landing page. The title should be compelling and concise, the description should expand on the value proposition (max 280 characters), and the primary button should link to the main call-to-action.",
+  toMarkdown: ["# {{title}}", "{{description}}", "{{illustration}}", "{{cta}}"],
   content: {
     title: Type.String({
       default: "Websites you'll love to maintain",

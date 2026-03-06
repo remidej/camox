@@ -273,6 +273,21 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
               />
             </div>
           </div>
+          <div className="grid grid-cols-[200px_1fr] gap-x-8 border-t border-border py-6 px-6">
+            <div>
+              <p className="text-sm font-medium">Markdown content</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                How your content will be served to AI agents
+              </p>
+            </div>
+            <div>
+              <PageMarkdownPreview
+                pageId={page._id}
+                metaTitle={metaTitle}
+                metaDescription={page.metaDescription ?? ""}
+              />
+            </div>
+          </div>
         </div>
       </Sheet.SheetContent>
     </Sheet.Sheet>
@@ -396,6 +411,41 @@ const SocialPreviewSection = ({
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+const PageMarkdownPreview = ({
+  pageId,
+  metaTitle,
+  metaDescription,
+}: {
+  pageId: Id<"pages">;
+  metaTitle: string;
+  metaDescription: string;
+}) => {
+  const markdown = useQuery(api.blocks.getPageMarkdown, { pageId });
+  if (markdown === undefined) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+        <Spinner className="size-3.5" />
+        Loading...
+      </div>
+    );
+  }
+
+  const frontmatterLines = [
+    "---",
+    `title: "${metaTitle}"`,
+    `description: "${metaDescription}"`,
+  ];
+  frontmatterLines.push("---");
+
+  const fullMarkdown = frontmatterLines.join("\n") + "\n\n" + (markdown ?? "");
+
+  return (
+    <div className="w-full rounded-md border border-input bg-muted/50 px-3 py-2 text-sm font-mono text-muted-foreground whitespace-pre-wrap break-all">
+      {fullMarkdown}
     </div>
   );
 };

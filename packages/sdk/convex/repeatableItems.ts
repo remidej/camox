@@ -225,7 +225,7 @@ export const generateRepeatableItemSummary = internalAction({
 
     const summary = await generateObjectSummary({
       type: assembled.type,
-      content: assembled.content,
+      markdown: JSON.stringify(assembled.content),
       previousSummary: assembled.previousSummary,
     });
 

@@ -115,7 +115,7 @@ export async function generateImageMetadata(
 
 type GenerateObjectSummaryOptions = {
   type: string;
-  content: Record<string, unknown>;
+  markdown: string;
   previousSummary?: string;
 };
 export async function generateObjectSummary(
@@ -155,7 +155,7 @@ export async function generateObjectSummary(
 
             <context>
               <type>${options.type}</type>
-              <content>${JSON.stringify(options.content)}</content>
+              <content>${options.markdown}</content>
             </context>
             ${stabilityBlock}
 
@@ -186,7 +186,7 @@ export async function generateObjectSummary(
 
 type GeneratePageSeoOptions = {
   fullPath: string;
-  blocks: { type: string; content: Record<string, unknown> }[];
+  blocks: { type: string; markdown: string }[];
   previousMetaTitle?: string;
   previousMetaDescription?: string;
 };

@@ -39,6 +39,7 @@ import {
   type LinkValue,
   type ImageValue,
   type FileValue,
+  type ExtractAllPlaceholders,
 } from "./lib/contentType.ts";
 
 export { Type };
@@ -72,6 +73,7 @@ let hasShownEmbedLockToast = false;
 interface CreateBlockOptions<
   TSchemaShape extends Record<string, TSchema> = Record<string, TSchema>,
   TSettingsShape extends Record<string, TSchema> = Record<string, TSchema>,
+  TMarkdown extends readonly string[] = readonly string[],
 > {
   id: string;
   /**
@@ -98,6 +100,21 @@ interface CreateBlockOptions<
    * }
    */
   content: TSchemaShape;
+  /**
+   * Template for rendering block content as markdown.
+   * Each line is joined with `\n\n`. Use `{{fieldName}}` placeholders for field values.
+   * Lines where all placeholders resolve to empty are omitted.
+   *
+   * @example
+   * toMarkdown: ["# {{title}}", "{{description}}", "{{illustration}}", "{{cta}}"]
+   */
+  toMarkdown: [ExtractAllPlaceholders<TMarkdown>] extends [
+    Extract<keyof TSchemaShape, string>,
+  ]
+    ? TMarkdown
+    : readonly [
+        `Invalid toMarkdown placeholder {{${Exclude<ExtractAllPlaceholders<TMarkdown>, Extract<keyof TSchemaShape, string>>}}}`,
+      ];
   /**
    * Optional schema defining block-level settings (e.g. layout variant, toggles).
    * Settings are not inline-editable; they use Type.Enum() and Type.Boolean().
@@ -144,7 +161,8 @@ export interface BlockComponentProps<TContent> {
 export function createBlock<
   TSchemaShape extends Record<string, TSchema>,
   TSettingsShape extends Record<string, TSchema> = Record<string, never>,
->(options: CreateBlockOptions<TSchemaShape, TSettingsShape>) {
+  const TMarkdown extends readonly string[] = readonly string[],
+>(options: CreateBlockOptions<TSchemaShape, TSettingsShape, TMarkdown>) {
   // Build TypeBox schema for runtime validation and default value creation
   const typeboxSchema = TypeBoxType.Object(options.content);
 
@@ -155,6 +173,7 @@ export function createBlock<
     description: options.description,
     properties: typeboxSchema.properties,
     required: Object.keys(options.content),
+    toMarkdown: options.toMarkdown as readonly string[],
   };
 
   // Build settings schema (if provided)
@@ -179,7 +198,12 @@ export function createBlock<
       // Exclude asset fields from storage defaults — placeholders should only exist at the rendering layer
       const ft = (prop as any).fieldType;
       const ait = (prop as any).arrayItemType;
-      if (ft === "Image" || ft === "File" || ait === "Image" || ait === "File") {
+      if (
+        ft === "Image" ||
+        ft === "File" ||
+        ait === "Image" ||
+        ait === "File"
+      ) {
         continue;
       }
       contentDefaultsForStorage[key] = prop.default;
@@ -1356,7 +1380,10 @@ export function createBlock<
                 value={{
                   arrayFieldName: fieldName,
                   itemIndex: index,
-                  itemContent: { ...repeatableItemDefaults[fieldName], ...item },
+                  itemContent: {
+                    ...repeatableItemDefaults[fieldName],
+                    ...item,
+                  },
                   nested: {
                     parentItemId,
                     parentContent: parentRepeaterContext.itemContent,
@@ -1366,7 +1393,11 @@ export function createBlock<
                   },
                 }}
               >
-                <RepeaterItemWrapper itemId={nestedItemId} blockId={blockId} mode={mode}>
+                <RepeaterItemWrapper
+                  itemId={nestedItemId}
+                  blockId={blockId}
+                  mode={mode}
+                >
                   {children(itemComponents, index)}
                 </RepeaterItemWrapper>
               </RepeaterItemContext.Provider>
@@ -1388,7 +1419,10 @@ export function createBlock<
     return (
       <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
         {arrayValue.map((item: any, index: number) => {
-          const itemContent = { ...repeatableItemDefaults[fieldName], ...item.content } as TItem;
+          const itemContent = {
+            ...repeatableItemDefaults[fieldName],
+            ...item.content,
+          } as TItem;
           const itemId = item._id as Id<"repeatableItems"> | undefined;
 
           return (
@@ -1401,7 +1435,11 @@ export function createBlock<
                 itemId: itemId,
               }}
             >
-              <RepeaterItemWrapper itemId={itemId} blockId={blockId} mode={mode}>
+              <RepeaterItemWrapper
+                itemId={itemId}
+                blockId={blockId}
+                mode={mode}
+              >
                 {children(itemComponents, index)}
               </RepeaterItemWrapper>
             </RepeaterItemContext.Provider>
@@ -1523,7 +1561,9 @@ export function createBlock<
         type: "CAMOX_ADD_BLOCK_REQUEST",
         blockPosition: blockData.position,
         insertPosition,
-        ...(addBlockAfterPosition !== undefined && { afterPosition: addBlockAfterPosition }),
+        ...(addBlockAfterPosition !== undefined && {
+          afterPosition: addBlockAfterPosition,
+        }),
       });
     };
 
@@ -1586,51 +1626,54 @@ export function createBlock<
           id="hello"
         />
         {/* Overlay UI */}
-        {shouldShowOverlay && (() => {
-          const colors = mode === "layout" ? LAYOUT_OVERLAY_COLORS : OVERLAY_COLORS;
-          return (
-            <>
-              {/* Border overlay */}
-              <div
-                style={{
-                  position: "absolute",
-                  inset: isBlockSelected
-                    ? OVERLAY_OFFSETS.blockSelected
-                    : OVERLAY_OFFSETS.blockHover,
-                  border: `${isBlockSelected ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isBlockSelected ? colors.selected : colors.hover}`,
-                  pointerEvents: "none",
-                  zIndex: 10,
-                }}
-              />
+        {shouldShowOverlay &&
+          (() => {
+            const colors =
+              mode === "layout" ? LAYOUT_OVERLAY_COLORS : OVERLAY_COLORS;
+            return (
+              <>
+                {/* Border overlay */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: isBlockSelected
+                      ? OVERLAY_OFFSETS.blockSelected
+                      : OVERLAY_OFFSETS.blockHover,
+                    border: `${isBlockSelected ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isBlockSelected ? colors.selected : colors.hover}`,
+                    pointerEvents: "none",
+                    zIndex: 10,
+                  }}
+                />
 
-              {(() => {
-                // Use explicit show flags if provided, otherwise fall back to legacy behavior
-                const displayTop = showAddBlockTop ?? (mode !== "layout" && !isFirstBlock);
-                const displayBottom = showAddBlockBottom ?? (mode !== "layout");
-                return (
-                  <>
-                    {displayTop && (
-                      <AddBlockControlBar
-                        position="top"
-                        hidden={isAnySideSheetOpen}
-                        onMouseLeave={() => setIsHovered(false)}
-                        onClick={() => handleAddBlockClick("before")}
-                      />
-                    )}
-                    {displayBottom && (
-                      <AddBlockControlBar
-                        position="bottom"
-                        hidden={isAnySideSheetOpen}
-                        onMouseLeave={() => setIsHovered(false)}
-                        onClick={() => handleAddBlockClick("after")}
-                      />
-                    )}
-                  </>
-                );
-              })()}
-            </>
-          );
-        })()}
+                {(() => {
+                  // Use explicit show flags if provided, otherwise fall back to legacy behavior
+                  const displayTop =
+                    showAddBlockTop ?? (mode !== "layout" && !isFirstBlock);
+                  const displayBottom = showAddBlockBottom ?? mode !== "layout";
+                  return (
+                    <>
+                      {displayTop && (
+                        <AddBlockControlBar
+                          position="top"
+                          hidden={isAnySideSheetOpen}
+                          onMouseLeave={() => setIsHovered(false)}
+                          onClick={() => handleAddBlockClick("before")}
+                        />
+                      )}
+                      {displayBottom && (
+                        <AddBlockControlBar
+                          position="bottom"
+                          hidden={isAnySideSheetOpen}
+                          onMouseLeave={() => setIsHovered(false)}
+                          onClick={() => handleAddBlockClick("after")}
+                        />
+                      )}
+                    </>
+                  );
+                })()}
+              </>
+            );
+          })()}
       </div>
     );
   };
@@ -1647,7 +1690,11 @@ export function createBlock<
    * Wraps block content that renders outside the block's visual bounds (fixed navbars, modals, portals, etc.).
    * Provides the same hover, selection, and sheet overlays as the main BlockComponent.
    */
-  const Detached = ({ children }: { children: React.ReactNode }): React.JSX.Element => {
+  const Detached = ({
+    children,
+  }: {
+    children: React.ReactNode;
+  }): React.JSX.Element => {
     const ctx = React.use(Context);
     if (!ctx) {
       throw new Error("Detached must be used within a Block Component");
@@ -1723,40 +1770,43 @@ export function createBlock<
         >
           {children}
         </Slot>
-        {container && createPortal(
-          <>
-            {/* Sheet overlay */}
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                background: "#000",
-                opacity: shouldShowSheetOverlay ? 0.6 : 0,
-                transition: "opacity 0.3s ease-in-out",
-                pointerEvents: "none",
-                zIndex: 20,
-              }}
-            />
-            {/* Border overlay */}
-            {shouldShowOverlay && (() => {
-              const colors = mode === "layout" ? LAYOUT_OVERLAY_COLORS : OVERLAY_COLORS;
-              return (
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: isBlockSelected
-                      ? OVERLAY_OFFSETS.blockSelected
-                      : OVERLAY_OFFSETS.blockHover,
-                    border: `${isBlockSelected ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isBlockSelected ? colors.selected : colors.hover}`,
-                    pointerEvents: "none",
-                    zIndex: 10,
-                  }}
-                />
-              );
-            })()}
-          </>,
-          container,
-        )}
+        {container &&
+          createPortal(
+            <>
+              {/* Sheet overlay */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "#000",
+                  opacity: shouldShowSheetOverlay ? 0.6 : 0,
+                  transition: "opacity 0.3s ease-in-out",
+                  pointerEvents: "none",
+                  zIndex: 20,
+                }}
+              />
+              {/* Border overlay */}
+              {shouldShowOverlay &&
+                (() => {
+                  const colors =
+                    mode === "layout" ? LAYOUT_OVERLAY_COLORS : OVERLAY_COLORS;
+                  return (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: isBlockSelected
+                          ? OVERLAY_OFFSETS.blockSelected
+                          : OVERLAY_OFFSETS.blockHover,
+                        border: `${isBlockSelected ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isBlockSelected ? colors.selected : colors.hover}`,
+                        pointerEvents: "none",
+                        zIndex: 10,
+                      }}
+                    />
+                  );
+                })()}
+            </>,
+            container,
+          )}
       </>
     );
   };

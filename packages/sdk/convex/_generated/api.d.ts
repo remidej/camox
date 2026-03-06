@@ -17,6 +17,7 @@ import type * as http from "../http.js";
 import type * as layouts from "../layouts.js";
 import type * as lib_aiJobs from "../lib/aiJobs.js";
 import type * as lib_contentAssembly from "../lib/contentAssembly.js";
+import type * as lib_contentMarkdown from "../lib/contentMarkdown.js";
 import type * as pageActions from "../pageActions.js";
 import type * as pages from "../pages.js";
 import type * as projects from "../projects.js";
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   layouts: typeof layouts;
   "lib/aiJobs": typeof lib_aiJobs;
   "lib/contentAssembly": typeof lib_contentAssembly;
+  "lib/contentMarkdown": typeof lib_contentMarkdown;
   pageActions: typeof pageActions;
   pages: typeof pages;
   projects: typeof projects;
