@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { Id } from "camox/_generated/dataModel";
 import { previewStore } from "@/features/preview/previewStore";
+import { isLexicalState, lexicalStateToPlainText } from "./lexicalState";
 
 type FieldLabelMeta = {
   schemaTitle?: string;
@@ -34,7 +35,11 @@ const fieldTypesDictionary = {
     isScalar: true,
     isContentEditable: true,
     getIcon: () => (props: LucideProps) => <TypeIcon {...props} />,
-    getLabel: (value: unknown) => value as string,
+    getLabel: (value: unknown) => {
+      const str = value as string;
+      if (isLexicalState(str)) return lexicalStateToPlainText(str);
+      return str;
+    },
     onTreeDoubleClick: ({ blockId, fieldName }: TreeDoubleClickParams) => {
       previewStore.send({ type: "setSelectedField", blockId, fieldName, fieldType: "String" });
       previewStore.send({ type: "openBlockContentSheet", blockId });

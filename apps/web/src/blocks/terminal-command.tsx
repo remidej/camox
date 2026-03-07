@@ -24,9 +24,11 @@ const terminalCommand = createBlock({
 
 function CopyTerminalCommandComponent() {
   const [copied, setCopied] = React.useState(false);
+  const commandRef = React.useRef<HTMLElement>(null);
 
-  const handleCopy = (command: string) => {
-    navigator.clipboard.writeText(command);
+  const handleCopy = () => {
+    const text = commandRef.current?.textContent ?? "";
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -47,11 +49,11 @@ function CopyTerminalCommandComponent() {
             {(content) => (
               <div className="relative group">
                 <div
-                  onClick={() => handleCopy(content)}
+                  onClick={handleCopy}
                   className="bg-gray-950 border border-gray-800 rounded-lg p-6 cursor-pointer hover:border-gray-700 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-4">
-                    <code className="text-2xl md:text-3xl font-mono text-gray-100 flex-1">
+                    <code ref={commandRef} className="text-2xl md:text-3xl font-mono text-gray-100 flex-1">
                       {content}
                     </code>
                     <Button
@@ -60,7 +62,7 @@ function CopyTerminalCommandComponent() {
                       className="shrink-0 h-10 w-10 text-gray-400 hover:text-gray-100 hover:bg-gray-800"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleCopy(content);
+                        handleCopy();
                       }}
                     >
                       {copied ? (

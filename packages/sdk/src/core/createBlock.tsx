@@ -41,6 +41,8 @@ import {
   type FileValue,
   type ExtractAllPlaceholders,
 } from "./lib/contentType.ts";
+import { lexicalStateToReactNodes } from "./lib/lexicalReact";
+import { InlineLexicalEditor } from "./components/lexical/InlineLexicalEditor";
 
 export { Type };
 
@@ -398,7 +400,7 @@ export function createBlock<
     children,
   }: {
     name: K;
-    children: (content: StringFields[K]) => React.ReactNode;
+    children: (content: React.ReactNode) => React.ReactNode;
   }) => {
     const blockContext = React.use(Context);
     if (!blockContext) {
@@ -418,25 +420,13 @@ export function createBlock<
     const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
     // Get field value based on context
-    const fieldValue = repeaterContext
+    const fieldValue = (repeaterContext
       ? repeaterContext.itemContent[name]
-      : content[name];
-
-    // Track if user is actively editing to prevent React from updating DOM
-    const [isEditing, setIsEditing] = React.useState(false);
-    const [displayValue, setDisplayValue] =
-      React.useState<StringFields[K]>(fieldValue);
+      : content[name]) as string;
 
     // Local hover/focus state for overlay styling
     const [isHovered, setIsHovered] = React.useState(false);
     const [isFocused, setIsFocused] = React.useState(false);
-
-    // Update display value when field value changes and user is not editing
-    React.useEffect(() => {
-      if (!isEditing) {
-        setDisplayValue(fieldValue);
-      }
-    }, [fieldValue, isEditing]);
 
     // Listen for sidebar-triggered hover/focus messages
     const isHoveredFromSidebar = useOverlayMessage(
@@ -467,36 +457,26 @@ export function createBlock<
       api.repeatableItems.updateRepeatableItemContent,
     );
 
-    const handleInput = (e: React.FormEvent<HTMLElement>) => {
-      const newValue = (e.target as HTMLElement).textContent || "";
-
+    const handleChange = React.useCallback((newValue: string) => {
       if (repeaterContext) {
         const { itemId } = repeaterContext;
-
-        // Update the repeatableItem directly if we have its ID
         if (itemId) {
           updateRepeatableItemContent({
             itemId: itemId,
-            content: {
-              [name]: newValue,
-            },
+            content: { [name]: newValue },
           });
         }
       } else {
-        // We're at the top level - update the field directly
         updateBlockContent({
           blockId,
-          content: {
-            [name]: newValue,
-          },
+          content: { [name]: newValue },
         });
       }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [blockId, name, repeaterContext?.itemId]);
 
-    const handleFocus = () => {
-      setIsEditing(true);
+    const handleFocus = React.useCallback(() => {
       setIsFocused(true);
-      // If we're in a repeater context, select the repeatable item instead of the block
       if (repeaterContext && repeaterContext.itemId) {
         previewStore.send({
           type: "setSelectedRepeatableItem",
@@ -512,12 +492,12 @@ export function createBlock<
           fieldType: "String",
         });
       }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [blockId, name, repeaterContext?.itemId]);
 
-    const handleBlur = () => {
-      setIsEditing(false);
+    const handleBlur = React.useCallback(() => {
       setIsFocused(false);
-    };
+    }, []);
 
     const handleMouseEnter = () => {
       if (isContentEditable) {
@@ -531,35 +511,38 @@ export function createBlock<
       }
     };
 
+    const overlayStyle =
+      isContentEditable && (isHovered || isFocused)
+        ? {
+            outline: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? colors.selected : colors.hover}`,
+            outlineOffset: isFocused
+              ? OVERLAY_OFFSETS.fieldSelected
+              : OVERLAY_OFFSETS.fieldHover,
+          }
+        : undefined;
+
+    if (!isContentEditable) {
+      const reactContent = lexicalStateToReactNodes(fieldValue);
+      return <>{children(reactContent)}</>;
+    }
+
     return (
       <Slot
         ref={elementRef}
-        data-camox-field-id={isContentEditable ? fieldId : undefined}
-        contentEditable={isContentEditable}
-        onInput={handleInput}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
+        data-camox-field-id={fieldId}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        onKeyDown={(e: React.KeyboardEvent) => {
-          if (e.key === "Escape") {
-            (e.target as HTMLElement).blur();
-          }
-        }}
-        spellCheck={false}
-        suppressContentEditableWarning={true}
-        style={
-          isContentEditable && (isHovered || isFocused)
-            ? {
-                outline: `${isFocused ? OVERLAY_WIDTHS.selected : OVERLAY_WIDTHS.hover} solid ${isFocused ? colors.selected : colors.hover}`,
-                outlineOffset: isFocused
-                  ? OVERLAY_OFFSETS.fieldSelected
-                  : OVERLAY_OFFSETS.fieldHover,
-              }
-            : undefined
-        }
+        style={overlayStyle}
       >
-        {children(displayValue)}
+        {children(
+          <InlineLexicalEditor
+            initialState={fieldValue}
+            externalState={fieldValue}
+            onChange={handleChange}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+          />,
+        )}
       </Slot>
     );
   };
@@ -1207,7 +1190,7 @@ export function createBlock<
       item: {
         Field: <F extends keyof ItemStringFields<K>>(props: {
           name: F;
-          children: (content: ItemStringFields<K>[F]) => React.ReactNode;
+          children: (content: React.ReactNode) => React.ReactNode;
         }) => React.ReactNode;
         Link: <F extends keyof ItemLinkFields<K>>(props: {
           name: F;
@@ -1284,7 +1267,7 @@ export function createBlock<
     // This is safe because each component checks RepeaterItemContext at runtime
     const ItemField = Field as <F extends keyof ItemStringFields<K>>(props: {
       name: F;
-      children: (content: ItemStringFields<K>[F]) => React.ReactNode;
+      children: (content: React.ReactNode) => React.ReactNode;
     }) => React.ReactNode;
 
     const ItemLink = Link as <F extends keyof ItemLinkFields<K>>(props: {

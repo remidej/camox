@@ -66,6 +66,7 @@ export async function generatePageDraft(options: {
             Only use blocks from available_blocks. Ensure content matches schema constraints (maxLength, etc.).
             For RepeatableObject fields (arrays), provide an array of objects matching the nested schema.
             For settings, pick values from the enum options or boolean values defined in the settingsSchema.
+            For String fields, you may use markdown formatting: **bold** and *italic*.
 
             IMPORTANT: Return ONLY the raw JSON array. Do NOT wrap it in markdown code fences or any other formatting. The response must be valid JSON that can be parsed directly.
           </output_format>

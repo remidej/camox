@@ -10,7 +10,8 @@ import {
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { SidebarLexicalEditor } from "@/core/components/lexical/SidebarLexicalEditor";
+import { isLexicalState, plainTextToLexicalState } from "@/core/lib/lexicalState";
 import { Doc, Id } from "camox/_generated/dataModel";
 import type { OverlayMessage } from "../overlayMessages";
 import { previewStore } from "../previewStore";
@@ -118,10 +119,17 @@ const ItemFieldsEditor = ({
   const defaultValues = React.useMemo(() => {
     const values: Record<string, string> = {};
     for (const fieldName of scalarFields) {
-      values[fieldName] = (data[fieldName] as string) ?? "";
+      const raw = (data[fieldName] as string) ?? "";
+      // Find the field definition to check if it's a String field
+      const fieldDef = fields.find((f) => f.name === fieldName);
+      if (fieldDef?.fieldType === "String" && raw && !isLexicalState(raw)) {
+        values[fieldName] = plainTextToLexicalState(raw);
+      } else {
+        values[fieldName] = raw;
+      }
     }
     return values;
-  }, [data, scalarFields]);
+  }, [data, scalarFields, fields]);
 
   const form = useForm({ defaultValues });
 
@@ -192,15 +200,13 @@ const ItemFieldsEditor = ({
                   }
                 >
                   <Label htmlFor={field.name}>{label}</Label>
-                  <Textarea
-                    id={field.name}
+                  <SidebarLexicalEditor
                     value={fieldApi.state.value}
-                    onChange={(e) =>
-                      handleScalarChange(field.name, e.target.value, fieldApi)
+                    onChange={(value) =>
+                      handleScalarChange(field.name, value, fieldApi)
                     }
                     onFocus={() => handleFieldFocus(field.name)}
                     onBlur={() => handleFieldBlur(field.name)}
-                    rows={4}
                   />
                 </div>
               )}

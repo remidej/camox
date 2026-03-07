@@ -1,3 +1,5 @@
+import { isLexicalState, lexicalStateToMarkdown } from "../../src/core/lib/lexicalState";
+
 export function contentToMarkdown(
   toMarkdown: readonly string[],
   schemaProperties: Record<string, any>,
@@ -42,7 +44,9 @@ function resolveField(schema: any, value: unknown): string | undefined {
 
   if (fieldType === "String") {
     const text = String(value);
-    return text || undefined;
+    if (!text) return undefined;
+    if (isLexicalState(text)) return lexicalStateToMarkdown(text) || undefined;
+    return text;
   }
 
   if (fieldType === "Link") {

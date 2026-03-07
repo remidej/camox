@@ -1,5 +1,6 @@
 import { mutation } from "./_generated/server";
 import { generateNKeysBetween } from "fractional-indexing";
+import { plainTextToLexicalState } from "../src/core/lib/lexicalState";
 
 /**
  * Seed script to populate the database with initial homepage and blocks
@@ -91,7 +92,7 @@ export const seedWebsite = mutation({
       layoutId,
       type: "footer",
       content: {
-        title: "Acme",
+        title: plainTextToLexicalState("Acme"),
       },
       placement: "after",
       summary: "footer",
@@ -118,9 +119,10 @@ export const seedWebsite = mutation({
       pageId: homepageId,
       type: "hero",
       content: {
-        title: "Websites you'll love to maintain",
-        description:
+        title: plainTextToLexicalState("Websites you'll love to maintain"),
+        description: plainTextToLexicalState(
           "Meet Camox, the web toolkit designed for developers, LLMs and content editors.",
+        ),
         cta: {
           type: "external",
           text: "Start building",
@@ -139,10 +141,11 @@ export const seedWebsite = mutation({
       pageId: homepageId,
       type: "statistics",
       content: {
-        title: "Platform performance",
-        subtitle: "Built for modern web development",
-        description:
+        title: plainTextToLexicalState("Platform performance"),
+        subtitle: plainTextToLexicalState("Built for modern web development"),
+        description: plainTextToLexicalState(
           "Camox empowers developers to build and deploy websites with unprecedented speed and flexibility. Our platform handles millions of page views and serves content globally with enterprise-grade reliability.",
+        ),
       },
       summary: "Camox platform statistics",
       position: pos1,
@@ -162,8 +165,8 @@ export const seedWebsite = mutation({
       blockId: statisticsBlockId,
       fieldName: "statistics",
       content: {
-        number: "100M+",
-        label: "pages served monthly across all projects.",
+        number: plainTextToLexicalState("100M+"),
+        label: plainTextToLexicalState("pages served monthly across all projects."),
       },
       summary: "100M pages served",
       position: statPos0,
@@ -175,8 +178,8 @@ export const seedWebsite = mutation({
       blockId: statisticsBlockId,
       fieldName: "statistics",
       content: {
-        number: "99.9%",
-        label: "uptime with global CDN infrastructure.",
+        number: plainTextToLexicalState("99.9%"),
+        label: plainTextToLexicalState("uptime with global CDN infrastructure."),
       },
       summary: "99.9% uptime",
       position: statPos1,
@@ -188,8 +191,8 @@ export const seedWebsite = mutation({
       blockId: statisticsBlockId,
       fieldName: "statistics",
       content: {
-        number: "50+",
-        label: "countries served worldwide.",
+        number: plainTextToLexicalState("50+"),
+        label: plainTextToLexicalState("countries served worldwide."),
       },
       summary: "50+ countries served",
       position: statPos2,
@@ -201,8 +204,8 @@ export const seedWebsite = mutation({
       blockId: statisticsBlockId,
       fieldName: "statistics",
       content: {
-        number: "10ms",
-        label: "average response time for content delivery.",
+        number: plainTextToLexicalState("10ms"),
+        label: plainTextToLexicalState("average response time for content delivery."),
       },
       summary: "10ms response time",
       position: statPos3,

@@ -4,12 +4,13 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { generatePageDraft } from "../src/lib/ai";
+import { markdownToLexicalState, plainTextToLexicalState } from "../src/core/lib/lexicalState";
 
 const DEFAULT_HERO_BLOCK = {
   type: "hero",
   content: {
-    title: "A page title",
-    description: "An engaging block description",
+    title: plainTextToLexicalState("A page title"),
+    description: plainTextToLexicalState("An engaging block description"),
     cta: { type: "external", text: "Get started", href: "/", newTab: false },
   },
 };
@@ -50,6 +51,26 @@ export const createPage = action({
             contentDescription: args.contentDescription,
             blockDefinitions,
           });
+
+          // Convert String field values from markdown to Lexical JSON
+          const defsByType = new Map(
+            blockDefinitions.map((d) => [d.blockId, d]),
+          );
+          for (const block of blocks) {
+            const def = defsByType.get(block.type);
+            const props = (def?.contentSchema as any)?.properties;
+            if (!props) continue;
+            for (const [key, schemaProp] of Object.entries(props)) {
+              if (
+                (schemaProp as any)?.fieldType === "String" &&
+                typeof block.content[key] === "string"
+              ) {
+                block.content[key] = markdownToLexicalState(
+                  block.content[key] as string,
+                );
+              }
+            }
+          }
         }
       } catch (error) {
         console.error("AI generation failed, using default block:", error);
