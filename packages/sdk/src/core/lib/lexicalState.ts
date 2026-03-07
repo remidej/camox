@@ -63,7 +63,7 @@ function extractText(node: any): string {
     parts.push(extractText(child));
   }
 
-  if (node.type === "paragraph" || node.type === "heading") {
+  if (node.type === "paragraph" || node.type === "inline-paragraph" || node.type === "heading") {
     return parts.join("");
   }
 

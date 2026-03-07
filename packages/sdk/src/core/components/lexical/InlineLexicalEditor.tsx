@@ -1,7 +1,7 @@
 import * as React from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+import { InlineContentEditable } from "./InlineContentEditable";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import type { EditorState } from "lexical";
@@ -136,9 +136,7 @@ export function InlineLexicalEditor({
     <LexicalComposer initialConfig={config}>
       <RichTextPlugin
         contentEditable={
-          <ContentEditable
-            style={{ outline: "none" }}
-          />
+          <InlineContentEditable style={{ outline: "none" }} />
         }
         ErrorBoundary={LexicalErrorBoundary}
       />
