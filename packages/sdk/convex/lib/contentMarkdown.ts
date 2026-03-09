@@ -4,6 +4,7 @@ export function contentToMarkdown(
   toMarkdown: readonly string[],
   schemaProperties: Record<string, any>,
   content: Record<string, unknown>,
+  { insideList = false } = {},
 ): string {
   const parts: string[] = [];
 
@@ -12,7 +13,7 @@ export function contentToMarkdown(
     if (resolved !== null) parts.push(resolved);
   }
 
-  return parts.join("\n\n");
+  return parts.join(insideList ? "\n" : "\n\n");
 }
 
 const PLACEHOLDER_RE = /\{\{(\w+)\}\}/g;
@@ -93,7 +94,7 @@ function resolveField(schema: any, value: unknown): string | undefined {
 
       let md: string;
       if (itemToMarkdown) {
-        md = contentToMarkdown(itemToMarkdown, itemSchema, itemContent as Record<string, unknown>);
+        md = contentToMarkdown(itemToMarkdown, itemSchema, itemContent as Record<string, unknown>, { insideList: true });
       } else {
         // Fallback: render each field as a line
         const fieldParts: string[] = [];
@@ -103,9 +104,14 @@ function resolveField(schema: any, value: unknown): string | undefined {
         }
         md = fieldParts.join(" — ");
       }
-      if (md) itemParts.push(md);
+      if (!md) continue;
+
+      // Format as a list item: prefix first line with "- ", indent subsequent lines
+      const lines = md.split("\n");
+      const listItem = [`- ${lines[0]}`, ...lines.slice(1).map((l) => `  ${l}`)].join("\n");
+      itemParts.push(listItem);
     }
-    return itemParts.length > 0 ? itemParts.join("\n\n") : undefined;
+    return itemParts.length > 0 ? itemParts.join("\n") : undefined;
   }
 
   if (fieldType === "Boolean" || fieldType === "Enum") {

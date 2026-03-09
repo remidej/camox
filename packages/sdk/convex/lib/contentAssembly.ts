@@ -5,6 +5,10 @@ import type { QueryCtx } from "../_generated/server";
  * Pure helpers (no DB access)
  * -----------------------------------------------------------------------------------------------*/
 
+/** JSON-safe content record. Uses `{}` (any non-nullish value) to stay compatible
+ *  with framework serialization types (e.g. TanStack Router). */
+export type ContentRecord = Record<string, {}>;
+
 export type FileDoc = {
   _id: Id<"files">;
   url: string;
@@ -76,7 +80,7 @@ export function collectFileIds(
 export function resolveFileRefs(
   content: Record<string, unknown>,
   fileMap: Map<string, FileDoc>,
-): Record<string, unknown> {
+): ContentRecord {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(content)) {
     if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -119,7 +123,7 @@ export function resolveFileRefs(
       resolved[key] = value;
     }
   }
-  return resolved;
+  return resolved as ContentRecord;
 }
 
 /** Group repeatable items by `blockId:fieldName`. Items must already be sorted by position. */
@@ -143,7 +147,7 @@ export function groupItemsByBlockAndField<
 export function reorderByFieldOrder(
   obj: Record<string, unknown>,
   fieldOrder: string[],
-): Record<string, unknown> {
+): ContentRecord {
   const ordered: Record<string, unknown> = {};
   for (const key of fieldOrder) {
     if (key in obj) {
@@ -155,7 +159,7 @@ export function reorderByFieldOrder(
       ordered[key] = obj[key];
     }
   }
-  return ordered;
+  return ordered as ContentRecord;
 }
 
 /** Merge scalar block content with its grouped repeatable items. */
@@ -165,8 +169,8 @@ export function reconstructBlockContent(
   blockId: Id<"blocks">,
   allItems: { blockId: Id<"blocks">; fieldName: string }[],
   fieldOrder?: string[],
-): Record<string, unknown> {
-  const reconstructed = { ...blockContent };
+): ContentRecord {
+  const reconstructed: Record<string, unknown> = { ...blockContent };
 
   const fieldNames = new Set(
     allItems
@@ -183,7 +187,7 @@ export function reconstructBlockContent(
     return reorderByFieldOrder(reconstructed, fieldOrder);
   }
 
-  return reconstructed;
+  return reconstructed as ContentRecord;
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -219,7 +223,7 @@ export async function assembleBlockContent(
   ctx: QueryCtx,
   blockId: Id<"blocks">,
   fieldOrder?: string[],
-): Promise<{ type: string; content: Record<string, unknown> } | null> {
+): Promise<{ type: string; content: ContentRecord } | null> {
   const block = await ctx.db.get(blockId);
   if (!block) return null;
 
@@ -260,7 +264,7 @@ export async function assembleBlockContent(
 export async function assembleItemContent(
   ctx: QueryCtx,
   itemId: Id<"repeatableItems">,
-): Promise<{ type: string; content: Record<string, unknown> } | null> {
+): Promise<{ type: string; content: ContentRecord } | null> {
   const item = await ctx.db.get(itemId);
   if (!item) return null;
 
@@ -275,5 +279,5 @@ export async function assembleItemContent(
     return { type: item.fieldName, content: resolveFileRefs(content, fileMap) };
   }
 
-  return { type: item.fieldName, content };
+  return { type: item.fieldName, content: content as ContentRecord };
 }

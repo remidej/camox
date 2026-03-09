@@ -43,7 +43,7 @@ code {
   --muted: theme(--color-zinc-100);
   --muted-foreground: theme(--color-zinc-500);
   --accent: oklch(0.95 0.01 252); /* in between slate-100 and slate-200 */
-  --accent-foreground: theme(--color-zinc-900);
+  --accent-foreground: theme(--color-slate-900);
   --destructive: theme(--color-red-600);
   --destructive-foreground: theme(--color-red-600);
   --border: theme(--color-zinc-200);

@@ -18,6 +18,7 @@ import {
   sortByPosition,
   splitContent,
   assembleBlockContent,
+  type ContentRecord,
 } from "./lib/contentAssembly";
 import { contentToMarkdown } from "./lib/contentMarkdown";
 import { scheduleAiJob, clearAiJob } from "./lib/aiJobs";
@@ -523,7 +524,7 @@ export const getAssembledPageContent = internalQuery({
       fullPath: page.fullPath,
       aiSeoEnabled: page.aiSeoEnabled,
       blocks: assembledBlocks.filter(
-        (b): b is { type: string; content: Record<string, unknown>; contentSchema: any } =>
+        (b): b is { type: string; content: ContentRecord; contentSchema: any } =>
           b !== null,
       ),
       previousMetaTitle: page.metaTitle,
@@ -611,7 +612,9 @@ export const getPageMarkdown = query({
       .collect();
     const fieldOrderByType = new Map<string, string[]>();
     const contentSchemaByType = new Map<string, any>();
+    const titleByType = new Map<string, string>();
     for (const def of blockDefs) {
+      titleByType.set(def.blockId, def.title);
       if (def.contentSchema?.properties) {
         fieldOrderByType.set(
           def.blockId,
@@ -634,7 +637,9 @@ export const getPageMarkdown = query({
           const schema = contentSchemaByType.get(block.type);
           if (!schema?.toMarkdown || !schema?.properties) return null;
 
-          return contentToMarkdown(schema.toMarkdown, schema.properties, assembled.content);
+          const markdown = contentToMarkdown(schema.toMarkdown, schema.properties, assembled.content);
+          const title = titleByType.get(block.type) ?? block.type;
+          return `<!-- ${title} -->\n${markdown}`;
         }),
       );
       return parts.filter(Boolean) as string[];
@@ -667,7 +672,7 @@ export const getPageMarkdown = query({
     }
 
     return [...beforeMarkdown, ...pageMarkdown, ...afterMarkdown]
-      .join("\n\n---\n\n");
+      .join("\n\n");
   },
 });
 
