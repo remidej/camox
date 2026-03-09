@@ -34,9 +34,9 @@ const config = defineConfig({
           __dirname,
           "src/features/preview/CamoxPreview.tsx",
         ),
-        "features/playground/CamoxPlayground": resolve(
+        "features/content/CamoxContent": resolve(
           __dirname,
-          "src/features/playground/CamoxPlayground.tsx",
+          "src/features/content/CamoxContent.tsx",
         ),
         "features/provider/CamoxProvider": resolve(
           __dirname,

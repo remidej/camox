@@ -24,10 +24,10 @@
       "types": "./dist/features/preview/CamoxPreview.d.ts",
       "import": "./dist/features/preview/CamoxPreview.js"
     },
-    "./CamoxPlayground": {
-      "source": "./src/features/playground/CamoxPlayground.tsx",
-      "types": "./dist/features/playground/CamoxPlayground.d.ts",
-      "import": "./dist/features/playground/CamoxPlayground.js"
+    "./CamoxContent": {
+      "source": "./src/features/content/CamoxContent.tsx",
+      "types": "./dist/features/content/CamoxContent.d.ts",
+      "import": "./dist/features/content/CamoxContent.js"
     },
     "./CamoxProvider": {
       "source": "./src/features/provider/CamoxProvider.tsx",

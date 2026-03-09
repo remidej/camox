@@ -69,7 +69,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
       }}
     >
       <DialogContent
-        className="max-w-[90vw] max-h-[90vh] p-0 overflow-hidden sm:max-w-[90vw] gap-0"
+        className="w-[90vw] h-[90vh] max-w-[90vw] max-h-[90vh] p-0 overflow-hidden sm:max-w-[90vw] gap-0"
         showCloseButton={false}
       >
         <DialogTitle className="sr-only">
@@ -84,7 +84,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
         >
           <X />
         </Button>
-        <div className="flex flex-row max-h-[90vh]">
+        <div className="flex flex-row h-full">
           {isImage ? (
             <div
               ref={containerRef}
@@ -124,7 +124,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                   "shadow-lg",
                   zoomed
                     ? "w-[200%] max-w-none cursor-zoom-out"
-                    : "max-w-full max-h-[calc(90vh-48px)] object-contain cursor-zoom-in",
+                    : "max-w-full max-h-full object-contain cursor-zoom-in",
                 )}
               />
             </div>

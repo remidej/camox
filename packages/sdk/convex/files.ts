@@ -143,6 +143,13 @@ export const deleteFile = mutation({
   },
 });
 
+export const listFiles = query({
+  args: {},
+  handler: async (ctx) => {
+    return ctx.db.query("files").order("desc").collect();
+  },
+});
+
 export const getFile = query({
   args: { fileId: v.id("files") },
   handler: async (ctx, args) => {
