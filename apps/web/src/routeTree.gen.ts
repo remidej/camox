@@ -15,7 +15,7 @@ import { Route as CamoxOgRouteImport } from './routes/_camox/og'
 import { Route as CamoxCmxStudioRouteImport } from './routes/_camox/cmx-studio'
 import { Route as CamoxCmxRouteImport } from './routes/_camox/cmx'
 import { Route as CamoxSplatRouteImport } from './routes/_camox/$'
-import { Route as CamoxCmxStudioBlocksRouteImport } from './routes/_camox/cmx-studio.blocks'
+import { Route as CamoxCmxStudioContentRouteImport } from './routes/_camox/cmx-studio.content'
 import { Route as CamoxCmxStudioSplatRouteImport } from './routes/_camox/cmx-studio.$'
 
 const CustomRoute = CustomRouteImport.update({
@@ -47,9 +47,9 @@ const CamoxSplatRoute = CamoxSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => CamoxRoute,
 } as any)
-const CamoxCmxStudioBlocksRoute = CamoxCmxStudioBlocksRouteImport.update({
-  id: '/blocks',
-  path: '/blocks',
+const CamoxCmxStudioContentRoute = CamoxCmxStudioContentRouteImport.update({
+  id: '/content',
+  path: '/content',
   getParentRoute: () => CamoxCmxStudioRoute,
 } as any)
 const CamoxCmxStudioSplatRoute = CamoxCmxStudioSplatRouteImport.update({
@@ -66,7 +66,7 @@ export interface FileRoutesByFullPath {
   '/cmx-studio': typeof CamoxCmxStudioRouteWithChildren
   '/og': typeof CamoxOgRoute
   '/cmx-studio/$': typeof CamoxCmxStudioSplatRoute
-  '/cmx-studio/blocks': typeof CamoxCmxStudioBlocksRoute
+  '/cmx-studio/content': typeof CamoxCmxStudioContentRoute
 }
 export interface FileRoutesByTo {
   '/': typeof CamoxRouteWithChildren
@@ -76,7 +76,7 @@ export interface FileRoutesByTo {
   '/cmx-studio': typeof CamoxCmxStudioRouteWithChildren
   '/og': typeof CamoxOgRoute
   '/cmx-studio/$': typeof CamoxCmxStudioSplatRoute
-  '/cmx-studio/blocks': typeof CamoxCmxStudioBlocksRoute
+  '/cmx-studio/content': typeof CamoxCmxStudioContentRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -87,7 +87,7 @@ export interface FileRoutesById {
   '/_camox/cmx-studio': typeof CamoxCmxStudioRouteWithChildren
   '/_camox/og': typeof CamoxOgRoute
   '/_camox/cmx-studio/$': typeof CamoxCmxStudioSplatRoute
-  '/_camox/cmx-studio/blocks': typeof CamoxCmxStudioBlocksRoute
+  '/_camox/cmx-studio/content': typeof CamoxCmxStudioContentRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -99,7 +99,7 @@ export interface FileRouteTypes {
     | '/cmx-studio'
     | '/og'
     | '/cmx-studio/$'
-    | '/cmx-studio/blocks'
+    | '/cmx-studio/content'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -109,7 +109,7 @@ export interface FileRouteTypes {
     | '/cmx-studio'
     | '/og'
     | '/cmx-studio/$'
-    | '/cmx-studio/blocks'
+    | '/cmx-studio/content'
   id:
     | '__root__'
     | '/_camox'
@@ -119,7 +119,7 @@ export interface FileRouteTypes {
     | '/_camox/cmx-studio'
     | '/_camox/og'
     | '/_camox/cmx-studio/$'
-    | '/_camox/cmx-studio/blocks'
+    | '/_camox/cmx-studio/content'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -171,11 +171,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CamoxSplatRouteImport
       parentRoute: typeof CamoxRoute
     }
-    '/_camox/cmx-studio/blocks': {
-      id: '/_camox/cmx-studio/blocks'
-      path: '/blocks'
-      fullPath: '/cmx-studio/blocks'
-      preLoaderRoute: typeof CamoxCmxStudioBlocksRouteImport
+    '/_camox/cmx-studio/content': {
+      id: '/_camox/cmx-studio/content'
+      path: '/content'
+      fullPath: '/cmx-studio/content'
+      preLoaderRoute: typeof CamoxCmxStudioContentRouteImport
       parentRoute: typeof CamoxCmxStudioRoute
     }
     '/_camox/cmx-studio/$': {
@@ -190,12 +190,12 @@ declare module '@tanstack/react-router' {
 
 interface CamoxCmxStudioRouteChildren {
   CamoxCmxStudioSplatRoute: typeof CamoxCmxStudioSplatRoute
-  CamoxCmxStudioBlocksRoute: typeof CamoxCmxStudioBlocksRoute
+  CamoxCmxStudioContentRoute: typeof CamoxCmxStudioContentRoute
 }
 
 const CamoxCmxStudioRouteChildren: CamoxCmxStudioRouteChildren = {
   CamoxCmxStudioSplatRoute: CamoxCmxStudioSplatRoute,
-  CamoxCmxStudioBlocksRoute: CamoxCmxStudioBlocksRoute,
+  CamoxCmxStudioContentRoute: CamoxCmxStudioContentRoute,
 }
 
 const CamoxCmxStudioRouteWithChildren = CamoxCmxStudioRoute._addFileChildren(

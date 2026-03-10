@@ -1,22 +1,11 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { FS_PREFIX, getSiteUrl } from "@/lib/convex-site";
 import { useMutation } from "convex/react";
 import { ImageIcon, Trash2, Upload } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { api } from "camox/_generated/api";
-
-const FS_PREFIX = "/fs";
-
-function getSiteUrl() {
-  const convexUrl = (import.meta.env.VITE_CONVEX_URL ?? "") as string;
-  if (convexUrl.includes(".cloud")) {
-    return convexUrl.replace(/\.cloud$/, ".site");
-  }
-  throw new Error(
-    "Could not derive Convex site URL. Set VITE_CONVEX_SITE_URL for non-cloud deployments.",
-  );
-}
 
 export interface FileRef {
   _fileId: string;

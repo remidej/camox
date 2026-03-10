@@ -32,10 +32,10 @@ const config = defineConfig({
         ),
       },
       {
-        find: "camox/CamoxPlayground",
+        find: "camox/CamoxContent",
         replacement: resolve(
           __dirname,
-          "../../packages/sdk/src/features/playground/CamoxPlayground.tsx",
+          "../../packages/sdk/src/features/content/CamoxContent.tsx",
         ),
       },
       {
