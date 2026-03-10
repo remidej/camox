@@ -51,6 +51,16 @@
     "./_generated/dataModel": {
       "types": "./convex/_generated/dataModel.d.ts",
       "default": "./convex/_generated/dataModel.js"
+    },
+    "./_internal/pageRoute": {
+      "source": "./src/features/routes/pageRoute.tsx",
+      "types": "./dist/features/routes/pageRoute.d.ts",
+      "import": "./dist/features/routes/pageRoute.js"
+    },
+    "./_internal/ogRoute": {
+      "source": "./src/features/routes/ogRoute.ts",
+      "types": "./dist/features/routes/ogRoute.d.ts",
+      "import": "./dist/features/routes/ogRoute.js"
     }
   },
   "scripts": {
@@ -131,6 +141,7 @@
     "vite-tsconfig-paths": "^5.1.4"
   },
   "peerDependencies": {
-    "@tanstack/react-router": "^1.166.2"
+    "@tanstack/react-router": "^1.166.2",
+    "@tanstack/react-start": "^1.166.2"
   }
 }

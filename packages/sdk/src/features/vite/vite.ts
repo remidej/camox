@@ -1,14 +1,18 @@
 import type { Plugin, ViteDevServer } from "vite";
+import { resolve } from "node:path";
 import { watchNewBlockFiles } from "./blockBoilerplate";
 import {
   syncBlockDefinitions,
   type BlockDefinitionsSyncOptions,
 } from "./blockDefinitionsSync";
 import { startConvexDev, stopConvexDev } from "./convexSync";
+import { generateRouteFiles, watchRouteFiles } from "./routeGeneration";
 
 export interface CamoxPluginOptions {
   /** Convex deploy key for non-interactive authentication (required) */
   convexDeployKey: string;
+  /** Convex URL for the deployment (required) */
+  convexUrl: string;
   /** Disable the generation of boilerplate code when creating a blank file in the blocks directory (default: false) */
   disableBlockBoilerplateGeneration?: boolean;
   /** Disable automatic block definitions sync on server start (default: false) */
@@ -21,6 +25,9 @@ export function camox(options: CamoxPluginOptions): Plugin {
   return {
     name: "camox",
     configResolved(config) {
+      const routesDir = resolve(config.root, "src/routes");
+      generateRouteFiles(routesDir, options.convexUrl);
+
       const message =
         config.command === "serve"
           ? `Running Camox app (NODE_ENV: ${process.env.NODE_ENV})`
@@ -29,6 +36,9 @@ export function camox(options: CamoxPluginOptions): Plugin {
     },
 
     configureServer(server: ViteDevServer) {
+      const routesDir = resolve(server.config.root, "src/routes");
+      watchRouteFiles(server, routesDir, options.convexUrl);
+
       if (!options.disableBlockBoilerplateGeneration) {
         watchNewBlockFiles(server);
       }

@@ -10,3 +10,5 @@ count.txt
 .output
 .vinxi
 todos.json
+src/routes/_camox.tsx
+src/routes/_camox/

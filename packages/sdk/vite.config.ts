@@ -47,6 +47,14 @@ const config = defineConfig({
           "src/features/studio/CamoxStudio.tsx",
         ),
         "features/vite/vite": resolve(__dirname, "src/features/vite/vite.ts"),
+        "features/routes/pageRoute": resolve(
+          __dirname,
+          "src/features/routes/pageRoute.tsx",
+        ),
+        "features/routes/ogRoute": resolve(
+          __dirname,
+          "src/features/routes/ogRoute.ts",
+        ),
       },
       formats: ["es"],
     },

@@ -1,24 +1,21 @@
-import { createFileRoute, notFound } from "@tanstack/react-router";
-import { ConvexHttpClient } from "convex/browser";
+import { notFound } from "@tanstack/react-router";
 import { createMiddleware, createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { api } from "camox/_generated/api";
-import { CamoxPreview, PageContent } from "camox/CamoxPreview";
-import { camoxApp } from "@/camox";
-import { env } from "@/env";
+import { CamoxPreview, PageContent } from "../preview/CamoxPreview";
+import type { CamoxApp } from "../../core/createApp";
+import { ConvexHttpClient } from "convex/browser";
 
-const getOrigin = createServerFn({ method: "GET" }).handler(async () => {
-  const request = getRequest();
-  const url = new URL(request.url);
-  return url.origin;
-});
+/* -------------------------------------------------------------------------------------------------
+ * Helpers
+ * -----------------------------------------------------------------------------------------------*/
 
-function parseQuality(part: string): number {
+export function parseQuality(part: string): number {
   const match = part.match(/;\s*q=([0-9.]+)/);
   return match ? parseFloat(match[1]) : 1;
 }
 
-function prefersMarkdown(accept: string): boolean {
+export function prefersMarkdown(accept: string): boolean {
   let markdownQ = -1;
   let htmlQ = -1;
   for (const part of accept.split(",")) {
@@ -32,12 +29,26 @@ function prefersMarkdown(accept: string): boolean {
   return markdownQ > 0 && markdownQ >= htmlQ;
 }
 
-const markdownRedirectMiddleware = createMiddleware().server(
-  async ({ next, request }) => {
+/* -------------------------------------------------------------------------------------------------
+ * Server functions
+ * -----------------------------------------------------------------------------------------------*/
+
+export const getOrigin = createServerFn({ method: "GET" }).handler(async () => {
+  const request = getRequest();
+  const url = new URL(request.url);
+  return url.origin;
+});
+
+/* -------------------------------------------------------------------------------------------------
+ * Factories
+ * -----------------------------------------------------------------------------------------------*/
+
+export function createMarkdownMiddleware(convexUrl: string) {
+  return createMiddleware().server(async ({ next, request }) => {
     const accept = request.headers.get("Accept") ?? "";
     if (prefersMarkdown(accept)) {
       const url = new URL(request.url);
-      const client = new ConvexHttpClient(env.VITE_CONVEX_URL);
+      const client = new ConvexHttpClient(convexUrl);
       const page = await client.query(api.pages.getPage, {
         fullPath: url.pathname,
       });
@@ -46,7 +57,6 @@ const markdownRedirectMiddleware = createMiddleware().server(
           pageId: page.page._id,
         });
         if (markdown) {
-          // Serve markdown only when requested and preferred.
           throw new Response(markdown, {
             headers: { "Content-Type": "text/markdown; charset=utf-8" },
           });
@@ -54,15 +64,17 @@ const markdownRedirectMiddleware = createMiddleware().server(
       }
     }
     return next();
-  },
-);
+  });
+}
 
-export const Route = createFileRoute("/_camox/$")({
-  server: {
-    middleware: [markdownRedirectMiddleware],
-  },
-  component: App,
-  loader: async ({ context, location }) => {
+export function createPageLoader() {
+  return async ({
+    context,
+    location,
+  }: {
+    context: { convexHttpClient: { query: ConvexHttpClient["query"] } };
+    location: { pathname: string };
+  }) => {
     const [page, origin] = await Promise.all([
       context.convexHttpClient.query(api.pages.getPage, {
         fullPath: location.pathname,
@@ -75,8 +87,18 @@ export const Route = createFileRoute("/_camox/$")({
     }
 
     return { page, origin };
-  },
-  head: ({ loaderData }) => {
+  };
+}
+
+export function createPageHead(camoxApp: CamoxApp) {
+  return ({
+    loaderData,
+  }: {
+    loaderData?: {
+      page: NonNullable<typeof api.pages.getPage._returnType>;
+      origin: string;
+    };
+  }) => {
     if (!loaderData) {
       return {};
     }
@@ -128,15 +150,21 @@ export const Route = createFileRoute("/_camox/$")({
     }
 
     return { meta };
-  },
-});
+  };
+}
 
-function App() {
-  const { page } = Route.useLoaderData();
+/* -------------------------------------------------------------------------------------------------
+ * Component
+ * -----------------------------------------------------------------------------------------------*/
 
+export const PageRouteComponent = ({
+  page,
+}: {
+  page: NonNullable<typeof api.pages.getPage._returnType>;
+}) => {
   return (
     <CamoxPreview>
       <PageContent page={page} />
     </CamoxPreview>
   );
-}
+};
