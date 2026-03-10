@@ -7,6 +7,7 @@ import {
 } from "./blockDefinitionsSync";
 import { startConvexDev, stopConvexDev } from "./convexSync";
 import { generateRouteFiles, watchRouteFiles } from "./routeGeneration";
+import { generateSkillFiles, watchSkillFiles } from "./skillGeneration";
 
 export interface CamoxPluginOptions {
   /** Convex deploy key for non-interactive authentication (required) */
@@ -27,6 +28,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
     configResolved(config) {
       const routesDir = resolve(config.root, "src/routes");
       generateRouteFiles(routesDir, options.convexUrl);
+      generateSkillFiles(config.root);
 
       const message =
         config.command === "serve"
@@ -38,6 +40,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
     configureServer(server: ViteDevServer) {
       const routesDir = resolve(server.config.root, "src/routes");
       watchRouteFiles(server, routesDir, options.convexUrl);
+      watchSkillFiles(server, server.config.root);
 
       if (!options.disableBlockBoilerplateGeneration) {
         watchNewBlockFiles(server);
