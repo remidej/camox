@@ -97,4 +97,16 @@ export function watchSkillFiles(server: ViteDevServer, appRoot: string) {
       writeFileSync(changedPath, expected, "utf-8");
     }
   });
+
+  server.watcher.on("unlink", (deletedPath) => {
+    const expected = expectedByPath.get(deletedPath);
+    if (!expected) return;
+
+    const rel = relative(server.config.root, deletedPath);
+    server.config.logger.warn(
+      `Camox skill file "${rel}" was deleted — recreating.`,
+      { timestamp: true },
+    );
+    writeFileSync(deletedPath, expected, "utf-8");
+  });
 }

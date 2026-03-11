@@ -6,6 +6,7 @@ import {
   type BlockDefinitionsSyncOptions,
 } from "./blockDefinitionsSync";
 import { startConvexDev, stopConvexDev } from "./convexSync";
+import { generateAppFile, watchAppFile } from "./appGeneration";
 import { generateRouteFiles, watchRouteFiles } from "./routeGeneration";
 import { generateSkillFiles, watchSkillFiles } from "./skillGeneration";
 
@@ -27,6 +28,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
     name: "camox",
     configResolved(config) {
       const routesDir = resolve(config.root, "src/routes");
+      generateAppFile(config.root);
       generateRouteFiles(routesDir, options.convexUrl);
       generateSkillFiles(config.root);
 
@@ -39,6 +41,7 @@ export function camox(options: CamoxPluginOptions): Plugin {
 
     configureServer(server: ViteDevServer) {
       const routesDir = resolve(server.config.root, "src/routes");
+      watchAppFile(server, server.config.root);
       watchRouteFiles(server, routesDir, options.convexUrl);
       watchSkillFiles(server, server.config.root);
 
