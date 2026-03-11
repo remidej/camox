@@ -17,7 +17,7 @@ function generateCamoxLayout(convexUrl: string): string {
     HEADER +
     `import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { CamoxProvider } from "camox/CamoxProvider";
-import { camoxApp } from "@/camox";
+import { camoxApp } from "@/camox/app";
 
 export const Route = createFileRoute("/_camox")({
   component: CamoxPathlessLayout,
@@ -44,7 +44,7 @@ import {
   createPageHead,
   PageRouteComponent,
 } from "camox/_internal/pageRoute";
-import { camoxApp } from "@/camox";
+import { camoxApp } from "@/camox/app";
 
 const markdownMiddleware = createMarkdownMiddleware("${convexUrl}");
 const loader = createPageLoader("${convexUrl}");
@@ -72,7 +72,7 @@ function generateOgRoute(): string {
     HEADER +
     `import { createFileRoute } from "@tanstack/react-router";
 import { createOgHandler } from "camox/_internal/ogRoute";
-import { camoxApp } from "@/camox";
+import { camoxApp } from "@/camox/app";
 
 export const Route = createFileRoute("/_camox/og")({
   server: {

@@ -42,7 +42,7 @@ export const camoxApp = createApp({
 
 function getAppFileEntries(appRoot: string) {
   return [
-    { path: resolve(appRoot, "src/camox.ts"), content: generateCamoxApp() },
+    { path: resolve(appRoot, "src/camox/app.ts"), content: generateCamoxApp() },
   ];
 }
 

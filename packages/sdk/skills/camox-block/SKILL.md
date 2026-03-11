@@ -9,7 +9,7 @@ A block is a reusable page section (hero, testimonial, gallery, footer...). User
 
 ## Quick Start
 
-A block file lives in the app's `src/blocks/` folder, is a `.tsx` file, and exports `block`:
+A block file lives in the app's `src/camox/blocks/` folder, is a `.tsx` file, and exports `block`:
 
 ```tsx
 import { Type, createBlock } from "camox/createBlock";
@@ -360,7 +360,7 @@ Renders content outside the block's DOM container. Useful for fixed/floating ele
 
 ## Rules and Conventions
 
-1. **File = one block.** One `.tsx` file per block in `src/blocks/`. The `id` must match the filename (without `.tsx`).
+1. **File = one block.** One `.tsx` file per block in `src/camox/blocks/`. The `id` must match the filename (without `.tsx`).
 2. **Named export as `block`.** Always: `export { myVar as block }`. Not a default export.
 3. **Named function component.** Use `function MyComponent()`, not an arrow function. Reference it in `createBlock` before its declaration is fine (hoisting).
 4. **All fields need defaults.** Every `Type.*` call requires a default value (images and files get automatic placeholders).

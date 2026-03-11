@@ -55,7 +55,7 @@ export { ${camelName} as block };
 
 export function watchNewBlockFiles(server: ViteDevServer) {
   // Watch for new block files and auto-prefill with boilerplate
-  const blocksDir = resolve(server.config.root, "src/blocks");
+  const blocksDir = resolve(server.config.root, "src/camox/blocks");
 
   server.watcher.on("add", (filePath) => {
     if (

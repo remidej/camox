@@ -28,8 +28,8 @@ export async function syncBlockDefinitions(
   server: ViteDevServer,
   options: BlockDefinitionsSyncOptions = {},
 ): Promise<void> {
-  const camoxAppPath = options.camoxAppPath ?? "./src/camox.ts";
-  const blocksDir = path.resolve(server.config.root, "src/blocks");
+  const camoxAppPath = options.camoxAppPath ?? "./src/camox/app.ts";
+  const blocksDir = path.resolve(server.config.root, "src/camox/blocks");
 
   const convexUrl = process.env.VITE_CONVEX_URL;
   if (!convexUrl) {
@@ -295,7 +295,7 @@ export async function syncBlockDefinitions(
   // Watch for changes in block files
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  const layoutsDir = path.resolve(server.config.root, "src/layouts");
+  const layoutsDir = path.resolve(server.config.root, "src/camox/layouts");
 
   function isBlockFile(filePath: string): boolean {
     return filePath.startsWith(blocksDir) && /\.tsx?$/.test(filePath);
