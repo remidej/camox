@@ -67,16 +67,11 @@ export function createMarkdownMiddleware(convexUrl: string) {
   });
 }
 
-export function createPageLoader() {
-  return async ({
-    context,
-    location,
-  }: {
-    context: { convexHttpClient: { query: ConvexHttpClient["query"] } };
-    location: { pathname: string };
-  }) => {
+export function createPageLoader(convexUrl: string) {
+  const convexHttpClient = new ConvexHttpClient(convexUrl);
+  return async ({ location }: { location: { pathname: string } }) => {
     const [page, origin] = await Promise.all([
-      context.convexHttpClient.query(api.pages.getPage, {
+      convexHttpClient.query(api.pages.getPage, {
         fullPath: location.pathname,
       }),
       getOrigin(),

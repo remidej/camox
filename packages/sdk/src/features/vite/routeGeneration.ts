@@ -47,7 +47,7 @@ import {
 import { camoxApp } from "@/camox";
 
 const markdownMiddleware = createMarkdownMiddleware("${convexUrl}");
-const loader = createPageLoader();
+const loader = createPageLoader("${convexUrl}");
 const head = createPageHead(camoxApp);
 
 export const Route = createFileRoute("/_camox/$")({

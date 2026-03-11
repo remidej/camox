@@ -67,11 +67,18 @@ export const PeekedBlock = ({ onExitComplete }: PeekedBlockProps) => {
       ) {
         return;
       }
-      // Only clear on collapse (when not expanded)
-      if (!isExpanded) {
-        setDisplayedBlock(null);
-        onExitComplete?.();
+      if (isExpanded) {
+        // Scroll into view after expand animation completes (initial peek)
+        peekedBlockRef.current?.scrollIntoView({
+          behavior: "instant",
+          block: "start",
+        });
+        return;
       }
+
+      // Clear on collapse
+      setDisplayedBlock(null);
+      onExitComplete?.();
     },
     [isExpanded, onExitComplete],
   );

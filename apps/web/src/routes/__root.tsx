@@ -1,16 +1,11 @@
 import {
   HeadContent,
   Scripts,
-  createRootRouteWithContext,
+  createRootRoute,
 } from "@tanstack/react-router";
 import siteCss from "../styles.css?url";
-import type { ConvexHttpClient } from "convex/browser";
 
-interface MyRouterContext {
-  convexHttpClient: ConvexHttpClient;
-}
-
-export const Route = createRootRouteWithContext<MyRouterContext>()({
+export const Route = createRootRoute({
   head: () => {
     return {
       meta: [
