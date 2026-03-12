@@ -14,11 +14,22 @@ export interface UploadItem {
   error?: string;
 }
 
-export function useFileUpload() {
+interface UseFileUploadOptions {
+  onFileCommitted?: (result: {
+    fileId: string;
+    url: string;
+    filename: string;
+    mimeType: string;
+  }) => void;
+}
+
+export function useFileUpload(options?: UseFileUploadOptions) {
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const commitFile = useMutation(api.files.commitFile);
   const siteUrl = getSiteUrl();
   const nextId = useRef(0);
+  const onFileCommittedRef = useRef(options?.onFileCommitted);
+  onFileCommittedRef.current = options?.onFileCommitted;
 
   const uploadSingleFile = useCallback(
     async (file: File, itemId: string) => {
@@ -59,12 +70,15 @@ export function useFileUpload() {
         prev.map((u) => (u.id === itemId ? { ...u, status: "committing" as const } : u)),
       );
 
-      await commitFile({
+      const result = await commitFile({
         blobId,
         filename: file.name,
         contentType: file.type,
+        size: file.size,
         siteUrl,
       });
+
+      onFileCommittedRef.current?.(result);
 
       setUploads((prev) =>
         prev.map((u) =>

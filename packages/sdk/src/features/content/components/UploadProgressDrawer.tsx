@@ -45,7 +45,7 @@ export function UploadProgressDrawer({ uploads, onClose }: UploadProgressDrawerP
   );
 }
 
-function UploadItemRow({ item }: { item: UploadItem }) {
+export function UploadItemRow({ item }: { item: UploadItem }) {
   return (
     <div className="flex items-center gap-2 px-3 py-2">
       <File className="text-muted-foreground h-4 w-4 shrink-0" />

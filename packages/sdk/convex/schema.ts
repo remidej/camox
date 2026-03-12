@@ -69,6 +69,7 @@ export default defineSchema({
     alt: v.string(),
     filename: v.string(),
     mimeType: v.string(),
+    size: v.number(),
     blobId: v.string(),
     path: v.string(),
     aiMetadataEnabled: v.optional(v.boolean()),

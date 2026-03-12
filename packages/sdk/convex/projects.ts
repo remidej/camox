@@ -34,6 +34,7 @@ export const getProject = query({
 });
 
 export const getFirstProject = query({
+  args: {},
   handler: async (ctx) => {
     const project = await ctx.db.query("projects").first();
     return project;
@@ -41,6 +42,7 @@ export const getFirstProject = query({
 });
 
 export const listProjects = query({
+  args: {},
   handler: async (ctx) => {
     const projects = await ctx.db.query("projects").collect();
     return projects.sort((a, b) => a.name.localeCompare(b.name));

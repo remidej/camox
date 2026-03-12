@@ -17,6 +17,13 @@ import { cn } from "@/lib/utils";
 
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 interface AssetLightboxProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,6 +32,7 @@ interface AssetLightboxProps {
 
 const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
   const file = useQuery(api.files.getFile, { fileId });
+  const usageCount = useQuery(api.files.getFileUsageCount, { fileId });
   const [zoomed, setZoomed] = useState(false);
   const [uploadState, setUploadState] = useState<{
     status: "uploading" | "committing" | "complete" | "error";
@@ -94,6 +102,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
           blobId,
           filename: droppedFile.name,
           contentType: droppedFile.type,
+          size: droppedFile.size,
           siteUrl,
         });
 
@@ -315,6 +324,33 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                 rows={2}
                 onSave={(value) => updateFileAlt({ fileId, alt: value })}
               />
+              <div className="text-muted-foreground space-y-1 text-sm">
+                <div className="flex items-baseline gap-2">
+                  <span className="shrink-0">Format</span>
+                  <span className="border-border min-w-0 flex-1 border-b" />
+                  <span className="text-foreground shrink-0 font-medium">
+                    {file.mimeType.split("/").pop()?.toUpperCase() ?? "Unknown"}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="shrink-0">Size</span>
+                  <span className="border-border min-w-0 flex-1 border-b" />
+                  <span className="text-foreground shrink-0 font-medium">
+                    {file.size != null ? formatFileSize(file.size) : "Unknown"}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="shrink-0">Used in</span>
+                  <span className="border-border min-w-0 flex-1 border-b" />
+                  <span className="text-foreground shrink-0 font-medium">
+                    {usageCount == null && "…"}
+                    {usageCount === 0 && "No blocks"}
+                    {usageCount != null &&
+                      usageCount > 0 &&
+                      `${usageCount} ${usageCount === 1 ? "block" : "blocks"}`}
+                  </span>
+                </div>
+              </div>
               <input
                 ref={replaceInputRef}
                 type="file"

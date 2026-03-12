@@ -20,14 +20,18 @@ import { api } from "camox/_generated/api";
 import type { Doc, Id } from "camox/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { generateKeyBetween } from "fractional-indexing";
-import { FileIcon, GripVertical, X } from "lucide-react";
+import { FileIcon, GripVertical } from "lucide-react";
 import * as React from "react";
 
-import { FileUpload, type FileRef } from "@/components/file-upload";
 import { Button } from "@/components/ui/button";
+import { UploadDropZone } from "@/features/content/components/UploadDropZone";
+import { useFileUpload } from "@/hooks/use-file-upload";
 import { cn } from "@/lib/utils";
 
+import { AssetActionButtons } from "./AssetFieldEditor";
 import { AssetLightbox } from "./AssetLightbox";
+import { AssetPickerGrid } from "./AssetPickerGrid";
+import { UnlinkAssetButton } from "./UnlinkAssetButton";
 
 /* -------------------------------------------------------------------------------------------------
  * SortableAssetItem
@@ -59,7 +63,7 @@ const SortableAssetItem = ({
   };
 
   const asset = item.content?.[contentKey] as
-    | { url: string; alt: string; filename: string }
+    | { url: string; alt: string; filename: string; _fileId?: string }
     | undefined;
 
   const url = asset?.url ?? "";
@@ -107,18 +111,11 @@ const SortableAssetItem = ({
           </p>
         </button>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground hover:text-foreground hidden shrink-0 group-focus-within:flex group-hover:flex"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(item._id);
-          }}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <UnlinkAssetButton
+          fileId={asset?._fileId as Id<"files"> | undefined}
+          onUnlink={() => onRemove(item._id)}
+          className="hidden group-focus-within:flex group-hover:flex"
+        />
       </div>
     </li>
   );
@@ -143,6 +140,8 @@ const MultipleAssetFieldEditor = ({
 }: MultipleAssetFieldEditorProps) => {
   const { pathname } = useLocation();
   const contentKey = assetType === "Image" ? "image" : "file";
+  const isImage = assetType === "Image";
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const createItemMutation = useMutation(api.repeatableItems.createRepeatableItem);
   const deleteItemMutation = useMutation(api.repeatableItems.deleteRepeatableItem);
@@ -207,12 +206,31 @@ const MultipleAssetFieldEditor = ({
     );
   });
 
+  const { uploads, uploadFiles } = useFileUpload({
+    onFileCommitted: (result) => {
+      createItemMutation({
+        blockId,
+        fieldName,
+        content: {
+          [contentKey]: {
+            url: result.url,
+            alt: "",
+            filename: result.filename,
+            mimeType: result.mimeType,
+            _fileId: result.fileId,
+          },
+        },
+      });
+    },
+  });
+
   const items = ((currentData[fieldName] ?? []) as Doc<"repeatableItems">[]).filter((item) => {
     const asset = item.content?.[contentKey] as { url?: string } | undefined;
     return !!asset?.url;
   });
 
-  // Lightbox state
+  // Picker & lightbox state
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [lightboxItem, setLightboxItem] = React.useState<Doc<"repeatableItems"> | null>(null);
 
   const sensors = useSensors(
@@ -254,53 +272,77 @@ const MultipleAssetFieldEditor = ({
     deleteItemMutation({ itemId });
   };
 
-  const handleUploadComplete = (ref: FileRef) => {
-    createItemMutation({
-      blockId,
-      fieldName,
-      content: { [contentKey]: ref },
-    });
-  };
-
   const handleAssetOpen = (item: Doc<"repeatableItems">) => {
     setLightboxItem(item);
   };
 
-  return (
-    <div className="space-y-4 px-4 py-4">
-      {items.length > 0 && (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-          modifiers={[restrictToVerticalAxis]}
-        >
-          <SortableContext
-            items={items.map((item) => item._id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <ul className="flex flex-col gap-1">
-              {items.map((item) => (
-                <SortableAssetItem
-                  key={item._id}
-                  item={item}
-                  assetType={assetType}
-                  contentKey={contentKey}
-                  onRemove={handleRemove}
-                  onAssetOpen={handleAssetOpen}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
-      )}
+  const handleSelectMultiple = async (files: Doc<"files">[]) => {
+    for (const file of files) {
+      await createItemMutation({
+        blockId,
+        fieldName,
+        content: {
+          [contentKey]: {
+            url: file.url,
+            alt: file.alt,
+            filename: file.filename,
+            mimeType: file.mimeType,
+            _fileId: file._id,
+          },
+        },
+      });
+    }
+    setPickerOpen(false);
+  };
 
-      <FileUpload
-        multiple
-        hidePreview
-        accept={assetType === "Image" ? "image/*" : "*/*"}
-        onUploadComplete={handleUploadComplete}
-      />
+  return (
+    <UploadDropZone onDrop={uploadFiles}>
+      {pickerOpen ? (
+        <AssetPickerGrid
+          assetType={assetType}
+          mode="multiple"
+          onSelectSingle={() => {}}
+          onSelectMultiple={handleSelectMultiple}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : (
+        <div className="space-y-4 px-4 py-4">
+          {items.length > 0 && (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+              modifiers={[restrictToVerticalAxis]}
+            >
+              <SortableContext
+                items={items.map((item) => item._id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <ul className="flex flex-col gap-1">
+                  {items.map((item) => (
+                    <SortableAssetItem
+                      key={item._id}
+                      item={item}
+                      assetType={assetType}
+                      contentKey={contentKey}
+                      onRemove={handleRemove}
+                      onAssetOpen={handleAssetOpen}
+                    />
+                  ))}
+                </ul>
+              </SortableContext>
+            </DndContext>
+          )}
+          <AssetActionButtons
+            isImage={isImage}
+            multiple={true}
+            fileInputRef={fileInputRef}
+            onPickerOpen={() => setPickerOpen(true)}
+            onFilesSelected={uploadFiles}
+            uploads={uploads}
+          />
+        </div>
+      )}
 
       {(() => {
         const asset = lightboxItem?.content?.[contentKey] as { _fileId?: string } | undefined;
@@ -315,7 +357,7 @@ const MultipleAssetFieldEditor = ({
           />
         );
       })()}
-    </div>
+    </UploadDropZone>
   );
 };
 

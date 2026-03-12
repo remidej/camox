@@ -104,7 +104,7 @@
     "react/no-direct-mutation-state": "warn",
     "no-ex-assign": "warn",
     "no-unsafe-negation": "warn",
-    "no-nested-ternary": "warn"
+    "no-nested-ternary": "error"
   },
   "settings": {
     "jsx-a11y": {

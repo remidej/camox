@@ -14,6 +14,7 @@ export const commitFile = mutation({
     blobId: v.string(),
     filename: v.string(),
     contentType: v.string(),
+    size: v.number(),
     siteUrl: v.string(),
   },
   handler: async (ctx, args) => {
@@ -28,6 +29,7 @@ export const commitFile = mutation({
       alt: "",
       filename: args.filename,
       mimeType: args.contentType,
+      size: args.size,
       blobId: args.blobId,
       path,
       aiMetadataEnabled: true,
@@ -150,6 +152,47 @@ export const getFile = query({
   args: { fileId: v.id("files") },
   handler: async (ctx, args) => {
     return ctx.db.get(args.fileId);
+  },
+});
+
+/**
+ * Count how many `{ _fileId }` references match the given fileId in a content object.
+ */
+function countFileRefs(content: Record<string, unknown>, fileId: string): number {
+  let count = 0;
+
+  for (const value of Object.values(content)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const obj = value as Record<string, unknown>;
+    if ("_fileId" in obj && obj._fileId === fileId) {
+      count++;
+    } else {
+      count += countFileRefs(obj, fileId);
+    }
+  }
+
+  return count;
+}
+
+export const getFileUsageCount = query({
+  args: { fileId: v.id("files") },
+  handler: async (ctx, args) => {
+    const fileIdStr = args.fileId as string;
+    let count = 0;
+
+    const allBlocks = await ctx.db.query("blocks").collect();
+    for (const block of allBlocks) {
+      if (!block.content) continue;
+      count += countFileRefs(block.content, fileIdStr);
+    }
+
+    const allItems = await ctx.db.query("repeatableItems").collect();
+    for (const item of allItems) {
+      if (!item.content) continue;
+      count += countFileRefs(item.content, fileIdStr);
+    }
+
+    return count;
   },
 });
 
