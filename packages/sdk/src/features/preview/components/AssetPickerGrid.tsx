@@ -79,7 +79,7 @@ const AssetPickerGrid = ({
       </div>
 
       <div className="px-4 pb-4">
-        {files === undefined ? (
+        {files === undefined && (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex flex-col gap-1.5 rounded-lg p-2">
@@ -88,9 +88,11 @@ const AssetPickerGrid = ({
               </div>
             ))}
           </div>
-        ) : files.length === 0 ? (
+        )}
+        {files?.length === 0 && (
           <p className="text-muted-foreground py-8 text-center text-sm">No assets yet</p>
-        ) : (
+        )}
+        {files && files.length > 0 && (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
             {files.map((file) => (
               <AssetCard

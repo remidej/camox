@@ -447,9 +447,8 @@ export function createBlock<
             content: { [name]: newValue },
           });
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
       },
-      [blockId, name, repeaterContext?.itemId],
+      [blockId, name, repeaterContext, updateRepeatableItemContent, updateBlockContent],
     );
 
     const handleFocus = React.useCallback(() => {

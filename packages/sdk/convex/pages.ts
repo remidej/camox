@@ -296,6 +296,7 @@ export const getPage = query({
 });
 
 export const listPages = query({
+  args: {},
   handler: async (ctx) => {
     const pages = await ctx.db.query("pages").collect();
     // Sort alphabetically by fullPath

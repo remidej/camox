@@ -83,7 +83,7 @@ const CreatePageSheet = () => {
     if (layouts && layouts.length > 0 && !form.getFieldValue("layoutId")) {
       form.setFieldValue("layoutId", layouts[0]._id);
     }
-  }, [layouts]);
+  }, [layouts, form]);
 
   return (
     <Sheet.Sheet

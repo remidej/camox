@@ -58,7 +58,7 @@ export function UploadDropZone({
 
   return (
     <div
-      className={cn("relative", className)}
+      className={cn("relative min-h-full", className)}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}

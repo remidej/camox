@@ -43,11 +43,12 @@ export const CamoxContent = () => {
             onPointerMove={handlers.onPointerMove}
             onPointerUp={handlers.onPointerUp}
           >
-            {files === undefined ? null : files.length === 0 ? (
+            {files?.length === 0 && (
               <div className="flex h-full flex-1 items-center justify-center">
                 <p className="text-muted-foreground">No assets yet</p>
               </div>
-            ) : (
+            )}
+            {files && files.length > 0 && (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
                 {files.map((file) => (
                   <AssetCard
