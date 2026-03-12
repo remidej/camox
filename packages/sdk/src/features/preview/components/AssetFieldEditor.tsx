@@ -11,6 +11,11 @@ import { AssetLightbox } from "./AssetLightbox";
 import { AssetPickerGrid } from "./AssetPickerGrid";
 import { UnlinkAssetButton } from "./UnlinkAssetButton";
 
+function assetLabel(isImage: boolean, multiple: boolean) {
+  if (isImage) return multiple ? "images" : "image";
+  return multiple ? "files" : "file";
+}
+
 /* -------------------------------------------------------------------------------------------------
  * AssetActionButtons
  * -----------------------------------------------------------------------------------------------*/
@@ -32,7 +37,7 @@ const AssetActionButtons = ({
 }) => (
   <>
     <Button variant="default" className="mx-auto flex w-full" onClick={onPickerOpen}>
-      Select existing {isImage ? (multiple ? "images" : "image") : multiple ? "files" : "file"}
+      Select existing {assetLabel(isImage, multiple)}
     </Button>
     <Button
       variant="secondary"
