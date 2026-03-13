@@ -16,6 +16,36 @@ import { FS_PREFIX, getSiteUrl } from "@/lib/convex-site";
 
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 
+function MetadataRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="shrink-0">{label}</span>
+      <span className="border-border min-w-0 flex-1 border-b" />
+      <span className="text-foreground shrink-0">{children}</span>
+    </div>
+  );
+}
+
+function formatRelativeTime(epochMs: number): string {
+  const now = Temporal.Now.instant();
+  const then = Temporal.Instant.fromEpochMilliseconds(epochMs);
+  const duration = now.since(then);
+  const totalSeconds = duration.total("seconds");
+
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+  if (totalSeconds < 60) return rtf.format(-Math.floor(totalSeconds), "second");
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return rtf.format(-totalMinutes, "minute");
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 24) return rtf.format(-totalHours, "hour");
+  const totalDays = Math.floor(totalHours / 24);
+  if (totalDays < 30) return rtf.format(-totalDays, "day");
+  const totalMonths = Math.floor(totalDays / 30);
+  if (totalMonths < 12) return rtf.format(-totalMonths, "month");
+  return rtf.format(-Math.floor(totalDays / 365), "year");
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -198,9 +228,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
               <div
                 ref={containerRef}
                 className={`checkered absolute inset-0 ${
-                  zoomed
-                    ? "cursor-zoom-out overflow-auto"
-                    : "flex cursor-zoom-in items-center justify-center overflow-hidden p-6"
+                  zoomed ? "overflow-auto" : "flex items-center justify-center overflow-hidden p-6"
                 }`}
                 onClick={(e) => {
                   const img = containerRef.current?.querySelector("img");
@@ -229,6 +257,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                     <img
                       src={file.url}
                       alt={file.alt || file.filename || ""}
+                      className="cursor-zoom-out"
                       style={{ width: zoomedWidth ?? undefined }}
                       draggable={false}
                     />
@@ -237,7 +266,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                   <img
                     src={file.url}
                     alt={file.alt || file.filename || ""}
-                    className="max-h-full max-w-full object-contain shadow-lg"
+                    className="max-h-full max-w-full cursor-zoom-in object-contain shadow-lg"
                     draggable={false}
                   />
                 )}
@@ -341,31 +370,21 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                 onSave={(value) => updateFileAlt({ fileId, alt: value })}
               />
               <div className="text-muted-foreground space-y-1 text-sm">
-                <div className="flex items-baseline gap-2">
-                  <span className="shrink-0">Format</span>
-                  <span className="border-border min-w-0 flex-1 border-b" />
-                  <span className="text-foreground shrink-0 font-medium">
-                    {file.mimeType.split("/").pop()?.toUpperCase() ?? "Unknown"}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="shrink-0">Size</span>
-                  <span className="border-border min-w-0 flex-1 border-b" />
-                  <span className="text-foreground shrink-0 font-medium">
-                    {file.size != null ? formatFileSize(file.size) : "Unknown"}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="shrink-0">Used in</span>
-                  <span className="border-border min-w-0 flex-1 border-b" />
-                  <span className="text-foreground shrink-0 font-medium">
-                    {usageCount == null && "…"}
-                    {usageCount === 0 && "No blocks"}
-                    {usageCount != null &&
-                      usageCount > 0 &&
-                      `${usageCount} ${usageCount === 1 ? "block" : "blocks"}`}
-                  </span>
-                </div>
+                <MetadataRow label="Format">
+                  {file.mimeType.split("/").pop()?.toUpperCase() ?? "Unknown"}
+                </MetadataRow>
+                <MetadataRow label="Size">
+                  {file.size != null ? formatFileSize(file.size) : "Unknown"}
+                </MetadataRow>
+                <MetadataRow label="Created">{formatRelativeTime(file.createdAt)}</MetadataRow>
+                <MetadataRow label="Updated">{formatRelativeTime(file.updatedAt)}</MetadataRow>
+                <MetadataRow label="Used in">
+                  {usageCount == null && "…"}
+                  {usageCount === 0 && "No blocks"}
+                  {usageCount != null &&
+                    usageCount > 0 &&
+                    `${usageCount} ${usageCount === 1 ? "block" : "blocks"}`}
+                </MetadataRow>
               </div>
               <input
                 ref={replaceInputRef}

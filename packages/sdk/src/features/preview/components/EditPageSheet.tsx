@@ -130,7 +130,7 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
           <Sheet.SheetDescription>Update the page details.</Sheet.SheetDescription>
         </Sheet.SheetHeader>
         <div className="flex-1 overflow-y-auto">
-          <div className="border-border grid grid-cols-[200px_1fr] gap-x-8 border-b px-6 py-6">
+          <div className="border-border grid grid-cols-[200px_1fr] gap-x-8 border-b px-4 py-4">
             <div>
               <p className="text-sm font-medium">Page structure</p>
               <p className="text-muted-foreground mt-1 text-xs">
@@ -204,7 +204,7 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
               </form>
             </div>
           </div>
-          <div className="grid grid-cols-[200px_1fr] gap-x-8 px-6 py-6">
+          <div className="grid grid-cols-[200px_1fr] gap-x-8 px-4 py-4">
             <div>
               <p className="text-sm font-medium">SEO data</p>
               <p className="text-muted-foreground mt-1 text-xs">
@@ -256,7 +256,7 @@ const EditPageSheetContent = ({ pageToEdit }: { pageToEdit: Doc<"pages"> }) => {
               />
             </div>
           </div>
-          <div className="border-border grid grid-cols-[200px_1fr] gap-x-8 border-t px-6 py-6">
+          <div className="border-border grid grid-cols-[200px_1fr] gap-x-8 border-t px-4 py-4">
             <div>
               <p className="text-sm font-medium">Markdown content</p>
               <p className="text-muted-foreground mt-1 text-xs">
