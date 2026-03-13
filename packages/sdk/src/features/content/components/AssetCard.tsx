@@ -19,8 +19,8 @@ export const AssetCard = ({ file, selected, onSelect, onOpen }: AssetCardProps) 
       type="button"
       data-asset-id={file._id}
       className={cn(
-        "group flex flex-col gap-1.5 rounded-lg p-2 text-left",
-        selected ? "bg-primary/40" : "hover:bg-primary/10",
+        "group flex flex-col gap-1.5 rounded-lg p-2 text-left border-2 border-transparent",
+        selected ? "bg-primary/20 border-2 border-primary" : "hover:bg-primary/20",
       )}
       onClick={(e) => {
         e.stopPropagation();

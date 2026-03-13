@@ -2,7 +2,7 @@ import { api } from "camox/_generated/api";
 import type { Id } from "camox/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { Check, Download, FileIcon, Link, Loader2, Trash2, X } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,6 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { FS_PREFIX, getSiteUrl } from "@/lib/convex-site";
-import { cn } from "@/lib/utils";
 
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 
@@ -33,16 +32,39 @@ interface AssetLightboxProps {
 const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
   const file = useQuery(api.files.getFile, { fileId });
   const usageCount = useQuery(api.files.getFileUsageCount, { fileId });
-  const [zoomed, setZoomed] = useState(false);
   const [uploadState, setUploadState] = useState<{
     status: "uploading" | "committing" | "complete" | "error";
     progress: number;
     filename: string;
     error?: string;
   } | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [zoomedWidth, setZoomedWidth] = useState<number | null>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [zoomed, setZoomed] = useState(false);
+  const [zoomedWidth, setZoomedWidth] = useState<number | null>(null);
+  const clickFractionRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setZoomed(false);
+      setZoomedWidth(null);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!zoomed || !zoomedWidth || !containerRef.current || !clickFractionRef.current) return;
+    const container = containerRef.current;
+    const img = container.querySelector("img");
+    if (!img) return;
+
+    requestAnimationFrame(() => {
+      const frac = clickFractionRef.current!;
+      const scrollX = img.offsetLeft + img.width * frac.x - container.clientWidth / 2;
+      const scrollY = img.offsetTop + img.height * frac.y - container.clientHeight / 2;
+      container.scrollTo(scrollX, scrollY);
+      clickFractionRef.current = null;
+    });
+  }, [zoomed, zoomedWidth]);
 
   const updateFileFilename = useMutation(api.files.updateFileFilename);
   const updateFileAlt = useMutation(api.files.updateFileAlt);
@@ -151,13 +173,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
   const isImage = file.mimeType?.startsWith("image/");
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) setZoomed(false);
-        onOpenChange(next);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="h-[90vh] max-h-[90vh] w-[90vw] max-w-[90vw] gap-0 overflow-hidden p-0 sm:max-w-[90vw]"
         showCloseButton={false}
@@ -176,55 +192,55 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
           <UploadDropZone
             label="Drop file to replace"
             onDrop={handleReplaceDrop}
-            className="min-w-0 flex-1"
+            className="h-full min-w-0 flex-1"
           >
             {isImage ? (
               <div
                 ref={containerRef}
-                className={cn(
-                  "checkered absolute inset-0",
-                  zoomed ? "overflow-auto" : "overflow-hidden flex items-center justify-center p-6",
-                )}
-                onClick={() => {
-                  if (!zoomed) return;
-                  setZoomed(false);
-                  setZoomedWidth(null);
+                className={`checkered absolute inset-0 ${
+                  zoomed
+                    ? "cursor-zoom-out overflow-auto"
+                    : "flex cursor-zoom-in items-center justify-center overflow-hidden p-6"
+                }`}
+                onClick={(e) => {
+                  const img = containerRef.current?.querySelector("img");
+                  if (!img) return;
+
+                  if (!zoomed) {
+                    const rect = img.getBoundingClientRect();
+                    clickFractionRef.current = {
+                      x: (e.clientX - rect.left) / rect.width,
+                      y: (e.clientY - rect.top) / rect.height,
+                    };
+                    const container = containerRef.current!;
+                    const scaleForWidth = (container.clientWidth * 2.5) / img.clientWidth;
+                    const scaleForHeight = (container.clientHeight * 2.5) / img.clientHeight;
+                    setZoomedWidth(img.clientWidth * Math.max(scaleForWidth, scaleForHeight));
+                    setZoomed(true);
+                  } else {
+                    setZoomed(false);
+                    setZoomedWidth(null);
+                    containerRef.current?.scrollTo(0, 0);
+                  }
                 }}
               >
-                <div className={cn(zoomed && "min-h-full flex items-center")}>
+                {zoomed ? (
+                  <div className="flex min-h-full items-center justify-center">
+                    <img
+                      src={file.url}
+                      alt={file.alt || file.filename || ""}
+                      style={{ width: zoomedWidth ?? undefined }}
+                      draggable={false}
+                    />
+                  </div>
+                ) : (
                   <img
                     src={file.url}
-                    alt={file.alt || file.filename}
-                    className={cn(
-                      "shadow-lg",
-                      zoomed
-                        ? "max-w-none cursor-zoom-out"
-                        : "max-w-full max-h-full object-contain cursor-zoom-in",
-                    )}
-                    style={zoomed && zoomedWidth ? { width: zoomedWidth } : undefined}
-                    onClick={(e) => {
-                      if (zoomed) return;
-                      e.stopPropagation();
-                      const img = e.currentTarget;
-                      const rect = img.getBoundingClientRect();
-                      const fracX = (e.clientX - rect.left) / rect.width;
-                      const fracY = (e.clientY - rect.top) / rect.height;
-                      const container = containerRef.current;
-                      const minWidth = container ? container.clientWidth * 2 : 0;
-                      setZoomedWidth(Math.max(img.naturalWidth, minWidth));
-                      setZoomed(true);
-                      requestAnimationFrame(() => {
-                        const container = containerRef.current;
-                        const zoomedImg = container?.querySelector("img");
-                        if (!container || !zoomedImg) return;
-                        container.scrollLeft =
-                          fracX * zoomedImg.offsetWidth - container.clientWidth / 2;
-                        container.scrollTop =
-                          fracY * zoomedImg.offsetHeight - container.clientHeight / 2;
-                      });
-                    }}
+                    alt={file.alt || file.filename || ""}
+                    className="max-h-full max-w-full object-contain shadow-lg"
+                    draggable={false}
                   />
-                </div>
+                )}
               </div>
             ) : (
               <div className="bg-muted/30 flex h-full min-h-[70vh] items-center justify-center p-6">

@@ -108,7 +108,7 @@ const FieldItem = ({
     <li
       className={cn(
         "flex items-center gap-1.5 rounded-lg pl-2 pr-1 py-2 cursor-default group/field",
-        isSelected ? "bg-accent" : "hover:bg-accent/50",
+        isSelected ? "bg-accent" : "hover:bg-accent/75",
       )}
       onClick={() => fieldType && onFieldClick()}
       onDoubleClick={() => fieldType && onFieldDoubleClick()}
@@ -290,7 +290,7 @@ const SortableBlock = ({ block, isSelected }: SortableBlockProps) => {
           <div
             className={cn(
               "flex flex-row justify-between items-center gap-1 px-1 max-w-full rounded-lg text-foreground transition-all hover:transition-none",
-              shouldShowHover && "hover:bg-accent/50",
+              shouldShowHover && "hover:bg-accent/75",
               shouldShowActive && "bg-accent text-accent-foreground",
               isParentOfSelection && "bg-accent/25",
               "data-[state=open]:rounded-b-none",
@@ -413,7 +413,7 @@ const LayoutBlockItem = ({ block, isSelected, layoutName }: LayoutBlockItemProps
           <div
             className={cn(
               "flex flex-row justify-between items-center gap-1 px-1 max-w-full rounded-lg text-foreground transition-all hover:transition-none",
-              !isSelected && "hover:bg-accent/50",
+              !isSelected && "hover:bg-accent/75",
               isSelected && !isParentOfSelection && "bg-accent text-accent-foreground",
               isParentOfSelection && "bg-accent/25",
               "data-[state=open]:rounded-b-none",
@@ -642,7 +642,7 @@ const PageTree = () => {
         ))}
       </div>
       <Button
-        variant="outline"
+        variant="secondary"
         onClick={() =>
           previewStore.send({
             type: "openAddBlockSheet",

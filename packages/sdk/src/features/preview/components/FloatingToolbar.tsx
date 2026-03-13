@@ -105,7 +105,7 @@ export const FloatingToolbar = () => {
         </ButtonGroup>
         <Button
           variant="outline"
-          className="flex-1 justify-between gap-4 bg-transparent dark:bg-transparent"
+          className="bg-transparent dark:bg-transparent"
           onClick={() => previewStore.send({ type: "openAgentChatSheet" })}
         >
           <span className="text-muted-foreground">Ask for changes...</span>

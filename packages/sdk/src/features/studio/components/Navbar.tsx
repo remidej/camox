@@ -53,8 +53,6 @@ const Navbar = () => {
   const isMac = React.useMemo(() => navigator.userAgent.toUpperCase().indexOf("MAC") >= 0, []);
 
   const { pathname } = useLocation();
-  const isPreviewPage = pages?.some((page) => page.fullPath === pathname);
-
   const isPreviewSheetOpen = useIsPreviewSheetOpen();
 
   return (
@@ -76,15 +74,15 @@ const Navbar = () => {
                 className={cn(
                   // common layout styles
                   "flex gap-2 items-center rounded-md px-4 py-2 text-sm font-medium",
-                  // non active styles
-                  "text-muted-foreground",
                   // interaction styles
                   "hover:bg-accent hover:text-accent-foreground outline-none transition-[color,box-shadow] focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
                   // active style
-                  isPreviewPage && index === 0 && "bg-accent text-accent-foreground",
+                  pages?.some((page) => page.fullPath === pathname) && index === 0
+                    ? "bg-accent hover:bg-accent text-accent-foreground"
+                    : "text-muted-foreground",
                 )}
                 activeProps={{
-                  className: "bg-accent text-accent-foreground!",
+                  className: "bg-accent hover:bg-accent text-accent-foreground!",
                 }}
               >
                 {link.children}

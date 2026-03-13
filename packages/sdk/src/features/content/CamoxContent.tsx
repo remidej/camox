@@ -81,7 +81,7 @@ export const CamoxContent = () => {
             )}
             {selectionRect && (
               <div
-                className="pointer-events-none absolute z-50 border border-blue-500 bg-blue-500/10"
+                className="border-primary bg-primary/10 pointer-events-none absolute z-50 border"
                 style={{
                   left: selectionRect.left,
                   top: selectionRect.top,

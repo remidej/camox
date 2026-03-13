@@ -33,7 +33,7 @@ export const UserButton = () => {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="icon">
-          <User className="h-4 w-4" />
+          <User className="text-muted-foreground h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-72" align="end">

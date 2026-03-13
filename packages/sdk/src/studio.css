@@ -53,7 +53,7 @@ code {
   --chart-3: theme(--color-cyan-900);
   --chart-4: theme(--color-amber-400);
   --chart-5: theme(--color-amber-500);
-  --radius: 0.625rem;
+  --radius: 0.7rem;
   --sidebar: theme(--color-zinc-50);
   --sidebar-foreground: theme(--color-zinc-950);
   --sidebar-primary: theme(--color-zinc-900);
@@ -77,15 +77,13 @@ code {
   --popover: theme(--color-zinc-900);
   --popover-foreground: theme(--color-zinc-50);
   --primary: theme(--color-emerald-600);
-  --primary-foreground: theme(--color-emerald-100);
+  --primary-foreground: theme(--color-emerald-50);
   --secondary: theme(--color-zinc-800);
   --secondary-foreground: theme(--color-zinc-50);
   --muted: theme(--color-zinc-800);
   --muted-foreground: theme(--color-zinc-400);
   --accent: theme(--color-slate-800);
   --accent-foreground: theme(--color-slate-50);
-  /*--accent: theme(--color-zinc-800);*/
-  /*--accent-foreground: theme(--color-zinc-50);*/
   --destructive: theme(--color-red-400);
   --destructive-foreground: theme(--color-red-500);
   --border: oklch(1 0 0 / 10%);
