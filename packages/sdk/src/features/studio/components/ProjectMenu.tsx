@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { useClerk } from "@clerk/clerk-react";
 import { api } from "camox/_generated/api";
 import { useQuery } from "convex/react";
 import { ChevronDown, Globe, Settings, Users } from "lucide-react";
@@ -68,6 +68,7 @@ const Favicon = ({ size = 16 }: { size?: number }) => {
 export const ProjectMenu = () => {
   const [open, setOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const { openOrganizationProfile } = useClerk();
   const project = useQuery(api.projects.getFirstProject);
 
   if (!project) {
@@ -103,19 +104,24 @@ export const ProjectMenu = () => {
                 variant="ghost"
                 className="w-full justify-start"
                 onClick={() => {
+                  openOrganizationProfile();
+                  setOpen(false);
+                }}
+              >
+                <Users className="text-muted-foreground size-4" />
+                Manage team
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full justify-start"
+                onClick={() => {
                   setSettingsOpen(true);
                   setOpen(false);
                 }}
               >
                 <Settings className="text-muted-foreground size-4" />
-                Settings
+                Project settings
               </Button>
-              <Link to="/studio/team" onClick={() => setOpen(false)}>
-                <Button variant="ghost" className="w-full justify-start">
-                  <Users className="text-muted-foreground size-4" />
-                  Team
-                </Button>
-              </Link>
             </div>
           </div>
         </PopoverContent>
