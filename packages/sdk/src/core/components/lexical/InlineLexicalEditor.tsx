@@ -100,6 +100,7 @@ export function InlineLexicalEditor({
 }: InlineLexicalEditorProps) {
   const { window: iframeWindow } = useFrame();
   const timerRef = React.useRef<number | null>(null);
+  const isDirtyRef = React.useRef(false);
 
   const config = React.useMemo(
     () => createEditorConfig(initialState),
@@ -110,6 +111,7 @@ export function InlineLexicalEditor({
 
   const handleChange = React.useCallback(
     (editorState: EditorState) => {
+      if (!isDirtyRef.current) return;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => {
         const serialized = JSON.stringify(editorState.toJSON());
@@ -118,6 +120,16 @@ export function InlineLexicalEditor({
     },
     [onChange],
   );
+
+  const handleFocus = React.useCallback(() => {
+    isDirtyRef.current = true;
+    onFocus();
+  }, [onFocus]);
+
+  const handleBlur = React.useCallback(() => {
+    isDirtyRef.current = false;
+    onBlur();
+  }, [onBlur]);
 
   React.useEffect(() => {
     return () => {
@@ -134,7 +146,7 @@ export function InlineLexicalEditor({
       <OnChangePlugin onChange={handleChange} />
       <ExternalStateSync externalState={externalState} />
       <EscapeHandler />
-      <FocusBlurHandler onFocus={onFocus} onBlur={onBlur} />
+      <FocusBlurHandler onFocus={handleFocus} onBlur={handleBlur} />
       {iframeWindow && <SelectionBroadcaster targetWindow={iframeWindow} />}
     </LexicalComposer>
   );
