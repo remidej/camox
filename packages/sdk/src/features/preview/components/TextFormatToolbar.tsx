@@ -3,6 +3,7 @@ import { Bold, Italic } from "lucide-react";
 import * as React from "react";
 
 import { ButtonGroup } from "@/components/ui/button-group";
+import { FloatingToolbar } from "@/components/ui/floating-toolbar";
 import { Kbd } from "@/components/ui/kbd";
 import { Toggle } from "@/components/ui/toggle";
 import * as Tooltip from "@/components/ui/tooltip";
@@ -49,11 +50,10 @@ export const TextFormatToolbar = () => {
   const isVisible = hasSelection && !isAnySideSheetOpen;
 
   return (
-    <menu
-      role="toolbar"
+    <FloatingToolbar
       onMouseDown={(e) => e.preventDefault()}
       className={cn(
-        "absolute bg-background/95 backdrop-blur-lg p-2 rounded-xl shadow-2xl bottom-16 left-[50%] translate-x-[-50%] z-30 flex items-center gap-1 border-1 transition-all duration-200",
+        "bottom-16 gap-1",
         isVisible ? "opacity-100 translate-y-0" : "opacity-0 pointer-events-none translate-y-2",
       )}
     >
@@ -79,6 +79,6 @@ export const TextFormatToolbar = () => {
           );
         })}
       </ButtonGroup>
-    </menu>
+    </FloatingToolbar>
   );
 };

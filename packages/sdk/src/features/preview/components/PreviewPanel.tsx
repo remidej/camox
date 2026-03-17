@@ -10,10 +10,10 @@ import { actionsStore } from "../../provider/actionsStore";
 import { SHEET_WIDTH } from "../previewConstants";
 import { previewStore } from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
-import { FloatingToolbar } from "./FloatingToolbar";
 import { Overlays } from "./Overlays";
 import { OverlayTracker } from "./OverlayTracker";
 import { useIsPreviewSheetOpen } from "./PreviewSideSheet";
+import { PreviewToolbar } from "./PreviewToolbar";
 import { TextFormatToolbar } from "./TextFormatToolbar";
 
 /* -------------------------------------------------------------------------------------------------
@@ -221,7 +221,7 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
                 <Overlays iframeElement={iframeElement} />
               </div>
               <TextFormatToolbar />
-              <FloatingToolbar />
+              <PreviewToolbar />
             </div>
           ) : (
             <>
@@ -230,7 +230,7 @@ const PreviewPanel = ({ children }: { children: React.ReactNode }) => {
               </PreviewFrame>
               <Overlays iframeElement={iframeElement} />
               <TextFormatToolbar />
-              <FloatingToolbar />
+              <PreviewToolbar />
             </>
           )}
         </div>
