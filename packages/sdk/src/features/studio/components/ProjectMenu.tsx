@@ -1,12 +1,12 @@
+import { Button } from "@camox/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
+import { Separator } from "@camox/ui/separator";
+import { Skeleton } from "@camox/ui/skeleton";
 import { api } from "camox/server/api";
 import { useQuery } from "convex/react";
 import { ChevronDown, Globe, Settings, Users } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import { AuthContext } from "@/lib/auth";
 
 import { ProjectSettingsModal } from "./ProjectSettingsModal";

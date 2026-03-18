@@ -1,9 +1,3 @@
-import { useSelector } from "@xstate/store/react";
-import { api } from "camox/server/api";
-import { useMutation, useQuery } from "convex/react";
-import { InfoIcon } from "lucide-react";
-import * as React from "react";
-
 import {
   Command,
   CommandEmpty,
@@ -11,8 +5,14 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+} from "@camox/ui/command";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
+import { useSelector } from "@xstate/store/react";
+import { api } from "camox/server/api";
+import { useMutation, useQuery } from "convex/react";
+import { InfoIcon } from "lucide-react";
+import * as React from "react";
+
 import type { Block } from "@/core/createBlock";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";

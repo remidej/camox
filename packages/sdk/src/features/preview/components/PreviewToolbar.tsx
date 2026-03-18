@@ -1,12 +1,12 @@
+import { Button } from "@camox/ui/button";
+import { ButtonGroup } from "@camox/ui/button-group";
+import { FloatingToolbar } from "@camox/ui/floating-toolbar";
+import { Kbd } from "@camox/ui/kbd";
+import { Toggle } from "@camox/ui/toggle";
+import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store/react";
 import { Lock, MonitorPlay, PanelRight, TabletSmartphone } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
-import { FloatingToolbar } from "@/components/ui/floating-toolbar";
-import { Kbd } from "@/components/ui/kbd";
-import { Toggle } from "@/components/ui/toggle";
-import * as Tooltip from "@/components/ui/tooltip";
 import { cn, getActionShortcut } from "@/lib/utils";
 
 import { actionsStore } from "../../provider/actionsStore";

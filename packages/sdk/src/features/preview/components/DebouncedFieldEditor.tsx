@@ -1,8 +1,7 @@
+import { Input } from "@camox/ui/input";
+import { Label } from "@camox/ui/label";
+import { Textarea } from "@camox/ui/textarea";
 import * as React from "react";
-
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 
 const DebouncedFieldEditor = ({
   label,

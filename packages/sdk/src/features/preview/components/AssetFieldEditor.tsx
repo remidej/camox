@@ -1,8 +1,8 @@
+import { Button } from "@camox/ui/button";
 import type { Doc, Id } from "camox/server/dataModel";
 import { FileIcon, Upload } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
 import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { UploadItemRow } from "@/features/content/components/UploadProgressDrawer";
 import { type UploadItem, useFileUpload } from "@/hooks/use-file-upload";

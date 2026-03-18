@@ -1,9 +1,3 @@
-import { api } from "camox/server/api";
-import type { Id } from "camox/server/dataModel";
-import { useMutation, useQuery } from "convex/react";
-import { X } from "lucide-react";
-import { useState } from "react";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,9 +6,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+} from "@camox/ui/alert-dialog";
+import { Button } from "@camox/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
+import { api } from "camox/server/api";
+import type { Id } from "camox/server/dataModel";
+import { useMutation, useQuery } from "convex/react";
+import { X } from "lucide-react";
+import { useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 interface UnlinkAssetButtonProps {

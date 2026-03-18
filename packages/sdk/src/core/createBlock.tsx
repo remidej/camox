@@ -1,3 +1,9 @@
+import { useFrame } from "@camox/ui/frame";
+import { Input } from "@camox/ui/input";
+import { Kbd } from "@camox/ui/kbd";
+import { Label } from "@camox/ui/label";
+import { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from "@camox/ui/popover";
+import { toast } from "@camox/ui/toaster";
 import { Slot } from "@radix-ui/react-slot";
 import { Type as TypeBoxType, type TSchema, type Static } from "@sinclair/typebox";
 import { useSelector } from "@xstate/store/react";
@@ -9,12 +15,6 @@ import { createPortal } from "react-dom";
 
 import { useIsPreviewSheetOpen } from "@/features/preview/components/PreviewSideSheet.tsx";
 
-import { useFrame } from "../components/ui/frame";
-import { Input } from "../components/ui/input";
-import { Kbd } from "../components/ui/kbd";
-import { Label } from "../components/ui/label";
-import { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from "../components/ui/popover";
-import { toast } from "../components/ui/toaster";
 import {
   OVERLAY_WIDTHS,
   OVERLAY_OFFSETS,

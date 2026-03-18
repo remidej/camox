@@ -2,6 +2,14 @@
  * EditPageSheet
  * -----------------------------------------------------------------------------------------------*/
 
+import { Button } from "@camox/ui/button";
+import { Label } from "@camox/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
+import * as Sheet from "@camox/ui/sheet";
+import { Spinner } from "@camox/ui/spinner";
+import { Switch } from "@camox/ui/switch";
+import { toast } from "@camox/ui/toaster";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import { useSelector } from "@xstate/store/react";
@@ -10,21 +18,7 @@ import { Doc, Id } from "camox/server/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { Globe, Info } from "lucide-react";
 import * as React from "react";
-import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import * as Sheet from "@/components/ui/sheet";
-import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatPathSegment } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";

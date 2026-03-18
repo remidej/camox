@@ -1,10 +1,10 @@
+import { Input } from "@camox/ui/input";
+import { Label } from "@camox/ui/label";
 import { useForm } from "@tanstack/react-form";
 import { Doc, Id } from "camox/server/dataModel";
 import { Link2 as Link2Icon, Images as ImagesIcon, ImageIcon, FileIcon } from "lucide-react";
 import * as React from "react";
 
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SidebarLexicalEditor } from "@/core/components/lexical/SidebarLexicalEditor";
 import { isLexicalState, plainTextToLexicalState } from "@/core/lib/lexicalState";
 

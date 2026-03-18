@@ -1,3 +1,4 @@
+import { PanelContent, PanelHeader } from "@camox/ui/panel";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useSelector } from "@xstate/store/react";
 import { api } from "camox/server/api";
@@ -5,7 +6,6 @@ import { useConvexAuth } from "convex/react";
 import { useQuery } from "convex/react";
 import * as React from "react";
 
-import { PanelContent, PanelHeader } from "@/components/ui/panel";
 import { formatPathSegment } from "@/lib/utils";
 
 import { type Action, actionsStore } from "../provider/actionsStore";

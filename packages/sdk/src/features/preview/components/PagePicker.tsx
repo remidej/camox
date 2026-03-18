@@ -1,11 +1,3 @@
-import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useSelector } from "@xstate/store/react";
-import { api } from "camox/server/api";
-import { Doc } from "camox/server/dataModel";
-import { useMutation, useQuery } from "convex/react";
-import { Check, ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
-import * as React from "react";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,8 +7,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from "@camox/ui/alert-dialog";
+import { Button } from "@camox/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -25,10 +17,18 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/components/ui/toaster";
+} from "@camox/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
+import { Skeleton } from "@camox/ui/skeleton";
+import { toast } from "@camox/ui/toaster";
+import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useSelector } from "@xstate/store/react";
+import { api } from "camox/server/api";
+import { Doc } from "camox/server/dataModel";
+import { useMutation, useQuery } from "convex/react";
+import { Check, ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
+import * as React from "react";
+
 import { cn, formatPathSegment } from "@/lib/utils";
 
 import { previewStore } from "../previewStore";

@@ -1,7 +1,3 @@
-import { useSelector } from "@xstate/store/react";
-import * as icons from "lucide-react";
-import * as React from "react";
-
 import {
   CommandDialog,
   CommandEmpty,
@@ -9,7 +5,11 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
+} from "@camox/ui/command";
+import { useSelector } from "@xstate/store/react";
+import * as icons from "lucide-react";
+import * as React from "react";
+
 import { cn, formatShortcut } from "@/lib/utils";
 
 import { studioStore } from "../../studio/studioStore";

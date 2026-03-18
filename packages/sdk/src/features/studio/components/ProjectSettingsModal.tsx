@@ -1,21 +1,14 @@
+import { Button } from "@camox/ui/button";
+import { Input } from "@camox/ui/input";
+import { Label } from "@camox/ui/label";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@camox/ui/sheet";
+import { Spinner } from "@camox/ui/spinner";
+import { Textarea } from "@camox/ui/textarea";
+import { toast } from "@camox/ui/toaster";
 import { useForm } from "@tanstack/react-form";
 import { api } from "camox/server/api";
 import { useMutation, useQuery } from "convex/react";
 import * as React from "react";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/components/ui/toaster";
 
 const ProjectSettingsModal = ({
   open,

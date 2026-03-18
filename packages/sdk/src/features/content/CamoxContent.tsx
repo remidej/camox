@@ -1,9 +1,9 @@
+import { PanelContent } from "@camox/ui/panel";
 import { api } from "camox/server/api";
 import type { Id } from "camox/server/dataModel";
 import { useQuery } from "convex/react";
 import { useCallback, useRef, useState } from "react";
 
-import { PanelContent } from "@/components/ui/panel";
 import { AssetLightbox } from "@/features/preview/components/AssetLightbox";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useMarqueeSelection } from "@/hooks/use-marquee-selection";

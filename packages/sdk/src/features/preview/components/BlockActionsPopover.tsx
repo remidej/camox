@@ -1,11 +1,3 @@
-import { useSelector } from "@xstate/store/react";
-import { api } from "camox/server/api";
-import { Doc, Id } from "camox/server/dataModel";
-import { useMutation } from "convex/react";
-import { Copy, Pen, Settings, Trash2 } from "lucide-react";
-import * as React from "react";
-import { toast } from "sonner";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,8 +7,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from "@camox/ui/alert-dialog";
+import { Button } from "@camox/ui/button";
 import {
   Command,
   CommandGroup,
@@ -24,8 +16,16 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+} from "@camox/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
+import { toast } from "@camox/ui/toaster";
+import { useSelector } from "@xstate/store/react";
+import { api } from "camox/server/api";
+import { Doc, Id } from "camox/server/dataModel";
+import { useMutation } from "convex/react";
+import { Copy, Pen, Settings, Trash2 } from "lucide-react";
+import * as React from "react";
+
 import { formatShortcut } from "@/lib/utils";
 
 import type { Action } from "../../provider/actionsStore";

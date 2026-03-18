@@ -4,12 +4,10 @@
  * Used by CreatePageSheet and EditPageSheet.
  * -----------------------------------------------------------------------------------------------*/
 
-import { Id, Doc } from "camox/server/dataModel";
-
-import * as ControlGroup from "@/components/ui/control-group";
-import { Input } from "@/components/ui/input";
-import { InputBase, InputBaseAdornment } from "@/components/ui/input-base";
-import { Label } from "@/components/ui/label";
+import * as ControlGroup from "@camox/ui/control-group";
+import { Input } from "@camox/ui/input";
+import { InputBase, InputBaseAdornment } from "@camox/ui/input-base";
+import { Label } from "@camox/ui/label";
 import {
   Select,
   SelectContent,
@@ -17,7 +15,9 @@ import {
   SelectSeparator,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@camox/ui/select";
+import { Id, Doc } from "camox/server/dataModel";
+
 import { formatPathSegment } from "@/lib/utils";
 
 const NO_PARENT_VALUE = "__no_parent__";

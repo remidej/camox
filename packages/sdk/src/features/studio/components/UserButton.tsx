@@ -1,8 +1,4 @@
-import { useConvexAuth } from "convex/react";
-import { LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
-import { useContext } from "react";
-
-import { Button } from "@/components/ui/button";
+import { Button } from "@camox/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +9,11 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@camox/ui/dropdown-menu";
+import { useConvexAuth } from "convex/react";
+import { LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
+import { useContext } from "react";
+
 import { AuthContext } from "@/lib/auth";
 
 import { useTheme } from "../useTheme";

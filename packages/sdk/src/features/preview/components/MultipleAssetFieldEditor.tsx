@@ -1,3 +1,4 @@
+import { Button } from "@camox/ui/button";
 import {
   DndContext,
   closestCenter,
@@ -23,7 +24,6 @@ import { generateKeyBetween } from "fractional-indexing";
 import { FileIcon, GripVertical } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
 import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { cn } from "@/lib/utils";

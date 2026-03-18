@@ -1,3 +1,5 @@
+import { Button } from "@camox/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import {
   DndContext,
   closestCenter,
@@ -25,8 +27,6 @@ import { generateKeyBetween } from "fractional-indexing";
 import { Ellipsis, GripVertical, LayoutTemplate, Plus, Type } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
 import { cn } from "@/lib/utils";
 

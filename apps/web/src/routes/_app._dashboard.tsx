@@ -1,6 +1,6 @@
+import { Button } from "@camox/ui/button";
 import { Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 
-import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_app/_dashboard")({

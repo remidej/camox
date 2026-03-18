@@ -1,9 +1,9 @@
+import { Toaster } from "@camox/ui/toaster";
 import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
 import { ConvexReactClient } from "convex/react";
 import * as React from "react";
 
 import { AuthGate } from "@/components/AuthGate";
-import { Toaster } from "@/components/ui/toaster";
 import type { CamoxApp } from "@/core/createApp";
 import {
   AuthContext,
@@ -15,7 +15,7 @@ import {
 
 import { usePreviewPagesActions } from "../preview/CamoxPreview";
 import { useNavbarActions } from "../studio/components/Navbar";
-import { useThemeActions } from "../studio/useTheme";
+import { useTheme, useThemeActions } from "../studio/useTheme";
 import { CamoxAppProvider } from "./components/CamoxAppContext";
 import { CommandPalette, useCommandPaletteActions } from "./components/CommandPalette";
 import { useAdminShortcuts } from "./useAdminShortcuts";
@@ -35,10 +35,12 @@ const AuthenticatedCamoxProvider = ({ children }: AuthenticatedCamoxProviderProp
   useNavbarActions();
   usePreviewPagesActions();
 
+  const { theme } = useTheme();
+
   return (
     <>
       {children}
-      <Toaster />
+      <Toaster theme={theme} />
       <CommandPalette />
     </>
   );

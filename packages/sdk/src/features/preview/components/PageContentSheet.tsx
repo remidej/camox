@@ -1,9 +1,3 @@
-import { useSelector } from "@xstate/store/react";
-import { api } from "camox/server/api";
-import { Doc, Id } from "camox/server/dataModel";
-import { useMutation } from "convex/react";
-import * as React from "react";
-
 import {
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -12,22 +6,22 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+} from "@camox/ui/breadcrumb";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+} from "@camox/ui/dropdown-menu";
+import { Label } from "@camox/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
+import { Switch } from "@camox/ui/switch";
+import { useSelector } from "@xstate/store/react";
+import { api } from "camox/server/api";
+import { Doc, Id } from "camox/server/dataModel";
+import { useMutation } from "convex/react";
+import * as React from "react";
+
 import { actionsStore, type Action } from "@/features/provider/actionsStore";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";

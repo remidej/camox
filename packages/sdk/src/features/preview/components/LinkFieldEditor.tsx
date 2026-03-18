@@ -1,9 +1,4 @@
-import { api } from "camox/server/api";
-import { useQuery } from "convex/react";
-import { Check, ChevronsUpDown } from "lucide-react";
-import * as React from "react";
-
-import { Button } from "@/components/ui/button";
+import { Button } from "@camox/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -11,12 +6,17 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "@camox/ui/command";
+import { Input } from "@camox/ui/input";
+import { Label } from "@camox/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
+import { Switch } from "@camox/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@camox/ui/tabs";
+import { api } from "camox/server/api";
+import { useQuery } from "convex/react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import * as React from "react";
+
 import type { LinkValue } from "@/core/lib/contentType.ts";
 import { cn, formatPathSegment } from "@/lib/utils";
 

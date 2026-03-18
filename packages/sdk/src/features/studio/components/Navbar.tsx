@@ -1,3 +1,5 @@
+import { Button } from "@camox/ui/button";
+import { Kbd } from "@camox/ui/kbd";
 import type { LinkProps } from "@tanstack/react-router";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { api } from "camox/server/api";
@@ -6,8 +8,6 @@ import { Globe, SearchIcon, Database } from "lucide-react";
 import * as icons from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
 import { useIsPreviewSheetOpen } from "@/features/preview/components/PreviewSideSheet";
 import { cn } from "@/lib/utils";
 

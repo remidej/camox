@@ -1,8 +1,8 @@
+import { Frame, useFrame } from "@camox/ui/frame";
+import { PanelContent } from "@camox/ui/panel";
 import { useSelector } from "@xstate/store/react";
 import * as React from "react";
 
-import { Frame, useFrame } from "@/components/ui/frame";
-import { PanelContent } from "@/components/ui/panel";
 import { checkIfInputFocused } from "@/lib/utils";
 
 import type { Action } from "../../provider/actionsStore";

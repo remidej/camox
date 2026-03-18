@@ -1,11 +1,11 @@
+import { Button } from "@camox/ui/button";
+import { Skeleton } from "@camox/ui/skeleton";
 import { api } from "camox/server/api";
 import type { Doc } from "camox/server/dataModel";
 import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { AssetCard } from "@/features/content/components/AssetCard";
 
 import { AssetLightbox } from "./AssetLightbox";
