@@ -3,9 +3,9 @@ import { AuthUIProvider } from "@daveyplate/better-auth-ui";
 import { Link as RouterLink, Outlet, createFileRoute, useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { ConvexReactClient } from "convex/react";
-import { type ComponentProps, useCallback } from "react";
+import { type ComponentProps, useCallback, useEffect } from "react";
 
-import { authClient } from "@/lib/auth-client";
+import { authClient, useSession } from "@/lib/auth-client";
 import { getToken } from "@/lib/auth-server";
 import { handleOttRedirect } from "@/lib/ott-redirect";
 
@@ -39,6 +39,16 @@ function LinkAdapter({ href, ...props }: ComponentProps<"a"> & { href: string })
 function AppLayout() {
   const { token } = Route.useRouteContext();
   const router = useRouter();
+  const { data: session } = useSession();
+
+  // After social auth (OAuth redirect), the user lands on the callbackURL via
+  // a full page load. Once the session is established (e.g. after crossDomain
+  // OTT verification), redirect back to the originating app if ?redirect= is present.
+  useEffect(() => {
+    if (session) {
+      handleOttRedirect();
+    }
+  }, [session]);
 
   const navigate = useCallback(
     async (href: string) => {
@@ -70,6 +80,7 @@ function AppLayout() {
           FORGOT_PASSWORD: "forgot-password",
         }}
         credentials={{ forgotPassword: true }}
+        social={{ providers: ["github", "google"] }}
       >
         <div className="font-['Inter',sans-serif] antialiased">
           <Outlet />

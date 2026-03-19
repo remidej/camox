@@ -9,13 +9,14 @@ import type { DataModel } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import authConfig from "./auth.config";
 
+const convexSiteUrl = process.env.CONVEX_SITE_URL!;
 const siteUrl = process.env.SITE_URL!;
 
 export const authComponent = createClient<DataModel>(components.betterAuth);
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
-    baseURL: siteUrl,
+    baseURL: convexSiteUrl,
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,
@@ -24,6 +25,16 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         const origin = request?.headers.get("x-forwarded-origin") || siteUrl;
         const resetUrl = `${origin}/reset-password?token=${token}`;
         console.log(`[auth] Reset password link for ${user.email}: ${resetUrl}`);
+      },
+    },
+    socialProviders: {
+      github: {
+        clientId: process.env.GITHUB_CLIENT_ID!,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      },
+      google: {
+        clientId: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       },
     },
     plugins: [convex({ authConfig }), organization(), crossDomain({ siteUrl }), oneTimeToken()],

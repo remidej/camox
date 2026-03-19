@@ -9,5 +9,8 @@ export const Route = createFileRoute("/_app/_auth/signup")({
 });
 
 function SignupPage() {
-  return <AuthView view="SIGN_UP" redirectTo="/dashboard" />;
+  const { redirect } = Route.useSearch();
+  const callbackURL = redirect ? `/dashboard?redirect=${encodeURIComponent(redirect)}` : undefined;
+
+  return <AuthView view="SIGN_UP" redirectTo="/dashboard" callbackURL={callbackURL} />;
 }
