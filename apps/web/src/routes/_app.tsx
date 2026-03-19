@@ -79,6 +79,8 @@ function AppLayout() {
           SIGN_UP: "signup",
           FORGOT_PASSWORD: "forgot-password",
         }}
+        account={{ basePath: "/dashboard", viewPaths: { SETTINGS: "profile" } }}
+        avatar
         credentials={{ forgotPassword: true }}
         social={{ providers: ["github", "google"] }}
       >

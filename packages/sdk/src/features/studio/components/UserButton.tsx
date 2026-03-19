@@ -1,3 +1,4 @@
+import { Avatar, AvatarFallback, AvatarImage } from "@camox/ui/avatar";
 import { Button } from "@camox/ui/button";
 import {
   DropdownMenu,
@@ -44,6 +45,13 @@ function AuthenticatedUserButton({
 
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email;
+  const userImage = session?.user?.image;
+  const userInitials = userName
+    .split(" ")
+    .map((n: string) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 
   return (
     <DropdownMenu>
@@ -55,9 +63,10 @@ function AuthenticatedUserButton({
       <DropdownMenuContent className="w-72" align="end">
         <DropdownMenuLabel className="font-normal">
           <div className="flex items-center gap-3">
-            <div className="bg-muted flex h-10 w-10 items-center justify-center rounded-full">
-              <User className="text-muted-foreground h-5 w-5" />
-            </div>
+            <Avatar size="lg">
+              {userImage && <AvatarImage src={userImage} alt={userName} />}
+              <AvatarFallback>{userInitials}</AvatarFallback>
+            </Avatar>
             <div className="flex-1 space-y-0.5">
               <p className="text-sm leading-none font-medium">{userName}</p>
               <p className="text-muted-foreground text-sm">{userEmail}</p>

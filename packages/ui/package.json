@@ -20,6 +20,10 @@
       "types": "./src/components/alert.tsx",
       "default": "./src/components/alert.tsx"
     },
+    "./avatar": {
+      "types": "./src/components/avatar.tsx",
+      "default": "./src/components/avatar.tsx"
+    },
     "./badge": {
       "types": "./src/components/badge.tsx",
       "default": "./src/components/badge.tsx"

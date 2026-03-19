@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_app/_dashboard/dashboard")({
+export const Route = createFileRoute("/_app/dashboard/")({
   component: DashboardHome,
+  head: () => ({
+    meta: [{ title: "Camox Dashboard" }],
+  }),
 });
 
 function DashboardHome() {
