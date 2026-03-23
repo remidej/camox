@@ -487,6 +487,12 @@ export function createBlock<
       }
     };
 
+    const activateRef = React.useRef<(() => void) | null>(null);
+
+    const handleSlotClick = React.useCallback(() => {
+      activateRef.current?.();
+    }, []);
+
     const overlayStyle =
       isContentEditable && (isHovered || isFocused)
         ? {
@@ -506,6 +512,7 @@ export function createBlock<
         data-camox-field-id={fieldId}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onClick={handleSlotClick}
         style={overlayStyle}
       >
         {children(
@@ -515,6 +522,7 @@ export function createBlock<
             onChange={handleChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
+            activateRef={activateRef}
           />,
         )}
       </Slot>

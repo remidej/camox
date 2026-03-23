@@ -17,6 +17,7 @@ interface InlineLexicalEditorProps {
   onChange: (serialized: string) => void;
   onFocus: () => void;
   onBlur: () => void;
+  activateRef?: React.RefObject<(() => void) | null>;
 }
 
 function ExternalStateSync({ externalState }: { externalState: string }) {
@@ -73,6 +74,22 @@ function EscapeHandler() {
   return null;
 }
 
+function ActivateHandler({ activateRef }: { activateRef: React.RefObject<(() => void) | null> }) {
+  const [editor] = useLexicalComposerContext();
+
+  React.useEffect(() => {
+    activateRef.current = () => {
+      editor.setEditable(true);
+      editor.focus();
+    };
+    return () => {
+      activateRef.current = null;
+    };
+  }, [editor, activateRef]);
+
+  return null;
+}
+
 function FocusBlurHandler({ onFocus, onBlur }: { onFocus: () => void; onBlur: () => void }) {
   const [editor] = useLexicalComposerContext();
 
@@ -97,6 +114,7 @@ export function InlineLexicalEditor({
   onChange,
   onFocus,
   onBlur,
+  activateRef,
 }: InlineLexicalEditorProps) {
   const { window: iframeWindow } = useFrame();
   const timerRef = React.useRef<number | null>(null);
@@ -146,6 +164,7 @@ export function InlineLexicalEditor({
       <OnChangePlugin onChange={handleChange} />
       <ExternalStateSync externalState={externalState} />
       <EscapeHandler />
+      {activateRef && <ActivateHandler activateRef={activateRef} />}
       <FocusBlurHandler onFocus={handleFocus} onBlur={handleBlur} />
       {iframeWindow && <SelectionBroadcaster targetWindow={iframeWindow} />}
     </LexicalComposer>
