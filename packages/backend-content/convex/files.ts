@@ -2,8 +2,9 @@ import { buildDownloadUrl } from "convex-fs";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { query, internalAction } from "./_generated/server";
-import { fs } from "./fs";
+import { fs, useLocalStorage } from "./fs";
 import { internalMutation, mutation } from "./functions";
 import { generateImageMetadata } from "./lib/ai";
 import { scheduleAiJob, clearAiJob } from "./lib/aiJobs";
@@ -20,9 +21,14 @@ export const commitFile = mutation({
   },
   handler: async (ctx, args) => {
     const path = `/uploads/${Date.now()}-${args.filename}`;
-    await fs.commitFiles(ctx, [{ path, blobId: args.blobId }]);
 
-    const url = buildDownloadUrl(args.siteUrl, FS_PREFIX, args.blobId, path);
+    let url: string;
+    if (useLocalStorage) {
+      url = `${args.siteUrl}${FS_PREFIX}/blobs/${args.blobId}`;
+    } else {
+      await fs!.commitFiles(ctx, [{ path, blobId: args.blobId }]);
+      url = buildDownloadUrl(args.siteUrl, FS_PREFIX, args.blobId, path);
+    }
 
     const now = Date.now();
     const fileId = await ctx.db.insert("files", {
@@ -110,6 +116,16 @@ function removeFileRefs(
 export const deleteFile = mutation({
   args: { fileId: v.id("files") },
   handler: async (ctx, args) => {
+    const file = await ctx.db.get(args.fileId);
+    if (!file) return;
+
+    // Delete the blob from storage
+    if (useLocalStorage) {
+      await ctx.storage.delete(file.blobId as Id<"_storage">);
+    } else {
+      await fs!.delete(ctx, file.path);
+    }
+
     const fileIdStr = args.fileId as string;
 
     // Clean up references in blocks

@@ -77,7 +77,7 @@ function StatisticsComponent() {
             <statistics.Repeater name="statistics">
               {(stat) => (
                 <div className="flex gap-3">
-                  <div className="w-0.5 bg-gradient-to-b from-teal-400 to-blue-500" />
+                  <div className="w-0.5 bg-linear-to-b from-teal-400 to-blue-500" />
                   <div className="flex flex-col">
                     <stat.Field name="number">
                       {(content) => (
