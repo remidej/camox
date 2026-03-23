@@ -1,11 +1,11 @@
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText, Output } from "ai";
+import { chat } from "@tanstack/ai";
+import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { outdent } from "outdent";
 import { z } from "zod";
 
-export const openRouter = createOpenRouter({
-  apiKey: process.env.OPEN_ROUTER_API_KEY!,
-});
+function openRouter(model: string) {
+  return createOpenRouterText(model as any, process.env.OPEN_ROUTER_API_KEY!);
+}
 
 type BlockDefinition = {
   blockId: string;
@@ -35,8 +35,9 @@ export async function generatePageDraft(options: {
     ...(def.settingsSchema ? { settingsSchema: def.settingsSchema } : {}),
   }));
 
-  const { text } = await generateText({
-    model: openRouter.chat("google/gemini-3-flash-preview"),
+  const text = await chat({
+    adapter: openRouter("google/gemini-3-flash-preview"),
+    stream: false,
     messages: [
       {
         role: "user",
@@ -75,25 +76,30 @@ export async function generatePageDraft(options: {
 }
 
 export async function generateImageMetadata(image: string | ArrayBuffer, currentFilename: string) {
-  const { output } = await generateText({
-    model: openRouter.chat("google/gemini-2.5-flash-lite"),
-    output: Output.object({
-      schema: z.object({
-        filename: z.string(),
-        alt: z.string(),
-      }),
+  return await chat({
+    adapter: openRouter("google/gemini-2.5-flash-lite"),
+    outputSchema: z.object({
+      filename: z.string(),
+      alt: z.string(),
     }),
     messages: [
       {
         role: "user",
         content: [
           {
-            type: "image",
-            image: typeof image === "string" ? new URL(image) : image,
+            type: "image" as const,
+            source:
+              typeof image === "string"
+                ? { type: "url" as const, value: image }
+                : {
+                    type: "data" as const,
+                    value: btoa(String.fromCharCode(...new Uint8Array(image))),
+                    mimeType: "image/png" as const,
+                  },
           },
           {
-            type: "text",
-            text: outdent`
+            type: "text" as const,
+            content: outdent`
               Analyze this image and generate metadata for it:
               - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${currentFilename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
               - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max).
@@ -103,8 +109,6 @@ export async function generateImageMetadata(image: string | ArrayBuffer, current
       },
     ],
   });
-
-  return output;
 }
 
 type GenerateObjectSummaryOptions = {
@@ -125,8 +129,9 @@ export async function generateObjectSummary(options: GenerateObjectSummaryOption
     `
     : "";
 
-  const { text: summary } = await generateText({
-    model: openRouter.chat("openai/gpt-oss-20b"),
+  const summary = await chat({
+    adapter: openRouter("openai/gpt-oss-20b"),
+    stream: false,
     messages: [
       {
         role: "user",
@@ -200,13 +205,11 @@ export async function generatePageSeo(options: GeneratePageSeoOptions) {
     `
       : "";
 
-  const { output } = await generateText({
-    model: openRouter.chat("google/gemini-3-flash-preview"),
-    output: Output.object({
-      schema: z.object({
-        metaTitle: z.string(),
-        metaDescription: z.string(),
-      }),
+  return await chat({
+    adapter: openRouter("google/gemini-3-flash-preview"),
+    outputSchema: z.object({
+      metaTitle: z.string(),
+      metaDescription: z.string(),
     }),
     messages: [
       {
@@ -232,6 +235,4 @@ export async function generatePageSeo(options: GeneratePageSeoOptions) {
       },
     ],
   });
-
-  return output;
 }

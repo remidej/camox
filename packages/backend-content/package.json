@@ -18,14 +18,14 @@
     }
   },
   "dependencies": {
-    "@openrouter/ai-sdk-provider": "^2.2.3",
-    "ai": "^6.0.105",
+    "@tanstack/ai": "^0.8.1",
+    "@tanstack/ai-openrouter": "^0.6.6",
     "convex": "^1.32.0",
     "convex-fs": "^0.2.1",
     "convex-helpers": "^0.1.104",
     "fractional-indexing": "^3.2.0",
     "outdent": "^0.8.0",
-    "zod": "^3.24.2"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^24.6.2"
