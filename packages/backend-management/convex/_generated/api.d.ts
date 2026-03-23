@@ -13,6 +13,7 @@ import type * as functions from "../functions.js";
 import type * as http from "../http.js";
 import type * as projects from "../projects.js";
 import type * as seed from "../seed.js";
+import type * as syncToContent from "../syncToContent.js";
 
 import type {
   ApiFromModules,
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   projects: typeof projects;
   seed: typeof seed;
+  syncToContent: typeof syncToContent;
 }>;
 
 /**

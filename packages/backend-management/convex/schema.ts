@@ -8,6 +8,7 @@ export default defineSchema({
     description: v.optional(v.string()),
     domain: v.string(),
     organizationId: v.string(),
+    contentProjectId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

@@ -17,6 +17,7 @@
     "dev": "npx convex dev"
   },
   "dependencies": {
+    "@camox/backend-content": "workspace:*",
     "@convex-dev/better-auth": "0.11.2",
     "better-auth": "1.5.5",
     "convex": "^1.19.2",

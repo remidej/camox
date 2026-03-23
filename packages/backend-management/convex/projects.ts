@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import { mutation, query } from "./functions";
 
 export const createProject = mutation({
@@ -29,6 +30,14 @@ export const createProject = mutation({
       organizationId: args.organizationId,
       createdAt: now,
       updatedAt: now,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.syncToContent.syncProjectToContent, {
+      slug: args.slug,
+      name: args.name,
+      domain: args.domain,
+      organizationId: args.organizationId,
+      managementProjectId: projectId,
     });
 
     return { projectId };
@@ -89,6 +98,14 @@ export const updateProject = mutation({
       updatedAt: Date.now(),
     });
 
+    await ctx.scheduler.runAfter(0, internal.syncToContent.syncProjectToContent, {
+      slug: existing.slug,
+      name: args.name,
+      domain: args.domain,
+      organizationId: existing.organizationId,
+      managementProjectId: args.projectId,
+    });
+
     return { projectId: args.projectId };
   },
 });
@@ -104,5 +121,9 @@ export const deleteProject = mutation({
     }
 
     await ctx.db.delete(args.projectId);
+
+    await ctx.scheduler.runAfter(0, internal.syncToContent.deleteProjectFromContent, {
+      slug: project.slug,
+    });
   },
 });
