@@ -22,7 +22,7 @@ export const syncProjectToContent = internalAction({
     slug: v.string(),
     name: v.string(),
     domain: v.string(),
-    organizationId: v.string(),
+    organizationSlug: v.string(),
     managementProjectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
@@ -32,7 +32,7 @@ export const syncProjectToContent = internalAction({
       slug: args.slug,
       name: args.name,
       domain: args.domain,
-      organizationId: args.organizationId,
+      organizationSlug: args.organizationSlug,
     });
 
     await ctx.runMutation(internal.syncToContent.storeContentProjectId, {

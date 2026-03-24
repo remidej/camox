@@ -9,7 +9,7 @@ export const createProject = mutation({
     name: v.string(),
     description: v.optional(v.string()),
     domain: v.string(),
-    organizationId: v.string(),
+    organizationSlug: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -27,7 +27,7 @@ export const createProject = mutation({
       name: args.name,
       description: args.description,
       domain: args.domain,
-      organizationId: args.organizationId,
+      organizationSlug: args.organizationSlug,
       createdAt: now,
       updatedAt: now,
     });
@@ -36,7 +36,7 @@ export const createProject = mutation({
       slug: args.slug,
       name: args.name,
       domain: args.domain,
-      organizationId: args.organizationId,
+      organizationSlug: args.organizationSlug,
       managementProjectId: projectId,
     });
 
@@ -46,12 +46,12 @@ export const createProject = mutation({
 
 export const listProjects = query({
   args: {
-    organizationId: v.string(),
+    organizationSlug: v.string(),
   },
   handler: async (ctx, args) => {
     const projects = await ctx.db
       .query("projects")
-      .withIndex("by_organization", (q) => q.eq("organizationId", args.organizationId))
+      .withIndex("by_organization", (q) => q.eq("organizationSlug", args.organizationSlug))
       .collect();
     return projects.sort((a, b) => a.name.localeCompare(b.name));
   },
@@ -102,7 +102,7 @@ export const updateProject = mutation({
       slug: existing.slug,
       name: args.name,
       domain: args.domain,
-      organizationId: existing.organizationId,
+      organizationSlug: existing.organizationSlug,
       managementProjectId: args.projectId,
     });
 

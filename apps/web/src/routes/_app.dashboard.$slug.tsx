@@ -10,12 +10,12 @@ import { cn } from "@camox/ui/utils";
 import { convexQuery } from "@convex-dev/react-query";
 import { useSuspenseQuery } from "@tanstack/react-query";
 
-function ProjectSelector({ organizationId }: { organizationId: string }) {
+function ProjectSelector({ organizationSlug }: { organizationSlug: string }) {
   const { slug: selectedSlug } = useParams({ strict: false }) as { slug?: string };
   const navigate = useNavigate();
 
   const { data: projects } = useSuspenseQuery(
-    convexQuery(api.projects.listProjects, { organizationId }),
+    convexQuery(api.projects.listProjects, { organizationSlug }),
   );
 
   return (
@@ -56,7 +56,7 @@ function RouteComponent() {
       <div className="border-b px-6">
         <nav className="-mb-px flex items-center gap-4">
           <div className="py-2">
-            <ProjectSelector organizationId={project.organizationId} />
+            <ProjectSelector organizationSlug={project.organizationSlug} />
           </div>
           <Link
             to="/dashboard/$slug/overview"
@@ -76,11 +76,7 @@ function RouteComponent() {
           >
             Usage
           </Link>
-          <Link
-            to="/dashboard/team/$slug"
-            params={{ slug: project.organizationId }}
-            className={cn(tabClass, inactiveClass)}
-          >
+          <Link to="/dashboard/team" className={cn(tabClass, inactiveClass)}>
             Team
           </Link>
         </nav>

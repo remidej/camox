@@ -8,7 +8,7 @@ export const createProject = mutation({
     name: v.string(),
     slug: v.string(),
     domain: v.string(),
-    organizationId: v.string(),
+    organizationSlug: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -25,7 +25,7 @@ export const createProject = mutation({
       name: args.name,
       slug: args.slug,
       domain: args.domain,
-      organizationId: args.organizationId,
+      organizationSlug: args.organizationSlug,
       createdAt: now,
       updatedAt: now,
     });

@@ -6,13 +6,13 @@ export default defineSchema({
     name: v.string(),
     slug: v.string(),
     domain: v.string(),
-    organizationId: v.string(),
+    organizationSlug: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_slug", ["slug"])
     .index("by_domain", ["domain"])
-    .index("by_organization", ["organizationId"]),
+    .index("by_organization", ["organizationSlug"]),
 
   pages: defineTable({
     projectId: v.id("projects"),

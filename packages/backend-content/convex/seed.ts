@@ -53,7 +53,7 @@ export const seedWebsite = internalMutation({
       name: "Camox Demo",
       slug: "camox-demo-01",
       domain: "demo.camox.dev",
-      organizationId: "seed",
+      organizationSlug: "camox-demo",
       createdAt: now,
       updatedAt: now,
     });

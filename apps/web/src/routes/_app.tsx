@@ -129,9 +129,17 @@ function AppLayout() {
           viewPaths={{
             SIGN_IN: "login",
             SIGN_UP: "signup",
+            SIGN_OUT: "logout",
             FORGOT_PASSWORD: "forgot-password",
           }}
           account={{ basePath: "", viewPaths: { SETTINGS: "dashboard/profile" } }}
+          organization={{
+            basePath: "",
+            logo: true,
+            viewPaths: {
+              SETTINGS: "dashboard/team",
+            },
+          }}
           avatar
           credentials={{ forgotPassword: true }}
           social={{ providers: ["github", "google"] }}

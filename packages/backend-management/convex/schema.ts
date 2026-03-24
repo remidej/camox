@@ -7,11 +7,11 @@ export default defineSchema({
     name: v.string(),
     description: v.optional(v.string()),
     domain: v.string(),
-    organizationId: v.string(),
+    organizationSlug: v.string(),
     contentProjectId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_slug", ["slug"])
-    .index("by_organization", ["organizationId"]),
+    .index("by_organization", ["organizationSlug"]),
 });

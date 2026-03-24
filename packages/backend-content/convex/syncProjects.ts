@@ -16,7 +16,7 @@ export const upsertProject = rawMutation({
     slug: v.string(),
     name: v.string(),
     domain: v.string(),
-    organizationId: v.string(),
+    organizationSlug: v.string(),
   },
   handler: async (ctx, args) => {
     verifySyncSecret(args.syncSecret);
@@ -30,7 +30,7 @@ export const upsertProject = rawMutation({
       await ctx.db.patch(existing._id, {
         name: args.name,
         domain: args.domain,
-        organizationId: args.organizationId,
+        organizationSlug: args.organizationSlug,
         updatedAt: Date.now(),
       });
       return { contentProjectId: existing._id };
@@ -41,7 +41,7 @@ export const upsertProject = rawMutation({
       slug: args.slug,
       name: args.name,
       domain: args.domain,
-      organizationId: args.organizationId,
+      organizationSlug: args.organizationSlug,
       createdAt: now,
       updatedAt: now,
     });
