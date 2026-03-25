@@ -16,7 +16,7 @@
     "@tanstack/react-router": "^1.166.2",
     "@tanstack/react-start": "^1.166.2",
     "@tanstack/router-plugin": "^1.166.2",
-    "camox": "latest",
+    "camox": "{{camoxVersion}}",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.476.0",

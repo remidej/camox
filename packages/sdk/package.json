@@ -3,7 +3,8 @@
   "version": "0.1.1-alpha.0",
   "files": [
     "dist",
-    "server"
+    "server",
+    "skills"
   ],
   "type": "module",
   "exports": {
@@ -64,7 +65,8 @@
       "source": "./src/features/routes/ogRoute.ts",
       "types": "./dist/features/routes/ogRoute.d.ts",
       "import": "./dist/features/routes/ogRoute.js"
-    }
+    },
+    "./studio.css": "./dist/studio.css"
   },
   "scripts": {
     "dev": "tailwindcss -i ./src/studio.css -o ./dist/studio.css --watch",

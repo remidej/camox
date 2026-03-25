@@ -51,6 +51,8 @@ const config = defineConfig({
     rollupOptions: {
       // Mark all npm packages as external so they're not bundled
       external: (id) => {
+        // Let the consuming app's Vite handle the studio CSS ?url import
+        if (id === "camox/studio.css?url") return true;
         // Keep our source files and CSS
         if (id.startsWith(".") || id.startsWith("/")) return false;
         if (id.endsWith(".css") || id.includes(".css?")) return false;

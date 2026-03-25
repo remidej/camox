@@ -20,7 +20,7 @@ import { CamoxAppProvider } from "./components/CamoxAppContext";
 import { CommandPalette, useCommandPaletteActions } from "./components/CommandPalette";
 import { useAdminShortcuts } from "./useAdminShortcuts";
 
-import studioCssUrl from "../../../dist/studio.css?url";
+import studioCssUrl from "camox/studio.css?url";
 
 interface AuthenticatedCamoxProviderProps {
   children: React.ReactNode;

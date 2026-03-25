@@ -51,6 +51,7 @@ export function startConvexDev(server: ViteDevServer): Promise<void> {
     deploymentInfo.project,
     "--dev-deployment",
     "local",
+    "--local-force-upgrade",
   ];
 
   log(`Starting: npx ${args.join(" ")}`);
