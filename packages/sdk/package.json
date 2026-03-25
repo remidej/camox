@@ -71,7 +71,7 @@
   "scripts": {
     "dev": "tailwindcss -i ./src/studio.css -o ./dist/studio.css --watch",
     "build:css": "tailwindcss -i ./src/studio.css -o ./dist/studio.css --minify",
-    "build": "pnpm build:css && vite build",
+    "build": "vite build && pnpm build:css",
     "build:watch": "vite build --watch",
     "lint": "oxlint",
     "check": "tsgo --noEmit && oxlint --fix"

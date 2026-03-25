@@ -9,10 +9,9 @@
 
 ## [0.1.2-alpha.0](https://github.com/camox-ai/camox/compare/camox-v0.1.1-alpha.0...camox-sdk-v0.1.2-alpha.0) (2026-03-25)
 
-
 ### Features
 
-* make create-camox auto run app ([ede571b](https://github.com/camox-ai/camox/commit/ede571b8b8eda3fc931409d6ae6997ae1702d1fd))
+- make create-camox auto run app ([ede571b](https://github.com/camox-ai/camox/commit/ede571b8b8eda3fc931409d6ae6997ae1702d1fd))
 
 ## [0.1.1-alpha.0](https://github.com/camox-ai/camox/compare/camox-v0.1.0-alpha.0...camox-v0.1.1-alpha.0) (2026-03-25)
 

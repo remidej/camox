@@ -2,6 +2,7 @@ import { Toaster } from "@camox/ui/toaster";
 import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
 import { ConvexReactClient } from "convex/react";
 import * as React from "react";
+import studioCssUrl from "virtual:camox-studio-css";
 
 import { AuthGate } from "@/components/AuthGate";
 import type { CamoxApp } from "@/core/createApp";
@@ -19,8 +20,6 @@ import { useTheme, useThemeActions } from "../studio/useTheme";
 import { CamoxAppProvider } from "./components/CamoxAppContext";
 import { CommandPalette, useCommandPaletteActions } from "./components/CommandPalette";
 import { useAdminShortcuts } from "./useAdminShortcuts";
-
-import studioCssUrl from "camox/studio.css?url";
 
 interface AuthenticatedCamoxProviderProps {
   children: React.ReactNode;
