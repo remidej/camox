@@ -14,28 +14,36 @@
     { "type": "chore", "section": "Miscellaneous" }
   ],
   "packages": {
-    "packages/sdk": {
+    ".": {
       "component": "camox",
       "changelog-path": "CHANGELOG.md"
     },
+    "packages/sdk": {
+      "component": "camox-sdk",
+      "changelog-path": "CHANGELOG.md",
+      "skip-github-release": true
+    },
     "packages/create-camox": {
       "component": "create-camox",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "skip-github-release": true
     },
     "packages/ui": {
       "component": "@camox/ui",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "skip-github-release": true
     },
     "packages/backend-content": {
       "component": "@camox/backend-content",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "skip-github-release": true
     }
   },
   "plugins": [
     {
       "type": "linked-versions",
       "groupName": "camox",
-      "components": ["camox", "create-camox", "@camox/ui", "@camox/backend-content"]
+      "components": ["camox", "camox-sdk", "create-camox", "@camox/ui", "@camox/backend-content"]
     }
   ]
 }
