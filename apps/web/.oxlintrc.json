@@ -133,5 +133,5 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": ["src/routeTree.gen.ts"]
+  "ignorePatterns": ["src/routeTree.gen.ts", "**/convex/_generated/**", "CHANGELOG.md"]
 }

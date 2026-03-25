@@ -133,5 +133,5 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": []
+  "ignorePatterns": ["**/convex/_generated/**", "CHANGELOG.md"]
 }
