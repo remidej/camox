@@ -1,7 +1,7 @@
 {
-  ".": "0.1.2-alpha.2",
-  "packages/sdk": "0.1.2-alpha.2",
-  "packages/create-camox": "0.1.2-alpha.2",
-  "packages/ui": "0.1.2-alpha.2",
-  "packages/backend-content": "0.1.2-alpha.2"
+  ".": "0.2.0-alpha.2",
+  "packages/sdk": "0.2.0-alpha.2",
+  "packages/create-camox": "0.2.0-alpha.2",
+  "packages/ui": "0.2.0-alpha.2",
+  "packages/backend-content": "0.2.0-alpha.2"
 }
