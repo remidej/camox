@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { requireOrg } from "./authorization";
 import { createDb } from "./db";
 import { authRoutes, createAuth } from "./features/auth";
 import { blockDefinitionRoutes } from "./features/block-definitions";
@@ -10,7 +11,6 @@ import { pageRoutes } from "./features/pages";
 import { projectRoutes } from "./features/projects";
 import { repeatableItemRoutes } from "./features/repeatable-items";
 import { seedRoutes } from "./features/seed";
-import { requireAuth } from "./middleware";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>()
@@ -40,13 +40,13 @@ const app = new Hono<AppEnv>()
     await next();
   })
   // All content routes require authentication
-  .use("/projects/*", requireAuth)
-  .use("/pages/*", requireAuth)
-  .use("/blocks/*", requireAuth)
-  .use("/layouts/*", requireAuth)
-  .use("/files/*", requireAuth)
-  .use("/repeatable-items/*", requireAuth)
-  .use("/block-definitions/*", requireAuth)
+  .use("/projects/*", requireOrg)
+  .use("/pages/*", requireOrg)
+  .use("/blocks/*", requireOrg)
+  .use("/layouts/*", requireOrg)
+  .use("/files/*", requireOrg)
+  .use("/repeatable-items/*", requireOrg)
+  .use("/block-definitions/*", requireOrg)
   .route("/projects", projectRoutes)
   .route("/pages", pageRoutes)
   .route("/blocks", blockRoutes)

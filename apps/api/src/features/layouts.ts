@@ -4,6 +4,7 @@ import { int, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { getAuthorizedProject } from "../authorization";
 import type { AppEnv } from "../types";
 import { projects } from "./projects";
 
@@ -49,13 +50,19 @@ const syncLayoutsSchema = z.object({
 
 export const layoutRoutes = new Hono<AppEnv>()
   .get("/", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const projectId = Number(c.req.query("projectId"));
     if (!projectId) return c.json({ error: "projectId required" }, 400);
+    const project = await getAuthorizedProject(c.var.db, projectId, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const result = await c.var.db.select().from(layouts).where(eq(layouts.projectId, projectId));
     return c.json(result);
   })
   .post("/sync", zValidator("json", syncLayoutsSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const { projectId, layouts: layoutDefs } = c.req.valid("json");
+    const project = await getAuthorizedProject(c.var.db, projectId, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const now = Date.now();
     const results = [];
 

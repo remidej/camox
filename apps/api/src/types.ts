@@ -18,5 +18,6 @@ export type AppEnv = {
     db: Database;
     user: Auth["$Infer"]["Session"]["user"] | null;
     session: Auth["$Infer"]["Session"]["session"] | null;
+    orgSlug: string | null;
   };
 };

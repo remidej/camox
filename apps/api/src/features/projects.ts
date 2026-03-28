@@ -4,6 +4,7 @@ import { int, sqliteTable, text, index, uniqueIndex } from "drizzle-orm/sqlite-c
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { getAuthorizedProject, getAuthorizedProjectBySlug } from "../authorization";
 import type { AppEnv } from "../types";
 
 // --- Schema ---
@@ -45,34 +46,42 @@ const updateProjectSchema = z.object({
 
 export const projectRoutes = new Hono<AppEnv>()
   .get("/", async (c) => {
-    const result = await c.var.db.select().from(projects);
+    const orgSlug = c.var.orgSlug!;
+    const result = await c.var.db
+      .select()
+      .from(projects)
+      .where(eq(projects.organizationSlug, orgSlug));
     return c.json(result);
   })
   .get("/first", async (c) => {
-    const result = await c.var.db.select().from(projects).limit(1).get();
+    const orgSlug = c.var.orgSlug!;
+    const result = await c.var.db
+      .select()
+      .from(projects)
+      .where(eq(projects.organizationSlug, orgSlug))
+      .limit(1)
+      .get();
     if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   })
   .get("/by-slug/:slug", async (c) => {
-    const result = await c.var.db
-      .select()
-      .from(projects)
-      .where(eq(projects.slug, c.req.param("slug")))
-      .get();
+    const orgSlug = c.var.orgSlug!;
+    const result = await getAuthorizedProjectBySlug(c.var.db, c.req.param("slug"), orgSlug);
     if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   })
   .get("/:id{[0-9]+}", async (c) => {
-    const result = await c.var.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, Number(c.req.param("id"))))
-      .get();
+    const orgSlug = c.var.orgSlug!;
+    const result = await getAuthorizedProject(c.var.db, Number(c.req.param("id")), orgSlug);
     if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   })
   .post("/", zValidator("json", createProjectSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const body = c.req.valid("json");
+    if (body.organizationSlug !== orgSlug) {
+      return c.json({ error: "Not found" }, 404);
+    }
     const now = Date.now();
     const result = await c.var.db
       .insert(projects)
@@ -82,7 +91,10 @@ export const projectRoutes = new Hono<AppEnv>()
     return c.json(result, 201);
   })
   .patch("/:id{[0-9]+}", zValidator("json", updateProjectSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
+    const project = await getAuthorizedProject(c.var.db, id, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const body = c.req.valid("json");
     const result = await c.var.db
       .update(projects)
@@ -90,12 +102,13 @@ export const projectRoutes = new Hono<AppEnv>()
       .where(eq(projects.id, id))
       .returning()
       .get();
-    if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   })
   .delete("/:id{[0-9]+}", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
+    const project = await getAuthorizedProject(c.var.db, id, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const result = await c.var.db.delete(projects).where(eq(projects.id, id)).returning().get();
-    if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   });

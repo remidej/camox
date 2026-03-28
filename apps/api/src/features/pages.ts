@@ -4,6 +4,7 @@ import { int, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { assertPageAccess } from "../authorization";
 import type { Database } from "../db";
 import type { AppEnv } from "../types";
 import { blockDefinitions } from "./block-definitions";
@@ -220,10 +221,16 @@ const updatePageSchema = z.object({
 
 export const pageRoutes = new Hono<AppEnv>()
   .get("/", async (c) => {
-    const result = await c.var.db.select().from(pages);
-    return c.json(result);
+    const orgSlug = c.var.orgSlug!;
+    const result = await c.var.db
+      .select({ page: pages })
+      .from(pages)
+      .innerJoin(projects, eq(projects.id, pages.projectId))
+      .where(eq(projects.organizationSlug, orgSlug));
+    return c.json(result.map((r) => r.page));
   })
   .get("/by-path", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const fullPath = c.req.query("path");
     if (!fullPath) return c.json({ error: "path required" }, 400);
 
@@ -233,7 +240,9 @@ export const pageRoutes = new Hono<AppEnv>()
     if (!page) return c.json({ error: "Not found" }, 404);
 
     const project = await db.select().from(projects).where(eq(projects.id, page.projectId)).get();
-    if (!project) return c.json({ error: "Project not found" }, 404);
+    if (!project || project.organizationSlug !== orgSlug) {
+      return c.json({ error: "Not found" }, 404);
+    }
 
     // Fetch block definitions for field ordering
     const defs = await db
@@ -281,16 +290,18 @@ export const pageRoutes = new Hono<AppEnv>()
     });
   })
   .get("/:id{[0-9]+}", async (c) => {
-    const result = await c.var.db
-      .select()
-      .from(pages)
-      .where(eq(pages.id, Number(c.req.param("id"))))
-      .get();
+    const orgSlug = c.var.orgSlug!;
+    const id = Number(c.req.param("id"));
+    const result = await assertPageAccess(c.var.db, id, orgSlug);
     if (!result) return c.json({ error: "Not found" }, 404);
-    return c.json(result);
+    return c.json(result.page);
   })
   .patch("/:id{[0-9]+}", zValidator("json", updatePageSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
+    if (!(await assertPageAccess(c.var.db, id, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
     const body = c.req.valid("json");
     const result = await c.var.db
       .update(pages)
@@ -298,20 +309,26 @@ export const pageRoutes = new Hono<AppEnv>()
       .where(eq(pages.id, id))
       .returning()
       .get();
-    if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   })
   .delete("/:id{[0-9]+}", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
+    if (!(await assertPageAccess(c.var.db, id, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
     const result = await c.var.db.delete(pages).where(eq(pages.id, id)).returning().get();
-    if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   })
   .patch(
     "/:id{[0-9]+}/ai-seo",
     zValidator("json", z.object({ enabled: z.boolean() })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertPageAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { enabled } = c.req.valid("json");
       const result = await c.var.db
         .update(pages)
@@ -319,7 +336,6 @@ export const pageRoutes = new Hono<AppEnv>()
         .where(eq(pages.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
@@ -327,7 +343,11 @@ export const pageRoutes = new Hono<AppEnv>()
     "/:id{[0-9]+}/meta-title",
     zValidator("json", z.object({ metaTitle: z.string() })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertPageAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { metaTitle } = c.req.valid("json");
       const result = await c.var.db
         .update(pages)
@@ -335,7 +355,6 @@ export const pageRoutes = new Hono<AppEnv>()
         .where(eq(pages.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
@@ -343,7 +362,11 @@ export const pageRoutes = new Hono<AppEnv>()
     "/:id{[0-9]+}/meta-description",
     zValidator("json", z.object({ metaDescription: z.string() })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertPageAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { metaDescription } = c.req.valid("json");
       const result = await c.var.db
         .update(pages)
@@ -351,7 +374,6 @@ export const pageRoutes = new Hono<AppEnv>()
         .where(eq(pages.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
@@ -359,7 +381,11 @@ export const pageRoutes = new Hono<AppEnv>()
     "/:id{[0-9]+}/layout",
     zValidator("json", z.object({ layoutId: z.number() })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertPageAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { layoutId } = c.req.valid("json");
       const result = await c.var.db
         .update(pages)
@@ -367,7 +393,6 @@ export const pageRoutes = new Hono<AppEnv>()
         .where(eq(pages.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   );

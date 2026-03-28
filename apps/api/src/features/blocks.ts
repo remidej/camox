@@ -1,13 +1,15 @@
 import { zValidator } from "@hono/zod-validator";
-import { eq, sql, inArray } from "drizzle-orm";
+import { and, eq, or, sql, inArray } from "drizzle-orm";
 import { int, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 import { generateKeyBetween } from "fractional-indexing";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { assertBlockAccess, assertPageAccess } from "../authorization";
 import type { AppEnv } from "../types";
 import { layouts } from "./layouts";
 import { pages } from "./pages";
+import { projects } from "./projects";
 
 // --- Schema ---
 
@@ -45,17 +47,26 @@ const createBlockSchema = z.object({
 
 export const blockRoutes = new Hono<AppEnv>()
   .get("/usage-counts", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const result = await c.var.db
       .select({
         type: blocks.type,
         count: sql<number>`count(*)`,
       })
       .from(blocks)
+      .leftJoin(pages, eq(blocks.pageId, pages.id))
+      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
+      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
+      .where(eq(projects.organizationSlug, orgSlug))
       .groupBy(blocks.type);
     return c.json(result);
   })
   .post("/", zValidator("json", createBlockSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const { pageId, type, content, settings, afterPosition } = c.req.valid("json");
+    if (!(await assertPageAccess(c.var.db, pageId, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
     const now = Date.now();
     const position = generateKeyBetween(afterPosition ?? null, null);
     const result = await c.var.db
@@ -78,7 +89,11 @@ export const blockRoutes = new Hono<AppEnv>()
     "/:id{[0-9]+}/content",
     zValidator("json", z.object({ content: z.unknown() })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertBlockAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { content } = c.req.valid("json");
       const result = await c.var.db
         .update(blocks)
@@ -86,7 +101,6 @@ export const blockRoutes = new Hono<AppEnv>()
         .where(eq(blocks.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
@@ -94,7 +108,11 @@ export const blockRoutes = new Hono<AppEnv>()
     "/:id{[0-9]+}/settings",
     zValidator("json", z.object({ settings: z.unknown() })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertBlockAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { settings } = c.req.valid("json");
       const result = await c.var.db
         .update(blocks)
@@ -102,7 +120,6 @@ export const blockRoutes = new Hono<AppEnv>()
         .where(eq(blocks.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
@@ -116,7 +133,11 @@ export const blockRoutes = new Hono<AppEnv>()
       }),
     ),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertBlockAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { afterPosition, beforePosition } = c.req.valid("json");
       const position = generateKeyBetween(afterPosition ?? null, beforePosition ?? null);
       const result = await c.var.db
@@ -125,30 +146,49 @@ export const blockRoutes = new Hono<AppEnv>()
         .where(eq(blocks.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
   .delete("/:id{[0-9]+}", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
+    if (!(await assertBlockAccess(c.var.db, id, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
     const result = await c.var.db.delete(blocks).where(eq(blocks.id, id)).returning().get();
-    if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   })
   .post(
     "/delete-many",
     zValidator("json", z.object({ blockIds: z.array(z.number()) })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const { blockIds } = c.req.valid("json");
       if (blockIds.length === 0) return c.json([]);
+      // Verify all blocks belong to the user's org
+      const authorizedBlocks = await c.var.db
+        .select({ id: blocks.id })
+        .from(blocks)
+        .leftJoin(pages, eq(blocks.pageId, pages.id))
+        .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
+        .innerJoin(
+          projects,
+          or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)),
+        )
+        .where(and(inArray(blocks.id, blockIds), eq(projects.organizationSlug, orgSlug)));
+      if (authorizedBlocks.length !== blockIds.length) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const result = await c.var.db.delete(blocks).where(inArray(blocks.id, blockIds)).returning();
       return c.json(result);
     },
   )
   .post("/:id{[0-9]+}/duplicate", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
-    const original = await c.var.db.select().from(blocks).where(eq(blocks.id, id)).get();
-    if (!original) return c.json({ error: "Not found" }, 404);
+    const access = await assertBlockAccess(c.var.db, id, orgSlug);
+    if (!access) return c.json({ error: "Not found" }, 404);
+    const original = access.block;
 
     const now = Date.now();
     const position = generateKeyBetween(original.position, null);

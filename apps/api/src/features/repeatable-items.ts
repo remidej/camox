@@ -5,6 +5,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { assertBlockAccess, assertRepeatableItemAccess } from "../authorization";
 import type { AppEnv } from "../types";
 import { blocks } from "./blocks";
 
@@ -41,7 +42,11 @@ const createItemSchema = z.object({
 
 export const repeatableItemRoutes = new Hono<AppEnv>()
   .post("/", zValidator("json", createItemSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const { blockId, fieldName, content, afterPosition } = c.req.valid("json");
+    if (!(await assertBlockAccess(c.var.db, blockId, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
     const now = Date.now();
     const position = generateKeyBetween(afterPosition ?? null, null);
     const result = await c.var.db
@@ -63,7 +68,11 @@ export const repeatableItemRoutes = new Hono<AppEnv>()
     "/:id{[0-9]+}/content",
     zValidator("json", z.object({ content: z.unknown() })),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertRepeatableItemAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { content } = c.req.valid("json");
       const result = await c.var.db
         .update(repeatableItems)
@@ -71,7 +80,6 @@ export const repeatableItemRoutes = new Hono<AppEnv>()
         .where(eq(repeatableItems.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
@@ -85,7 +93,11 @@ export const repeatableItemRoutes = new Hono<AppEnv>()
       }),
     ),
     async (c) => {
+      const orgSlug = c.var.orgSlug!;
       const id = Number(c.req.param("id"));
+      if (!(await assertRepeatableItemAccess(c.var.db, id, orgSlug))) {
+        return c.json({ error: "Not found" }, 404);
+      }
       const { afterPosition, beforePosition } = c.req.valid("json");
       const position = generateKeyBetween(afterPosition ?? null, beforePosition ?? null);
       const result = await c.var.db
@@ -94,18 +106,15 @@ export const repeatableItemRoutes = new Hono<AppEnv>()
         .where(eq(repeatableItems.id, id))
         .returning()
         .get();
-      if (!result) return c.json({ error: "Not found" }, 404);
       return c.json(result);
     },
   )
   .post("/:id{[0-9]+}/duplicate", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
-    const original = await c.var.db
-      .select()
-      .from(repeatableItems)
-      .where(eq(repeatableItems.id, id))
-      .get();
-    if (!original) return c.json({ error: "Not found" }, 404);
+    const access = await assertRepeatableItemAccess(c.var.db, id, orgSlug);
+    if (!access) return c.json({ error: "Not found" }, 404);
+    const original = access.item;
 
     const now = Date.now();
     const position = generateKeyBetween(original.position, null);
@@ -125,12 +134,15 @@ export const repeatableItemRoutes = new Hono<AppEnv>()
     return c.json(result, 201);
   })
   .delete("/:id{[0-9]+}", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));
+    if (!(await assertRepeatableItemAccess(c.var.db, id, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
     const result = await c.var.db
       .delete(repeatableItems)
       .where(eq(repeatableItems.id, id))
       .returning()
       .get();
-    if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   });

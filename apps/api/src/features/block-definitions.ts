@@ -4,6 +4,7 @@ import { int, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { getAuthorizedProject } from "../authorization";
 import type { AppEnv } from "../types";
 import { projects } from "./projects";
 
@@ -59,8 +60,11 @@ const syncSchema = z.object({
 
 export const blockDefinitionRoutes = new Hono<AppEnv>()
   .get("/", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const projectId = Number(c.req.query("projectId"));
     if (!projectId) return c.json({ error: "projectId required" }, 400);
+    const project = await getAuthorizedProject(c.var.db, projectId, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const result = await c.var.db
       .select()
       .from(blockDefinitions)
@@ -68,7 +72,10 @@ export const blockDefinitionRoutes = new Hono<AppEnv>()
     return c.json(result);
   })
   .post("/sync", zValidator("json", syncSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const { projectId, definitions } = c.req.valid("json");
+    const project = await getAuthorizedProject(c.var.db, projectId, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const now = Date.now();
     const results = [];
 
@@ -119,7 +126,10 @@ export const blockDefinitionRoutes = new Hono<AppEnv>()
     return c.json(results);
   })
   .put("/", zValidator("json", definitionSchema), async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const body = c.req.valid("json");
+    const project = await getAuthorizedProject(c.var.db, body.projectId, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const now = Date.now();
 
     const existing = await c.var.db
@@ -164,7 +174,10 @@ export const blockDefinitionRoutes = new Hono<AppEnv>()
     return c.json(result, 201);
   })
   .delete("/:projectId{[0-9]+}/:blockId", async (c) => {
+    const orgSlug = c.var.orgSlug!;
     const projectId = Number(c.req.param("projectId"));
+    const project = await getAuthorizedProject(c.var.db, projectId, orgSlug);
+    if (!project) return c.json({ error: "Not found" }, 404);
     const blockId = c.req.param("blockId");
     const result = await c.var.db
       .delete(blockDefinitions)
