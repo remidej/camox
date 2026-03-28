@@ -1,10 +1,15 @@
 import { zValidator } from "@hono/zod-validator";
+import { chat } from "@tanstack/ai";
+import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { eq, sql } from "drizzle-orm";
 import { int, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
+import { outdent } from "outdent";
 import { z } from "zod";
 
 import { assertFileAccess, getAuthorizedProject } from "../authorization";
+import type { Database } from "../db";
+import { scheduleAiJob } from "../lib/schedule-ai-job";
 import type { AppEnv } from "../types";
 import { blocks } from "./blocks";
 import { projects } from "./projects";
@@ -32,6 +37,49 @@ export const files = sqliteTable(
     index("files_project_idx").on(table.projectId),
   ],
 );
+
+// --- AI Executor ---
+
+async function generateImageMetadata(apiKey: string, imageUrl: string, currentFilename: string) {
+  return await chat({
+    adapter: createOpenRouterText("google/gemini-2.5-flash-lite", apiKey),
+    outputSchema: z.object({
+      filename: z.string(),
+      alt: z.string(),
+    }),
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image" as const,
+            source: { type: "url" as const, value: imageUrl },
+          },
+          {
+            type: "text" as const,
+            content: outdent`
+              Analyze this image and generate metadata for it:
+              - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${currentFilename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
+              - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max).
+            `,
+          },
+        ],
+      },
+    ],
+  });
+}
+
+export async function executeFileMetadata(db: Database, apiKey: string, fileId: number) {
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (!file || file.aiMetadataEnabled === false) return;
+
+  const metadata = await generateImageMetadata(apiKey, file.url, file.filename);
+
+  await db
+    .update(files)
+    .set({ filename: metadata.filename, alt: metadata.alt, updatedAt: Date.now() })
+    .where(eq(files.id, fileId));
+}
 
 // --- Routes ---
 
@@ -99,6 +147,14 @@ export const fileRoutes = new Hono<AppEnv>()
       })
       .returning()
       .get();
+
+    scheduleAiJob(c.env.AI_JOB_SCHEDULER, {
+      entityTable: "files",
+      entityId: result.id,
+      type: "fileMetadata",
+      delayMs: 0,
+    });
+
     return c.json(result, 201);
   })
   .patch("/:id{[0-9]+}/alt", zValidator("json", z.object({ alt: z.string() })), async (c) => {
@@ -182,4 +238,14 @@ export const fileRoutes = new Hono<AppEnv>()
         .get();
       return c.json(result);
     },
-  );
+  )
+  .post("/:id{[0-9]+}/generate-metadata", async (c) => {
+    const orgSlug = c.var.orgSlug!;
+    const id = Number(c.req.param("id"));
+    if (!(await assertFileAccess(c.var.db, id, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
+    await executeFileMetadata(c.var.db, c.env.OPEN_ROUTER_API_KEY, id);
+    const updated = await c.var.db.select().from(files).where(eq(files.id, id)).get();
+    return c.json(updated);
+  });

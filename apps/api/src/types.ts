@@ -10,6 +10,8 @@ export type Bindings = {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   TRUSTED_ORIGINS: string;
+  OPEN_ROUTER_API_KEY: string;
+  AI_JOB_SCHEDULER: DurableObjectNamespace;
 };
 
 export type AppEnv = {

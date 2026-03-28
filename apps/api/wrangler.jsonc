@@ -12,4 +12,13 @@
       "migrations_dir": "migrations",
     },
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AI_JOB_SCHEDULER",
+        "class_name": "AiJobScheduler",
+      },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_classes": ["AiJobScheduler"] }],
 }

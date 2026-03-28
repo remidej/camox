@@ -1,15 +1,23 @@
 import { zValidator } from "@hono/zod-validator";
+import { chat } from "@tanstack/ai";
+import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, or, sql, inArray } from "drizzle-orm";
 import { int, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 import { generateKeyBetween } from "fractional-indexing";
 import { Hono } from "hono";
+import { outdent } from "outdent";
 import { z } from "zod";
 
 import { assertBlockAccess, assertPageAccess } from "../authorization";
+import type { Database } from "../db";
+import { contentToMarkdown } from "../lib/content-markdown";
+import { scheduleAiJob } from "../lib/schedule-ai-job";
 import type { AppEnv } from "../types";
+import { blockDefinitions } from "./block-definitions";
 import { layouts } from "./layouts";
 import { pages } from "./pages";
 import { projects } from "./projects";
+import { repeatableItems } from "./repeatable-items";
 
 // --- Schema ---
 
@@ -34,6 +42,171 @@ export const blocks = sqliteTable(
     index("blocks_type_idx").on(table.type),
   ],
 );
+
+// --- AI Executor ---
+
+async function generateObjectSummary(
+  apiKey: string,
+  options: { type: string; markdown: string; previousSummary?: string },
+) {
+  const stabilityBlock = options.previousSummary
+    ? outdent`
+
+      <previous_summary>${options.previousSummary}</previous_summary>
+      <stability_instruction>
+        A summary was previously generated for this content.
+        Return the SAME summary unless it is no longer accurate.
+        Only change it if the content has meaningfully changed.
+      </stability_instruction>
+    `
+    : "";
+
+  return await chat({
+    adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
+    stream: false,
+    messages: [
+      {
+        role: "user",
+        content: outdent`
+            <instruction>
+              Generate a concise summary for a piece of website content.
+            </instruction>
+
+            <constraints>
+              - MAXIMUM 4 WORDS
+              - Capture the main idea or purpose
+              - Be descriptive and specific to the content type
+              - Use sentence case (only capitalize the first word and proper nouns)
+              - Don't use markdown, just plain text
+              - Don't use punctuation
+              - Use abbreviations or acronyms where appropriate
+            </constraints>
+
+            <context>
+              <type>${options.type}</type>
+              <content>${options.markdown}</content>
+            </context>
+            ${stabilityBlock}
+
+            <examples>
+              <example>
+                <type>paragraph</type>
+                <content>{"text": "This is a description of how our service works in detail."}</content>
+                <output>Service explanation details</output>
+              </example>
+
+              <example>
+                <type>button</type>
+                <content>{"text": "Submit Form", "action": "submit"}</content>
+                <output>Submit form button</output>
+              </example>
+            </examples>
+
+            <format>
+              Return only the summary text, nothing else.
+            </format>
+          `,
+      },
+    ],
+  });
+}
+
+function sortByPosition<T extends { position: string }>(items: T[]): T[] {
+  return items.sort((a, b) => a.position.localeCompare(b.position));
+}
+
+async function assembleBlockContent(db: Database, blockId: number) {
+  const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).get();
+  if (!block) return null;
+
+  // Get block definition for content schema and field order
+  let projectId: number | null = null;
+  if (block.pageId) {
+    const page = await db.select().from(pages).where(eq(pages.id, block.pageId)).get();
+    projectId = page?.projectId ?? null;
+  } else if (block.layoutId) {
+    const layout = await db.select().from(layouts).where(eq(layouts.id, block.layoutId)).get();
+    projectId = layout?.projectId ?? null;
+  }
+
+  const def = projectId
+    ? await db
+        .select()
+        .from(blockDefinitions)
+        .where(
+          and(eq(blockDefinitions.projectId, projectId), eq(blockDefinitions.blockId, block.type)),
+        )
+        .get()
+    : null;
+
+  const contentSchema = (def?.contentSchema as Record<string, any>) ?? null;
+  const fieldOrder = contentSchema?.properties
+    ? Object.keys(contentSchema.properties as Record<string, unknown>)
+    : undefined;
+
+  // Merge repeatable items into content
+  const items = sortByPosition(
+    await db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
+  );
+
+  const content = { ...(block.content as Record<string, unknown>) };
+  const fieldNames = new Set(items.map((item) => item.fieldName));
+  for (const fieldName of fieldNames) {
+    content[fieldName] = items.filter((i) => i.fieldName === fieldName);
+  }
+
+  // Reorder keys to match field order from block definition
+  if (fieldOrder) {
+    const ordered: Record<string, unknown> = {};
+    for (const key of fieldOrder) {
+      if (key in content) ordered[key] = content[key];
+    }
+    for (const key of Object.keys(content)) {
+      if (!(key in ordered)) ordered[key] = content[key];
+    }
+    return { block, content: ordered, contentSchema };
+  }
+
+  return { block, content, contentSchema };
+}
+
+/**
+ * Generates and stores a summary for a block.
+ * Returns `{ pageId }` if the parent page has AI SEO enabled (caller should cascade).
+ */
+export async function executeBlockSummary(
+  db: Database,
+  apiKey: string,
+  blockId: number,
+): Promise<{ pageId: number } | null> {
+  const assembled = await assembleBlockContent(db, blockId);
+  if (!assembled) return null;
+
+  const { block, content, contentSchema } = assembled;
+
+  const markdown =
+    contentSchema?.toMarkdown && contentSchema?.properties
+      ? contentToMarkdown(contentSchema.toMarkdown, contentSchema.properties, content)
+      : JSON.stringify(content);
+
+  const summary = await generateObjectSummary(apiKey, {
+    type: block.type,
+    markdown,
+    previousSummary: block.summary,
+  });
+
+  await db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId));
+
+  // Check if we should cascade to page SEO
+  if (summary !== block.summary && block.pageId) {
+    const page = await db.select().from(pages).where(eq(pages.id, block.pageId)).get();
+    if (page?.aiSeoEnabled !== false) {
+      return { pageId: block.pageId };
+    }
+  }
+
+  return null;
+}
 
 // --- Routes ---
 
@@ -83,6 +256,14 @@ export const blockRoutes = new Hono<AppEnv>()
       })
       .returning()
       .get();
+
+    scheduleAiJob(c.env.AI_JOB_SCHEDULER, {
+      entityTable: "blocks",
+      entityId: result.id,
+      type: "summary",
+      delayMs: 0,
+    });
+
     return c.json(result, 201);
   })
   .patch(
@@ -101,6 +282,14 @@ export const blockRoutes = new Hono<AppEnv>()
         .where(eq(blocks.id, id))
         .returning()
         .get();
+
+      scheduleAiJob(c.env.AI_JOB_SCHEDULER, {
+        entityTable: "blocks",
+        entityId: id,
+        type: "summary",
+        delayMs: 5000,
+      });
+
       return c.json(result);
     },
   )
@@ -183,6 +372,24 @@ export const blockRoutes = new Hono<AppEnv>()
       return c.json(result);
     },
   )
+  .post("/:id{[0-9]+}/generate-summary", async (c) => {
+    const orgSlug = c.var.orgSlug!;
+    const id = Number(c.req.param("id"));
+    if (!(await assertBlockAccess(c.var.db, id, orgSlug))) {
+      return c.json({ error: "Not found" }, 404);
+    }
+    const seoStale = await executeBlockSummary(c.var.db, c.env.OPEN_ROUTER_API_KEY, id);
+    if (seoStale) {
+      scheduleAiJob(c.env.AI_JOB_SCHEDULER, {
+        entityTable: "pages",
+        entityId: seoStale.pageId,
+        type: "seo",
+        delayMs: 15000,
+      });
+    }
+    const updated = await c.var.db.select().from(blocks).where(eq(blocks.id, id)).get();
+    return c.json(updated);
+  })
   .post("/:id{[0-9]+}/duplicate", async (c) => {
     const orgSlug = c.var.orgSlug!;
     const id = Number(c.req.param("id"));

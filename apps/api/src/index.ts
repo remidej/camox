@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { requireOrg } from "./authorization";
 import { createDb } from "./db";
+export { AiJobScheduler } from "./durable-objects/ai-job-scheduler";
 import { authRoutes, createAuth } from "./features/auth";
 import { blockDefinitionRoutes } from "./features/block-definitions";
 import { blockRoutes } from "./features/blocks";

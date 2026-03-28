@@ -37,7 +37,7 @@ const statistics = createBlock({
         minItems: 4,
         maxItems: 8,
         title: "Statistics",
-        toMarkdown: ["**{{number}}** — {{label}}"],
+        toMarkdown: ["**{{number}}** — {{label}} {{number}}"],
       },
     ),
   },
