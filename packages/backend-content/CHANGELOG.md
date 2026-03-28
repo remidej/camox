@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0-alpha.2](https://github.com/camox-ai/camox/compare/camox-v0.1.2-alpha.2...@camox/backend-content-v0.2.0-alpha.2) (2026-03-28)
+
+
+### Features
+
+* add authentication to create-camox cli ([093ede4](https://github.com/camox-ai/camox/commit/093ede4dbdfa0017cd9b5977e1a2179a49b4a248))
+
 ## [0.1.2-alpha.2](https://github.com/camox-ai/camox/compare/camox-v0.1.2-alpha.1...@camox/backend-content-v0.1.2-alpha.2) (2026-03-25)
 
 
