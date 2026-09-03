@@ -12,10 +12,14 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@camox/ui/dropdown-menu";
-import { Check, LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
+import { useSelector } from "@xstate/store-react";
+import { Check, EyeOff, LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
 
+import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useAuthContext, useAuthState } from "@/lib/auth";
 
+import { previewStore } from "../../preview/previewStore";
+import { STUDIO_BASE_PATH } from "../routes";
 import { useApplyTheme } from "../useTheme";
 
 export const UserButton = () => {
@@ -43,6 +47,17 @@ function AuthenticatedUserButton({
   const authCtx = useAuthContext();
   const { data: session } = authCtx.authClient.useSession();
   const authenticationUrl = authCtx.authenticationUrl;
+  const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const isPreviewPage =
+    pathname !== STUDIO_BASE_PATH && !pathname.startsWith(`${STUDIO_BASE_PATH}/`);
+
+  const hideCamoxUi = () => {
+    previewStore.send({ type: "hideToolbar" });
+    if (isPreviewPage) return;
+    void navigate({ to: "/" });
+  };
 
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email;
@@ -118,6 +133,10 @@ function AuthenticatedUserButton({
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuItem disabled={isPreviewPage && isEditMode} onClick={hideCamoxUi}>
+          <EyeOff />
+          <span>Hide Camox UI</span>
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void authCtx.authClient.signOut()}>
           <LogOut />
           <span>Sign out</span>
