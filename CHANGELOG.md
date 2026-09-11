@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.40.0](https://github.com/remidej/camox/compare/camox-v0.39.0...camox-v0.40.0) (2026-09-11)
+
+
+### Features
+
+* add mobile preview ui ([56daa0c](https://github.com/remidej/camox/commit/56daa0cd89dc34bec9b5845a349a2ff2d054ddfd))
+* hide camox ui in user button popover ([9c603ce](https://github.com/remidej/camox/commit/9c603ce621ee17528301344889ff83e6fb1e2cf2))
+
+
+### Miscellaneous
+
+* new type safety block ([e757d1f](https://github.com/remidej/camox/commit/e757d1f704b7ac2dc7f913cdc9b8f818463972a0))
+
 ## [0.39.0](https://github.com/remidej/camox/compare/camox-v0.38.0...camox-v0.39.0) (2026-09-02)
 
 
