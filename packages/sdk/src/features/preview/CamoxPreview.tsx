@@ -28,6 +28,22 @@ import { RightSidebar } from "./components/RightSidebar";
 import { pageFullQueryFn } from "./previewQueryFns";
 import { previewStore } from "./previewStore";
 
+const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
+
+function subscribeToMobileStudio(callback: () => void) {
+  const mediaQuery = window.matchMedia(MOBILE_STUDIO_QUERY);
+  mediaQuery.addEventListener("change", callback);
+  return () => mediaQuery.removeEventListener("change", callback);
+}
+
+function getMobileStudioSnapshot() {
+  return window.matchMedia(MOBILE_STUDIO_QUERY).matches;
+}
+
+function useIsMobileStudio() {
+  return React.useSyncExternalStore(subscribeToMobileStudio, getMobileStudioSnapshot, () => false);
+}
+
 /* -------------------------------------------------------------------------------------------------
  * PageContent
  * -----------------------------------------------------------------------------------------------*/
@@ -317,6 +333,7 @@ function useHydrateDraftCache() {
 
 export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
   const isAuthenticated = useIsAuthenticated();
+  const isMobileStudio = useIsMobileStudio();
   const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const isAddBlockSidebarOpen = useSelector(
@@ -331,6 +348,12 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
   // as the sidebar Switch. Without it, flipping to 'live' would Suspense on
   // an empty cache slot.
   const hasLiveCheckpoint = pageData.page.livePublishedCheckpointId != null;
+
+  React.useEffect(() => {
+    if (!isMobileStudio) return;
+    previewStore.send({ type: "exitEditMode" });
+    previewStore.send({ type: "closeAddBlockSidebar" });
+  }, [isMobileStudio]);
 
   React.useEffect(() => {
     const actions = [
@@ -348,7 +371,7 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
         label: "Enter edit mode",
         aliases: ["Show Camox Studio", "Show studio", "Edit mode"],
         groupLabel: "Preview",
-        checkIfAvailable: () => isAuthenticated && !isEditMode,
+        checkIfAvailable: () => isAuthenticated && !isEditMode && !isMobileStudio,
         execute: () => previewStore.send({ type: "enterEditMode" }),
         shortcut: { key: "Enter", withMeta: true },
       },
@@ -394,7 +417,7 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [isEditMode, isAuthenticated, previewSource, hasLiveCheckpoint]);
+  }, [isEditMode, isAuthenticated, isMobileStudio, previewSource, hasLiveCheckpoint]);
 
   if (!isAuthenticated) {
     return <>{children}</>;
@@ -407,7 +430,7 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
         !isEditMode && "bg-black",
       )}
     >
-      {!isToolbarHidden && (
+      {!isMobileStudio && !isToolbarHidden && (
         <div className="relative">
           <Navbar />
           {isAddBlockSidebarOpen && (
@@ -420,19 +443,24 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
         </div>
       )}
       <div className="flex h-full flex-row items-stretch">
-        {isEditMode && <LeftSidebar page={pageData.page} />}
+        {!isMobileStudio && isEditMode && <LeftSidebar page={pageData.page} />}
         <PreviewPanel
+          isMobileExperience={isMobileStudio}
+          page={pageData.page}
+          projectName={pageData.projectName}
           toolbarProps={{
             pageStatus: pageData.page.status,
             hasLiveVersion: hasLiveCheckpoint,
           }}
         >
           {children}
-          {isEditMode && <div style={{ height: "80px", background: "transparent" }} />}
+          {!isMobileStudio && isEditMode && (
+            <div style={{ height: "80px", background: "transparent" }} />
+          )}
         </PreviewPanel>
-        {isEditMode && <RightSidebar pageId={pageData.page.id} />}
+        {!isMobileStudio && isEditMode && <RightSidebar pageId={pageData.page.id} />}
       </div>
-      {isEditMode && (
+      {(isMobileStudio || isEditMode) && (
         <>
           <CreatePageModal />
           <DraftSwitchDialog />

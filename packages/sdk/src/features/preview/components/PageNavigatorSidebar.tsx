@@ -27,7 +27,6 @@ import * as React from "react";
 import { useLocation } from "@/features/navigation/navigation";
 import { type Page, pageMutations, type PageStructure } from "@/lib/queries";
 import { trackClientEvent } from "@/lib/telemetry-client";
-import { cn } from "@/lib/utils";
 
 import { type Action, actionsStore } from "../../provider/actionsStore";
 import { previewStore } from "../previewStore";
@@ -267,15 +266,19 @@ const PageNavigatorPublishRow = ({ page }: { page: PreviewedPage }) => {
   );
 };
 
+export const PageNavigatorHeader = ({ page }: { page: PreviewedPage }) => (
+  <PanelHeader className="flex flex-col gap-2 px-2 pt-2 pb-3">
+    <div className="flex w-full">
+      <PagePicker />
+    </div>
+    <PageNavigatorPublishRow page={page} />
+  </PanelHeader>
+);
+
 const PageNavigatorSidebar = ({ page }: { page: PreviewedPage }) => {
   return (
     <>
-      <PanelHeader className={cn("flex flex-col gap-2 px-2 pt-2 pb-3")}>
-        <div className="flex w-full">
-          <PagePicker />
-        </div>
-        <PageNavigatorPublishRow page={page} />
-      </PanelHeader>
+      <PageNavigatorHeader page={page} />
       <PanelContent className="flex grow basis-0 flex-col gap-2 overflow-auto p-2">
         <PageTree />
       </PanelContent>

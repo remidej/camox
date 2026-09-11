@@ -17,7 +17,7 @@ import { Link } from "@/features/navigation/navigation";
 import { AuthContext } from "@/lib/auth";
 import { projectQueries } from "@/lib/queries";
 
-const Favicon = ({ size = 16 }: { size?: number }) => {
+export const Favicon = ({ size = 16 }: { size?: number }) => {
   const [faviconUrl, setFaviconUrl] = React.useState<string | null>(null);
   const [hasError, setHasError] = React.useState(false);
 

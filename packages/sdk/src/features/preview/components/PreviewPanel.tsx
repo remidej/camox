@@ -11,8 +11,10 @@ import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
 import { FieldToolbar } from "./FieldToolbar";
 import { Frame, useFrame } from "./Frame";
+import { MobilePreviewDrawer } from "./MobilePreviewDrawer";
 import { Overlays } from "./Overlays";
 import { OverlayTracker } from "./OverlayTracker";
+import type { PreviewedPage } from "./PageNavigatorSidebar";
 import { PreviewToolbar } from "./PreviewToolbar";
 
 /* -------------------------------------------------------------------------------------------------
@@ -114,10 +116,19 @@ const viewportClassName: Record<Exclude<ViewportMode, "full">, string> = {
 
 interface PreviewPanelProps {
   children: React.ReactNode;
+  isMobileExperience?: boolean;
+  page?: PreviewedPage;
+  projectName?: string;
   toolbarProps?: React.ComponentProps<typeof PreviewToolbar>;
 }
 
-const PreviewPanel = ({ children, toolbarProps }: PreviewPanelProps) => {
+const PreviewPanel = ({
+  children,
+  isMobileExperience = false,
+  page,
+  projectName = "Project",
+  toolbarProps,
+}: PreviewPanelProps) => {
   useBlockActionsShortcuts();
 
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
@@ -126,6 +137,7 @@ const PreviewPanel = ({ children, toolbarProps }: PreviewPanelProps) => {
   }, []);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
   const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
+  const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   React.useEffect(() => {
     const actions = [
       {
@@ -183,6 +195,21 @@ const PreviewPanel = ({ children, toolbarProps }: PreviewPanelProps) => {
       });
     };
   }, []);
+
+  if (isMobileExperience) {
+    if (!page) return null;
+
+    return (
+      <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
+        <div className="relative min-h-0 flex-1">
+          <PreviewFrame className="h-full w-full" onIframeReady={handleIframeReady}>
+            {children}
+          </PreviewFrame>
+        </div>
+        {!isToolbarHidden && <MobilePreviewDrawer page={page} projectName={projectName} />}
+      </PanelContent>
+    );
+  }
 
   return (
     <>

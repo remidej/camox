@@ -41,6 +41,7 @@ import {
   projectQueries,
 } from "@/lib/queries";
 import { trackClientEvent } from "@/lib/telemetry-client";
+import { cn } from "@/lib/utils";
 
 import { UploadDropZone } from "../../content/components/UploadDropZone";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
@@ -82,7 +83,15 @@ const usePageMetadataData = (pageId: number) => {
   return { page, project, pages, layouts, pageLayoutRecord, metaTitle, camoxApp };
 };
 
-const PageInfoSidebar = ({ pageId }: { pageId: number }) => {
+const PageInfoSidebar = ({
+  pageId,
+  scrollable = true,
+  aboutOnly = false,
+}: {
+  pageId: number;
+  scrollable?: boolean;
+  aboutOnly?: boolean;
+}) => {
   const data = usePageMetadataData(pageId);
   const { page, metaTitle } = data;
   const [isStructureModalOpen, setIsStructureModalOpen] = React.useState(false);
@@ -99,9 +108,9 @@ const PageInfoSidebar = ({ pageId }: { pageId: number }) => {
 
   return (
     <>
-      <div className="flex-1 space-y-4 overflow-auto p-2 pt-4">
+      <div className={cn("space-y-4 p-2 pt-4", scrollable && "flex-1 overflow-auto")}>
         <section className="space-y-4">
-          <p className="text-base font-semibold">About this page</p>
+          {!aboutOnly && <p className="text-base font-semibold">About this page</p>}
           <PageNicknameSidebarEditor data={data} />
           <div className="space-y-2">
             <Label>Page path</Label>
@@ -124,28 +133,32 @@ const PageInfoSidebar = ({ pageId }: { pageId: number }) => {
           </div>
           <PageLayoutSidebarSelect data={data} />
         </section>
-        <div className="space-y-2">
-          <Label>SEO</Label>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={() => setIsSeoModalOpen(true)}
-          >
-            Manage SEO metadata
-          </Button>
-        </div>
-        <div className="space-y-2">
-          <Label>Markdown</Label>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={() => setIsMarkdownModalOpen(true)}
-          >
-            View page markdown
-          </Button>
-        </div>
+        {!aboutOnly && (
+          <>
+            <div className="space-y-2">
+              <Label>SEO</Label>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => setIsSeoModalOpen(true)}
+              >
+                Manage SEO metadata
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <Label>Markdown</Label>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => setIsMarkdownModalOpen(true)}
+              >
+                View page markdown
+              </Button>
+            </div>
+          </>
+        )}
         <Metadata>
           <MetadataRow label="Created">{formatRelativeTime(page.createdAt)}</MetadataRow>
           <MetadataRow label="Created by">{page.createdBy ?? "Unknown"}</MetadataRow>
@@ -163,14 +176,18 @@ const PageInfoSidebar = ({ pageId }: { pageId: number }) => {
         onOpenChange={setIsStructureModalOpen}
         pageId={page.id}
       />
-      <PageSeoModal open={isSeoModalOpen} onOpenChange={setIsSeoModalOpen} pageId={page.id} />
-      <PageMarkdownModal
-        open={isMarkdownModalOpen}
-        onOpenChange={setIsMarkdownModalOpen}
-        pageId={page.id}
-        metaTitle={metaTitle}
-        metaDescription={page.metaDescription ?? ""}
-      />
+      {!aboutOnly && (
+        <>
+          <PageSeoModal open={isSeoModalOpen} onOpenChange={setIsSeoModalOpen} pageId={page.id} />
+          <PageMarkdownModal
+            open={isMarkdownModalOpen}
+            onOpenChange={setIsMarkdownModalOpen}
+            pageId={page.id}
+            metaTitle={metaTitle}
+            metaDescription={page.metaDescription ?? ""}
+          />
+        </>
+      )}
     </>
   );
 };
@@ -513,9 +530,6 @@ const PageSeoModal = ({
   onOpenChange: (open: boolean) => void;
   pageId: number;
 }) => {
-  const data = usePageMetadataData(pageId);
-  const { page, metaTitle, pageLayoutRecord, project } = data;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
@@ -525,20 +539,25 @@ const PageSeoModal = ({
             Control how this page appears in search and social previews.
           </DialogDescription>
         </DialogHeader>
-        {page ? (
-          <PageSeoEditor
-            page={page}
-            metaTitle={metaTitle}
-            layoutId={pageLayoutRecord?.layoutId}
-            projectName={project?.name}
-          />
-        ) : (
-          <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
-            <Spinner className="size-3.5" /> Loading...
-          </div>
-        )}
+        <PageSeoContent pageId={pageId} />
       </DialogContent>
     </Dialog>
+  );
+};
+
+export const PageSeoContent = ({ pageId }: { pageId: number }) => {
+  const { page, metaTitle, pageLayoutRecord, project } = usePageMetadataData(pageId);
+  return page ? (
+    <PageSeoEditor
+      page={page}
+      metaTitle={metaTitle}
+      layoutId={pageLayoutRecord?.layoutId}
+      projectName={project?.name}
+    />
+  ) : (
+    <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
+      <Spinner className="size-3.5" /> Loading...
+    </div>
   );
 };
 
@@ -641,6 +660,18 @@ const PageMarkdownModal = ({
     </DialogContent>
   </Dialog>
 );
+
+export const PageMarkdownContent = ({ pageId }: { pageId: number }) => {
+  const { page, metaTitle } = usePageMetadataData(pageId);
+  if (!page) return <Spinner className="size-4" />;
+  return (
+    <PageMarkdownPreview
+      pageId={pageId}
+      metaTitle={metaTitle}
+      metaDescription={page.metaDescription ?? ""}
+    />
+  );
+};
 
 function truncateText(text: string, maxLen: number) {
   if (text.length <= maxLen) return text;
