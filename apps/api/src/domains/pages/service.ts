@@ -17,12 +17,13 @@ import {
   repeatableItems,
   user,
 } from "../../schema";
+import { injectRepeatableItemMarkers } from "../_shared/block-markers";
+import { readLayoutSnapshot } from "../_shared/layout-source";
+export { readLayoutSnapshot } from "../_shared/layout-source";
 import { pageSourceSchema, type PageSource } from "../_shared/page-source";
 import type { ServiceContext } from "../_shared/service-context";
 import {
-  layoutSnapshotSchema,
   pageSnapshotSchema,
-  type LayoutSnapshot,
   type PageSnapshot,
   type SnapshotBlock,
   type SnapshotRepeatableItem,
@@ -175,51 +176,6 @@ function invalidatePagePublish(
       ...cascadeTargets,
     ],
   });
-}
-
-function injectRepeatableItemMarkers<TBlock extends { id: number; content: unknown }>(
-  block: TBlock,
-  blockItems: (typeof repeatableItems.$inferSelect)[],
-) {
-  const childrenByParent = new Map<number | null, Map<string, typeof blockItems>>();
-  for (const item of blockItems) {
-    let fieldMap = childrenByParent.get(item.parentItemId);
-    if (!fieldMap) {
-      fieldMap = new Map();
-      childrenByParent.set(item.parentItemId, fieldMap);
-    }
-    const list = fieldMap.get(item.fieldName) ?? [];
-    list.push(item);
-    fieldMap.set(item.fieldName, list);
-  }
-
-  const hasInlineArray = (content: Record<string, unknown>, key: string) => {
-    const value = content[key];
-    return Array.isArray(value) && value.length > 0;
-  };
-
-  const content = { ...(block.content as Record<string, unknown>) };
-  const topLevelFields = childrenByParent.get(null);
-  if (topLevelFields) {
-    for (const [fieldName, fieldItems] of topLevelFields) {
-      if (hasInlineArray(content, fieldName)) continue;
-      content[fieldName] = fieldItems.map((item) => ({ _itemId: item.id }));
-    }
-  }
-
-  const items = blockItems.map((item) => {
-    const nestedFields = childrenByParent.get(item.id);
-    if (!nestedFields) return item;
-
-    const itemContent = { ...(item.content as Record<string, unknown>) };
-    for (const [fieldName, fieldItems] of nestedFields) {
-      if (hasInlineArray(itemContent, fieldName)) continue;
-      itemContent[fieldName] = fieldItems.map((child) => ({ _itemId: child.id }));
-    }
-    return { ...item, content: itemContent };
-  });
-
-  return { block: { ...block, content }, items };
 }
 
 // --- Derived publish status ---
@@ -492,24 +448,6 @@ async function buildPageSnapshotFromDraft(
       updatedAt: item.updatedAt,
     })),
   };
-}
-
-export async function readLayoutSnapshot(
-  ctx: ServiceContext,
-  layoutRow: typeof layouts.$inferSelect,
-): Promise<LayoutSnapshot | null> {
-  // Phase 1 contract: when composing a non-draft page read, the layout side
-  // always resolves through its own live pointer. `{ checkpointId }` on a
-  // page doesn't carry a layout-checkpoint reference yet (that lands when
-  // entries arrive, see plans/draft-publish.md "Forward Compatibility").
-  if (layoutRow.livePublishedCheckpointId == null) return null;
-  const checkpoint = await ctx.db
-    .select()
-    .from(layoutCheckpoints)
-    .where(eq(layoutCheckpoints.id, layoutRow.livePublishedCheckpointId))
-    .get();
-  if (!checkpoint) return null;
-  return layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
 }
 
 function composePageView(args: {

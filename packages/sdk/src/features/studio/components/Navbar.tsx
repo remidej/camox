@@ -51,7 +51,7 @@ const links = [
   aliases: string[];
 }>;
 
-const Navbar = () => {
+const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const { data: pages } = useQuery({
@@ -59,7 +59,10 @@ const Navbar = () => {
     enabled: !!project,
   });
 
-  const isMac = React.useMemo(() => navigator.userAgent.toUpperCase().indexOf("MAC") >= 0, []);
+  const isMac = React.useMemo(
+    () => typeof navigator !== "undefined" && navigator.userAgent.toUpperCase().indexOf("MAC") >= 0,
+    [],
+  );
 
   const { pathname } = useLocation();
   return (
@@ -80,7 +83,7 @@ const Navbar = () => {
                   // interaction styles
                   "hover:bg-accent hover:text-accent-foreground outline-none transition-[color,box-shadow] focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
                   // active style
-                  pages?.some((page) => page.fullPath === pathname) && index === 0
+                  (isPreview || pages?.some((page) => page.fullPath === pathname)) && index === 0
                     ? "bg-accent hover:bg-accent text-accent-foreground"
                     : "text-muted-foreground",
                 )}

@@ -9,15 +9,10 @@ import { previewStore } from "../previewStore";
 
 interface OverlaysProps {
   iframeElement: HTMLIFrameElement | null;
+  canAddBlocks?: boolean;
 }
 
-export const Overlays = ({ iframeElement }: OverlaysProps) => {
-  const isPageEditorSidebarOpen = useSelector(
-    previewStore,
-    (state) => state.context.isPageEditorSidebarOpen,
-  );
-  const selection = useSelector(previewStore, (state) => state.context.selection);
-  const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
+function CuratedAddBlockListener() {
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
 
@@ -66,7 +61,17 @@ export const Overlays = ({ iframeElement }: OverlaysProps) => {
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [page]);
+  }, [pageBlocks]);
+  return null;
+}
+
+export const Overlays = ({ iframeElement, canAddBlocks = false }: OverlaysProps) => {
+  const isPageEditorSidebarOpen = useSelector(
+    previewStore,
+    (state) => state.context.isPageEditorSidebarOpen,
+  );
+  const selection = useSelector(previewStore, (state) => state.context.selection);
+  const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
 
   // Send focus command to iframe when selection changes externally
   React.useEffect(() => {
@@ -94,5 +99,5 @@ export const Overlays = ({ iframeElement }: OverlaysProps) => {
     iframeElement?.contentWindow?.postMessage(message, "*");
   }, [selection, isPageEditorSidebarOpen, peekedBlock, iframeElement]);
 
-  return null;
+  return canAddBlocks ? <CuratedAddBlockListener /> : null;
 };

@@ -5,11 +5,12 @@ import { CompleteBlockEditingRuntimeProvider } from "../../core/editing/Complete
 import { AuthenticatedCamoxProvider } from "../provider/AuthenticatedCamoxProvider";
 import type { PageRenderInput } from "../runtime/runtime";
 import { CamoxPreview } from "./CamoxPreview";
+import { DerivedPreview } from "./DerivedPreview";
 import { EditablePageContent } from "./EditablePageContent";
 
 export function EditablePageExperience({
-  camoxApp: _camoxApp,
-  input: _input,
+  camoxApp,
+  input,
   queryClient: _queryClient,
 }: {
   camoxApp: CamoxApp;
@@ -19,9 +20,13 @@ export function EditablePageExperience({
   return (
     <AuthenticatedCamoxProvider>
       <CompleteBlockEditingRuntimeProvider>
-        <CamoxPreview>
-          <EditablePageContent />
-        </CamoxPreview>
+        {input.derived ? (
+          <DerivedPreview camoxApp={camoxApp} derived={input.derived} source={input.source} />
+        ) : (
+          <CamoxPreview>
+            <EditablePageContent />
+          </CamoxPreview>
+        )}
       </CompleteBlockEditingRuntimeProvider>
     </AuthenticatedCamoxProvider>
   );

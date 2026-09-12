@@ -3,6 +3,7 @@ import { resolve, relative } from "node:path";
 
 import type { ViteDevServer } from "vite-plus";
 
+import { generateLayoutFiles } from "./layoutGeneration";
 import { writeIfChanged } from "./utils";
 
 const HEADER = `/* ============================================================================
@@ -33,16 +34,16 @@ const blocks = [...Object.values(blockModules), ...Object.values(legacyBlockModu
 );
 
 // Auto-import all layouts from the first-class layouts directory
-const layoutModules = import.meta.glob<{ layout: Layout }>(
+const layoutModules = import.meta.glob<{ layout?: Layout; Layout?: Layout }>(
   '../layouts/*.{ts,tsx}',
   { eager: true },
 );
-const legacyLayoutModules = import.meta.glob<{ layout: Layout }>(
+const legacyLayoutModules = import.meta.glob<{ layout?: Layout; Layout?: Layout }>(
   './layouts/*.{ts,tsx}',
   { eager: true },
 );
 const layouts = [...Object.values(layoutModules), ...Object.values(legacyLayoutModules)].map(
-  (mod) => mod.layout,
+  (mod) => (mod.Layout ?? mod.layout)!,
 );
 
 export const camoxApp = createApp({
@@ -58,12 +59,18 @@ function getAppFileEntries(appRoot: string) {
 }
 
 export function generateAppFile(appRoot: string) {
+  generateLayoutFiles(appRoot);
   for (const entry of getAppFileEntries(appRoot)) {
     writeIfChanged(entry.path, entry.content);
   }
 }
 
 export function watchAppFile(server: ViteDevServer, appRoot: string) {
+  for (const event of ["add", "change", "unlink"] as const) {
+    server.watcher.on(event, (path) => {
+      if (path.startsWith(resolve(appRoot, "src/layouts") + "/")) generateLayoutFiles(appRoot);
+    });
+  }
   const entries = getAppFileEntries(appRoot);
   const expectedByPath = new Map(entries.map((e) => [e.path, e.content]));
 

@@ -72,6 +72,8 @@ interface CreateLayoutOptions<
   TInitial extends readonly LayoutBlock[],
 > {
   id: string;
+  kind?: "curated" | "derived";
+  loader?: (context: { params: Record<string, string> }) => unknown;
   title: string;
   description: string;
   blocks: {
@@ -89,7 +91,7 @@ interface CreateLayoutOptions<
   buildOgImage?: (params: OgImageParams) => React.ReactElement;
 }
 
-export function createLayout<
+function createLayoutDefinition<
   const TBefore extends readonly LayoutBlock[],
   const TAfter extends readonly LayoutBlock[],
   const TInitial extends readonly LayoutBlock[] = [],
@@ -97,6 +99,7 @@ export function createLayout<
   // Each layout gets its own context — avoids cross-module identity issues
   const LayoutContext = React.createContext<{
     layoutBlocks: Record<string, LayoutBlockData>;
+    data?: unknown;
   } | null>(null);
 
   // Cast away the validation mapped type — once user-side type-checking has passed,
@@ -125,7 +128,7 @@ export function createLayout<
               <block._internal.Component
                 blockData={blockData}
                 mode="layout"
-                showAddBlockBottom={isLastBefore || undefined}
+                showAddBlockBottom={(options.kind !== "derived" && isLastBefore) || undefined}
                 addBlockAfterPosition={isLastBefore ? "" : undefined}
               />
             </BlockErrorBoundary>
@@ -156,7 +159,7 @@ export function createLayout<
               <block._internal.Component
                 blockData={blockData}
                 mode="layout"
-                showAddBlockTop={isFirstAfter || undefined}
+                showAddBlockTop={(options.kind !== "derived" && isFirstAfter) || undefined}
                 addBlockAfterPosition={isFirstAfter ? null : undefined}
               />
             </BlockErrorBoundary>
@@ -171,11 +174,13 @@ export function createLayout<
   const Provider = ({
     layoutBlocks,
     children,
+    data,
   }: {
     layoutBlocks: Record<string, LayoutBlockData>;
     children: React.ReactNode;
+    data?: unknown;
   }) => {
-    const value = React.useMemo(() => ({ layoutBlocks }), [layoutBlocks]);
+    const value = React.useMemo(() => ({ layoutBlocks, data }), [layoutBlocks, data]);
     return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
   };
 
@@ -228,8 +233,16 @@ export function createLayout<
   return {
     BeforeBlocks,
     AfterBlocks,
+    useData() {
+      const context = React.use(LayoutContext);
+      if (!context)
+        throw new Error(`Layout "${options.id}" useData must be rendered inside its Provider`);
+      return context.data;
+    },
     _internal: {
       id: options.id,
+      kind: options.kind ?? "curated",
+      loader: options.loader,
       title: options.title,
       description: options.description,
       buildMetaTitle: options.buildMetaTitle,
@@ -242,4 +255,72 @@ export function createLayout<
   };
 }
 
-export type Layout = ReturnType<typeof createLayout>;
+export type Layout = ReturnType<typeof createLayoutDefinition>;
+
+export interface LayoutFileRoutes {}
+
+type Params<Id extends string> = Id extends `${infer Head}.${infer Tail}`
+  ? Params<Head> & Params<Tail>
+  : Id extends `$${infer Name}`
+    ? { [K in Name]: string }
+    : {};
+
+type FileOptions<
+  Id extends string,
+  Data,
+  B extends readonly LayoutBlock[],
+  A extends readonly LayoutBlock[],
+  I extends readonly LayoutBlock[],
+> = Omit<CreateLayoutOptions<B, A, I>, "id" | "kind" | "loader" | "component"> &
+  (
+    | {
+        kind: "curated";
+        component: React.ComponentType<{ children: React.ReactNode }>;
+        loader?: never;
+      }
+    | {
+        kind: "derived";
+        blocks: {
+          before: ValidateLayoutOnlyBlocks<B>;
+          after: ValidateLayoutOnlyBlocks<A>;
+          initial?: never;
+        };
+        loader: (context: {
+          params: Id extends keyof LayoutFileRoutes
+            ? LayoutFileRoutes[Id] extends { params: infer P }
+              ? P
+              : Params<Id>
+            : Params<Id>;
+        }) => Data;
+        component: React.ComponentType<{ children?: never }>;
+      }
+  );
+
+export function createLayout<const Id extends string>(
+  id: Id,
+): <
+  Data,
+  const B extends readonly LayoutBlock[],
+  const A extends readonly LayoutBlock[],
+  const I extends readonly LayoutBlock[] = [],
+>(
+  options: FileOptions<Id, Data, B, A, I>,
+) => Omit<Layout, "useData"> & { useData: () => Awaited<Data> };
+export function createLayout<
+  const B extends readonly LayoutBlock[],
+  const A extends readonly LayoutBlock[],
+  const I extends readonly LayoutBlock[] = [],
+>(options: CreateLayoutOptions<B, A, I>): Layout;
+export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any, any>): any {
+  if (typeof idOrOptions !== "string") return createLayoutDefinition(idOrOptions);
+  return (options: CreateLayoutOptions<any, any, any>) => {
+    if (options.kind === "derived" && options.blocks.initial)
+      throw new Error("Derived layouts cannot define initial page blocks");
+    return createLayoutDefinition({ ...options, id: idOrOptions });
+  };
+}
+
+/** Signal a missing derived page; other loader failures remain server errors. */
+export function notFound() {
+  return Object.assign(new Error("Page not found"), { status: 404, code: "NOT_FOUND" });
+}

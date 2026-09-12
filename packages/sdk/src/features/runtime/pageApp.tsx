@@ -8,6 +8,7 @@ import * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
 import { useAuthState } from "../../lib/auth";
+import { DerivedPageContent } from "../page/DerivedPageContent";
 import { PublishedPageExperience } from "../page/PublishedPageExperience";
 import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
 import { PageNavigationProvider } from "./pageNavigation";
@@ -75,6 +76,8 @@ class EditingActivationBoundary extends React.Component<
   }
 }
 
+const subscribeToHydration = () => () => {};
+
 function PageExperience({
   camoxApp,
   input,
@@ -85,13 +88,26 @@ function PageExperience({
   queryClient: QueryClient;
 }) {
   const { isAuthenticated } = useAuthState();
+  const hasHydrated = React.useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   const [hasOtt] = React.useState(() => {
     if (typeof window === "undefined") return false;
     return new URL(window.location.href).searchParams.has("ott");
   });
   const local = isLocalhostPreview();
   const shouldActivateEditing = isAuthenticated || input.source === "draft" || hasOtt;
-  const published = <PublishedPageExperience source={input.source} />;
+  const published = input.derived ? (
+    <DerivedPageContent camoxApp={camoxApp} derived={input.derived} source={input.source} />
+  ) : (
+    <PublishedPageExperience source={input.source} />
+  );
+
+  // SSR and the first client render must share the same tree. Studio activation
+  // (including the localhost shell) happens only after hydration completes.
+  if (!hasHydrated) return published;
 
   if (shouldActivateEditing) {
     return (

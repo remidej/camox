@@ -156,9 +156,9 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<nu
   }
 }
 
-function seedBlockCaches(
+export function seedBlockCaches(
   queryClient: QueryClient,
-  pageData: PageWithBlocks,
+  pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
   source: PageSource = "draft",
 ) {
   const filesById = new Map(pageData.files.map((f) => [f.id, f]));

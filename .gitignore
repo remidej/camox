@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# Generated layout route declarations
+**/camox/layouts.gen.d.ts
+
 # Production builds
 dist/
 build/

@@ -178,6 +178,12 @@ export function PageNavigationProvider({
 
   const navigate = React.useCallback(
     async ({ replace, to }: { replace?: boolean; to: string }) => {
+      // Derived loader data is currently delivered with the document, not the navigation endpoint.
+      if (initialInput.derived) {
+        if (replace) window.location.replace(to);
+        else window.location.assign(to);
+        return;
+      }
       const target = getClientNavigationTarget(to, initialInput.runtimeBasePath);
       if (!target) {
         window.location.assign(to);
@@ -212,7 +218,7 @@ export function PageNavigationProvider({
       }
       window.dispatchEvent(new Event("camox:navigation"));
     },
-    [headManager, initialInput.runtimeBasePath, queryClient],
+    [headManager, initialInput.runtimeBasePath, initialInput.derived, queryClient],
   );
 
   React.useEffect(() => {
@@ -239,6 +245,10 @@ export function PageNavigationProvider({
 
   React.useEffect(() => {
     const onPopState = () => {
+      if (initialInput.derived) {
+        window.location.reload();
+        return;
+      }
       const pagePathname = normalizePagePath(
         window.location.pathname,
         initialInput.runtimeBasePath,
@@ -264,7 +274,7 @@ export function PageNavigationProvider({
 
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [headManager, initialInput.runtimeBasePath, queryClient]);
+  }, [headManager, initialInput.runtimeBasePath, initialInput.derived, queryClient]);
 
   const getLocation = React.useCallback(
     () => getRuntimeLocation(initialInput.runtimeBasePath),

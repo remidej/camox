@@ -7,7 +7,7 @@ export default defineConfig({
     "*.{css,html,js,json,jsonc,jsx,md,mdx,scss,ts,tsx,yaml,yml}": "vp fmt",
   },
   fmt: {
-    ignorePatterns: [],
+    ignorePatterns: ["**/layouts.gen.d.ts"],
     sortImports: {},
     sortTailwindcss: {},
   },

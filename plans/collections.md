@@ -31,7 +31,7 @@ A derived layout's loader can import and query a collection just as it can call 
 
 Collections do not define route patterns, page templates, metadata, or layout ownership. Creating a record does not automatically insert a page row; updating or deleting one does not directly rewrite or cascade-delete pages. A loader determines how source data affects a derived page at request time.
 
-Any persistence needed for individually authored blocks on a derived page belongs to the derived-page design. It must not require every collection record to have a page.
+Derived pages do not support individually authored page blocks in the current phase, so collection records do not need backing page records for custom blocks. Future structured or block-based record fields belong to the collection/block API design.
 
 Collection management can be implemented separately from derived layouts. Conversely, derived layouts can ship using application databases or external APIs before collections exist.
 
@@ -48,7 +48,7 @@ These capabilities should work on curated pages as well as derived pages. A refe
 
 Exact field builders, bindings, query serialization, reference storage, and inline editing behavior are deferred to the collection/block API design. The previous `bindBlock`, proxy-recorded lambdas, and `$entry` token proposals are not settled requirements.
 
-Layout editing remains as described in the derived-layout plan: shared `before`/`after` blocks have purple overlays, and page-specific `children` blocks have pink overlays. Editing a collection field changes the underlying record; its UI and persistence must be distinguished from editing a shared block or page-owned block.
+Layout editing remains as described in the derived-layout plan: shared `before`/`after` blocks have purple overlays for both layout kinds. Only curated pages support page-specific `children` blocks with pink overlays in this phase. Editing a collection field changes the underlying record; its UI and persistence must be distinguished from editing a shared block or page-owned block.
 
 ## Authoring and lifecycle
 

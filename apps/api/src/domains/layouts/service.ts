@@ -13,14 +13,24 @@ import {
   layoutCheckpoints,
   layouts,
   pages,
+  projects,
   repeatableItems,
 } from "../../schema";
+import { injectRepeatableItemMarkers } from "../_shared/block-markers";
+import { readLayoutSnapshot } from "../_shared/layout-source";
 import type { ServiceContext } from "../_shared/service-context";
 import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
+import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
+
+export const getLayoutInput = z.object({
+  projectSlug: z.string(),
+  layoutId: z.string(),
+  source: z.enum(["live", "draft"]).default("live"),
+});
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
 export const publishLayoutInput = z.object({ id: z.number() });
@@ -262,6 +272,57 @@ export async function listLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
     ...layout,
     ...(statuses.get(layout.id) ?? { status: "draft" as const, affectedPagesCount: 0 }),
   }));
+}
+
+// Standalone layout reads use the same persisted blocks and live checkpoints as curated pages.
+export async function getLayout(ctx: ServiceContext, rawInput: z.input<typeof getLayoutInput>) {
+  const { projectSlug, layoutId, source } = getLayoutInput.parse(rawInput);
+  const user = source === "draft" ? assertUser(ctx) : null;
+  const project = await ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get();
+  if (!project) throw new ORPCError("NOT_FOUND");
+  const environment = await resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  const layout = await ctx.db
+    .select()
+    .from(layouts)
+    .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
+    .get();
+  if (!layout) throw new ORPCError("NOT_FOUND");
+  if (user) await assertLayoutAccess(ctx.db, layout.id, user.id);
+
+  const snapshot =
+    source === "draft"
+      ? await buildLayoutSnapshotFromDraft(ctx, layout)
+      : await readLayoutSnapshot(ctx, layout);
+  const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);
+  const items = sortByPosition(snapshot?.repeatableItems ?? []);
+  const normalized = layoutBlocks.map((block) =>
+    injectRepeatableItemMarkers(
+      block,
+      items.filter((item) => item.blockId === block.id),
+    ),
+  );
+  const fileIds = new Set<number>();
+  for (const value of [...layoutBlocks, ...items])
+    collectFileIds(value.content as Record<string, unknown>, fileIds);
+  const fileRows = await buildFileMap(ctx.db, fileIds);
+  return {
+    layout: {
+      id: layout.id,
+      layoutId: layout.layoutId,
+      contentUpdatedAt: layout.contentUpdatedAt,
+      updatedAt: layout.updatedAt,
+      livePublishedCheckpointId: layout.livePublishedCheckpointId,
+      beforeBlockIds: layoutBlocks
+        .filter((block) => block.placement === "before")
+        .map((block) => block.id),
+      afterBlockIds: layoutBlocks
+        .filter((block) => block.placement === "after")
+        .map((block) => block.id),
+    },
+    blocks: normalized.map(({ block }) => block),
+    repeatableItems: normalized.flatMap(({ items }) => items),
+    files: [...fileRows.values()],
+  };
 }
 
 // --- Writes ---

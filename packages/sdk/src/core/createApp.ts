@@ -14,8 +14,19 @@ export function createApp({ blocks, layouts = [] }: CreateAppOptions) {
     blocksMap.set(block._internal.id, block);
   }
 
+  const derivedPatterns = new Set<string>();
   for (const layout of layouts) {
-    layoutsMap.set(layout._internal.id, layout);
+    const { id, kind } = layout._internal;
+    if (layoutsMap.has(id)) throw new Error(`Duplicate layout: ${id}`);
+    if (kind === "derived") {
+      const pattern = id
+        .split(".")
+        .map((segment) => (segment.startsWith("$") ? "$" : segment))
+        .join(".");
+      if (derivedPatterns.has(pattern)) throw new Error(`Equivalent derived route: ${id}`);
+      derivedPatterns.add(pattern);
+    }
+    layoutsMap.set(id, layout);
   }
 
   // Validate that at most one layout defines blocks.initial
@@ -66,7 +77,7 @@ export function createApp({ blocks, layouts = [] }: CreateAppOptions) {
           hasInitialBlocks: true,
         };
       }
-      const fallback = layouts[0];
+      const fallback = layouts.find((layout) => layout._internal.kind === "curated");
       if (!fallback) return null;
       return { layoutId: fallback._internal.id, blocks: [], hasInitialBlocks: false };
     },

@@ -1,6 +1,5 @@
 import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import * as React from "react";
 
 import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
@@ -9,6 +8,7 @@ import { viewBlockQueries } from "../../lib/view-queries";
 import { useLocation } from "../navigation/navigation";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { SharedLayoutContent } from "./SharedLayoutContent";
 
 function pageStructureQueryFn(path: string, projectSlug: string, source: ReadSource) {
   return () => getApiClient().pages.getStructure({ path, projectSlug, source });
@@ -61,46 +61,24 @@ export function PublishedPageContent({ source }: { source: ReadSource }) {
   );
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;
 
-  const layoutBlocksMap = React.useMemo(() => {
-    if (!pageData.layout) return null;
-    const blocks: Record<
-      string,
-      {
-        _id: number;
-        type: string;
-        content: Record<string, unknown>;
-        settings?: Record<string, unknown>;
-        position: string;
-      }
-    > = {};
-    for (const block of [...beforeBlocks, ...afterBlocks]) {
-      blocks[block.type] = {
-        _id: block.id,
-        type: block.type,
-        content: block.content as Record<string, unknown>,
-        settings: block.settings as Record<string, unknown> | undefined,
-        position: String(block.position),
-      };
-    }
-    return blocks;
-  }, [afterBlocks, beforeBlocks, pageData.layout]);
-
   const pageBlocksContent = pageBlocks.map((block) => (
     <BlockErrorBoundary key={block.id} blockId={block.id} blockType={block.type}>
       <PublishedBlock blockId={block.id} mode="site" source={source} />
     </BlockErrorBoundary>
   ));
 
-  if (!layout || !layoutBlocksMap) {
+  if (!layout) {
     return <main className="flex min-h-screen flex-col">{pageBlocksContent}</main>;
   }
 
-  const LayoutComponent = layout._internal.component;
   return (
-    <NormalizedDataProvider files={layoutFiles} repeatableItems={layoutItems}>
-      <layout._internal.Provider layoutBlocks={layoutBlocksMap}>
-        <LayoutComponent>{pageBlocksContent}</LayoutComponent>
-      </layout._internal.Provider>
-    </NormalizedDataProvider>
+    <SharedLayoutContent
+      layout={layout}
+      blocks={[...beforeBlocks, ...afterBlocks]}
+      files={layoutFiles}
+      repeatableItems={layoutItems}
+    >
+      {pageBlocksContent}
+    </SharedLayoutContent>
   );
 }

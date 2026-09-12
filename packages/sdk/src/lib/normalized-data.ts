@@ -77,7 +77,10 @@ function useStableArray<T>(next: T[]): T[] {
   return ref.current;
 }
 
-export function usePageBlocks(pageStructure: PageStructure, source: ReadSource = "draft") {
+export function usePageBlocks(
+  pageStructure: { page: Pick<PageStructure["page"], "blockIds">; layout: PageStructure["layout"] },
+  source: ReadSource = "draft",
+) {
   const blockIds = pageStructure.page.blockIds;
   const beforeIds = pageStructure.layout?.beforeBlockIds ?? EMPTY_IDS;
   const afterIds = pageStructure.layout?.afterBlockIds ?? EMPTY_IDS;
@@ -173,7 +176,7 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<nu
 
 export function seedBlockCaches(
   queryClient: QueryClient,
-  pageData: PageWithBlocks,
+  pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
   source: ReadSource = "draft",
 ) {
   const filesById = new Map(pageData.files.map((f) => [f.id, f]));

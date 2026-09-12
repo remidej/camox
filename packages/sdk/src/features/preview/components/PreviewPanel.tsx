@@ -122,6 +122,11 @@ interface PreviewPanelProps {
   toolbarProps?: React.ComponentProps<typeof PreviewToolbar>;
 }
 
+function CuratedBlockShortcuts() {
+  useBlockActionsShortcuts();
+  return null;
+}
+
 const PreviewPanel = ({
   children,
   isMobileExperience = false,
@@ -129,8 +134,6 @@ const PreviewPanel = ({
   projectName = "Project",
   toolbarProps,
 }: PreviewPanelProps) => {
-  useBlockActionsShortcuts();
-
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const handleIframeReady = React.useCallback((element: HTMLIFrameElement) => {
     previewStore.send({ type: "setIframeElement", element });
@@ -197,8 +200,6 @@ const PreviewPanel = ({
   }, []);
 
   if (isMobileExperience) {
-    if (!page) return null;
-
     return (
       <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
         <div className="relative min-h-0 flex-1">
@@ -206,13 +207,19 @@ const PreviewPanel = ({
             {children}
           </PreviewFrame>
         </div>
-        {!isToolbarHidden && <MobilePreviewDrawer page={page} projectName={projectName} />}
+        {!isToolbarHidden &&
+          (page ? (
+            <MobilePreviewDrawer page={page} projectName={projectName} />
+          ) : (
+            <PreviewToolbar {...toolbarProps} />
+          ))}
       </PanelContent>
     );
   }
 
   return (
     <>
+      {page && <CuratedBlockShortcuts />}
       <PanelContent className="relative overflow-hidden bg-black">
         <div className="absolute inset-0">
           {viewportMode === "full" ? (
@@ -220,7 +227,7 @@ const PreviewPanel = ({
               <PreviewFrame className="checkered h-full w-full" onIframeReady={handleIframeReady}>
                 {children}
               </PreviewFrame>
-              {isEditMode && <Overlays iframeElement={iframeElement} />}
+              {isEditMode && <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />}
               {isEditMode && <FieldToolbar />}
               <PreviewToolbar {...toolbarProps} />
             </>
@@ -241,7 +248,7 @@ const PreviewPanel = ({
                 <PreviewFrame className="overflow-auto" onIframeReady={handleIframeReady}>
                   {children}
                 </PreviewFrame>
-                {isEditMode && <Overlays iframeElement={iframeElement} />}
+                {isEditMode && <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />}
               </div>
               {isEditMode && <FieldToolbar />}
               <PreviewToolbar {...toolbarProps} />

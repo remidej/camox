@@ -84,7 +84,7 @@ const blocks = [...Object.values(rootBlockModules), ...Object.values(legacyBlock
   .map((mod) => mod.block)
   .filter(Boolean);
 const layouts = [...Object.values(rootLayoutModules), ...Object.values(legacyLayoutModules)]
-  .map((mod) => mod.layout)
+  .map((mod) => mod.Layout ?? mod.layout)
   .filter(Boolean);
 
 export const camoxApp = createApp({ blocks, layouts });

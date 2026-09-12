@@ -332,6 +332,21 @@ function useHydrateDraftCache() {
  * -----------------------------------------------------------------------------------------------*/
 
 export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
+  const pageData = usePreviewedPage();
+  useHydrateDraftCache();
+  return <PreviewShell pageData={pageData}>{children}</PreviewShell>;
+};
+
+/** Studio chrome is shared; only curated previews require a Camox page record. */
+export const PreviewShell = ({
+  children,
+  pageData,
+  hasLiveVersion = false,
+}: {
+  children: React.ReactNode;
+  pageData?: ReturnType<typeof usePreviewedPage>;
+  hasLiveVersion?: boolean;
+}) => {
   const isAuthenticated = useIsAuthenticated();
   const isMobileStudio = useIsMobileStudio();
   const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
@@ -341,13 +356,13 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
     (state) => state.context.isAddBlockSidebarOpen,
   );
   const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
-  const pageData = usePreviewedPage();
-  useHydrateDraftCache();
 
   // Gate "Preview live content" on a published snapshot existing — same rule
   // as the sidebar Switch. Without it, flipping to 'live' would Suspense on
   // an empty cache slot.
-  const hasLiveCheckpoint = pageData.page.livePublishedCheckpointId != null;
+  const hasLiveCheckpoint = pageData
+    ? pageData.page.livePublishedCheckpointId != null
+    : hasLiveVersion;
 
   React.useEffect(() => {
     if (!isMobileStudio) return;
@@ -432,8 +447,8 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
     >
       {!isMobileStudio && !isToolbarHidden && (
         <div className="relative">
-          <Navbar />
-          {isAddBlockSidebarOpen && (
+          <Navbar isPreview />
+          {pageData && isAddBlockSidebarOpen && (
             <div
               className="absolute inset-0 z-20"
               style={{ background: "rgba(0, 0, 0, 0.66)" }}
@@ -443,13 +458,13 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
         </div>
       )}
       <div className="flex h-full flex-row items-stretch">
-        {!isMobileStudio && isEditMode && <LeftSidebar page={pageData.page} />}
+        {!isMobileStudio && isEditMode && pageData && <LeftSidebar page={pageData.page} />}
         <PreviewPanel
           isMobileExperience={isMobileStudio}
-          page={pageData.page}
-          projectName={pageData.projectName}
+          page={pageData?.page}
+          projectName={pageData?.projectName}
           toolbarProps={{
-            pageStatus: pageData.page.status,
+            pageStatus: pageData?.page.status,
             hasLiveVersion: hasLiveCheckpoint,
           }}
         >
@@ -458,7 +473,7 @@ export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
             <div style={{ height: "80px", background: "transparent" }} />
           )}
         </PreviewPanel>
-        {!isMobileStudio && isEditMode && <RightSidebar pageId={pageData.page.id} />}
+        {!isMobileStudio && isEditMode && <RightSidebar pageId={pageData?.page.id} />}
       </div>
       {(isMobileStudio || isEditMode) && (
         <>

@@ -65,16 +65,15 @@ A curated layout's filename identifies the layout only: its pages still choose t
 
 ## Rendering and editing
 
-Preserve the current layout editing model for both kinds:
+Keep shared layout editing for both kinds, with page-specific composition available only on curated pages:
 
 - `before` and `after` blocks are editable and shared across all pages of the layout, with purple overlays.
-- `children` is the slot for page-specific authored blocks, with pink overlays.
-- A component can place `children` where it wants or omit it entirely when page-specific blocks are not wanted.
-- Derived layouts can render loaded data alongside these existing block slots.
+- Curated layouts retain `children` as the slot for page-specific authored blocks, with pink overlays. Their components can place or omit this slot as today.
+- Derived layouts render loaded data alongside shared `before` and `after` blocks. They do not expose page-specific `children` or allow adding independently authored blocks for an individual derived URL in this phase.
 
 Editing collection item fields is a future collection/block API concern. It should not be solved through the layout API in this phase.
 
-Derived pages with page-specific blocks will need persistent identity and storage for those blocks. A suggested approach is to create a backing Camox page record lazily when someone adds blocks, while retaining derived resolution and its loader. This storage approach is not yet settled; it must not accidentally turn such a page into a curated route that shadows its own loader.
+Derived pages do not need backing Camox page records for custom blocks. Remove the proposed lazy page-record creation from this phase. Per-URL block identity, migration across slug changes, and independent block draft/publish state are deferred along with page-specific composition. Shared layout publishing and the source data's lifecycle remain separate concerns.
 
 ## SSR and deferred scope
 
@@ -84,6 +83,7 @@ Do not design listing/discovery in this phase, including sitemaps, derived-page 
 
 Also defer:
 
+- Page-specific `children`, custom blocks, and their persistence on derived pages.
 - The collections API and collection management UI.
 - Collection-aware block fields, bindings, queries, and editing.
 - A general external-source adapter API.
@@ -92,9 +92,8 @@ Also defer:
 
 - Missing-page signaling: `throw notFound()` was proposed, with source failures remaining errors rather than 404s; it was not explicitly finalized.
 - Exact file naming, route syntax, generated declarations, and behavior while generated types are being refreshed.
-- Persistent identity for page-specific blocks on derived pages, including slug/file renames and draft/publish behavior.
 - Collision policy between curated URLs and derived routes. Curated precedence was proposed, not explicitly finalized.
 - Typed metadata/OG callbacks consuming loader data; hooks alone cannot serve these non-component callbacks.
 - Server-only loader execution during client navigation, transport of loader results, and associated serialization constraints. Server-only execution was proposed; its implementation contract remains to be designed.
 
-These details should preserve the agreed `curated | derived` model, file-based declarations, `loader`, `Layout.useData()`, and existing shared-versus-page block editing behavior.
+These details should preserve the agreed `curated | derived` model, file-based declarations, `loader`, and `Layout.useData()`. Shared blocks remain editable for both kinds; page-specific authored blocks remain exclusive to curated pages in this phase.

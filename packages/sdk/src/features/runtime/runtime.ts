@@ -4,11 +4,14 @@ import type { Link, Meta, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
 import type { CamoxDocument } from "../../core/defineDocument";
+import { matchDerivedLayout } from "../../core/derivedRoutes";
 import {
   buildCamoxPageHead,
   createMarkdownResponse,
   createServerApiClient,
   isNotFoundError,
+  isAuthSessionError,
+  seedBlockCaches,
   loadCamoxPageForRequest,
 } from "../routes/pageRuntime";
 import type { StudioRenderInput } from "./studioApp";
@@ -42,6 +45,13 @@ export interface LayoutIdentity {
 }
 
 export interface PageRenderInput {
+  derived?: {
+    layoutId: string;
+    data: unknown;
+    layout: Awaited<
+      ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["get"]>
+    >["layout"];
+  };
   apiUrl: string;
   authenticationUrl: string;
   dehydratedState: unknown;
@@ -126,10 +136,9 @@ function normalizePagePath(path: string | null): string {
 }
 
 function getLayoutIdentity(
-  data: Awaited<ReturnType<typeof loadCamoxPageForRequest>>["data"],
+  layout: Awaited<ReturnType<typeof loadCamoxPageForRequest>>["data"]["page"]["layout"],
   source: Awaited<ReturnType<typeof loadCamoxPageForRequest>>["source"],
 ): LayoutIdentity | null {
-  const layout = data.page.layout;
   if (!layout) return null;
 
   const version =
@@ -321,7 +330,7 @@ async function createPageHtmlResponse({
       environmentName: options.environmentName,
       head,
       href: new URL(request.url).href,
-      layoutIdentity: getLayoutIdentity(result.data, result.source),
+      layoutIdentity: getLayoutIdentity(result.data.page.layout, result.source),
       loaderData: result.data,
       pathname,
       projectSlug: options.projectSlug,
@@ -349,8 +358,77 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
     );
   } catch (error) {
     if (isNotFoundError(error)) {
+      const derived = await createDerivedResponse(options, pathname, request);
+      if (derived) return derived;
       return new Response("No Camox page on this path", { status: 404 });
     }
+    throw error;
+  }
+}
+
+async function createDerivedResponse(
+  options: RuntimeOptions,
+  pathname: string,
+  request: Request,
+): Promise<Response | null> {
+  const app = await options.getCamoxApp?.();
+  const match = app && matchDerivedLayout(app.getLayouts(), pathname);
+  if (!match || !options.renderPage) return null;
+  try {
+    const data = await match.layout._internal.loader!({ params: match.params });
+    // JSON is the transport contract for request-loaded layout data.
+    const serializedData = JSON.parse(JSON.stringify(data));
+    const queryClient = new QueryClient();
+    const authCookieHeader = getServerAuthCookieHeader(request.headers);
+    let source: "live" | "draft" = authCookieHeader ? "draft" : "live";
+    let clearAuthCookie = false;
+    const loadLayout = (source: "live" | "draft") =>
+      createServerApiClient(options.apiUrl!, options.environmentName, {
+        authCookieHeader: source === "draft" ? authCookieHeader : undefined,
+      }).layouts.get({
+        projectSlug: options.projectSlug!,
+        layoutId: match.layout._internal.id,
+        source,
+      });
+    const shared = await loadLayout(source).catch(async (error) => {
+      if (source !== "draft" || !isAuthSessionError(error)) throw error;
+      source = "live";
+      clearAuthCookie = true;
+      return loadLayout("live");
+    });
+    seedBlockCaches(queryClient, shared, source);
+    const input: PageRenderInput = {
+      apiUrl: options.apiUrl!,
+      authenticationUrl: options.authenticationUrl!,
+      projectSlug: options.projectSlug!,
+      environmentName: options.environmentName,
+      dehydratedState: dehydrate(queryClient),
+      head: {},
+      href: request.url,
+      layoutIdentity: getLayoutIdentity(shared.layout, source),
+      loaderData: null,
+      pathname,
+      runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      source,
+      derived: { layoutId: match.layout._internal.id, data: serializedData, layout: shared.layout },
+    };
+    const html = await options.renderPage(input);
+    const head = renderHead(
+      (await options.getDocument?.()) ?? {},
+      { title: match.layout._internal.title },
+      options.stylesheetUrl,
+    );
+    return new Response(
+      `<!doctype html><html${head.htmlAttrs}><head>${head.headTags}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+        },
+      },
+    );
+  } catch (error) {
+    if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
     throw error;
   }
 }
@@ -455,7 +533,7 @@ async function createPageDataResponse({
             metaDescription: page.metaDescription,
           },
           layout: layout ? { id: layout.id, layoutId: layout.layoutId } : null,
-          layoutIdentity: getLayoutIdentity(result.data, result.source),
+          layoutIdentity: getLayoutIdentity(result.data.page.layout, result.source),
           project: { id: project.id, name: projectName },
           loaderData: {
             faviconUrl: result.data.faviconUrl,
