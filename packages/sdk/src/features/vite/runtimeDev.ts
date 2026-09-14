@@ -161,6 +161,7 @@ function generateVirtualCamoxServer(runtimeBasePath?: string): string {
 import { camoxApp } from "virtual:camox/app";
 import { camoxDocument } from "virtual:camox/document";
 import appStylesheetUrl from "virtual:camox/app-stylesheet-url";
+import studioStylesheetUrl from "virtual:camox-studio-css";
 import pageClientEntryUrl from "virtual:camox/page-client-url";
 import studioClientEntryUrl from "virtual:camox/studio-client-url";
 import { renderPage } from "virtual:camox/page-server";
@@ -180,6 +181,7 @@ export async function handleCamoxRequest(request) {
     renderStudio,
     runtimeBasePath: ${JSON.stringify(runtimeBasePath)},
     stylesheetUrl: appStylesheetUrl,
+    studioStylesheetUrl,
   });
 }
 `;

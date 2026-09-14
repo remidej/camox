@@ -3,6 +3,10 @@ import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
 
+import { useLocation, useNavigate } from "../../navigation/navigation";
+import { PreviewDocumentContext } from "../../runtime/PreviewDocumentContext";
+import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "./previewStyles";
+
 interface FrameContextValue {
   window: Window | null;
   iframeElement: HTMLIFrameElement | null;
@@ -33,6 +37,13 @@ interface FrameProps {
   onIframeReady?: (iframe: HTMLIFrameElement) => void;
 }
 
+function ClearServerMarkup({ nodes }: { nodes: ChildNode[] }) {
+  React.useLayoutEffect(() => {
+    nodes.forEach((node) => node.remove());
+  }, [nodes]);
+  return null;
+}
+
 export const Frame = ({
   children,
   className,
@@ -40,6 +51,16 @@ export const Frame = ({
   copyStyles = true,
   onIframeReady,
 }: FrameProps) => {
+  const navigate = useNavigate();
+  const { pathname, hash, href } = useLocation();
+  const previewDocument = React.useContext(PreviewDocumentContext);
+  // Freeze the srcdoc for this iframe's lifetime. Route updates go through the
+  // existing portal, not a document reload that would reset the site's theme.
+  const [srcDoc] = React.useState(previewDocument ?? EMPTY_PREVIEW_DOCUMENT);
+  const [serverNodes, setServerNodes] = React.useState<ChildNode[]>([]);
+  const initializedDocument = React.useRef<Document | null>(null);
+  const navigateRef = React.useRef(navigate);
+  navigateRef.current = navigate;
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const [iframeWindow, setIframeWindow] = React.useState<Window | null>(null);
   const [iframeElement, setIframeElement] = React.useState<HTMLIFrameElement | null>(null);
@@ -54,14 +75,10 @@ export const Frame = ({
       const iframeDoc = iframe.contentDocument;
       const iframeWin = iframe.contentWindow;
 
-      if (!iframeDoc || !iframeWin) return;
-
-      // Set up basic document structure
-      iframeDoc.open();
-      iframeDoc.write(
-        "<!DOCTYPE html><html><head></head><body style='background: transparent;'></body></html>",
-      );
-      iframeDoc.close();
+      const root = iframeDoc?.querySelector<HTMLElement>("[data-camox-preview-root]");
+      // Ignore the iframe's initial about:blank document and duplicate loads.
+      if (!iframeDoc || !iframeWin || !root || initializedDocument.current === iframeDoc) return;
+      initializedDocument.current = iframeDoc;
 
       // Navigate the top-level window when a native <a> is clicked inside the
       // iframe. Links managed by a client-side router (e.g. TanStack Router's
@@ -70,27 +87,40 @@ export const Frame = ({
       // AFTER React's event delegation (which is on the document/body), giving
       // React a chance to call preventDefault() first.
       iframeWin.addEventListener("click", (e) => {
-        if (e.defaultPrevented) return;
+        if (
+          e.defaultPrevented ||
+          e.button !== 0 ||
+          e.metaKey ||
+          e.ctrlKey ||
+          e.altKey ||
+          e.shiftKey
+        )
+          return;
         const anchor = (e.target as Element).closest("a");
-        if (!anchor?.href) return;
-        if (anchor.target === "_blank") return;
+        if (!anchor?.href || anchor.hasAttribute("download")) return;
+        if (anchor.target && anchor.target !== "_self") return;
         e.preventDefault();
-        window.top?.location.assign(anchor.href);
+        void navigateRef.current({
+          to: new URL(anchor.getAttribute("href")!, window.location.href).href,
+        });
       });
 
-      // Copy styles from parent document if requested
-      if (copyStyles) {
+      // Legacy integrations without a server-built site document may copy
+      // host styles, but never the studio's reset, utilities or theme tokens.
+      if (copyStyles && srcDoc === EMPTY_PREVIEW_DOCUMENT) {
         const headStyles = Array.from(
           document.head.querySelectorAll('style, link[rel="stylesheet"]'),
         );
-        headStyles.forEach((style) => {
+        headStyles.filter(isSiteStyle).forEach((style) => {
           const clonedStyle = style.cloneNode(true);
           iframeDoc.head.appendChild(clonedStyle);
         });
       }
 
-      // Set the mount node to the iframe's body
-      setMountNode(iframeDoc.body);
+      // Leave the SSR content in place until the portal actually commits.
+      // Clearing it on load would reveal a blank frame if editing suspends.
+      setServerNodes(Array.from(root.childNodes));
+      setMountNode(root);
       setIframeWindow(iframeWin);
       setIframeElement(iframe);
       onIframeReady?.(iframe);
@@ -107,7 +137,26 @@ export const Frame = ({
     return () => {
       iframe.removeEventListener("load", handleLoad);
     };
-  }, [copyStyles, onIframeReady]);
+  }, [copyStyles, onIframeReady, srcDoc]);
+
+  React.useEffect(() => {
+    if (!iframeWindow || !mountNode) return;
+    let base = iframeWindow.document.querySelector("base");
+    if (!base) {
+      base = iframeWindow.document.createElement("base");
+      iframeWindow.document.head.insertBefore(base, iframeWindow.document.head.firstChild);
+    }
+    base.href = href;
+    if (!hash) {
+      iframeWindow.scrollTo({ top: 0 });
+      return;
+    }
+    try {
+      iframeWindow.document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
+    } catch {
+      // Malformed hash escapes must not break navigation.
+    }
+  }, [pathname, hash, href, iframeWindow, mountNode]);
 
   // Monitor for Base UI portaled popups in body
   React.useEffect(() => {
@@ -139,8 +188,20 @@ export const Frame = ({
       {/* because otherwise Base UI wouldn't detect pointer events that happen on the iframe */}
       {hasOpenPopup && <div className="absolute top-0 left-0 h-full w-full" />}
       <FrameContext.Provider value={{ window: iframeWindow, iframeElement }}>
-        <iframe ref={iframeRef} className={cn("w-full h-full")} />
-        {mountNode && createPortal(children, mountNode)}
+        <iframe
+          ref={iframeRef}
+          title="Page preview"
+          srcDoc={srcDoc}
+          className={cn("w-full h-full")}
+        />
+        {mountNode &&
+          createPortal(
+            <>
+              <ClearServerMarkup nodes={serverNodes} />
+              {children}
+            </>,
+            mountNode,
+          )}
       </FrameContext.Provider>
     </div>
   );

@@ -5,6 +5,7 @@ import type { Link, Meta, UseHeadInput } from "unhead/types";
 import type { CamoxApp } from "../../core/createApp";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { matchDerivedLayout } from "../../core/derivedRoutes";
+import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildCamoxPageHead,
   createMarkdownResponse,
@@ -14,6 +15,7 @@ import {
   seedBlockCaches,
   loadCamoxPageForRequest,
 } from "../routes/pageRuntime";
+import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
 import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
@@ -45,6 +47,10 @@ export interface LayoutIdentity {
 }
 
 export interface PageRenderInput {
+  previewDocument?: string;
+  routeKind?: "studio" | "studio-content" | "studio-nested";
+  project?: Awaited<ReturnType<ReturnType<typeof createServerApiClient>["projects"]["getBySlug"]>>;
+  presentation?: "public" | "studio";
   derived?: {
     layoutId: string;
     data: unknown;
@@ -79,6 +85,7 @@ export interface RuntimeOptions {
   renderStudio?: (input: StudioRenderInput) => Promise<string>;
   runtimeBasePath?: string;
   stylesheetUrl?: string;
+  studioStylesheetUrl?: string;
 }
 
 function buildClearServerAuthCookieHeader() {
@@ -268,10 +275,19 @@ export function createPageHeadInput(head: {
   };
 }
 
-function renderHead(document: CamoxDocument, pageHead: UseHeadInput, stylesheetUrl?: string) {
+function renderHead(
+  document: CamoxDocument,
+  pageHead: UseHeadInput,
+  stylesheetUrl?: string,
+  studioStylesheetUrl?: string,
+) {
   const head = createHead();
   head.push(createDefaultHeadInput(stylesheetUrl));
   head.push(document);
+  if (studioStylesheetUrl)
+    head.push({
+      link: [{ rel: "stylesheet", href: studioStylesheetUrl, "data-camox-studio": "true" }],
+    });
   head.push(pageHead);
   return renderSSRHead(head);
 }
@@ -283,6 +299,38 @@ function serializeJsonForHtml(value: unknown): string {
 function renderClientEntryScript(src?: string): string {
   if (!src) return "";
   return `<script type="module" src="${escapeXml(src)}"></script>`;
+}
+
+async function preparePreviewDocument(
+  input: PageRenderInput,
+  options: RuntimeOptions,
+  document: CamoxDocument,
+  content?: string,
+) {
+  const siteHead = renderHead(
+    document,
+    createPageHeadInput((input.head ?? {}) as Parameters<typeof createPageHeadInput>[0]),
+    options.stylesheetUrl,
+  );
+  const href = new URL(withRuntimeBasePath(input.pathname, options.runtimeBasePath), input.href)
+    .href;
+  const siteHtml =
+    content ??
+    (options.renderPage
+      ? await options.renderPage({
+          ...input,
+          href,
+          presentation: "public",
+          previewDocument: undefined,
+        })
+      : "");
+  input.previewDocument = `<!doctype html><html${siteHead.htmlAttrs}><head><base href="${escapeXml(href)}">${siteHead.headTags}</head><body${siteHead.bodyAttrs}>${siteHead.bodyTagsOpen}<div id="root" data-camox-preview-root>${siteHtml}</div>${siteHead.bodyTags}</body></html>`;
+}
+
+function renderStudioThemeScript(enabled: boolean) {
+  return enabled
+    ? `<script data-camox-studio>${STUDIO_THEME_SCRIPT}${PLATFORM_SCRIPT}</script>`
+    : "";
 }
 
 async function createPageHtmlResponse({
@@ -314,7 +362,9 @@ async function createPageHtmlResponse({
       projectSlug: options.projectSlug,
       queryClient,
     });
-    const headers = new Headers({ "Content-Type": "text/html; charset=utf-8" });
+    const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", Vary: "Cookie" });
+    if (getServerAuthCookieHeader(request.headers))
+      headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }
@@ -323,7 +373,15 @@ async function createPageHtmlResponse({
     const document = (await options.getDocument?.()) ?? {};
     const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data) : {};
     const dehydratedState = dehydrate(queryClient);
+    const project =
+      result.source === "draft"
+        ? await createServerApiClient(options.apiUrl, options.environmentName, {
+            authCookieHeader: getServerAuthCookieHeader(request.headers),
+          }).projects.getBySlug({ slug: options.projectSlug })
+        : undefined;
     const pageRenderInput = {
+      project,
+      presentation: result.source === "draft" ? "studio" : "public",
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl,
       dehydratedState,
@@ -337,13 +395,27 @@ async function createPageHtmlResponse({
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
       source: result.source,
     } satisfies PageRenderInput;
+    // Public documents only need site head/attributes for possible client-side
+    // studio activation; avoid rendering or serializing their page content twice.
+    await preparePreviewDocument(
+      pageRenderInput,
+      options,
+      document,
+      result.source === "live" ? "" : undefined,
+    );
     const appHtml = await options.renderPage(pageRenderInput);
-    const renderedHead = renderHead(document, createPageHeadInput(head), options.stylesheetUrl);
+    const renderedHead = renderHead(
+      result.source === "draft" ? {} : document,
+      createPageHeadInput(head),
+      result.source === "draft" ? undefined : options.stylesheetUrl,
+      result.source === "draft" ? options.studioStylesheetUrl : undefined,
+    );
 
     return new Response(
       `<!doctype html>
 <html${renderedHead.htmlAttrs}>
 <head>
+${renderStudioThemeScript(result.source === "draft")}
 ${renderedHead.headTags}
 <script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(pageRenderInput)}</script>
 </head>
@@ -370,10 +442,11 @@ async function createDerivedResponse(
   options: RuntimeOptions,
   pathname: string,
   request: Request,
+  dataOnly = false,
 ): Promise<Response | null> {
   const app = await options.getCamoxApp?.();
   const match = app && matchDerivedLayout(app.getLayouts(), pathname);
-  if (!match || !options.renderPage) return null;
+  if (!match || (!dataOnly && !options.renderPage)) return null;
   try {
     const data = await match.layout._internal.loader!({ params: match.params });
     // JSON is the transport contract for request-loaded layout data.
@@ -397,13 +470,21 @@ async function createDerivedResponse(
       return loadLayout("live");
     });
     seedBlockCaches(queryClient, shared, source);
+    const project =
+      source === "draft"
+        ? await createServerApiClient(options.apiUrl!, options.environmentName, {
+            authCookieHeader,
+          }).projects.getBySlug({ slug: options.projectSlug! })
+        : undefined;
     const input: PageRenderInput = {
+      project,
+      presentation: source === "draft" ? "studio" : "public",
       apiUrl: options.apiUrl!,
       authenticationUrl: options.authenticationUrl!,
       projectSlug: options.projectSlug!,
       environmentName: options.environmentName,
       dehydratedState: dehydrate(queryClient),
-      head: {},
+      head: { meta: [{ title: match.layout._internal.title }] },
       href: request.url,
       layoutIdentity: getLayoutIdentity(shared.layout, source),
       loaderData: null,
@@ -412,17 +493,35 @@ async function createDerivedResponse(
       source,
       derived: { layoutId: match.layout._internal.id, data: serializedData, layout: shared.layout },
     };
-    const html = await options.renderPage(input);
+    const document = (await options.getDocument?.()) ?? {};
+    await preparePreviewDocument(
+      input,
+      options,
+      document,
+      source === "live" && !dataOnly ? "" : undefined,
+    );
+    if (dataOnly)
+      return Response.json(input, {
+        headers: {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+          ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+        },
+      });
+    const html = await options.renderPage!(input);
     const head = renderHead(
-      (await options.getDocument?.()) ?? {},
+      source === "draft" ? {} : document,
       { title: match.layout._internal.title },
-      options.stylesheetUrl,
+      source === "draft" ? undefined : options.stylesheetUrl,
+      source === "draft" ? options.studioStylesheetUrl : undefined,
     );
     return new Response(
-      `<!doctype html><html${head.htmlAttrs}><head>${head.headTags}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(source === "draft")}${head.headTags}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
       {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
+          Vary: "Cookie",
+          ...(authCookieHeader ? { "Cache-Control": "private, no-store" } : {}),
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
       },
@@ -437,16 +536,18 @@ async function createStudioHtmlResponse({
   match,
   options,
   request,
+  dataOnly = false,
 }: {
   match: RuntimeRouteMatch;
   options: RuntimeOptions;
   request: Request;
+  dataOnly?: boolean;
 }): Promise<Response> {
   if (
     !options.apiUrl ||
     !options.authenticationUrl ||
     !options.projectSlug ||
-    !options.renderStudio
+    (!dataOnly && !options.renderStudio)
   ) {
     return Response.json(
       { message: "Camox Studio renderer is not configured.", ...match },
@@ -455,8 +556,30 @@ async function createStudioHtmlResponse({
   }
 
   const queryClient = new QueryClient();
-  const document = (await options.getDocument?.()) ?? {};
+  // A successful protected project lookup validates both session and project access.
+  // Cookie presence alone is not proof of authentication.
+  const authCookieHeader = getServerAuthCookieHeader(request.headers);
+  let project: PageRenderInput["project"];
+  let presentation: "public" | "studio" = "public";
+  let clearAuthCookie = false;
+  if (authCookieHeader) {
+    try {
+      project = await createServerApiClient(options.apiUrl, options.environmentName, {
+        authCookieHeader,
+      }).projects.getBySlug({ slug: options.projectSlug });
+      presentation = "studio";
+    } catch (error) {
+      if (!isAuthSessionError(error)) throw error;
+      clearAuthCookie = true;
+    }
+  }
   const studioRenderInput = {
+    project,
+    source: "live",
+    head: { meta: [{ title: "Camox Studio" }] },
+    layoutIdentity: null,
+    loaderData: null,
+    presentation,
     apiUrl: options.apiUrl,
     authenticationUrl: options.authenticationUrl,
     dehydratedState: dehydrate(queryClient),
@@ -467,13 +590,27 @@ async function createStudioHtmlResponse({
     routeKind: match.kind as "studio" | "studio-content" | "studio-nested",
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
   } satisfies StudioRenderInput;
-  const appHtml = await options.renderStudio(studioRenderInput);
-  const renderedHead = renderHead(document, {}, options.stylesheetUrl);
+  if (dataOnly)
+    return Response.json(studioRenderInput, {
+      headers: {
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+        ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+      },
+    });
+  const appHtml = await options.renderStudio!(studioRenderInput);
+  const renderedHead = renderHead(
+    {},
+    { title: "Camox Studio" },
+    undefined,
+    presentation === "studio" ? options.studioStylesheetUrl : undefined,
+  );
 
   return new Response(
     `<!doctype html>
 <html${renderedHead.htmlAttrs}>
 <head>
+${renderStudioThemeScript(presentation === "studio")}
 ${renderedHead.headTags}
 <script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(studioRenderInput)}</script>
 </head>
@@ -484,7 +621,14 @@ ${renderedHead.bodyTags}
 ${renderClientEntryScript(options.studioClientEntryUrl)}
 </body>
 </html>`,
-    { headers: { "Content-Type": "text/html; charset=utf-8" } },
+    {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        Vary: "Cookie",
+        ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+      },
+    },
   );
 }
 
@@ -512,7 +656,11 @@ async function createPageDataResponse({
       projectSlug: options.projectSlug,
       queryClient,
     });
-    const headers = new Headers({ "Content-Type": "application/json; charset=utf-8" });
+    const headers = new Headers({
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "private, no-store",
+      Vary: "Cookie",
+    });
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }
@@ -520,35 +668,34 @@ async function createPageDataResponse({
     const camoxApp = await options.getCamoxApp?.();
     const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data) : null;
     const dehydratedState = dehydrate(queryClient);
-    const { page, layout, projectName, project } = result.data.page;
-    return new Response(
-      `${JSON.stringify(
-        {
-          kind: "page",
-          pathname,
-          page: {
-            id: page.id,
-            fullPath: page.fullPath,
-            metaTitle: page.metaTitle,
-            metaDescription: page.metaDescription,
-          },
-          layout: layout ? { id: layout.id, layoutId: layout.layoutId } : null,
-          layoutIdentity: getLayoutIdentity(result.data.page.layout, result.source),
-          project: { id: project.id, name: projectName },
-          loaderData: {
-            faviconUrl: result.data.faviconUrl,
-            origin: result.data.origin,
-          },
-          head,
-          dehydratedState,
-        },
-        null,
-        2,
-      )}\n`,
-      { headers },
-    );
+    const project =
+      result.source === "draft"
+        ? await createServerApiClient(options.apiUrl, options.environmentName, {
+            authCookieHeader: getServerAuthCookieHeader(request.headers),
+          }).projects.getBySlug({ slug: options.projectSlug })
+        : undefined;
+    const input: PageRenderInput = {
+      apiUrl: options.apiUrl,
+      authenticationUrl: options.authenticationUrl ?? "",
+      environmentName: options.environmentName,
+      projectSlug: options.projectSlug,
+      runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      href: request.url,
+      presentation: result.source === "draft" ? "studio" : "public",
+      source: result.source,
+      pathname,
+      layoutIdentity: getLayoutIdentity(result.data.page.layout, result.source),
+      project,
+      loaderData: result.data,
+      head,
+      dehydratedState,
+    };
+    await preparePreviewDocument(input, options, (await options.getDocument?.()) ?? {});
+    return Response.json(input, { headers });
   } catch (error) {
     if (isNotFoundError(error)) {
+      const derived = await createDerivedResponse(options, pathname, request, true);
+      if (derived) return derived;
       return Response.json(
         { kind: "page", message: "No Camox page on this path", pathname },
         { status: 404 },
@@ -594,11 +741,13 @@ export async function handleCamoxRequest(
 
   if (match.kind === "data") {
     const url = new URL(request.url);
-    return createPageDataResponse({
-      options,
-      pathname: normalizePagePath(url.searchParams.get("path")),
-      request,
-    });
+    const targetPathname = normalizePagePath(url.searchParams.get("path"));
+    const targetMatch = matchRuntimeRoute(targetPathname);
+    if (targetMatch.kind.startsWith("studio")) {
+      return createStudioHtmlResponse({ match: targetMatch, options, request, dataOnly: true });
+    }
+    if (targetMatch.kind !== "page") return new Response("Not found", { status: 404 });
+    return createPageDataResponse({ options, pathname: targetPathname, request });
   }
 
   if (

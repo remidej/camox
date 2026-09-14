@@ -14,6 +14,7 @@ import studioCssUrl from "virtual:camox-studio-css";
 
 import { useSignInRedirect } from "../../lib/auth";
 import { PreviewPanel } from "../preview/components/PreviewPanel";
+import { EDIT_MODE_SHORTCUT } from "../preview/previewConstants";
 import { useApplyTheme } from "../studio/useTheme";
 import { actionsStore, type Action } from "./actionsStore";
 import { useAdminShortcuts } from "./useAdminShortcuts";
@@ -33,7 +34,7 @@ export function LocalhostPreviewProvider({ children }: { children: React.ReactNo
         groupLabel: "Preview",
         checkIfAvailable: () => true,
         execute: () => setIsSignInDialogOpen(true),
-        shortcut: { key: "Enter", withMeta: true },
+        shortcut: EDIT_MODE_SHORTCUT,
       },
     ] satisfies Action[];
     actionsStore.send({ type: "registerManyActions", actions });
@@ -47,7 +48,7 @@ export function LocalhostPreviewProvider({ children }: { children: React.ReactNo
 
   return (
     <>
-      <link rel="stylesheet" href={studioCssUrl} />
+      <link rel="stylesheet" href={studioCssUrl} data-camox-studio />
       <Toaster theme={resolvedTheme} position="bottom-right" offset={{ bottom: "1rem" }} />
       <div className="bg-background flex h-screen flex-col overflow-hidden">
         <PreviewPanel

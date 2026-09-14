@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import { SharedChromeContext } from "../runtime/SharedChromeContext";
 import { Navbar } from "../studio/components/Navbar";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CreatePageModal } from "./components/CreatePageModal";
@@ -25,6 +26,7 @@ import { LeftSidebar } from "./components/LeftSidebar";
 import { PeekedBlock } from "./components/PeekedBlock";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { RightSidebar } from "./components/RightSidebar";
+import { EDIT_MODE_SHORTCUT } from "./previewConstants";
 import { pageFullQueryFn } from "./previewQueryFns";
 import { previewStore } from "./previewStore";
 
@@ -349,6 +351,7 @@ export const PreviewShell = ({
 }) => {
   const isAuthenticated = useIsAuthenticated();
   const isMobileStudio = useIsMobileStudio();
+  const sharedChrome = React.useContext(SharedChromeContext);
   const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const isAddBlockSidebarOpen = useSelector(
@@ -379,7 +382,7 @@ export const PreviewShell = ({
         groupLabel: "Preview",
         checkIfAvailable: () => isAuthenticated && isEditMode,
         execute: () => previewStore.send({ type: "exitEditMode" }),
-        shortcut: { key: "Enter", withMeta: true },
+        shortcut: EDIT_MODE_SHORTCUT,
       },
       {
         id: "enter-edit-mode",
@@ -388,7 +391,7 @@ export const PreviewShell = ({
         groupLabel: "Preview",
         checkIfAvailable: () => isAuthenticated && !isEditMode && !isMobileStudio,
         execute: () => previewStore.send({ type: "enterEditMode" }),
-        shortcut: { key: "Enter", withMeta: true },
+        shortcut: EDIT_MODE_SHORTCUT,
       },
       {
         id: "preview-live-content",
@@ -441,11 +444,12 @@ export const PreviewShell = ({
   return (
     <div
       className={cn(
-        "bg-background flex h-screen flex-col overflow-hidden",
+        "bg-background flex flex-col overflow-hidden",
+        sharedChrome ? "h-full" : "h-screen",
         !isEditMode && "bg-black",
       )}
     >
-      {!isMobileStudio && !isToolbarHidden && (
+      {!sharedChrome && !isMobileStudio && !isToolbarHidden && (
         <div className="relative">
           <Navbar isPreview />
           {pageData && isAddBlockSidebarOpen && (

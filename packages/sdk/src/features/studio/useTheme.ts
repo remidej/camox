@@ -2,16 +2,55 @@ import * as React from "react";
 
 import type { Action } from "../provider/actionsStore";
 import { actionsStore } from "../provider/actionsStore";
+import {
+  bootstrapStudioTheme,
+  readStudioTheme,
+  STUDIO_THEME_STORAGE_KEY,
+  type StudioTheme,
+} from "./studioTheme";
 
-type Theme = "dark" | "light" | "system";
+type Theme = StudioTheme;
 type ResolvedTheme = "dark" | "light";
 
 let activeThemeOwnerCount = 0;
+const listeners = new Set<() => void>();
+let preference: Theme | undefined;
 
 function readStoredTheme(): Theme {
   if (typeof window === "undefined") return "system";
-  const storedTheme = localStorage.getItem("theme") as Theme | null;
-  return storedTheme || "system";
+  return preference ?? readStudioTheme();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notify() {
+  listeners.forEach((listener) => listener());
+}
+
+function applyTheme(theme = readStoredTheme()) {
+  bootstrapStudioTheme(theme);
+  // The head bootstrap owns the root; the body marker is for studio portals.
+  const resolved = document.documentElement.dataset.camoxStudioTheme!;
+  document.body.classList.remove("light", "dark");
+  document.body.classList.add("camox-studio-theme", resolved);
+  document.body.dataset.camoxStudioTheme = resolved;
+}
+
+function setTheme(theme: Theme) {
+  preference = theme;
+  try {
+    localStorage.setItem(STUDIO_THEME_STORAGE_KEY, theme);
+  } catch {
+    /* optional persistence */
+  }
+  // Also work when storage is unavailable: apply the in-memory preference.
+  applyTheme(theme);
+  notify();
 }
 
 /**
@@ -21,7 +60,7 @@ function readStoredTheme(): Theme {
  * the host site.
  */
 export function useThemeValue(): { theme: Theme } {
-  const [theme] = React.useState<Theme>(readStoredTheme);
+  const theme = React.useSyncExternalStore(subscribe, readStoredTheme, () => "system" as Theme);
   return { theme };
 }
 
@@ -31,74 +70,43 @@ export function useThemeValue(): { theme: Theme } {
  * never from contexts that share `<html>` with the user's site.
  */
 export function useApplyTheme() {
-  const [theme, setTheme] = React.useState<Theme>(readStoredTheme);
-  const [resolvedTheme, setResolvedTheme] = React.useState<ResolvedTheme>("light");
+  const theme = React.useSyncExternalStore(subscribe, readStoredTheme, () => "system" as Theme);
+  const resolvedTheme = React.useSyncExternalStore(
+    subscribe,
+    () => (document.documentElement.dataset.camoxStudioTheme === "dark" ? "dark" : "light"),
+    () => "light" as ResolvedTheme,
+  );
 
   React.useEffect(() => {
     const root = window.document.documentElement;
     const body = window.document.body;
     activeThemeOwnerCount += 1;
 
-    const applyTheme = (themeToApply: ResolvedTheme) => {
-      setResolvedTheme(themeToApply);
-      root.classList.remove("light", "dark");
-      root.classList.add(themeToApply);
-      root.dataset.camoxStudioTheme = themeToApply;
-
-      body.classList.remove("light", "dark");
-      body.classList.add("camox-studio-theme", themeToApply);
-      body.dataset.camoxStudioTheme = themeToApply;
+    setTheme(readStoredTheme());
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateSystemTheme = () => {
+      if (readStoredTheme() === "system") setTheme("system");
     };
-
-    const resolveTheme = () => {
-      if (theme !== "system") return theme;
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== STUDIO_THEME_STORAGE_KEY && event.key !== null) return;
+      preference = undefined;
+      applyTheme();
+      notify();
     };
-
-    applyTheme(resolveTheme());
-
-    const observer = new MutationObserver(() => {
-      const themeToApply = resolveTheme();
-      if (root.classList.contains(themeToApply) && body.classList.contains(themeToApply)) return;
-      applyTheme(themeToApply);
-    });
-
-    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
-    observer.observe(body, { attributes: true, attributeFilter: ["class"] });
-
-    if (theme === "system") {
-      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      const updateSystemTheme = () => applyTheme(resolveTheme());
-      mediaQuery.addEventListener("change", updateSystemTheme);
-
-      return () => {
-        mediaQuery.removeEventListener("change", updateSystemTheme);
-        observer.disconnect();
-        activeThemeOwnerCount -= 1;
-        if (activeThemeOwnerCount > 0) return;
-        root.classList.remove("light", "dark");
-        delete root.dataset.camoxStudioTheme;
-        body.classList.remove("camox-studio-theme", "light", "dark");
-        delete body.dataset.camoxStudioTheme;
-      };
-    }
-
-    // On unmount (e.g. user signs out → studio chrome unmounts), clear the
-    // class so the host page returns to its default (light) state.
+    mediaQuery.addEventListener("change", updateSystemTheme);
+    window.addEventListener("storage", onStorage);
     return () => {
-      observer.disconnect();
+      mediaQuery.removeEventListener("change", updateSystemTheme);
+      window.removeEventListener("storage", onStorage);
       activeThemeOwnerCount -= 1;
       if (activeThemeOwnerCount > 0) return;
       root.classList.remove("light", "dark");
+      root.style.removeProperty("color-scheme");
       delete root.dataset.camoxStudioTheme;
       body.classList.remove("camox-studio-theme", "light", "dark");
       delete body.dataset.camoxStudioTheme;
     };
-  }, [theme]);
-
-  React.useEffect(() => {
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+  }, []);
 
   return {
     theme,

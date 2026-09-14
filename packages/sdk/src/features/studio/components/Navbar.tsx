@@ -10,6 +10,7 @@ import { useProjectSlug } from "@/lib/auth";
 import { pageQueries, projectQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { PlatformLabel } from "../../../components/PlatformLabel";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
@@ -59,11 +60,6 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
     enabled: !!project,
   });
 
-  const isMac = React.useMemo(
-    () => typeof navigator !== "undefined" && navigator.userAgent.toUpperCase().indexOf("MAC") >= 0,
-    [],
-  );
-
   const { pathname } = useLocation();
   return (
     <nav className="bg-background relative flex items-center justify-between gap-4 border-b-2 px-2 py-2">
@@ -101,7 +97,9 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
         <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
           <SearchIcon className="text-muted-foreground size-4" />
           <span className="text-muted-foreground">Quick find</span>
-          <Kbd className="ml-4">{isMac ? "⌘" : "Ctrl"} K</Kbd>
+          <Kbd className="ml-4">
+            <PlatformLabel mac="⌘ K" other="Ctrl K" />
+          </Kbd>
         </Button>
         <UserButton />
       </div>

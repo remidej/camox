@@ -62,16 +62,19 @@ function NavigationProvider({
   children,
   getLocation = getBrowserLocation,
   initialLocation,
+  location: controlledLocation,
   navigate = browserNavigate,
 }: {
   children: React.ReactNode;
   getLocation?: () => LocationState;
   initialLocation?: LocationState;
+  location?: LocationState;
   navigate?: (options: NavigateOptions) => Promise<void> | void;
 }) {
   const [location, setLocation] = React.useState(initialLocation ?? getLocation);
 
   React.useEffect(() => {
+    if (controlledLocation) return;
     const updateLocation = () => setLocation(getLocation());
     window.addEventListener("popstate", updateLocation);
     window.addEventListener("camox:navigation", updateLocation);
@@ -79,9 +82,12 @@ function NavigationProvider({
       window.removeEventListener("popstate", updateLocation);
       window.removeEventListener("camox:navigation", updateLocation);
     };
-  }, [getLocation]);
+  }, [getLocation, controlledLocation]);
 
-  const value = React.useMemo(() => ({ location, navigate }), [location, navigate]);
+  const value = React.useMemo(
+    () => ({ location: controlledLocation ?? location, navigate }),
+    [controlledLocation, location, navigate],
+  );
   return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;
 }
 
@@ -125,6 +131,7 @@ const Link: React.ForwardRefExoticComponent<LinkProps & React.RefAttributes<HTML
         onClick={(event) => {
           onClick?.(event);
           if (event.defaultPrevented) return;
+          if (props.download !== undefined) return;
           if (target && target !== "_self") return;
           if (event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return;
           if (event.button !== 0) return;

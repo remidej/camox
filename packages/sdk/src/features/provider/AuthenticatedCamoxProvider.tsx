@@ -45,7 +45,7 @@ export function AuthenticatedCamoxProvider({ children }: { children: React.React
   const { resolvedTheme } = useApplyTheme();
   return (
     <>
-      <link rel="stylesheet" href={studioCssUrl} />
+      <link rel="stylesheet" href={studioCssUrl} data-camox-studio />
       {children}
       <Toaster theme={resolvedTheme} />
       <CommandPalette />

@@ -8,9 +8,9 @@ import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store-react";
 import { Monitor, Smartphone, Tablet, X } from "lucide-react";
 
-import { getActionShortcut } from "@/lib/utils";
+import { formatShortcut } from "@/lib/utils";
 
-import { actionsStore } from "../../provider/actionsStore";
+import { EDIT_MODE_SHORTCUT } from "../previewConstants";
 import { previewStore } from "../previewStore";
 
 interface PreviewToolbarProps {
@@ -27,9 +27,7 @@ export const PreviewToolbar = ({
   const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
-  const actions = useSelector(actionsStore, (state) => state.context.actions);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
-  const editModeActionId = isEditMode ? "exit-edit-mode" : "enter-edit-mode";
 
   if (isToolbarHidden || peekedBlock) return null;
 
@@ -51,7 +49,7 @@ export const PreviewToolbar = ({
           }}
         />
         <Label htmlFor="edit-mode" className="flex items-center gap-2">
-          Edit mode {getActionShortcut(actions, editModeActionId)}
+          Edit mode {formatShortcut(EDIT_MODE_SHORTCUT)}
         </Label>
       </div>
       <div className="flex shrink-0 items-center gap-8 self-stretch">

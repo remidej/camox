@@ -6,6 +6,7 @@ import { checkIfInputFocused, cn } from "@/lib/utils";
 
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
+import { SharedChromeContext } from "../../runtime/SharedChromeContext";
 import { previewStore, type ViewportMode } from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
@@ -134,6 +135,7 @@ const PreviewPanel = ({
   projectName = "Project",
   toolbarProps,
 }: PreviewPanelProps) => {
+  const sharedChrome = React.useContext(SharedChromeContext);
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const handleIframeReady = React.useCallback((element: HTMLIFrameElement) => {
     previewStore.send({ type: "setIframeElement", element });
@@ -211,7 +213,7 @@ const PreviewPanel = ({
           (page ? (
             <MobilePreviewDrawer page={page} projectName={projectName} />
           ) : (
-            <PreviewToolbar {...toolbarProps} />
+            !sharedChrome && <PreviewToolbar {...toolbarProps} />
           ))}
       </PanelContent>
     );
@@ -229,7 +231,7 @@ const PreviewPanel = ({
               </PreviewFrame>
               {isEditMode && <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />}
               {isEditMode && <FieldToolbar />}
-              <PreviewToolbar {...toolbarProps} />
+              {!sharedChrome && <PreviewToolbar {...toolbarProps} />}
             </>
           ) : (
             <div
@@ -251,7 +253,7 @@ const PreviewPanel = ({
                 {isEditMode && <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />}
               </div>
               {isEditMode && <FieldToolbar />}
-              <PreviewToolbar {...toolbarProps} />
+              {!sharedChrome && <PreviewToolbar {...toolbarProps} />}
             </div>
           )}
         </div>

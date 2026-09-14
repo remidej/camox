@@ -327,6 +327,7 @@ export function useProcessOtt(authClient: CamoxAuthClient) {
  * -----------------------------------------------------------------------------------------------*/
 
 interface AuthContextValue {
+  initialAuthenticated?: boolean;
   authClient: CamoxAuthClient;
   authenticationUrl: string;
   apiUrl: string;
@@ -350,12 +351,21 @@ export function useProjectSlug() {
   return useAuthContext().projectSlug;
 }
 
+const subscribeToHydration = () => () => {};
+
 export function useAuthState() {
-  const { authClient } = useAuthContext();
+  const { authClient, initialAuthenticated = false } = useAuthContext();
   const { data: session, isPending } = authClient.useSession();
+  const hydrated = React.useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
+  // Presentation only: every API operation still validates the actual session.
+  const useInitial = !hydrated || isPending;
   return {
-    isAuthenticated: !!session,
-    isLoading: isPending,
+    isAuthenticated: useInitial ? initialAuthenticated : !!session,
+    isLoading: useInitial && !initialAuthenticated,
   };
 }
 

@@ -7,12 +7,15 @@ import {
 import * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
-import { useAuthState } from "../../lib/auth";
+import { useAuthState, useSignInRedirect } from "../../lib/auth";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { PublishedPageExperience } from "../page/PublishedPageExperience";
+import { Frame } from "../preview/components/Frame";
 import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
 import { PageNavigationProvider } from "./pageNavigation";
+import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
+import { RuntimeChrome } from "./RuntimeChrome";
 
 export function PageApp({
   camoxApp,
@@ -27,15 +30,26 @@ export function PageApp({
     <QueryClientProvider client={queryClient}>
       <HydrationBoundary state={input.dehydratedState as DehydratedState}>
         <PageNavigationProvider initialInput={input} queryClient={queryClient}>
-          <CoreCamoxProvider
-            camoxApp={camoxApp}
-            authenticationUrl={input.authenticationUrl}
-            apiUrl={input.apiUrl}
-            projectSlug={input.projectSlug}
-            environmentName={input.environmentName}
-          >
-            <PageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
-          </CoreCamoxProvider>
+          {(currentInput) => (
+            <CoreCamoxProvider
+              camoxApp={camoxApp}
+              authenticationUrl={input.authenticationUrl}
+              apiUrl={input.apiUrl}
+              projectSlug={input.projectSlug}
+              environmentName={input.environmentName}
+              initialAuthenticated={input.presentation === "studio"}
+              initialProject={currentInput.project}
+            >
+              <PreviewDocumentContext.Provider value={currentInput.previewDocument}>
+                <PageExperience
+                  camoxApp={camoxApp}
+                  input={currentInput}
+                  queryClient={queryClient}
+                  studioDocument={input.presentation === "studio"}
+                />
+              </PreviewDocumentContext.Provider>
+            </CoreCamoxProvider>
+          )}
         </PageNavigationProvider>
       </HydrationBoundary>
     </QueryClientProvider>
@@ -58,21 +72,14 @@ class EditingActivationBoundary extends React.Component<
   { failed: boolean }
 > {
   state = { failed: false };
-
   static getDerivedStateFromError() {
     return { failed: true };
   }
-
   componentDidCatch(error: unknown) {
-    console.error(
-      "Camox editing runtime failed to load; keeping the published page visible.",
-      error,
-    );
+    console.error("Camox editing runtime failed to load.", error);
   }
-
   render() {
-    if (this.state.failed) return this.props.fallback;
-    return this.props.children;
+    return this.state.failed ? this.props.fallback : this.props.children;
   }
 }
 
@@ -82,52 +89,63 @@ function PageExperience({
   camoxApp,
   input,
   queryClient,
+  studioDocument,
 }: {
   camoxApp: CamoxApp;
   input: PageRenderInput;
   queryClient: QueryClient;
+  studioDocument: boolean;
 }) {
-  const { isAuthenticated } = useAuthState();
+  const { isAuthenticated, isLoading } = useAuthState();
   const hasHydrated = React.useSyncExternalStore(
     subscribeToHydration,
     () => true,
     () => false,
   );
-  const [hasOtt] = React.useState(() => {
-    if (typeof window === "undefined") return false;
-    return new URL(window.location.href).searchParams.has("ott");
-  });
-  const local = isLocalhostPreview();
-  const shouldActivateEditing = isAuthenticated || input.source === "draft" || hasOtt;
-  const published = input.derived ? (
+  const signIn = useSignInRedirect();
+  React.useEffect(() => {
+    if (input.routeKind && !isAuthenticated && !isLoading) signIn();
+  }, [input.routeKind, isAuthenticated, isLoading, signIn]);
+
+  const published = input.routeKind ? (
+    <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>
+  ) : input.derived ? (
     <DerivedPageContent camoxApp={camoxApp} derived={input.derived} source={input.source} />
   ) : (
     <PublishedPageExperience source={input.source} />
   );
 
-  // SSR and the first client render must share the same tree. Studio activation
-  // (including the localhost shell) happens only after hydration completes.
-  if (!hasHydrated) return published;
-
-  if (shouldActivateEditing) {
+  const isolatedPage = <Frame>{published}</Frame>;
+  const fallback = input.routeKind ? published : isolatedPage;
+  if (isAuthenticated) {
     return (
-      <EditingActivationBoundary fallback={published}>
-        <React.Suspense fallback={published}>
-          <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
-        </React.Suspense>
-      </EditingActivationBoundary>
+      <RuntimeChrome input={input}>
+        <EditingActivationBoundary fallback={fallback}>
+          <React.Suspense fallback={fallback}>
+            {hasHydrated ? (
+              <LazyEditablePageExperience
+                camoxApp={camoxApp}
+                input={input}
+                queryClient={queryClient}
+              />
+            ) : (
+              fallback
+            )}
+          </React.Suspense>
+        </EditingActivationBoundary>
+      </RuntimeChrome>
     );
   }
-
-  if (local) {
+  if (input.routeKind) return null;
+  if (hasHydrated && isLocalhostPreview()) {
     return (
-      <EditingActivationBoundary fallback={published}>
-        <React.Suspense fallback={published}>
-          <LazyLocalhostPreviewProvider>{published}</LazyLocalhostPreviewProvider>
-        </React.Suspense>
-      </EditingActivationBoundary>
+      <React.Suspense fallback={published}>
+        <LazyLocalhostPreviewProvider>{published}</LazyLocalhostPreviewProvider>
+      </React.Suspense>
     );
   }
-
+  // After sign-out, the containing document still belongs to studio. Do not
+  // suddenly put site markup under its styles or theme while auth reconciles.
+  if (studioDocument) return <div style={{ height: "100vh" }}>{isolatedPage}</div>;
   return published;
 }

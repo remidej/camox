@@ -1,5 +1,6 @@
 import { Kbd } from "@camox/ui/kbd";
 
+import { PlatformLabel } from "../components/PlatformLabel";
 import type { Action } from "../features/provider/actionsStore";
 
 export { cn, INPUT_BASE_STYLES, INPUT_FOCUS_STYLES } from "@camox/ui/utils";
@@ -28,13 +29,10 @@ export function checkIfInputFocused(document: Document = window.document) {
 export function formatShortcut(shortcut: Action["shortcut"]) {
   if (!shortcut) return null;
 
-  const isMac = navigator.userAgent.toUpperCase().indexOf("MAC") >= 0;
+  return <Shortcut shortcut={shortcut} />;
+}
 
-  const modifiers: string[] = [];
-  if (shortcut.withMeta) modifiers.push(isMac ? "⌘" : "Ctrl");
-  if (shortcut.withAlt) modifiers.push(isMac ? "⌥" : "Alt");
-  if (shortcut.withShift) modifiers.push(isMac ? "⇧" : "Shift");
-
+function Shortcut({ shortcut }: { shortcut: NonNullable<Action["shortcut"]> }) {
   const formattedKey = (() => {
     if (shortcut.key === "Enter") return "↵";
     if (shortcut.key === "Escape") return "Esc";
@@ -46,9 +44,17 @@ export function formatShortcut(shortcut: Action["shortcut"]) {
     return shortcut.key.toUpperCase();
   })();
 
+  const label = (mac: boolean) => {
+    const modifiers: string[] = [];
+    if (shortcut.withMeta) modifiers.push(mac ? "⌘" : "Ctrl");
+    if (shortcut.withAlt) modifiers.push(mac ? "⌥" : "Alt");
+    if (shortcut.withShift) modifiers.push(mac ? "⇧" : "Shift");
+    return `${modifiers.join()} ${formattedKey}`.trim();
+  };
+
   return (
     <Kbd>
-      {modifiers.join()} {formattedKey}
+      <PlatformLabel mac={label(true)} other={label(false)} />
     </Kbd>
   );
 }

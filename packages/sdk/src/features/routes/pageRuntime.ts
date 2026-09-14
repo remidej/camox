@@ -352,9 +352,9 @@ export function buildCamoxPageHead(
         projectName: page.projectName,
         pageFullPath: page.page.fullPath,
       });
-      meta.push({ title });
     }
   }
+  meta.push({ title });
 
   if (page.page.metaDescription) {
     meta.push({ name: "description", content: page.page.metaDescription });
