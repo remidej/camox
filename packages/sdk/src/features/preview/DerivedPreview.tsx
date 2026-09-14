@@ -44,7 +44,10 @@ function AuthenticatedDerivedPreview({ camoxApp, derived, source }: DerivedPrevi
   });
 
   return (
-    <PreviewShell hasLiveVersion={layout.livePublishedCheckpointId != null}>
+    <PreviewShell
+      hasLiveVersion={layout.livePublishedCheckpointId != null}
+      derivedLayoutId={derived.layoutId}
+    >
       <DerivedPageContent
         camoxApp={camoxApp}
         derived={{ ...derived, layout }}

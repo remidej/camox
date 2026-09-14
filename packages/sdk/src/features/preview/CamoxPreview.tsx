@@ -344,10 +344,12 @@ export const PreviewShell = ({
   children,
   pageData,
   hasLiveVersion = false,
+  derivedLayoutId,
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
   hasLiveVersion?: boolean;
+  derivedLayoutId?: string;
 }) => {
   const isAuthenticated = useIsAuthenticated();
   const isMobileStudio = useIsMobileStudio();
@@ -477,7 +479,9 @@ export const PreviewShell = ({
             <div style={{ height: "80px", background: "transparent" }} />
           )}
         </PreviewPanel>
-        {!isMobileStudio && isEditMode && <RightSidebar pageId={pageData?.page.id} />}
+        {!isMobileStudio && isEditMode && (
+          <RightSidebar pageId={pageData?.page.id} derivedLayoutId={derivedLayoutId} />
+        )}
       </div>
       {(isMobileStudio || isEditMode) && (
         <>

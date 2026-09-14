@@ -2,28 +2,36 @@ import { useSelector } from "@xstate/store-react";
 
 import { CMS_SIDEBAR_WIDTH } from "../previewConstants";
 import { previewStore, selectionBlockId } from "../previewStore";
+import { DerivedPageInfoSidebar } from "./DerivedPageInfoSidebar";
 import { PageEditorSidebar } from "./PageEditorSidebar";
 import { PageInfoSidebar } from "./PageInfoSidebar";
 
-const RightSidebar = ({ pageId }: { pageId?: number }) => {
+const RightSidebar = ({
+  pageId,
+  derivedLayoutId,
+}: {
+  pageId?: number;
+  derivedLayoutId?: string;
+}) => {
   const selection = useSelector(previewStore, (state) => state.context.selection);
   const isAddBlockSidebarOpen = useSelector(
     previewStore,
     (state) => state.context.isAddBlockSidebarOpen,
   );
   const selectedBlockId = selectionBlockId(selection);
-  // Derived URLs have no page settings; show the inspector only for a shared block selection.
-  if (pageId == null && selectedBlockId == null) return null;
+  if (pageId == null && derivedLayoutId == null && selectedBlockId == null) return null;
 
   return (
     <aside
       className="bg-background relative flex shrink-0 flex-col border-l-2"
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
-      {selectedBlockId == null && pageId != null ? (
+      {selectedBlockId != null ? (
+        <PageEditorSidebar />
+      ) : pageId != null ? (
         <PageInfoSidebar pageId={pageId} />
       ) : (
-        <PageEditorSidebar />
+        <DerivedPageInfoSidebar layoutId={derivedLayoutId!} />
       )}
       {isAddBlockSidebarOpen && (
         <div
