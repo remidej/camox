@@ -467,8 +467,11 @@ export const PreviewShell = ({
         </div>
       )}
       <div className="flex h-full flex-row items-stretch">
-        {!isMobileStudio && isEditMode && (pageData || derivedLayoutId) && (
-          <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+        {!isMobileStudio && (pageData || derivedLayoutId) && (
+          // Keep publication actions registered even when editing controls are hidden.
+          <div className={isEditMode ? "contents" : "hidden"}>
+            <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+          </div>
         )}
         <PreviewPanel
           isMobileExperience={isMobileStudio}
