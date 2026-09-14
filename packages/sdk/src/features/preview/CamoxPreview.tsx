@@ -1,10 +1,5 @@
 import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
-import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
@@ -28,7 +23,6 @@ import { PeekedBlock } from "./components/PeekedBlock";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { RightSidebar } from "./components/RightSidebar";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
-import { pageFullQueryFn } from "./previewQueryFns";
 import { previewStore } from "./previewStore";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -53,7 +47,6 @@ function useIsMobileStudio() {
 
 /**
  * Fetches the current page being previewed, with live updates for authenticated users.
- * Also will switch to peeked page data if there is one.
  *
  * Data for the current route is guaranteed in queryClient cache from the loader's
  * ensureQueryData. Live updates are gated by useProjectRoom only running in
@@ -75,21 +68,8 @@ function pageStructureQueryFn(path: string, projectSlug: string, source: ReadSou
 
 export function usePreviewedPage() {
   const { pathname } = useLocation();
-  const queryClient = useQueryClient();
   const projectSlug = useProjectSlug();
-  const peekedPagePathname = useSelector(previewStore, (state) => state.context.peekedPagePathname);
   const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
-
-  // When the actual route changes, clear any stale peeked page so it doesn't
-  // override the new pathname. This handles the race condition where the
-  // PagePicker's Command `onValueChange` fires after `clearPeekedPage`.
-  const prevPathnameRef = React.useRef(pathname);
-  React.useEffect(() => {
-    if (prevPathnameRef.current !== pathname) {
-      prevPathnameRef.current = pathname;
-      previewStore.send({ type: "clearPeekedPage" });
-    }
-  }, [pathname]);
 
   // Current page: SSR loader seeds block caches on first load (both 'live'
   // and 'draft' slots, so the studio's default 'draft' view has data even
@@ -101,18 +81,7 @@ export function usePreviewedPage() {
     staleTime: Infinity,
   });
 
-  // Peeked page: uses full endpoint to seed block caches on first fetch,
-  // since those blocks may not be in cache yet.
-  const isAuthenticated = useIsAuthenticated();
-  const { data: peekedPage } = useQuery({
-    queryKey: queryKeys.pages.getByPath(peekedPagePathname ?? "", previewSource),
-    queryFn: pageFullQueryFn(queryClient, peekedPagePathname ?? "", projectSlug, previewSource),
-    enabled: isAuthenticated && !!peekedPagePathname,
-    placeholderData: keepPreviousData,
-    staleTime: Infinity,
-  });
-
-  return peekedPagePathname ? (peekedPage ?? currentPage) : currentPage;
+  return currentPage;
 }
 
 /* -------------------------------------------------------------------------------------------------

@@ -69,7 +69,6 @@ interface PreviewContext {
   viewportMode: ViewportMode;
   peekedBlock: Block | null;
   peekedBlockPosition: string | null;
-  peekedPagePathname: string | null;
   skipPeekedBlockExitAnimation: boolean;
   selection: Selection | null;
   iframeElement: HTMLIFrameElement | null;
@@ -89,7 +88,6 @@ export const previewStore = createStore({
     viewportMode: "full",
     peekedBlock: null,
     peekedBlockPosition: null,
-    peekedPagePathname: null,
     skipPeekedBlockExitAnimation: false,
     selection: null,
     iframeElement: null,
@@ -224,15 +222,6 @@ export const previewStore = createStore({
     clearSelection: (context) => ({
       ...context,
       selection: null,
-    }),
-    setPeekedPage: (context, event: { pathname: string }) => ({
-      ...context,
-      selection: null,
-      peekedPagePathname: event.pathname,
-    }),
-    clearPeekedPage: (context) => ({
-      ...context,
-      peekedPagePathname: null,
     }),
     openAddBlockSidebar: (context, event: { afterPosition?: string | null; via?: string }) => ({
       ...context,

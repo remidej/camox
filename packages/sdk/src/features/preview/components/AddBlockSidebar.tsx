@@ -37,8 +37,6 @@ const AddBlockSidebar = () => {
   const [highlightedValue, setHighlightedValue] = React.useState<string>("");
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
-  const peekedPagePathname = useSelector(previewStore, (state) => state.context.peekedPagePathname);
-  const pagePathname = peekedPagePathname ?? pathname;
   const requireDraft = useRequireDraftSource();
 
   const createBlock = useMutation({
@@ -47,7 +45,7 @@ const AddBlockSidebar = () => {
       // Optimistic insert lands in the draft cache slot only — edits never
       // touch the live snapshot. See useUpdateBlockPosition for the same
       // pattern.
-      const pageQueryKey = queryKeys.pages.getByPath(pagePathname, "draft");
+      const pageQueryKey = queryKeys.pages.getByPath(pathname, "draft");
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return {};
 
@@ -125,7 +123,7 @@ const AddBlockSidebar = () => {
     onError: (_error, _variables, context) => {
       if (context?.previousPage) {
         queryClient.setQueryData(
-          queryKeys.pages.getByPath(pagePathname, "draft"),
+          queryKeys.pages.getByPath(pathname, "draft"),
           context.previousPage,
         );
       }
@@ -137,7 +135,7 @@ const AddBlockSidebar = () => {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.pages.getByPath(pagePathname, "draft"),
+        queryKey: queryKeys.pages.getByPath(pathname, "draft"),
       });
     },
   });

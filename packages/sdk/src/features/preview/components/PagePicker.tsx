@@ -22,7 +22,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
 import { Skeleton } from "@camox/ui/skeleton";
 import { toast } from "@camox/ui/toaster";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useSelector } from "@xstate/store-react";
 import { Check, ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
@@ -48,14 +47,12 @@ const DERIVED_LAYOUT_PREFIX = "__derived_layout__:";
 
 const PagePicker = () => {
   const [open, setOpen] = React.useState(false);
-  const [highlightedValue, setHighlightedValue] = React.useState<string | null>(null);
   const camoxApp = useCamoxApp();
   const derivedLayouts = camoxApp
     .getLayouts()
     .filter((layout) => layout._internal.kind === "derived");
   const [layoutToPreview, setLayoutToPreview] = React.useState<Layout | null>(null);
   const [pageToDelete, setPageToDelete] = React.useState<Page | null>(null);
-  const peekedPagePathname = useSelector(previewStore, (state) => state.context.peekedPagePathname);
 
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
@@ -75,9 +72,7 @@ const PagePicker = () => {
   const navigate = useNavigate();
 
   const closePopover = () => {
-    previewStore.send({ type: "clearPeekedPage" });
     setOpen(false);
-    setHighlightedValue(null);
   };
 
   const handleDeletePage = async (page: Page) => {
@@ -113,10 +108,6 @@ const PagePicker = () => {
   const currentLayoutStatus = currentDerived
     ? layoutStatusById.get(currentDerived.layout._internal.id)
     : undefined;
-  const peekedFullPath =
-    peekedPagePathname ??
-    currentPage?.fullPath ??
-    (currentDerived ? `${DERIVED_LAYOUT_PREFIX}${currentDerived.layout._internal.id}` : pathname);
 
   return (
     <>
@@ -155,18 +146,7 @@ const PagePicker = () => {
           align="start"
           side="bottom"
         >
-          <Command
-            value={highlightedValue ?? peekedFullPath}
-            onValueChange={(value) => {
-              setHighlightedValue(value);
-              if (value === CREATE_PAGE_VALUE || value.startsWith(DERIVED_LAYOUT_PREFIX)) {
-                previewStore.send({ type: "clearPeekedPage" });
-                return;
-              }
-              previewStore.send({ type: "setPeekedPage", pathname: value });
-            }}
-            className="flex flex-1 flex-col overflow-hidden"
-          >
+          <Command className="flex flex-1 flex-col overflow-hidden">
             <CommandInput placeholder="Search page..." className="h-9" />
             <CommandList className="flex-1 overflow-y-auto">
               <CommandEmpty>No page found.</CommandEmpty>

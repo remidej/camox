@@ -1,18 +1,13 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
 
 import { useLocation } from "@/features/navigation/navigation";
 import { type BlockBundle, type PageStructure, blockMutations } from "@/lib/queries";
 
-import { previewStore } from "../previewStore";
-
 export function useUpdateBlockPosition() {
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
-  const peekedPagePathname = useSelector(previewStore, (state) => state.context.peekedPagePathname);
-  const pagePathname = peekedPagePathname ?? pathname;
 
   return useMutation({
     ...blockMutations.updatePosition(),
@@ -20,7 +15,7 @@ export function useUpdateBlockPosition() {
       // Optimistic updates only touch the draft cache — edits never affect
       // the live snapshot. The 'live' source slot stays as-is and the
       // studio's Live preview keeps showing the published version.
-      const pageQueryKey = queryKeys.pages.getByPath(pagePathname, "draft");
+      const pageQueryKey = queryKeys.pages.getByPath(pathname, "draft");
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return {};
 
@@ -67,7 +62,7 @@ export function useUpdateBlockPosition() {
     onError: (_error, variables, context) => {
       if (context?.previousPage) {
         queryClient.setQueryData(
-          queryKeys.pages.getByPath(pagePathname, "draft"),
+          queryKeys.pages.getByPath(pathname, "draft"),
           context.previousPage,
         );
       }
@@ -77,7 +72,7 @@ export function useUpdateBlockPosition() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.pages.getByPath(pagePathname, "draft"),
+        queryKey: queryKeys.pages.getByPath(pathname, "draft"),
       });
     },
   });
