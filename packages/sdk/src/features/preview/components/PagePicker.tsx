@@ -29,10 +29,14 @@ import * as React from "react";
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
-import { pageMutations, pageQueries, projectQueries } from "@/lib/queries";
+import { layoutQueries, pageMutations, pageQueries, projectQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import type { Layout } from "../../../core/createLayout";
+import { matchDerivedLayout, routeSegments } from "../../../core/derivedRoutes";
+import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
+import { DerivedLayoutDialog } from "./DerivedLayoutDialog";
 import { PageStatusBadge } from "./PageStatusBadge";
 
 /* -------------------------------------------------------------------------------------------------
@@ -40,14 +44,28 @@ import { PageStatusBadge } from "./PageStatusBadge";
  * -----------------------------------------------------------------------------------------------*/
 
 const CREATE_PAGE_VALUE = "__create_page__";
+const DERIVED_LAYOUT_PREFIX = "__derived_layout__:";
 
 const PagePicker = () => {
   const [open, setOpen] = React.useState(false);
+  const [highlightedValue, setHighlightedValue] = React.useState<string | null>(null);
+  const camoxApp = useCamoxApp();
+  const derivedLayouts = camoxApp
+    .getLayouts()
+    .filter((layout) => layout._internal.kind === "derived");
+  const [layoutToPreview, setLayoutToPreview] = React.useState<Layout | null>(null);
   const [pageToDelete, setPageToDelete] = React.useState<Page | null>(null);
   const peekedPagePathname = useSelector(previewStore, (state) => state.context.peekedPagePathname);
 
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
+  const { data: layoutRecords } = useQuery({
+    ...layoutQueries.list(project?.id ?? 0),
+    enabled: !!project,
+  });
+  const layoutStatusById = new Map(
+    layoutRecords?.map((layout) => [layout.layoutId, layout.status]),
+  );
   const deletePage = useMutation(pageMutations.delete());
   const { data: pages } = useQuery({
     ...pageQueries.list(project?.id ?? 0),
@@ -59,6 +77,7 @@ const PagePicker = () => {
   const closePopover = () => {
     previewStore.send({ type: "clearPeekedPage" });
     setOpen(false);
+    setHighlightedValue(null);
   };
 
   const handleDeletePage = async (page: Page) => {
@@ -90,11 +109,14 @@ const PagePicker = () => {
   }
 
   const currentPage = pages.find((page) => page.fullPath === pathname);
-  if (!currentPage) {
-    return skeleton;
-  }
-
-  const peekedFullPath = peekedPagePathname ?? currentPage.fullPath;
+  const currentDerived = currentPage ? null : matchDerivedLayout(derivedLayouts, pathname);
+  const currentLayoutStatus = currentDerived
+    ? layoutStatusById.get(currentDerived.layout._internal.id)
+    : undefined;
+  const peekedFullPath =
+    peekedPagePathname ??
+    currentPage?.fullPath ??
+    (currentDerived ? `${DERIVED_LAYOUT_PREFIX}${currentDerived.layout._internal.id}` : pathname);
 
   return (
     <>
@@ -114,12 +136,17 @@ const PagePicker = () => {
           }
         >
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="truncate">{currentPage.nickname}</span>
-            <PageStatusBadge
-              size="sm"
-              status={currentPage.status}
-              modifiedReason={currentPage.modifiedReason}
-            />
+            <span className="truncate">
+              {currentPage?.nickname ?? currentDerived?.layout._internal.title ?? "Select page"}
+            </span>
+            {currentPage && (
+              <PageStatusBadge
+                size="sm"
+                status={currentPage.status}
+                modifiedReason={currentPage.modifiedReason}
+              />
+            )}
+            {currentLayoutStatus && <PageStatusBadge size="sm" status={currentLayoutStatus} />}
           </div>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </PopoverTrigger>
@@ -129,9 +156,10 @@ const PagePicker = () => {
           side="bottom"
         >
           <Command
-            value={peekedFullPath}
+            value={highlightedValue ?? peekedFullPath}
             onValueChange={(value) => {
-              if (value === CREATE_PAGE_VALUE) {
+              setHighlightedValue(value);
+              if (value === CREATE_PAGE_VALUE || value.startsWith(DERIVED_LAYOUT_PREFIX)) {
                 previewStore.send({ type: "clearPeekedPage" });
                 return;
               }
@@ -158,7 +186,7 @@ const PagePicker = () => {
                       <Check
                         className={cn(
                           "size-4 mt-0.5 shrink-0",
-                          currentPage.fullPath !== page.fullPath && "invisible",
+                          currentPage?.fullPath !== page.fullPath && "invisible",
                         )}
                       />
                       <div className="flex min-w-0 flex-col">
@@ -226,6 +254,51 @@ const PagePicker = () => {
                   </CommandItem>
                 ))}
               </CommandGroup>
+              {derivedLayouts.length > 0 && (
+                <CommandGroup heading="Derived pages">
+                  {derivedLayouts.map((layout) => (
+                    <CommandItem
+                      key={layout._internal.id}
+                      value={`${DERIVED_LAYOUT_PREFIX}${layout._internal.id}`}
+                      keywords={[layout._internal.title]}
+                      hideCheck
+                      onSelect={() => {
+                        closePopover();
+                        const segments = routeSegments(layout._internal.id);
+                        if (!segments.some((segment) => segment.startsWith("$"))) {
+                          void navigate({ to: `/${segments.map(encodeURIComponent).join("/")}` });
+                          return;
+                        }
+                        setLayoutToPreview(layout);
+                      }}
+                    >
+                      <div className="flex min-w-0 flex-1 items-start gap-2">
+                        <Check
+                          className={cn(
+                            "size-4 mt-0.5 shrink-0",
+                            currentDerived?.layout._internal.id !== layout._internal.id &&
+                              "invisible",
+                          )}
+                        />
+                        <div className="flex min-w-0 flex-col">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <p className="truncate">{layout._internal.title}</p>
+                            {layoutStatusById.has(layout._internal.id) && (
+                              <PageStatusBadge
+                                size="sm"
+                                status={layoutStatusById.get(layout._internal.id)!}
+                              />
+                            )}
+                          </div>
+                          <p className="text-muted-foreground truncate font-mono text-xs">
+                            /{routeSegments(layout._internal.id).join("/")}
+                          </p>
+                        </div>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
             </CommandList>
             <CommandSeparator />
             <CommandGroup>
@@ -243,6 +316,19 @@ const PagePicker = () => {
           </Command>
         </PopoverContent>
       </Popover>
+      {layoutToPreview && (
+        <DerivedLayoutDialog
+          key={layoutToPreview._internal.id}
+          layout={layoutToPreview}
+          projectSlug={projectSlug}
+          currentParams={
+            currentDerived?.layout._internal.id === layoutToPreview._internal.id
+              ? currentDerived.params
+              : undefined
+          }
+          onClose={() => setLayoutToPreview(null)}
+        />
+      )}
       <AlertDialog open={!!pageToDelete} onOpenChange={(open) => !open && setPageToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

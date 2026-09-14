@@ -21,6 +21,7 @@ import { SharedChromeContext } from "../runtime/SharedChromeContext";
 import { Navbar } from "../studio/components/Navbar";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CreatePageModal } from "./components/CreatePageModal";
+import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { DraftSwitchDialog } from "./components/DraftSwitchDialog";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { PeekedBlock } from "./components/PeekedBlock";
@@ -345,11 +346,13 @@ export const PreviewShell = ({
   pageData,
   hasLiveVersion = false,
   derivedLayoutId,
+  derivedLayout,
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
   hasLiveVersion?: boolean;
   derivedLayoutId?: string;
+  derivedLayout?: DerivedLayoutStructure;
 }) => {
   const isAuthenticated = useIsAuthenticated();
   const isMobileStudio = useIsMobileStudio();
@@ -464,7 +467,9 @@ export const PreviewShell = ({
         </div>
       )}
       <div className="flex h-full flex-row items-stretch">
-        {!isMobileStudio && isEditMode && pageData && <LeftSidebar page={pageData.page} />}
+        {!isMobileStudio && isEditMode && (pageData || derivedLayoutId) && (
+          <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+        )}
         <PreviewPanel
           isMobileExperience={isMobileStudio}
           page={pageData?.page}
