@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 
 import { useLocation, useNavigate } from "../../navigation/navigation";
 import { PreviewDocumentContext } from "../../runtime/PreviewDocumentContext";
+import { PreviewActivationContext } from "./PreviewActivation";
 import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "./previewStyles";
 
 interface FrameContextValue {
@@ -33,14 +34,18 @@ interface FrameProps {
   style?: React.CSSProperties;
   /** Whether to copy parent document styles into the iframe (default: true) */
   copyStyles?: boolean;
+  /** Keep the SSR document untouched while the editing preview prepares offscreen. */
+  serverOnly?: boolean;
   /** Callback when iframe is ready, receives the iframe element */
   onIframeReady?: (iframe: HTMLIFrameElement) => void;
 }
 
 function ClearServerMarkup({ nodes }: { nodes: ChildNode[] }) {
+  const activate = React.useContext(PreviewActivationContext);
   React.useLayoutEffect(() => {
     nodes.forEach((node) => node.remove());
-  }, [nodes]);
+    activate?.();
+  }, [nodes, activate]);
   return null;
 }
 
@@ -49,6 +54,7 @@ export const Frame = ({
   className,
   style,
   copyStyles = true,
+  serverOnly = false,
   onIframeReady,
 }: FrameProps) => {
   const navigate = useNavigate();
@@ -117,6 +123,10 @@ export const Frame = ({
         });
       }
 
+      // The activation placeholder keeps its original DOM, but native links
+      // should still navigate the host while the editor is loading.
+      if (serverOnly) return;
+
       // Leave the SSR content in place until the portal actually commits.
       // Clearing it on load would reveal a blank frame if editing suspends.
       setServerNodes(Array.from(root.childNodes));
@@ -137,7 +147,7 @@ export const Frame = ({
     return () => {
       iframe.removeEventListener("load", handleLoad);
     };
-  }, [copyStyles, onIframeReady, srcDoc]);
+  }, [copyStyles, onIframeReady, srcDoc, serverOnly]);
 
   React.useEffect(() => {
     if (!iframeWindow || !mountNode) return;

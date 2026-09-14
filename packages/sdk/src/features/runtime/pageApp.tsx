@@ -11,6 +11,7 @@ import { useAuthState, useSignInRedirect } from "../../lib/auth";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { PublishedPageExperience } from "../page/PublishedPageExperience";
 import { Frame } from "../preview/components/Frame";
+import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
 import { PageNavigationProvider } from "./pageNavigation";
 import { PreviewDocumentContext } from "./PreviewDocumentContext";
@@ -118,20 +119,22 @@ function PageExperience({
   const isolatedPage = <Frame>{published}</Frame>;
   const fallback = input.routeKind ? published : isolatedPage;
   if (isAuthenticated) {
+    const editor = hasHydrated ? (
+      <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
+    ) : null;
+
     return (
       <RuntimeChrome input={input}>
         <EditingActivationBoundary fallback={fallback}>
-          <React.Suspense fallback={fallback}>
-            {hasHydrated ? (
-              <LazyEditablePageExperience
-                camoxApp={camoxApp}
-                input={input}
-                queryClient={queryClient}
-              />
-            ) : (
-              fallback
-            )}
-          </React.Suspense>
+          {input.routeKind ? (
+            <React.Suspense fallback={fallback}>{editor ?? fallback}</React.Suspense>
+          ) : (
+            <PreviewActivation
+              fallback={<Frame serverOnly={!!input.previewDocument}>{published}</Frame>}
+            >
+              {editor}
+            </PreviewActivation>
+          )}
         </EditingActivationBoundary>
       </RuntimeChrome>
     );
