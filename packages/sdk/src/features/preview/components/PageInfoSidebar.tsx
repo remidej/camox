@@ -62,12 +62,15 @@ const usePageMetadataData = (pageId: number) => {
     ...pageQueries.list(project?.id ?? 0),
     enabled: !!project,
   });
-  const { data: layouts } = useQuery({
+  const { data: allLayouts } = useQuery({
     ...layoutQueries.list(project?.id ?? 0),
     enabled: !!project,
   });
 
-  const pageLayoutRecord = layouts?.find((l) => l.id === page?.layoutId);
+  const layouts = allLayouts?.filter(
+    (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind !== "derived",
+  );
+  const pageLayoutRecord = allLayouts?.find((l) => l.id === page?.layoutId);
   const layoutDef = pageLayoutRecord
     ? camoxApp.getLayoutById(pageLayoutRecord.layoutId)
     : undefined;

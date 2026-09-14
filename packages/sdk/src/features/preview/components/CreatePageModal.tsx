@@ -17,7 +17,7 @@ import { toast } from "@camox/ui/toaster";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
@@ -50,11 +50,18 @@ const CreatePageModal = () => {
     ...pageQueries.list(project?.id ?? 0),
     enabled: !!project,
   });
-  const { data: layouts } = useQuery({
+  const { data: allLayouts } = useQuery({
     ...layoutQueries.list(project?.id ?? 0),
     enabled: !!project,
   });
   const camoxApp = useCamoxApp();
+  const layouts = useMemo(
+    () =>
+      allLayouts?.filter(
+        (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind !== "derived",
+      ),
+    [allLayouts, camoxApp],
+  );
   const navigate = useNavigate();
 
   const form = useForm({
