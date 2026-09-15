@@ -2,6 +2,7 @@ import { useSelector } from "@xstate/store-react";
 
 import { CMS_SIDEBAR_WIDTH } from "../previewConstants";
 import { previewStore, selectionBlockId } from "../previewStore";
+import { AddBlockSidebar } from "./AddBlockSidebar";
 import { DerivedPageInfoSidebar } from "./DerivedPageInfoSidebar";
 import { PageEditorSidebar } from "./PageEditorSidebar";
 import { PageInfoSidebar } from "./PageInfoSidebar";
@@ -26,19 +27,14 @@ const RightSidebar = ({
       className="bg-background relative flex shrink-0 flex-col border-l-2"
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
-      {selectedBlockId != null ? (
+      {pageId != null && isAddBlockSidebarOpen ? (
+        <AddBlockSidebar />
+      ) : selectedBlockId != null ? (
         <PageEditorSidebar />
       ) : pageId != null ? (
         <PageInfoSidebar pageId={pageId} />
       ) : (
         <DerivedPageInfoSidebar layoutId={derivedLayoutId!} />
-      )}
-      {isAddBlockSidebarOpen && (
-        <div
-          className="absolute inset-0 z-20"
-          style={{ background: "rgba(0, 0, 0, 0.66)" }}
-          onClick={() => previewStore.send({ type: "closeAddBlockSidebar" })}
-        />
       )}
     </aside>
   );

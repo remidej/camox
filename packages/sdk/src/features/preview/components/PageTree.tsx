@@ -341,8 +341,32 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
  * PageTree
  * -----------------------------------------------------------------------------------------------*/
 
+const BlockInsertionIndicator = () => {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    ref.current?.scrollIntoView({ block: "nearest" });
+  }, []);
+
+  return (
+    <div ref={ref} className="pointer-events-none relative z-30 h-2 shrink-0" aria-hidden="true">
+      <div className="bg-primary absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded-full motion-safe:animate-pulse">
+        <div className="bg-primary absolute -top-0.5 -left-0.5 size-1.5 rounded-full" />
+      </div>
+    </div>
+  );
+};
+
 const PageTree = () => {
   const page = usePreviewedPage();
+  const isAddBlockSidebarOpen = useSelector(
+    previewStore,
+    (state) => state.context.isAddBlockSidebarOpen,
+  );
+  const peekedBlockPosition = useSelector(
+    previewStore,
+    (state) => state.context.peekedBlockPosition,
+  );
   const previewSource = usePreviewSource();
   const requireDraft = useRequireDraftSource();
   const isReadOnly = previewSource !== "draft";
@@ -434,6 +458,11 @@ const PageTree = () => {
   }
 
   const layout = page.layout ? camoxApp.getLayoutById(page.layout.layoutId) : undefined;
+  const nextBlockIndex = pageBlocks.findIndex(
+    (block) => peekedBlockPosition != null && block.position > peekedBlockPosition,
+  );
+  const insertionIndex =
+    peekedBlockPosition === "" ? 0 : nextBlockIndex === -1 ? pageBlocks.length : nextBlockIndex;
 
   return (
     <>
@@ -457,9 +486,15 @@ const PageTree = () => {
             items={pageBlocks.map((block) => String(block.id))}
             strategy={verticalListSortingStrategy}
           >
-            {pageBlocks.map((block) => (
-              <SortableBlock key={String(block.id)} block={block} />
+            {pageBlocks.map((block, index) => (
+              <React.Fragment key={String(block.id)}>
+                {isAddBlockSidebarOpen && index === insertionIndex && <BlockInsertionIndicator />}
+                <SortableBlock block={block} />
+              </React.Fragment>
             ))}
+            {isAddBlockSidebarOpen && insertionIndex === pageBlocks.length && (
+              <BlockInsertionIndicator />
+            )}
           </SortableContext>
           <DragOverlay dropAnimation={null}>
             {activeId
