@@ -9,6 +9,8 @@ export default defineConfig({
   logLevel: "silent",
   plugins: [
     cloudflareTest({
+      // Tests must not inherit production-backed bindings (such as EMAIL).
+      remoteBindings: false,
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         bindings: {
