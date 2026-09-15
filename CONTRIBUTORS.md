@@ -51,6 +51,17 @@ Package releases are separate from hosted app deployments: ordinary pushes to
 The landing command `camox release` builds and syncs the site; it does not create
 an npm release or invoke release-please.
 
+## Dashboard route tree
+
+Commit `apps/dashboard/src/routeTree.gen.ts`, as recommended by the
+[TanStack Router FAQ](https://tanstack.com/router/latest/docs/framework/react/faq#should-i-commit-my-routetreegents-file-into-git).
+Although generated, it is part of the application's runtime and supplies route
+types needed for type checking on a fresh checkout.
+
+After adding, removing, or renaming dashboard routes, run
+`pnpm nx run dashboard:build --skip-nx-cache` (or the dashboard dev server), then
+include the regenerated route tree in the same commit. Do not edit it manually.
+
 ## Production deployment
 
 `.github/workflows/deploy.yml` deploys API, dashboard, and landing on pushes to
