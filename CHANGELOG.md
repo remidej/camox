@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.41.0](https://github.com/remidej/camox/compare/camox-v0.40.0...camox-v0.41.0) (2026-09-15)
+
+
+### Features
+
+* add derived layouts ([2569639](https://github.com/remidej/camox/commit/25696391bf699d5971b64a8eb8d4e978ccb2f11f))
+* add gradient text marker ([4a509f4](https://github.com/remidej/camox/commit/4a509f41c70a070b42e2ca7cac69829f92da76b4))
+* add publishing controls to derived layouts ([b655dc6](https://github.com/remidej/camox/commit/b655dc68dc6b30c1b7ca894caf0434bf0d98fc25))
+* add synced blocks ([f860852](https://github.com/remidej/camox/commit/f860852cc0773f9fe4efaa0d05dbe8b682a6450f))
+* show peeked block thumbnails ([e4f1256](https://github.com/remidej/camox/commit/e4f1256fb13c31e4f7a16d46b91753dceed32c58))
+
+
+### Bug Fixes
+
+* avoid layout shift on navigation with better ssr ([04086be](https://github.com/remidej/camox/commit/04086beba10c55f1b38345867ea3b7b0fb2fadbc))
+* better view published page wording ([3ef10ad](https://github.com/remidej/camox/commit/3ef10adad2e6862f7db76b399a934a0a3ea904c0))
+* edit link popover ([8f5903d](https://github.com/remidej/camox/commit/8f5903d0c22d0eda3b4030bbda8d194c5a9ef4b0))
+* ensure publish actions available when edit mode off ([5ee196b](https://github.com/remidej/camox/commit/5ee196b969f58857502de7f75d71ec148e6e77cc))
+* iframe glitch on hydration ([be44552](https://github.com/remidej/camox/commit/be44552e27ce70fe690c26e6c9c0b5dc1bee5594))
+* move add new block back to right sidebar ([32eb053](https://github.com/remidej/camox/commit/32eb0533a9892a7b0d4fa93b43af95cf0871e32a))
+* prevent selecting derived layouts on curated pages ([600dd87](https://github.com/remidej/camox/commit/600dd87191488e55f53f6ffc02d3bf8e26319812))
+* **preview:** remove automatic page peeking ([27ff827](https://github.com/remidej/camox/commit/27ff827b72dcb37b95922472e1f9bf7e60c0cdb8))
+
+
+### Documentation
+
+* add derived layouts plan ([4fd999f](https://github.com/remidej/camox/commit/4fd999fa5ffa08c4e009e5be8920d51882d4e34c))
+
+
+### Miscellaneous
+
+* add derived pokedex pages to playground ([a6dd45f](https://github.com/remidej/camox/commit/a6dd45f5ab6039b3c0950f7328fb1dbfca2576af))
+* add right sidebar for derived pages ([49e794d](https://github.com/remidej/camox/commit/49e794dc5362e03f09e72b88c0a1ec858eae097e))
+
 ## [0.40.0](https://github.com/remidej/camox/compare/camox-v0.39.0...camox-v0.40.0) (2026-09-11)
 
 
