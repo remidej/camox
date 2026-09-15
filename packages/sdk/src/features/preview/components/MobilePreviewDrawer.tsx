@@ -231,7 +231,7 @@ export function MobilePreviewDrawer({
                     disabled={page.status === "published" || page.livePublishedCheckpointId == null}
                     onClick={() => previewStore.send({ type: "viewLivePage" })}
                   >
-                    View live site
+                    View published page
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 gap-2 p-3">
