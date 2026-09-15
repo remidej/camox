@@ -32,6 +32,7 @@ import { FORMAT_FLAGS } from "../../lib/modifierFormats";
 import { createEditorConfig, normalizeLexicalState } from "./editorConfig";
 import { $selectionHasGradient, $toggleGradient } from "./GradientNode";
 import { InlineStylesPlugin } from "./InlineStylesPlugin";
+import { selectTextLink } from "./selectTextLink";
 import { TextLinkPopover } from "./TextLinkPopover";
 
 interface SidebarLexicalEditorProps {
@@ -103,6 +104,7 @@ function SidebarFloatingTextToolbar() {
   const lastSelectionRef = React.useRef<RangeSelection | null>(null);
 
   const updateToolbar = React.useCallback(() => {
+    if (open) return;
     const root = editor.getRootElement();
     const nativeSelection = window.getSelection();
     if (
@@ -196,18 +198,12 @@ function SidebarFloatingTextToolbar() {
           left: rect.left + rect.width / 2,
         });
 
-        const doc = root.ownerDocument;
-        const range = doc.createRange();
-        range.selectNodeContents(anchor);
-        const selection = doc.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-        root.focus();
-
-        setSelectedText(selection?.toString() ?? "");
-        setLinkTarget(href);
+        const link = selectTextLink(editor, anchor);
+        if (!link) return;
+        lastSelectionRef.current = link.selection;
+        setSelectedText(link.text);
+        setLinkTarget(link.target);
         setOpen(true);
-        updateToolbar();
       };
 
       root.addEventListener("click", handleLinkClick);

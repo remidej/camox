@@ -14,6 +14,7 @@ import type { OverlayMessage } from "../../../features/preview/overlayMessages";
 import { isOverlayMessage, postOverlayMessage } from "../../../features/preview/overlayMessages";
 import { FORMAT_FLAGS } from "../../lib/modifierFormats";
 import { $selectionHasGradient, $toggleGradient } from "./GradientNode";
+import { selectTextLink } from "./selectTextLink";
 
 interface SelectionBroadcasterProps {
   targetWindow: Window;
@@ -106,18 +107,15 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
         event.preventDefault();
         event.stopPropagation();
 
-        const range = targetWindow.document.createRange();
-        range.selectNodeContents(anchor);
-        const selection = targetWindow.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-        root.focus();
+        const link = selectTextLink(editor, anchor);
+        if (!link) return;
+        lastTextSelectionRef.current = link.selection;
 
         broadcastSelection();
         postOverlayMessage({
           type: "CAMOX_OPEN_TEXT_LINK_POPOVER",
-          target: href,
-          text: selection?.toString() ?? "",
+          target: link.target,
+          text: link.text,
         });
       };
 

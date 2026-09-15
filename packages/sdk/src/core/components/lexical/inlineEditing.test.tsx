@@ -28,6 +28,7 @@ const { RichTextPlugin } = await import("@lexical/react/LexicalRichTextPlugin");
 const { $getRoot, $isTextNode, createEditor } = await import("lexical");
 const { createEditorConfig } = await import("./editorConfig");
 const { InlineStylesPlugin } = await import("./InlineStylesPlugin");
+const { selectTextLink } = await import("./selectTextLink");
 const { GradientNode, $normalizeGradient, $toggleGradient, $selectionHasGradient } =
   await import("./GradientNode");
 const { lexicalStateToMarkdown, markdownToLexicalState } = await import("../../lib/lexicalState");
@@ -104,6 +105,52 @@ void test("editor and public output share text, gradient, and link appearance", 
   assert.equal(italic.className, "");
   assert.equal(italic.style.textDecorationLine, "underline");
   assert.equal(host.querySelectorAll("[data-camox-gradient]").length, 1);
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+void test("clicking links captures their destination and selection before popover focus", async () => {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  let editor!: LexicalEditor;
+  function Capture() {
+    [editor] = useLexicalComposerContext();
+    return null;
+  }
+  await act(async () => {
+    root.render(
+      <LexicalComposer
+        initialConfig={createEditorConfig(
+          "before [**external**](https://example.com) and [page](camox:page:42) after",
+        )}
+      >
+        <RichTextPlugin
+          contentEditable={<ContentEditable />}
+          ErrorBoundary={({ children }) => <>{children}</>}
+        />
+        <Capture />
+      </LexicalComposer>,
+    );
+  });
+  const anchors = host.querySelectorAll("a");
+  for (const [index, target, text] of [
+    [0, "https://example.com", "external"],
+    [1, "camox:page:42", "page"],
+  ] as const) {
+    await act(async () => {
+      // Simulate a stale editor selection outside the clicked link.
+      editor.update(() => $getRoot().selectEnd(), { discrete: true });
+      const link = selectTextLink(editor, anchors[index]);
+      assert.ok(link);
+      assert.equal(link.target, target);
+      assert.equal(link.text, text);
+      editor.getEditorState().read(() => {
+        assert.equal(link.selection.getTextContent(), text);
+        assert.equal(link.selection.isCollapsed(), false);
+      });
+    });
+  }
   await act(async () => root.unmount());
   host.remove();
 });

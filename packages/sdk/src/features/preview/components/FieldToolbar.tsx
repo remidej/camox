@@ -37,6 +37,7 @@ export const FieldToolbar = () => {
   const [linkTarget, setLinkTarget] = React.useState<string | null>(null);
   const [selectedText, setSelectedText] = React.useState("");
   const [linkPopoverOpen, setLinkPopoverOpen] = React.useState(false);
+  const linkPopoverOpenRef = React.useRef(false);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -46,12 +47,15 @@ export const FieldToolbar = () => {
       if (data.type === "CAMOX_TEXT_SELECTION_STATE") {
         setHasSelection(data.hasSelection);
         setActiveFormats(data.activeFormats);
+        // Focus moving into the popover must not replace the link being edited.
+        if (linkPopoverOpenRef.current) return;
         setLinkTarget(data.linkTarget);
         setSelectedText(data.selectedText);
         return;
       }
 
       if (data.type === "CAMOX_OPEN_TEXT_LINK_POPOVER") {
+        linkPopoverOpenRef.current = true;
         setHasSelection(true);
         setLinkTarget(data.target);
         setSelectedText(data.text);
@@ -71,6 +75,7 @@ export const FieldToolbar = () => {
   };
 
   const handleLinkPopoverOpenChange = (open: boolean) => {
+    linkPopoverOpenRef.current = open;
     setLinkPopoverOpen(open);
   };
 
@@ -79,7 +84,7 @@ export const FieldToolbar = () => {
       { type: "CAMOX_TOGGLE_TEXT_LINK", target, text } satisfies OverlayMessage,
       "*",
     );
-    setLinkPopoverOpen(false);
+    handleLinkPopoverOpenChange(false);
   };
 
   const unlinkText = () => {
