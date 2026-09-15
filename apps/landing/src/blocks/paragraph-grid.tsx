@@ -72,9 +72,10 @@ function ParagraphGridComponent() {
               <p className="text-foreground text-xl leading-tight font-semibold tracking-tight sm:text-2xl">
                 <item.Field
                   name="title"
-                  components={{
-                    emphasis: (props) => <em {...props} className="text-primary not-italic" />,
-                  }}
+                  textStyle={({ italic }) => ({
+                    className: italic ? "text-primary not-italic" : undefined,
+                    style: italic ? { fontStyle: "normal" } : undefined,
+                  })}
                 >
                   {(props) => <span {...props} />}
                 </item.Field>

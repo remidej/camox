@@ -3,17 +3,31 @@ import type { InitialConfigType } from "@lexical/react/LexicalComposer";
 import { ParagraphNode } from "lexical";
 
 import { isLexicalState, markdownToLexicalState } from "../../lib/lexicalState";
+import { GradientNode } from "./GradientNode";
 import { InlineParagraphNode } from "./InlineParagraphNode";
 
 export function normalizeLexicalState(value: string | Record<string, unknown>): string {
-  // Backwards compat: if value is already Lexical JSON (object or JSON string), use directly
-  if (typeof value === "object") {
-    if (isLexicalState(value)) return JSON.stringify(value);
-    return JSON.stringify(markdownToLexicalState(""));
-  }
-  if (isLexicalState(value)) return value;
-  // Value is a markdown string — convert to Lexical JSON
-  return JSON.stringify(markdownToLexicalState(value));
+  let state: any = markdownToLexicalState("");
+  if (isLexicalState(value)) state = typeof value === "string" ? JSON.parse(value) : value;
+  else if (typeof value === "string") state = markdownToLexicalState(value);
+
+  // Fields are inline content. Preserve paragraph separators as explicit breaks
+  // rather than adjacent paragraph spans that collapse together in edit mode.
+  const paragraphs = state.root.children;
+  if (paragraphs.length <= 1) return JSON.stringify(state);
+  const children = paragraphs.flatMap((paragraph: any, index: number) => [
+    ...(index
+      ? [
+          { type: "linebreak", version: 1 },
+          { type: "linebreak", version: 1 },
+        ]
+      : []),
+    ...(paragraph.children ?? []),
+  ]);
+  return JSON.stringify({
+    ...state,
+    root: { ...state.root, children: [{ ...paragraphs[0], children }] },
+  });
 }
 
 export function createEditorConfig(
@@ -25,11 +39,10 @@ export function createEditorConfig(
     onError: (error) => {
       console.error("Lexical error:", error);
     },
-    theme: {
-      link: "camox-text-link",
-    },
+    theme: {},
     nodes: [
       LinkNode,
+      GradientNode,
       InlineParagraphNode,
       {
         replace: ParagraphNode,

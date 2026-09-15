@@ -49,13 +49,14 @@ import {
   getDefaultImageWidth,
   transformImageUrl,
 } from "../lib/imageTransform";
-import { markdownToReactNodes, type MarkdownInlineComponents } from "../lib/lexicalReact";
+import { markdownToReactNodes, type InlineTextStyles } from "../lib/lexicalReact";
 
 export { Type };
 export type {
-  MarkdownInlineComponents,
-  MarkdownLinkRenderData,
-  MarkdownLinkRenderProps,
+  InlineStyle,
+  InlineTextStyles,
+  TextStyleData,
+  TextLinkStyleData,
 } from "../lib/lexicalReact";
 
 /** Normalize legacy links (no `type` field) to the new union shape */
@@ -710,11 +711,11 @@ export function createEditableBlock<
 
   const Field = <K extends keyof StringFields>({
     name,
-    components,
+    textStyle,
+    linkStyle,
     children,
-  }: {
+  }: InlineTextStyles & {
     name: K;
-    components?: MarkdownInlineComponents;
     children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
   }): React.ReactNode => {
     const blockContext = React.use(Context);
@@ -852,7 +853,8 @@ export function createEditableBlock<
               children: markdownToReactNodes(fieldValue, {
                 pages: pages as Page[] | undefined,
                 fallbackHref: currentPathname,
-                components,
+                textStyle,
+                linkStyle,
               }),
             } satisfies FieldRenderProps,
             fieldData,
@@ -871,6 +873,10 @@ export function createEditableBlock<
       onMouseLeave: handleMouseLeave,
       children: (
         <InlineLexicalEditor
+          textStyle={textStyle}
+          linkStyle={linkStyle}
+          pages={pages as Page[] | undefined}
+          fallbackHref={currentPathname}
           initialState={fieldValue}
           externalState={fieldValue}
           onChange={handleChange}
@@ -1528,11 +1534,12 @@ export function createEditableBlock<
     name: K;
     children: (
       item: {
-        Field: <F extends keyof ItemStringFields<K>>(props: {
-          name: F;
-          components?: MarkdownInlineComponents;
-          children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
-        }) => React.ReactNode;
+        Field: <F extends keyof ItemStringFields<K>>(
+          props: InlineTextStyles & {
+            name: F;
+            children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
+          },
+        ) => React.ReactNode;
         Link: <F extends keyof ItemLinkFields<K>>(props: {
           name: F;
           children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
@@ -1561,11 +1568,12 @@ export function createEditableBlock<
           name: F;
           children: (
             item: {
-              Field: (props: {
-                name: string;
-                components?: MarkdownInlineComponents;
-                children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
-              }) => React.ReactNode;
+              Field: (
+                props: InlineTextStyles & {
+                  name: string;
+                  children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
+                },
+              ) => React.ReactNode;
               Link: (props: {
                 name: string;
                 children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;

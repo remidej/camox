@@ -5,7 +5,7 @@ import { Kbd } from "@camox/ui/kbd";
 import { Toggle } from "@camox/ui/toggle";
 import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store-react";
-import { Bold, Italic } from "lucide-react";
+import { Bold, Italic, Underline, Blend } from "lucide-react";
 import * as React from "react";
 
 import { TextLinkPopover } from "@/core/components/lexical/TextLinkPopover";
@@ -19,6 +19,14 @@ import { previewStore } from "../previewStore";
 const FORMAT_BUTTONS = [
   { key: "bold", flag: FORMAT_FLAGS.bold, icon: Bold, label: "Bold", shortcut: "⌘ B" },
   { key: "italic", flag: FORMAT_FLAGS.italic, icon: Italic, label: "Italic", shortcut: "⌘ I" },
+  {
+    key: "underline",
+    flag: FORMAT_FLAGS.underline,
+    icon: Underline,
+    label: "Underline",
+    shortcut: "⌘ U",
+  },
+  { key: "gradient", flag: FORMAT_FLAGS.gradient, icon: Blend, label: "Gradient", shortcut: null },
 ] as const;
 
 export const FieldToolbar = () => {
@@ -111,6 +119,7 @@ export const FieldToolbar = () => {
                     data-state={isActive ? "on" : "off"}
                     pressed={isActive}
                     variant="outline"
+                    aria-label={label}
                     onPressedChange={() => sendFormat(key)}
                   />
                 }
@@ -118,7 +127,7 @@ export const FieldToolbar = () => {
                 <Icon />
               </Tooltip.TooltipTrigger>
               <Tooltip.TooltipContent>
-                {label} <Kbd>{shortcut}</Kbd>
+                {label} {shortcut && <Kbd>{shortcut}</Kbd>}
               </Tooltip.TooltipContent>
             </Tooltip.Tooltip>
           );

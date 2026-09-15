@@ -12,7 +12,8 @@ import * as React from "react";
 
 import type { OverlayMessage } from "../../../features/preview/overlayMessages";
 import { isOverlayMessage, postOverlayMessage } from "../../../features/preview/overlayMessages";
-import { TEXT_MODIFIERS } from "../../lib/modifiers";
+import { FORMAT_FLAGS } from "../../lib/modifierFormats";
+import { $selectionHasGradient, $toggleGradient } from "./GradientNode";
 
 interface SelectionBroadcasterProps {
   targetWindow: Window;
@@ -63,12 +64,10 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
       const selection = $getSelection();
       if (!$isRangeSelection(selection)) return;
       lastTextSelectionRef.current = selection.clone();
-      for (const modifier of Object.values(TEXT_MODIFIERS)) {
-        const key = modifier === TEXT_MODIFIERS.bold ? "bold" : "italic";
-        if (selection.hasFormat(key as any)) {
-          format |= modifier.formatFlag;
-        }
+      for (const key of ["bold", "italic", "underline"] as const) {
+        if (selection.hasFormat(key)) format |= FORMAT_FLAGS[key];
       }
+      if ($selectionHasGradient()) format |= FORMAT_FLAGS.gradient;
       linkTarget = getLinkTargetFromSelection();
     });
 
@@ -101,7 +100,7 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
         const anchor = target.closest("a");
         if (!anchor || !root.contains(anchor)) return;
 
-        const href = anchor.getAttribute("href");
+        const href = anchor.dataset.camoxLinkTarget ?? anchor.getAttribute("href");
         if (!href) return;
 
         event.preventDefault();
@@ -158,7 +157,13 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
       });
 
       if (data.type === "CAMOX_FORMAT_TEXT") {
-        editor.dispatchCommand(FORMAT_TEXT_COMMAND, data.formatKey as any);
+        if (data.formatKey === "gradient") editor.update($toggleGradient);
+        else if (
+          data.formatKey === "bold" ||
+          data.formatKey === "italic" ||
+          data.formatKey === "underline"
+        )
+          editor.dispatchCommand(FORMAT_TEXT_COMMAND, data.formatKey);
       } else if (data.target === null) {
         editor.dispatchCommand(TOGGLE_LINK_COMMAND, null);
       } else if (typeof data.text === "string") {

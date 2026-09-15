@@ -67,7 +67,7 @@ function HeroComponent() {
             <div className="flex-1 text-left">
               <hero.Field
                 name="title"
-                components={{ strong: (props) => <p {...props} style={{ color: "red" }} /> }}
+                textStyle={({ bold }) => ({ style: bold ? { color: "red" } : undefined })}
               >
                 {(props) => (
                   <h1

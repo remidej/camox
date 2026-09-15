@@ -18,13 +18,15 @@ import {
 import * as React from "react";
 
 import { useFrame } from "../../../features/preview/components/Frame";
+import type { MarkdownToReactNodesOptions } from "../../lib/lexicalReact";
 import { lexicalStateToMarkdown } from "../../lib/lexicalState";
 import { isHttpTextLinkTarget } from "../../lib/textLinks";
 import { createEditorConfig, normalizeLexicalState } from "./editorConfig";
 import { InlineContentEditable } from "./InlineContentEditable";
+import { InlineStylesPlugin } from "./InlineStylesPlugin";
 import { SelectionBroadcaster } from "./SelectionBroadcaster";
 
-interface InlineLexicalEditorProps {
+interface InlineLexicalEditorProps extends MarkdownToReactNodesOptions {
   initialState: string | Record<string, unknown>;
   externalState: string | Record<string, unknown>;
   onChange: (markdown: string) => void;
@@ -149,36 +151,29 @@ function FocusBlurHandler({ onFocus, onBlur }: { onFocus: () => void; onBlur: ()
   return null;
 }
 
-function LinkStyleInjector() {
-  const [editor] = useLexicalComposerContext();
-
-  React.useEffect(() => {
-    return editor.registerRootListener((root) => {
-      if (!root) return;
-
-      const doc = root.ownerDocument;
-      const styleId = "camox-editable-text-link-styles";
-      if (doc.getElementById(styleId)) return;
-
-      const style = doc.createElement("style");
-      style.id = styleId;
-      style.textContent = `.camox-text-link { text-decoration-line: underline; }`;
-      doc.head.appendChild(style);
-    });
-  }, [editor]);
-
-  return null;
-}
-
 export function InlineLexicalEditor({
   initialState,
   externalState,
   onChange,
   onFocus,
   onBlur,
+  textStyle,
+  linkStyle,
+  pages,
+  fallbackHref,
 }: InlineLexicalEditorProps) {
   const { window: iframeWindow } = useFrame();
   const timerRef = React.useRef<number | null>(null);
+  const pendingMarkdownRef = React.useRef<string | null>(null);
+  const onChangeRef = React.useRef(onChange);
+  onChangeRef.current = onChange;
+  const flushChange = React.useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    const markdown = pendingMarkdownRef.current;
+    pendingMarkdownRef.current = null;
+    if (markdown !== null) onChangeRef.current(markdown);
+  }, []);
   const isFocusedRef = React.useRef(false);
   const editedDuringFocusRef = React.useRef(false);
 
@@ -194,13 +189,12 @@ export function InlineLexicalEditor({
       if (!isFocusedRef.current) return;
       editedDuringFocusRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => {
-        onChange(
-          lexicalStateToMarkdown(editorState.toJSON() as unknown as Record<string, unknown>),
-        );
-      }, 300);
+      pendingMarkdownRef.current = lexicalStateToMarkdown(
+        editorState.toJSON() as unknown as Record<string, unknown>,
+      );
+      timerRef.current = window.setTimeout(flushChange, 300);
     },
-    [onChange],
+    [flushChange],
   );
 
   const handleFocus = React.useCallback(() => {
@@ -210,17 +204,14 @@ export function InlineLexicalEditor({
   }, [onFocus]);
 
   const handleBlur = React.useCallback(() => {
+    flushChange();
     isFocusedRef.current = false;
     const wasEdited = editedDuringFocusRef.current;
     editedDuringFocusRef.current = false;
     onBlur(wasEdited);
-  }, [onBlur]);
+  }, [onBlur, flushChange]);
 
-  React.useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+  React.useEffect(() => flushChange, [flushChange]);
 
   return (
     <LexicalComposer initialConfig={config}>
@@ -236,7 +227,12 @@ export function InlineLexicalEditor({
       <EnterAsLineBreakHandler />
       <PasteUrlAsLinkHandler />
       <FocusBlurHandler onFocus={handleFocus} onBlur={handleBlur} />
-      <LinkStyleInjector />
+      <InlineStylesPlugin
+        textStyle={textStyle}
+        linkStyle={linkStyle}
+        pages={pages}
+        fallbackHref={fallbackHref}
+      />
       {iframeWindow && <SelectionBroadcaster targetWindow={iframeWindow} />}
     </LexicalComposer>
   );

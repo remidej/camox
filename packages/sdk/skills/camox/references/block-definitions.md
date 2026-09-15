@@ -146,7 +146,7 @@ Import `Type` from `"camox/createBlock"`. Every field requires a default value.
 
 ### Type.String
 
-Inline-editable text. The workhorse field type. String fields support inline markdown-style formatting in rendered site output: `**bold**`, `*italic*`, `***bold italic***`, and text links like `[label](https://example.com)` or internal page links inserted by the editor.
+Inline-editable text. The workhorse field type. String fields support inline formatting in both editing and published output: `**bold**`, `*italic*` (or `_italic_`), `***bold italic***`, `<u>underlined</u>`, `<gradient>gradient text</gradient>`, and text links like `[label](https://example.com)` or internal page links inserted by the editor. Gradient can contain other formatting, links, and line breaks. Content remains a string. The editor uses explicit `<strong>` and `<em>` tags when Markdown delimiters cannot represent a selection losslessly (for example, formatting that includes leading/trailing whitespace). These are built-in formatting tags, not arbitrary HTML.
 
 ```tsx
 Type.String({
@@ -300,27 +300,33 @@ The component is a regular React function. It uses methods on the block constant
 
 The `name` must match a key in `content` that is a `Type.String`. Spread `props` onto the element — `props.children` contains the rendered content. This is what makes the field inline-editable in the CMS.
 
-In site output, `props.children` renders supported inline formatting (`**bold**`, `*italic*`, text links). By default, text links render as underlined `<a>` elements. Customize inline rendering with the optional `components` prop:
+Camox owns inline markup so editing and published output have the same appearance. Customize appearance with `textStyle` and `linkStyle` (these replace the old `components` prop):
 
 ```tsx
 <myBlock.Field
   name="description"
-  components={{
-    link: (props, data) => (
-      <a
-        {...props}
-        className={data.external ? "text-blue-600 underline" : "text-primary font-medium"}
-      />
-    ),
-    strong: (props) => <strong {...props} className="font-semibold" />,
-    emphasis: (props) => <em {...props} className="italic text-muted-foreground" />,
+  textStyle={({ bold, italic, gradient }) => {
+    if (gradient) {
+      return { style: { backgroundImage: "linear-gradient(to right, orange, deeppink)" } };
+    }
+    return {
+      className: bold ? "text-primary" : undefined,
+      style: bold && italic ? { letterSpacing: "0.02em" } : undefined,
+    };
   }}
+  linkStyle={({ external }) => ({
+    className: external ? "text-blue-600" : "text-primary font-medium",
+  })}
 >
   {(props) => <p {...props} />}
 </myBlock.Field>
 ```
 
-The `components.link` callback receives `(props, data)`. Spread `props` onto your link element; `data` exposes `{ target, href, external, pageId }` for styling external vs. internal links. `components.strong` customizes `**bold**`; `components.emphasis` customizes `*italic*`. The same `components` prop is available on `item.Field` inside repeaters.
+- `textStyle` receives `{ bold, italic, underline, gradient }` and returns `{ className?, style? }` or `undefined`. For text runs, `gradient` is false and the other flags describe explicit content formatting, not inherited heading styles. Unmarked text keeps its parent's typography.
+- `linkStyle` receives `{ target, href, external, pageId }` and returns the same appearance-only object. Links are underlined by default; override `style.textDecorationLine` to change that.
+- Camox also calls `textStyle` once for each shared gradient wrapper with `{ gradient: true, bold: false, italic: false, underline: false }`. That result styles the whole range; its children receive their own text-run calls. `gradient` identifies the wrapper being styled, not whether a run is inside a gradient. This keeps one continuous background when bold/italic formatting changes within the range. The default gradient uses the site's shadcn chart palette: `--chart-1` → `--chart-2`, following light/dark theme changes. Missing chart tokens fall back to `--primary` / `--muted-foreground`, then `currentColor`, never a hardcoded palette. Set `--camox-gradient-from` and `--camox-gradient-to` in app CSS for app-wide colors, or return `style.backgroundImage` when `gradient` is true.
+- Styles apply to inline children; the outer element's `className` stays on that element and is inherited normally. Explicit formatting defaults (combined italic, underline, gradient clipping) use inline styles; use `style` to override those defaults rather than competing utility classes.
+- These props accept appearance only, never replacement elements, children, or event handlers. They also work on `item.Field` inside repeaters. The sidebar editor shows default formatting; field-specific styles apply on the page.
 
 When the content needs to be placed inside a more complex structure, use `props.children` explicitly:
 

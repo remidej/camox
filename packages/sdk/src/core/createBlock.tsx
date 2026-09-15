@@ -35,9 +35,10 @@ export type {
   RepeatableItemSeed,
 } from "./editing/createEditableBlock";
 export type {
-  MarkdownInlineComponents,
-  MarkdownLinkRenderData,
-  MarkdownLinkRenderProps,
+  InlineStyle,
+  InlineTextStyles,
+  TextStyleData,
+  TextLinkStyleData,
 } from "./lib/lexicalReact";
 
 type EditableCreateBlock = typeof import("./editing/createEditableBlock").createEditableBlock;
@@ -199,10 +200,15 @@ function createViewBlock(options: EditableOptions) {
     return item ? item.itemContent[name as string] : block.content[name as string];
   }
 
-  const Field = ({ name, components, children }: any) => {
+  const Field = ({ name, textStyle, linkStyle, children }: any) => {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime) {
-      return editingRuntime.renderPrimitive(options, "Field", { name, components, children });
+      return editingRuntime.renderPrimitive(options, "Field", {
+        name,
+        textStyle,
+        linkStyle,
+        children,
+      });
     }
     const value = useValue(name);
     const projectSlug = useProjectSlug();
@@ -217,7 +223,8 @@ function createViewBlock(options: EditableOptions) {
         children: markdownToReactNodes(value, {
           pages: pages as Page[] | undefined,
           fallbackHref: pathname,
-          components,
+          textStyle,
+          linkStyle,
         }),
       },
       { text: value },

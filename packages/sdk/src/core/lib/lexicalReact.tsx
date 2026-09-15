@@ -1,154 +1,89 @@
 import * as React from "react";
 
+import { isLexicalState, markdownToLexicalState } from "./lexicalState";
+import { FORMAT_FLAGS } from "./modifierFormats";
 import {
   getPageIdFromTextLinkTarget,
   isHttpTextLinkTarget,
-  isValidTextLinkTarget,
   resolveTextLinkHref,
   shouldOpenTextLinkInNewTab,
 } from "./textLinks";
+import { getGradientStyle, getTextAppearance, type InlineTextStyles } from "./textStyles";
 
-export interface MarkdownLinkRenderProps {
-  href: string;
-  target?: string;
-  rel?: string;
-  children: React.ReactNode;
-}
+export type { InlineStyle, InlineTextStyles, TextStyleData, TextLinkStyleData } from "./textStyles";
 
-export interface MarkdownLinkRenderData {
-  target: string;
-  href: string;
-  external: boolean;
-  pageId?: string;
-}
-
-export interface MarkdownInlineComponents {
-  link?: (props: MarkdownLinkRenderProps, data: MarkdownLinkRenderData) => React.ReactNode;
-  strong?: (props: { children: React.ReactNode }) => React.ReactNode;
-  emphasis?: (props: { children: React.ReactNode }) => React.ReactNode;
-}
-
-interface MarkdownToReactNodesOptions {
+export interface MarkdownToReactNodesOptions extends InlineTextStyles {
   pages?: Array<{ id: number; fullPath: string }>;
   fallbackHref?: string;
-  components?: MarkdownInlineComponents;
 }
 
-/**
- * Parse a markdown string with **bold**, *italic*, and text links into React nodes.
- * Falls back to rendering the raw string if it's not a string value.
- */
 export function markdownToReactNodes(
   value: unknown,
   options: MarkdownToReactNodesOptions = {},
 ): React.ReactNode {
-  if (typeof value !== "string") return null;
   if (!value) return null;
+  if (typeof value !== "string" && !isLexicalState(value)) return null;
+  const state = isLexicalState(value)
+    ? typeof value === "string"
+      ? JSON.parse(value)
+      : value
+    : markdownToLexicalState(value as string);
 
-  const parts: React.ReactNode[] = [];
-  let key = 0;
-  const fallbackHref = options.fallbackHref ?? "#";
-
-  const pushWithLineBreaks = (text: string) => {
-    const lines = text.split("\n");
-    lines.forEach((line, i) => {
-      if (i > 0) parts.push(<br key={key++} />);
-      if (line) parts.push(line);
-    });
-  };
-
-  const pushFormatted = (text: string) => {
-    // Match ***bold+italic***, **bold**, or *italic*
-    const regex = /(\*{1,3})((?:(?!\1).)+)\1/g;
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        pushWithLineBreaks(text.slice(lastIndex, match.index));
-      }
-
-      const stars = match[1].length;
-      const content = match[2];
-
-      if (stars === 3) {
-        const emphasis = options.components?.emphasis?.({ children: content }) ?? (
-          <em>{content}</em>
-        );
-        parts.push(
-          <React.Fragment key={key++}>
-            {options.components?.strong?.({ children: emphasis }) ?? <strong>{emphasis}</strong>}
-          </React.Fragment>,
-        );
-      } else if (stars === 2) {
-        parts.push(
-          <React.Fragment key={key++}>
-            {options.components?.strong?.({ children: content }) ?? <strong>{content}</strong>}
-          </React.Fragment>,
-        );
-      } else {
-        parts.push(
-          <React.Fragment key={key++}>
-            {options.components?.emphasis?.({ children: content }) ?? <em>{content}</em>}
-          </React.Fragment>,
-        );
-      }
-
-      lastIndex = match.index + match[0].length;
+  function render(node: any, key: number): React.ReactNode {
+    if (node.type === "text") {
+      const format = node.format ?? 0;
+      let tag = "span";
+      if (format & FORMAT_FLAGS.bold) tag = "strong";
+      else if (format & FORMAT_FLAGS.italic) tag = "em";
+      return React.createElement(tag, { key, ...getTextAppearance(format, options) }, node.text);
     }
-
-    if (lastIndex < text.length) {
-      pushWithLineBreaks(text.slice(lastIndex));
-    }
-  };
-
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-  let lastLinkIndex = 0;
-  let linkMatch;
-
-  while ((linkMatch = linkRegex.exec(value)) !== null) {
-    if (linkMatch.index > lastLinkIndex) {
-      pushFormatted(value.slice(lastLinkIndex, linkMatch.index));
-    }
-
-    const [, label, target] = linkMatch;
-    const href = isValidTextLinkTarget(target)
-      ? resolveTextLinkHref(target, options.pages, fallbackHref)
-      : null;
-
-    if (href) {
-      const openInNewTab = shouldOpenTextLinkInNewTab(target);
-      const linkProps = {
-        href,
-        target: openInNewTab ? "_blank" : undefined,
-        rel: openInNewTab ? "noreferrer" : undefined,
-        children: label,
-      } satisfies MarkdownLinkRenderProps;
-      const linkData = {
-        target,
-        href,
-        external: isHttpTextLinkTarget(target),
-        pageId: getPageIdFromTextLinkTarget(target) ?? undefined,
-      } satisfies MarkdownLinkRenderData;
-
-      parts.push(
-        <React.Fragment key={key++}>
-          {options.components?.link?.(linkProps, linkData) ?? (
-            <a {...linkProps} style={{ textDecorationLine: "underline" }} />
-          )}
-        </React.Fragment>,
+    if (node.type === "linebreak") return <br key={key} />;
+    const children = (node.children ?? []).map(render);
+    if (node.type === "gradient") {
+      return (
+        <span key={key} data-camox-gradient="" {...getGradientStyle(options)}>
+          {children}
+        </span>
       );
-    } else {
-      pushFormatted(label);
     }
-
-    lastLinkIndex = linkMatch.index + linkMatch[0].length;
+    if (node.type === "link") {
+      const href = resolveTextLinkHref(node.url, options.pages, options.fallbackHref ?? "#");
+      if (!href) return <React.Fragment key={key}>{children}</React.Fragment>;
+      const appearance = options.linkStyle?.({
+        target: node.url,
+        href,
+        external: isHttpTextLinkTarget(node.url),
+        pageId: getPageIdFromTextLinkTarget(node.url) ?? undefined,
+      });
+      const newTab = shouldOpenTextLinkInNewTab(node.url);
+      return (
+        <a
+          key={key}
+          href={href}
+          target={newTab ? "_blank" : undefined}
+          rel={newTab ? "noreferrer" : undefined}
+          className={appearance?.className}
+          style={{ textDecorationLine: "underline", ...appearance?.style }}
+        >
+          {children}
+        </a>
+      );
+    }
+    return <React.Fragment key={key}>{children}</React.Fragment>;
   }
-
-  if (lastLinkIndex < value.length) {
-    pushFormatted(value.slice(lastLinkIndex));
-  }
-
-  if (parts.length === 0) return value;
-  return <>{parts}</>;
+  return (
+    <>
+      {(state as any).root.children.map((node: any, index: number) => (
+        <React.Fragment key={index}>
+          {index > 0 && (
+            <>
+              <br />
+              <br />
+            </>
+          )}
+          {render(node, index)}
+        </React.Fragment>
+      ))}
+    </>
+  );
 }

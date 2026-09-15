@@ -36,6 +36,18 @@ Replies are useful even before team collaboration: an agent can explain its chan
 
 Keep the first version minimal. Nested replies, mentions, notifications, reactions, assignments, and subscriptions are not required.
 
+## Agent handoff
+
+A **Send comments to agent** button in the left sidebar opens an agent comment handoff modal.
+
+The modal is a prompt builder, not an automatic agent integration. It explains that the user needs to copy the prompt and give it to their agent to address the comments.
+
+- An optional textbox lets the user add global context or instructions, similar to the overall comment on a pull request review.
+- The generated prompt asks the agent to use the Camox skill to retrieve and address the comments, with enough scope information to identify the relevant project, environment, and comments.
+- A **Copy prompt** CTA copies the handoff prompt, including the user's global context, ready to paste into their agent conversation.
+
+Copying the prompt does not start agent work or change comment statuses. The exact default scope of the handoff remains to be decided and should be clear to the user in the modal.
+
 ## Applying comments with agents
 
 Agents retrieve and act on comments through the CLI. Guidance for applying comments belongs in its own reference file under the existing umbrella Camox skill, rather than a separate skill.

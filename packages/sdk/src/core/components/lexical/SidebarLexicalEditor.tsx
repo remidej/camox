@@ -21,7 +21,7 @@ import {
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
 } from "lexical";
-import { Bold, Italic } from "lucide-react";
+import { Bold, Italic, Underline, Blend } from "lucide-react";
 import * as React from "react";
 
 import { lexicalStateToMarkdown } from "@/core/lib/lexicalState";
@@ -30,6 +30,8 @@ import { INPUT_BASE_STYLES, INPUT_FOCUS_STYLES, cn } from "@/lib/utils";
 
 import { FORMAT_FLAGS } from "../../lib/modifierFormats";
 import { createEditorConfig, normalizeLexicalState } from "./editorConfig";
+import { $selectionHasGradient, $toggleGradient } from "./GradientNode";
+import { InlineStylesPlugin } from "./InlineStylesPlugin";
 import { TextLinkPopover } from "./TextLinkPopover";
 
 interface SidebarLexicalEditorProps {
@@ -131,6 +133,8 @@ function SidebarFloatingTextToolbar() {
       setSelectedText(selection.getTextContent());
       if (selection.hasFormat("bold")) activeFormats |= FORMAT_FLAGS.bold;
       if (selection.hasFormat("italic")) activeFormats |= FORMAT_FLAGS.italic;
+      if (selection.hasFormat("underline")) activeFormats |= FORMAT_FLAGS.underline;
+      if ($selectionHasGradient()) activeFormats |= FORMAT_FLAGS.gradient;
 
       let node: any = selection.anchor.getNode();
       while (node) {
@@ -180,7 +184,7 @@ function SidebarFloatingTextToolbar() {
         const anchor = target.closest("a");
         if (!anchor || !root.contains(anchor)) return;
 
-        const href = anchor.getAttribute("href");
+        const href = anchor.dataset.camoxLinkTarget ?? anchor.getAttribute("href");
         if (!href) return;
 
         event.preventDefault();
@@ -218,9 +222,15 @@ function SidebarFloatingTextToolbar() {
     $setSelection(lastSelectionRef.current.clone());
   };
 
-  const applyFormat = (formatKey: "bold" | "italic") => {
-    editor.update(restoreSelection);
-    editor.dispatchCommand(FORMAT_TEXT_COMMAND, formatKey);
+  const applyFormat = (formatKey: "bold" | "italic" | "underline" | "gradient") => {
+    editor.update(() => {
+      restoreSelection();
+      if (formatKey === "gradient") {
+        $toggleGradient();
+        return;
+      }
+      editor.dispatchCommand(FORMAT_TEXT_COMMAND, formatKey);
+    });
   };
 
   const applyTarget = (target: string | null, text?: string) => {
@@ -313,6 +323,24 @@ function SidebarFloatingTextToolbar() {
       >
         <Italic />
       </Toggle>
+      {(
+        [
+          { key: "underline", label: "Underline", icon: Underline },
+          { key: "gradient", label: "Gradient", icon: Blend },
+        ] as const
+      ).map(({ key, label, icon: Icon }) => (
+        <Toggle
+          key={key}
+          pressed={!!(toolbarState.activeFormats & FORMAT_FLAGS[key])}
+          variant="default"
+          size="sm"
+          className="h-7 min-w-7 px-1.5"
+          aria-label={label}
+          onPressedChange={() => applyFormat(key)}
+        >
+          <Icon />
+        </Toggle>
+      ))}
       <TextLinkPopover
         open={open}
         onOpenChange={handleOpenChange}
@@ -369,6 +397,14 @@ export function SidebarLexicalEditor({
   const onChangeRef = React.useRef(onChange);
   onChangeRef.current = onChange;
   const isSyncingRef = React.useRef(false);
+  const pendingMarkdownRef = React.useRef<string | null>(null);
+  const flushChange = React.useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    const markdown = pendingMarkdownRef.current;
+    pendingMarkdownRef.current = null;
+    if (markdown !== null) onChangeRef.current(markdown);
+  }, []);
 
   const config = React.useMemo(
     () => createEditorConfig(value),
@@ -376,25 +412,23 @@ export function SidebarLexicalEditor({
     [],
   );
 
-  const handleChange = React.useCallback((editorState: EditorState) => {
-    // Ignore editor updates triggered by ExternalStateSync to avoid loops
-    if (isSyncingRef.current) {
-      isSyncingRef.current = false;
-      return;
-    }
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
-      onChangeRef.current(
-        lexicalStateToMarkdown(editorState.toJSON() as unknown as Record<string, unknown>),
-      );
-    }, 300);
-  }, []);
-
-  React.useEffect(() => {
-    return () => {
+  const handleChange = React.useCallback(
+    (editorState: EditorState) => {
+      // Ignore editor updates triggered by ExternalStateSync to avoid loops
+      if (isSyncingRef.current) {
+        isSyncingRef.current = false;
+        return;
+      }
       if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+      pendingMarkdownRef.current = lexicalStateToMarkdown(
+        editorState.toJSON() as unknown as Record<string, unknown>,
+      );
+      timerRef.current = window.setTimeout(flushChange, 300);
+    },
+    [flushChange],
+  );
+
+  React.useEffect(() => flushChange, [flushChange]);
 
   return (
     <LexicalComposer initialConfig={config}>
@@ -408,7 +442,10 @@ export function SidebarLexicalEditor({
               "flex min-h-[80px] w-full px-3 py-2",
             )}
             onFocus={onFocus}
-            onBlur={onBlur}
+            onBlur={() => {
+              flushChange();
+              onBlur?.();
+            }}
           />
         }
         ErrorBoundary={LexicalErrorBoundary}
@@ -420,6 +457,7 @@ export function SidebarLexicalEditor({
       <EnterAsLineBreakHandler />
       <PasteUrlAsLinkHandler />
       <SidebarFloatingTextToolbar />
+      <InlineStylesPlugin />
     </LexicalComposer>
   );
 }
