@@ -1,0 +1,86 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Finish an active deployment; newer commits may replace a pending run.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Validate deployment credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CAMOX_DEPLOY_TOKEN: ${{ secrets.CAMOX_DEPLOY_TOKEN }}
+        run: |
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CAMOX_DEPLOY_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing production secret: $name"
+              exit 1
+            fi
+          done
+
+      - run: pnpm install --frozen-lockfile
+
+      # Build local workspace packages, including the unpublished SDK and CLI.
+      - run: pnpm nx run-many -t build --projects=tag:type:pkg
+
+      - run: pnpm check
+
+      - run: pnpm test
+
+      - name: Build dashboard
+        run: pnpm nx run dashboard:build
+
+      - name: Validate API bundle before changing production
+        run: pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
+
+      - name: Migrate database and deploy API
+        run: pnpm --filter @camox/api deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Check API and database health
+        run: |
+          curl --fail --silent --show-error \
+            --retry 10 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 10 --max-time 20 \
+            https://api.camox.dev/health
+
+      - name: Deploy dashboard
+        run: pnpm --filter dashboard exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # This build syncs production definitions and must use the deployed API.
+      - name: Release and deploy landing
+        run: pnpm --filter landing deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CAMOX_DEPLOY_TOKEN: ${{ secrets.CAMOX_DEPLOY_TOKEN }}

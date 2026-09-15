@@ -19,6 +19,17 @@ export type { Router } from "./router";
 
 const app = new Hono<AppEnv>();
 
+// Keep deployment health checks independent of authentication and sessions.
+app.get("/health", async (c) => {
+  c.header("Cache-Control", "no-store");
+  try {
+    await c.env.DB.prepare("SELECT 1").first();
+    return c.json({ status: "ok" });
+  } catch {
+    return c.json({ status: "unavailable" }, 503);
+  }
+});
+
 // Inject db into every request
 app.use("*", async (c, next) => {
   c.set("db", createDb(c.env.DB));
