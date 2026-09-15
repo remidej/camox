@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.41.1](https://github.com/remidej/camox/compare/camox-v0.41.0...camox-v0.41.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* ci cloudflare auth ([39d06c0](https://github.com/remidej/camox/commit/39d06c0b3e8564eb380d1825358dab8feabeded8))
+* no explanation why auth fail when email not verified ([473f3db](https://github.com/remidej/camox/commit/473f3dbdc07926b8a0d49782c30dc4bbbea0e7ab))
+* track generated tanstack route tree file ([9d5fb8f](https://github.com/remidej/camox/commit/9d5fb8f4bf4b0d984b96750dd52f4750175df16f))
+
+
+### Miscellaneous
+
+* remove cloudflare ci troubleshooting code ([4290fe6](https://github.com/remidej/camox/commit/4290fe65f4605d8ded87694d4fe8df3fe4fb442d))
+* set up deployment github action ([a995e74](https://github.com/remidej/camox/commit/a995e74b1c96f7aa37d758257f963534df913c36))
+* troubleshoot cloudflare ci errors ([a895cae](https://github.com/remidej/camox/commit/a895caead4ad04ee599511b2f8da16b7309ea03a))
+
 ## [0.41.0](https://github.com/remidej/camox/compare/camox-v0.40.0...camox-v0.41.0) (2026-09-15)
 
 
