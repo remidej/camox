@@ -6,7 +6,7 @@ import { createClient } from "@libsql/client";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 
 import {
@@ -128,6 +128,9 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
   });
 
   const userId = signUpResponse.user.id;
+
+  // The running API requires verification; the seeded user bypasses email delivery.
+  await db.update(user).set({ emailVerified: true }).where(eq(user.id, userId));
 
   const orgId = crypto.randomUUID();
   await db.insert(organizationTable).values({

@@ -54,6 +54,8 @@ jobs:
 
       - name: Build dashboard
         run: pnpm nx run dashboard:build
+        env:
+          VITE_API_URL: https://api.camox.dev
 
       - name: Validate API bundle before changing production
         run: pnpm --filter @camox/api exec wrangler deploy --dry-run --minify
