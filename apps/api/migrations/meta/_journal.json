@@ -148,6 +148,13 @@
       "when": 1787822517201,
       "tag": "0020_dizzy_spiral",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1789467851476,
+      "tag": "0021_yummy_inertia",
+      "breakpoints": true
     }
   ]
 }

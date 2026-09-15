@@ -48,8 +48,21 @@ export { myBlock as block };
 | `content`     | yes      | An object where each key is a field name and each value is a `Type.*` call. These fields are inline-editable in the CMS.                                                                                                                                                                                                                                                   |
 | `settings`    | no       | Same shape as `content`, but for configuration that lives in a settings panel (not inline). Only `Type.Enum` and `Type.Boolean` should be used here.                                                                                                                                                                                                                       |
 | `layoutOnly`  | no       | If `true`, the block won't appear in the "add block" sheet — it can only be placed inside layouts (e.g. navbar, footer).                                                                                                                                                                                                                                                   |
+| `synced`      | no       | Boolean, defaults to `false`. Share content and settings across every instance of this type within an environment. Ideal for a navbar/footer reused across layouts. Synced blocks have purple editor highlights.                                                                                                                                                           |
 | `component`   | yes      | A named React function component that renders the block.                                                                                                                                                                                                                                                                                                                   |
 | `toMarkdown`  | yes      | A builder function `(c, s) => (...)[]` that renders block content as markdown. `c` is a proxy typed on your `content` keys; `s` is a proxy typed on your `settings` keys used to wrap lines in conditionals. Each returned entry becomes a paragraph (joined with `\n\n`). Lines where all referenced fields resolve to empty — or whose condition is false — are omitted. |
+
+## Synced blocks (`synced`, optional)
+
+`createBlock({ synced: true, ... })` makes every instance of that block **type** share content and settings, including nested repeater items and their settings. It defaults to `false`: instances are independent unless you opt in. Sharing is scoped to one project environment; development and production never share edits automatically.
+
+Use `layoutOnly: true, synced: true` for a navbar or footer that must have identical data across different layouts. `layoutOnly` controls where a block can be placed; it does **not** enable syncing. A synced block can also be a normal page-content block.
+
+- Editing any instance updates the shared draft data everywhere. New instances reuse existing data rather than resetting it to defaults.
+- Positions, page/layout placement, and deletion remain per instance. Deleting one placement doesn't delete the others.
+- Publishing a page or layout containing the block publishes its shared data for all live instances. Unpublished draft edits never leak into the live site.
+- Enabling syncing on an existing type keeps the oldest instance's data and applies it to the others. Disabling it leaves each instance with a copy that can then be edited independently.
+- Synced blocks have **purple highlights and overlays** in the editor.
 
 ## Markdown Template (`toMarkdown`)
 

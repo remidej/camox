@@ -5,6 +5,7 @@ const footer = createBlock({
   id: "footer",
   title: "Footer",
   layoutOnly: true,
+  synced: true,
   description: "A footer at the bottom of a page with a site name and navigation links.",
   content: {
     title: Type.String({ default: "{{projectName}}" }),

@@ -5,6 +5,7 @@ const footer = createBlock({
   id: "footer",
   title: "Footer",
   layoutOnly: true,
+  synced: true,
   description:
     "At the bottom of a page to provide the user with links and miscellaneous information.",
   content: {

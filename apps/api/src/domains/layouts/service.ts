@@ -20,6 +20,8 @@ import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { readLayoutSnapshot } from "../_shared/layout-source";
 import type { ServiceContext } from "../_shared/service-context";
 import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
+import { syncBlockData } from "../blocks/synced";
+import { publishSyncedData } from "../blocks/synced-live";
 import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
 
 // --- Input Schemas ---
@@ -251,6 +253,10 @@ async function invalidateLayoutPublish(
     targets: [
       queryKeys.pages.list,
       queryKeys.layouts.all,
+      // Synced block types may also be used by unrelated layouts or pages.
+      queryKeys.pages.getByPathAll,
+      ["camox", "blocks", "get"],
+      ["camox", "blocks", "getPageMarkdown"],
       ...dependentPages.map((p) => queryKeys.pages.getByPath(p.fullPath)),
       ...pageBlockIds.map((id) => queryKeys.blocks.get(id, "live")),
       ...layoutBlockIds.map((id) => queryKeys.blocks.get(id, "live")),
@@ -475,6 +481,7 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
         }
       }
 
+      await syncBlockData(ctx, block.id, true);
       slot.position = newPos;
       lastPos = newPos;
     }
@@ -642,6 +649,7 @@ export async function writeLayoutCheckpointAndPoint(
     .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
     .where(eq(layouts.id, args.layout.id));
 
+  await publishSyncedData(ctx, args.layout.environmentId, snapshot);
   return { checkpoint, snapshot };
 }
 

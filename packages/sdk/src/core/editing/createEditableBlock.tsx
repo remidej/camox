@@ -142,6 +142,8 @@ interface CreateBlockOptions<
    * or be available for AI page generation.
    */
   layoutOnly?: TLayoutOnly;
+  /** Share content and settings across all instances of this type. Defaults to false. */
+  synced?: boolean;
   /**
    * React component that renders the block.
    * Must be defined as a separate function (not inline, not an arrow function).
@@ -868,7 +870,7 @@ export function createEditableBlock<
       "data-camox-field-id": fieldId,
       "data-camox-hovered": isHovered || undefined,
       "data-camox-focused": isFocused || undefined,
-      "data-camox-overlay-mode": mode === "layout" ? "layout" : undefined,
+      "data-camox-overlay-mode": options.synced ? "synced" : undefined,
       onMouseEnter: handleMouseEnter,
       onMouseLeave: handleMouseLeave,
       children: (
@@ -1003,7 +1005,7 @@ export function createEditableBlock<
               data-camox-field-type={isContentEditable ? "embed" : undefined}
               data-camox-hovered={(isContentEditable && isHovered) || undefined}
               data-camox-focused={(isContentEditable && isOpen) || undefined}
-              data-camox-overlay-mode={mode === "layout" ? "layout" : undefined}
+              data-camox-overlay-mode={options.synced ? "synced" : undefined}
               onMouseEnter={isContentEditable ? () => setIsHovered(true) : undefined}
               onMouseLeave={isContentEditable ? () => setIsHovered(false) : undefined}
             />
@@ -1190,7 +1192,7 @@ export function createEditableBlock<
       "data-camox-field-id": fieldId,
       "data-camox-hovered": isHovered || undefined,
       "data-camox-focused": isFocused || undefined,
-      "data-camox-overlay-mode": mode === "layout" ? "layout" : undefined,
+      "data-camox-overlay-mode": options.synced ? "synced" : undefined,
       contentEditable: true,
       onClick: (e: React.MouseEvent) => e.preventDefault(),
       onInput: handleInput,
@@ -1325,7 +1327,7 @@ export function createEditableBlock<
         data-camox-field-type="image"
         data-camox-hovered={isHovered || undefined}
         data-camox-focused={isFocused || undefined}
-        data-camox-overlay-mode={mode === "layout" ? "layout" : undefined}
+        data-camox-overlay-mode={options.synced ? "synced" : undefined}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={handleClick}
@@ -1494,7 +1496,7 @@ export function createEditableBlock<
       <div
         data-camox-repeater-item-id={isContentEditable ? itemId : undefined}
         data-camox-hovered={showOverlay || undefined}
-        data-camox-overlay-mode={mode === "layout" ? "layout" : undefined}
+        data-camox-overlay-mode={options.synced ? "synced" : undefined}
       >
         {children}
       </div>
@@ -1903,7 +1905,7 @@ export function createEditableBlock<
         data-camox-block-id={isContentEditable ? blockData._id : undefined}
         data-camox-hovered={(shouldShowOverlay && !isBlockSelected) || undefined}
         data-camox-focused={(shouldShowOverlay && isBlockSelected) || undefined}
-        data-camox-overlay-mode={mode === "layout" ? "layout" : undefined}
+        data-camox-overlay-mode={options.synced ? "synced" : undefined}
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -2064,7 +2066,7 @@ export function createEditableBlock<
                   data-camox-detached
                   data-camox-hovered={!isBlockSelected || undefined}
                   data-camox-focused={isBlockSelected || undefined}
-                  data-camox-overlay-mode={mode === "layout" ? "layout" : undefined}
+                  data-camox-overlay-mode={options.synced ? "synced" : undefined}
                   style={{
                     position: "absolute",
                     pointerEvents: "none",
@@ -2103,6 +2105,7 @@ export function createEditableBlock<
       contentSchema,
       settingsSchema,
       layoutOnly: (options.layoutOnly ?? false) as TLayoutOnly,
+      synced: options.synced ?? false,
       getInitialBundle: () => {
         const counter = { value: 0 };
         const allSeeds: RepeatableItemSeed[] = [];

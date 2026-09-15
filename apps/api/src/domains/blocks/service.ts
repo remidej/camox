@@ -40,6 +40,8 @@ import {
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
 import { normalizeBlockContent, sanitizeAssetValue, type BlockItemSeed } from "./normalize-content";
+import { syncBlockData } from "./synced";
+import { resolveSyncedLiveData } from "./synced-live";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -664,7 +666,11 @@ async function loadBlockBundle(
     if (typeof source === "object" && checkpoint.pageId !== parentPage.id) {
       return { block: null, items: [] };
     }
-    const snapshot = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
+    const stored = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
+    const snapshot =
+      source === "live"
+        ? await resolveSyncedLiveData(ctx, parentPage.environmentId, stored)
+        : stored;
     const block = snapshot.blocks.find((b) => b.id === blockId) ?? null;
     if (!block) return { block: null, items: [] };
     return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
@@ -686,7 +692,11 @@ async function loadBlockBundle(
       .where(eq(layoutCheckpoints.id, checkpointId))
       .get();
     if (!checkpoint) return { block: null, items: [] };
-    const snapshot = layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
+    const snapshot = await resolveSyncedLiveData(
+      ctx,
+      parentLayout.environmentId,
+      layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot)),
+    );
     const block = snapshot.blocks.find((b) => b.id === blockId) ?? null;
     if (!block) return { block: null, items: [] };
     return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
@@ -1073,6 +1083,7 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     }
   }
 
+  await syncBlockData(ctx, result.id, true);
   await bumpContentUpdatedAt(ctx.db, { pageId });
 
   ctx.waitUntil(
@@ -1099,7 +1110,7 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     ],
   });
 
-  return result;
+  return (await ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get())!;
 }
 
 export async function updateBlockContent(
@@ -1141,6 +1152,7 @@ export async function updateBlockContent(
     .returning()
     .get();
 
+  await syncBlockData(ctx, id);
   await bumpContentUpdatedAt(ctx.db, access.block);
 
   ctx.waitUntil(
@@ -1189,6 +1201,7 @@ export async function updateBlockSettings(
     .where(eq(blocks.id, id))
     .returning()
     .get();
+  await syncBlockData(ctx, id);
   await bumpContentUpdatedAt(ctx.db, access.block);
   // Granular invalidation: only refetch this block, not the entire page.
   // Draft source only — the live snapshot doesn't change on edits.
@@ -1410,6 +1423,7 @@ export async function duplicateBlock(
     })
     .returning()
     .get();
+  await syncBlockData(ctx, result.id, true);
   await bumpContentUpdatedAt(ctx.db, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,

@@ -509,6 +509,7 @@ function createViewBlock(options: EditableOptions) {
       contentSchema,
       settingsSchema,
       layoutOnly: options.layoutOnly ?? false,
+      synced: options.synced ?? false,
       getInitialBundle,
       getInitialContent: () => {
         const content = { ...contentDefaults };

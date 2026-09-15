@@ -59,6 +59,7 @@ export function createApp({ blocks, layouts = [] }: CreateAppOptions) {
         contentSchema: block._internal.contentSchema,
         settingsSchema: block._internal.settingsSchema,
         layoutOnly: block._internal.layoutOnly || undefined,
+        synced: block._internal.synced,
       }));
     },
     getSerializableLayoutDefinitions() {

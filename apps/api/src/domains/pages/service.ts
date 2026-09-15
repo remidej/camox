@@ -28,6 +28,8 @@ import {
   type SnapshotBlock,
   type SnapshotRepeatableItem,
 } from "../_shared/snapshot-schemas";
+import { syncBlockData } from "../blocks/synced";
+import { publishSyncedData, resolveSyncedLiveData } from "../blocks/synced-live";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
 
@@ -170,6 +172,11 @@ function invalidatePagePublish(
     targets: [
       queryKeys.pages.list,
       queryKeys.pages.getById(args.pageId),
+      // Publishing can update synced content on unrelated pages/layouts too.
+      queryKeys.pages.getByPathAll,
+      queryKeys.layouts.all,
+      ["camox", "blocks", "get"],
+      ["camox", "blocks", "getPageMarkdown"],
       // Prefix invalidation: both 'draft' and 'live' slots at this path.
       queryKeys.pages.getByPath(args.fullPath),
       ...args.blockIds.map((id) => queryKeys.blocks.get(id, "live")),
@@ -375,7 +382,9 @@ export async function readPageSnapshot(
   // reads so a leaked id can't be used to fetch a different page's content.
   if (typeof source === "object" && checkpoint.pageId !== pageRow.id) return null;
 
-  return pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
+  const snapshot = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
+  if (source !== "live") return snapshot;
+  return resolveSyncedLiveData(ctx, pageRow.environmentId, snapshot);
 }
 
 // Build a canonical page snapshot from the current live (draft) rows. Mirrors
@@ -1047,6 +1056,7 @@ export async function writePageCheckpointAndPoint(
     .returning()
     .get();
 
+  await publishSyncedData(ctx, args.page.environmentId, snapshot);
   return { checkpoint, snapshot, updated };
 }
 
@@ -1172,6 +1182,8 @@ export async function discardPageChanges(
     .returning()
     .get();
 
+  // Restoring a placement must not roll back shared content in other owners.
+  for (const block of snapshot.blocks) await syncBlockData(ctx, block.id, true);
   const snapshotBlockIds = snapshot.blocks.map((block) => block.id);
   const affectedBlockIds = [...new Set([...existingBlockIds, ...snapshotBlockIds])];
   const affectedPaths = [...new Set([pageRow.fullPath, snapshot.page.fullPath])];

@@ -1,9 +1,9 @@
-import type { repeatableItems } from "../../schema";
+import type { SnapshotRepeatableItem } from "./snapshot-schemas";
 
 /** Restore repeater markers stripped from persisted checkpoint snapshots. */
 export function injectRepeatableItemMarkers<TBlock extends { id: number; content: unknown }>(
   block: TBlock,
-  blockItems: (typeof repeatableItems.$inferSelect)[],
+  blockItems: SnapshotRepeatableItem[],
 ) {
   const childrenByParent = new Map<number | null, Map<string, typeof blockItems>>();
   for (const item of blockItems) {

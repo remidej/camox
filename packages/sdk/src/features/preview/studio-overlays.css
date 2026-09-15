@@ -4,7 +4,7 @@
  * State is driven by data attributes on the elements:
  * - data-camox-hovered: element is hovered
  * - data-camox-focused: element is focused/selected
- * - data-camox-overlay-mode="layout": use layout (purple) colors
+ * - data-camox-overlay-mode="synced": use synced-block (purple) colors
  *
  * Elements are targeted via their existing data attributes:
  * - [data-camox-field-id]: Field, Link, Image, Embed
@@ -15,8 +15,6 @@
 :root {
   --camox-overlay-color-hover: #f472b6bf; /* pink-400 at 75% */
   --camox-overlay-color-selected: #f472b6; /* pink-400 */
-  --camox-overlay-layout-color-hover: #c084fcbf; /* purple-400 at 75% */
-  --camox-overlay-layout-color-selected: #c084fc; /* purple-400 */
   --camox-overlay-width-hover: 3px;
   --camox-overlay-width-selected: 1px;
   --camox-overlay-inset-field-hover: -1px;
@@ -79,35 +77,10 @@
   box-shadow: 0 0 0 var(--camox-overlay-width-selected) var(--camox-overlay-color-selected) !important;
 }
 
-/* ---- Layout mode color overrides ---- */
-
-[data-camox-field-id][data-camox-field-type][data-camox-overlay-mode="layout"][data-camox-hovered]::after,
-[data-camox-block-id][data-camox-overlay-mode="layout"][data-camox-hovered]:not(
-    [data-camox-detached]
-  )::after,
-[data-camox-repeater-item-id][data-camox-overlay-mode="layout"][data-camox-hovered]::after {
-  border-color: var(--camox-overlay-layout-color-hover);
-}
-
-[data-camox-field-id][data-camox-field-type][data-camox-overlay-mode="layout"][data-camox-focused]::after,
-[data-camox-block-id][data-camox-overlay-mode="layout"][data-camox-focused]:not(
-    [data-camox-detached]
-  )::after {
-  border-color: var(--camox-overlay-layout-color-selected);
-}
-
-[data-camox-field-id]:not(
-    [data-camox-field-type]
-  )[data-camox-overlay-mode="layout"][data-camox-hovered] {
-  box-shadow: 0 0 0 var(--camox-overlay-width-hover) var(--camox-overlay-layout-color-hover) !important;
-  border-radius: 0 !important;
-}
-
-[data-camox-field-id]:not(
-    [data-camox-field-type]
-  )[data-camox-overlay-mode="layout"][data-camox-focused] {
-  box-shadow: 0 0 0 var(--camox-overlay-width-selected) var(--camox-overlay-layout-color-selected) !important;
-  border-radius: 0 !important;
+/* Shared data is purple, regardless of whether its placement is in a layout. */
+[data-camox-overlay-mode="synced"] {
+  --camox-overlay-color-hover: #c084fcbf;
+  --camox-overlay-color-selected: #c084fc;
 }
 
 /* ---- Embed: z-index above click-interceptor ---- */
@@ -128,14 +101,6 @@
 [data-camox-detached][data-camox-focused] {
   inset: var(--camox-overlay-inset-block-selected);
   border: var(--camox-overlay-width-selected) solid var(--camox-overlay-color-selected);
-}
-
-[data-camox-detached][data-camox-overlay-mode="layout"][data-camox-hovered] {
-  border-color: var(--camox-overlay-layout-color-hover);
-}
-
-[data-camox-detached][data-camox-overlay-mode="layout"][data-camox-focused] {
-  border-color: var(--camox-overlay-layout-color-selected);
 }
 
 /* ---- Add-block overlay ---- */

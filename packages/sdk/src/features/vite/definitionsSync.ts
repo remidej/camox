@@ -95,6 +95,7 @@ export async function syncDefinitionsToApi(options: {
       defaultContent: block._internal.getInitialContent(),
       defaultSettings: block._internal.getInitialSettings(),
       layoutOnly: block._internal.layoutOnly || undefined,
+      synced: block._internal.synced,
     }));
 
   let environmentCreated = false;
@@ -359,6 +360,7 @@ export async function syncDefinitions(
         defaultContent: block._internal.getInitialContent(),
         defaultSettings: block._internal.getInitialSettings(),
         layoutOnly: block._internal.layoutOnly || undefined,
+        synced: block._internal.synced,
       });
     } catch (error) {
       throwIfSyncAuthError(error);

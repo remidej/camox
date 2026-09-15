@@ -12,6 +12,8 @@ export const repeatableItems = sqliteTable(
     parentItemId: int("parent_item_id").references((): AnySQLiteColumn => repeatableItems.id, {
       onDelete: "cascade",
     }),
+    // Stable identity across copies of a synced block's item tree.
+    syncKey: text("sync_key"),
     fieldName: text("field_name").notNull(),
     content: text({ mode: "json" }).notNull(),
     settings: text({ mode: "json" }),

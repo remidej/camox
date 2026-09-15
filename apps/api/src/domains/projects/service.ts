@@ -19,6 +19,7 @@ import {
   repeatableItems,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { syncBlockData } from "../blocks/synced";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { writePageCheckpointAndPoint } from "../pages/service";
 
@@ -466,6 +467,7 @@ export async function initializeProjectContent(
       }
     }
 
+    await syncBlockData(ctx, block.id, true);
     blockCount++;
   }
 

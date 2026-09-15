@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { layoutCheckpoints, type layouts } from "../../schema";
+import { resolveSyncedLiveData } from "../blocks/synced-live";
 import type { ServiceContext } from "./service-context";
 import { layoutSnapshotSchema, type LayoutSnapshot } from "./snapshot-schemas";
 
@@ -16,5 +17,9 @@ export async function readLayoutSnapshot(
     .where(eq(layoutCheckpoints.id, layoutRow.livePublishedCheckpointId))
     .get();
   if (!checkpoint) return null;
-  return layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
+  return resolveSyncedLiveData(
+    ctx,
+    layoutRow.environmentId,
+    layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot)),
+  );
 }

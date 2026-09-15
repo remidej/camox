@@ -293,7 +293,9 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
           <TooltipContent>
             From <span className="font-semibold">{layoutName}</span> layout.
             <br />
-            Changing the content may affect other pages
+            {blockDef?._internal.synced
+              ? "Synced: editing this block updates it across all layouts and pages"
+              : "Changing the content may affect other pages"}
           </TooltipContent>
         </Tooltip>
       </div>

@@ -18,6 +18,7 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blockDefinitions, blocks, files, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { sanitizeItemContent, type SchemaProps } from "../blocks/normalize-content";
+import { syncBlockData } from "../blocks/synced";
 import { collectFileIds } from "../pages/ai";
 
 // --- Input Schemas ---
@@ -379,6 +380,7 @@ export async function createRepeatableItem(
     }
   }
 
+  await syncBlockData(ctx, blockId);
   await bumpContentUpdatedAt(ctx.db, access.block);
 
   ctx.waitUntil(
@@ -439,6 +441,7 @@ export async function updateRepeatableItemContent(
     .returning()
     .get();
 
+  await syncBlockData(ctx, access.item.blockId);
   await bumpContentUpdatedAtForBlock(ctx.db, access.item.blockId);
 
   ctx.waitUntil(
@@ -486,6 +489,7 @@ export async function updateRepeatableItemSettings(
     .returning()
     .get();
 
+  await syncBlockData(ctx, access.item.blockId);
   await bumpContentUpdatedAtForBlock(ctx.db, access.item.blockId);
 
   broadcastInvalidation({
@@ -550,6 +554,7 @@ export async function updateRepeatableItemPosition(
     .where(eq(repeatableItems.id, id))
     .returning()
     .get();
+  await syncBlockData(ctx, access.item.blockId);
   await bumpContentUpdatedAtForBlock(ctx.db, access.item.blockId);
   // Granular invalidation: only refetch the parent block bundle (draft source)
   broadcastInvalidation({
@@ -609,6 +614,7 @@ export async function duplicateRepeatableItem(
     })
     .returning()
     .get();
+  await syncBlockData(ctx, original.blockId);
   await bumpContentUpdatedAtForBlock(ctx.db, original.blockId);
   // Granular invalidation: refetch the parent block bundle (includes new item)
   broadcastInvalidation({
@@ -677,6 +683,7 @@ export async function deleteRepeatableItem(
     .where(eq(repeatableItems.id, id))
     .returning()
     .get();
+  await syncBlockData(ctx, blockId);
   await bumpContentUpdatedAtForBlock(ctx.db, blockId);
   // Granular invalidation: refetch the parent block bundle (item removed)
   broadcastInvalidation({

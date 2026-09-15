@@ -5,6 +5,7 @@ import { assertSyncAccess } from "../../authorization";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { blockDefinitions, blocks, layouts, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { reconcileSyncedDefinition } from "../blocks/synced";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -19,6 +20,7 @@ const definitionFields = {
   defaultContent: z.unknown().optional(),
   defaultSettings: z.unknown().optional(),
   layoutOnly: z.boolean().optional(),
+  synced: z.boolean().optional(),
 };
 
 export const listBlockDefinitionsInput = z.object({ projectId: z.number() });
@@ -105,11 +107,15 @@ export async function syncBlockDefinitions(
           defaultContent: def.defaultContent ?? null,
           defaultSettings: def.defaultSettings ?? null,
           layoutOnly: def.layoutOnly ?? null,
+          synced: def.synced ?? false,
           updatedAt: now,
         })
         .where(eq(blockDefinitions.id, existing.id))
         .returning()
         .get();
+      if (updated.synced && !existing.synced) {
+        await reconcileSyncedDefinition(ctx, environment.id, def.blockId);
+      }
       results.push(updated);
       continue;
     }
@@ -127,11 +133,13 @@ export async function syncBlockDefinitions(
         defaultContent: def.defaultContent ?? null,
         defaultSettings: def.defaultSettings ?? null,
         layoutOnly: def.layoutOnly ?? null,
+        synced: def.synced ?? false,
         createdAt: now,
         updatedAt: now,
       })
       .returning()
       .get();
+    if (created.synced) await reconcileSyncedDefinition(ctx, environment.id, def.blockId);
     results.push(created);
   }
 
@@ -229,11 +237,15 @@ export async function upsertBlockDefinition(
         defaultContent: body.defaultContent ?? null,
         defaultSettings: body.defaultSettings ?? null,
         layoutOnly: body.layoutOnly ?? null,
+        synced: body.synced ?? false,
         updatedAt: now,
       })
       .where(eq(blockDefinitions.id, existing.id))
       .returning()
       .get();
+    if (result.synced && !existing.synced) {
+      await reconcileSyncedDefinition(ctx, environment.id, body.blockId);
+    }
     return { ...result, action: "updated" as const };
   }
 
@@ -247,11 +259,13 @@ export async function upsertBlockDefinition(
       defaultContent: body.defaultContent ?? null,
       defaultSettings: body.defaultSettings ?? null,
       layoutOnly: body.layoutOnly ?? null,
+      synced: body.synced ?? false,
       createdAt: now,
       updatedAt: now,
     })
     .returning()
     .get();
+  if (result.synced) await reconcileSyncedDefinition(ctx, environment.id, body.blockId);
   return { ...result, action: "created" as const };
 }
 

@@ -1,6 +1,6 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { ORPCError } from "@orpc/server";
-import { eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getAuthorizedProject } from "../../authorization";
@@ -47,7 +47,7 @@ export type CompatibilityReason =
   | {
       kind: "block-definition-schema-mismatch";
       blockId: string;
-      field: "contentSchema" | "settingsSchema" | "layoutOnly";
+      field: "contentSchema" | "settingsSchema" | "layoutOnly" | "synced";
     }
   | { kind: "layout-missing-in-source"; layoutId: string }
   | { kind: "layout-missing-in-target"; layoutId: string };
@@ -62,7 +62,7 @@ function assertUser(ctx: ServiceContext) {
  * every divergence. An empty result means push/pull is safe.
  *
  * Block definitions: every text-keyed `blockId` must exist in both envs and
- * agree on `contentSchema`, `settingsSchema`, and `layoutOnly`. Documentation
+ * agree on `contentSchema`, `settingsSchema`, `layoutOnly`, and `synced`. Documentation
  * fields (`title`, `description`, `defaultContent`, `defaultSettings`) are
  * intentionally ignored — they don't affect content validity.
  *
@@ -106,6 +106,9 @@ async function collectCompatibilityReasons(
     }
     if (stableStringify(src.settingsSchema) !== stableStringify(tgt.settingsSchema)) {
       reasons.push({ kind: "block-definition-schema-mismatch", blockId, field: "settingsSchema" });
+    }
+    if ((src.synced ?? false) !== (tgt.synced ?? false)) {
+      reasons.push({ kind: "block-definition-schema-mismatch", blockId, field: "synced" });
     }
     // `layoutOnly` is `boolean | null`; normalise null/undefined to compare.
     if ((src.layoutOnly ?? null) !== (tgt.layoutOnly ?? null)) {
@@ -512,6 +515,42 @@ export async function replicateEnvironment(
       .returning()
       .get();
     itemsMap.set(id, inserted.id);
+  }
+
+  // Shared published values can outlive their original placement. Remap them
+  // separately from draft rows and page/layout checkpoint pointers.
+  for (const definition of sourceBlockDefs) {
+    const shared = definition.syncedPublishedData;
+    if (!shared) continue;
+    const remapData = (value: unknown) => remapCheckpointContent(value, filesMap, pagesMap);
+    await ctx.db
+      .update(blockDefinitions)
+      .set({
+        syncedPublishedData: {
+          block: {
+            ...shared.block,
+            id: blocksMap.get(shared.block.id) ?? shared.block.id,
+            pageId: remapMaybeNullableId(shared.block.pageId, pagesMap),
+            layoutId: remapMaybeNullableId(shared.block.layoutId, layoutsMap),
+            content: remapData(shared.block.content),
+            settings: remapData(shared.block.settings),
+          },
+          items: shared.items.map((item) => ({
+            ...item,
+            id: itemsMap.get(item.id) ?? item.id,
+            blockId: blocksMap.get(item.blockId) ?? item.blockId,
+            parentItemId: remapNullableId(item.parentItemId, itemsMap),
+            content: remapData(item.content),
+            settings: remapData(item.settings),
+          })),
+        },
+      })
+      .where(
+        and(
+          eq(blockDefinitions.environmentId, target.id),
+          eq(blockDefinitions.blockId, definition.blockId),
+        ),
+      );
   }
 
   const layoutCheckpointsMap = new Map<number, number>();

@@ -10,6 +10,7 @@ const navbar = createBlock({
   id: "navbar",
   title: "Navbar",
   layoutOnly: true,
+  synced: true,
   description:
     "A navigation bar at the top of the page with a logo image on the left, navigation links in the middle, and a dashboard button on the right.",
   content: {

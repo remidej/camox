@@ -8,6 +8,7 @@ const navbar = createBlock({
   id: "navbar",
   title: "Navbar",
   layoutOnly: true,
+  synced: true,
   description:
     "A navigation bar at the top of a page with a brand name, navigation links, and a call-to-action link.",
   content: {

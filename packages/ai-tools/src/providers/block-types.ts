@@ -15,9 +15,10 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "listBlockTypes",
     description:
       "List the block types available in the current project. Returns a lightweight summary " +
-      "(`type`, `title`, `description`, `layoutOnly`) for discovery — call `describeBlockTypes` " +
+      "(`type`, `title`, `description`, `layoutOnly`, `synced`) for discovery — call `describeBlockTypes` " +
       "to fetch the JSON Schemas needed to construct arguments for createBlock / editBlock. " +
-      "Block types whose `layoutOnly` is true can only appear inside layouts and are not valid for createBlock on a page.",
+      "Block types whose `layoutOnly` is true can only appear inside layouts and are not valid for createBlock on a page. " +
+      "Editing a `synced` block changes its data across all instances in this environment.",
     inputSchema: listBlockTypesToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => {
@@ -27,6 +28,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
         title: d.title,
         description: d.description,
         layoutOnly: d.layoutOnly ?? false,
+        synced: d.synced,
       }));
     },
   },
@@ -52,6 +54,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
           contentSchema: rewriteAssetSchema(d.contentSchema),
           settingsSchema: rewriteAssetSchema(d.settingsSchema),
           layoutOnly: d.layoutOnly ?? false,
+          synced: d.synced,
         }));
       const foundIds = new Set(found.map((d) => d.type));
       const notFound = types.filter((t) => !foundIds.has(t));

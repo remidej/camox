@@ -71,6 +71,8 @@ blocks: {
 }
 ```
 
+For a navbar or footer whose content must stay identical **across different layouts**, also set `synced: true` in its `createBlock` options. `layoutOnly: true` alone only restricts placement; each layout otherwise has independent data. Synced blocks share content, settings, and repeaters and appear purple in the editor. See [Synced blocks](block-definitions.md#synced-blocks-synced-optional).
+
 You can have multiple blocks in either group, or leave one empty:
 
 ```tsx
