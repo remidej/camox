@@ -13,7 +13,7 @@ interface FrameContextValue {
   iframeElement: HTMLIFrameElement | null;
 }
 
-const FrameContext = React.createContext<FrameContextValue>({
+export const FrameContext = React.createContext<FrameContextValue>({
   window: null,
   iframeElement: null,
 });

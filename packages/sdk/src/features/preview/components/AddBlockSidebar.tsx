@@ -1,4 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
+import { Badge } from "@camox/ui/badge";
 import { Button } from "@camox/ui/button";
 import {
   Command,
@@ -32,6 +33,7 @@ import { trackClientEvent } from "@/lib/telemetry-client";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore } from "../previewStore";
+import { BlockThumbnail } from "./BlockThumbnail";
 
 const AddBlockSidebar = () => {
   const [highlightedValue, setHighlightedValue] = React.useState<string>("");
@@ -254,14 +256,26 @@ const AddBlockSidebar = () => {
                   <CommandItem
                     key={block._internal.id}
                     value={block._internal.title}
+                    keywords={[block._internal.description ?? ""]}
+                    hideCheck
                     onSelect={() => {
                       void handleAddBlock(block);
                     }}
-                    className="group flex items-center justify-between gap-2"
+                    className="group bg-card data-[selected=true]:border-primary data-[selected=true]:after:border-primary mb-3 flex flex-col items-stretch gap-0 overflow-hidden rounded-lg border p-0 after:pointer-events-none after:absolute after:inset-0 after:z-10 after:rounded-[inherit] last:mb-0 data-[selected=true]:after:border"
                   >
-                    <div className="flex-1">
-                      <span>{block._internal.title}</span>
-                      <span className="text-muted-foreground block">
+                    <BlockThumbnail block={block} />
+                    <div className="border-border flex flex-col gap-1 border-t px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 leading-5 font-medium">
+                          {block._internal.title}
+                        </span>
+                        {block._internal.synced && (
+                          <Badge variant="secondary" size="sm">
+                            Synced
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-muted-foreground text-xs leading-4">
                         {displayCount(block._internal.id)}
                       </span>
                     </div>
