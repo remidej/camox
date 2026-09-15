@@ -52,6 +52,7 @@
     },
   ],
   "dev": {
+    "host": "localhost:8787",
     "inspector_port": 9298,
   },
   "observability": {
