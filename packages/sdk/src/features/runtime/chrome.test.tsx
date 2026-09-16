@@ -73,7 +73,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(editModeLabel, /class="camox-platform-other">Ctrl ↵/);
   assert.match(html, /class="camox-platform-mac">⌘ K/);
   assert.match(html, /class="camox-platform-other">Ctrl K/);
-  assert.match(html, /View published page/);
+  assert.match(html, /View live page/);
   assert.match(html, /PROD/);
   assert.doesNotMatch(html, /camox-loading|Loading editor/);
   assert.match(html, /<iframe[^>]+srcDoc=/i);

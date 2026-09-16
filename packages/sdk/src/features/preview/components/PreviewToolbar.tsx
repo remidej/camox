@@ -117,7 +117,7 @@ export const PreviewToolbar = ({
               disabled={pageStatus === "published" || !hasLiveVersion}
               onClick={() => previewStore.send({ type: "viewLivePage" })}
             >
-              View published page
+              View live page
             </Button>
           )}
           <Tooltip.Tooltip>
