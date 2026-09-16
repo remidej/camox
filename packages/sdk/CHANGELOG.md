@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.41.1](https://github.com/remidej/camox/compare/camox-v0.41.0...camox-sdk-v0.41.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* link and embed editing in preview ([e735499](https://github.com/remidej/camox/commit/e735499c9c82921a1c8f36b279b69a91e2f20080))
+* preview not reacting to block setting changes ([e518df4](https://github.com/remidej/camox/commit/e518df435785f064c387495399903d0a0198c6a1))
+* toggle edit mode shortcut adding line breaks ([85d78fa](https://github.com/remidej/camox/commit/85d78faa14709b6ba984bb3a00264c871a1761c1))
+* view live page showing draft content ([55ab48d](https://github.com/remidej/camox/commit/55ab48d9824c9adfb0bef7d86a9d60ade1bd1fae))
+
+
+### Miscellaneous
+
+* refactor previewStore to prevent impossible edit live source state ([431b092](https://github.com/remidej/camox/commit/431b0922a16b2a35f9f7ce8b2c06906d1c5825cd))
+
 ## [0.41.0](https://github.com/remidej/camox/compare/camox-v0.40.0...camox-sdk-v0.41.0) (2026-09-15)
 
 
