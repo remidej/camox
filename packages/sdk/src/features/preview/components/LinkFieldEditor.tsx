@@ -106,7 +106,6 @@ const LinkFieldEditor = ({ fieldName, linkValue: rawLinkValue, onSave }: LinkFie
           onChange={(e) => textField.setValue(e.target.value)}
           onFocus={textField.onFocus}
           onBlur={textField.onBlur}
-          autoFocus
         />
       </div>
       <div className="grid gap-1.5">

@@ -1,6 +1,3 @@
-import { Input } from "@camox/ui/input";
-import { Label } from "@camox/ui/label";
-import { Popover, PopoverTrigger, PopoverContent } from "@camox/ui/popover";
 import { Type as TypeBoxType, type TSchema, type Static } from "@sinclair/typebox";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
@@ -912,10 +909,49 @@ export function createEditableBlock<
 
     const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
-    const [isOpen, setIsOpen] = React.useState(false);
-    const [urlValue, setUrlValue] = React.useState(fieldValue);
     const [isHovered, setIsHovered] = React.useState(false);
-    const timerRef = React.useRef<number | null>(null);
+    const embedRef = React.useRef<HTMLDivElement>(null);
+    const itemId = repeaterContext?.itemId;
+    const selectField = React.useCallback(() => {
+      if (!isContentEditable) return;
+      if (itemId != null) {
+        previewStore.send({
+          type: "selectItemField",
+          blockId,
+          itemId,
+          fieldName: String(name),
+          fieldType: "Embed",
+        });
+        return;
+      }
+      previewStore.send({
+        type: "selectBlockField",
+        blockId,
+        fieldName: String(name),
+        fieldType: "Embed",
+      });
+    }, [isContentEditable, blockId, itemId, name]);
+
+    React.useEffect(() => {
+      if (!isContentEditable || !iframeWindow) return;
+
+      // Cross-origin player clicks don't bubble out of their iframe. Observe
+      // focus entering the player instead, without intercepting its interaction.
+      let timer: number | undefined;
+      const handleBlur = () => {
+        iframeWindow.clearTimeout(timer);
+        timer = iframeWindow.setTimeout(() => {
+          const activeElement = iframeWindow.document.activeElement;
+          if (activeElement?.tagName !== "IFRAME") return;
+          if (embedRef.current?.contains(activeElement)) selectField();
+        }, 0);
+      };
+      iframeWindow.addEventListener("blur", handleBlur);
+      return () => {
+        iframeWindow.clearTimeout(timer);
+        iframeWindow.removeEventListener("blur", handleBlur);
+      };
+    }, [isContentEditable, iframeWindow, selectField]);
 
     const isHoveredFromSidebar = useOverlayMessage(
       iframeWindow,
@@ -929,115 +965,22 @@ export function createEditableBlock<
       setIsHovered(isHoveredFromSidebar);
     }, [isHoveredFromSidebar]);
 
-    const updateBlockContent = useMutation(blockMutations.updateContent());
-    const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
-
-    // Sync urlValue with fieldValue when popover is closed
-    React.useEffect(() => {
-      if (!isOpen) {
-        setUrlValue(fieldValue);
-      }
-    }, [fieldValue, isOpen]);
-
-    // Cleanup timer on unmount
-    React.useEffect(() => {
-      return () => {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-      };
-    }, []);
-
-    const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newValue = e.target.value;
-      setUrlValue(newValue);
-
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-
-      timerRef.current = window.setTimeout(() => {
-        if (repeaterContext?.itemId != null) {
-          updateRepeatableContent.mutate({
-            id: repeaterContext.itemId,
-            content: { [name]: newValue },
-          });
-        } else {
-          updateBlockContent.mutate({
-            id: blockId,
-            content: { [name]: newValue },
-          });
-        }
-      }, 500);
-    };
-
-    const handleOpenChange = (open: boolean, _eventDetails: unknown) => {
-      setIsOpen(open);
-      if (open) {
-        if (repeaterContext?.itemId != null) {
-          previewStore.send({
-            type: "selectItemField",
-            blockId,
-            itemId: repeaterContext.itemId,
-            fieldName: name.toString(),
-            fieldType: "Embed",
-          });
-        } else {
-          previewStore.send({
-            type: "selectBlockField",
-            blockId,
-            fieldName: name.toString(),
-            fieldType: "Embed",
-          });
-        }
-      }
-    };
-
     return (
-      <Popover
-        open={isContentEditable ? isOpen : false}
-        onOpenChange={isContentEditable ? handleOpenChange : undefined}
+      <div
+        ref={embedRef}
+        onClickCapture={selectField}
+        data-camox-field-id={isContentEditable ? fieldId : undefined}
+        data-camox-field-type={isContentEditable ? "embed" : undefined}
+        data-camox-hovered={(isContentEditable && isHovered) || undefined}
+        data-camox-overlay-mode={options.synced ? "synced" : undefined}
+        onMouseEnter={isContentEditable ? () => setIsHovered(true) : undefined}
+        onMouseLeave={isContentEditable ? () => setIsHovered(false) : undefined}
       >
-        <PopoverTrigger
-          render={
-            <div
-              data-camox-field-id={isContentEditable ? fieldId : undefined}
-              data-camox-field-type={isContentEditable ? "embed" : undefined}
-              data-camox-hovered={(isContentEditable && isHovered) || undefined}
-              data-camox-focused={(isContentEditable && isOpen) || undefined}
-              data-camox-overlay-mode={options.synced ? "synced" : undefined}
-              onMouseEnter={isContentEditable ? () => setIsHovered(true) : undefined}
-              onMouseLeave={isContentEditable ? () => setIsHovered(false) : undefined}
-            />
-          }
-          nativeButton={false}
-        >
-          {children(
-            { src: fieldValue } satisfies EmbedRenderProps,
-            { url: fieldValue } satisfies EmbedRenderData,
-          )}
-          {isContentEditable && (
-            /* Transparent full-coverage overlay to intercept iframe pointer events */
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                zIndex: 10,
-              }}
-            />
-          )}
-        </PopoverTrigger>
-        {isContentEditable && (
-          <PopoverContent className="w-96 gap-2">
-            <form className="grid gap-2">
-              <Label htmlFor="url">
-                {(options.content[name] as { title?: string })?.title ?? String(name)}
-              </Label>
-              <Input type="url" id="url" value={urlValue} onChange={handleUrlChange} />
-            </form>
-          </PopoverContent>
+        {children(
+          { src: fieldValue } satisfies EmbedRenderProps,
+          { url: fieldValue } satisfies EmbedRenderData,
         )}
-      </Popover>
+      </div>
     );
   };
 
@@ -1154,13 +1097,6 @@ export function createEditableBlock<
       setIsEditorFocused(false);
     };
 
-    const handleEditLink = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      previewStore.send({ type: "toggleContentSheet" });
-      setIsEditorFocused(false);
-      setIsEditing(false);
-    };
-
     const linkData = {
       text: displayText,
       href: resolvedHref,
@@ -1209,21 +1145,7 @@ export function createEditableBlock<
       suppressContentEditableWarning: true,
     } satisfies LinkRenderProps;
 
-    return (
-      <Popover open={isEditorFocused}>
-        {children(linkProps, linkData)}
-        <PopoverContent className="w-auto p-2" initialFocus={false} anchor={elementRef} align="end">
-          <button
-            type="button"
-            className="hover:bg-accent flex items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={handleEditLink}
-          >
-            Edit link
-          </button>
-        </PopoverContent>
-      </Popover>
-    );
+    return <>{children(linkProps, linkData)}</>;
   };
 
   const Image = <K extends keyof ImageFields>({
