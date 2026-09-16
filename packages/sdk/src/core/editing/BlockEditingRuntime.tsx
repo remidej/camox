@@ -1,7 +1,8 @@
 import * as React from "react";
 
 export interface BlockEditingRuntime {
-  getSetting(options: object, name: string): unknown;
+  // Keep the hook prefix so React Compiler never memoizes the context read.
+  useSetting(options: object, name: string): unknown;
   renderBlock(options: object, props: object): React.ReactNode;
   renderPrimitive(options: object, primitive: string, props: object): React.ReactNode;
 }

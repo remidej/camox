@@ -20,7 +20,7 @@ function EditableBlock({ options, props }: { options: object; props: object }) {
 }
 
 const completeEditingRuntime: BlockEditingRuntime = {
-  getSetting(options, name) {
+  useSetting(options, name) {
     return getEditableDefinition(options).useSetting(name);
   },
   renderBlock(options, props) {

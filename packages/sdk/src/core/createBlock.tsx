@@ -401,7 +401,7 @@ function createViewBlock(options: EditableOptions) {
 
   const useSetting = (name: string) => {
     const editingRuntime = useBlockEditingRuntime();
-    if (editingRuntime) return editingRuntime.getSetting(options, name);
+    if (editingRuntime) return editingRuntime.useSetting(options, name);
     const context = React.use(Context);
     if (!context) throw new Error("useSetting must be used within a Block Component");
     return context.settings[name];
