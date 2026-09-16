@@ -41,6 +41,7 @@ export function useAdminShortcuts() {
         if (shortcut.key === "Backspace") return;
       }
       event.preventDefault();
+      event.stopPropagation();
       matchingAction.execute();
     };
 
@@ -55,10 +56,11 @@ export function useAdminShortcuts() {
       }
     };
 
-    document.addEventListener("keydown", handleKeyDown);
+    // Consume shortcuts before field editors can turn Enter into a line break.
+    document.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("message", handleMessage);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("message", handleMessage);
     };
   }, [actions]);

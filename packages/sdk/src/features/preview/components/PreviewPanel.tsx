@@ -87,6 +87,7 @@ const KeyDownForwarder = () => {
       // Only forward if there's a matching action
       if (matchingAction) {
         e.preventDefault();
+        e.stopPropagation();
         iframeWindow.parent.postMessage(
           {
             type: "executeAction",
@@ -97,9 +98,10 @@ const KeyDownForwarder = () => {
       }
     };
 
-    iframeWindow.addEventListener("keydown", handleKeyDown);
+    // Consume shortcuts before preview editors can turn Enter into a line break.
+    iframeWindow.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      iframeWindow.removeEventListener("keydown", handleKeyDown);
+      iframeWindow.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [iframeWindow, actions]);
 
