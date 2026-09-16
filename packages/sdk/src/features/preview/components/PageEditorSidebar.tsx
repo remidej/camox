@@ -134,8 +134,6 @@ const PageEditorSidebar = () => {
   // Get state from store
   const selection = useSelector(previewStore, (state) => state.context.selection);
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
-  const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
-  const isReadOnly = previewSource !== "draft";
 
   const postToIframe = React.useCallback(
     (message: OverlayMessage) => {
@@ -468,15 +466,7 @@ const PageEditorSidebar = () => {
         </nav>
       </div>
       <div className="relative flex-1 overflow-auto">
-        {isReadOnly && (
-          <button
-            type="button"
-            aria-label="Switch to draft to edit"
-            className="absolute inset-0 z-10 h-full w-full cursor-not-allowed"
-            onClick={() => previewStore.send({ type: "requestDraftSwitch" })}
-          />
-        )}
-        <div className={cn(isReadOnly && "pointer-events-none opacity-50")}>
+        <div>
           {isItemLoading ? (
             <div className="flex h-full items-center justify-center py-12">
               <Spinner />

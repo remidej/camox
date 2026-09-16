@@ -6,7 +6,7 @@ import studioCssUrl from "virtual:camox-studio-css";
 
 import { getApiClient } from "../../lib/api-client";
 import { PreviewToolbar } from "../preview/components/PreviewToolbar";
-import { previewStore } from "../preview/previewStore";
+import { previewStore, selectPreviewSource } from "../preview/previewStore";
 import type { PageStructure } from "../routes/pageRuntime";
 import { Navbar } from "../studio/components/Navbar";
 import type { PageRenderInput } from "./runtime";
@@ -21,7 +21,7 @@ export function RuntimeChrome({
 }) {
   const preview = !input.routeKind;
   const hidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const source = useSelector(previewStore, (state) => state.context.previewSource);
+  const source = useSelector(previewStore, selectPreviewSource);
   const { data: page } = useQuery<PageStructure>({
     queryKey: queryKeys.pages.getByPath(input.pathname, source),
     // A passive observer still needs a real queryFn: Suspense may start fetching

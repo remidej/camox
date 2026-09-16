@@ -18,7 +18,7 @@ import { Check, EyeOff, LogOut, Monitor, Moon, Settings, Sun, User } from "lucid
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useAuthContext, useAuthState } from "@/lib/auth";
 
-import { previewStore } from "../../preview/previewStore";
+import { previewStore, selectIsEditMode } from "../../preview/previewStore";
 import { STUDIO_BASE_PATH } from "../routes";
 import { useApplyTheme } from "../useTheme";
 
@@ -47,7 +47,7 @@ function AuthenticatedUserButton({
   const authCtx = useAuthContext();
   const { data: session } = authCtx.authClient.useSession();
   const authenticationUrl = authCtx.authenticationUrl;
-  const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
+  const isEditMode = useSelector(previewStore, selectIsEditMode);
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isPreviewPage =

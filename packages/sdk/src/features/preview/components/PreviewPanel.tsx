@@ -7,7 +7,7 @@ import { checkIfInputFocused, cn } from "@/lib/utils";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { SharedChromeContext } from "../../runtime/SharedChromeContext";
-import { previewStore, type ViewportMode } from "../previewStore";
+import { previewStore, selectIsEditMode, type ViewportMode } from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
 import { FieldToolbar } from "./FieldToolbar";
@@ -143,7 +143,7 @@ const PreviewPanel = ({
     previewStore.send({ type: "setIframeElement", element });
   }, []);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
-  const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
+  const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   React.useEffect(() => {
     const actions = [

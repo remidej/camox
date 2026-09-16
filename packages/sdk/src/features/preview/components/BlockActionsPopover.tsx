@@ -404,7 +404,7 @@ function useBlockActionsShortcuts() {
         shortcut: { key: "Backspace", withMeta: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (!ctx.isEditMode) return false;
+          if (ctx.mode !== "editing-draft") return false;
           const sel = ctx.selection;
           if (!sel) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -456,7 +456,7 @@ function useBlockActionsShortcuts() {
         shortcut: { key: "d", withMeta: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (!ctx.isEditMode) return false;
+          if (ctx.mode !== "editing-draft") return false;
           const sel = ctx.selection;
           if (!sel) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -490,7 +490,7 @@ function useBlockActionsShortcuts() {
         shortcut: { key: "ArrowUp", withAlt: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (!ctx.isEditMode) return false;
+          if (ctx.mode !== "editing-draft") return false;
           const sel = ctx.selection;
           if (!sel || !page) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -522,7 +522,7 @@ function useBlockActionsShortcuts() {
         shortcut: { key: "ArrowDown", withAlt: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (!ctx.isEditMode) return false;
+          if (ctx.mode !== "editing-draft") return false;
           const sel = ctx.selection;
           if (!sel || !page) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
@@ -555,7 +555,7 @@ function useBlockActionsShortcuts() {
         shortcut: { key: "o" },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (!ctx.isEditMode) return false;
+          if (ctx.mode !== "editing-draft") return false;
           return ctx.selection !== null;
         },
         execute: () => {
@@ -579,7 +579,7 @@ function useBlockActionsShortcuts() {
         shortcut: { key: "o", withShift: true },
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
-          if (!ctx.isEditMode) return false;
+          if (ctx.mode !== "editing-draft") return false;
           return ctx.selection !== null;
         },
         execute: () => {

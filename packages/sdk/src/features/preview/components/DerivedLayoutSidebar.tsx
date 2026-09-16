@@ -9,7 +9,7 @@ import { layoutQueries, projectQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import type { PageRenderInput } from "../../runtime/runtime";
-import { previewStore } from "../previewStore";
+import { previewStore, selectPreviewSource } from "../previewStore";
 import { PagePicker } from "./PagePicker";
 import { LayoutBlockItem } from "./PageTree";
 import { PublicationRow } from "./PublicationRow";
@@ -18,7 +18,7 @@ export type DerivedLayoutStructure = NonNullable<PageRenderInput["derived"]>["la
 const EMPTY_PAGE = { blockIds: [] as number[] };
 
 export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructure }) {
-  const source = useSelector(previewStore, (state) => state.context.previewSource);
+  const source = useSelector(previewStore, selectPreviewSource);
   const { beforeBlocks, afterBlocks } = usePageBlocks({ page: EMPTY_PAGE, layout }, source);
   const app = useCamoxApp();
   const layoutName = app.getLayoutById(layout.layoutId)?._internal.title ?? layout.layoutId;

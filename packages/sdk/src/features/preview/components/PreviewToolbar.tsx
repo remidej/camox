@@ -11,7 +11,7 @@ import { Monitor, Smartphone, Tablet, X } from "lucide-react";
 import { formatShortcut } from "@/lib/utils";
 
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
-import { previewStore } from "../previewStore";
+import { previewStore, selectIsEditMode } from "../previewStore";
 
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
@@ -24,7 +24,7 @@ export const PreviewToolbar = ({
   pageStatus,
   hasLiveVersion,
 }: PreviewToolbarProps) => {
-  const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
+  const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);

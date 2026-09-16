@@ -27,7 +27,7 @@ import { getApiClient } from "@/lib/api-client";
 import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { type Action, actionsStore } from "../../provider/actionsStore";
-import { previewStore } from "../previewStore";
+import { previewStore, selectPreviewSource } from "../previewStore";
 import {
   buildPublicationPlan,
   getPublicationCapabilities,
@@ -46,7 +46,7 @@ export function PublicationRow({ target }: { target: PublicationTarget | null })
 }
 
 function PublicationControls({ target }: { target: PublicationTarget | null }) {
-  const source = useSelector(previewStore, (state) => state.context.previewSource);
+  const source = useSelector(previewStore, selectPreviewSource);
   const queryClient = useQueryClient();
   const [action, setAction] = React.useState<Operation | null>(null);
   const plan = target ? buildPublicationPlan(target) : null;
@@ -90,7 +90,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
       trackClientEvent("page_unpublished", { pageId: target.page.id });
     },
     onSuccess: async (_, { operation }) => {
-      if (operation !== "publish") previewStore.send({ type: "setPreviewSource", source: "draft" });
+      if (operation !== "publish") previewStore.send({ type: "viewDraftPage" });
       setAction(null);
       toast.success(
         operation === "publish"

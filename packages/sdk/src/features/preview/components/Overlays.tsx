@@ -5,7 +5,7 @@ import { usePageBlocks } from "@/lib/normalized-data";
 
 import { usePreviewedPage } from "../CamoxPreview";
 import { isOverlayMessage, type OverlayMessage } from "../overlayMessages";
-import { previewStore } from "../previewStore";
+import { previewStore, selectIsEditMode } from "../previewStore";
 
 interface OverlaysProps {
   iframeElement: HTMLIFrameElement | null;
@@ -25,14 +25,8 @@ function CuratedAddBlockListener() {
 
       // Handle add block request from iframe
       if (message.type === "CAMOX_ADD_BLOCK_REQUEST") {
-        // In-canvas add-block overlays are already hidden when source !== draft
-        // (useIsEditable returns false), but if a stray message arrives, fall
-        // through to the draft-switch dialog rather than silently opening the
-        // sheet against the wrong source.
-        if (previewStore.getSnapshot().context.previewSource !== "draft") {
-          previewStore.send({ type: "requestDraftSwitch" });
-          return;
-        }
+        // Ignore stale iframe messages after leaving edit mode.
+        if (!selectIsEditMode(previewStore.getSnapshot())) return;
 
         const { blockPosition, insertPosition } = message;
 

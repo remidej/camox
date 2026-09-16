@@ -53,10 +53,17 @@ export function selectionField(
  * view (the page's live published checkpoint snapshot).
  */
 export type PreviewSource = "draft" | "live";
+export type PreviewMode = "editing-draft" | "previewing-draft" | "previewing-live";
+
+export const selectIsEditMode = (state: { context: { mode: PreviewMode } }) =>
+  state.context.mode === "editing-draft";
+
+export const selectPreviewSource = (state: { context: { mode: PreviewMode } }): PreviewSource =>
+  state.context.mode === "previewing-live" ? "live" : "draft";
 export type ViewportMode = "full" | "tablet" | "mobile";
 
 interface PreviewContext {
-  isEditMode: boolean;
+  mode: PreviewMode;
   isToolbarHidden: boolean;
   isPageEditorSidebarOpen: boolean;
   isAddBlockSidebarOpen: boolean;
@@ -64,67 +71,61 @@ interface PreviewContext {
   addBlockSource: string | null;
   isCreatePageModalOpen: boolean;
   editingPageId: number | null;
-  /** Open/closed state of the "Switch to draft to edit?" confirmation dialog. */
-  isDraftSwitchDialogOpen: boolean;
   viewportMode: ViewportMode;
   peekedBlock: Block | null;
   peekedBlockPosition: string | null;
   skipPeekedBlockExitAnimation: boolean;
   selection: Selection | null;
   iframeElement: HTMLIFrameElement | null;
-  previewSource: PreviewSource;
 }
 
 export const previewStore = createStore({
   context: {
-    isEditMode: false,
+    mode: "previewing-draft",
     isToolbarHidden: false,
     isPageEditorSidebarOpen: false,
     isAddBlockSidebarOpen: false,
     addBlockSource: null,
     isCreatePageModalOpen: false,
     editingPageId: null,
-    isDraftSwitchDialogOpen: false,
     viewportMode: "full",
     peekedBlock: null,
     peekedBlockPosition: null,
     skipPeekedBlockExitAnimation: false,
     selection: null,
     iframeElement: null,
-    previewSource: "draft",
   } as PreviewContext,
   on: {
     exitEditMode: (context, _, enqueue) => {
-      if (!context.isEditMode) return context;
+      if (context.mode !== "editing-draft") return context;
       enqueue.effect(() => {
         trackClientEvent("edit_mode_toggled", { enabled: false });
       });
-      return { ...context, isEditMode: false };
+      return { ...context, mode: "previewing-draft" as const };
     },
     enterEditMode: (context, _, enqueue) => {
-      if (context.isEditMode) return context;
+      if (context.mode === "editing-draft") return context;
       enqueue.effect(() => {
         trackClientEvent("edit_mode_toggled", { enabled: true });
       });
       return {
         ...context,
-        isEditMode: true,
+        mode: "editing-draft" as const,
         isToolbarHidden: false,
       };
     },
     hideToolbar: (context) => ({ ...context, isToolbarHidden: true }),
     viewLivePage: (context, _, enqueue) => {
       enqueue.effect(() => {
-        if (context.isEditMode) {
+        if (context.mode === "editing-draft") {
           trackClientEvent("edit_mode_toggled", { enabled: false });
         }
         toast("Viewing live version of the site");
       });
       return {
         ...context,
-        isEditMode: false,
+        mode: "previewing-live" as const,
         isToolbarHidden: true,
-        previewSource: "live" as const,
       };
     },
     setViewportMode: (context, event: { mode: ViewportMode }) => {
@@ -288,19 +289,16 @@ export const previewStore = createStore({
       ...context,
       iframeElement: event.element,
     }),
-    setPreviewSource: (context, event: { source: PreviewSource }, enqueue) => {
-      if (event.source === context.previewSource) return context;
+    viewDraftPage: (context, _, enqueue) => {
+      if (context.mode !== "previewing-live") return context;
       enqueue.effect(() => {
-        toast(event.source === "draft" ? "Previewing draft content" : "Previewing live content", {
-          duration: 2500,
-        });
+        toast("Previewing draft content", { duration: 2500 });
       });
-      return { ...context, previewSource: event.source };
+      return {
+        ...context,
+        mode: "previewing-draft" as const,
+        isToolbarHidden: false,
+      };
     },
-    requestDraftSwitch: (context) => {
-      if (context.previewSource === "draft") return context;
-      return { ...context, isDraftSwitchDialogOpen: true };
-    },
-    dismissDraftSwitch: (context) => ({ ...context, isDraftSwitchDialogOpen: false }),
   },
 });

@@ -9,7 +9,7 @@ import { seedBlockCaches } from "../../lib/normalized-data";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import type { PageRenderInput } from "../runtime/runtime";
 import { PreviewShell } from "./CamoxPreview";
-import { previewStore } from "./previewStore";
+import { previewStore, selectPreviewSource } from "./previewStore";
 
 type DerivedPreviewProps = {
   camoxApp: CamoxApp;
@@ -24,7 +24,7 @@ export function DerivedPreview(props: DerivedPreviewProps) {
 }
 
 function AuthenticatedDerivedPreview({ camoxApp, derived, source }: DerivedPreviewProps) {
-  const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
+  const previewSource = useSelector(previewStore, selectPreviewSource);
   const projectSlug = useProjectSlug();
   const queryClient = useQueryClient();
   const { data: layout } = useSuspenseQuery({

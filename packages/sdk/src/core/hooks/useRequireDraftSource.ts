@@ -1,19 +1,14 @@
 import * as React from "react";
 
-import { previewStore } from "@/features/preview/previewStore";
+import { previewStore, selectPreviewSource } from "@/features/preview/previewStore";
 
 /**
- * Gate any edit attempt on the current preview source. If the studio is
- * previewing 'draft', `requireDraft()` returns true and the caller proceeds.
- * Otherwise it opens the "Switch to draft to edit?" dialog and returns false
- * so the caller aborts. The dialog's CTA only switches the source — it does
- * not retry the original attempt; the user re-issues the edit themselves.
+ * Ignore stale editor callbacks after switching to live preview.
+ * Draft editing is guaranteed by the store's mode; this guard also covers
+ * callbacks from hidden controls and edits that finish asynchronously.
  */
 export function useRequireDraftSource() {
   return React.useCallback(() => {
-    const ctx = previewStore.getSnapshot().context;
-    if (ctx.previewSource === "draft") return true;
-    previewStore.send({ type: "requestDraftSwitch" });
-    return false;
+    return selectPreviewSource(previewStore.getSnapshot()) === "draft";
   }, []);
 }

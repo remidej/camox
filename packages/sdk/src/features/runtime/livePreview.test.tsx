@@ -43,7 +43,8 @@ void test("live preview fetches after refreshing with only draft data cached", a
     await import("@tanstack/react-query");
   const { useSelector } = await import("@xstate/store-react");
   const { initApiClient, getApiClient } = await import("../../lib/api-client");
-  const { previewStore } = await import("../preview/previewStore");
+  const { previewStore, selectPreviewSource, selectIsEditMode } =
+    await import("../preview/previewStore");
   const { RuntimeChrome } = await import("./RuntimeChrome");
   type PageRenderInput = import("./runtime").PageRenderInput;
 
@@ -79,7 +80,7 @@ void test("live preview fetches after refreshing with only draft data cached", a
   }
 
   function Preview() {
-    const source = useSelector(previewStore, (state) => state.context.previewSource);
+    const source = useSelector(previewStore, selectPreviewSource);
     const { data } = useSuspenseQuery({
       queryKey: queryKeys.pages.getByPath("/", source),
       queryFn: () => getApiClient().pages.getStructure({ path: "/", projectSlug: "test", source }),
@@ -115,6 +116,15 @@ void test("live preview fetches after refreshing with only draft data cached", a
     assert.match(host.textContent ?? "", /Published content/);
     assert.doesNotMatch(host.textContent ?? "", /Draft/);
     assert.deepEqual(requests, [{ json: { path: "/", projectSlug: "test", source: "live" } }]);
+
+    await React.act(async () => {
+      previewStore.send({ type: "enterEditMode" });
+    });
+    assert.equal(selectPreviewSource(previewStore.getSnapshot()), "draft");
+    assert.equal(selectIsEditMode(previewStore.getSnapshot()), true);
+    assert.equal(previewStore.getSnapshot().context.isToolbarHidden, false);
+    assert.match(host.textContent ?? "", /Draft content/);
+    assert.doesNotMatch(host.textContent ?? "", /Published content/);
   } finally {
     await React.act(async () => root.unmount());
     client.clear();

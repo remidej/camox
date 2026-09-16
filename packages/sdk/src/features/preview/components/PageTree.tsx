@@ -32,11 +32,11 @@ import { cn } from "@/lib/utils";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import type { OverlayMessage } from "../overlayMessages";
-import { previewStore } from "../previewStore";
+import { previewStore, selectPreviewSource } from "../previewStore";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useUpdateBlockPosition } from "./useUpdateBlockPosition";
 
-const usePreviewSource = () => useSelector(previewStore, (state) => state.context.previewSource);
+const usePreviewSource = () => useSelector(previewStore, selectPreviewSource);
 
 /* -------------------------------------------------------------------------------------------------
  * useBlockTreeItem
@@ -175,13 +175,9 @@ const animateLayoutChanges: AnimateLayoutChanges = (args) => {
 
 const SortableBlock = ({ block }: SortableBlockProps) => {
   const [gripPopoverOpen, setGripPopoverOpen] = React.useState(false);
-  const previewSource = usePreviewSource();
-  const requireDraft = useRequireDraftSource();
-  const isReadOnly = previewSource !== "draft";
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: String(block.id),
     animateLayoutChanges,
-    disabled: isReadOnly,
   });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -194,21 +190,9 @@ const SortableBlock = ({ block }: SortableBlockProps) => {
     <Button
       variant="ghost"
       size="icon-sm"
-      className={cn(
-        "text-muted-foreground hover:text-foreground flex",
-        isReadOnly ? "cursor-not-allowed opacity-50" : "cursor-grab active:cursor-grabbing",
-      )}
-      {...(isReadOnly ? {} : attributes)}
-      {...(isReadOnly ? {} : listeners)}
-      onClick={
-        isReadOnly
-          ? (e: React.MouseEvent) => {
-              e.preventDefault();
-              e.stopPropagation();
-              requireDraft();
-            }
-          : undefined
-      }
+      className="text-muted-foreground hover:text-foreground flex cursor-grab active:cursor-grabbing"
+      {...attributes}
+      {...listeners}
     >
       <span className="sr-only">Click and use arrow keys to reorder</span>
       <GripVertical className="h-4 w-4" />
@@ -225,35 +209,20 @@ const SortableBlock = ({ block }: SortableBlockProps) => {
       onMouseEnter={ctx.handleBlockMouseEnter}
       onMouseLeave={ctx.handleBlockMouseLeave}
     >
-      {isReadOnly ? (
-        gripButton
-      ) : (
-        <BlockActionsPopover block={block} open={gripPopoverOpen} onOpenChange={setGripPopoverOpen}>
-          {gripButton}
-        </BlockActionsPopover>
-      )}
+      <BlockActionsPopover block={block} open={gripPopoverOpen} onOpenChange={setGripPopoverOpen}>
+        {gripButton}
+      </BlockActionsPopover>
       <BlockTreeItemTrigger
         displayText={block.summary || block.type}
         onClick={ctx.toggleSelection}
       />
-      {isReadOnly ? (
-        <BlockTreeItemEllipsis
-          open={false}
-          onClick={(e: React.MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            requireDraft();
-          }}
-        />
-      ) : (
-        <BlockActionsPopover
-          block={block}
-          open={ctx.ellipsisPopoverOpen}
-          onOpenChange={ctx.setEllipsisPopoverOpen}
-        >
-          <BlockTreeItemEllipsis open={ctx.ellipsisPopoverOpen} />
-        </BlockActionsPopover>
-      )}
+      <BlockActionsPopover
+        block={block}
+        open={ctx.ellipsisPopoverOpen}
+        onOpenChange={ctx.setEllipsisPopoverOpen}
+      >
+        <BlockTreeItemEllipsis open={ctx.ellipsisPopoverOpen} />
+      </BlockActionsPopover>
     </BlockTreeItemHeader>
   );
 };
@@ -272,9 +241,7 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(block.type);
   const ctx = useBlockTreeItem(block);
-  const previewSource = usePreviewSource();
   const requireDraft = useRequireDraftSource();
-  const isReadOnly = previewSource !== "draft";
   const displayText = blockDef?._internal.title ?? block.type;
 
   return (
@@ -313,15 +280,6 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
         >
           <Pencil className="size-4" />
         </Button>
-      ) : isReadOnly ? (
-        <BlockTreeItemEllipsis
-          open={false}
-          onClick={(e: React.MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            requireDraft();
-          }}
-        />
       ) : (
         <BlockActionsPopover
           block={block}
@@ -369,7 +327,6 @@ const PageTree = () => {
   );
   const previewSource = usePreviewSource();
   const requireDraft = useRequireDraftSource();
-  const isReadOnly = previewSource !== "draft";
   const {
     pageBlocks,
     beforeBlocks: layoutBeforeBlocks,
@@ -405,9 +362,7 @@ const PageTree = () => {
       return;
     }
 
-    // Defensive: useSortable is `disabled` while previewing non-draft, so a
-    // drop event shouldn't reach here. Still gate on `requireDraft()` in case
-    // a code path slips through — it opens the dialog and aborts the move.
+    // A drag may finish after switching to live preview.
     if (!requireDraft()) {
       setActiveId(null);
       return;
@@ -523,7 +478,6 @@ const PageTree = () => {
       </div>
       <Button
         variant="secondary"
-        className={cn(isReadOnly && "opacity-50 cursor-not-allowed")}
         onClick={() => {
           if (!requireDraft()) return;
           previewStore.send({

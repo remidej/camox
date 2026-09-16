@@ -17,13 +17,13 @@ import { Navbar } from "../studio/components/Navbar";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
-import { DraftSwitchDialog } from "./components/DraftSwitchDialog";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { PeekedBlock } from "./components/PeekedBlock";
 import { PreviewPanel } from "./components/PreviewPanel";
+import { PreviewToolbarSpacer } from "./components/PreviewToolbarSpacer";
 import { RightSidebar } from "./components/RightSidebar";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
-import { previewStore } from "./previewStore";
+import { previewStore, selectIsEditMode, selectPreviewSource } from "./previewStore";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
 
@@ -69,7 +69,7 @@ function pageStructureQueryFn(path: string, projectSlug: string, source: ReadSou
 export function usePreviewedPage() {
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
-  const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
+  const previewSource = useSelector(previewStore, selectPreviewSource);
 
   // Current page: SSR loader seeds block caches on first load (both 'live'
   // and 'draft' slots, so the studio's default 'draft' view has data even
@@ -99,7 +99,7 @@ const BlockRenderer = ({
   showAddBlockTop: boolean;
   showAddBlockBottom: boolean;
 }) => {
-  const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
+  const previewSource = useSelector(previewStore, selectPreviewSource);
   const { data } = useSuspenseQuery(blockQueries.get(blockId, previewSource));
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(data.block.type);
@@ -130,7 +130,7 @@ const BlockRenderer = ({
 
 export const PageContent = () => {
   const pageData = usePreviewedPage();
-  const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
+  const previewSource = useSelector(previewStore, selectPreviewSource);
   const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } = usePageBlocks(
     pageData,
     previewSource,
@@ -326,13 +326,13 @@ export const PreviewShell = ({
   const isAuthenticated = useIsAuthenticated();
   const isMobileStudio = useIsMobileStudio();
   const sharedChrome = React.useContext(SharedChromeContext);
-  const isEditMode = useSelector(previewStore, (state) => state.context.isEditMode);
+  const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const isAddBlockSidebarOpen = useSelector(
     previewStore,
     (state) => state.context.isAddBlockSidebarOpen,
   );
-  const previewSource = useSelector(previewStore, (state) => state.context.previewSource);
+  const previewSource = useSelector(previewStore, selectPreviewSource);
 
   // Gate "Preview live content" on a published snapshot existing — same rule
   // as the sidebar Switch. Without it, flipping to 'live' would Suspense on
@@ -373,7 +373,7 @@ export const PreviewShell = ({
         aliases: ["Live", "View live", "Published content"],
         groupLabel: "Preview",
         checkIfAvailable: () => isAuthenticated && previewSource === "draft" && hasLiveCheckpoint,
-        execute: () => previewStore.send({ type: "setPreviewSource", source: "live" }),
+        execute: () => previewStore.send({ type: "viewLivePage" }),
         shortcut: { key: "d", withAlt: true },
       },
       {
@@ -382,7 +382,7 @@ export const PreviewShell = ({
         aliases: ["Draft", "View draft", "Unpublished content"],
         groupLabel: "Preview",
         checkIfAvailable: () => isAuthenticated && previewSource === "live",
-        execute: () => previewStore.send({ type: "setPreviewSource", source: "draft" }),
+        execute: () => previewStore.send({ type: "viewDraftPage" }),
         shortcut: { key: "d", withAlt: true },
       },
       {
@@ -452,20 +452,13 @@ export const PreviewShell = ({
           }}
         >
           {children}
-          {!isMobileStudio && isEditMode && (
-            <div style={{ height: "80px", background: "transparent" }} />
-          )}
+          {!isMobileStudio && isEditMode && <PreviewToolbarSpacer />}
         </PreviewPanel>
         {!isMobileStudio && isEditMode && (
           <RightSidebar pageId={pageData?.page.id} derivedLayoutId={derivedLayoutId} />
         )}
       </div>
-      {(isMobileStudio || isEditMode) && (
-        <>
-          <CreatePageModal />
-          <DraftSwitchDialog />
-        </>
-      )}
+      {(isMobileStudio || isEditMode) && <CreatePageModal />}
     </div>
   );
 };
