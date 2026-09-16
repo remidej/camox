@@ -293,7 +293,9 @@ export function loadRuntimeDevModule(
   if (id === RESOLVED_VIRTUAL_STUDIO_CLIENT_URL) return generateVirtualStudioClientUrl();
   if (id === RESOLVED_VIRTUAL_APP_STYLESHEET_URL) return generateVirtualAppStylesheetUrl();
   if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
-    return `export default "/@fs/${resolve(sdkRoot, "dist/studio.css")}";`;
+    const cssPath = resolve(sdkRoot, "dist/studio.css");
+    const cssUrl = `/@fs/${cssPath.replaceAll("\\", "/").replace(/^\/+/, "")}`;
+    return `export default ${JSON.stringify(cssUrl)};`;
   }
   if (id === RESOLVED_VIRTUAL_OVERLAY_CSS) {
     return `export default ${JSON.stringify(readFileSync(resolve(sdkRoot, "dist/studio-overlays.css"), "utf-8"))};`;

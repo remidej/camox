@@ -204,7 +204,7 @@
     }
   },
   "scripts": {
-    "dev": "cp ./src/features/preview/studio-overlays.css ./dist/studio-overlays.css && tailwindcss -i ./src/studio.css -o ./dist/studio.css --watch",
+    "dev": "mkdir -p .dev && cp ./src/features/preview/studio-overlays.css ./.dev/studio-overlays.css && tailwindcss -i ./src/studio.css -o ./.dev/studio.css --watch",
     "build": "vp pack && tailwindcss -i ./src/studio.css -o ./dist/studio.css --minify && cp ./src/features/preview/studio-overlays.css ./dist/studio-overlays.css",
     "build:watch": "vp pack --watch",
     "lint": "vp lint",

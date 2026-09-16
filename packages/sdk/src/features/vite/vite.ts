@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 
 import { type Plugin, type ResolvedConfig, type ViteDevServer, createServer } from "vite-plus";
 
-const sdkRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const pluginDir = dirname(fileURLToPath(import.meta.url));
+const sdkRoot = resolve(pluginDir, "../../..");
+const isSdkSource = pluginDir === resolve(sdkRoot, "src/features/vite");
 const VIRTUAL_STUDIO_CSS = "virtual:camox-studio-css";
 const RESOLVED_VIRTUAL_STUDIO_CSS = "\0" + VIRTUAL_STUDIO_CSS;
 const VIRTUAL_OVERLAY_CSS = "virtual:camox-overlay-css";
@@ -115,18 +117,21 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       if (id === VIRTUAL_OVERLAY_CSS) return RESOLVED_VIRTUAL_OVERLAY_CSS;
     },
     load(id) {
+      // Local CSS watchers must not share the directory cleaned by package builds.
+      const stylesDir = resolve(sdkRoot, !isBuild && isSdkSource ? ".dev" : "dist");
       if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
-        const cssPath = resolve(sdkRoot, "dist/studio.css");
+        const cssPath = resolve(stylesDir, "studio.css");
         if (isBuild) {
           const css = readFileSync(cssPath, "utf-8");
           const dataUrl = `data:text/css;base64,${Buffer.from(css).toString("base64")}`;
           return `export default ${JSON.stringify(dataUrl)};`;
         }
         // Dev: serve the file directly via Vite's /@fs/ prefix
-        return `export default "/@fs/${cssPath}";`;
+        const cssUrl = `/@fs/${cssPath.replaceAll("\\", "/").replace(/^\/+/, "")}`;
+        return `export default ${JSON.stringify(cssUrl)};`;
       }
       if (id === RESOLVED_VIRTUAL_OVERLAY_CSS) {
-        const cssPath = resolve(sdkRoot, "dist/studio-overlays.css");
+        const cssPath = resolve(stylesDir, "studio-overlays.css");
         const css = readFileSync(cssPath, "utf-8");
         return `export default ${JSON.stringify(css)};`;
       }
