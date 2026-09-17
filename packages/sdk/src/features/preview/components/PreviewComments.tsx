@@ -10,28 +10,17 @@ import {
 } from "../previewCommentsStore";
 import { previewStore, selectIsEditMode } from "../previewStore";
 
-type Point = { x: number; y: number };
-
 const bubbleClassName =
   "absolute flex size-8 items-center justify-center rounded-full rounded-bl-none border-2 border-white bg-blue-600 text-xs font-semibold text-white shadow-lg";
 const bubbleTransform = "translate(0, -100%)";
 
-/** Canvas targeting and pins only. All comment content lives in the right sidebar. */
+/** Canvas targeting only. All comment content lives in the right sidebar. */
 export function PreviewComments({ pageId }: { pageId: number }) {
   const iframe = useSelector(previewStore, (state) => state.context.iframeElement);
   const editing = useSelector(previewStore, selectIsEditMode);
   const commenting = useSelector(previewStore, (state) => state.context.isCommentMode);
-  const { comments, draft, activeId } = useSelector(previewCommentsStore, (state) => state.context);
   const cursorRef = React.useRef<HTMLDivElement>(null);
-  const [points, setPoints] = React.useState<Record<string, Point>>({});
   const doc = iframe?.contentDocument;
-  const targets = React.useMemo(
-    () => [
-      ...comments.filter((comment) => comment.pageId === pageId),
-      ...(draft?.pageId === pageId ? [{ id: "draft", target: draft.target }] : []),
-    ],
-    [comments, draft, pageId],
-  );
 
   React.useEffect(
     () => () => {
@@ -40,39 +29,6 @@ export function PreviewComments({ pageId }: { pageId: number }) {
     },
     [],
   );
-
-  React.useEffect(() => {
-    if (!doc || !editing) return;
-    const win = doc.defaultView;
-    if (!win) return;
-    let frame = 0;
-    const measure = () => {
-      const next: Record<string, Point> = {};
-      for (const { id, target } of targets) {
-        const element = doc.querySelector(target.selector);
-        if (!element || !element.getClientRects().length) continue;
-        const rect = element.getBoundingClientRect();
-        if (rect.bottom < 0 || rect.top > win.innerHeight) continue;
-        const point = {
-          x: rect.left + rect.width * target.x,
-          y: rect.top + rect.height * target.y,
-        };
-        // Keep nearby pins individually clickable.
-        while (
-          Object.values(next).some((other) => Math.hypot(other.x - point.x, other.y - point.y) < 30)
-        ) {
-          point.y += 32;
-        }
-        next[id] = point;
-      }
-      setPoints((previous) =>
-        JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
-      );
-      frame = win.requestAnimationFrame(measure);
-    };
-    measure();
-    return () => win.cancelAnimationFrame(frame);
-  }, [doc, editing, targets]);
 
   React.useEffect(() => {
     previewStore.send({ type: "hoverCommentTarget", target: null });
@@ -194,27 +150,6 @@ export function PreviewComments({ pageId }: { pageId: number }) {
           <MessageCircle size={15} />
         </div>
       )}
-      {targets.map(({ id, target }, index) => {
-        const position = points[id];
-        if (!position) return null;
-        const selected = id === activeId || id === "draft";
-        return (
-          <button
-            key={id}
-            type="button"
-            aria-label={id === "draft" ? "New comment" : `Open comment ${index + 1}`}
-            aria-pressed={selected}
-            className={`${bubbleClassName} pointer-events-auto hover:bg-blue-700 ${selected ? "ring-2 ring-blue-500 ring-offset-2" : ""}`}
-            style={{ left: position.x, top: position.y, transform: bubbleTransform }}
-            onClick={() => {
-              if (id !== "draft") previewCommentsStore.send({ type: "selectComment", id });
-              revealCommentTarget(target);
-            }}
-          >
-            {id === "draft" ? <MessageCircle size={15} /> : index + 1}
-          </button>
-        );
-      })}
     </div>,
     iframe.parentElement,
   );
