@@ -11,17 +11,20 @@ import { MessageCircle, Monitor, Smartphone, Tablet, X } from "lucide-react";
 import { formatShortcut } from "@/lib/utils";
 
 import { areCommentsEnabled } from "../commentsEnabled";
+import { previewCommentsStore } from "../previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsEditMode } from "../previewStore";
 
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
+  pageId?: number;
   pageStatus?: "draft" | "published" | "modified";
   hasLiveVersion?: boolean;
 }
 
 export const PreviewToolbar = ({
   onEditModeChange,
+  pageId,
   pageStatus,
   hasLiveVersion,
 }: PreviewToolbarProps) => {
@@ -31,10 +34,15 @@ export const PreviewToolbar = ({
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
+  const commentCount = useSelector(
+    previewCommentsStore,
+    (state) => state.context.comments.filter((comment) => comment.pageId === pageId).length,
+  );
+
   if (isToolbarHidden || peekedBlock) return null;
 
   return (
-    <FloatingToolbar className="bottom-2 w-max justify-between gap-8 transition-none">
+    <FloatingToolbar className="bottom-2 w-max justify-between gap-6 transition-none">
       <div className="flex shrink-0 items-center gap-2 px-2">
         <Switch
           id="edit-mode"
@@ -54,22 +62,30 @@ export const PreviewToolbar = ({
           Edit mode {formatShortcut(EDIT_MODE_SHORTCUT)}
         </Label>
       </div>
-      <div className="flex shrink-0 items-center gap-8 self-stretch">
+      <div className="flex shrink-0 items-center gap-6 self-stretch">
         {areCommentsEnabled() && pageStatus && (
-          <Toggle
-            pressed={isCommentMode}
-            data-state={isCommentMode ? "on" : "off"}
-            onPressedChange={(enabled) => {
-              if (enabled && !isEditMode) {
-                previewStore.send({ type: "enterEditMode" });
+          <Tooltip.Tooltip>
+            <Tooltip.TooltipTrigger
+              render={
+                <Toggle
+                  pressed={isCommentMode}
+                  data-state={isCommentMode ? "on" : "off"}
+                  onPressedChange={(enabled) => {
+                    if (enabled && !isEditMode) {
+                      previewStore.send({ type: "enterEditMode" });
+                    }
+                    previewStore.send({ type: "setCommentMode", enabled });
+                  }}
+                  variant="outline"
+                />
               }
-              previewStore.send({ type: "setCommentMode", enabled });
-            }}
-            variant="outline"
-          >
-            <MessageCircle />
-            Review
-          </Toggle>
+            >
+              <MessageCircle />
+              Feedback
+              {commentCount > 0 && <span className="text-muted-foreground">({commentCount})</span>}
+            </Tooltip.TooltipTrigger>
+            <Tooltip.TooltipContent>Leave feedback for agents or teammates</Tooltip.TooltipContent>
+          </Tooltip.Tooltip>
         )}
         <ButtonGroup>
           <Tooltip.Tooltip>

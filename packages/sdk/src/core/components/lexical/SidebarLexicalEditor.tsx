@@ -427,34 +427,37 @@ export function SidebarLexicalEditor({
   React.useEffect(() => flushChange, [flushChange]);
 
   return (
-    <LexicalComposer initialConfig={config}>
-      <RichTextPlugin
-        contentEditable={
-          <ContentEditable
-            id={id}
-            className={cn(
-              INPUT_BASE_STYLES,
-              INPUT_FOCUS_STYLES,
-              "flex min-h-[80px] w-full px-3 py-2",
-            )}
-            onFocus={onFocus}
-            onBlur={() => {
-              flushChange();
-              onBlur?.();
-            }}
-          />
-        }
-        ErrorBoundary={LexicalErrorBoundary}
-      />
-      <OnChangePlugin onChange={handleChange} ignoreSelectionChange />
-      <HistoryPlugin />
-      <LinkPlugin />
-      <ExternalStateSync value={value} isSyncingRef={isSyncingRef} />
-      <EnterAsLineBreakHandler />
-      <PasteUrlAsLinkHandler />
-      <SidebarFloatingTextToolbar />
-      <InlineStylesPlugin />
-    </LexicalComposer>
+    // Keep floating controls from changing the parent's space-y sibling spacing.
+    <div className="w-full min-w-0">
+      <LexicalComposer initialConfig={config}>
+        <RichTextPlugin
+          contentEditable={
+            <ContentEditable
+              id={id}
+              className={cn(
+                INPUT_BASE_STYLES,
+                INPUT_FOCUS_STYLES,
+                "flex min-h-[80px] w-full px-3 py-2",
+              )}
+              onFocus={onFocus}
+              onBlur={() => {
+                flushChange();
+                onBlur?.();
+              }}
+            />
+          }
+          ErrorBoundary={LexicalErrorBoundary}
+        />
+        <OnChangePlugin onChange={handleChange} ignoreSelectionChange />
+        <HistoryPlugin />
+        <LinkPlugin />
+        <ExternalStateSync value={value} isSyncingRef={isSyncingRef} />
+        <EnterAsLineBreakHandler />
+        <PasteUrlAsLinkHandler />
+        <SidebarFloatingTextToolbar />
+        <InlineStylesPlugin />
+      </LexicalComposer>
+    </div>
   );
 }
 

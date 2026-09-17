@@ -47,6 +47,7 @@ export function RuntimeChrome({
           {/* Kept at a stable position, outside route Suspense and editor imports. */}
           <div hidden={!preview} className={input.derived ? undefined : "max-md:hidden"}>
             <PreviewToolbar
+              pageId={page?.page.id}
               pageStatus={preview && !input.derived ? page?.page.status : undefined}
               hasLiveVersion={!!page?.page.livePublishedCheckpointId}
             />

@@ -447,6 +447,7 @@ export const PreviewShell = ({
           page={pageData?.page}
           projectName={pageData?.projectName}
           toolbarProps={{
+            pageId: pageData?.page.id,
             pageStatus: pageData?.page.status,
             hasLiveVersion: hasLiveCheckpoint,
           }}
