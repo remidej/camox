@@ -1,11 +1,24 @@
 import { Input } from "@camox/ui/input";
 import { Label } from "@camox/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
+import { Switch } from "@camox/ui/switch";
 import { useForm } from "@tanstack/react-form";
-import { Link2 as Link2Icon, Images as ImagesIcon, ImageIcon, FileIcon } from "lucide-react";
+import {
+  Link2 as Link2Icon,
+  Images as ImagesIcon,
+  ImageIcon,
+  FileIcon,
+  Type,
+  List,
+  Code,
+  ToggleLeft,
+  ListFilter,
+} from "lucide-react";
 import * as React from "react";
 
 import { SidebarLexicalEditor } from "@/core/components/lexical/SidebarLexicalEditor";
 import type { FieldType } from "@/core/lib/fieldTypes";
+import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import {
   isFileMarker,
   isItemMarker,
@@ -50,6 +63,8 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       name: fieldName,
       fieldType: prop.fieldType as SchemaField["fieldType"],
       label: prop.title as string | undefined,
+      enumLabels: prop.enumLabels as Record<string, string> | undefined,
+      enumValues: prop.enum as string[] | undefined,
       minItems: prop.minItems as number | undefined,
       maxItems: prop.maxItems as number | undefined,
     };
@@ -118,6 +133,7 @@ const DrillRow = ({ label, preview, Icon, onClick, hover, postToIframe }: DrillR
  * -----------------------------------------------------------------------------------------------*/
 
 interface ItemFieldsEditorProps {
+  selectedFieldName?: string;
   schema: unknown;
   data: Record<string, unknown>;
   blockId: number;
@@ -134,6 +150,7 @@ interface ItemFieldsEditorProps {
 }
 
 const ItemFieldsEditor = ({
+  selectedFieldName,
   schema,
   data,
   blockId,
@@ -144,7 +161,14 @@ const ItemFieldsEditor = ({
   itemsMap,
   fieldIdPrefix,
 }: ItemFieldsEditorProps) => {
-  const fields = React.useMemo(() => getSchemaFieldsInOrder(schema), [schema]);
+  const fields = React.useMemo(
+    () =>
+      getSchemaFieldsInOrder(schema).filter(
+        (field) => !selectedFieldName || field.name === selectedFieldName,
+      ),
+    [schema, selectedFieldName],
+  );
+  const pendingSaveRef = React.useRef<(() => void) | null>(null);
   const timerRef = React.useRef<number | null>(null);
   const focusedFieldIdRef = React.useRef<string | null>(null);
 
@@ -180,6 +204,8 @@ const ItemFieldsEditor = ({
   React.useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      pendingSaveRef.current?.();
+      pendingSaveRef.current = null;
       if (focusedFieldIdRef.current) {
         postToIframe({
           type: "CAMOX_FOCUS_FIELD_END",
@@ -194,8 +220,11 @@ const ItemFieldsEditor = ({
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
+    pendingSaveRef.current = () => onFieldChange(fieldName, value);
     timerRef.current = window.setTimeout(() => {
-      onFieldChange(fieldName, value);
+      pendingSaveRef.current?.();
+      pendingSaveRef.current = null;
+      timerRef.current = null;
     }, 500);
   };
 
@@ -214,17 +243,11 @@ const ItemFieldsEditor = ({
     const fieldId = getFieldId(fieldName);
     focusedFieldIdRef.current = null;
     postToIframe({ type: "CAMOX_FOCUS_FIELD_END", fieldId });
-    // Defer so that if another field immediately takes focus, its handleFieldFocus
-    // sets focusedFieldIdRef before this fires — avoiding a flash to parent.
-    requestAnimationFrame(() => {
-      if (!focusedFieldIdRef.current) {
-        previewStore.send({ type: "selectParent" });
-      }
-    });
+    // Keep the field screen open when focus moves into its comments.
   };
 
   /** Dispatch the correct drill-into event depending on whether we're at block or item level. */
-  const drillIntoField = (fieldName: string, fieldType: "Link" | "Image" | "File") => {
+  const drillIntoField = (fieldName: string, fieldType: FieldType) => {
     if (itemId != null) {
       previewStore.send({
         type: "selectItemField",
@@ -249,193 +272,275 @@ const ItemFieldsEditor = ({
         const label = field.label ?? formatFieldName(field.name);
         const fieldId = getFieldId(field.name);
 
-        if (field.fieldType === "String") {
-          return (
-            <form.Field key={field.name} name={field.name}>
-              {(fieldApi) => (
-                <div
-                  className="space-y-2"
-                  onMouseEnter={() =>
-                    postToIframe({
-                      type: "CAMOX_HOVER_FIELD",
-                      fieldId,
-                    })
-                  }
-                  onMouseLeave={() =>
-                    postToIframe({
-                      type: "CAMOX_HOVER_FIELD_END",
-                      fieldId,
-                    })
-                  }
+        const renderField = () => {
+          if (
+            !selectedFieldName &&
+            ["String", "Embed", "Repeater", "Enum", "Boolean"].includes(field.fieldType)
+          ) {
+            const value = data[field.name];
+            const preview =
+              field.fieldType === "String"
+                ? lexicalStateToPlainText((value ?? "") as string | Record<string, unknown>) ||
+                  "Empty text"
+                : field.fieldType === "Repeater"
+                  ? `${Array.isArray(value) ? value.length : 0} items`
+                  : field.fieldType === "Boolean"
+                    ? value
+                      ? "On"
+                      : "Off"
+                    : typeof value === "string" && value
+                      ? value
+                      : "Empty";
+            return (
+              <DrillRow
+                key={field.name}
+                label={label}
+                preview={preview}
+                Icon={
+                  field.fieldType === "String"
+                    ? Type
+                    : field.fieldType === "Repeater"
+                      ? List
+                      : field.fieldType === "Embed"
+                        ? Code
+                        : field.fieldType === "Boolean"
+                          ? ToggleLeft
+                          : ListFilter
+                }
+                onClick={() => drillIntoField(field.name, field.fieldType)}
+                hover={
+                  field.fieldType === "Repeater"
+                    ? { variant: "repeater", blockId, fieldName: field.name }
+                    : { variant: "field", fieldId }
+                }
+                postToIframe={postToIframe}
+              />
+            );
+          }
+          if (field.fieldType === "Boolean") {
+            return (
+              <div key={field.name} className="flex items-center justify-between">
+                <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
+                <Switch
+                  id={getFieldElementId(field.name)}
+                  checked={Boolean(data[field.name])}
+                  onCheckedChange={(value) => onFieldChange(field.name, value)}
+                />
+              </div>
+            );
+          }
+          if (field.fieldType === "Enum") {
+            return (
+              <div key={field.name} className="space-y-2">
+                <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
+                <Select
+                  value={typeof data[field.name] === "string" ? (data[field.name] as string) : ""}
+                  onValueChange={(value) => onFieldChange(field.name, value)}
                 >
-                  <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
-                  <SidebarLexicalEditor
-                    id={getFieldElementId(field.name)}
-                    value={fieldApi.state.value as string | Record<string, unknown>}
-                    onChange={(value) => handleScalarChange(field.name, value, fieldApi)}
-                    onFocus={() => handleFieldFocus(field.name, field.fieldType)}
-                    onBlur={() => handleFieldBlur(field.name)}
-                  />
-                </div>
-              )}
-            </form.Field>
-          );
-        }
-
-        if (field.fieldType === "Embed") {
-          return (
-            <form.Field key={field.name} name={field.name}>
-              {(fieldApi) => (
-                <div
-                  className="space-y-2"
-                  onMouseEnter={() =>
-                    postToIframe({
-                      type: "CAMOX_HOVER_FIELD",
-                      fieldId,
-                    })
-                  }
-                  onMouseLeave={() =>
-                    postToIframe({
-                      type: "CAMOX_HOVER_FIELD_END",
-                      fieldId,
-                    })
-                  }
-                >
-                  <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
-                  <Input
-                    id={getFieldElementId(field.name)}
-                    type="url"
-                    value={fieldApi.state.value as string}
-                    onChange={(e) => handleScalarChange(field.name, e.target.value, fieldApi)}
-                    onFocus={() => handleFieldFocus(field.name, field.fieldType)}
-                    onBlur={() => handleFieldBlur(field.name)}
-                  />
-                </div>
-              )}
-            </form.Field>
-          );
-        }
-
-        if (field.fieldType === "Link") {
-          const linkValue = data[field.name] as
-            | { text: string; href: string; newTab: boolean }
-            | undefined;
-          const preview = linkValue?.text || linkValue?.href || "Empty link";
-
-          return (
-            <DrillRow
-              key={field.name}
-              label={label}
-              preview={preview}
-              Icon={Link2Icon}
-              onClick={() => drillIntoField(field.name, "Link")}
-              hover={{ variant: "field", fieldId }}
-              postToIframe={postToIframe}
-            />
-          );
-        }
-
-        if (field.fieldType === "ImageList" || field.fieldType === "FileList") {
-          // The side editor always reflects real persisted data — `defaultItems`
-          // is a peek-only render affordance and never a real count.
-          const value = data[field.name];
-          const count = Array.isArray(value) ? value.length : 0;
-          const isImage = field.fieldType === "ImageList";
-          const noun = isImage ? "image" : "file";
-          let preview: string;
-          if (count === 0) {
-            preview = isImage ? "No images" : "No files";
-          } else if (count === 1) {
-            preview = `1 ${noun}`;
-          } else {
-            preview = `${count} ${noun}s`;
+                  <SelectTrigger id={getFieldElementId(field.name)}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {field.enumValues?.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {field.enumLabels?.[value] ?? value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+          if (field.fieldType === "String") {
+            return (
+              <form.Field key={field.name} name={field.name}>
+                {(fieldApi) => (
+                  <div
+                    className="space-y-2"
+                    onMouseEnter={() =>
+                      postToIframe({
+                        type: "CAMOX_HOVER_FIELD",
+                        fieldId,
+                      })
+                    }
+                    onMouseLeave={() =>
+                      postToIframe({
+                        type: "CAMOX_HOVER_FIELD_END",
+                        fieldId,
+                      })
+                    }
+                  >
+                    <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
+                    <SidebarLexicalEditor
+                      id={getFieldElementId(field.name)}
+                      value={fieldApi.state.value as string | Record<string, unknown>}
+                      onChange={(value) => handleScalarChange(field.name, value, fieldApi)}
+                      onFocus={() => handleFieldFocus(field.name, field.fieldType)}
+                      onBlur={() => handleFieldBlur(field.name)}
+                    />
+                  </div>
+                )}
+              </form.Field>
+            );
           }
 
-          return (
-            <DrillRow
-              key={field.name}
-              label={label}
-              preview={preview}
-              Icon={isImage ? ImagesIcon : FileIcon}
-              onClick={() => drillIntoField(field.name, isImage ? "Image" : "File")}
-              hover={{ variant: "repeater", blockId, fieldName: field.name }}
-              postToIframe={postToIframe}
-            />
-          );
-        }
+          if (field.fieldType === "Embed") {
+            return (
+              <form.Field key={field.name} name={field.name}>
+                {(fieldApi) => (
+                  <div
+                    className="space-y-2"
+                    onMouseEnter={() =>
+                      postToIframe({
+                        type: "CAMOX_HOVER_FIELD",
+                        fieldId,
+                      })
+                    }
+                    onMouseLeave={() =>
+                      postToIframe({
+                        type: "CAMOX_HOVER_FIELD_END",
+                        fieldId,
+                      })
+                    }
+                  >
+                    <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
+                    <Input
+                      id={getFieldElementId(field.name)}
+                      type="url"
+                      value={fieldApi.state.value as string}
+                      onChange={(e) => handleScalarChange(field.name, e.target.value, fieldApi)}
+                      onFocus={() => handleFieldFocus(field.name, field.fieldType)}
+                      onBlur={() => handleFieldBlur(field.name)}
+                    />
+                  </div>
+                )}
+              </form.Field>
+            );
+          }
 
-        if (field.fieldType === "Image") {
-          const rawImage = data[field.name];
-          const imageValue = isFileMarker(rawImage)
-            ? resolveFileMarker(rawImage, filesMap)
-            : (rawImage as { filename?: string } | undefined);
-          const preview = imageValue?.filename || "No image";
+          if (field.fieldType === "Link") {
+            const linkValue = data[field.name] as
+              | { text: string; href: string; newTab: boolean }
+              | undefined;
+            const preview = linkValue?.text || linkValue?.href || "Empty link";
 
-          return (
-            <DrillRow
-              key={field.name}
-              label={label}
-              preview={preview}
-              Icon={ImageIcon}
-              onClick={() => drillIntoField(field.name, "Image")}
-              hover={{ variant: "field", fieldId }}
-              postToIframe={postToIframe}
-            />
-          );
-        }
-
-        if (field.fieldType === "File") {
-          const rawFile = data[field.name];
-          const fileValue = isFileMarker(rawFile)
-            ? resolveFileMarker(rawFile, filesMap)
-            : (rawFile as { filename?: string } | undefined);
-          const preview = fileValue?.filename || "No file";
-
-          return (
-            <DrillRow
-              key={field.name}
-              label={label}
-              preview={preview}
-              Icon={FileIcon}
-              onClick={() => drillIntoField(field.name, "File")}
-              hover={{ variant: "field", fieldId }}
-              postToIframe={postToIframe}
-            />
-          );
-        }
-
-        if (field.fieldType === "Repeater") {
-          const rawItems = (data[field.name] ?? []) as any[];
-          // Resolve _itemId markers to full item objects
-          const items = rawItems
-            .map((item: any) => {
-              if (isItemMarker(item)) {
-                return itemsMap.get(item._itemId) ?? null;
-              }
-              return item;
-            })
-            .filter(Boolean) as Array<{
-            id: number;
-            summary: string;
-            position: string;
-            content: Record<string, unknown>;
-          }>;
-          const fieldSchema = (schema as any)?.properties?.[field.name];
-
-          return (
-            <div key={field.name} className="space-y-2">
-              <Label>{label}</Label>
-              <RepeatableItemsList
-                items={items}
-                blockId={blockId}
-                fieldName={field.name}
-                schema={fieldSchema}
+            return (
+              <DrillRow
+                key={field.name}
+                label={label}
+                preview={preview}
+                Icon={Link2Icon}
+                onClick={() => drillIntoField(field.name, "Link")}
+                hover={{ variant: "field", fieldId }}
+                postToIframe={postToIframe}
               />
-            </div>
-          );
-        }
+            );
+          }
 
-        return null;
+          if (field.fieldType === "ImageList" || field.fieldType === "FileList") {
+            // The side editor always reflects real persisted data — `defaultItems`
+            // is a peek-only render affordance and never a real count.
+            const value = data[field.name];
+            const count = Array.isArray(value) ? value.length : 0;
+            const isImage = field.fieldType === "ImageList";
+            const noun = isImage ? "image" : "file";
+            let preview: string;
+            if (count === 0) {
+              preview = isImage ? "No images" : "No files";
+            } else if (count === 1) {
+              preview = `1 ${noun}`;
+            } else {
+              preview = `${count} ${noun}s`;
+            }
+
+            return (
+              <DrillRow
+                key={field.name}
+                label={label}
+                preview={preview}
+                Icon={isImage ? ImagesIcon : FileIcon}
+                onClick={() => drillIntoField(field.name, isImage ? "Image" : "File")}
+                hover={{ variant: "repeater", blockId, fieldName: field.name }}
+                postToIframe={postToIframe}
+              />
+            );
+          }
+
+          if (field.fieldType === "Image") {
+            const rawImage = data[field.name];
+            const imageValue = isFileMarker(rawImage)
+              ? resolveFileMarker(rawImage, filesMap)
+              : (rawImage as { filename?: string } | undefined);
+            const preview = imageValue?.filename || "No image";
+
+            return (
+              <DrillRow
+                key={field.name}
+                label={label}
+                preview={preview}
+                Icon={ImageIcon}
+                onClick={() => drillIntoField(field.name, "Image")}
+                hover={{ variant: "field", fieldId }}
+                postToIframe={postToIframe}
+              />
+            );
+          }
+
+          if (field.fieldType === "File") {
+            const rawFile = data[field.name];
+            const fileValue = isFileMarker(rawFile)
+              ? resolveFileMarker(rawFile, filesMap)
+              : (rawFile as { filename?: string } | undefined);
+            const preview = fileValue?.filename || "No file";
+
+            return (
+              <DrillRow
+                key={field.name}
+                label={label}
+                preview={preview}
+                Icon={FileIcon}
+                onClick={() => drillIntoField(field.name, "File")}
+                hover={{ variant: "field", fieldId }}
+                postToIframe={postToIframe}
+              />
+            );
+          }
+
+          if (field.fieldType === "Repeater") {
+            const rawItems = (data[field.name] ?? []) as any[];
+            // Resolve _itemId markers to full item objects
+            const items = rawItems
+              .map((item: any) => {
+                if (isItemMarker(item)) {
+                  return itemsMap.get(item._itemId) ?? null;
+                }
+                return item;
+              })
+              .filter(Boolean) as Array<{
+              id: number;
+              summary: string;
+              position: string;
+              content: Record<string, unknown>;
+            }>;
+            const fieldSchema = (schema as any)?.properties?.[field.name];
+
+            return (
+              <div key={field.name} className="space-y-2">
+                <Label>{label}</Label>
+                <RepeatableItemsList
+                  items={items}
+                  blockId={blockId}
+                  fieldName={field.name}
+                  schema={fieldSchema}
+                />
+              </div>
+            );
+          }
+
+          return null;
+        };
+
+        return renderField();
       })}
     </form>
   );

@@ -87,6 +87,8 @@ export interface CamoxPluginOptions {
     authenticationUrl?: string;
     /** Show Tanstack query devtools (default: false) */
     enableTanstackDevtools?: boolean;
+    /** Enable the frontend-only comments prototype (default: false). */
+    enableComments?: boolean;
     /** Disable automatic code generation (route files and app file) (default: false) */
     disableCodeGen?: boolean;
     /** Mount the Camox-owned dev runtime at this base path. Use "/" for root mode. */
@@ -181,6 +183,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         define: {
           __CAMOX_TELEMETRY_DISABLED__: JSON.stringify(!!options.disableTelemetry),
           __ENABLE_TANSTACK_DEVTOOLS__: JSON.stringify(enableTanstackDevtools),
+          __CAMOX_ENABLE_COMMENTS__: JSON.stringify(options._internal?.enableComments ?? false),
           __CAMOX_ENVIRONMENT_NAME__: JSON.stringify(environmentName),
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
           __CAMOX_AUTHENTICATION_URL__: JSON.stringify(authenticationUrl),

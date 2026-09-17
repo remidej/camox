@@ -6,10 +6,11 @@ import { Switch } from "@camox/ui/switch";
 import { Toggle } from "@camox/ui/toggle";
 import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store-react";
-import { Monitor, Smartphone, Tablet, X } from "lucide-react";
+import { MessageCircle, Monitor, Smartphone, Tablet, X } from "lucide-react";
 
 import { formatShortcut } from "@/lib/utils";
 
+import { areCommentsEnabled } from "../commentsEnabled";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsEditMode } from "../previewStore";
 
@@ -25,6 +26,7 @@ export const PreviewToolbar = ({
   hasLiveVersion,
 }: PreviewToolbarProps) => {
   const isEditMode = useSelector(previewStore, selectIsEditMode);
+  const isCommentMode = useSelector(previewStore, (state) => state.context.isCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
@@ -53,6 +55,22 @@ export const PreviewToolbar = ({
         </Label>
       </div>
       <div className="flex shrink-0 items-center gap-8 self-stretch">
+        {areCommentsEnabled() && pageStatus && (
+          <Toggle
+            pressed={isCommentMode}
+            data-state={isCommentMode ? "on" : "off"}
+            onPressedChange={(enabled) => {
+              if (enabled && !isEditMode) {
+                previewStore.send({ type: "enterEditMode" });
+              }
+              previewStore.send({ type: "setCommentMode", enabled });
+            }}
+            variant="outline"
+          >
+            <MessageCircle />
+            Review
+          </Toggle>
+        )}
         <ButtonGroup>
           <Tooltip.Tooltip>
             <Tooltip.TooltipTrigger

@@ -26,6 +26,7 @@ declare module "virtual:camox/studio-client-url" {
 }
 
 declare const __CAMOX_AUTHENTICATION_URL__: string;
+declare const __CAMOX_ENABLE_COMMENTS__: boolean;
 
 // Temporal API types (Stage 3, available in modern browsers)
 declare namespace Temporal {

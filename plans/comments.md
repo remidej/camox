@@ -10,21 +10,23 @@ Comments should also support human collaboration as teams adopt Camox, without r
 
 ## Targets and context
 
-Comments attach to specific Camox objects: pages, blocks, fields, and files. Their identity comes from the object, not a position on the screen.
+Comments attach to blocks and fields. Their identity comes from the object, not a position on the screen. Page-level comments are deferred.
 
-An agent retrieving a comment should have enough context to identify the target, understand the feedback, and determine whether it still applies. This includes the relevant page and environment, the surrounding object context, and what the target looked like when the comment was posted compared with its current state.
+Threads exist within an environment. Comments can only be created on draft content, not live content.
+
+Each thread preserves an immutable creation snapshot, its originating page, and its target identity. An agent retrieving a comment should have enough context to identify the target, understand the feedback, and determine whether it still applies. This includes the relevant page and environment, the surrounding object context, and what the target looked like when the comment was posted compared with its current state.
 
 Feedback can require content changes or code changes. Pointing at an object should support both kinds of intent.
 
 ## Preview UI
 
-- A comment button in the preview toolbar activates a dedicated comment cursor.
+- A comment button in the preview toolbar activates a dedicated comment cursor. The toolbar does not render when viewing live content, so comment creation is available only on drafts.
 - The cursor lets the user target a Camox object and write feedback in context.
 - While edit mode is on, comments appear on the preview as collapsed comment bubbles, similar to Figma.
 - Clicking a bubble expands its conversation.
-- Comments also appear in the right sidebar when the relevant object is selected.
+- Writing and viewing comments happens only in the preview for now. Sidebar comment interfaces are deferred.
 
-The exact sidebar aggregation rules, treatment of overlapping bubbles, and placement of page-level comments remain to be designed.
+Overlapping bubbles are offset, and an in-preview comments menu provides access to every thread, including targets not currently visible. Resolved comments are hidden by default and can be shown with a filter.
 
 ## Conversations
 
@@ -43,10 +45,11 @@ A **Send comments to agent** button in the left sidebar opens an agent comment h
 The modal is a prompt builder, not an automatic agent integration. It explains that the user needs to copy the prompt and give it to their agent to address the comments.
 
 - An optional textbox lets the user add global context or instructions, similar to the overall comment on a pull request review.
-- The generated prompt asks the agent to use the Camox skill to retrieve and address the comments, with enough scope information to identify the relevant project, environment, and comments.
+- Handoff is scoped to the current page within its environment, including only open threads. The prompt captures explicit thread IDs so later comments do not silently expand its scope.
+- The generated prompt asks the agent to use the Camox skill to retrieve and address that page's comments, with enough scope information to identify the relevant project, environment, page, and comments.
 - A **Copy prompt** CTA copies the handoff prompt, including the user's global context, ready to paste into their agent conversation.
 
-Copying the prompt does not start agent work or change comment statuses. The exact default scope of the handoff remains to be decided and should be clear to the user in the modal.
+Copying the prompt does not start agent work or change comment statuses. The modal clearly identifies the page and environment included in the handoff.
 
 ## Applying comments with agents
 
@@ -72,14 +75,19 @@ Resolution preserves the conversation and target context; it does not delete the
 
 Humans and agents can reopen threads. If a human challenges an agent’s assessment, the agent should reopen the original thread and continue there, preserving the previous attempt rather than creating a disconnected comment.
 
-## Scope and open questions
+## Scope and implementation choices
 
 Prioritize the complete human-to-agent feedback loop over a full Figma-style collaboration system. Automatic agent execution, live collaboration, guest access, and advanced team features can come later.
 
-Details still to settle:
+Initial implementation:
 
-- Whether all target types ship together, particularly file-level comments versus comments on individual uses of a file.
-- How the sidebar includes comments on descendant objects.
-- How shared objects communicate whether feedback concerns one use or all uses.
-- How missing targets and differences between viewed versions are presented to humans.
-- Whether visual evidence, such as screenshots and viewport dimensions, is included initially or added later.
+- Comments are available on persisted Camox pages in the desktop editing experience, including tablet/mobile viewport previews. Derived routes without a Camox page record are not yet supported.
+- Field targeting uses block ID, optional stable repeater item ID, and field name. Clicking targets the field; Alt-clicking targets its containing block.
+- Creation snapshots preserve draft block content/settings, repeater items, the block definition, originating page details, and surrounding block identities. Screenshots and viewport capture are deferred.
+- Shared-object threads remain scoped to their originating page. The conversation warns that edits may affect other uses; ambiguous one-use versus all-uses feedback requires clarification.
+- Missing targets retain their conversations and immutable snapshots, without silently retargeting replacement objects. Conversations expose creation and current draft context for comparison.
+- All project organization members can read, create, reply, resolve, and reopen. Message editing/deletion is not included. Authenticated identity and client source are preserved; CLI replies are labeled as coming via the CLI, not a separately authenticated agent identity.
+- Status changes append an explanation atomically with the change. Comments are not published, checkpointed, or replicated between environments. Deleting a target preserves its comments; deliberately deleting the entire project removes them.
+- The CLI exposes `comments list`, `get`, `reply`, `resolve`, and `reopen`, with an explicit `--environment` option for handoffs. Agent guidance lives in `packages/sdk/skills/camox/references/comments.md`.
+
+Database setup requires migration `apps/api/migrations/0022_open_gamora.sql` before using the feature.

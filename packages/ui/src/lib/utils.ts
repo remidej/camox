@@ -12,4 +12,4 @@ export const INPUT_FOCUS_STYLES =
 
 /** Shared base styles for input-like elements (border, text, shadow, transition, outline) */
 export const INPUT_BASE_STYLES =
-  "border-input placeholder:text-muted-foreground rounded-md border bg-transparent text-base shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
+  "border-input placeholder:text-muted-foreground rounded-md border bg-transparent text-base shadow-xs transition-[color,box-shadow] outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";

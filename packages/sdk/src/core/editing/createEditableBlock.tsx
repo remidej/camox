@@ -30,6 +30,7 @@ import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
 import { useFieldSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
+import { useOverlayState } from "../hooks/useOverlayState";
 import {
   Type,
   resolveToMarkdown,
@@ -701,6 +702,7 @@ export function createEditableBlock<
   type EmbedRenderData = { url: string };
 
   type DetachedRenderProps = {
+    "data-camox-comment-block-id"?: number;
     ref: (element: HTMLElement | null) => void;
     style: React.CSSProperties;
     onClick: (e: React.MouseEvent) => void;
@@ -758,6 +760,7 @@ export function createEditableBlock<
     );
 
     const isFocused = isEditorFocused || isSelectedFromSelection;
+    const overlayState = useOverlayState(`field:${fieldId}`, isHovered, isFocused);
 
     // Keep sidebar hover via postMessage (transient state)
     const isHoveredFromSidebar = useOverlayMessage(
@@ -865,8 +868,7 @@ export function createEditableBlock<
     const fieldProps = {
       ref: elementRef,
       "data-camox-field-id": fieldId,
-      "data-camox-hovered": isHovered || undefined,
-      "data-camox-focused": isFocused || undefined,
+      ...overlayState,
       "data-camox-overlay-mode": options.synced ? "synced" : undefined,
       onMouseEnter: handleMouseEnter,
       onMouseLeave: handleMouseLeave,
@@ -910,6 +912,7 @@ export function createEditableBlock<
     const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
     const [isHovered, setIsHovered] = React.useState(false);
+    const overlayState = useOverlayState(`field:${fieldId}`, isHovered);
     const embedRef = React.useRef<HTMLDivElement>(null);
     const itemId = repeaterContext?.itemId;
     const selectField = React.useCallback(() => {
@@ -971,7 +974,7 @@ export function createEditableBlock<
         onClickCapture={selectField}
         data-camox-field-id={isContentEditable ? fieldId : undefined}
         data-camox-field-type={isContentEditable ? "embed" : undefined}
-        data-camox-hovered={(isContentEditable && isHovered) || undefined}
+        {...(isContentEditable ? overlayState : {})}
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
         onMouseEnter={isContentEditable ? () => setIsHovered(true) : undefined}
         onMouseLeave={isContentEditable ? () => setIsHovered(false) : undefined}
@@ -1032,6 +1035,7 @@ export function createEditableBlock<
     );
 
     const isFocused = isEditorFocused || isSelectedFromSelection;
+    const overlayState = useOverlayState(`field:${fieldId}`, isHovered, isFocused);
 
     React.useEffect(() => {
       if (!isEditing) {
@@ -1126,8 +1130,7 @@ export function createEditableBlock<
       rel: fieldValue.newTab ? "noreferrer" : undefined,
       children: displayText,
       "data-camox-field-id": fieldId,
-      "data-camox-hovered": isHovered || undefined,
-      "data-camox-focused": isFocused || undefined,
+      ...overlayState,
       "data-camox-overlay-mode": options.synced ? "synced" : undefined,
       contentEditable: true,
       onClick: (e: React.MouseEvent) => e.preventDefault(),
@@ -1193,6 +1196,7 @@ export function createEditableBlock<
 
     // Derive selected state from selection
     const isFocused = useFieldSelection(blockId, overlayFieldName, "Image", overlayItemId);
+    const overlayState = useOverlayState(`field:${fieldId}`, isHovered, isFocused);
 
     // Keep sidebar hover via postMessage (transient state)
     const isHoveredFromSidebar = useOverlayMessage(
@@ -1247,8 +1251,7 @@ export function createEditableBlock<
       <div
         data-camox-field-id={fieldId}
         data-camox-field-type="image"
-        data-camox-hovered={isHovered || undefined}
-        data-camox-focused={isFocused || undefined}
+        {...overlayState}
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -1412,12 +1415,12 @@ export function createEditableBlock<
       { blockId: String(blockId), itemId: String(itemId) },
     );
 
-    const showOverlay = isContentEditable && (isHovered || isRepeaterHovered);
+    const overlayState = useOverlayState(`item:${itemId}`, isHovered || isRepeaterHovered);
 
     return (
       <div
         data-camox-repeater-item-id={isContentEditable ? itemId : undefined}
-        data-camox-hovered={showOverlay || undefined}
+        {...(isContentEditable ? overlayState : {})}
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
       >
         {children}
@@ -1714,6 +1717,7 @@ export function createEditableBlock<
 
     // Local state for hover
     const [isHovered, setIsHovered] = React.useState(false);
+    const isCommentMode = useSelector(previewStore, (state) => state.context.isCommentMode);
 
     // Scroll into view when editing in preview
     const selection = useSelector(previewStore, (state) => state.context.selection);
@@ -1726,6 +1730,11 @@ export function createEditableBlock<
       (state) => state.context.isAddBlockSidebarOpen,
     );
     const isBlockSelected = selection?.blockId === blockData._id;
+    const overlayState = useOverlayState(
+      `block:${blockData._id}`,
+      isHovered && !isBlockSelected,
+      isBlockSelected,
+    );
     const ref = React.useRef<HTMLDivElement>(null);
 
     // Track first render because we won't animate the scroll into view for it
@@ -1812,7 +1821,9 @@ export function createEditableBlock<
 
     // The bright colors overlays to show selection and editable content
     const shouldShowOverlay =
-      isContentEditable && (isHovered || isBlockSelected) && !isAddBlockSidebarOpen;
+      isContentEditable &&
+      (overlayState["data-camox-hovered"] || overlayState["data-camox-focused"]) &&
+      !isAddBlockSidebarOpen;
     const shouldShowAddBlockOverlay = isAddBlockSidebarOpen && mode !== "peek";
 
     return (
@@ -1825,8 +1836,7 @@ export function createEditableBlock<
           background: "var(--background)",
         }}
         data-camox-block-id={isContentEditable ? blockData._id : undefined}
-        data-camox-hovered={(shouldShowOverlay && !isBlockSelected) || undefined}
-        data-camox-focused={(shouldShowOverlay && isBlockSelected) || undefined}
+        {...(shouldShowOverlay ? overlayState : {})}
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
@@ -1869,6 +1879,7 @@ export function createEditableBlock<
         />
         {/* AddBlock controls */}
         {shouldShowOverlay &&
+          !isCommentMode &&
           (() => {
             // Use explicit show flags if provided, otherwise fall back to legacy behavior
             const displayTop = showAddBlockTop ?? (mode !== "layout" && !isFirstBlock);
@@ -1930,6 +1941,11 @@ export function createEditableBlock<
       (state) => state.context.isAddBlockSidebarOpen,
     );
     const isBlockSelected = selection?.blockId === blockId;
+    const overlayState = useOverlayState(
+      `block:${blockId}`,
+      isHovered && !isBlockSelected,
+      isBlockSelected,
+    );
 
     const isHoveredFromSidebar = useOverlayMessage(
       iframeWindow,
@@ -1944,7 +1960,9 @@ export function createEditableBlock<
     }, [isHoveredFromSidebar, setIsHovered]);
 
     const shouldShowOverlay =
-      isContentEditable && (isHovered || isBlockSelected) && !isAddBlockSidebarOpen;
+      isContentEditable &&
+      (overlayState["data-camox-hovered"] || overlayState["data-camox-focused"]) &&
+      !isAddBlockSidebarOpen;
     const shouldHideForAddBlockSidebar = isAddBlockSidebarOpen && mode !== "peek";
 
     const handleClick = (e: React.MouseEvent) => {
@@ -1970,6 +1988,7 @@ export function createEditableBlock<
     return (
       <>
         {children({
+          "data-camox-comment-block-id": isContentEditable ? blockId : undefined,
           ref: setContainer,
           style: { opacity: shouldHideForAddBlockSidebar ? 0 : 1 },
           onClick: handleClick,
@@ -1986,8 +2005,7 @@ export function createEditableBlock<
                 <div
                   data-camox-block-id={blockId}
                   data-camox-detached
-                  data-camox-hovered={!isBlockSelected || undefined}
-                  data-camox-focused={isBlockSelected || undefined}
+                  {...overlayState}
                   data-camox-overlay-mode={options.synced ? "synced" : undefined}
                   style={{
                     position: "absolute",

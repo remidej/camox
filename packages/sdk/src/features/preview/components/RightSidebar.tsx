@@ -30,7 +30,7 @@ const RightSidebar = ({
       {pageId != null && isAddBlockSidebarOpen ? (
         <AddBlockSidebar />
       ) : selectedBlockId != null ? (
-        <PageEditorSidebar />
+        <PageEditorSidebar pageId={pageId} />
       ) : pageId != null ? (
         <PageInfoSidebar pageId={pageId} />
       ) : (

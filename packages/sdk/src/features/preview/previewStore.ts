@@ -5,6 +5,8 @@ import { Block } from "@/core/createBlock";
 import type { FieldType } from "@/core/lib/fieldTypes";
 import { trackClientEvent } from "@/lib/telemetry-client";
 
+import { areCommentsEnabled } from "./commentsEnabled";
+
 /* -------------------------------------------------------------------------------------------------
  * Selection — normalized, flat pointer to the currently selected entity
  * -------------------------------------------------------------------------------------------------
@@ -65,6 +67,8 @@ export type ViewportMode = "full" | "tablet" | "mobile";
 interface PreviewContext {
   mode: PreviewMode;
   isToolbarHidden: boolean;
+  isCommentMode: boolean;
+  commentHoverTarget: string | null;
   isPageEditorSidebarOpen: boolean;
   isAddBlockSidebarOpen: boolean;
   /** Source label for the in-progress add-block flow (popover, shortcut, page-tree, overlay). */
@@ -83,6 +87,8 @@ export const previewStore = createStore({
   context: {
     mode: "previewing-draft",
     isToolbarHidden: false,
+    isCommentMode: false,
+    commentHoverTarget: null,
     isPageEditorSidebarOpen: false,
     isAddBlockSidebarOpen: false,
     addBlockSource: null,
@@ -96,12 +102,28 @@ export const previewStore = createStore({
     iframeElement: null,
   } as PreviewContext,
   on: {
+    setCommentMode: (context, event: { enabled: boolean }) => ({
+      ...context,
+      isCommentMode: areCommentsEnabled() && event.enabled && context.mode === "editing-draft",
+      commentHoverTarget: null,
+      selection: areCommentsEnabled() && event.enabled ? null : context.selection,
+    }),
+    hoverCommentTarget: (context, event: { target: string | null }) => {
+      const target = context.isCommentMode ? event.target : null;
+      if (target === context.commentHoverTarget) return context;
+      return { ...context, commentHoverTarget: target };
+    },
     exitEditMode: (context, _, enqueue) => {
       if (context.mode !== "editing-draft") return context;
       enqueue.effect(() => {
         trackClientEvent("edit_mode_toggled", { enabled: false });
       });
-      return { ...context, mode: "previewing-draft" as const };
+      return {
+        ...context,
+        mode: "previewing-draft" as const,
+        isCommentMode: false,
+        commentHoverTarget: null,
+      };
     },
     enterEditMode: (context, _, enqueue) => {
       if (context.mode === "editing-draft") return context;
@@ -125,6 +147,8 @@ export const previewStore = createStore({
       return {
         ...context,
         mode: "previewing-live" as const,
+        isCommentMode: false,
+        commentHoverTarget: null,
         isToolbarHidden: true,
       };
     },
