@@ -4,8 +4,6 @@ import { block as faqBlock } from "../blocks/faq";
 import { block as footerBlock } from "../blocks/footer";
 import { block as heroBlock } from "../blocks/hero";
 import { block as navbarBlock } from "../blocks/navbar";
-import { block as statisticsBlock } from "../blocks/statistics";
-import { block as testimonialBlock } from "../blocks/testimonial";
 
 const defaultLayout = createLayout({
   id: "default",
@@ -14,7 +12,7 @@ const defaultLayout = createLayout({
   blocks: {
     before: [navbarBlock],
     after: [footerBlock],
-    initial: [heroBlock, testimonialBlock, statisticsBlock, faqBlock],
+    initial: [heroBlock, faqBlock],
   },
   component: DefaultLayout,
   buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,

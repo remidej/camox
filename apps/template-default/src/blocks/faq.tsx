@@ -16,12 +16,12 @@ const faq = createBlock({
     items: Type.Repeater({
       content: {
         question: Type.String({
-          default: "What is your refund policy?",
+          default: "How do I make this website my own?",
           title: "Question",
         }),
         answer: Type.String({
           default:
-            "We offer a 30-day money-back guarantee. If you're not satisfied, contact support and we'll process your refund right away.",
+            "Tell your coding agent what you're building, who it's for, and the style you want. Your agent has access to the Camox skill and will use it to create your own blocks, update your content, and manage your pages.",
           title: "Answer",
         }),
       },

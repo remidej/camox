@@ -15,7 +15,7 @@ const hero = createBlock({
       title: "Title",
     }),
     description: Type.String({
-      default: "Press ⌘+Enter to access Camox Studio and edit content.",
+      default: "Press ⌘+Enter to edit this page.",
       maxLength: 280,
       title: "Description",
     }),
