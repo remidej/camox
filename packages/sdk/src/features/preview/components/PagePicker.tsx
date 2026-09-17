@@ -281,16 +281,18 @@ const PagePicker = () => {
               )}
             </CommandList>
             <CommandSeparator />
-            <CommandGroup>
+            <CommandGroup className="shrink-0 pt-2">
               <CommandItem
+                className="h-9 gap-2 px-2 py-0"
+                hideCheck
                 onSelect={() => {
                   closePopover();
                   previewStore.send({ type: "openCreatePageModal" });
                 }}
                 value={CREATE_PAGE_VALUE}
               >
-                <Plus className="size-4" />
-                Create page
+                <Plus className="size-4 shrink-0" />
+                <span>Create page</span>
               </CommandItem>
             </CommandGroup>
           </Command>

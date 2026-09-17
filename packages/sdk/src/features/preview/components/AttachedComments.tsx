@@ -169,8 +169,13 @@ export function AttachedComments({
           </div>
         ))}
         {allPageComments && (
-          <Button type="button" variant="secondary" className="w-full">
-            Send feedback to agent
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            disabled={attached.length === 0}
+          >
+            Send feedback to agent...
           </Button>
         )}
         {!allPageComments && (

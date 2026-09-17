@@ -698,7 +698,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                   </SidebarSectionContent>
                 </SidebarSection>
               )}
-              <SidebarSectionHeader className="px-2 pt-4">Content</SidebarSectionHeader>
               {isViewingAsset && assetFieldName && isMultipleAsset && (
                 <MultipleAssetFieldEditor
                   fieldName={assetFieldName}

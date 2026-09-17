@@ -119,7 +119,7 @@ const PageInfoSidebar = ({
           <PageNicknameSidebarEditor data={data} />
           <div className="space-y-2">
             <Label>Page path</Label>
-            <InputGroup className="h-auto min-h-9 px-1">
+            <InputGroup className="px-1">
               <InputGroupText className="min-w-0 flex-1 px-2 py-1.5 font-mono font-normal break-all">
                 {page.fullPath}
               </InputGroupText>
@@ -131,7 +131,7 @@ const PageInfoSidebar = ({
                   onClick={() => setIsStructureModalOpen(true)}
                   aria-label="Edit page structure"
                 >
-                  <Pencil className="size-4" />
+                  <Pencil />
                 </InputGroupButton>
               </InputGroupAddon>
             </InputGroup>

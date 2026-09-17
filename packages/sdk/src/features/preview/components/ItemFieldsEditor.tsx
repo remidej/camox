@@ -370,9 +370,7 @@ const ItemFieldsEditor = ({
                       })
                     }
                   >
-                    {!selectedFieldName && (
-                      <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
-                    )}
+                    <Label htmlFor={getFieldElementId(field.name)}>{label}</Label>
                     <SidebarLexicalEditor
                       id={getFieldElementId(field.name)}
                       value={fieldApi.state.value as string | Record<string, unknown>}
