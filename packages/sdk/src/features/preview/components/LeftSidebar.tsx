@@ -29,13 +29,12 @@ const LeftSidebar = ({
           <PageNavigatorSidebar page={page} />
         )}
       </div>
-      {isAddBlockSidebarOpen && (
-        <div
-          className="absolute inset-0 z-20 cursor-not-allowed"
-          style={{ background: "rgba(0, 0, 0, 0.5)" }}
-          aria-hidden="true"
-        />
-      )}
+      <div
+        className={`absolute inset-0 z-20 bg-black/50 transition-opacity duration-200 motion-reduce:transition-none ${
+          isAddBlockSidebarOpen ? "cursor-not-allowed opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        aria-hidden="true"
+      />
     </aside>
   );
 };

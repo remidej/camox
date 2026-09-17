@@ -223,7 +223,7 @@ const AddBlockSidebar = () => {
 
   return (
     <>
-      <div className="px-2 pt-4">
+      <div className="px-2 pt-2">
         <Button
           variant="ghost"
           className="w-full justify-start"
@@ -233,11 +233,11 @@ const AddBlockSidebar = () => {
           Add new block
         </Button>
       </div>
-      <PanelContent className="flex grow basis-0 flex-col overflow-auto px-2 py-2">
+      <PanelContent className="flex min-h-0 grow basis-0 flex-col overflow-hidden px-2 pt-2">
         <Command
           value={highlightedValue}
           onValueChange={handleValueChange}
-          className="overflow-visible rounded-none! bg-transparent! p-0!"
+          className="h-0 min-h-0 flex-1 rounded-none! bg-transparent! p-0!"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               previewStore.send({ type: "closeAddBlockSidebar" });
@@ -245,7 +245,7 @@ const AddBlockSidebar = () => {
           }}
         >
           <CommandInput placeholder="Search blocks..." className="px-0 pt-0" autoFocus />
-          <CommandList className="mt-2 max-h-full">
+          <CommandList className="mt-2 max-h-none min-h-0 flex-1 pb-2">
             <CommandEmpty>No blocks found.</CommandEmpty>
             <CommandGroup className="p-0">
               {availableBlocks
@@ -261,7 +261,7 @@ const AddBlockSidebar = () => {
                     onSelect={() => {
                       void handleAddBlock(block);
                     }}
-                    className="group bg-card data-[selected=true]:border-primary data-[selected=true]:after:border-primary mb-3 flex flex-col items-stretch gap-0 overflow-hidden rounded-lg border p-0 after:pointer-events-none after:absolute after:inset-0 after:z-10 after:rounded-[inherit] last:mb-0 data-[selected=true]:after:border"
+                    className="group bg-card data-[selected=true]:border-primary mb-3 flex flex-col items-stretch gap-0 overflow-hidden rounded-lg border-2 p-0 last:mb-0"
                   >
                     <BlockThumbnail block={block} />
                     <div className="border-border flex flex-col gap-1 border-t px-3 py-2">

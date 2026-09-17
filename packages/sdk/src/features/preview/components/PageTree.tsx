@@ -299,7 +299,7 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
  * PageTree
  * -----------------------------------------------------------------------------------------------*/
 
-const BlockInsertionIndicator = () => {
+const BlockInsertionIndicator = ({ atEnd = false }: { atEnd?: boolean }) => {
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -307,7 +307,11 @@ const BlockInsertionIndicator = () => {
   }, []);
 
   return (
-    <div ref={ref} className="pointer-events-none relative z-30 h-2 shrink-0" aria-hidden="true">
+    <div
+      ref={ref}
+      className={`pointer-events-none absolute inset-x-0 z-30 h-0 ${atEnd ? "bottom-0" : "top-0"}`}
+      aria-hidden="true"
+    >
       <div className="bg-primary absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded-full motion-safe:animate-pulse">
         <div className="bg-primary absolute -top-0.5 -left-0.5 size-1.5 rounded-full" />
       </div>
@@ -441,15 +445,17 @@ const PageTree = () => {
             items={pageBlocks.map((block) => String(block.id))}
             strategy={verticalListSortingStrategy}
           >
-            {pageBlocks.map((block, index) => (
-              <React.Fragment key={String(block.id)}>
-                {isAddBlockSidebarOpen && index === insertionIndex && <BlockInsertionIndicator />}
-                <SortableBlock block={block} />
-              </React.Fragment>
-            ))}
-            {isAddBlockSidebarOpen && insertionIndex === pageBlocks.length && (
-              <BlockInsertionIndicator />
-            )}
+            <div className="relative flex flex-col gap-0.5">
+              {pageBlocks.map((block, index) => (
+                <div key={String(block.id)} className="relative">
+                  {isAddBlockSidebarOpen && index === insertionIndex && <BlockInsertionIndicator />}
+                  <SortableBlock block={block} />
+                </div>
+              ))}
+              {isAddBlockSidebarOpen && insertionIndex === pageBlocks.length && (
+                <BlockInsertionIndicator atEnd />
+              )}
+            </div>
           </SortableContext>
           <DragOverlay dropAnimation={null}>
             {activeId
