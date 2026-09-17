@@ -253,6 +253,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     });
     const draft = previewCommentsStore.getSnapshot().context.draft!;
     assert.equal(draft.pageId, 3);
+    assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, draft.target);
     assert.equal(draft.target.x, 0.25);
     assert.equal(draft.target.y, 0.5);
     assert.equal(doc.querySelector(draft.target.selector), field);
