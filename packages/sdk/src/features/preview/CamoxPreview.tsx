@@ -392,6 +392,7 @@ export const PreviewShell = ({
         groupLabel: "Preview",
         checkIfAvailable: () => true,
         execute: () => {
+          previewStore.send({ type: "setCommentMode", enabled: false });
           previewStore.send({ type: "clearSelection" });
         },
         shortcut: { key: "Escape" },

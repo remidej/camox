@@ -71,10 +71,15 @@ const KeyDownForwarder = () => {
         if (!action.checkIfAvailable()) return false;
 
         // Don't trigger shortcuts when the user is typing in an input,
-        // unless it's a modified shortcut (meta/alt) that isn't Backspace
+        // unless it's Escape or a modified shortcut (meta/alt) that isn't Backspace
         const userIsTyping = checkIfInputFocused(iframeWindow.document);
         if (userIsTyping) {
-          if (!action.shortcut.withMeta && !action.shortcut.withAlt) return false;
+          if (
+            action.shortcut.key !== "Escape" &&
+            !action.shortcut.withMeta &&
+            !action.shortcut.withAlt
+          )
+            return false;
           if (action.shortcut.key === "Backspace") return false;
         }
 
@@ -96,6 +101,9 @@ const KeyDownForwarder = () => {
       if (matchingAction) {
         e.preventDefault();
         e.stopPropagation();
+        if (e.key === "Escape" && checkIfInputFocused(iframeWindow.document)) {
+          (iframeWindow.document.activeElement as HTMLElement).blur();
+        }
         iframeWindow.parent.postMessage(
           {
             type: "executeAction",
@@ -106,10 +114,22 @@ const KeyDownForwarder = () => {
       }
     };
 
-    // Consume shortcuts before preview editors can turn Enter into a line break.
-    iframeWindow.addEventListener("keydown", handleKeyDown, true);
+    const handleCapturedKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") return;
+      handleKeyDown(event);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      handleKeyDown(event);
+    };
+
+    // Consume shortcuts before preview editors can turn Enter into a line break,
+    // but leave Escape to local handlers before forwarding it.
+    iframeWindow.addEventListener("keydown", handleCapturedKeyDown, true);
+    iframeWindow.addEventListener("keydown", handleEscape);
     return () => {
-      iframeWindow.removeEventListener("keydown", handleKeyDown, true);
+      iframeWindow.removeEventListener("keydown", handleCapturedKeyDown, true);
+      iframeWindow.removeEventListener("keydown", handleEscape);
     };
   }, [iframeWindow, actions]);
 
@@ -199,6 +219,7 @@ const PreviewPanel = ({
         groupLabel: "Preview",
         checkIfAvailable: () => true,
         execute: () => {
+          previewStore.send({ type: "setCommentMode", enabled: false });
           previewStore.send({ type: "clearSelection" });
         },
         shortcut: { key: "Escape" },

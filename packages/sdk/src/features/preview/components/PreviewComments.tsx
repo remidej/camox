@@ -3,7 +3,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 
 import { previewCommentsStore } from "../previewCommentsStore";
-import { previewStore, selectIsCommentMode, selectIsEditMode } from "../previewStore";
+import { previewStore, selectIsCommentMode } from "../previewStore";
 
 // The bottom-left tip marks the click position, matching the comment bubble.
 const commentCursor = `url("data:image/svg+xml,${encodeURIComponent(
@@ -13,7 +13,6 @@ const commentCursor = `url("data:image/svg+xml,${encodeURIComponent(
 /** Comment mode lifecycle and cursor. Editable components handle selection and clicks. */
 export function PreviewComments() {
   const iframe = useSelector(previewStore, (state) => state.context.iframeElement);
-  const editing = useSelector(previewStore, selectIsEditMode);
   const commenting = useSelector(previewStore, selectIsCommentMode);
   const doc = iframe?.contentDocument;
 
@@ -24,20 +23,6 @@ export function PreviewComments() {
     },
     [],
   );
-
-  React.useEffect(() => {
-    if (!editing) return;
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      previewStore.send({ type: "setCommentMode", enabled: false });
-    };
-    doc?.addEventListener("keydown", escape);
-    document.addEventListener("keydown", escape);
-    return () => {
-      doc?.removeEventListener("keydown", escape);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [doc, editing]);
 
   if (!doc || !commenting) return null;
 

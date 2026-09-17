@@ -37,12 +37,24 @@ export function useAdminShortcuts() {
       if (!matchingAction) return;
       const shortcut = matchingAction.shortcut!;
       if (checkIfInputFocused()) {
-        if (!shortcut.withMeta && !shortcut.withAlt) return;
+        if (shortcut.key !== "Escape" && !shortcut.withMeta && !shortcut.withAlt) return;
         if (shortcut.key === "Backspace") return;
       }
       event.preventDefault();
       event.stopPropagation();
+      if (shortcut.key === "Escape" && checkIfInputFocused()) {
+        (document.activeElement as HTMLElement).blur();
+      }
       matchingAction.execute();
+    };
+
+    const handleCapturedKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") return;
+      handleKeyDown(event);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      handleKeyDown(event);
     };
 
     const handleMessage = (event: MessageEvent) => {
@@ -57,10 +69,13 @@ export function useAdminShortcuts() {
     };
 
     // Consume shortcuts before field editors can turn Enter into a line break.
-    document.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("keydown", handleCapturedKeyDown, true);
+    // Let editors, dialogs, and popovers handle Escape before the global fallback.
+    window.addEventListener("keydown", handleEscape);
     window.addEventListener("message", handleMessage);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("keydown", handleCapturedKeyDown, true);
+      window.removeEventListener("keydown", handleEscape);
       window.removeEventListener("message", handleMessage);
     };
   }, [actions]);
