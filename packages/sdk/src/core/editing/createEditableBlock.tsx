@@ -18,7 +18,8 @@ import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { useFrame } from "../../features/preview/components/Frame";
 import { postOverlayMessage } from "../../features/preview/overlayMessages";
-import { previewStore } from "../../features/preview/previewStore";
+import { usePreviewSelection, type SelectionEvent } from "../../features/preview/previewSelection";
+import { previewStore, selectIsCommentMode } from "../../features/preview/previewStore";
 import {
   useNormalizedData,
   isFileMarker,
@@ -658,6 +659,7 @@ export function createEditableBlock<
     "data-camox-overlay-mode"?: string;
     onMouseEnter?: () => void;
     onMouseLeave?: () => void;
+    onClickCapture?: (event: React.MouseEvent<HTMLElement>) => void;
   };
 
   type FieldRenderProps = { children: React.ReactNode } & EditableProps;
@@ -705,7 +707,7 @@ export function createEditableBlock<
     "data-camox-comment-block-id"?: number;
     ref: (element: HTMLElement | null) => void;
     style: React.CSSProperties;
-    onClick: (e: React.MouseEvent) => void;
+    onClickCapture: (e: React.MouseEvent) => void;
     onMouseEnter: () => void;
     onMouseLeave: () => void;
   };
@@ -719,6 +721,8 @@ export function createEditableBlock<
     name: K;
     children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
   }): React.ReactNode => {
+    const selectTarget = usePreviewSelection();
+    const isCommentMode = useSelector(previewStore, selectIsCommentMode);
     const blockContext = React.use(Context);
     if (!blockContext) {
       throw new Error("Field must be used within a Block Component");
@@ -760,7 +764,7 @@ export function createEditableBlock<
     );
 
     const isFocused = isEditorFocused || isSelectedFromSelection;
-    const overlayState = useOverlayState(`field:${fieldId}`, isHovered, isFocused);
+    const overlayState = useOverlayState(isHovered, isFocused);
 
     // Keep sidebar hover via postMessage (transient state)
     const isHoveredFromSidebar = useOverlayMessage(
@@ -798,26 +802,25 @@ export function createEditableBlock<
       [blockId, name, repeaterContext, updateBlockContent, updateRepeatableContent],
     );
 
-    const handleFocus = React.useCallback(() => {
+    const selectField = (event?: React.MouseEvent<HTMLElement>) => {
+      selectTarget(
+        repeaterContext?.itemId != null
+          ? {
+              type: "item-field",
+              blockId,
+              itemId: repeaterContext.itemId,
+              fieldName: String(name),
+              fieldType: "String",
+            }
+          : { type: "block-field", blockId, fieldName: String(name), fieldType: "String" },
+        event,
+      );
+    };
+    const handleFocus = () => {
+      if (selectIsCommentMode(previewStore.getSnapshot())) return;
       setIsEditorFocused(true);
-      if (repeaterContext?.itemId != null) {
-        previewStore.send({
-          type: "selectItemField",
-          blockId,
-          itemId: repeaterContext.itemId,
-          fieldName: name.toString(),
-          fieldType: "String",
-        });
-      } else {
-        previewStore.send({
-          type: "selectBlockField",
-          blockId,
-          fieldName: name.toString(),
-          fieldType: "String",
-        });
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [blockId, name, repeaterContext?.itemId]);
+      selectField();
+    };
 
     const handleBlur = React.useCallback(
       (wasEdited: boolean) => {
@@ -872,7 +875,15 @@ export function createEditableBlock<
       "data-camox-overlay-mode": options.synced ? "synced" : undefined,
       onMouseEnter: handleMouseEnter,
       onMouseLeave: handleMouseLeave,
-      children: (
+      onClickCapture: selectField,
+      children: isCommentMode ? (
+        markdownToReactNodes(fieldValue, {
+          pages: pages as Page[] | undefined,
+          fallbackHref: currentPathname,
+          textStyle,
+          linkStyle,
+        })
+      ) : (
         <InlineLexicalEditor
           textStyle={textStyle}
           linkStyle={linkStyle}
@@ -896,6 +907,7 @@ export function createEditableBlock<
     name: K;
     children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
   }): React.ReactNode => {
+    const selectTarget = usePreviewSelection();
     const blockContext = React.use(Context);
     if (!blockContext) {
       throw new Error("Embed must be used within a Block Component");
@@ -912,28 +924,21 @@ export function createEditableBlock<
     const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
 
     const [isHovered, setIsHovered] = React.useState(false);
-    const overlayState = useOverlayState(`field:${fieldId}`, isHovered);
+    const overlayState = useOverlayState(isHovered);
     const embedRef = React.useRef<HTMLDivElement>(null);
     const itemId = repeaterContext?.itemId;
-    const selectField = React.useCallback(() => {
-      if (!isContentEditable) return;
-      if (itemId != null) {
-        previewStore.send({
-          type: "selectItemField",
-          blockId,
-          itemId,
-          fieldName: String(name),
-          fieldType: "Embed",
-        });
-        return;
-      }
-      previewStore.send({
-        type: "selectBlockField",
-        blockId,
-        fieldName: String(name),
-        fieldType: "Embed",
-      });
-    }, [isContentEditable, blockId, itemId, name]);
+    const selectField = React.useCallback(
+      (event?: SelectionEvent) => {
+        if (!isContentEditable) return;
+        selectTarget(
+          itemId != null
+            ? { type: "item-field", blockId, itemId, fieldName: String(name), fieldType: "Embed" }
+            : { type: "block-field", blockId, fieldName: String(name), fieldType: "Embed" },
+          event,
+        );
+      },
+      [isContentEditable, blockId, itemId, name, selectTarget],
+    );
 
     React.useEffect(() => {
       if (!isContentEditable || !iframeWindow) return;
@@ -946,7 +951,12 @@ export function createEditableBlock<
         timer = iframeWindow.setTimeout(() => {
           const activeElement = iframeWindow.document.activeElement;
           if (activeElement?.tagName !== "IFRAME") return;
-          if (embedRef.current?.contains(activeElement)) selectField();
+          if (!embedRef.current?.contains(activeElement)) return;
+          selectField({
+            currentTarget: embedRef.current,
+            preventDefault() {},
+            stopPropagation() {},
+          });
         }, 0);
       };
       iframeWindow.addEventListener("blur", handleBlur);
@@ -994,6 +1004,8 @@ export function createEditableBlock<
     name: K;
     children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
   }): React.ReactNode => {
+    const selectTarget = usePreviewSelection();
+    const isCommentMode = useSelector(previewStore, selectIsCommentMode);
     const blockContext = React.use(Context);
     if (!blockContext) {
       throw new Error("Link must be used within a Block Component");
@@ -1035,7 +1047,7 @@ export function createEditableBlock<
     );
 
     const isFocused = isEditorFocused || isSelectedFromSelection;
-    const overlayState = useOverlayState(`field:${fieldId}`, isHovered, isFocused);
+    const overlayState = useOverlayState(isHovered, isFocused);
 
     React.useEffect(() => {
       if (!isEditing) {
@@ -1075,25 +1087,25 @@ export function createEditableBlock<
       saveLinkValue({ ...fieldValue, text: newText });
     };
 
+    const selectField = (event?: React.MouseEvent<HTMLElement>) => {
+      selectTarget(
+        repeaterContext?.itemId != null
+          ? {
+              type: "item-field",
+              blockId,
+              itemId: repeaterContext.itemId,
+              fieldName: String(name),
+              fieldType: "Link",
+            }
+          : { type: "block-field", blockId, fieldName: String(name), fieldType: "Link" },
+        event,
+      );
+    };
     const handleFocus = () => {
+      if (selectIsCommentMode(previewStore.getSnapshot())) return;
       setIsEditing(true);
       setIsEditorFocused(true);
-      if (repeaterContext?.itemId != null) {
-        previewStore.send({
-          type: "selectItemField",
-          blockId,
-          itemId: repeaterContext.itemId,
-          fieldName: String(name),
-          fieldType: "Link",
-        });
-      } else {
-        previewStore.send({
-          type: "selectBlockField",
-          blockId,
-          fieldName: String(name),
-          fieldType: "Link",
-        });
-      }
+      selectField();
     };
 
     const handleBlur = () => {
@@ -1132,7 +1144,8 @@ export function createEditableBlock<
       "data-camox-field-id": fieldId,
       ...overlayState,
       "data-camox-overlay-mode": options.synced ? "synced" : undefined,
-      contentEditable: true,
+      contentEditable: !isCommentMode,
+      onClickCapture: selectField,
       onClick: (e: React.MouseEvent) => e.preventDefault(),
       onInput: handleInput,
       onFocus: handleFocus,
@@ -1158,6 +1171,7 @@ export function createEditableBlock<
     name: K;
     children: (props: ImageRenderProps, data: ImageValue) => React.ReactNode;
   }): React.ReactNode => {
+    const selectTarget = usePreviewSelection();
     const blockContext = React.use(Context);
     if (!blockContext) {
       throw new Error("Image must be used within a Block Component");
@@ -1196,7 +1210,7 @@ export function createEditableBlock<
 
     // Derive selected state from selection
     const isFocused = useFieldSelection(blockId, overlayFieldName, "Image", overlayItemId);
-    const overlayState = useOverlayState(`field:${fieldId}`, isHovered, isFocused);
+    const overlayState = useOverlayState(isHovered, isFocused);
 
     // Keep sidebar hover via postMessage (transient state)
     const isHoveredFromSidebar = useOverlayMessage(
@@ -1211,24 +1225,22 @@ export function createEditableBlock<
       setIsHovered(isHoveredFromSidebar);
     }, [isHoveredFromSidebar]);
 
-    const handleClick = () => {
+    const handleClick = (event: React.MouseEvent<HTMLElement>) => {
       if (!isContentEditable) return;
-      if (overlayItemId != null) {
-        previewStore.send({
-          type: "selectItemField",
-          blockId,
-          itemId: overlayItemId,
-          fieldName: overlayFieldName,
-          fieldType: "Image",
-        });
-      } else {
-        previewStore.send({
-          type: "selectBlockField",
-          blockId,
-          fieldName: overlayFieldName,
-          fieldType: "Image",
-        });
-      }
+      const commenting = selectIsCommentMode(previewStore.getSnapshot());
+      selectTarget(
+        overlayItemId != null
+          ? {
+              type: "item-field",
+              blockId,
+              itemId: overlayItemId,
+              fieldName: overlayFieldName,
+              fieldType: "Image",
+            }
+          : { type: "block-field", blockId, fieldName: overlayFieldName, fieldType: "Image" },
+        event,
+      );
+      if (commenting) return;
       previewStore.send({ type: "toggleContentSheet" });
     };
 
@@ -1255,7 +1267,7 @@ export function createEditableBlock<
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        onClick={handleClick}
+        onClickCapture={handleClick}
       >
         {children(imageProps, fieldValue)}
       </div>
@@ -1415,7 +1427,7 @@ export function createEditableBlock<
       { blockId: String(blockId), itemId: String(itemId) },
     );
 
-    const overlayState = useOverlayState(`item:${itemId}`, isHovered || isRepeaterHovered);
+    const overlayState = useOverlayState(isHovered || isRepeaterHovered);
 
     return (
       <div
@@ -1717,7 +1729,7 @@ export function createEditableBlock<
 
     // Local state for hover
     const [isHovered, setIsHovered] = React.useState(false);
-    const isCommentMode = useSelector(previewStore, (state) => state.context.isCommentMode);
+    const isCommentMode = useSelector(previewStore, selectIsCommentMode);
 
     // Scroll into view when editing in preview
     const selection = useSelector(previewStore, (state) => state.context.selection);
@@ -1729,12 +1741,9 @@ export function createEditableBlock<
       previewStore,
       (state) => state.context.isAddBlockSidebarOpen,
     );
+    const selectTarget = usePreviewSelection();
     const isBlockSelected = selection?.blockId === blockData._id;
-    const overlayState = useOverlayState(
-      `block:${blockData._id}`,
-      isHovered && !isBlockSelected,
-      isBlockSelected,
-    );
+    const overlayState = useOverlayState(isHovered && !isBlockSelected, isBlockSelected);
     const ref = React.useRef<HTMLDivElement>(null);
 
     // Track first render because we won't animate the scroll into view for it
@@ -1793,7 +1802,11 @@ export function createEditableBlock<
       const target = e.target as HTMLElement;
       if (target.closest("[data-camox-field-id]")) return;
 
-      previewStore.send({ type: "setFocusedBlock", blockId: blockData._id });
+      if (
+        target.closest("[data-camox-block-id], [data-camox-comment-block-id]") !== e.currentTarget
+      )
+        return;
+      selectTarget({ type: "block", blockId: blockData._id }, e);
     };
 
     const handleMouseEnter = () => {
@@ -1838,7 +1851,7 @@ export function createEditableBlock<
         data-camox-block-id={isContentEditable ? blockData._id : undefined}
         {...(shouldShowOverlay ? overlayState : {})}
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
-        onClick={handleClick}
+        onClickCapture={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
@@ -1940,12 +1953,9 @@ export function createEditableBlock<
       previewStore,
       (state) => state.context.isAddBlockSidebarOpen,
     );
+    const selectTarget = usePreviewSelection();
     const isBlockSelected = selection?.blockId === blockId;
-    const overlayState = useOverlayState(
-      `block:${blockId}`,
-      isHovered && !isBlockSelected,
-      isBlockSelected,
-    );
+    const overlayState = useOverlayState(isHovered && !isBlockSelected, isBlockSelected);
 
     const isHoveredFromSidebar = useOverlayMessage(
       iframeWindow,
@@ -1967,8 +1977,13 @@ export function createEditableBlock<
 
     const handleClick = (e: React.MouseEvent) => {
       if (!isContentEditable) return;
-      e.stopPropagation();
-      previewStore.send({ type: "setFocusedBlock", blockId });
+      const target = e.target as HTMLElement;
+      if (target.closest("[data-camox-field-id]")) return;
+      if (
+        target.closest("[data-camox-block-id], [data-camox-comment-block-id]") !== e.currentTarget
+      )
+        return;
+      selectTarget({ type: "block", blockId }, e);
     };
 
     const handleMouseEnter = () => {
@@ -1991,7 +2006,7 @@ export function createEditableBlock<
           "data-camox-comment-block-id": isContentEditable ? blockId : undefined,
           ref: setContainer,
           style: { opacity: shouldHideForAddBlockSidebar ? 0 : 1 },
-          onClick: handleClick,
+          onClickCapture: handleClick,
           onMouseEnter: handleMouseEnter,
           onMouseLeave: handleMouseLeave,
         } satisfies DetachedRenderProps)}

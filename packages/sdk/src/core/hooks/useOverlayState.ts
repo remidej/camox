@@ -1,15 +1,7 @@
-import { useSelector } from "@xstate/store-react";
-
-import { previewStore } from "../../features/preview/previewStore";
-
-/** Native hover, sidebar hover and comment pointing all drive the same overlay attributes. */
-export function useOverlayState(target: string, hovered: boolean, focused = false) {
-  const commentHover = useSelector(previewStore, (state) =>
-    state.context.isCommentMode ? state.context.commentHoverTarget === target : null,
-  );
-
+/** Native and sidebar hover use the same overlay attributes in every editing mode. */
+export function useOverlayState(hovered: boolean, focused = false) {
   return {
-    "data-camox-hovered": (commentHover ?? hovered) || undefined,
-    "data-camox-focused": (commentHover === null && focused) || undefined,
+    "data-camox-hovered": hovered || undefined,
+    "data-camox-focused": focused || undefined,
   };
 }

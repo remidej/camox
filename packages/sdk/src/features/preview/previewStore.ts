@@ -55,10 +55,18 @@ export function selectionField(
  * view (the page's live published checkpoint snapshot).
  */
 export type PreviewSource = "draft" | "live";
-export type PreviewMode = "editing-draft" | "previewing-draft" | "previewing-live";
+export type PreviewMode =
+  | "editing-draft"
+  | "commenting-draft"
+  | "previewing-draft"
+  | "previewing-live";
 
+export const selectIsCommentMode = (state: { context: { mode: PreviewMode } }) =>
+  state.context.mode === "commenting-draft";
+
+/** Commenting is a draft-only editing submode. */
 export const selectIsEditMode = (state: { context: { mode: PreviewMode } }) =>
-  state.context.mode === "editing-draft";
+  state.context.mode === "editing-draft" || selectIsCommentMode(state);
 
 export const selectPreviewSource = (state: { context: { mode: PreviewMode } }): PreviewSource =>
   state.context.mode === "previewing-live" ? "live" : "draft";
@@ -67,8 +75,6 @@ export type ViewportMode = "full" | "tablet" | "mobile";
 interface PreviewContext {
   mode: PreviewMode;
   isToolbarHidden: boolean;
-  isCommentMode: boolean;
-  commentHoverTarget: string | null;
   isPageEditorSidebarOpen: boolean;
   isAddBlockSidebarOpen: boolean;
   /** Source label for the in-progress add-block flow (popover, shortcut, page-tree, overlay). */
@@ -87,8 +93,6 @@ export const previewStore = createStore({
   context: {
     mode: "previewing-draft",
     isToolbarHidden: false,
-    isCommentMode: false,
-    commentHoverTarget: null,
     isPageEditorSidebarOpen: false,
     isAddBlockSidebarOpen: false,
     addBlockSource: null,
@@ -102,31 +106,27 @@ export const previewStore = createStore({
     iframeElement: null,
   } as PreviewContext,
   on: {
-    setCommentMode: (context, event: { enabled: boolean }) => ({
-      ...context,
-      isCommentMode: areCommentsEnabled() && event.enabled && context.mode === "editing-draft",
-      commentHoverTarget: null,
-      selection: areCommentsEnabled() && event.enabled ? null : context.selection,
-    }),
-    hoverCommentTarget: (context, event: { target: string | null }) => {
-      const target = context.isCommentMode ? event.target : null;
-      if (target === context.commentHoverTarget) return context;
-      return { ...context, commentHoverTarget: target };
+    setCommentMode: (context, event: { enabled: boolean }) => {
+      if (!selectIsEditMode({ context })) return context;
+      const commenting = areCommentsEnabled() && event.enabled;
+      return {
+        ...context,
+        mode: commenting ? ("commenting-draft" as const) : ("editing-draft" as const),
+        selection: commenting ? null : context.selection,
+      };
     },
     exitEditMode: (context, _, enqueue) => {
-      if (context.mode !== "editing-draft") return context;
+      if (!selectIsEditMode({ context })) return context;
       enqueue.effect(() => {
         trackClientEvent("edit_mode_toggled", { enabled: false });
       });
       return {
         ...context,
         mode: "previewing-draft" as const,
-        isCommentMode: false,
-        commentHoverTarget: null,
       };
     },
     enterEditMode: (context, _, enqueue) => {
-      if (context.mode === "editing-draft") return context;
+      if (selectIsEditMode({ context })) return context;
       enqueue.effect(() => {
         trackClientEvent("edit_mode_toggled", { enabled: true });
       });
@@ -139,7 +139,7 @@ export const previewStore = createStore({
     hideToolbar: (context) => ({ ...context, isToolbarHidden: true }),
     viewLivePage: (context, _, enqueue) => {
       enqueue.effect(() => {
-        if (context.mode === "editing-draft") {
+        if (selectIsEditMode({ context })) {
           trackClientEvent("edit_mode_toggled", { enabled: false });
         }
         toast("Viewing live version of the site");
@@ -147,8 +147,6 @@ export const previewStore = createStore({
       return {
         ...context,
         mode: "previewing-live" as const,
-        isCommentMode: false,
-        commentHoverTarget: null,
         isToolbarHidden: true,
       };
     },

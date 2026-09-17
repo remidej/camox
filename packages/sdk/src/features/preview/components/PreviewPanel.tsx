@@ -8,7 +8,13 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { SharedChromeContext } from "../../runtime/SharedChromeContext";
 import { areCommentsEnabled } from "../commentsEnabled";
-import { previewStore, selectIsEditMode, type ViewportMode } from "../previewStore";
+import { PreviewPageContext } from "../previewSelection";
+import {
+  previewStore,
+  selectIsCommentMode,
+  selectIsEditMode,
+  type ViewportMode,
+} from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
 import { FieldToolbar } from "./FieldToolbar";
@@ -140,13 +146,16 @@ const PreviewPanel = ({
   toolbarProps,
 }: PreviewPanelProps) => {
   const sharedChrome = React.useContext(SharedChromeContext);
+  const previewContent = (
+    <PreviewPageContext value={page?.id ?? null}>{children}</PreviewPageContext>
+  );
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const handleIframeReady = React.useCallback((element: HTMLIFrameElement) => {
     previewStore.send({ type: "setIframeElement", element });
   }, []);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
-  const isCommentMode = useSelector(previewStore, (state) => state.context.isCommentMode);
+  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   React.useEffect(() => {
     const actions = [
@@ -211,7 +220,7 @@ const PreviewPanel = ({
       <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
         <div className="relative min-h-0 flex-1">
           <PreviewFrame className="h-full w-full" onIframeReady={handleIframeReady}>
-            {children}
+            {previewContent}
           </PreviewFrame>
         </div>
         {!isToolbarHidden &&
@@ -227,13 +236,13 @@ const PreviewPanel = ({
   return (
     <>
       {page && !isCommentMode && <CuratedBlockShortcuts />}
-      {areCommentsEnabled() && page && <PreviewComments key={page.id} pageId={page.id} />}
+      {areCommentsEnabled() && page && <PreviewComments key={page.id} />}
       <PanelContent className="relative overflow-hidden bg-black">
         <div className="absolute inset-0">
           {viewportMode === "full" ? (
             <>
               <PreviewFrame className="checkered h-full w-full" onIframeReady={handleIframeReady}>
-                {children}
+                {previewContent}
               </PreviewFrame>
               {isEditMode && !isCommentMode && (
                 <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />
@@ -256,7 +265,7 @@ const PreviewPanel = ({
                 )}
               >
                 <PreviewFrame className="overflow-auto" onIframeReady={handleIframeReady}>
-                  {children}
+                  {previewContent}
                 </PreviewFrame>
                 {isEditMode && !isCommentMode && (
                   <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />

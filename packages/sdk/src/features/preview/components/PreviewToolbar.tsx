@@ -13,7 +13,7 @@ import { formatShortcut } from "@/lib/utils";
 import { areCommentsEnabled } from "../commentsEnabled";
 import { previewCommentsStore } from "../previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
-import { previewStore, selectIsEditMode } from "../previewStore";
+import { previewStore, selectIsCommentMode, selectIsEditMode } from "../previewStore";
 
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
@@ -29,7 +29,7 @@ export const PreviewToolbar = ({
   hasLiveVersion,
 }: PreviewToolbarProps) => {
   const isEditMode = useSelector(previewStore, selectIsEditMode);
-  const isCommentMode = useSelector(previewStore, (state) => state.context.isCommentMode);
+  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
