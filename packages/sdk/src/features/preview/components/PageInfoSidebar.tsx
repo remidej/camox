@@ -45,6 +45,8 @@ import { cn } from "@/lib/utils";
 
 import { UploadDropZone } from "../../content/components/UploadDropZone";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
+import { areCommentsEnabled } from "../commentsEnabled";
+import { AttachedComments } from "./AttachedComments";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
 import { PageLocationFieldset } from "./PageLocationFieldset";
@@ -173,6 +175,11 @@ const PageInfoSidebar = ({
             <MetadataRow label="Published by">{page.publishedBy ?? "Unknown"}</MetadataRow>
           )}
         </Metadata>
+        {areCommentsEnabled() && (
+          <div className="-mx-2">
+            <AttachedComments pageId={pageId} />
+          </div>
+        )}
       </div>
       <PageStructureModal
         open={isStructureModalOpen}

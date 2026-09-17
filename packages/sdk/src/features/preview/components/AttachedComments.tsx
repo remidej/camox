@@ -19,7 +19,7 @@ function resizeComposer(element: HTMLTextAreaElement) {
   element.style.height = `${element.scrollHeight}px`;
 }
 
-/** Comments sit alongside their existing field/block/item editor, never in a separate view. */
+/** Comments sit alongside their existing page/block/item/field editor. */
 export function AttachedComments({
   pageId,
   blockId,
@@ -28,7 +28,7 @@ export function AttachedComments({
   fieldType,
 }: {
   pageId?: number;
-  blockId: number;
+  blockId?: number;
   itemId?: number;
   fieldName?: string;
   fieldType?: CommentTarget["fieldType"];
@@ -97,7 +97,13 @@ export function AttachedComments({
   return (
     <SidebarSection
       aria-label={
-        fieldName ? `Comments on ${fieldName}` : itemId == null ? "Block comments" : "Item comments"
+        blockId == null
+          ? "Page comments"
+          : fieldName
+            ? `Comments on ${fieldName}`
+            : itemId == null
+              ? "Block comments"
+              : "Item comments"
       }
       divider="top"
     >
@@ -137,17 +143,21 @@ export function AttachedComments({
                     fieldName,
                     fieldType,
                     selector:
-                      fieldName != null
-                        ? `[data-camox-field-id="${CSS.escape(fieldId)}"]`
-                        : itemId != null
-                          ? `[data-camox-repeater-item-id="${itemId}"]`
-                          : `[data-camox-block-id="${blockId}"]`,
+                      blockId == null
+                        ? "body"
+                        : fieldName != null
+                          ? `[data-camox-field-id="${CSS.escape(fieldId)}"]`
+                          : itemId != null
+                            ? `[data-camox-repeater-item-id="${itemId}"]`
+                            : `[data-camox-block-id="${blockId}"]`,
                     label:
-                      fieldName != null
-                        ? `Field · ${fieldName}`
-                        : itemId != null
-                          ? `Item · ${itemId}`
-                          : `Block · ${blockId}`,
+                      blockId == null
+                        ? `Page · ${pageId}`
+                        : fieldName != null
+                          ? `Field · ${fieldName}`
+                          : itemId != null
+                            ? `Item · ${itemId}`
+                            : `Block · ${blockId}`,
                     x: 0.5,
                     y: 0.5,
                   },

@@ -5,7 +5,8 @@ import type { FieldType } from "@/core/lib/fieldTypes";
 import { previewStore } from "./previewStore";
 
 export type CommentTarget = {
-  blockId: number;
+  /** Omitted for page-level discussions. */
+  blockId?: number;
   itemId?: number;
   fieldName?: string;
   fieldType?: FieldType;
@@ -19,6 +20,10 @@ export function revealCommentTarget(target: CommentTarget) {
   previewStore.send({ type: "setCommentMode", enabled: false });
   previewStore.send({ type: "closeAddBlockSidebar" });
   previewStore.send({ type: "clearPeekedBlock" });
+  if (target.blockId == null) {
+    previewStore.send({ type: "setSelection", selection: null });
+    return;
+  }
   if (target.fieldName != null) {
     previewStore.send({
       type: "setSelection",

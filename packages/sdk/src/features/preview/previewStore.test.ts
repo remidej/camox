@@ -138,6 +138,34 @@ void test("comments reveal the existing editor and retain their page and field t
   previewStore.send({ type: "exitEditMode" });
 });
 
+void test("page comments retain their page without a block target", async () => {
+  const { previewStore } = await import("./previewStore");
+  const { previewCommentsStore, revealCommentTarget } = await import("./previewCommentsStore");
+  const target = { selector: "body", label: "Page · 3", x: 0.5, y: 0.5 };
+  const author = { name: "You", image: null };
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "setFocusedBlock", blockId: 7 });
+  revealCommentTarget(target);
+  assert.equal(previewStore.getSnapshot().context.selection, null);
+
+  previewCommentsStore.send({ type: "startComment", pageId: 3, target });
+  previewCommentsStore.send({ type: "setMessage", message: "Review the whole page" });
+  previewCommentsStore.send({ type: "postComment", id: "page-comment", author, createdAt: 1 });
+  const comment = previewCommentsStore
+    .getSnapshot()
+    .context.comments.find((entry) => entry.id === "page-comment")!;
+  assert.equal(comment.pageId, 3);
+  assert.equal(comment.target.blockId, undefined);
+  assert.equal(comment.target.fieldName, undefined);
+  assert.equal(comment.message, "Review the whole page");
+
+  previewCommentsStore.send({ type: "startComment", pageId: 4, target });
+  assert.equal(previewCommentsStore.getSnapshot().context.draft?.pageId, 4);
+  assert.equal(comment.pageId, 3);
+  previewCommentsStore.send({ type: "clearSelection" });
+  previewStore.send({ type: "exitEditMode" });
+});
+
 void test("comment mode shares normal hover and redirects native preview clicks", async () => {
   const { Window } = await import("happy-dom");
   const { selectPreviewTarget } = await import("./previewSelection");
