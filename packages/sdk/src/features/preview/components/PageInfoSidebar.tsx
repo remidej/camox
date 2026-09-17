@@ -40,7 +40,6 @@ import {
   pageQueries,
   projectQueries,
 } from "@/lib/queries";
-import { trackClientEvent } from "@/lib/telemetry-client";
 import { cn } from "@/lib/utils";
 
 import { UploadDropZone } from "../../content/components/UploadDropZone";
@@ -226,17 +225,6 @@ const PageNicknameSidebarEditor = ({ data }: { data: PageMetadataData }) => {
           parentPageId: page.parentPageId,
         },
         {
-          onSuccess: () => {
-            trackClientEvent("page_updated", {
-              projectId: page.projectId,
-              changes: {
-                nickname: true,
-                path: false,
-                layout: false,
-                parent: false,
-              },
-            });
-          },
           onError: () => {
             toast.error("Could not update page");
           },
@@ -301,17 +289,6 @@ const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
           setLayout.mutate(
             { id: page.id, layoutId },
             {
-              onSuccess: () => {
-                trackClientEvent("page_updated", {
-                  projectId: page.projectId,
-                  changes: {
-                    nickname: false,
-                    path: false,
-                    layout: true,
-                    parent: false,
-                  },
-                });
-              },
               onError: () => {
                 toast.error("Could not update page layout");
               },
@@ -417,15 +394,6 @@ const PageStructureEditor = ({
           await setLayout.mutateAsync({ id: page.id, layoutId: values.value.layoutId });
         }
 
-        trackClientEvent("page_updated", {
-          projectId: page.projectId,
-          changes: {
-            nickname: nickname !== page.nickname,
-            path: values.value.pathSegment !== page.pathSegment,
-            layout: includeLayout && values.value.layoutId !== page.layoutId,
-            parent: values.value.parentPageId !== page.parentPageId,
-          },
-        });
         toast.success(`Updated ${nickname} page`);
         form.reset();
         onSaved?.();
@@ -603,11 +571,6 @@ const PageSeoEditor = ({
           checked={page.aiSeoEnabled !== false}
           onCheckedChange={(checked) => {
             setAiSeo.mutate({ id: page.id, enabled: checked });
-            trackClientEvent("ai_metadata_toggled", {
-              target: "page",
-              enabled: checked,
-              pageId: page.id,
-            });
           }}
         />
         <Label htmlFor="ai-seo">AI metadata</Label>
@@ -759,7 +722,6 @@ const SocialPreviewSection = ({
     ...pageMutations.uploadCustomOgImage(),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: pageQueries.getById(page.id).queryKey });
-      trackClientEvent("page_custom_og_image_uploaded", { pageId: page.id });
     },
     onError: (error: Error) => {
       toast.error(error.message || "Could not upload image");
@@ -770,7 +732,6 @@ const SocialPreviewSection = ({
     ...pageMutations.deleteCustomOgImage(),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: pageQueries.getById(page.id).queryKey });
-      trackClientEvent("page_custom_og_image_removed", { pageId: page.id });
     },
     onError: () => {
       toast.error("Could not remove image");

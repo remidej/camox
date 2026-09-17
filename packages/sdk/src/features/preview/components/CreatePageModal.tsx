@@ -22,7 +22,6 @@ import { useEffect, useMemo } from "react";
 import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { layoutQueries, pageMutations, pageQueries, projectQueries } from "@/lib/queries";
-import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
@@ -99,11 +98,6 @@ const CreatePageModal = () => {
         });
 
         const { fullPath } = await createPagePromise;
-        trackClientEvent("page_created", {
-          projectId: project.id,
-          pathSegment: values.value.pathSegment,
-          layoutId: values.value.layoutId,
-        });
         previewStore.send({ type: "closeCreatePageModal" });
         form.reset();
 

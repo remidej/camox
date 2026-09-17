@@ -24,7 +24,6 @@ import { MoreHorizontal } from "lucide-react";
 import * as React from "react";
 
 import { getApiClient } from "@/lib/api-client";
-import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { type Action, actionsStore } from "../../provider/actionsStore";
 import { previewStore, selectPreviewSource } from "../previewStore";
@@ -71,10 +70,6 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
           return;
         }
         await api.pages.publish(request.input);
-        trackClientEvent("page_published", {
-          pageId: request.input.id,
-          ...(request.input.alsoPublishLayout ? { alsoPublishedLayout: true } : {}),
-        });
         return;
       }
       if (target.kind === "layout") {
@@ -83,11 +78,9 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
       }
       if (operation === "discard") {
         await api.pages.discardChanges({ id: target.page.id });
-        trackClientEvent("page_changes_discarded", { pageId: target.page.id });
         return;
       }
       await api.pages.unpublish({ id: target.page.id });
-      trackClientEvent("page_unpublished", { pageId: target.page.id });
     },
     onSuccess: async (_, { operation }) => {
       if (operation !== "publish") previewStore.send({ type: "viewDraftPage" });

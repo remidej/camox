@@ -77,7 +77,7 @@ function writeRuntimeSidecar(
 export interface CamoxPluginOptions {
   /** Stable, human-readable slug identifying this project (e.g. "prestigious-impala-84") */
   projectSlug: string;
-  /** Disable PostHog telemetry collection (default: false) */
+  /** Disable telemetry collection (default: false) */
   disableTelemetry?: boolean;
   /** Internal options (intended for Camox contributors in development, not for public use) */
   _internal?: {
@@ -285,7 +285,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             "camox > fractional-indexing",
             "camox > lexical",
             "camox > lucide-react",
-            "camox > posthog-js",
             "camox > @tanstack/react-query-devtools/production",
             "camox > partysocket/react",
           ],

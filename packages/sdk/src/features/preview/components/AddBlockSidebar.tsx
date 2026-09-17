@@ -28,7 +28,6 @@ import {
   blockQueries,
   projectQueries,
 } from "@/lib/queries";
-import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
@@ -167,7 +166,6 @@ const AddBlockSidebar = () => {
     previewStore,
     (state) => state.context.peekedBlockPosition,
   );
-  const addBlockSource = useSelector(previewStore, (state) => state.context.addBlockSource);
 
   const handleAddBlock = async (block: Block) => {
     if (!page) return;
@@ -186,10 +184,6 @@ const AddBlockSidebar = () => {
       settings: bundle.settings,
       afterPosition,
       repeatableItems: bundle.repeatableItems,
-    });
-    trackClientEvent("block_added", {
-      blockType: block._internal.id,
-      via: addBlockSource ?? "unknown",
     });
     previewStore.send({ type: "focusCreatedBlock", blockId });
     previewStore.send({ type: "exitPeekedBlock" });

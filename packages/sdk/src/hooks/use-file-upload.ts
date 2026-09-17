@@ -4,7 +4,6 @@ import { useCallback, useRef, useState } from "react";
 
 import { getApiUrl, getEnvironmentName } from "@/lib/api-client";
 import { getAuthCookieHeader } from "@/lib/auth";
-import { trackClientEvent } from "@/lib/telemetry-client";
 
 export interface UploadItem {
   id: string;
@@ -86,7 +85,6 @@ export function useFileUpload(options?: UseFileUploadOptions) {
         filename: result.filename,
         mimeType: result.mimeType,
       });
-      trackClientEvent("file_uploaded", { mimeType: file.type });
 
       setUploads((prev) =>
         prev.map((u) =>

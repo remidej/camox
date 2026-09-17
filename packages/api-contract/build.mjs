@@ -12,8 +12,7 @@ execSync(
   { stdio: "inherit" },
 );
 
-// Emit index.js — esbuild strips the type-only Router re-export and keeps
-// runtime values (POSTHOG_PUBLIC_KEY) in sync with source automatically.
+// Emit index.js — esbuild strips the type-only Router re-export.
 execSync("pnpm exec esbuild src/index.ts --outdir=dist --format=esm --platform=neutral", {
   stdio: "inherit",
 });

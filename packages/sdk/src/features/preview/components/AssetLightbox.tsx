@@ -14,7 +14,6 @@ import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { getApiUrl, getEnvironmentName } from "@/lib/api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "@/lib/auth";
 import { fileMutations, fileQueries } from "@/lib/queries";
-import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
@@ -413,12 +412,6 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                     checked={canUseAiMetadata && file.aiMetadataEnabled !== false}
                     onCheckedChange={(checked) => {
                       setAiMetadata.mutate({ id: fileId, enabled: checked });
-                      trackClientEvent("ai_metadata_toggled", {
-                        target: "file",
-                        enabled: checked,
-                        fileId,
-                        mimeType: file.mimeType,
-                      });
                     }}
                   />
                   <Label

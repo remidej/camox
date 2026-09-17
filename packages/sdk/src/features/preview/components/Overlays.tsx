@@ -48,7 +48,6 @@ function CuratedAddBlockListener() {
         previewStore.send({
           type: "openAddBlockSidebar",
           afterPosition,
-          via: "overlay",
         });
       }
     };

@@ -6,7 +6,6 @@ import type { RouterClient } from "@orpc/server";
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
-import { trackEvent } from "../../lib/telemetry";
 
 export type PageSource = "draft" | "live";
 
@@ -319,11 +318,6 @@ export async function createMarkdownResponse({
     const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id });
     if (!markdown) return null;
 
-    void trackEvent("markdown_served", {
-      pathname: requestPathname,
-      projectId: page.page.projectId,
-      projectName: page.projectName,
-    });
     return new Response(markdown, {
       headers: { "Content-Type": "text/markdown; charset=utf-8" },
     });

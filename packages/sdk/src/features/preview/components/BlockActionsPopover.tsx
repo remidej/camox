@@ -27,7 +27,6 @@ import * as React from "react";
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
 import { blockMutations, repeatableItemMutations } from "@/lib/queries";
-import { trackClientEvent } from "@/lib/telemetry-client";
 import { formatShortcut } from "@/lib/utils";
 
 import type { Action } from "../../provider/actionsStore";
@@ -69,10 +68,6 @@ const BlockActionsPopover = ({
   const handleDeleteBlock = async (block: NormalizedBlock) => {
     try {
       await deleteBlock.mutateAsync({ id: block.id });
-      trackClientEvent("block_deleted", {
-        projectId: page?.page.projectId,
-        blockType: block.type,
-      });
       toast.success(`Deleted "${block.summary || block.type}" block`);
     } catch (error) {
       console.error("Failed to delete block:", error);
@@ -85,10 +80,6 @@ const BlockActionsPopover = ({
   const handleDuplicateBlock = async (block: NormalizedBlock) => {
     try {
       await duplicateBlock.mutateAsync({ id: block.id });
-      trackClientEvent("block_duplicated", {
-        projectId: page?.page.projectId,
-        blockType: block.type,
-      });
       toast.success(`Duplicated "${block.summary}" block`);
     } catch (error) {
       console.error("Failed to duplicate block:", error);
@@ -105,7 +96,6 @@ const BlockActionsPopover = ({
     previewStore.send({
       type: "openAddBlockSidebar",
       afterPosition,
-      via: "popover-above",
     });
   };
 
@@ -113,7 +103,6 @@ const BlockActionsPopover = ({
     previewStore.send({
       type: "openAddBlockSidebar",
       afterPosition: block.position,
-      via: "popover-below",
     });
   };
 
@@ -218,7 +207,6 @@ const BlockActionsPopover = ({
                           previewStore.send({
                             type: "openAddBlockSidebar",
                             afterPosition: "",
-                            via: "layout-popover-below",
                           });
                           onOpenChange(false);
                         }}
@@ -241,7 +229,6 @@ const BlockActionsPopover = ({
                           previewStore.send({
                             type: "openAddBlockSidebar",
                             afterPosition: lastPageBlock?.position,
-                            via: "layout-popover-above",
                           });
                           onOpenChange(false);
                         }}
@@ -568,7 +555,6 @@ function useBlockActionsShortcuts() {
           previewStore.send({
             type: "openAddBlockSidebar",
             afterPosition: block.position,
-            via: "shortcut-below",
           });
         },
       },
@@ -594,7 +580,6 @@ function useBlockActionsShortcuts() {
           previewStore.send({
             type: "openAddBlockSidebar",
             afterPosition,
-            via: "shortcut-above",
           });
         },
       },

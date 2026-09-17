@@ -10,7 +10,6 @@ import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { getAuthorizedProject } from "../../authorization";
-import { deriveSurface, trackEvent } from "../../lib/telemetry";
 import type { ServiceContext } from "../_shared/service-context";
 
 // --- Input Schemas ---
@@ -44,21 +43,6 @@ export async function buildToolContext(
   };
 }
 
-/**
- * Maps tool names to telemetry events. Keeps the mapping flat so extending to
- * page/layout creation is a one-line change. `getProps` runs after the tool
- * succeeds and extracts event-specific properties from the parsed input.
- */
-const TOOL_EVENT_MAP: Record<
-  string,
-  { event: string; getProps: (input: unknown) => Record<string, unknown> }
-> = {
-  createBlock: {
-    event: "block_added",
-    getProps: (input) => ({ blockType: (input as { type?: string }).type }),
-  },
-};
-
 function findTool(tools: ToolDefinition[], name: string) {
   return tools.find((t) => t.name === name) ?? null;
 }
@@ -89,23 +73,6 @@ export async function executeTool(params: {
   try {
     const parsed = tool.inputSchema.parse(args ?? {});
     const result = await tool.handler(parsed, toolCtx);
-
-    const mapping = TOOL_EVENT_MAP[name];
-    if (mapping && toolCtx.user && !toolCtx.telemetryDisabled) {
-      toolCtx.waitUntil(
-        trackEvent({
-          event: mapping.event,
-          distinctId: toolCtx.user.id,
-          projectId: toolCtx.projectId,
-          properties: {
-            ...mapping.getProps(parsed),
-            surface: deriveSurface(toolCtx.client),
-            client: toolCtx.client,
-            environmentName: toolCtx.environmentName,
-          },
-        }),
-      );
-    }
 
     return { ok: true, result };
   } catch (err) {

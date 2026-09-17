@@ -14,7 +14,6 @@ import {
   pageQueries,
   projectQueries,
 } from "@/lib/queries";
-import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { useFrame } from "../../features/preview/components/Frame";
 import { postOverlayMessage } from "../../features/preview/overlayMessages";
@@ -822,19 +821,9 @@ export function createEditableBlock<
       selectField();
     };
 
-    const handleBlur = React.useCallback(
-      (wasEdited: boolean) => {
-        setIsEditorFocused(false);
-        if (wasEdited) {
-          trackClientEvent("block_edited", {
-            via: "inline-lexical",
-            blockType: options.id,
-            field: String(name),
-          });
-        }
-      },
-      [name],
-    );
+    const handleBlur = React.useCallback(() => {
+      setIsEditorFocused(false);
+    }, []);
 
     const handleMouseEnter = () => {
       if (isContentEditable) {

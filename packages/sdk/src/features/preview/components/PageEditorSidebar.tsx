@@ -13,7 +13,6 @@ import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { fieldTypesDictionary, type FieldType } from "@/core/lib/fieldTypes";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
 import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } from "@/lib/queries";
-import { trackClientEvent } from "@/lib/telemetry-client";
 import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
@@ -298,33 +297,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
     return prop?.fieldType === "ImageList" || prop?.fieldType === "FileList";
   }, [isViewingAsset, assetFieldName, currentSchema]);
 
-  // Track sidebar visibility (once per selected block) + reset dirty flag for block_edited
-  const sessionDirtyRef = React.useRef(false);
-  const trackedBlockIdRef = React.useRef<number | null>(null);
-  React.useEffect(() => {
-    if (!block) {
-      trackedBlockIdRef.current = null;
-      return;
-    }
-    if (trackedBlockIdRef.current === block.id) return;
-    trackedBlockIdRef.current = block.id;
-    sessionDirtyRef.current = false;
-    trackClientEvent("page_editor_sidebar_opened", { blockType: block.type });
-  }, [block]);
-
-  React.useEffect(() => {
-    if (!block) return;
-
-    return () => {
-      if (!sessionDirtyRef.current) return;
-      trackClientEvent("block_edited", {
-        via: "page-editor-sidebar",
-        blockType: block.type,
-      });
-      sessionDirtyRef.current = false;
-    };
-  }, [block]);
-
   // Scope field DOM ids with useId so label-input pairs and imperative focus
   // lookups don't collide if this sheet is ever rendered more than once.
   const fieldIdPrefix = React.useId();
@@ -333,7 +305,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
     (fieldName: string, value: unknown) => {
       if (!block) return;
       if (!requireDraft()) return;
-      sessionDirtyRef.current = true;
       updateContent.mutate({ id: block.id, content: { [fieldName]: value } });
     },
     [block, updateContent, requireDraft],
@@ -343,7 +314,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
     (fieldName: string, value: unknown) => {
       if (currentItemId == null) return;
       if (!requireDraft()) return;
-      sessionDirtyRef.current = true;
       updateRepeatableContent.mutate({
         id: currentItemId,
         content: { [fieldName]: value },
@@ -567,7 +537,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                               value={value}
                               onValueChange={(newValue) => {
                                 if (!requireDraft()) return;
-                                sessionDirtyRef.current = true;
                                 updateSettings.mutate({
                                   id: block.id,
                                   settings: { [field.name]: newValue },
@@ -604,7 +573,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                               checked={checked}
                               onCheckedChange={(newValue) => {
                                 if (!requireDraft()) return;
-                                sessionDirtyRef.current = true;
                                 updateSettings.mutate({
                                   id: block.id,
                                   settings: { [field.name]: newValue },
@@ -646,7 +614,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                               value={value}
                               onValueChange={(newValue) => {
                                 if (!requireDraft()) return;
-                                sessionDirtyRef.current = true;
                                 updateRepeatableSettings.mutate({
                                   id: currentItemId,
                                   settings: { [field.name]: newValue },
@@ -682,7 +649,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                               checked={checked}
                               onCheckedChange={(newValue) => {
                                 if (!requireDraft()) return;
-                                sessionDirtyRef.current = true;
                                 updateRepeatableSettings.mutate({
                                   id: currentItemId,
                                   settings: { [field.name]: newValue },

@@ -4,18 +4,13 @@ import { test } from "node:test";
 
 import type { PreviewMode, Selection } from "./previewStore";
 
-// Test real store transitions without browser-only notifications or telemetry.
+// Test real store transitions without browser-only notifications.
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "@camox/ui/toaster") {
       return { url: "data:text/javascript,export const toast = () => {}", shortCircuit: true };
     }
-    if (specifier === "@/lib/telemetry-client") {
-      return {
-        url: "data:text/javascript,export const trackClientEvent = () => {}",
-        shortCircuit: true,
-      };
-    }
+
     return nextResolve(specifier, context);
   },
 });

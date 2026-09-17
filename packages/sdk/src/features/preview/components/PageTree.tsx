@@ -488,7 +488,6 @@ const PageTree = () => {
           if (!requireDraft()) return;
           previewStore.send({
             type: "openAddBlockSidebar",
-            via: "page-tree",
           });
         }}
       >

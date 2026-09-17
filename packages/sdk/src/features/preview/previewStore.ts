@@ -3,7 +3,6 @@ import { createStore } from "@xstate/store-react";
 
 import { Block } from "@/core/createBlock";
 import type { FieldType } from "@/core/lib/fieldTypes";
-import { trackClientEvent } from "@/lib/telemetry-client";
 
 import { areCommentsEnabled } from "./commentsEnabled";
 
@@ -77,8 +76,6 @@ interface PreviewContext {
   isToolbarHidden: boolean;
   isPageEditorSidebarOpen: boolean;
   isAddBlockSidebarOpen: boolean;
-  /** Source label for the in-progress add-block flow (popover, shortcut, page-tree, overlay). */
-  addBlockSource: string | null;
   isCreatePageModalOpen: boolean;
   editingPageId: number | null;
   viewportMode: ViewportMode;
@@ -95,7 +92,6 @@ export const previewStore = createStore({
     isToolbarHidden: false,
     isPageEditorSidebarOpen: false,
     isAddBlockSidebarOpen: false,
-    addBlockSource: null,
     isCreatePageModalOpen: false,
     editingPageId: null,
     viewportMode: "full",
@@ -115,21 +111,15 @@ export const previewStore = createStore({
         selection: commenting ? null : context.selection,
       };
     },
-    exitEditMode: (context, _, enqueue) => {
+    exitEditMode: (context) => {
       if (!selectIsEditMode({ context })) return context;
-      enqueue.effect(() => {
-        trackClientEvent("edit_mode_toggled", { enabled: false });
-      });
       return {
         ...context,
         mode: "previewing-draft" as const,
       };
     },
-    enterEditMode: (context, _, enqueue) => {
+    enterEditMode: (context) => {
       if (selectIsEditMode({ context })) return context;
-      enqueue.effect(() => {
-        trackClientEvent("edit_mode_toggled", { enabled: true });
-      });
       return {
         ...context,
         mode: "editing-draft" as const,
@@ -139,9 +129,6 @@ export const previewStore = createStore({
     hideToolbar: (context) => ({ ...context, isToolbarHidden: true }),
     viewLivePage: (context, _, enqueue) => {
       enqueue.effect(() => {
-        if (selectIsEditMode({ context })) {
-          trackClientEvent("edit_mode_toggled", { enabled: false });
-        }
         toast("Viewing live version of the site");
       });
       return {
@@ -246,17 +233,15 @@ export const previewStore = createStore({
       ...context,
       selection: null,
     }),
-    openAddBlockSidebar: (context, event: { afterPosition?: string | null; via?: string }) => ({
+    openAddBlockSidebar: (context, event: { afterPosition?: string | null }) => ({
       ...context,
       isAddBlockSidebarOpen: true,
-      addBlockSource: event.via ?? null,
       peekedBlock: null,
       peekedBlockPosition: event.afterPosition ?? null,
     }),
     closeAddBlockSidebar: (context) => ({
       ...context,
       isAddBlockSidebarOpen: false,
-      addBlockSource: null,
       peekedBlock: null,
       peekedBlockPosition: null,
     }),
@@ -298,9 +283,8 @@ export const previewStore = createStore({
       ...context,
       isCreatePageModalOpen: false,
     }),
-    openEditPageModal: (context, event: { pageId: number }, enqueue) => {
+    openEditPageModal: (context, event: { pageId: number }) => {
       if (context.editingPageId === event.pageId) return context;
-      enqueue.effect(() => trackClientEvent("page_editor_opened", { pageId: event.pageId }));
       return { ...context, editingPageId: event.pageId };
     },
     closeEditPageModal: (context) => ({

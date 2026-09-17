@@ -31,12 +31,7 @@ registerHooks({
     if (specifier === "@camox/ui/toaster") {
       return { url: "data:text/javascript,export const toast = () => {}", shortCircuit: true };
     }
-    if (specifier === "@/lib/telemetry-client") {
-      return {
-        url: "data:text/javascript,export const trackClientEvent = () => {}",
-        shortCircuit: true,
-      };
-    }
+
     return nextResolve(specifier, context);
   },
 });
