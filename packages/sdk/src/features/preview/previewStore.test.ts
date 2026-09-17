@@ -242,6 +242,32 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     doc.querySelector("div")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     assert.deepEqual(previewStore.getSnapshot().context.selection, { type: "block", blockId: 7 });
 
+    const item = doc.createElement("div");
+    item.setAttribute("data-camox-repeater-item-id", "12");
+    block.append(item);
+    item.addEventListener("click", (event) => {
+      selectPreviewTarget(
+        { type: "item", blockId: 7, itemId: 12 },
+        3,
+        event as unknown as MouseEvent & { currentTarget: Element },
+      );
+    });
+    previewStore.send({ type: "setCommentMode", enabled: true });
+    const itemClick = new window.MouseEvent("click", { bubbles: true, cancelable: true });
+    item.dispatchEvent(itemClick);
+    assert.equal(itemClick.defaultPrevented, true);
+    assert.deepEqual(previewStore.getSnapshot().context.selection, {
+      type: "item",
+      blockId: 7,
+      itemId: 12,
+    });
+    const itemDraft = previewCommentsStore.getSnapshot().context.draft!;
+    assert.equal(itemDraft.pageId, 3);
+    assert.equal(itemDraft.target.itemId, 12);
+    assert.equal(itemDraft.target.fieldName, undefined);
+    assert.equal(itemDraft.target.label, "Item · 12");
+    assert.equal(doc.querySelector(itemDraft.target.selector), item);
+
     previewCommentsStore.send({ type: "cancelDraft" });
     previewStore.send({ type: "setCommentMode", enabled: true });
     doc.body.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));

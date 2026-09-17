@@ -1,11 +1,12 @@
 import { Button } from "@camox/ui/button";
+import { ButtonGroup } from "@camox/ui/button-group";
 import { Label } from "@camox/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
 import { Spinner } from "@camox/ui/spinner";
 import { Switch } from "@camox/ui/switch";
 import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { CircleMinus, CirclePlus, CornerLeftUp } from "lucide-react";
+import { CirclePlus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
@@ -499,7 +500,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
           </ol>
         </nav>
       </SidebarSection>
-      <div className="relative flex-1 overflow-auto">
+      <div className="relative min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <div>
           {isItemLoading ? (
             <div className="flex h-full items-center justify-center py-12">
@@ -507,6 +508,43 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
             </div>
           ) : (
             <>
+              {!fieldHasOwnView && currentItemId != null && currentItem && (
+                <SidebarSection divider="bottom" aria-label="List actions">
+                  <SidebarSectionHeader>List actions</SidebarSectionHeader>
+                  <SidebarSectionContent>
+                    <ButtonGroup aria-label="List actions">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!canAddSibling}
+                        onClick={() => {
+                          if (!canAddSibling || !requireDraft()) return;
+                          addSibling({ afterPosition: currentItem.position });
+                        }}
+                      >
+                        <CirclePlus className="text-muted-foreground h-4 w-4" />
+                        Add sibling
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!canRemoveCurrent}
+                        onClick={() => {
+                          if (!canRemoveCurrent || !requireDraft()) return;
+                          removeCurrent(currentItemId, {
+                            onSuccess: () => previewStore.send({ type: "selectParent" }),
+                          });
+                        }}
+                      >
+                        <Trash2 className="text-muted-foreground h-4 w-4" />
+                        Delete
+                      </Button>
+                    </ButtonGroup>
+                  </SidebarSectionContent>
+                </SidebarSection>
+              )}
               {currentItemId == null && !fieldHasOwnView && settingsFields.length > 0 && (
                 <SidebarSection divider="bottom" aria-label="Block settings">
                   <SidebarSectionHeader>Settings</SidebarSectionHeader>
@@ -660,6 +698,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                   </SidebarSectionContent>
                 </SidebarSection>
               )}
+              <SidebarSectionHeader className="px-2 pt-4">Content</SidebarSectionHeader>
               {isViewingAsset && assetFieldName && isMultipleAsset && (
                 <MultipleAssetFieldEditor
                   fieldName={assetFieldName}
@@ -710,9 +749,15 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}
-              {areCommentsEnabled() && currentItemId == null && !fieldHasOwnView && (
-                <AttachedComments pageId={pageId} blockId={block.id} />
-              )}
+              {areCommentsEnabled() &&
+                !fieldHasOwnView &&
+                (currentItemId == null || currentItem) && (
+                  <AttachedComments
+                    pageId={pageId}
+                    blockId={block.id}
+                    itemId={currentItemId ?? undefined}
+                  />
+                )}
               {areCommentsEnabled() && fieldHasOwnView && fieldInfo && (
                 <AttachedComments
                   pageId={pageId}
@@ -721,52 +766,6 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                   fieldName={fieldInfo.fieldName}
                   fieldType={fieldInfo.fieldType}
                 />
-              )}
-              {!fieldHasOwnView && currentItemId != null && currentItem && (
-                <div className="border-border flex items-center gap-1 border-t px-2 py-4">
-                  {canAddSibling && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground justify-start"
-                      onClick={() => {
-                        if (!requireDraft()) return;
-                        addSibling({ afterPosition: currentItem.position });
-                      }}
-                    >
-                      <CirclePlus className="h-4 w-4" />
-                      Add item
-                    </Button>
-                  )}
-                  {canRemoveCurrent && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground justify-start"
-                      onClick={() => {
-                        if (!requireDraft()) return;
-                        removeCurrent(currentItemId, {
-                          onSuccess: () => previewStore.send({ type: "selectParent" }),
-                        });
-                      }}
-                    >
-                      <CircleMinus className="h-4 w-4" />
-                      Remove item
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground justify-start"
-                    onClick={() => previewStore.send({ type: "selectParent" })}
-                  >
-                    <CornerLeftUp className="h-4 w-4" />
-                    Select parent
-                  </Button>
-                </div>
               )}
             </>
           )}

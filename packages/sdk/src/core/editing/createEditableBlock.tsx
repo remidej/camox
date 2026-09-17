@@ -1416,6 +1416,10 @@ export function createEditableBlock<
     const isContentEditable = useIsEditable(mode);
     const { window: iframeWindow } = useFrame();
 
+    const selectTarget = usePreviewSelection();
+    const isCommentMode = useSelector(previewStore, selectIsCommentMode);
+    const [isLocallyHovered, setIsLocallyHovered] = React.useState(false);
+
     // Check if the parent repeater container is being hovered from sidebar
     const isRepeaterHovered = React.useContext(RepeaterHoverContext);
 
@@ -1427,11 +1431,29 @@ export function createEditableBlock<
       { blockId: String(blockId), itemId: String(itemId) },
     );
 
-    const overlayState = useOverlayState(isHovered || isRepeaterHovered);
+    const overlayState = useOverlayState(
+      isHovered || isRepeaterHovered || (isCommentMode && isLocallyHovered),
+    );
+
+    const handleClick = (event: React.MouseEvent) => {
+      if (!isContentEditable || !isCommentMode || itemId == null) return;
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-camox-field-id]")) return;
+      if (
+        target.closest(
+          "[data-camox-repeater-item-id], [data-camox-block-id], [data-camox-comment-block-id]",
+        ) !== event.currentTarget
+      )
+        return;
+      selectTarget({ type: "item", blockId, itemId }, event);
+    };
 
     return (
       <div
         data-camox-repeater-item-id={isContentEditable ? itemId : undefined}
+        onClickCapture={handleClick}
+        onMouseEnter={() => setIsLocallyHovered(true)}
+        onMouseLeave={() => setIsLocallyHovered(false)}
         {...(isContentEditable ? overlayState : {})}
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
       >
@@ -1798,9 +1820,10 @@ export function createEditableBlock<
     const handleClick = (e: React.MouseEvent) => {
       if (!isContentEditable) return;
 
-      // Don't select block if clicking on a field
+      // Let fields and commentable items handle their own clicks.
       const target = e.target as HTMLElement;
       if (target.closest("[data-camox-field-id]")) return;
+      if (isCommentMode && target.closest("[data-camox-repeater-item-id]")) return;
 
       if (
         target.closest("[data-camox-block-id], [data-camox-comment-block-id]") !== e.currentTarget
@@ -1979,6 +2002,11 @@ export function createEditableBlock<
       if (!isContentEditable) return;
       const target = e.target as HTMLElement;
       if (target.closest("[data-camox-field-id]")) return;
+      if (
+        selectIsCommentMode(previewStore.getSnapshot()) &&
+        target.closest("[data-camox-repeater-item-id]")
+      )
+        return;
       if (
         target.closest("[data-camox-block-id], [data-camox-comment-block-id]") !== e.currentTarget
       )

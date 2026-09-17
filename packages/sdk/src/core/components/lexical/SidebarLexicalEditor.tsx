@@ -402,11 +402,7 @@ export function SidebarLexicalEditor({
     if (markdown !== null) onChangeRef.current(markdown);
   }, []);
 
-  const config = React.useMemo(
-    () => createEditorConfig(value),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  const config = React.useMemo(() => createEditorConfig(value), []);
 
   const handleChange = React.useCallback(
     (editorState: EditorState) => {

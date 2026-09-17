@@ -19,7 +19,7 @@ function resizeComposer(element: HTMLTextAreaElement) {
   element.style.height = `${element.scrollHeight}px`;
 }
 
-/** Comments sit alongside their existing field/block editor, never in a separate view. */
+/** Comments sit alongside their existing field/block/item editor, never in a separate view. */
 export function AttachedComments({
   pageId,
   blockId,
@@ -96,7 +96,9 @@ export function AttachedComments({
 
   return (
     <SidebarSection
-      aria-label={fieldName ? `Comments on ${fieldName}` : "Block comments"}
+      aria-label={
+        fieldName ? `Comments on ${fieldName}` : itemId == null ? "Block comments" : "Item comments"
+      }
       divider="top"
     >
       <SidebarSectionHeader>Discussions</SidebarSectionHeader>
@@ -135,10 +137,17 @@ export function AttachedComments({
                     fieldName,
                     fieldType,
                     selector:
-                      fieldName == null
-                        ? `[data-camox-block-id="${blockId}"]`
-                        : `[data-camox-field-id="${CSS.escape(fieldId)}"]`,
-                    label: fieldName == null ? `Block · ${blockId}` : `Field · ${fieldName}`,
+                      fieldName != null
+                        ? `[data-camox-field-id="${CSS.escape(fieldId)}"]`
+                        : itemId != null
+                          ? `[data-camox-repeater-item-id="${itemId}"]`
+                          : `[data-camox-block-id="${blockId}"]`,
+                    label:
+                      fieldName != null
+                        ? `Field · ${fieldName}`
+                        : itemId != null
+                          ? `Item · ${itemId}`
+                          : `Block · ${blockId}`,
                     x: 0.5,
                     y: 0.5,
                   },
