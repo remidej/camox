@@ -1216,7 +1216,6 @@ export function createEditableBlock<
 
     const handleClick = (event: React.MouseEvent<HTMLElement>) => {
       if (!isContentEditable) return;
-      const commenting = selectIsCommentMode(previewStore.getSnapshot());
       selectTarget(
         overlayItemId != null
           ? {
@@ -1229,8 +1228,6 @@ export function createEditableBlock<
           : { type: "block-field", blockId, fieldName: overlayFieldName, fieldType: "Image" },
         event,
       );
-      if (commenting) return;
-      previewStore.send({ type: "toggleContentSheet" });
     };
 
     const imageProps = {
@@ -1744,10 +1741,6 @@ export function createEditableBlock<
 
     // Scroll into view when editing in preview
     const selection = useSelector(previewStore, (state) => state.context.selection);
-    const isPageEditorSidebarOpen = useSelector(
-      previewStore,
-      (state) => state.context.isPageEditorSidebarOpen,
-    );
     const isAddBlockSidebarOpen = useSelector(
       previewStore,
       (state) => state.context.isAddBlockSidebarOpen,
@@ -1765,7 +1758,7 @@ export function createEditableBlock<
       }
     }, [isFirstRender]);
 
-    // Scroll block into view when selected or when content sheet opens
+    // Scroll block into view when selected
     React.useEffect(() => {
       if (!isBlockSelected || !ref.current) return;
 
@@ -1773,7 +1766,7 @@ export function createEditableBlock<
         behavior: isFirstRender ? "instant" : "smooth",
         block: isFirstRender ? "start" : "nearest",
       });
-    }, [blockData._id, isBlockSelected, isFirstRender, isPageEditorSidebarOpen]);
+    }, [blockData._id, isBlockSelected, isFirstRender]);
 
     // Listen for sidebar-triggered hover messages
     const isHoveredFromSidebar = useOverlayMessage(

@@ -59,16 +59,11 @@ function CuratedAddBlockListener() {
 }
 
 export const Overlays = ({ iframeElement, canAddBlocks = false }: OverlaysProps) => {
-  const isPageEditorSidebarOpen = useSelector(
-    previewStore,
-    (state) => state.context.isPageEditorSidebarOpen,
-  );
   const selection = useSelector(previewStore, (state) => state.context.selection);
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
 
   // Send focus command to iframe when selection changes externally
   React.useEffect(() => {
-    if (isPageEditorSidebarOpen) return;
     if (peekedBlock) return;
     if (!selection) return;
 
@@ -90,7 +85,7 @@ export const Overlays = ({ iframeElement, canAddBlocks = false }: OverlaysProps)
       fieldId,
     };
     iframeElement?.contentWindow?.postMessage(message, "*");
-  }, [selection, isPageEditorSidebarOpen, peekedBlock, iframeElement]);
+  }, [selection, peekedBlock, iframeElement]);
 
   return canAddBlocks ? <CuratedAddBlockListener /> : null;
 };

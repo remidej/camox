@@ -22,7 +22,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useSelector } from "@xstate/store-react";
-import { Ellipsis, GripVertical, LayoutTemplate, Pencil, Plus } from "lucide-react";
+import { Ellipsis, GripVertical, LayoutTemplate, Plus } from "lucide-react";
 import * as React from "react";
 
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
@@ -241,7 +241,6 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(block.type);
   const ctx = useBlockTreeItem(block);
-  const requireDraft = useRequireDraftSource();
   const displayText = blockDef?._internal.title ?? block.type;
 
   return (
@@ -267,20 +266,7 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
         </Tooltip>
       </div>
       <BlockTreeItemTrigger displayText={displayText} onClick={ctx.toggleSelection} />
-      {derived ? (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground hidden group-focus-within:flex group-hover:flex"
-          aria-label={`Edit ${displayText} in form`}
-          onClick={() => {
-            if (!requireDraft()) return;
-            previewStore.send({ type: "openBlockContentSheet", blockId: block.id });
-          }}
-        >
-          <Pencil className="size-4" />
-        </Button>
-      ) : (
+      {!derived && (
         <BlockActionsPopover
           block={block}
           open={ctx.ellipsisPopoverOpen}

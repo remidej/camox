@@ -74,7 +74,6 @@ export type ViewportMode = "full" | "tablet" | "mobile";
 interface PreviewContext {
   mode: PreviewMode;
   isToolbarHidden: boolean;
-  isPageEditorSidebarOpen: boolean;
   isAddBlockSidebarOpen: boolean;
   isCreatePageModalOpen: boolean;
   editingPageId: number | null;
@@ -90,7 +89,6 @@ export const previewStore = createStore({
   context: {
     mode: "previewing-draft",
     isToolbarHidden: false,
-    isPageEditorSidebarOpen: false,
     isAddBlockSidebarOpen: false,
     isCreatePageModalOpen: false,
     editingPageId: null,
@@ -256,24 +254,6 @@ export const previewStore = createStore({
     clearSkipPeekedBlockExitAnimation: (context) => ({
       ...context,
       skipPeekedBlockExitAnimation: false,
-    }),
-    toggleContentSheet: (context) => ({
-      ...context,
-      isPageEditorSidebarOpen: false,
-    }),
-    openBlockContentSheet: (context, event: { blockId: number }) => {
-      const currentBlockMatches = context.selection?.blockId === event.blockId;
-      return {
-        ...context,
-        isPageEditorSidebarOpen: false,
-        selection: currentBlockMatches
-          ? context.selection
-          : { type: "block" as const, blockId: event.blockId },
-      };
-    },
-    closeBlockContentSheet: (context) => ({
-      ...context,
-      isPageEditorSidebarOpen: false,
     }),
     openCreatePageModal: (context) => ({
       ...context,
