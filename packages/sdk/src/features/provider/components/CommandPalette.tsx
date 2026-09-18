@@ -8,6 +8,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@camox/ui/command";
+import { Kbd } from "@camox/ui/kbd";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
@@ -96,32 +97,65 @@ export function CommandPalette() {
   };
 
   return (
-    <CommandDialog open={isOpen} onOpenChange={handleOpenChange}>
-      <Command value={value} onValueChange={setValue}>
-        <CommandInput
-          value={search}
-          onValueChange={setSearch}
-          placeholder="Type a command or search..."
-          onKeyDown={(e) => {
-            // Escape goes to previous page
-            // Backspace goes to previous page when search is empty
-            if (e.key === "Escape" || (e.key === "Backspace" && !search)) {
-              e.preventDefault();
-              studioStore.send({ type: "popCommandPalettePage" });
-            }
-          }}
-        />
-        <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
+    <CommandDialog
+      open={isOpen}
+      onOpenChange={handleOpenChange}
+      className="top-[12vh] sm:max-w-xl"
+      description="Navigate your site and switch settings quickly."
+      showCloseButton
+    >
+      <Command value={value} onValueChange={setValue} className="h-auto max-h-[80dvh] p-0">
+        <div className="px-5 pt-5 pr-14 pb-3">
+          <h2 className="text-lg font-semibold tracking-tight">Command palette</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Navigate your site and switch settings quickly.
+          </p>
+        </div>
+        <div className="px-4 pb-4">
+          <CommandInput
+            className="placeholder:text-muted-foreground h-full text-base"
+            inputGroupClassName="h-11! border-2 border-primary bg-background rounded-xl! *:data-[slot=input-group-addon]:pl-4!"
+            value={search}
+            onValueChange={setSearch}
+            placeholder="Type a command or search..."
+            onKeyDown={(e) => {
+              // Escape goes to previous page
+              // Backspace goes to previous page when search is empty
+              if (e.key === "Escape" || (e.key === "Backspace" && !search)) {
+                e.preventDefault();
+                studioStore.send({ type: "popCommandPalettePage" });
+              }
+            }}
+          />
+        </div>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-5 pb-3 text-xs">
+          <span className="flex items-center gap-1.5">
+            <Kbd>↑</Kbd>
+            <Kbd>↓</Kbd> to navigate
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Kbd>↵</Kbd> to select
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Kbd>Esc</Kbd> {page ? "to go back" : "to close"}
+          </span>
+        </div>
+        <CommandList className="max-h-[min(24rem,45dvh)] min-h-0 scroll-py-1 px-2 pt-1 pb-2">
+          <CommandEmpty className="text-muted-foreground py-8">No results found.</CommandEmpty>
           {Array.from(groupedActions.entries()).map(([groupLabel, groupActions]) => (
-            <CommandGroup key={groupLabel} heading={groupLabel}>
+            <CommandGroup
+              key={groupLabel}
+              heading={groupLabel}
+              className="mb-2 p-0 last:mb-0 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-[11px] **:[[cmdk-group-heading]]:tracking-widest **:[[cmdk-group-heading]]:uppercase"
+            >
               {groupActions.map((action) => {
                 return (
                   <CommandItem
                     key={action.id}
                     keywords={action.aliases}
                     onSelect={() => handleSelect(action.id)}
-                    className="justify-between"
+                    className="min-h-10 justify-between gap-3 px-3 py-2 text-sm"
+                    hideCheck
                   >
                     {action.label}
                     {action.shortcut && (
