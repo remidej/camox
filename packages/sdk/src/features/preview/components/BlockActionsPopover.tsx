@@ -21,7 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
 import { toast } from "@camox/ui/toaster";
 import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { Copy, Pen, Settings, Trash2 } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
@@ -57,7 +57,6 @@ const BlockActionsPopover = ({
 }: BlockActionsPopoverProps) => {
   const [blockToDelete, setBlockToDelete] = React.useState<NormalizedBlock | null>(null);
 
-  const camoxApp = useCamoxApp();
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
 
@@ -153,54 +152,8 @@ const BlockActionsPopover = ({
             <Command>
               <CommandInput placeholder="Search actions..." />
               <CommandList className="max-h-[350px]">
-                <CommandGroup>
-                  <CommandItem
-                    className="justify-between"
-                    onSelect={() => {
-                      previewStore.send({
-                        type: "openBlockContentSheet",
-                        blockId: block.id,
-                      });
-                      onOpenChange(false);
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Pen className="h-4 w-4" />
-                      Edit in form
-                    </div>
-                    <CommandShortcut>
-                      {formatShortcut({ key: "j", withMeta: true })}
-                    </CommandShortcut>
-                  </CommandItem>
-                  {!isLayoutBlock &&
-                    (() => {
-                      const blockDef = camoxApp.getBlockById(block.type);
-                      const hasSettings =
-                        blockDef?._internal.settingsSchema?.properties &&
-                        Object.keys(blockDef._internal.settingsSchema.properties).length > 0;
-                      if (!hasSettings) return null;
-                      return (
-                        <CommandItem
-                          className="justify-between"
-                          onSelect={() => {
-                            previewStore.send({
-                              type: "openBlockContentSheet",
-                              blockId: block.id,
-                            });
-                            onOpenChange(false);
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Settings className="h-4 w-4" />
-                            Open settings
-                          </div>
-                        </CommandItem>
-                      );
-                    })()}
-                </CommandGroup>
                 {isLayoutBlock && layoutPlacement === "before" && (
                   <>
-                    <CommandSeparator />
                     <CommandGroup>
                       <CommandItem
                         onSelect={() => {
@@ -221,7 +174,6 @@ const BlockActionsPopover = ({
                 )}
                 {isLayoutBlock && layoutPlacement === "after" && (
                   <>
-                    <CommandSeparator />
                     <CommandGroup>
                       <CommandItem
                         onSelect={() => {
@@ -243,7 +195,6 @@ const BlockActionsPopover = ({
                 )}
                 {!isLayoutBlock && (
                   <>
-                    <CommandSeparator />
                     <CommandGroup>
                       <CommandItem
                         className="justify-between"
