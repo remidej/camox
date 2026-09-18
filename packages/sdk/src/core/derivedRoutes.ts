@@ -7,7 +7,7 @@ export function routeSegments(id: string) {
 export function matchDerivedLayout(layouts: Layout[], pathname: string) {
   const path = pathname.replace(/^\/|\/$/g, "").split("/");
   const candidates = layouts
-    .filter((layout) => layout._internal.kind === "derived")
+    .filter((layout) => layout._internal.kind !== "curated")
     .sort(
       (a, b) =>
         routeSegments(a._internal.id).filter((s) => s.startsWith("$")).length -

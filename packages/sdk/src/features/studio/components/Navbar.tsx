@@ -1,13 +1,11 @@
 import { Button } from "@camox/ui/button";
 import { Kbd } from "@camox/ui/kbd";
-import { useQuery } from "@tanstack/react-query";
 import { Globe, SearchIcon, Database } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
 
 import { Link, useLocation, useNavigate, type LinkProps } from "@/features/navigation/navigation";
-import { useProjectSlug } from "@/lib/auth";
-import { pageQueries, projectQueries } from "@/lib/queries";
+import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { cn } from "@/lib/utils";
 
 import { PlatformLabel } from "../../../components/PlatformLabel";
@@ -53,12 +51,7 @@ const links = [
 }>;
 
 const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
-  const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
-    enabled: !!project,
-  });
+  const pages = usePageDestinations();
 
   const { pathname } = useLocation();
   return (

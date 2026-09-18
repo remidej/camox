@@ -12,14 +12,13 @@ import { Label } from "@camox/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
 import { Switch } from "@camox/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@camox/ui/tabs";
-import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown } from "lucide-react";
 import * as React from "react";
 
 import type { LinkValue } from "@/core/lib/contentType.ts";
+import { destinationLink } from "@/core/pageDestinations";
 import { useDebouncedField } from "@/hooks/use-debounced-field";
-import { useProjectSlug } from "@/lib/auth";
-import { pageQueries, projectQueries } from "@/lib/queries";
+import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------------------------------
@@ -58,15 +57,13 @@ const LinkFieldEditor = ({ fieldName, linkValue: rawLinkValue, onSave }: LinkFie
 
   const [pagePickerOpen, setPagePickerOpen] = React.useState(false);
 
-  const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
-    enabled: !!project,
+  const pages = usePageDestinations();
+  const selectedPage = pages.find((page) => {
+    if (linkValue.type === "page")
+      return page.kind === "curated" && String(page.pageId) === linkValue.pageId;
+    return page.kind === "singleton" && page.fullPath === linkValue.href;
   });
-
-  const selectedPage =
-    linkValue.type === "page" ? pages?.find((p) => String(p.id) === linkValue.pageId) : null;
+  const mode = linkValue.type === "page" || selectedPage ? "page" : "external";
 
   const handleModeChange = (mode: string) => {
     if (mode === "page") {
@@ -86,11 +83,12 @@ const LinkFieldEditor = ({ fieldName, linkValue: rawLinkValue, onSave }: LinkFie
     }
   };
 
-  const handlePageSelect = (pageId: string) => {
+  const handlePageSelect = (key: string) => {
+    const destination = pages.find((page) => page.key === key);
+    if (!destination) return;
     onSave(fieldName, {
-      type: "page",
+      ...destinationLink(destination),
       text: linkValueRef.current.text,
-      pageId,
       newTab: linkValueRef.current.newTab,
     });
     setPagePickerOpen(false);
@@ -110,13 +108,13 @@ const LinkFieldEditor = ({ fieldName, linkValue: rawLinkValue, onSave }: LinkFie
       </div>
       <div className="grid gap-1.5">
         <Label>Destination</Label>
-        <Tabs value={linkValue.type} onValueChange={handleModeChange}>
+        <Tabs value={mode} onValueChange={handleModeChange}>
           <TabsList className="w-full">
             <TabsTrigger value="page">Page</TabsTrigger>
             <TabsTrigger value="external">URL</TabsTrigger>
           </TabsList>
         </Tabs>
-        {linkValue.type === "page" ? (
+        {mode === "page" ? (
           <Popover open={pagePickerOpen} onOpenChange={setPagePickerOpen}>
             <PopoverTrigger
               render={
@@ -124,7 +122,7 @@ const LinkFieldEditor = ({ fieldName, linkValue: rawLinkValue, onSave }: LinkFie
               }
             >
               {selectedPage ? (
-                <span className="truncate">{selectedPage.nickname}</span>
+                <span className="truncate">{selectedPage.title}</span>
               ) : (
                 <span className="text-muted-foreground">Select a page</span>
               )}
@@ -138,18 +136,19 @@ const LinkFieldEditor = ({ fieldName, linkValue: rawLinkValue, onSave }: LinkFie
                   <CommandGroup>
                     {pages?.map((page) => (
                       <CommandItem
-                        key={page.id}
+                        key={page.key}
                         value={page.fullPath}
-                        onSelect={() => handlePageSelect(String(page.id))}
+                        keywords={[page.title]}
+                        onSelect={() => handlePageSelect(page.key)}
                       >
                         <Check
                           className={cn(
                             "mr-2 size-4",
-                            selectedPage?.id === page.id ? "opacity-100" : "opacity-0",
+                            selectedPage?.key === page.key ? "opacity-100" : "opacity-0",
                           )}
                         />
                         <div className="flex flex-col">
-                          <span>{page.nickname}</span>
+                          <span>{page.title}</span>
                           <span className="text-muted-foreground font-mono text-xs">
                             {page.fullPath}
                           </span>

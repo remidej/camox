@@ -199,6 +199,11 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
                   its published version. Shared layout changes are not discarded. This does not
                   change what visitors see.
                 </>
+              ) : target?.kind === "layout" && target.layout.kind === "singleton" ? (
+                <>
+                  This removes the published editable blocks from {target.name}. The code-owned
+                  page, its URL, application content, and draft blocks stay available.
+                </>
               ) : target?.kind === "layout" ? (
                 <>
                   This removes the shared before and after blocks from every live page using{" "}

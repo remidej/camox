@@ -30,6 +30,7 @@ import {
 } from "../_shared/snapshot-schemas";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData, resolveSyncedLiveData } from "../blocks/synced-live";
+import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
 
@@ -787,13 +788,18 @@ export async function createPage(ctx: ServiceContext, rawInput: z.input<typeof c
   if (!project) throw new ORPCError("NOT_FOUND");
   const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
 
+  await assertCuratedLayout(ctx, environment.id, layoutId);
   let fullPath = `/${pathSegment}`;
   if (parentPageId) {
-    const parent = await ctx.db.select().from(pages).where(eq(pages.id, parentPageId)).get();
-    if (parent) {
-      fullPath = `${parent.fullPath}/${pathSegment}`;
-    }
+    const parent = await ctx.db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.id, parentPageId), eq(pages.environmentId, environment.id)))
+      .get();
+    if (!parent) throw new ORPCError("NOT_FOUND");
+    fullPath = `${parent.fullPath.replace(/\/$/, "")}/${pathSegment}`;
   }
+  await assertUnreservedPagePaths(ctx, environment.id, [fullPath]);
 
   const now = Date.now();
   const page = await ctx.db
@@ -825,14 +831,47 @@ export async function updatePage(ctx: ServiceContext, rawInput: z.input<typeof u
   const access = await assertPageAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
 
-  const result = await ctx.db
-    .update(pages)
-    .set({ ...body, updatedAt: Date.now() })
-    .where(eq(pages.id, id))
-    .returning()
-    .get();
+  const pathChanges = new Map<number, string>();
+  if (body.pathSegment !== undefined || body.parentPageId !== undefined) {
+    const environmentPages = await ctx.db
+      .select()
+      .from(pages)
+      .where(eq(pages.environmentId, access.page.environmentId));
+    const parentId = body.parentPageId === undefined ? access.page.parentPageId : body.parentPageId;
+    const parent = environmentPages.find((page) => page.id === parentId);
+    if (parentId != null && !parent) throw new ORPCError("NOT_FOUND");
+    // Reject cycles before calculating paths for this page and its descendants.
+    let ancestor = parent;
+    while (ancestor) {
+      if (ancestor.id === id)
+        throw new ORPCError("BAD_REQUEST", { message: "A page cannot be its own ancestor" });
+      ancestor = environmentPages.find((page) => page.id === ancestor!.parentPageId);
+    }
+    const fullPath = `${parent?.fullPath.replace(/\/$/, "") ?? ""}/${body.pathSegment ?? access.page.pathSegment}`;
+    const visit = (pageId: number, path: string) => {
+      pathChanges.set(pageId, path);
+      for (const child of environmentPages.filter((page) => page.parentPageId === pageId))
+        visit(child.id, `${path.replace(/\/$/, "")}/${child.pathSegment}`);
+    };
+    visit(id, fullPath);
+    await assertUnreservedPagePaths(ctx, access.page.environmentId, [...pathChanges.values()]);
+  }
+
+  const now = Date.now();
+  const [result] = await ctx.db.batch([
+    ctx.db
+      .update(pages)
+      .set({ ...body, fullPath: pathChanges.get(id) ?? access.page.fullPath, updatedAt: now })
+      .where(eq(pages.id, id))
+      .returning(),
+    ...[...pathChanges]
+      .filter(([pageId]) => pageId !== id)
+      .map(([pageId, fullPath]) =>
+        ctx.db.update(pages).set({ fullPath, updatedAt: now }).where(eq(pages.id, pageId)),
+      ),
+  ]);
   invalidatePage(ctx, access.page.projectId, id);
-  return result;
+  return result[0];
 }
 
 export async function deletePage(ctx: ServiceContext, rawInput: z.input<typeof deletePageInput>) {
@@ -921,6 +960,7 @@ export async function setPageLayout(
   const { id, layoutId } = setPageLayoutInput.parse(rawInput);
   const access = await assertPageAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
+  await assertCuratedLayout(ctx, access.page.environmentId, layoutId);
 
   const result = await ctx.db
     .update(pages)
@@ -1107,6 +1147,8 @@ export async function discardPageChanges(
 
   const snapshot = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
   if (snapshot.page.id !== id) throw new ORPCError("NOT_FOUND");
+  await assertUnreservedPagePaths(ctx, pageRow.environmentId, [snapshot.page.fullPath]);
+  await assertCuratedLayout(ctx, pageRow.environmentId, snapshot.page.layoutId);
 
   const existingBlocks = await ctx.db
     .select({ id: blocks.id })

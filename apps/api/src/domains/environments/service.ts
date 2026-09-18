@@ -50,7 +50,8 @@ export type CompatibilityReason =
       field: "contentSchema" | "settingsSchema" | "layoutOnly" | "synced";
     }
   | { kind: "layout-missing-in-source"; layoutId: string }
-  | { kind: "layout-missing-in-target"; layoutId: string };
+  | { kind: "layout-missing-in-target"; layoutId: string }
+  | { kind: "layout-kind-mismatch"; layoutId: string };
 
 function assertUser(ctx: ServiceContext) {
   if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
@@ -67,7 +68,7 @@ function assertUser(ctx: ServiceContext) {
  * intentionally ignored — they don't affect content validity.
  *
  * Layouts: the set of text-keyed `layoutId`s must match exactly. Layouts have
- * no schema of their own to compare.
+ * no content schema of their own, but their kinds must also match.
  */
 async function collectCompatibilityReasons(
   db: Database,
@@ -118,11 +119,11 @@ async function collectCompatibilityReasons(
 
   // --- Layouts ---
   const sourceLayoutRows = await db
-    .select({ layoutId: layouts.layoutId })
+    .select({ layoutId: layouts.layoutId, kind: layouts.kind })
     .from(layouts)
     .where(eq(layouts.environmentId, sourceEnvId));
   const targetLayoutRows = await db
-    .select({ layoutId: layouts.layoutId })
+    .select({ layoutId: layouts.layoutId, kind: layouts.kind })
     .from(layouts)
     .where(eq(layouts.environmentId, targetEnvId));
 
@@ -133,6 +134,11 @@ async function collectCompatibilityReasons(
     if (!targetLayoutKeys.has(layoutId)) {
       reasons.push({ kind: "layout-missing-in-target", layoutId });
     }
+  }
+  for (const source of sourceLayoutRows) {
+    const target = targetLayoutRows.find((layout) => layout.layoutId === source.layoutId);
+    if (target && source.kind !== target.kind)
+      reasons.push({ kind: "layout-kind-mismatch", layoutId: source.layoutId });
   }
   for (const layoutId of targetLayoutKeys) {
     if (!sourceLayoutKeys.has(layoutId)) {

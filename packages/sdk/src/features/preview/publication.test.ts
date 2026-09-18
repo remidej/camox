@@ -100,6 +100,19 @@ void test("derived entry points use the same scope model without pretending deri
   });
 });
 
+void test("singleton publication describes content changes, not route existence", () => {
+  const target: PublicationTarget = {
+    ...layoutTarget,
+    layout: { ...layoutTarget.layout, kind: "singleton" },
+  };
+  const plan = buildPublicationPlan(target);
+  assert.equal(plan.items.length, 1);
+  assert.match(plan.description, /route.*controlled by code/);
+  assert.match(plan.items[0].impact, /Synced block changes/);
+  assert.doesNotMatch(plan.description, /every page/);
+  assert.deepEqual(getPublicationRequest(target, []), { kind: "layout", input: { id: 2 } });
+});
+
 void test("capabilities preserve home-page safety, live read-only publication and supported discard actions", () => {
   assert.deepEqual(getPublicationCapabilities(pageTarget, "draft"), {
     publish: true,

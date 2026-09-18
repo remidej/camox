@@ -69,7 +69,7 @@ const usePageMetadataData = (pageId: number) => {
   });
 
   const layouts = allLayouts?.filter(
-    (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind !== "derived",
+    (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind === "curated",
   );
   const pageLayoutRecord = allLayouts?.find((l) => l.id === page?.layoutId);
   const layoutDef = pageLayoutRecord

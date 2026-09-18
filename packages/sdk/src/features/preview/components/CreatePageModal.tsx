@@ -57,7 +57,7 @@ const CreatePageModal = () => {
   const layouts = useMemo(
     () =>
       allLayouts?.filter(
-        (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind !== "derived",
+        (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind === "curated",
       ),
     [allLayouts, camoxApp],
   );

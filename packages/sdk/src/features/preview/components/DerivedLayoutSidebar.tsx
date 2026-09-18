@@ -21,7 +21,9 @@ export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructur
   const source = useSelector(previewStore, selectPreviewSource);
   const { beforeBlocks, afterBlocks } = usePageBlocks({ page: EMPTY_PAGE, layout }, source);
   const app = useCamoxApp();
-  const layoutName = app.getLayoutById(layout.layoutId)?._internal.title ?? layout.layoutId;
+  const definition = app.getLayoutById(layout.layoutId);
+  const layoutName = definition?._internal.title ?? layout.layoutId;
+  const singleton = definition?._internal.kind === "singleton";
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
   const { data: layouts } = useQuery({
@@ -61,10 +63,11 @@ export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructur
           </section>
         ))}
         <Alert>
-          <AlertTitle>Shared layout blocks</AlertTitle>
+          <AlertTitle>{singleton ? "Code-owned page" : "Shared layout blocks"}</AlertTitle>
           <AlertDescription>
-            Changes apply to every page using this layout. The generated page content is managed
-            outside the studio.
+            {singleton
+              ? "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other instances."
+              : "Changes apply to every page using this layout. The generated page content is managed outside the studio."}
           </AlertDescription>
         </Alert>
       </PanelContent>

@@ -28,3 +28,37 @@ function DataTypeCheck() {
   );
 }
 void DataTypeCheck;
+
+const singletonOptions = {
+  title: "Pokédex",
+  description: "",
+  blocks: { before: [], after: [] },
+  buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+  component: () => null,
+};
+const Singleton = createLayout("pokedex")({
+  ...singletonOptions,
+  kind: "singleton",
+  loader: async () => ({ count: 12 }),
+});
+const StaticSingleton = createLayout("about")({ ...singletonOptions, kind: "singleton" });
+function SingletonTypeCheck() {
+  const count: number = Singleton.useData().count;
+  // @ts-expect-error Singleton loader result is inferred, not any.
+  const invalid: string = Singleton.useData().count;
+  const empty: undefined = StaticSingleton.useData();
+  return (
+    <span>
+      {count}
+      {invalid}
+      {empty}
+    </span>
+  );
+}
+void SingletonTypeCheck;
+// @ts-expect-error Singletons cannot seed curated page content.
+createLayout("invalid")({
+  ...singletonOptions,
+  kind: "singleton",
+  blocks: { before: [], after: [], initial: [] },
+});

@@ -5,7 +5,12 @@ import type { Link, Meta, UseHeadInput } from "unhead/types";
 import type { CamoxApp } from "../../core/createApp";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { matchDerivedLayout } from "../../core/derivedRoutes";
+import { getPageDestinations } from "../../core/pageDestinations";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
+import {
+  buildClearServerAuthCookieHeader,
+  getServerAuthCookieHeader,
+} from "../../lib/server-auth-cookie";
 import {
   buildCamoxPageHead,
   createMarkdownResponse,
@@ -21,7 +26,6 @@ import type { StudioRenderInput } from "./studioApp";
 const DEFAULT_RUNTIME_BASE_PATH = "";
 const RUNTIME_HEALTH_PATH = "/_camox/health";
 const RUNTIME_REGISTRY_PATH = "/_camox/registry";
-const SERVER_AUTH_COOKIE_NAME = "camox_auth_cookie";
 
 export type RuntimeRouteKind =
   | "data"
@@ -86,24 +90,6 @@ export interface RuntimeOptions {
   runtimeBasePath?: string;
   stylesheetUrl?: string;
   studioStylesheetUrl?: string;
-}
-
-function buildClearServerAuthCookieHeader() {
-  return `${SERVER_AUTH_COOKIE_NAME}=; Path=/; SameSite=Lax; Max-Age=0`;
-}
-
-function getServerAuthCookieHeader(headers: Headers): string {
-  const cookieHeader = headers.get("Cookie") ?? headers.get("cookie") ?? "";
-  const cookies = cookieHeader.split(";").map((part) => part.trim());
-  const authCookie = cookies.find((part) => part.startsWith(`${SERVER_AUTH_COOKIE_NAME}=`));
-  if (!authCookie) return "";
-
-  const value = authCookie.slice(SERVER_AUTH_COOKIE_NAME.length + 1);
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return "";
-  }
 }
 
 function normalizeRuntimeBasePath(basePath?: string): string {
@@ -189,13 +175,20 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
   const api = createServerApiClient(options.apiUrl, options.environmentName);
   const origin = new URL(request.url).origin;
   const pages = await api.pages.listBySlug({ projectSlug: options.projectSlug });
-  const entries = pages
-    .map(
-      (page) => `  <url>
-    <loc>${escapeXml(`${origin}${withRuntimeBasePath(page.fullPath, options.runtimeBasePath)}`)}</loc>
-    <lastmod>${escapeXml(new Date(page.updatedAt).toISOString())}</lastmod>
-  </url>`,
-    )
+  const app = await options.getCamoxApp?.();
+  const destinations = getPageDestinations(pages, app?.getLayouts() ?? []);
+  const updatedAtById = new Map(pages.map((page) => [page.id, page.updatedAt]));
+  const entries = destinations
+    .map((page) => {
+      const updatedAt = page.kind === "curated" ? updatedAtById.get(page.pageId) : undefined;
+      const lastmod =
+        updatedAt == null
+          ? ""
+          : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
+      return `  <url>
+    <loc>${escapeXml(`${origin}${withRuntimeBasePath(page.fullPath, options.runtimeBasePath)}`)}</loc>${lastmod}
+  </url>`;
+    })
     .join("\n");
 
   return new Response(
@@ -351,6 +344,9 @@ async function createPageHtmlResponse({
     return createPageDataResponse({ options, pathname, request });
   }
 
+  const singleton = await createDerivedResponse(options, pathname, request, false, true);
+  if (singleton) return singleton;
+
   const queryClient = new QueryClient();
   try {
     const result = await loadCamoxPageForRequest({
@@ -443,14 +439,16 @@ async function createDerivedResponse(
   pathname: string,
   request: Request,
   dataOnly = false,
+  singletonOnly = false,
 ): Promise<Response | null> {
   const app = await options.getCamoxApp?.();
   const match = app && matchDerivedLayout(app.getLayouts(), pathname);
   if (!match || (!dataOnly && !options.renderPage)) return null;
+  if (singletonOnly && match.layout._internal.kind !== "singleton") return null;
   try {
-    const data = await match.layout._internal.loader!({ params: match.params });
+    const data = await match.layout._internal.loader?.({ params: match.params });
     // JSON is the transport contract for request-loaded layout data.
-    const serializedData = JSON.parse(JSON.stringify(data));
+    const serializedData = data === undefined ? undefined : JSON.parse(JSON.stringify(data));
     const queryClient = new QueryClient();
     const authCookieHeader = getServerAuthCookieHeader(request.headers);
     let source: "live" | "draft" = authCookieHeader ? "draft" : "live";
@@ -644,6 +642,9 @@ async function createPageDataResponse({
   if (!options.apiUrl || !options.projectSlug) {
     return Response.json({ message: "Camox page loader is not configured." }, { status: 500 });
   }
+
+  const singleton = await createDerivedResponse(options, pathname, request, true, true);
+  if (singleton) return singleton;
 
   const queryClient = new QueryClient();
   try {

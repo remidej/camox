@@ -50,7 +50,7 @@ const PagePicker = () => {
   const camoxApp = useCamoxApp();
   const derivedLayouts = camoxApp
     .getLayouts()
-    .filter((layout) => layout._internal.kind === "derived");
+    .filter((layout) => layout._internal.kind !== "curated");
   const [layoutToPreview, setLayoutToPreview] = React.useState<Layout | null>(null);
   const [pageToDelete, setPageToDelete] = React.useState<Page | null>(null);
 
@@ -234,51 +234,56 @@ const PagePicker = () => {
                   </CommandItem>
                 ))}
               </CommandGroup>
-              {derivedLayouts.length > 0 && (
-                <CommandGroup heading="Derived pages">
-                  {derivedLayouts.map((layout) => (
-                    <CommandItem
-                      key={layout._internal.id}
-                      value={`${DERIVED_LAYOUT_PREFIX}${layout._internal.id}`}
-                      keywords={[layout._internal.title]}
-                      hideCheck
-                      onSelect={() => {
-                        closePopover();
-                        const segments = routeSegments(layout._internal.id);
-                        if (!segments.some((segment) => segment.startsWith("$"))) {
-                          void navigate({ to: `/${segments.map(encodeURIComponent).join("/")}` });
-                          return;
-                        }
-                        setLayoutToPreview(layout);
-                      }}
-                    >
-                      <div className="flex min-w-0 flex-1 items-start gap-2">
-                        <Check
-                          className={cn(
-                            "size-4 mt-0.5 shrink-0",
-                            currentDerived?.layout._internal.id !== layout._internal.id &&
-                              "invisible",
-                          )}
-                        />
-                        <div className="flex min-w-0 flex-col">
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <p className="truncate">{layout._internal.title}</p>
-                            {layoutStatusById.has(layout._internal.id) && (
-                              <PageStatusBadge
-                                size="sm"
-                                status={layoutStatusById.get(layout._internal.id)!}
-                              />
+              {(["singleton", "derived"] as const).map((kind) => (
+                <CommandGroup
+                  key={kind}
+                  heading={kind === "singleton" ? "Singleton pages" : "Derived pages"}
+                >
+                  {derivedLayouts
+                    .filter((layout) => layout._internal.kind === kind)
+                    .map((layout) => (
+                      <CommandItem
+                        key={layout._internal.id}
+                        value={`${DERIVED_LAYOUT_PREFIX}${layout._internal.id}`}
+                        keywords={[layout._internal.title]}
+                        hideCheck
+                        onSelect={() => {
+                          closePopover();
+                          const segments = routeSegments(layout._internal.id);
+                          if (!segments.some((segment) => segment.startsWith("$"))) {
+                            void navigate({ to: `/${segments.map(encodeURIComponent).join("/")}` });
+                            return;
+                          }
+                          setLayoutToPreview(layout);
+                        }}
+                      >
+                        <div className="flex min-w-0 flex-1 items-start gap-2">
+                          <Check
+                            className={cn(
+                              "size-4 mt-0.5 shrink-0",
+                              currentDerived?.layout._internal.id !== layout._internal.id &&
+                                "invisible",
                             )}
+                          />
+                          <div className="flex min-w-0 flex-col">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <p className="truncate">{layout._internal.title}</p>
+                              {layoutStatusById.has(layout._internal.id) && (
+                                <PageStatusBadge
+                                  size="sm"
+                                  status={layoutStatusById.get(layout._internal.id)!}
+                                />
+                              )}
+                            </div>
+                            <p className="text-muted-foreground truncate font-mono text-xs">
+                              /{routeSegments(layout._internal.id).join("/")}
+                            </p>
                           </div>
-                          <p className="text-muted-foreground truncate font-mono text-xs">
-                            /{routeSegments(layout._internal.id).join("/")}
-                          </p>
                         </div>
-                      </div>
-                    </CommandItem>
-                  ))}
+                      </CommandItem>
+                    ))}
                 </CommandGroup>
-              )}
+              ))}
             </CommandList>
             <CommandSeparator />
             <CommandGroup className="shrink-0 pt-2">

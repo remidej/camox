@@ -3,13 +3,12 @@ import { Input } from "@camox/ui/input";
 import { Label } from "@camox/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@camox/ui/tabs";
-import { useQuery } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
 import * as React from "react";
 
-import { createPageTextLinkTarget, getPageIdFromTextLinkTarget } from "@/core/lib/textLinks";
-import { useProjectSlug } from "@/lib/auth";
-import { pageQueries, projectQueries } from "@/lib/queries";
+import { getPageIdFromTextLinkTarget, isValidTextLinkTarget } from "@/core/lib/textLinks";
+import { destinationTextLink } from "@/core/pageDestinations";
+import { usePageDestinations } from "@/hooks/use-page-destinations";
 
 interface TextLinkPopoverProps {
   open: boolean;
@@ -35,19 +34,17 @@ export function TextLinkPopover({
   const [pageValue, setPageValue] = React.useState("");
   const [urlValue, setUrlValue] = React.useState("");
 
-  const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
-    enabled: !!project,
-  });
+  const pages = usePageDestinations();
+  const isPageTarget =
+    target != null &&
+    (getPageIdFromTextLinkTarget(target) != null ||
+      pages.some((page) => destinationTextLink(page) === target));
 
   const prepare = React.useCallback(() => {
     setTextValue(text);
-    const pageId = target ? getPageIdFromTextLinkTarget(target) : null;
-    if (pageId != null) {
+    if (target && isPageTarget) {
       setMode("page");
-      setPageValue(pageId);
+      setPageValue(target);
       setUrlValue("");
       return;
     }
@@ -55,7 +52,7 @@ export function TextLinkPopover({
     setMode("external");
     setUrlValue(target ?? "");
     setPageValue("");
-  }, [target, text]);
+  }, [target, text, isPageTarget]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -74,12 +71,12 @@ export function TextLinkPopover({
 
     if (mode === "page") {
       if (!pageValue) return;
-      onSave(createPageTextLinkTarget(pageValue), nextText);
+      onSave(pageValue, nextText);
       return;
     }
 
     const nextTarget = urlValue.trim();
-    if (!/^https?:\/\//i.test(nextTarget)) return;
+    if (!isValidTextLinkTarget(nextTarget)) return;
     onSave(nextTarget, nextText);
   };
 
@@ -117,15 +114,16 @@ export function TextLinkPopover({
                   {pages && pages.length > 0 ? "Select a page" : "No pages found"}
                 </option>
                 {pages?.map((page) => (
-                  <option key={page.id} value={page.id}>
-                    {page.nickname} ({page.fullPath})
+                  <option key={page.key} value={destinationTextLink(page)}>
+                    {page.title} ({page.fullPath})
                   </option>
                 ))}
               </select>
             ) : (
               <Input
-                type="url"
-                placeholder="https://"
+                type="text"
+                inputMode="url"
+                placeholder="https:// or /path"
                 value={urlValue}
                 onChange={(event) => setUrlValue(event.target.value)}
               />

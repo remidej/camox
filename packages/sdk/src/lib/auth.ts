@@ -5,6 +5,9 @@ import * as React from "react";
 
 import { actionsStore } from "@/features/provider/actionsStore";
 
+import { SERVER_AUTH_COOKIE_NAME, buildClearServerAuthCookieHeader } from "./server-auth-cookie";
+export { buildClearServerAuthCookieHeader, getServerAuthCookieHeader } from "./server-auth-cookie";
+
 /* -------------------------------------------------------------------------------------------------
  * Cross-domain client plugin
  *
@@ -31,12 +34,6 @@ interface StoredCookie {
   expires: string | null;
 }
 
-const SERVER_AUTH_COOKIE_NAME = "camox_auth_cookie";
-
-export function buildClearServerAuthCookieHeader() {
-  return `${SERVER_AUTH_COOKIE_NAME}=; Path=/; SameSite=Lax; Max-Age=0`;
-}
-
 function writeServerAuthCookie(cookie: string) {
   if (typeof document === "undefined") return;
 
@@ -47,20 +44,6 @@ function writeServerAuthCookie(cookie: string) {
   }
 
   document.cookie = `${SERVER_AUTH_COOKIE_NAME}=${encodeURIComponent(cookie)}; Path=/; SameSite=Lax; Max-Age=2592000${secure}`;
-}
-
-export function getServerAuthCookieHeader(headers: Headers): string {
-  const cookieHeader = headers.get("Cookie") ?? headers.get("cookie") ?? "";
-  const cookies = cookieHeader.split(";").map((part) => part.trim());
-  const authCookie = cookies.find((part) => part.startsWith(`${SERVER_AUTH_COOKIE_NAME}=`));
-  if (!authCookie) return "";
-
-  const value = authCookie.slice(SERVER_AUTH_COOKIE_NAME.length + 1);
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return "";
-  }
 }
 
 function parseSetCookieHeader(header: string): Map<string, CookieAttributes> {

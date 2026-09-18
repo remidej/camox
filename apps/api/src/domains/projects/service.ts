@@ -378,7 +378,7 @@ export async function initializeProjectContent(
       ),
     )
     .get();
-  if (!layout) {
+  if (!layout || layout.kind !== "curated") {
     return { created: false };
   }
 

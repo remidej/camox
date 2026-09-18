@@ -18,7 +18,7 @@ export function createApp({ blocks, layouts = [] }: CreateAppOptions) {
   for (const layout of layouts) {
     const { id, kind } = layout._internal;
     if (layoutsMap.has(id)) throw new Error(`Duplicate layout: ${id}`);
-    if (kind === "derived") {
+    if (kind !== "curated") {
       const pattern = id
         .split(".")
         .map((segment) => (segment.startsWith("$") ? "$" : segment))
@@ -65,6 +65,7 @@ export function createApp({ blocks, layouts = [] }: CreateAppOptions) {
     getSerializableLayoutDefinitions() {
       return Array.from(layoutsMap.values()).map((layout) => ({
         layoutId: layout._internal.id,
+        kind: layout._internal.kind,
         description: layout._internal.description,
         blocks: layout._internal.blockDefinitions,
       }));

@@ -51,6 +51,8 @@ function formatReason(reason: CompatibilityReason, direction: Direction): string
       return `Block type "${reason.blockId}" exists in ${sourceLabel} but not in ${targetLabel}. ${remedy}`;
     case "block-definition-schema-mismatch":
       return `Block type "${reason.blockId}" has a different "${reason.field}" between envs. Sync block definitions and try again.`;
+    case "layout-kind-mismatch":
+      return `Layout "${reason.layoutId}" has a different kind between environments. Sync layout definitions and try again.`;
     case "layout-missing-in-source":
       return `Layout "${reason.layoutId}" exists in ${targetLabel} but not in ${sourceLabel}.`;
     case "layout-missing-in-target":

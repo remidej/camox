@@ -195,7 +195,7 @@ The `default` must be one of the keys in `options`.
 
 ### Type.Link
 
-A link with text, URL (or internal page reference), and new-tab toggle.
+A link with text, URL (or internal page reference), and new-tab toggle. Studio’s Page destination picker includes curated and singleton pages. Curated links store a page ID; singleton links use their fixed internal URL with the existing `type: "external"` URL representation (despite the name, it also supports site-relative URLs). For example: `{ type: "external", href: "/pokedex", text: "Pokédex", newTab: false }`. Inline text links can likewise use `[Pokédex](/pokedex)` and stay in the current tab.
 
 ```tsx
 Type.Link({

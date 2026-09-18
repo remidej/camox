@@ -11,7 +11,11 @@ const MARKDOWN_WRAPPERS: Record<string, (text: string) => string> = {
 const PAGE_TEXT_LINK_PREFIX = "camox:page:";
 
 function isValidTextLinkTarget(target: string): boolean {
-  return target.startsWith(PAGE_TEXT_LINK_PREFIX) || /^https?:\/\//i.test(target);
+  return (
+    target.startsWith(PAGE_TEXT_LINK_PREFIX) ||
+    /^https?:\/\//i.test(target) ||
+    /^\/(?!\/)[^\s\\\p{Cc}]*$/u.test(target)
+  );
 }
 
 function lexicalTextToMarkdown(text: string, format: number): string {

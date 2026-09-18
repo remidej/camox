@@ -8,11 +8,13 @@ description: Use when working in a Camox codebase with Block Definitions, Layout
 Load only the references needed for the current task. Do not preload every reference.
 
 - To create or change a **Block Definition** in `src/blocks/`, read [references/block-definitions.md](references/block-definitions.md).
-- To create or change a **Layout Definition** in `src/layouts/`, read [references/layout-definitions.md](references/layout-definitions.md).
+- To create or change a **Layout Definition**, **singleton page**, or **derived route** in `src/layouts/`, read [references/layout-definitions.md](references/layout-definitions.md).
 - For any CLI operation, first read [references/cli-common.md](references/cli-common.md), then read only the relevant command reference:
   - To inspect, create, edit, move, or delete Block instances or their Content, read [references/cli-blocks.md](references/cli-blocks.md).
   - To inspect, create, update, publish, or assign Layouts to Pages, read [references/cli-pages.md](references/cli-pages.md).
   - To target production or replicate content between Environments, read [references/cli-environments.md](references/cli-environments.md).
+
+Pages have three layout kinds: `curated` (editor-created pages), `singleton` (one code-owned fixed URL), and `derived` (code-owned data-driven routes). Singleton pages are declared in code, not created or assigned through the pages CLI. All editable content remains in blocks; use `layoutOnly: true` for bespoke singleton blocks so they stay out of ordinary page composition. Publishing their layout blocks does not create or remove their route.
 
 For shared content across layouts (typically a navbar or footer), use `synced: true` in `createBlock`. This optional boolean defaults to `false` and is independent of `layoutOnly`. Synced blocks share content and settings and have purple editor highlights. See the Block Definition reference for publishing and existing-instance behavior.
 

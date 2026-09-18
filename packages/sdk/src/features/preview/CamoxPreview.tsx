@@ -1,13 +1,14 @@
 import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
-import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
+import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { getApiClient } from "@/lib/api-client";
 import { useIsAuthenticated, useProjectSlug } from "@/lib/auth";
 import { NormalizedDataProvider, seedBlockCaches, usePageBlocks } from "@/lib/normalized-data";
-import { blockQueries, pageQueries, projectQueries } from "@/lib/queries";
+import { blockQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import { type Action, actionsStore } from "../provider/actionsStore";
@@ -468,16 +469,11 @@ export const PreviewShell = ({
 export function usePreviewPagesActions() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...pageQueries.list(project?.id ?? 0),
-    enabled: !!project,
-  });
+  const pages = usePageDestinations();
 
   React.useEffect(() => {
     const GO_TO_PAGE_ID = "go-to-page";
-    const currentPage = pages?.find((p) => p.fullPath === pathname);
+    const currentPage = pages.find((p) => p.kind === "curated" && p.fullPath === pathname);
 
     const actions: Action[] = [
       {
@@ -493,12 +489,12 @@ export function usePreviewPagesActions() {
         label: "Edit current page",
         aliases: ["Page settings", "Edit page settings", "Page metadata"],
         groupLabel: "Preview",
-        checkIfAvailable: () => !!currentPage,
+        checkIfAvailable: () => currentPage?.kind === "curated",
         execute: () => {
-          if (!currentPage) return;
+          if (currentPage?.kind !== "curated") return;
           previewStore.send({
             type: "openEditPageModal",
-            pageId: currentPage.id,
+            pageId: currentPage.pageId,
           });
         },
       },
@@ -507,24 +503,22 @@ export function usePreviewPagesActions() {
         label: "Go to page",
         aliases: ["Open page", "Navigate page", "Switch page"],
         groupLabel: "Preview",
-        checkIfAvailable: () => !!pages,
+        checkIfAvailable: () => pages.length > 0,
         hasChildren: true,
         execute: () => {},
       },
       // One action per page
-      ...(pages
-        ? pages.map(
-            (page) =>
-              ({
-                id: `go-to-page-${page.id}`,
-                parentActionId: GO_TO_PAGE_ID,
-                label: `Go to "${page.nickname}"`,
-                groupLabel: "Preview",
-                checkIfAvailable: () => true,
-                execute: () => navigate({ to: page.fullPath }),
-              }) as Action,
-          )
-        : []),
+      ...pages.map(
+        (page): Action => ({
+          id: `go-to-page-${page.key}`,
+          parentActionId: GO_TO_PAGE_ID,
+          label: `Go to "${page.title}"`,
+          aliases: [page.fullPath],
+          groupLabel: "Preview",
+          checkIfAvailable: () => true,
+          execute: () => navigate({ to: page.fullPath }),
+        }),
+      ),
     ];
 
     actionsStore.send({

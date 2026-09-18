@@ -4,7 +4,7 @@ import { test } from "node:test";
 import type { Layout } from "./createLayout";
 import { matchDerivedLayout } from "./derivedRoutes.ts";
 
-function layout(id: string, kind: "curated" | "derived" = "derived") {
+function layout(id: string, kind: "curated" | "derived" | "singleton" = "derived") {
   return { _internal: { id, kind } } as Layout;
 }
 
@@ -21,6 +21,15 @@ void test("rejects malformed escapes and encoded slashes", () => {
   for (const path of ["/pokemon/%ZZ", "/pokemon/%2F", "/pokemon/"]) {
     assert.equal(matchDerivedLayout(layouts, path), null);
   }
+});
+
+void test("singleton routes match exactly and take precedence over derived parameters", () => {
+  const singleton = layout("pokemon.featured", "singleton");
+  const layouts = [layout("pokemon.$name"), singleton];
+  assert.equal(matchDerivedLayout(layouts, "/pokemon/featured")?.layout, singleton);
+  assert.deepEqual(matchDerivedLayout(layouts, "/pokemon/featured/")?.params, {});
+  assert.equal(matchDerivedLayout(layouts, "/pokemon/featured/extra"), null);
+  assert.equal(matchDerivedLayout(layouts, "/pokemon/pikachu")?.layout, layouts[0]);
 });
 
 void test("static routes take precedence over parameters", () => {

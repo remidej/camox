@@ -20,7 +20,7 @@ import * as React from "react";
 import { useFrame } from "../../../features/preview/components/Frame";
 import type { MarkdownToReactNodesOptions } from "../../lib/lexicalReact";
 import { lexicalStateToMarkdown } from "../../lib/lexicalState";
-import { isHttpTextLinkTarget } from "../../lib/textLinks";
+import { isValidTextLinkTarget } from "../../lib/textLinks";
 import { createEditorConfig, normalizeLexicalState } from "./editorConfig";
 import { InlineContentEditable } from "./InlineContentEditable";
 import { InlineStylesPlugin } from "./InlineStylesPlugin";
@@ -120,7 +120,7 @@ function PasteUrlAsLinkHandler() {
         if (!("clipboardData" in event) || !event.clipboardData) return false;
 
         const url = event.clipboardData.getData("text/plain").trim();
-        if (!url || !isHttpTextLinkTarget(url)) return false;
+        if (!url || !isValidTextLinkTarget(url)) return false;
 
         event.preventDefault();
         editor.dispatchCommand(TOGGLE_LINK_COMMAND, url);

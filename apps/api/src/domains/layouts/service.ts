@@ -23,6 +23,7 @@ import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData } from "../blocks/synced-live";
 import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
+import { normalizePagePath, singletonPath } from "./route-ownership";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -62,6 +63,7 @@ export const syncLayoutsInput = z.object({
   layouts: z.array(
     z.object({
       layoutId: z.string(),
+      kind: z.enum(["curated", "derived", "singleton"]).default("curated"),
       description: z.string(),
       blocks: z.array(
         z.object({
@@ -345,6 +347,31 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
   const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName, {
     autoCreate,
   });
+  // Validate the complete submission before writing anything. Existing curated
+  // pages must be moved explicitly before code can claim their URLs/layouts.
+  const existingPages = await ctx.db
+    .select()
+    .from(pages)
+    .where(eq(pages.environmentId, environment.id));
+  const existingLayouts = await ctx.db
+    .select()
+    .from(layouts)
+    .where(eq(layouts.environmentId, environment.id));
+  for (const def of layoutDefs) {
+    if (def.kind === "curated") continue;
+    const existing = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
+    if (existingPages.some((page) => page.layoutId === existing?.id))
+      throw new ORPCError("CONFLICT", {
+        message: `Layout ${def.layoutId} is still assigned to curated pages`,
+      });
+    if (def.kind !== "singleton") continue;
+    const path = singletonPath(def.layoutId);
+    if (existingPages.some((page) => normalizePagePath(page.fullPath) === path))
+      throw new ORPCError("CONFLICT", {
+        message: `Singleton URL ${path} conflicts with an existing curated page`,
+      });
+  }
+
   const now = Date.now();
   const results = [];
 
@@ -376,7 +403,7 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
     const layout = existingLayout
       ? await ctx.db
           .update(layouts)
-          .set({ description: def.description, updatedAt: now })
+          .set({ description: def.description, kind: def.kind, updatedAt: now })
           .where(eq(layouts.id, existingLayout.id))
           .returning()
           .get()
@@ -386,6 +413,7 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
             projectId,
             environmentId: environment.id,
             layoutId: def.layoutId,
+            kind: def.kind,
             description: def.description,
             contentUpdatedAt: now,
             createdAt: now,

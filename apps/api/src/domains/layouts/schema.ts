@@ -14,6 +14,9 @@ export const layouts = sqliteTable(
       .references(() => environments.id),
     layoutId: text("layout_id").notNull(),
     description: text(),
+    kind: text({ enum: ["curated", "derived", "singleton"] })
+      .notNull()
+      .default("curated"),
     // FK to layout_checkpoints.id is declared in checkpoints-schema.ts to avoid
     // the circular import between layouts and layout_checkpoints.
     livePublishedCheckpointId: int("live_published_checkpoint_id"),

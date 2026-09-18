@@ -25,7 +25,7 @@ import { Bold, Italic, Underline, Blend } from "lucide-react";
 import * as React from "react";
 
 import { lexicalStateToMarkdown } from "@/core/lib/lexicalState";
-import { isHttpTextLinkTarget } from "@/core/lib/textLinks";
+import { isValidTextLinkTarget } from "@/core/lib/textLinks";
 import { INPUT_BASE_STYLES, INPUT_FOCUS_STYLES, cn } from "@/lib/utils";
 
 import { FORMAT_FLAGS } from "../../lib/modifierFormats";
@@ -369,7 +369,7 @@ function PasteUrlAsLinkHandler() {
         if (!("clipboardData" in event) || !event.clipboardData) return false;
 
         const url = event.clipboardData.getData("text/plain").trim();
-        if (!isHttpTextLinkTarget(url)) return false;
+        if (!isValidTextLinkTarget(url)) return false;
 
         event.preventDefault();
         editor.dispatchCommand(TOGGLE_LINK_COMMAND, url);

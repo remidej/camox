@@ -15,8 +15,17 @@ export function isHttpTextLinkTarget(target: string): boolean {
   return /^https?:\/\//i.test(target);
 }
 
+export function isInternalTextLinkTarget(target: string): boolean {
+  // Root-relative URLs only: reject protocol-relative URLs, backslashes, and controls.
+  return /^\/(?!\/)[^\s\\\p{Cc}]*$/u.test(target);
+}
+
 export function isValidTextLinkTarget(target: string): boolean {
-  return getPageIdFromTextLinkTarget(target) != null || isHttpTextLinkTarget(target);
+  return (
+    getPageIdFromTextLinkTarget(target) != null ||
+    isHttpTextLinkTarget(target) ||
+    isInternalTextLinkTarget(target)
+  );
 }
 
 export function resolveTextLinkHref(
@@ -26,7 +35,7 @@ export function resolveTextLinkHref(
 ): string | null {
   const pageId = getPageIdFromTextLinkTarget(target);
   if (pageId == null) {
-    return isHttpTextLinkTarget(target) ? target : null;
+    return isValidTextLinkTarget(target) ? target : null;
   }
 
   const page = pages?.find((p) => String(p.id) === pageId);

@@ -72,7 +72,7 @@ interface CreateLayoutOptions<
   TInitial extends readonly LayoutBlock[],
 > {
   id: string;
-  kind?: "curated" | "derived";
+  kind?: "curated" | "derived" | "singleton";
   loader?: (context: { params: Record<string, string> }) => unknown;
   title: string;
   description: string;
@@ -96,6 +96,11 @@ function createLayoutDefinition<
   const TAfter extends readonly LayoutBlock[],
   const TInitial extends readonly LayoutBlock[] = [],
 >(options: CreateLayoutOptions<TBefore, TAfter, TInitial>) {
+  if (options.kind === "singleton" && !/^[\w-]+(?:\.[\w-]+)*$/.test(options.id))
+    throw new Error(`Singleton layouts require a fixed file route: ${options.id}`);
+  if (options.kind && options.kind !== "curated" && options.blocks.initial)
+    throw new Error("Code-owned layouts cannot define initial page blocks");
+
   // Each layout gets its own context — avoids cross-module identity issues
   const LayoutContext = React.createContext<{
     layoutBlocks: Record<string, LayoutBlockData>;
@@ -128,7 +133,9 @@ function createLayoutDefinition<
               <block._internal.Component
                 blockData={blockData}
                 mode="layout"
-                showAddBlockBottom={(options.kind !== "derived" && isLastBefore) || undefined}
+                showAddBlockBottom={
+                  ((options.kind ?? "curated") === "curated" && isLastBefore) || undefined
+                }
                 addBlockAfterPosition={isLastBefore ? "" : undefined}
               />
             </BlockErrorBoundary>
@@ -159,7 +166,9 @@ function createLayoutDefinition<
               <block._internal.Component
                 blockData={blockData}
                 mode="layout"
-                showAddBlockTop={(options.kind !== "derived" && isFirstAfter) || undefined}
+                showAddBlockTop={
+                  ((options.kind ?? "curated") === "curated" && isFirstAfter) || undefined
+                }
                 addBlockAfterPosition={isFirstAfter ? null : undefined}
               />
             </BlockErrorBoundary>
@@ -279,6 +288,16 @@ type FileOptions<
         loader?: never;
       }
     | {
+        kind: "singleton";
+        blocks: {
+          before: ValidateLayoutOnlyBlocks<B>;
+          after: ValidateLayoutOnlyBlocks<A>;
+          initial?: never;
+        };
+        loader?: (context: { params: Record<string, never> }) => Data;
+        component: React.ComponentType<{ children?: never }>;
+      }
+    | {
         kind: "derived";
         blocks: {
           before: ValidateLayoutOnlyBlocks<B>;
@@ -299,9 +318,9 @@ type FileOptions<
 export function createLayout<const Id extends string>(
   id: Id,
 ): <
-  Data,
-  const B extends readonly LayoutBlock[],
-  const A extends readonly LayoutBlock[],
+  Data = undefined,
+  const B extends readonly LayoutBlock[] = [],
+  const A extends readonly LayoutBlock[] = [],
   const I extends readonly LayoutBlock[] = [],
 >(
   options: FileOptions<Id, Data, B, A, I>,
@@ -313,11 +332,8 @@ export function createLayout<
 >(options: CreateLayoutOptions<B, A, I>): Layout;
 export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any, any>): any {
   if (typeof idOrOptions !== "string") return createLayoutDefinition(idOrOptions);
-  return (options: CreateLayoutOptions<any, any, any>) => {
-    if (options.kind === "derived" && options.blocks.initial)
-      throw new Error("Derived layouts cannot define initial page blocks");
-    return createLayoutDefinition({ ...options, id: idOrOptions });
-  };
+  return (options: CreateLayoutOptions<any, any, any>) =>
+    createLayoutDefinition({ ...options, id: idOrOptions });
 }
 
 /** Signal a missing derived page; other loader failures remain server errors. */

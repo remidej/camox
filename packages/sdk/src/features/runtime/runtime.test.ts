@@ -16,6 +16,15 @@ const app = {
   getLayouts: () => [
     {
       _internal: {
+        id: "pokedex",
+        kind: "singleton",
+        title: "Pokédex",
+        loader: async () => ({ count: 12 }),
+      },
+    },
+    { _internal: { id: "about-camox", kind: "singleton", title: "About Camox" } },
+    {
+      _internal: {
         id: "pokemon.$name",
         kind: "derived",
         title: "Pokemon",
@@ -26,7 +35,7 @@ const app = {
   getLayoutById: () => null,
 } as unknown as CamoxApp;
 
-void test("runtime returns complete route payloads for curated, derived and studio navigation", async (t) => {
+void test("runtime returns complete route payloads for curated, singleton, derived and studio navigation", async (t) => {
   const calls: string[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname;
@@ -35,6 +44,10 @@ void test("runtime returns complete route payloads for curated, derived and stud
     if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
     if (path.endsWith("/getByPath")) {
       const body = (await request.json()) as { json: { path: string } };
+      assert.ok(
+        !["/pokedex", "/about-camox"].includes(body.json.path),
+        "Singleton routes must not query curated page records",
+      );
       if (body.json.path.startsWith("/pokemon/"))
         return Response.json(
           { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
@@ -74,7 +87,7 @@ void test("runtime returns complete route payloads for curated, derived and stud
         : "<nav>Studio</nav>",
     renderStudio: async () => "<nav>Studio</nav>",
   };
-  for (const path of ["/about", "/pokemon/pikachu", "/camox/content"]) {
+  for (const path of ["/about", "/pokedex", "/about-camox", "/pokemon/pikachu", "/camox/content"]) {
     const response = await handleCamoxRequest(
       new Request(`https://site.test/_camox/data?path=${encodeURIComponent(path)}`, {
         headers: { Cookie: "camox_auth_cookie=token%3Dtest" },
@@ -88,6 +101,11 @@ void test("runtime returns complete route payloads for curated, derived and stud
     assert.equal(input.presentation, "studio");
     assert.ok(input.dehydratedState);
     assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
+    if (path === "/pokedex") assert.deepEqual(input.derived?.data, { count: 12 });
+    if (path === "/about-camox") {
+      assert.equal(input.derived?.layoutId, "about-camox");
+      assert.equal(input.derived?.data, undefined);
+    }
     if (path.startsWith("/pokemon/")) assert.deepEqual(input.derived?.data, { name: "pikachu" });
     if (path.startsWith("/camox/")) assert.equal(input.routeKind, "studio-content");
     if (!path.startsWith("/camox/")) {
@@ -113,6 +131,94 @@ void test("runtime returns complete route payloads for curated, derived and stud
     assert.ok(head.indexOf("camoxPlatform") < head.indexOf('href="/studio.css"'));
   }
   assert.ok(calls.includes("/rpc/layouts/get"));
+});
+
+void test("new unpublished curated pages load with native session cookies but stay private", async (t) => {
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith("/getBySlug")) return Response.json({ json: project });
+    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (path.endsWith("/getByPath")) {
+      const { json: input } = (await request.json()) as { json: { source: string; path: string } };
+      assert.equal(input.path, "/new-curated-page");
+      if (input.source === "live")
+        return Response.json(
+          { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not published" } },
+          { status: 404 },
+        );
+      assert.match(
+        request.headers.get("Better-Auth-Cookie") ?? "",
+        /^(?:__Secure-)?better-auth.session_token=valid$/,
+      );
+      return Response.json({
+        json: {
+          page: {
+            id: 3,
+            fullPath: input.path,
+            pathSegment: "new-curated-page",
+            status: "draft",
+            livePublishedCheckpointId: null,
+          },
+          layout: null,
+          project,
+          projectName: project.name,
+          blocks: [],
+          files: [],
+          repeatableItems: [],
+        },
+      });
+    }
+    throw new Error(`Unexpected API request ${path}`);
+  });
+  const options: RuntimeOptions = {
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectSlug: "test",
+    renderPage: async (input) => `<main>${input.source} page</main>`,
+  };
+  for (const path of ["/new-curated-page", "/_camox/data?path=/new-curated-page"]) {
+    const anonymous = await handleCamoxRequest(new Request(`https://site.test${path}`), options);
+    assert.equal(anonymous?.status, 404);
+    for (const cookie of [
+      "better-auth.session_token=valid",
+      "__Secure-better-auth.session_token=valid",
+    ]) {
+      const response = await handleCamoxRequest(
+        new Request(`https://site.test${path}`, { headers: { Cookie: cookie } }),
+        options,
+      );
+      assert.equal(response?.status, 200);
+      assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
+      if (path.startsWith("/_camox/")) {
+        const input = (await response!.json()) as PageRenderInput;
+        assert.equal(input.source, "draft");
+        assert.equal(input.presentation, "studio");
+      } else {
+        assert.match(await response!.text(), /draft page/);
+      }
+    }
+  }
+});
+
+void test("sitemaps include singleton destinations with the runtime base path and no invented lastmod", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({
+      json: [{ id: 1, nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" }],
+    }),
+  );
+  const response = await handleCamoxRequest(new Request("https://site.test/site/sitemap.xml"), {
+    apiUrl: "https://api.test",
+    projectSlug: "test",
+    runtimeBasePath: "/site",
+    getCamoxApp: async () => app,
+  });
+  assert.equal(response?.status, 200);
+  const xml = await response!.text();
+  assert.match(xml, /https:\/\/site.test\/site\/pokedex/);
+  assert.match(xml, /https:\/\/site.test\/site\/about-camox/);
+  assert.match(xml, /https:\/\/site.test\/site\/about</);
+  assert.equal(xml.match(/<lastmod>/g)?.length, 1);
+  assert.doesNotMatch(xml, /pokemon|\$name/);
 });
 
 void test("expired studio auth clears the mirrored cookie without granting chrome", async (t) => {

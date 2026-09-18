@@ -13,6 +13,15 @@ import {
 import { FORMAT_FLAGS } from "./modifierFormats";
 import { getGradientStyle, type TextStyleData } from "./textStyles";
 
+void test("singleton URL links survive editing round trips and render as internal links", () => {
+  const value = "[Explore **Pokédex**](/pokedex)";
+  assert.equal(lexicalStateToMarkdown(markdownToLexicalState(value)), value);
+  const html = renderToStaticMarkup(markdownToReactNodes(value));
+  assert.match(html, /href="\/pokedex"/);
+  assert.match(html, /<strong>Pokédex<\/strong>/);
+  assert.doesNotMatch(html, /target="_blank"/);
+});
+
 void test("bold, italic, and underline compose, including inside links", () => {
   const html = renderToStaticMarkup(
     markdownToReactNodes("[<u>***nimble***</u>](https://example.com)", {

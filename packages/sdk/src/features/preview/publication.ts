@@ -12,7 +12,8 @@ export type PublicationTarget =
     }
   | {
       kind: "layout";
-      layout: Pick<Layout, "id" | "status" | "livePublishedCheckpointId">;
+      layout: Pick<Layout, "id" | "status" | "livePublishedCheckpointId"> &
+        Partial<Pick<Layout, "kind">>;
       name: string;
     };
 
@@ -35,6 +36,21 @@ export type PublicationPlan = {
  * not a separate publishing UI or a sequence of independent block requests.
  */
 export function buildPublicationPlan(target: PublicationTarget): PublicationPlan {
+  if (target.kind === "layout" && target.layout.kind === "singleton") {
+    return {
+      title: "Publish page content",
+      description: `Publishes the editable blocks on ${target.name}. The route and application data are controlled by code, not publishing.`,
+      items: [
+        {
+          key: `layout:${target.layout.id}`,
+          label: `${target.name} blocks`,
+          impact:
+            "Updates this page’s before and after blocks. Synced block changes also apply wherever those blocks are used.",
+          optional: false,
+        },
+      ],
+    };
+  }
   if (target.kind === "layout") {
     return {
       title: target.layout.status === "modified" ? "Publish changes" : "Publish layout",

@@ -26,8 +26,9 @@ const pokemonTypes = [
 const pokedex = createBlock({
   id: "pokedex",
   title: "Pokédex",
+  layoutOnly: true,
   description:
-    "An entry point to the playground's Pokémon field guide. Place on the home page to link to the Pokémon type collections. The heading and introduction are editable; the type links follow the derived Pokémon routes.",
+    "The singleton Pokédex page introduction and type directory. The heading and introduction are editable; the type links follow the derived Pokémon routes.",
   content: {
     title: Type.String({ title: "Title", default: "Explore the Pokédex" }),
     description: Type.String({
@@ -59,7 +60,7 @@ function PokedexComponent() {
             The type collection
           </p>
           <pokedex.Field name="title">
-            {(props) => <h2 {...props} className="text-3xl font-bold tracking-tight sm:text-5xl" />}
+            {(props) => <h1 {...props} className="text-3xl font-bold tracking-tight sm:text-5xl" />}
           </pokedex.Field>
           <pokedex.Field name="description">
             {(props) => (
