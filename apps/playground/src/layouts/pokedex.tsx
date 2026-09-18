@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
-import { block as pokedexBlock } from "../blocks/pokedex";
+import { block as pokedexBlock } from "../blocks/pokedex-intro";
 import { PokemonArtwork, pokemonName, pokemonNumber } from "../components/pokemon";
 
 interface PokemonList {
