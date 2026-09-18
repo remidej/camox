@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...@camox/ui-v0.42.0) (2026-09-18)
+
+
+### Features
+
+* add comment ui prototype under flag ([aff4f67](https://github.com/remidej/camox/commit/aff4f6751b2202b0d4922d1224f0f6d74308e2bf))
+* **sdk:** redesign command palette ([1e77ab3](https://github.com/remidej/camox/commit/1e77ab3614826141b9f9881d75e6a01ed0d3588c))
+
 ## [0.41.1](https://github.com/remidej/camox/compare/camox-v0.41.0...@camox/ui-v0.41.1) (2026-09-16)
 
 
