@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...camox-sdk-v0.43.0) (2026-09-18)
+
+
+### Features
+
+* add singleton layouts ([2dee85d](https://github.com/remidej/camox/commit/2dee85de42600f8095925cc8bc5f18838f4eb8cc))
+
 ## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...camox-sdk-v0.42.0) (2026-09-18)
 
 
