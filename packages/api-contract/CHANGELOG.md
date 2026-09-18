@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...@camox/api-contract-v0.42.0) (2026-09-18)
+
+
+### Miscellaneous
+
+* remove telemetry ([9eb6701](https://github.com/remidej/camox/commit/9eb67019d5a4e1fc6a839a07328acb1ae7d5f5d8))
+
 ## [0.41.1](https://github.com/remidej/camox/compare/camox-v0.41.0...@camox/api-contract-v0.41.1) (2026-09-16)
 
 

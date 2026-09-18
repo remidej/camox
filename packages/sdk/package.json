@@ -1,6 +1,6 @@
 {
   "name": "camox",
-  "version": "0.41.1",
+  "version": "0.42.0",
   "license": "MIT",
   "bin": {
     "camox": "./bin/camox.mjs"

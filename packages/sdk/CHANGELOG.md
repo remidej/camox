@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...camox-sdk-v0.42.0) (2026-09-18)
+
+
+### Features
+
+* add comment ui prototype under flag ([aff4f67](https://github.com/remidej/camox/commit/aff4f6751b2202b0d4922d1224f0f6d74308e2bf))
+* add comments sidebar ([a4e8482](https://github.com/remidej/camox/commit/a4e8482c4d8aecc5a2b0802fb6420715043bc2f4))
+* page-level comments ui ([2aa557d](https://github.com/remidej/camox/commit/2aa557d80b3bc680e92b7b90613f925d2f941dd6))
+* **sdk:** redesign command palette ([1e77ab3](https://github.com/remidej/camox/commit/1e77ab3614826141b9f9881d75e6a01ed0d3588c))
+
+
+### Bug Fixes
+
+* add new block ui tweaks ([b3085aa](https://github.com/remidej/camox/commit/b3085aa8a7d097dd46dc38c9e1afe3b0c06a838d))
+* comments ui tweaks ([b2ed8a2](https://github.com/remidej/camox/commit/b2ed8a297f25f4acd1b3040a7b18b3d7e5b83a83))
+* editor editor ui tweaks ([8088b84](https://github.com/remidej/camox/commit/8088b8425577bde01804539a0a017e7c1feaaf2e))
+* escape behavior ([73e0cce](https://github.com/remidej/camox/commit/73e0cce528a6fa57ccd4c33b189671238021ac0b))
+* **preview:** remove persistent comment bubbles ([6a0c539](https://github.com/remidej/camox/commit/6a0c5397320ba5e59480389cd8e32ee1fef78a30))
+* **sdk:** remove form and settings actions from block popover ([80fbf58](https://github.com/remidej/camox/commit/80fbf5801854b7b14a71d73746df9744ea5f2470))
+* various ui tweaks ([5baf8d9](https://github.com/remidej/camox/commit/5baf8d9bd1839fe7402b6fa7331fbbeb24679a19))
+
+
+### Refactoring
+
+* **sdk:** remove obsolete content sheet controls and state ([3c8f2cf](https://github.com/remidej/camox/commit/3c8f2cf4cb3fff293e979126893320b2ee7dc3fd))
+
+
+### Miscellaneous
+
+* move sdk css output out of dist ([f5ffb40](https://github.com/remidej/camox/commit/f5ffb404172971de3bdf77f110e39e6baec85682))
+* refactor comment mode state management ([f32e432](https://github.com/remidej/camox/commit/f32e432eb58ea7f595bed704023cf7a48ee02d44))
+* remove telemetry ([9eb6701](https://github.com/remidej/camox/commit/9eb67019d5a4e1fc6a839a07328acb1ae7d5f5d8))
+
 ## [0.41.1](https://github.com/remidej/camox/compare/camox-v0.41.0...camox-sdk-v0.41.1) (2026-09-16)
 
 
