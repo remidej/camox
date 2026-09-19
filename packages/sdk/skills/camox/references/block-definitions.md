@@ -40,95 +40,7 @@ export { myBlock as block };
 
 ## DOM integrations in preview and published pages
 
-**Do not use component-global `window` or `document` to target a block's DOM.** Camox preview (including block thumbnails) renders blocks into an iframe through a React portal, but component code executes in the editor's JavaScript realm. Global scroll listeners observe the editor; scripts appended to the global document load there instead of beside your block.
-
-Use `getElementContext` from `camox/dom` inside an effect or event handler, passing a rendered element. It returns `{ window, document }` from the element's `ownerDocument` and `defaultView`, or `null` for a missing element or a document without a window. It never falls back to globals, requires no provider, and works in regular rendering too. Don't access DOM APIs during SSR.
-
-### Scroll listeners
-
-```tsx
-import { getElementContext } from "camox/dom";
-import { useEffect, useRef, useState } from "react";
-
-function Header() {
-  const root = useRef<HTMLElement>(null);
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const context = getElementContext(root.current);
-    if (!context) return;
-
-    const { window } = context;
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  return (
-    <header ref={root} data-scrolled={scrolled}>
-      Navigation
-    </header>
-  );
-}
-```
-
-Read viewport dimensions, query elements, and attach resize listeners through the same context. If the root is conditionally mounted or replaced, rerun setup for the new element (for example, store it using a callback ref and include it in the effect dependencies).
-
-### Third-party scripts and widgets
-
-Resolve context from the widget container, create scripts with `context.document.createElement("script")`, and append them to `context.document.head`. Initialize the SDK exposed on `context.window`, not the editor global. Deduplicate script loading **per document**, not with one module-global promise: preview, thumbnails, and the ordinary page can each have their own SDK instance.
-
-For example, a script loader owned by your integration can use:
-
-```ts
-const loads = new WeakMap<Document, Map<string, Promise<void>>>();
-
-function loadScript(document: Document, src: string): Promise<void> {
-  let scripts = loads.get(document);
-  if (!scripts) {
-    scripts = new Map();
-    loads.set(document, scripts);
-  }
-  const existing = scripts.get(src);
-  if (existing) return existing;
-
-  const script = document.createElement("script");
-  script.src = src;
-  script.async = true;
-  const loaded = new Promise<void>((resolve, reject) => {
-    script.onload = () => resolve();
-    script.onerror = () => {
-      scripts.delete(src);
-      script.remove();
-      reject(new Error(`Failed to load ${src}`));
-    };
-  });
-  scripts.set(src, loaded);
-  document.head.appendChild(script);
-  return loaded;
-}
-```
-
-In the component's effect, await loading before initializing the widget against the rendered container. Handle load errors, ignore completion after cleanup, and destroy the widget instance on unmount using its SDK's teardown API. Keep a shared script when other blocks may still use it. Avoid duplicate initialization across remounts and React Strict Mode.
-
-**Resolving the right window does not move your JavaScript objects into its realm.** Some SDKs use `instanceof Object` or similar constructor checks. Cal, for example, can reject configuration created by the editor even when its script loaded in the correct iframe. For JSON-compatible configuration only, construct a target-realm copy:
-
-```ts
-const context = getElementContext(root.current);
-if (!context) return;
-
-const config = context.window.JSON.parse(
-  JSON.stringify({
-    layout: "month_view",
-    useSlotsViewOnSmallScreen: "true",
-    theme: "dark",
-  }),
-);
-// Pass config to the Cal instance loaded on context.window.
-```
-
-This is not a general cloning solution: functions, DOM nodes, SDK instances, circular structures, and other non-JSON values need SDK-specific handling. Libraries that capture globals at import time are not automatically fixed by this helper. Test DOM integrations in both authenticated preview and regular page rendering.
+For DOM listeners, scrolling, browser scripts, or widgets, read [DOM integrations](dom-integrations.md). Preview DOM lives in an iframe; use `getElementContext` from `camox/dom` with a mounted element rather than component-global `window` or `document`.
 
 ## The `createBlock` options
 
@@ -251,7 +163,7 @@ Import `Type` from `"camox/createBlock"`. Every field requires a default value.
 
 ### Type.String
 
-Inline-editable text. The workhorse field type. String fields support inline formatting in both editing and published output: `**bold**`, `*italic*` (or `_italic_`), `***bold italic***`, `<u>underlined</u>`, `<gradient>gradient text</gradient>`, and text links like `[label](https://example.com)` or internal page links inserted by the editor. Gradient can contain other formatting, links, and line breaks. Content remains a string. The editor uses explicit `<strong>` and `<em>` tags when Markdown delimiters cannot represent a selection losslessly (for example, formatting that includes leading/trailing whitespace). These are built-in formatting tags, not arbitrary HTML.
+Inline-editable text. The workhorse field type. Supports inline formatting and links while remaining a string. For formatting syntax and appearance customization, read [Field styling](field-styling.md).
 
 ```tsx
 Type.String({
@@ -405,33 +317,7 @@ The component is a regular React function. It uses methods on the block constant
 
 The `name` must match a key in `content` that is a `Type.String`. Spread `props` onto the element — `props.children` contains the rendered content. This is what makes the field inline-editable in the CMS.
 
-Camox owns inline markup so editing and published output have the same appearance. Customize appearance with `textStyle` and `linkStyle` (these replace the old `components` prop):
-
-```tsx
-<myBlock.Field
-  name="description"
-  textStyle={({ bold, italic, gradient }) => {
-    if (gradient) {
-      return { style: { backgroundImage: "linear-gradient(to right, orange, deeppink)" } };
-    }
-    return {
-      className: bold ? "text-primary" : undefined,
-      style: bold && italic ? { letterSpacing: "0.02em" } : undefined,
-    };
-  }}
-  linkStyle={({ external }) => ({
-    className: external ? "text-blue-600" : "text-primary font-medium",
-  })}
->
-  {(props) => <p {...props} />}
-</myBlock.Field>
-```
-
-- `textStyle` receives `{ bold, italic, underline, gradient }` and returns `{ className?, style? }` or `undefined`. For text runs, `gradient` is false and the other flags describe explicit content formatting, not inherited heading styles. Unmarked text keeps its parent's typography.
-- `linkStyle` receives `{ target, href, external, pageId }` and returns the same appearance-only object. Links are underlined by default; override `style.textDecorationLine` to change that.
-- Camox also calls `textStyle` once for each shared gradient wrapper with `{ gradient: true, bold: false, italic: false, underline: false }`. That result styles the whole range; its children receive their own text-run calls. `gradient` identifies the wrapper being styled, not whether a run is inside a gradient. This keeps one continuous background when bold/italic formatting changes within the range. The default gradient uses the site's shadcn chart palette: `--chart-1` → `--chart-2`, following light/dark theme changes. Missing chart tokens fall back to `--primary` / `--muted-foreground`, then `currentColor`, never a hardcoded palette. Set `--camox-gradient-from` and `--camox-gradient-to` in app CSS for app-wide colors, or return `style.backgroundImage` when `gradient` is true.
-- Styles apply to inline children; the outer element's `className` stays on that element and is inherited normally. Explicit formatting defaults (combined italic, underline, gradient clipping) use inline styles; use `style` to override those defaults rather than competing utility classes.
-- These props accept appearance only, never replacement elements, children, or event handlers. They also work on `item.Field` inside repeaters. The sidebar editor shows default formatting; field-specific styles apply on the page.
+Camox owns inline markup. To customize inline text, links, or gradients with `textStyle` and `linkStyle`, read [Field styling](field-styling.md).
 
 When the content needs to be placed inside a more complex structure, use `props.children` explicitly:
 

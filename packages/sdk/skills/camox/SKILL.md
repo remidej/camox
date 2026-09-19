@@ -5,19 +5,38 @@ description: Use when working in a Camox codebase with Block Definitions, Layout
 
 # Camox
 
-Load only the references needed for the current task. Do not preload every reference.
+Read only the references needed for the current task. Do not preload every reference.
 
-- To create or change a **Block Definition** in `src/blocks/`, read [references/block-definitions.md](references/block-definitions.md).
-- To create or change a **Layout Definition**, **singleton page**, or **derived route** in `src/layouts/`, read [references/layout-definitions.md](references/layout-definitions.md).
-- For any CLI operation, first read [references/cli-common.md](references/cli-common.md), then read only the relevant command reference:
-  - To inspect, create, edit, move, or delete Block instances or their Content, read [references/cli-blocks.md](references/cli-blocks.md).
-  - To inspect, create, update, publish, or assign Layouts to Pages, read [references/cli-pages.md](references/cli-pages.md).
-  - To target production or replicate content between Environments, read [references/cli-environments.md](references/cli-environments.md).
+## Code definitions
 
-Pages have three layout kinds: `curated` (editor-created pages), `singleton` (one code-owned fixed URL), and `derived` (code-owned data-driven routes). Singleton pages are declared in code, not created or assigned through the pages CLI. All editable content remains in blocks; use `layoutOnly: true` for bespoke singleton blocks so they stay out of ordinary page composition. Publishing their layout blocks does not create or remove their route.
+- Create a block or change its schema or field rendering API in `src/blocks/`:
+  [Block Definitions](references/block-definitions.md).
+- Create or change a curated layout (a reusable shell for editor-created pages), including shared navbar/footer placement:
+  [Layout Definitions](references/layout-definitions.md).
+- Create or change a singleton page (a code-owned fixed URL) or derived route (a code-owned data-driven route) in `src/layouts/`:
+  [Routed layouts](references/routed-layouts.md).
+- Share content across layouts with `synced: true`, independently of `layoutOnly`:
+  [Synced blocks](references/block-definitions.md#synced-blocks-synced-optional).
 
-For shared content across layouts (typically a navbar or footer), use `synced: true` in `createBlock`. This optional boolean defaults to `false` and is independent of `layoutOnly`. Synced blocks share content and settings and have purple editor highlights. See the Block Definition reference for publishing and existing-instance behavior.
+## Specialized block work
 
-For block DOM integrations (scroll/resize listeners, scripts, widgets), use `getElementContext` from `camox/dom` with a mounted element. Preview renders DOM in an iframe while component `window`/`document` globals still target the editor. See the [DOM integration guidance](references/block-definitions.md#dom-integrations-in-preview-and-published-pages), including third-party cross-realm limitations.
+- DOM listeners, scrolling, browser scripts, or third-party widgets:
+  [DOM integrations](references/dom-integrations.md).
+  Preview DOM lives in an iframe; component globals target the editor.
+- Customize inline text/link formatting or gradients:
+  [Field styling](references/field-styling.md).
 
-A request can cross boundaries. For example, adding a new kind of section to a Page may require the Block Definition reference followed by the CLI common and Block references. Load the additional reference only once that need is established.
+For specialized changes to an existing block, read the specialist reference directly. Also read Block Definitions only if creating a block or changing its schema or other field rendering APIs.
+
+## Content and CLI
+
+For any CLI operation, first read [CLI common guidance](references/cli-common.md), then only the relevant command reference:
+
+- Pages, metadata, layout assignments, Block instances, content, ordering, or publishing:
+  [CLI Content](references/cli-content.md).
+- Production targeting or environment replication:
+  [CLI Environments](references/cli-environments.md).
+
+Code definitions register types; they do not place page-content blocks or assign layouts to existing Pages. When the request includes placement or assignment, follow with the relevant CLI workflow. Singleton pages and derived routes are declared in code, not created through the pages CLI.
+
+A request can cross boundaries. Load an additional reference only once that need is established.
