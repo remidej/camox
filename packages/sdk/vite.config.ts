@@ -4,6 +4,7 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     entry: {
+      "core/dom": "src/core/dom.ts",
       "core/createApp": "src/core/createApp.ts",
       "core/createBlock": "src/core/createBlock.tsx",
       "core/createLayout": "src/core/createLayout.tsx",

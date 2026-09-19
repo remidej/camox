@@ -1,4 +1,5 @@
 import { Type, createBlock } from "camox/createBlock";
+import { getElementContext } from "camox/dom";
 import { Link } from "camox/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -94,7 +95,10 @@ function NavbarComponent() {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
 
-    const observer = new IntersectionObserver(
+    const context = getElementContext(sentinel);
+    if (!context) return;
+
+    const observer = new context.window.IntersectionObserver(
       ([entry]) => {
         setIsFloating(!entry.isIntersecting);
       },

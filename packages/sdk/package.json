@@ -12,6 +12,11 @@
   ],
   "type": "module",
   "exports": {
+    "./dom": {
+      "source": "./src/core/dom.ts",
+      "types": "./dist/core/dom.d.ts",
+      "import": "./dist/core/dom.js"
+    },
     "./createApp": {
       "source": "./src/core/createApp.ts",
       "types": "./dist/core/createApp.d.ts",
@@ -118,6 +123,10 @@
   },
   "publishConfig": {
     "exports": {
+      "./dom": {
+        "types": "./dist/core/dom.d.ts",
+        "import": "./dist/core/dom.js"
+      },
       "./createApp": {
         "types": "./dist/core/createApp.d.ts",
         "import": "./dist/core/createApp.js"
