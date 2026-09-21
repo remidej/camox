@@ -32,6 +32,7 @@
     "build": "node scripts/sync-templates.mjs && vp pack",
     "dev": "node scripts/sync-templates.mjs --watch --build",
     "lint": "vp lint",
+    "test": "vp pack && node --test test/*.test.mjs",
     "check": "tsgo --noEmit && vp lint --fix"
   },
   "dependencies": {

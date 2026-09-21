@@ -72,7 +72,9 @@ async function callRemote(params: CallToolParams): Promise<CallToolResponse> {
  * from the sidecar — it's derived from auth (`dev:<email>`) by default,
  * with `--production` as the only opt-in for prod.
  */
-export async function dispatch(opts: DispatchOptions): Promise<never> {
+export async function resolveCommandContext(
+  opts: Pick<DispatchOptions, "projectFlag" | "production">,
+) {
   let runtime;
   try {
     runtime = loadRuntime();
@@ -108,14 +110,21 @@ export async function dispatch(opts: DispatchOptions): Promise<never> {
   const environmentName = opts.production ? "production" : `dev:${token.email}`;
 
   const projectId = await resolveProjectId(token.token, slug, runtime.apiUrl);
-  const response = await callRemote({
+  return {
     token: token.token,
     apiUrl: runtime.apiUrl,
     environmentName,
     projectId,
+    disableTelemetry: runtime.disableTelemetry,
+  };
+}
+
+export async function dispatch(opts: DispatchOptions): Promise<never> {
+  const context = await resolveCommandContext(opts);
+  const response = await callRemote({
+    ...context,
     name: opts.toolName,
     args: compact(opts.args),
-    disableTelemetry: runtime.disableTelemetry,
   });
 
   if (!response.ok) {

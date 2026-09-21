@@ -6,7 +6,7 @@ import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { outdent } from "outdent";
 import { z } from "zod";
 
-import { assertFileAccess } from "../../authorization";
+import { assertFileAccess, getAuthorizedProject } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
@@ -18,6 +18,40 @@ import type { ServiceContext } from "../_shared/service-context";
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
+
+export const fileMetadataInput = z
+  .object({ alt: z.string().optional(), aiMetadataEnabled: z.boolean().optional() })
+  .refine((data) => data.alt === undefined || data.aiMetadataEnabled !== true, {
+    message: "Alt text cannot be combined with automatic metadata enabled.",
+  });
+export const projectFileInput = z.object({ projectId: z.number(), id: z.number() });
+export const updateFileMetadataInput = fileMetadataInput
+  .and(
+    z.object({
+      filename: z
+        .string()
+        .refine(
+          (filename) =>
+            filename.trim().length > 0 &&
+            filename !== "." &&
+            filename !== ".." &&
+            !/[\\/]/.test(filename) &&
+            !filename
+              .split("")
+              .some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127),
+          { message: "Provide a non-empty filename without directories or control characters." },
+        )
+        .optional(),
+    }),
+  )
+  .refine(
+    (data) =>
+      data.alt !== undefined || data.aiMetadataEnabled !== undefined || data.filename !== undefined,
+    {
+      message: "Provide a filename, alt text or an automatic metadata setting.",
+    },
+  );
+export const updateFileInput = projectFileInput.and(updateFileMetadataInput);
 
 export const listFilesInput = z.object({ projectId: z.number() });
 export const getFileInput = z.object({ id: z.number() });
@@ -110,11 +144,29 @@ export async function executeFileMetadata(db: Database, apiKey: string, fileId: 
   if (!isRasterImage(file.mimeType)) return;
 
   const metadata = await generateImageMetadata(apiKey, file.url, file.mimeType, file.filename);
+  await saveGeneratedFileMetadata(db, file, metadata);
+}
 
+export async function saveGeneratedFileMetadata(
+  db: Database,
+  file: Pick<typeof files.$inferSelect, "id" | "updatedAt">,
+  metadata: { filename: string; alt: string },
+) {
   await db
     .update(files)
-    .set({ filename: metadata.filename, alt: metadata.alt, updatedAt: Date.now() })
-    .where(eq(files.id, fileId));
+    .set({
+      filename: metadata.filename,
+      alt: metadata.alt,
+      updatedAt: Math.max(Date.now(), file.updatedAt + 1),
+    })
+    // Do not overwrite manual edits or a replaced asset while generation was in flight.
+    .where(
+      and(
+        eq(files.id, file.id),
+        eq(files.updatedAt, file.updatedAt),
+        sql`${files.aiMetadataEnabled} IS NOT 0`,
+      ),
+    );
 }
 
 // --- File reference cleanup ---
@@ -250,7 +302,64 @@ export async function getFileUsageCount(
   return { count: (blockCount?.count ?? 0) + (itemCount?.count ?? 0) };
 }
 
+// Authenticated, project/environment-scoped access for agent tools.
+export async function getProjectFile(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof projectFileInput>,
+) {
+  const user = assertUser(ctx);
+  const { projectId, id } = projectFileInput.parse(rawInput);
+  const project = await getAuthorizedProject(ctx.db, projectId, user.id);
+  if (!project) throw new ORPCError("NOT_FOUND");
+  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  const file = await ctx.db
+    .select()
+    .from(files)
+    .where(
+      and(
+        eq(files.id, id),
+        eq(files.projectId, projectId),
+        eq(files.environmentId, environment.id),
+      ),
+    )
+    .get();
+  if (!file) throw new ORPCError("NOT_FOUND");
+  return file;
+}
+
 // --- Writes ---
+
+export async function updateFile(ctx: ServiceContext, rawInput: z.input<typeof updateFileInput>) {
+  const input = updateFileInput.parse(rawInput);
+  const file = await getProjectFile(ctx, input);
+  if (input.aiMetadataEnabled && !isRasterImage(file.mimeType)) {
+    throw new ORPCError("BAD_REQUEST", { message: "Automatic metadata requires a raster image." });
+  }
+  const aiMetadataEnabled = input.alt !== undefined ? false : input.aiMetadataEnabled;
+  const result = await ctx.db
+    .update(files)
+    .set({
+      ...(input.alt !== undefined ? { alt: input.alt } : {}),
+      ...(input.filename !== undefined ? { filename: input.filename } : {}),
+      ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
+      updatedAt: Math.max(Date.now(), file.updatedAt + 1),
+    })
+    .where(eq(files.id, file.id))
+    .returning()
+    .get();
+  if (aiMetadataEnabled) {
+    ctx.waitUntil(
+      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
+        entityTable: "files",
+        entityId: file.id,
+        type: "fileMetadata",
+        delayMs: 0,
+      }),
+    );
+  }
+  invalidateFile(ctx, input.projectId, [queryKeys.files.list, queryKeys.files.get(file.id)]);
+  return result;
+}
 
 export async function setFileAlt(ctx: ServiceContext, rawInput: z.input<typeof setFileAltInput>) {
   const user = assertUser(ctx);
@@ -260,7 +369,11 @@ export async function setFileAlt(ctx: ServiceContext, rawInput: z.input<typeof s
 
   const result = await ctx.db
     .update(files)
-    .set({ alt, updatedAt: Date.now() })
+    .set({
+      alt,
+      aiMetadataEnabled: false,
+      updatedAt: Math.max(Date.now(), access.file.updatedAt + 1),
+    })
     .where(eq(files.id, id))
     .returning()
     .get();
@@ -510,7 +623,7 @@ export async function setFileAiMetadata(
 
   const result = await ctx.db
     .update(files)
-    .set({ aiMetadataEnabled: enabled, updatedAt: Date.now() })
+    .set({ aiMetadataEnabled: enabled, updatedAt: Math.max(Date.now(), access.file.updatedAt + 1) })
     .where(eq(files.id, id))
     .returning()
     .get();

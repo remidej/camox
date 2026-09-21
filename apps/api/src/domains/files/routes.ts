@@ -94,9 +94,26 @@ fileHonoRoutes.post("/upload", async (c) => {
   const body = await c.req.parseBody();
   const file = body["file"];
   const projectId = Number(body["projectId"]);
+  const aiMetadata = body["aiMetadataEnabled"];
+  if (aiMetadata !== undefined && aiMetadata !== "true" && aiMetadata !== "false") {
+    return c.json({ error: "aiMetadataEnabled must be true or false" }, 400);
+  }
+  const metadata = service.fileMetadataInput.safeParse({
+    alt: body["alt"],
+    aiMetadataEnabled: aiMetadata === undefined ? undefined : aiMetadata === "true",
+  });
+  if (!metadata.success) return c.json({ error: metadata.error.message }, 400);
 
   if (!(file instanceof File)) return c.json({ error: "Missing file" }, 400);
-  if (!projectId || Number.isNaN(projectId)) return c.json({ error: "Missing projectId" }, 400);
+  if (!Number.isSafeInteger(projectId) || projectId <= 0)
+    return c.json({ error: "Missing projectId" }, 400);
+  if (file.size > 100 * 1024 * 1024) return c.json({ error: "File exceeds 100 MiB limit" }, 413);
+  const canGenerateAiMetadata = isRasterImage(file.type);
+  if (metadata.data.aiMetadataEnabled && !canGenerateAiMetadata) {
+    return c.json({ error: "Automatic metadata requires a raster image" }, 400);
+  }
+  let aiMetadataEnabled = metadata.data.aiMetadataEnabled ?? null;
+  if (metadata.data.alt !== undefined || !canGenerateAiMetadata) aiMetadataEnabled = false;
 
   const project = await getAuthorizedProject(c.var.db, projectId, c.var.user.id);
   if (!project) return c.json({ error: "Not found" }, 404);
@@ -104,7 +121,9 @@ fileHonoRoutes.post("/upload", async (c) => {
   const environment = await resolveEnvironment(c.var.db, projectId, c.var.environmentName);
 
   const now = Date.now();
-  const key = `${projectId}/${now}-${file.name}`;
+  const filename = file.name.split(/[\\/]/).pop() || "upload";
+  // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
+  const key = `${projectId}/${crypto.randomUUID()}`;
 
   await c.env.FILES_BUCKET.put(key, file.stream(), {
     httpMetadata: { contentType: file.type },
@@ -113,30 +132,26 @@ fileHonoRoutes.post("/upload", async (c) => {
   const apiOrigin = new URL(c.req.url).origin;
   const url = `${apiOrigin}/files/serve/${key}`;
 
-  // Only raster images can be analyzed by the vision model — other types
-  // (PDFs, video, audio, SVG) skip the AI metadata pipeline entirely.
-  const canGenerateAiMetadata = isRasterImage(file.type);
-
   const result = await c.var.db
     .insert(files)
     .values({
       projectId,
       environmentId: environment.id,
       blobId: key,
-      filename: file.name,
+      filename,
       mimeType: file.type,
       size: file.size,
       path: key,
       url,
-      alt: "",
-      aiMetadataEnabled: canGenerateAiMetadata ? null : false,
+      alt: metadata.data.alt ?? "",
+      aiMetadataEnabled,
       createdAt: now,
       updatedAt: now,
     })
     .returning()
     .get();
 
-  if (canGenerateAiMetadata) {
+  if (aiMetadataEnabled !== false) {
     c.executionCtx.waitUntil(
       scheduleAiJob(c.env.AI_JOB_SCHEDULER, {
         entityTable: "files",
