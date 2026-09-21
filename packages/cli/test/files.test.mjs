@@ -159,7 +159,30 @@ function success(result) {
 }
 
 void test("local upload, empty alt, reads, updates, and use in block content", async () => {
-  const file = success(await cli("files", "upload", "--file", "hero.webp", "--alt", "", "--json"));
+  await mkdir(join(home, "apps/site/node_modules/.camox"), { recursive: true });
+  await writeFile(
+    join(home, "apps/site/node_modules/.camox/runtime.json"),
+    JSON.stringify({
+      projectSlug: "test",
+      apiUrl: origin,
+      authenticationUrl: origin,
+      disableTelemetry: true,
+    }),
+  );
+  // The upload path stays relative to the shell, not the runtime lookup directory.
+  const file = success(
+    await cli(
+      "files",
+      "upload",
+      "--cwd",
+      "apps/site",
+      "--file",
+      "hero.webp",
+      "--alt",
+      "",
+      "--json",
+    ),
+  );
   assert.equal(file.mimeType, "image/webp");
   assert.equal(file.alt, "");
   assert.equal(file.aiMetadataEnabled, false);

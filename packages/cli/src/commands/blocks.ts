@@ -5,6 +5,7 @@ import { choice, integer, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, asCliError, parseJsonFlag, printError } from "../lib/output";
+import { cwdFlag } from "../lib/runtime-options";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
@@ -16,6 +17,7 @@ const types = command(
   "types",
   object({
     command: constant("blocks.types" as const),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -27,6 +29,7 @@ const describe = command(
   object({
     command: constant("blocks.describe" as const),
     type: multiple(option("--type", string({ metavar: "TYPE" })), { min: 1 }),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -39,6 +42,7 @@ const get = command(
     command: constant("blocks.get" as const),
     id: option("--id", integer({ metavar: "ID" })),
     live: liveFlag,
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -51,6 +55,7 @@ const getMany = command(
     command: constant("blocks.get-many" as const),
     id: multiple(option("--id", integer({ metavar: "ID" })), { min: 1 }),
     live: liveFlag,
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -72,6 +77,7 @@ const create = command(
     beforeId: optional(option("--before-id", integer({ metavar: "ID" }))),
     afterPosition: optional(option("--after-position", string({ metavar: "POS" }))),
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -85,6 +91,7 @@ const edit = command(
     id: option("--id", integer({ metavar: "ID" })),
     content: optional(option("--content", string({ metavar: "JSON" }))),
     settings: optional(option("--settings", string({ metavar: "JSON" }))),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -103,6 +110,7 @@ const move = command(
     beforeId: optional(option("--before-id", integer({ metavar: "ID" }))),
     afterPosition: optional(option("--after-position", string({ metavar: "POS" }))),
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -114,6 +122,7 @@ const del = command(
   object({
     command: constant("blocks.delete" as const),
     id: option("--id", integer({ metavar: "ID" })),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -122,7 +131,7 @@ const del = command(
 
 export const parser = command("blocks", or(types, describe, get, getMany, create, edit, move, del));
 
-type CommonFlags = { project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
 
 type PositioningFlags = {
   position?: "first" | "last";
@@ -184,6 +193,7 @@ function collectPositioningArgs(args: PositioningFlags): {
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
+  const cwd = args.cwd;
   const projectFlag = args.project;
   const production = args.production;
 
@@ -193,6 +203,7 @@ export async function handler(args: Args): Promise<never> {
         return dispatch({
           toolName: "listBlockTypes",
           args: {},
+          cwd,
           projectFlag,
           production,
           outputMode,
@@ -201,6 +212,7 @@ export async function handler(args: Args): Promise<never> {
         return dispatch({
           toolName: "describeBlockTypes",
           args: { types: [...args.type] },
+          cwd,
           projectFlag,
           production,
           outputMode,
@@ -209,6 +221,7 @@ export async function handler(args: Args): Promise<never> {
         return dispatch({
           toolName: "getBlock",
           args: { id: args.id, source: args.live ? "live" : "draft" },
+          cwd,
           projectFlag,
           production,
           outputMode,
@@ -217,6 +230,7 @@ export async function handler(args: Args): Promise<never> {
         return dispatch({
           toolName: "getBlocks",
           args: { ids: [...args.id], source: args.live ? "live" : "draft" },
+          cwd,
           projectFlag,
           production,
           outputMode,
@@ -242,6 +256,7 @@ export async function handler(args: Args): Promise<never> {
             settings,
             ...toolArgs,
           },
+          cwd,
           projectFlag,
           production,
           outputMode,
@@ -255,6 +270,7 @@ export async function handler(args: Args): Promise<never> {
         return dispatch({
           toolName: "editBlock",
           args: { id: args.id, content, settings },
+          cwd,
           projectFlag,
           production,
           outputMode,
@@ -280,6 +296,7 @@ export async function handler(args: Args): Promise<never> {
         return dispatch({
           toolName: "moveBlock",
           args: { id: args.id, ...toolArgs },
+          cwd,
           projectFlag,
           production,
           outputMode,
@@ -289,6 +306,7 @@ export async function handler(args: Args): Promise<never> {
         return dispatch({
           toolName: "deleteBlock",
           args: { id: args.id },
+          cwd,
           projectFlag,
           production,
           outputMode,

@@ -1,5 +1,27 @@
 # Camox CLI
 
+## Runtime lookup and monorepos
+
+Runtime-backed commands (`status`, `pages`, `blocks`, `layouts`, `env`, `files`,
+and `logout`) accept `--cwd PATH`:
+
+```sh
+camox pages list --cwd apps/site
+camox status --cwd apps/site
+camox files upload --cwd apps/site --file ./hero.webp --alt "Product screenshot"
+```
+
+The CLI searches for `node_modules/.camox/runtime.json` starting in that directory
+and walking upward. Without `--cwd`, lookup starts in the shell's current directory.
+There is no workspace or child-directory discovery. Run the app's dev server or
+build once to generate its runtime file.
+
+Relative `--cwd` paths resolve against the shell's current directory. This option
+only affects runtime lookup: other paths, such as `--file ./hero.webp`, still
+resolve against the shell's current directory. Missing or non-directory paths fail
+instead of falling back to the shell's directory. Environment selection is unchanged:
+your development environment by default, with explicit `--production` where supported.
+
 ## Page SEO
 
 Use `pages get` to read metadata and `pages update` to edit it:

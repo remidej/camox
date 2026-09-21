@@ -22,7 +22,7 @@ import * as status from "./commands/status";
 type Result =
   | { command: "init" }
   | { command: "login" }
-  | { command: "logout" }
+  | { command: "logout"; cwd?: string }
   | { command: "release" }
   | Parameters<typeof status.handler>[0]
   | Parameters<typeof pages.handler>[0]
@@ -60,7 +60,7 @@ switch (result.command) {
     await login.handler();
     break;
   case "logout":
-    logout.handler();
+    logout.handler(result);
     break;
   case "release":
     release.handler();

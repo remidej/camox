@@ -3,24 +3,35 @@ import { command, constant, option } from "@optique/core/primitives";
 
 import { readAuthTokenForUrl } from "../lib/auth";
 import { printError } from "../lib/output";
-import { RuntimeMalformedError, RuntimeNotFoundError, loadRuntime } from "../lib/runtime";
+import {
+  RuntimeDirectoryError,
+  RuntimeMalformedError,
+  RuntimeNotFoundError,
+  loadRuntime,
+} from "../lib/runtime";
+import { cwdFlag } from "../lib/runtime-options";
 
 export const parser = command(
   "status",
   object({
     command: constant("status" as const),
+    cwd: cwdFlag,
     production: option("--production"),
     json: option("--json"),
   }),
 );
 
-type Args = { command: "status"; production: boolean; json: boolean };
+type Args = { cwd?: string; command: "status"; production: boolean; json: boolean };
 
 export async function handler(args: Args): Promise<never> {
   let runtime;
   try {
-    runtime = loadRuntime();
+    runtime = loadRuntime(args.cwd);
   } catch (err) {
+    if (err instanceof RuntimeDirectoryError) {
+      printError({ code: "INVALID_CWD", message: err.message });
+      process.exit(2);
+    }
     if (err instanceof RuntimeNotFoundError || err instanceof RuntimeMalformedError) {
       printError({ code: "RUNTIME_NOT_FOUND", message: err.message });
       process.exit(2);

@@ -8,8 +8,10 @@ import { choice, integer, string } from "@optique/core/valueparser";
 import { dispatch, resolveCommandContext } from "../lib/dispatch";
 import { uploadFile, validateFilename, validateMetadata, validateUpload } from "../lib/file-upload";
 import { asCliError, printError, printResult } from "../lib/output";
+import { cwdFlag } from "../lib/runtime-options";
 
 const common = {
+  cwd: cwdFlag,
   project: optional(option("--project", string({ metavar: "SLUG" }))),
   production: option("--production"),
   json: option("--json"),
@@ -110,7 +112,12 @@ type Args = InferValue<typeof parser>;
 
 export async function handler(args: Args): Promise<never> {
   const outputMode = args.json ? "json" : "auto";
-  const options = { projectFlag: args.project, production: args.production, outputMode } as const;
+  const options = {
+    cwd: args.cwd,
+    projectFlag: args.project,
+    production: args.production,
+    outputMode,
+  } as const;
   try {
     if (args.command === "files.upload") {
       validateUpload(args);

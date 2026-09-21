@@ -1,7 +1,12 @@
 import { type CallToolParams, type CallToolResponse, callTool, getProjectBySlug } from "./api";
 import { readAuthTokenForUrl } from "./auth";
 import { type CliError, type OutputMode, asCliError, printError, printResult } from "./output";
-import { RuntimeMalformedError, RuntimeNotFoundError, loadRuntime } from "./runtime";
+import {
+  RuntimeDirectoryError,
+  RuntimeMalformedError,
+  RuntimeNotFoundError,
+  loadRuntime,
+} from "./runtime";
 
 /**
  * Strip undefined fields. Optique returns `undefined` for absent optional
@@ -21,6 +26,8 @@ export type DispatchOptions = {
   args: Record<string, unknown>;
   /** Slug from `--project` flag if user passed one. Overrides the sidecar. */
   projectFlag?: string;
+  /** Starting directory for runtime lookup only; does not change process.cwd(). */
+  cwd?: string;
   /**
    * When `true` (from `--production`), target the `production` environment.
    * Default is `dev:<email>` derived from the local auth token — the same
@@ -73,12 +80,15 @@ async function callRemote(params: CallToolParams): Promise<CallToolResponse> {
  * with `--production` as the only opt-in for prod.
  */
 export async function resolveCommandContext(
-  opts: Pick<DispatchOptions, "projectFlag" | "production">,
+  opts: Pick<DispatchOptions, "projectFlag" | "production" | "cwd">,
 ) {
   let runtime;
   try {
-    runtime = loadRuntime();
+    runtime = loadRuntime(opts.cwd);
   } catch (err) {
+    if (err instanceof RuntimeDirectoryError) {
+      return fail({ code: "INVALID_CWD", message: err.message }, 2);
+    }
     if (err instanceof RuntimeNotFoundError || err instanceof RuntimeMalformedError) {
       return fail({ code: "RUNTIME_NOT_FOUND", message: err.message }, 2);
     }

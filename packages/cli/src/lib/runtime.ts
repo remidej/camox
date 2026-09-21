@@ -27,12 +27,21 @@ export class RuntimeNotFoundError extends Error {
   readonly cwd: string;
   constructor(cwd: string) {
     super(
-      `No camox runtime found. Looked for "${SIDECAR}" walking up from ${cwd}. ` +
-        "The camox vite plugin writes this file on dev/build — start your " +
-        "project's dev server (or run a build) once before invoking camox.",
+      `No Camox runtime found. Looked for "${SIDECAR}" starting from ${cwd} and its parent directories. ` +
+        "Change into your app directory or pass --cwd <app-path>. " +
+        "If you're already targeting the correct app, run its dev server or build once to generate the runtime file.",
     );
     this.cwd = cwd;
     this.name = "RuntimeNotFoundError";
+  }
+}
+
+export class RuntimeDirectoryError extends Error {
+  constructor(directory: string) {
+    super(
+      `Runtime lookup directory "${directory}" does not exist, is not a directory, or cannot be accessed. Check --cwd <app-path>.`,
+    );
+    this.name = "RuntimeDirectoryError";
   }
 }
 
@@ -52,7 +61,13 @@ export class RuntimeMalformedError extends Error {
  * that tell the user how to fix it.
  */
 export function loadRuntime(cwd: string = process.cwd()): Runtime {
-  let dir = cwd;
+  let dir = path.resolve(cwd);
+  try {
+    if (!fs.statSync(dir).isDirectory()) throw new RuntimeDirectoryError(dir);
+  } catch {
+    throw new RuntimeDirectoryError(dir);
+  }
+  const start = dir;
   while (true) {
     const candidate = path.join(dir, SIDECAR);
     if (fs.existsSync(candidate)) {
@@ -75,7 +90,7 @@ export function loadRuntime(cwd: string = process.cwd()): Runtime {
       }
     }
     const parent = path.dirname(dir);
-    if (parent === dir) throw new RuntimeNotFoundError(cwd);
+    if (parent === dir) throw new RuntimeNotFoundError(start);
     dir = parent;
   }
 }

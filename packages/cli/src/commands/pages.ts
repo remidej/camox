@@ -6,6 +6,7 @@ import { choice, integer, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, printError } from "../lib/output";
+import { cwdFlag } from "../lib/runtime-options";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
@@ -18,6 +19,7 @@ const list = command(
   "list",
   object({
     command: constant("pages.list" as const),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -31,6 +33,7 @@ const get = command(
     id: optional(option("--id", integer({ metavar: "ID" }))),
     path: optional(option("--path", string({ metavar: "PATH" }))),
     live: liveFlag,
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -47,6 +50,7 @@ const publish = command(
     // the layout publish when there are no pending changes, so the cascade is
     // safe to leave on by default.
     noLayout: option("--no-layout"),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -59,6 +63,7 @@ const unpublish = command(
     command: constant("pages.unpublish" as const),
     id: optional(option("--id", integer({ metavar: "ID" }))),
     path: optional(option("--path", string({ metavar: "PATH" }))),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -71,6 +76,7 @@ const discardChanges = command(
     command: constant("pages.discard-changes" as const),
     id: optional(option("--id", integer({ metavar: "ID" }))),
     path: optional(option("--path", string({ metavar: "PATH" }))),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -85,6 +91,7 @@ const create = command(
     pathSegment: option("--path-segment", string({ metavar: "SEGMENT" })),
     layoutId: option("--layout-id", integer({ metavar: "ID" })),
     parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -115,6 +122,7 @@ const update = command(
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: optional(option("--path-segment", string({ metavar: "SEGMENT" }))),
     parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -130,6 +138,7 @@ const setLayout = command(
     command: constant("pages.set-layout" as const),
     id: option("--id", integer({ metavar: "ID" })),
     layoutId: option("--layout-id", integer({ metavar: "ID" })),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -141,6 +150,7 @@ const del = command(
   object({
     command: constant("pages.delete" as const),
     id: option("--id", integer({ metavar: "ID" })),
+    cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
@@ -152,7 +162,7 @@ export const parser = command(
   or(list, get, create, update, setLayout, del, publish, unpublish, discardChanges),
 );
 
-type CommonFlags = { project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
 
 type Args =
   | ({ command: "pages.list" } & CommonFlags)
@@ -191,12 +201,20 @@ type Args =
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
+  const cwd = args.cwd;
   const projectFlag = args.project;
   const production = args.production;
 
   switch (args.command) {
     case "pages.list":
-      return dispatch({ toolName: "listPages", args: {}, projectFlag, production, outputMode });
+      return dispatch({
+        toolName: "listPages",
+        args: {},
+        cwd,
+        projectFlag,
+        production,
+        outputMode,
+      });
     case "pages.get": {
       if ((args.id == null) === (args.path == null)) {
         printError({
@@ -212,6 +230,7 @@ export async function handler(args: Args): Promise<never> {
       return dispatch({
         toolName: "getPage",
         args: toolArgs,
+        cwd,
         projectFlag,
         production,
         outputMode,
@@ -226,6 +245,7 @@ export async function handler(args: Args): Promise<never> {
           layoutId: args.layoutId,
           parentPageId: args.parentPageId,
         },
+        cwd,
         projectFlag,
         production,
         outputMode,
@@ -269,6 +289,7 @@ export async function handler(args: Args): Promise<never> {
           pathSegment: args.pathSegment,
           parentPageId: args.parentPageId,
         },
+        cwd,
         projectFlag,
         production,
         outputMode,
@@ -278,6 +299,7 @@ export async function handler(args: Args): Promise<never> {
       return dispatch({
         toolName: "setPageLayout",
         args: { id: args.id, layoutId: args.layoutId },
+        cwd,
         projectFlag,
         production,
         outputMode,
@@ -286,6 +308,7 @@ export async function handler(args: Args): Promise<never> {
       return dispatch({
         toolName: "deletePage",
         args: { id: args.id },
+        cwd,
         projectFlag,
         production,
         outputMode,
@@ -302,6 +325,7 @@ export async function handler(args: Args): Promise<never> {
       return dispatch({
         toolName: "publishPage",
         args: { ...target, alsoPublishLayout: !args.noLayout },
+        cwd,
         projectFlag,
         production,
         outputMode,
@@ -319,6 +343,7 @@ export async function handler(args: Args): Promise<never> {
       return dispatch({
         toolName: "unpublishPage",
         args: target,
+        cwd,
         projectFlag,
         production,
         outputMode,
@@ -336,6 +361,7 @@ export async function handler(args: Args): Promise<never> {
       return dispatch({
         toolName: "discardPageChanges",
         args: target,
+        cwd,
         projectFlag,
         production,
         outputMode,
