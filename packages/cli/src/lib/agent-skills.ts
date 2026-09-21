@@ -6,6 +6,8 @@ export function createAgentSkillLinks(targetDir: string) {
   const claudeSkillsDir = path.join(targetDir, ".claude", "skills");
   fs.mkdirSync(agentsSkillsDir, { recursive: true });
   fs.mkdirSync(claudeSkillsDir, { recursive: true });
-  fs.symlinkSync("../../node_modules/camox/skills/camox", path.join(agentsSkillsDir, "camox"));
-  fs.symlinkSync("../../.agents/skills/camox", path.join(claudeSkillsDir, "camox"));
+  for (const skill of ["camox", "camoxify"]) {
+    fs.symlinkSync(`../../node_modules/camox/skills/${skill}`, path.join(agentsSkillsDir, skill));
+    fs.symlinkSync(`../../.agents/skills/${skill}`, path.join(claudeSkillsDir, skill));
+  }
 }
