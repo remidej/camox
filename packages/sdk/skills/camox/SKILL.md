@@ -37,6 +37,6 @@ For any CLI operation, first read [CLI common guidance](references/cli-common.md
 - Production targeting or environment replication:
   [CLI Environments](references/cli-environments.md).
 
-Code definitions register types; they do not place page-content blocks or assign layouts to existing Pages. When the request includes placement or assignment, follow with the relevant CLI workflow. Singleton pages and derived routes are declared in code, not created through the pages CLI.
+Code definitions do not place blocks on existing Pages or assign their layouts; `blocks.initial` only seeds the initial homepage. When the request includes placement or assignment on existing Pages, follow with the relevant CLI workflow. Singleton pages and derived routes are declared in code, not created through the pages CLI.
 
 A request can cross boundaries. Load an additional reference only once that need is established.

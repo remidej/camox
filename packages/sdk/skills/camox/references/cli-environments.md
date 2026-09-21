@@ -1,6 +1,6 @@
 # Managing Environments with the Camox CLI
 
-Read [cli-common.md](cli-common.md) first. Replace `{{CAMOX_CMD}}` as described there and verify commands with `--help`.
+Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and draft-first rules.
 
 Every Project has an isolated dev Environment for each developer and a shared production Environment. Each Environment independently contains draft and live sources.
 

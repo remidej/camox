@@ -1,30 +1,25 @@
 # Creating Camox Block Definitions
 
-A block is a reusable page section (hero, testimonial, gallery, footer...). Users compose pages by assembling blocks. This skill covers creating block **definitions** — the template that describes a block's schema and rendering. Not the content (an instance of a block).
+A block definition specifies a reusable section's schema and rendering, not an instance's content.
 
-## After defining the block: place it when requested
-
-A definition only adds a new _type_ of block to the catalog — it doesn't put one on any Page. Users almost never just want "a definition"; they want a section that actually shows up on the site. Once the Block Definition exists and the dev server has picked it up, follow the umbrella skill's CLI routing to create a Block on the relevant Page. For shared chrome, follow the Layout Definition reference instead. If the user asks for "a hero on the homepage", define the Block Definition and then create the hero Block on the home Page. Don't stop after the definition unless the user explicitly requested only the reusable type.
+When asked to add a section, also place an instance after dev-server discovery using the [CLI workflow](../SKILL.md#content-and-cli). For shared chrome, use [Layout Definitions](layout-definitions.md) instead. Defining a type alone does not place it on a Page.
 
 ## Quick Start
 
-A block file lives in the app's `src/blocks/` folder, is a `.tsx` file, and exports `block`:
+Use one `.tsx` file per block in `src/blocks/`, a named `block` export (not default), a named function component, and Tailwind styling.
 
 ```tsx
 import { Type, createBlock } from "camox/createBlock";
 
 const myBlock = createBlock({
-  id: "my-block", // Must match filename (kebab-case)
-  title: "My Block", // Human-readable name
-  description: "...", // Tells the AI when/how to use this block
+  id: "my-block",
+  title: "My Block",
+  description: "A page introduction with an editable heading.",
   content: {
-    /* ... */
-  }, // Editable content schema
-  settings: {
-    /* ... */
-  }, // Optional config toggles
+    title: Type.String({ default: "Welcome" }),
+  },
   component: MyBlockComponent,
-  toMarkdown: (c) => [`# ${c.title}`, c.description], // Markdown template
+  toMarkdown: (c) => [`# ${c.title}`],
 });
 
 function MyBlockComponent() {
@@ -38,136 +33,83 @@ function MyBlockComponent() {
 export { myBlock as block };
 ```
 
-## DOM integrations in preview and published pages
-
-For DOM listeners, scrolling, browser scripts, or widgets, read [DOM integrations](dom-integrations.md). Preview DOM lives in an iframe; use `getElementContext` from `camox/dom` with a mounted element rather than component-global `window` or `document`.
+For DOM listeners, scrolling, scripts, or widgets, read [DOM integrations](dom-integrations.md). Preview DOM lives in an iframe; use `getElementContext` from `camox/dom`, not component-global `window` or `document`.
 
 ## The `createBlock` options
 
-| Option        | Required | Description                                                                                                                                                                                                                                                                                                                                                                |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | yes      | Unique kebab-case identifier. Must match the filename without extension.                                                                                                                                                                                                                                                                                                   |
-| `title`       | yes      | Display name shown in the CMS UI.                                                                                                                                                                                                                                                                                                                                          |
-| `description` | yes      | Tells the AI assistant when to use this block and what content it expects. Write it like guidance for an LLM — be specific about placement, tone, and content guidelines.                                                                                                                                                                                                  |
-| `content`     | yes      | An object where each key is a field name and each value is a `Type.*` call. These fields are inline-editable in the CMS.                                                                                                                                                                                                                                                   |
-| `settings`    | no       | Same shape as `content`, but for configuration that lives in a settings panel (not inline). Only `Type.Enum` and `Type.Boolean` should be used here.                                                                                                                                                                                                                       |
-| `layoutOnly`  | no       | If `true`, the block won't appear in the "add block" sheet — it can only be placed inside layouts (e.g. navbar, footer).                                                                                                                                                                                                                                                   |
-| `synced`      | no       | Boolean, defaults to `false`. Share content and settings across every instance of this type within an environment. Ideal for a navbar/footer reused across layouts. Synced blocks have purple editor highlights.                                                                                                                                                           |
-| `component`   | yes      | A named React function component that renders the block.                                                                                                                                                                                                                                                                                                                   |
-| `toMarkdown`  | yes      | A builder function `(c, s) => (...)[]` that renders block content as markdown. `c` is a proxy typed on your `content` keys; `s` is a proxy typed on your `settings` keys used to wrap lines in conditionals. Each returned entry becomes a paragraph (joined with `\n\n`). Lines where all referenced fields resolve to empty — or whose condition is false — are omitted. |
+| Option        | Required | Description                                                                                   |
+| ------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                         |
+| `title`       | yes      | CMS display name.                                                                             |
+| `description` | yes      | Agent guidance on placement, expected content, and tone.                                      |
+| `content`     | yes      | Field names mapped to `Type.*` schemas for editable content.                                  |
+| `settings`    | no       | Settings-panel fields; only `Type.Enum` and `Type.Boolean`.                                   |
+| `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.         |
+| `synced`      | no       | Defaults to false. Shares content/settings across instances within an environment; see below. |
+| `component`   | yes      | Named React function component.                                                               |
+| `toMarkdown`  | yes      | `(c, s) => [...]` markdown builder; see below.                                                |
 
 ## Synced blocks (`synced`, optional)
 
-`createBlock({ synced: true, ... })` makes every instance of that block **type** share content and settings, including nested repeater items and their settings. It defaults to `false`: instances are independent unless you opt in. Sharing is scoped to one project environment; development and production never share edits automatically.
+`synced: true` shares content and settings, including nested repeater items and their settings, across every instance of the block **type** within one environment. Dev and production remain independent. Synced blocks have purple editor highlights.
 
-Use `layoutOnly: true, synced: true` for a navbar or footer that must have identical data across different layouts. `layoutOnly` controls where a block can be placed; it does **not** enable syncing. A synced block can also be a normal page-content block.
+For shared navbar/footer data across layouts, use `layoutOnly: true, synced: true`. These flags are independent: synced blocks can also be ordinary page-content blocks.
 
-- Editing any instance updates the shared draft data everywhere. New instances reuse existing data rather than resetting it to defaults.
-- Positions, page/layout placement, and deletion remain per instance. Deleting one placement doesn't delete the others.
-- Publishing a page or layout containing the block publishes its shared data for all live instances. Unpublished draft edits never leak into the live site.
-- Enabling syncing on an existing type keeps the oldest instance's data and applies it to the others. Disabling it leaves each instance with a copy that can then be edited independently.
-- Synced blocks have **purple highlights and overlays** in the editor.
+- Editing any instance updates the shared draft everywhere. New instances reuse existing data rather than resetting to defaults.
+- Position, placement, and deletion remain per instance; deleting one placement leaves the others.
+- Publishing a page or layout containing the block publishes shared data for all live instances. Unpublished drafts do not leak into live.
+- Enabling syncing on an existing type applies the oldest instance's data to all instances. Disabling it leaves independently editable copies.
 
 ## Markdown Template (`toMarkdown`)
 
-`toMarkdown` is a builder function that controls how block content is rendered as markdown for AI features (summaries, SEO). It receives:
+Required on blocks and repeaters. Receives typed proxies `c` (content) and `s` (settings); returns entries joined with `\n\n` for AI summaries and SEO. Lines whose referenced fields are all empty, or whose condition is false, are omitted.
 
-- `c` — a proxy typed on your `content` keys (`c.title`, `c.description`…)
-- `s` — a proxy typed on your `settings` keys, used to wrap lines in conditionals
-
-…and returns an array of entries. Each entry becomes a paragraph (joined with `\n\n`).
-
-A bare `c.fieldName` is the default for single-field lines. Use template literals when combining fields or adding markdown syntax:
+Use bare `c.field` for single-field lines and template literals for markdown or combined fields:
 
 ```tsx
-toMarkdown: (c) => [`# ${c.title}`, c.description, c.cta];
+toMarkdown: (c) => [`> ${c.quote}`, `— ${c.author}, ${c.company}`, c.photo];
 ```
 
-**Field resolution rules:**
+Field resolution:
 
-- **String**: raw text value
-- **Link**: `[text](href)`
-- **Image**: `![alt](filename)`
-- **File**: `[filename](url)`
-- **Embed**: raw URL string
-- **Repeater**: each item rendered via its own `toMarkdown` (if set on the Repeater options), items joined with `\n\n`
-- **ImageList / FileList**: each asset rendered as a markdown bullet
-- **Boolean/Enum**: raw string value
-
-Lines where ALL referenced fields resolve to empty are omitted from output.
-
-**Examples:**
-
-```tsx
-// Hero block
-createBlock({
-  toMarkdown: (c) => [`# ${c.title}`, c.description, c.illustration, c.cta],
-  content: { ... },
-})
-
-// Testimonial — combine fields on one line
-createBlock({
-  toMarkdown: (c) => [`> ${c.quote}`, `— ${c.author}, ${c.title}, ${c.company}`],
-  content: { ... },
-})
-
-// Statistics — Repeater with its own toMarkdown
-createBlock({
-  toMarkdown: (c) => [`## ${c.subtitle}`, c.description, c.statistics],
-  content: {
-    subtitle: Type.String({ default: "..." }),
-    description: Type.String({ default: "..." }),
-    statistics: Type.Repeater({
-      content: {
-        number: Type.String({ default: "100M+" }),
-        label: Type.String({ default: "pages served" }),
-      },
-      minItems: 4,
-      maxItems: 8,
-      toMarkdown: (c) => [`**${c.number}** — ${c.label}`],
-    }),
-  },
-})
-```
-
-The builder is type-safe — accessing a key that doesn't exist on `content` (e.g. `c.titl`) is a TypeScript error.
+| Type                 | Markdown                                         |
+| -------------------- | ------------------------------------------------ |
+| String               | Raw text                                         |
+| Link                 | `[text](href)`                                   |
+| Image                | `![alt](filename)`                               |
+| File                 | `[filename](url)`                                |
+| Embed                | Raw URL                                          |
+| Repeater             | Each item's own `toMarkdown`, joined with `\n\n` |
+| ImageList / FileList | One markdown bullet per asset                    |
+| Boolean / Enum       | Raw string value                                 |
 
 ### Conditional lines from settings
 
-The second `s` argument is a proxy over your `settings` keys. Wrap a line (or array of lines) to make it conditional on a setting:
+Boolean settings wrap one line or an array; Enum settings match a variant:
 
 ```tsx
-// Boolean setting — include a line only when the setting is true
-toMarkdown: (c, s) => [`# ${c.title}`, c.description, s.showCta(c.cta)];
-
-// Boolean wrapping multiple lines — all included together, or all dropped
 toMarkdown: (c, s) => [
   `# ${c.title}`,
-  s.showDetails([c.subtitle, c.description, c.backgroundImage]),
-  c.cta,
-];
-
-// Enum — emit different lines depending on the selected variant
-toMarkdown: (c, s) => [
-  `# ${c.title}`,
+  s.showCta(c.cta),
+  s.showDetails([c.subtitle, c.description]),
   s.variant("banner", `**${c.headline}** — ${c.subtext}`),
   s.variant("inline", `${c.headline}: ${c.cta}`),
 ];
 ```
 
-Only `Type.Boolean` and `Type.Enum` settings can be used this way — trying to reference any other setting is a type error. On a `Repeater`'s own `toMarkdown`, `s` refers to the item's own `settings` (not the parent block's).
+Only Boolean/Enum settings support these conditionals. A repeater's `s` refers to the item's settings, not the parent block's.
 
 ## Content Field Types
 
-Import `Type` from `"camox/createBlock"`. Every field requires a default value.
+Import `Type` from `"camox/createBlock"`. Supply defaults for scalar fields; images/files get automatic placeholders, lists use `defaultItems`, and repeaters use their item schemas and bounds.
 
 ### Type.String
 
-Inline-editable text. The workhorse field type. Supports inline formatting and links while remaining a string. For formatting syntax and appearance customization, read [Field styling](field-styling.md).
+Inline-editable text supporting formatting and links while remaining a string. See [Field styling](field-styling.md) for formatting syntax and appearance customization.
 
 ```tsx
 Type.String({
-  default: "Hello world", // Required
+  default: "Hello world",
   title: "Heading", // Optional label
   maxLength: 280, // Optional
   minLength: 1, // Optional
@@ -175,19 +117,12 @@ Type.String({
 });
 ```
 
-### Type.Boolean
+### Type.Boolean and Type.Enum
 
-A toggle. Use in `settings` for config, or in `content` for user-controlled flags.
+Use in `settings` for configuration or `content` for editable values. Enum defaults must match an option key.
 
 ```tsx
 Type.Boolean({ default: false, title: "Show background" });
-```
-
-### Type.Enum
-
-A dropdown with predefined options. Most commonly used in `settings`.
-
-```tsx
 Type.Enum({
   default: "left",
   options: { left: "Left", center: "Center", right: "Right" },
@@ -195,11 +130,9 @@ Type.Enum({
 });
 ```
 
-The `default` must be one of the keys in `options`.
-
 ### Type.Link
 
-A link with text, URL (or internal page reference), and new-tab toggle. Studio’s Page destination picker includes curated and singleton pages. Curated links store a page ID; singleton links use their fixed internal URL with the existing `type: "external"` URL representation (despite the name, it also supports site-relative URLs). For example: `{ type: "external", href: "/pokedex", text: "Pokédex", newTab: false }`. Inline text links can likewise use `[Pokédex](/pokedex)` and stay in the current tab.
+Text, destination, and new-tab toggle. Curated page links store page IDs; singleton links store fixed URLs using the existing `type: "external"` representation, which also supports site-relative URLs: `{ type: "external", href: "/pokedex", text: "Pokédex", newTab: false }`. Both page kinds appear in Studio's destination picker. Inline `[Pokédex](/pokedex)` links stay in the current tab.
 
 ```tsx
 Type.Link({
@@ -208,48 +141,20 @@ Type.Link({
 });
 ```
 
-### Type.Image
+### Images and files
 
-A single image — render with `block.Image`.
+Files support MIME filtering. Render each type with its matching helper; asset lists are **not** repeaters.
 
 ```tsx
 Type.Image({ title: "Cover photo" });
-```
-
-### Type.ImageList
-
-A flat array of images — render with `block.ImageList` (NOT `block.Repeater`).
-
-```tsx
 Type.ImageList({ defaultItems: 6, title: "Gallery images" });
-```
-
-### Type.File
-
-A single file upload, with MIME type filtering — render with `block.File`.
-
-```tsx
-Type.File({
-  accept: ["application/pdf"],
-  title: "PDF Document",
-});
-```
-
-### Type.FileList
-
-A flat array of files — render with `block.FileList` (NOT `block.Repeater`).
-
-```tsx
-Type.FileList({
-  accept: ["application/pdf"],
-  defaultItems: 0,
-  title: "Documents",
-});
+Type.File({ accept: ["application/pdf"], title: "PDF Document" });
+Type.FileList({ accept: ["application/pdf"], defaultItems: 0, title: "Documents" });
 ```
 
 ### Type.Embed
 
-A URL validated against a regex pattern. Used for embedding external content.
+A URL validated against a regex. A nonmatching default throws at definition time.
 
 ```tsx
 Type.Embed({
@@ -259,11 +164,9 @@ Type.Embed({
 });
 ```
 
-The `default` must match the `pattern` — an error is thrown at definition time otherwise.
-
 ### Type.Repeater
 
-An array of structured items. Each item is an object with its own fields. This is how you create lists of things (testimonials, features, stats, links...).
+Structured items with their own content, optional settings, and required `toMarkdown`. `minItems` must be at least 1; repeaters cannot be empty. Nest repeaters in an item's `content` when needed.
 
 ```tsx
 Type.Repeater({
@@ -271,65 +174,39 @@ Type.Repeater({
     name: Type.String({ default: "Feature" }),
     description: Type.String({ default: "Description" }),
   },
-  minItems: 1, // Must be >= 1
+  minItems: 1,
   maxItems: 10,
   title: "Features",
-  toMarkdown: (c) => [`### ${c.name}`, c.description], // Required markdown template for each item
+  toMarkdown: (c) => [`### ${c.name}`, c.description],
 });
 ```
 
-The `toMarkdown` option on Repeater defines how each item is rendered as markdown when the parent block's `toMarkdown` references this field. It is required, same as on the block itself.
-
-Repeaters can be nested — an item can contain another Repeater:
-
-```tsx
-columns: Type.Repeater({
-  content: {
-    title: Type.String({ default: "Column" }),
-    links: Type.Repeater({
-      content: {
-        link: Type.Link({ default: { text: "Link", href: "#", newTab: false } }),
-      },
-      minItems: 1,
-      maxItems: 999,
-      toMarkdown: (c) => [c.link],
-    }),
-  },
-  minItems: 2,
-  maxItems: 4,
-  title: "Columns",
-  toMarkdown: (c) => [`### ${c.title}`, c.links],
-});
-```
+Reference the repeater field in the parent block's `toMarkdown` to include its rendered items.
 
 ## Rendering in the Component
 
-The component is a regular React function. It uses methods on the block constant to render each field. Every field renderer uses a render-prop pattern where the child function receives `(props, data)`:
+Field renderers receive `(props, data)`:
 
-- **`props`** — spread onto the rendered element. Contains HTML/React attributes: refs, data attributes, event handlers, and field-specific attributes like `to`, `src`, `alt`, `children`. **Use `props` in the vast majority of cases.**
-- **`data`** (second argument) — raw field values for advanced use cases where `props` doesn't suffice (e.g. conditional styling based on a link's href, using an image URL as a CSS background). Not meant to be spread — treat it as an escape hatch.
+- **Spread `props` onto the element** to preserve editor refs, attributes, and handlers, plus field-specific values such as `children`, `to`, `src`, and `alt`.
+- `data` is the raw field value for custom logic, not an object to spread. Prefer `props`; use raw data only where needed.
 
-### Rendering String fields — `block.Field`
+### Strings — `block.Field`
+
+`name` must select a `Type.String` field. `props.children` contains Camox's rendered inline markup.
 
 ```tsx
 <myBlock.Field name="title">{(props) => <h1 {...props} />}</myBlock.Field>
-```
 
-The `name` must match a key in `content` that is a `Type.String`. Spread `props` onto the element — `props.children` contains the rendered content. This is what makes the field inline-editable in the CMS.
-
-Camox owns inline markup. To customize inline text, links, or gradients with `textStyle` and `linkStyle`, read [Field styling](field-styling.md).
-
-When the content needs to be placed inside a more complex structure, use `props.children` explicitly:
-
-```tsx
 <myBlock.Field name="quote">
   {(props) => <blockquote {...props}>"{props.children}"</blockquote>}
 </myBlock.Field>
 ```
 
-### Rendering Link fields — `block.Link`
+For `textStyle` and `linkStyle`, read [Field styling](field-styling.md).
 
-Inside the render prop, use the `Link` component from `camox/navigation` instead of a plain `<a>` tag. This enables client-side navigation for internal links. The framework computes `to`, `target`, and `rel` from the link value — just spread `props`.
+### Links — `block.Link`
+
+Use `Link` from `camox/navigation`, not `<a>`, for client-side internal navigation. `props` supplies `to`, `target`, and `rel`; raw `data` exposes `{ text, href, newTab }`.
 
 ```tsx
 import { Link } from "camox/navigation";
@@ -337,51 +214,21 @@ import { Link } from "camox/navigation";
 <myBlock.Link name="cta">{(props) => <Link {...props} />}</myBlock.Link>;
 ```
 
-The optional second argument `data` exposes raw values `{ text, href, newTab }` for custom logic:
-
-```tsx
-<myBlock.Link name="cta">
-  {(props, { href }) => <Link {...props} className={href === "/" ? "active" : ""} />}
-</myBlock.Link>
-```
-
-### Rendering Image fields — `block.Image`
+### Images, files, and embeds
 
 ```tsx
 <myBlock.Image name="cover">{(props) => <img {...props} />}</myBlock.Image>
-```
-
-`props` includes `src` and `alt`. The optional `data` argument exposes the raw `ImageValue` for cases like background images:
-
-```tsx
-<myBlock.Image name="cover">
-  {(_props, { url }) => <div style={{ backgroundImage: `url(${url})` }} />}
-</myBlock.Image>
-```
-
-### Rendering File fields — `block.File`
-
-```tsx
 <myBlock.File name="document">{(props) => <a {...props}>Download</a>}</myBlock.File>
-```
-
-`props` includes `href` and `download` (filename). The optional `data` argument exposes the raw `FileValue`.
-
-### Rendering Embed fields — `block.Embed`
-
-```tsx
 <myBlock.Embed name="videoUrl">{(props) => <iframe {...props} />}</myBlock.Embed>
 ```
 
-`props` includes `src`. The optional `data` argument exposes `{ url }` for cases where the URL needs transformation:
+- Image: `props` includes `src`/`alt`; `data` is `ImageValue`.
+- File: `props` includes `href`/`download` (filename); `data` is `FileValue`.
+- Embed: `props` includes `src`; `data` is `{ url }`, available for URL transformation.
 
-```tsx
-<myBlock.Embed name="videoUrl">
-  {(_props, { url }) => <iframe src={transformUrl(url)} />}
-</myBlock.Embed>
-```
+### Repeaters — `block.Repeater`
 
-### Rendering Repeater fields — `block.Repeater`
+The callback receives an item-scoped API with the same `.Field`, `.Link`, `.Image`, `.File`, `.Embed`, `.ImageList`, `.FileList`, and `.Repeater` methods.
 
 ```tsx
 <myBlock.Repeater name="features">
@@ -394,53 +241,35 @@ The optional second argument `data` exposes raw values `{ text, href, newTab }` 
 </myBlock.Repeater>
 ```
 
-Inside a Repeater, the `item` callback argument exposes the same `.Field`, `.Link`, `.Image`, `.File`, `.Embed`, `.ImageList`, `.FileList`, and `.Repeater` methods — scoped to that item. This is how nested repeaters work too:
+Nested repeaters use the item-scoped `.Repeater`:
 
 ```tsx
 <footer.Repeater name="columns">
   {(column) => (
     <column.Repeater name="links">
-      {(linkItem) => <linkItem.Link name="link">{(props) => <Link {...props} />}</linkItem.Link>}
+      {(item) => <item.Link name="link">{(props) => <Link {...props} />}</item.Link>}
     </column.Repeater>
   )}
 </footer.Repeater>
 ```
 
-### Image and File lists — `block.ImageList` / `block.FileList`
+### Asset lists — `block.ImageList` / `block.FileList`
 
-For `Type.ImageList` use `block.ImageList`; for `Type.FileList` use `block.FileList` (NOT `block.Repeater`). The render-prop is the same shape as `block.Image` / `block.File` — `(props, data) => …` — invoked once per asset:
+Use the matching helper, **not `block.Repeater`**. Its `(props, data)` callback runs once per asset, with the same shape as `.Image` / `.File`. These helpers also work on repeater items.
 
 ```tsx
-// Top-level
 <gallery.ImageList name="images">
   {(props) => <img {...props} className="rounded-lg" />}
 </gallery.ImageList>
-
-// Nested inside a Type.Repeater
-<paragraphGrid.Repeater name="paragraphs">
-  {(item) => (
-    <item.ImageList name="logos">
-      {(props) => <img {...props} className="size-10 object-contain" />}
-    </item.ImageList>
-  )}
-</paragraphGrid.Repeater>
 ```
 
-`Repeater` is only for `Type.Repeater` arrays. Trying to use `Repeater` on an `ImageList` / `FileList` is a TypeScript error.
+### Settings — `block.useSetting`
 
-### Reading settings — `block.useSetting`
-
-```tsx
-function MyComponent() {
-  const theme = myBlock.useSetting("theme");
-  const compact = myBlock.useSetting("compact");
-  // Use these values in your JSX for conditional rendering/styling
-}
-```
+Read settings inside the component with `myBlock.useSetting("theme")`.
 
 ### Detached rendering — `block.Detached`
 
-Renders content outside the block's DOM container. Useful for fixed/floating elements like sticky navbars or modals. Uses a render prop that provides `props` with `ref`, `onClick`, `onMouseEnter`, and `onMouseLeave` — spread these onto the root element.
+Renders outside the block's DOM container for fixed/floating elements. Spread its `props` (`ref`, `onClick`, `onMouseEnter`, `onMouseLeave`) onto the root element.
 
 ```tsx
 <myBlock.Detached>
@@ -451,16 +280,3 @@ Renders content outside the block's DOM container. Useful for fixed/floating ele
   )}
 </myBlock.Detached>
 ```
-
-## Rules and Conventions
-
-1. **File = one block.** One `.tsx` file per block in `src/blocks/`. The `id` must match the filename (without `.tsx`).
-2. **Named export as `block`.** Always: `export { myVar as block }`. Not a default export.
-3. **Named function component.** Use `function MyComponent()`, not an arrow function. Reference it in `createBlock` before its declaration is fine (hoisting).
-4. **All fields need defaults.** Every `Type.*` call requires a default value (images and files get automatic placeholders).
-5. **Description is for the AI.** Write the `description` as guidance for an LLM — explain when to use this block, what kind of content it's for, and where it fits on a page.
-6. **`toMarkdown` is required.** Every block must define how its content renders as markdown. Use the builder function `(c) => [...]` and reference content fields via `c.fieldName`.
-7. **Settings = Enum and Boolean only.** Keep settings simple. Use `content` for everything the user edits inline.
-8. **Repeater minItems >= 1.** You can't have an empty repeater — there's always at least one item.
-9. **Import path is `"camox/createBlock"`.** Both `Type` and `createBlock` come from this import.
-10. **Use Tailwind CSS for styling.** All example blocks use Tailwind utility classes. Follow the same patterns: `container mx-auto px-4` for centered content, responsive breakpoints, etc.

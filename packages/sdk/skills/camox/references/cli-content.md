@@ -1,6 +1,6 @@
 # Managing Pages and Blocks with the Camox CLI
 
-Read [cli-common.md](cli-common.md) first. Replace `{{CAMOX_CMD}}` as described there and verify commands with `--help`.
+Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and draft-first rules.
 
 Use these commands for Pages, metadata, Layout assignments, Block instances and their Content, draft review, and publishing. To change Block schemas or rendering, read [Block Definitions](block-definitions.md); to create or change Layout Definitions, follow the code-definition routing in [the Camox skill](../SKILL.md).
 
@@ -13,7 +13,7 @@ Use these commands for Pages, metadata, Layout assignments, Block instances and 
 {{CAMOX_CMD}} pages create --path-segment about --layout-id 39
 ```
 
-Use `--parent-page-id <ID>` to nest the Page under another Page. Assigning an existing Layout is a CLI content operation; creating or changing a Layout Definition is a code operation.
+Use `--parent-page-id <ID>` to nest the Page under another Page.
 
 ## Blocks
 
@@ -29,10 +29,7 @@ Look up the Page before creating or moving Blocks so you have its `id`, current 
 ### Create and position a Block
 
 ```sh
-{{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}'
 {{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}' --position first
-{{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}' --before-id 174
-{{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}' --after-id 174
 ```
 
 `blocks create` and `blocks move` accept the same positioning flags. Pass at most one:
@@ -83,7 +80,7 @@ The response's `repeatableItems` contains each item's `id`, `fieldName`, `parent
 
 ## Review and publishing
 
-Publish or discard Block changes at the Page level.
+For curated page-content blocks, publish or discard changes at the Page level. Layout-owned blocks use layout publishing; curated Page publishing includes its Layout by default, as described below. Singleton and derived routes have no curated Page record: use layout publishing, not `pages publish` (see [Routed layouts](routed-layouts.md)).
 
 ### Review draft and live state
 
@@ -108,7 +105,7 @@ Live reads fail when the Page or Block has never been published. `--live` is not
 {{CAMOX_CMD}} pages publish --path /pricing --no-layout
 ```
 
-Do not publish merely because a draft edit succeeded. Summarize the draft and wait for the user to ask or approve publication.
+Publish only after the user asks or approves, not automatically after editing a draft.
 
 ### Unpublish or discard drafts
 

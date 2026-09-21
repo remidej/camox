@@ -18,15 +18,13 @@ In the examples below, replace `{{CAMOX_CMD}}` with that command.
 
 ## Discover the current command surface
 
-The CLI evolves with the installed Camox version. Do not guess commands or flags from memory. Run `--help` at the root, command group, and subcommand before executing a write:
+Before a write, verify the relevant subcommand's `--help` unless already checked for the installed version in this session:
 
 ```sh
-{{CAMOX_CMD}} --help
-{{CAMOX_CMD}} pages --help
 {{CAMOX_CMD}} pages create --help
 ```
 
-Treat the installed CLI's output as authoritative when it differs from an example in these references.
+Use root or group help only to discover unfamiliar commands. Reuse verified help within the session; recheck if the installed version changes. Installed help overrides these examples—do not guess commands or flags.
 
 ## Draft-first workflow
 
