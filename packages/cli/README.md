@@ -23,6 +23,13 @@ camox files update --id 123 --filename hero.webp
 camox files update --id 123 --alt "Updated description"
 camox files update --id 123 --alt ""
 camox files update --id 123 --ai-metadata on
+
+# Replace the underlying file everywhere it is referenced, preserving its ID.
+camox files update --id 123 --file ./new-hero.webp
+camox files update --id 123 --url https://example.com/new-hero.webp
+
+# Replace content and override metadata together.
+camox files update --id 123 --file ./new-hero.webp --filename hero.webp --alt "New screenshot"
 ```
 
 - Upload requires exactly one of `--file` or `--url`. URLs are copied, not linked.
@@ -33,10 +40,23 @@ camox files update --id 123 --ai-metadata on
   file types do not. AI may update both the filename and alt text asynchronously.
 - `--ai-metadata on` schedules generation for raster images; success does not mean
   generation has completed. Use `files get` to inspect the current record.
-- Update requires at least one of `--filename`, `--alt` or `--ai-metadata`; omitted
-  fields remain unchanged. Renaming preserves the file ID, URL, and AI setting.
-  Disable AI metadata to prevent future automatic renaming. Files are shared
-  assets, not page drafts.
+- Update requires at least one of `--file`, `--url`, `--filename`, `--alt` or
+  `--ai-metadata`. `--file` and `--url` are mutually exclusive; without either,
+  only metadata changes. Renaming alone preserves the file ID, URL and AI setting.
+- Replacing content preserves the file ID and all `_fileId` references in the
+  selected environment. The URL changes to avoid stale caches. Direct URLs in
+  stored block/repeatable-item content are migrated within that environment;
+  URLs hardcoded outside Camox cannot be rewritten.
+- Replacements preserve omitted alt text and AI settings. The filename defaults
+  to the new source filename; `--filename` overrides it. Binary metadata and
+  explicit metadata changes are saved together. If AI remains enabled, raster
+  replacements schedule generation on the original file ID; other types skip
+  generation. Disable AI to prevent future automatic renaming or alt changes.
+- Files are shared assets, not page drafts: replacing one affects every reference
+  to it in the selected environment. No page publish step is required.
+- Failed replacements leave the original file unchanged and remove the unused
+  uploaded binary. After a network timeout, use `files get --id ID` before retrying
+  because the server may already have completed the operation.
 - All commands support `--project SLUG`, `--production`, and `--json`. The default
   environment is `dev:<your-email>`, not production. IDs are scoped to the selected
   project and environment.
@@ -50,4 +70,5 @@ camox files update --id 123 --ai-metadata on
   sent to the source URL. Remote authentication flags and batch uploads are not
   supported.
 
-See `camox files --help` and `camox files upload --help` for command options.
+See `camox files --help`, `camox files upload --help`, and
+`camox files update --help` for command options.

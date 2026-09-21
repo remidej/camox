@@ -1,14 +1,20 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
-import { environments, files } from "../../schema";
+import { blocks, environments, files, layouts, repeatableItems } from "../../schema";
 import type { AppEnv } from "../../types";
 import { callTool } from "../agent/service";
 import { fileHonoRoutes } from "./routes";
-import { saveGeneratedFileMetadata, getProjectFile, listFiles, updateFile } from "./service";
+import {
+  saveGeneratedFileMetadata,
+  getProjectFile,
+  listFiles,
+  replaceFile,
+  updateFile,
+} from "./service";
 
 async function fixture() {
   const fixture = await createProjectFixture(crypto.randomUUID());
@@ -23,6 +29,7 @@ async function fixture() {
   };
   const ctx = { ...baseContext, env: bindings };
   const app = new Hono<AppEnv>();
+  app.onError(() => new Response("Test request failed", { status: 500 }));
   app.use("*", async (c, next) => {
     c.set("db", fixture.db);
     c.set("user", fixture.memberUser);
@@ -34,14 +41,18 @@ async function fixture() {
     metadata: Record<string, string> = {},
     type = "image/png",
     filename = "hero.png",
+    targetId?: number,
+    contents = "image bytes",
   ) {
     const body = new FormData();
-    body.set("file", new File(["image bytes"], filename, { type }));
+    body.set("file", new File([contents], filename, { type }));
     body.set("projectId", String(fixture.project.id));
     for (const [key, value] of Object.entries(metadata)) body.set(key, value);
     const execution = createExecutionContext();
     const response = await app.request(
-      "http://localhost/files/upload",
+      targetId === undefined
+        ? "http://localhost/files/upload"
+        : `http://localhost/files/${targetId}/content`,
       { method: "POST", body },
       bindings,
       execution,
@@ -170,6 +181,280 @@ describe("media persistence", () => {
     expect(
       await invoke("updateFile", { id: file.id, alt: "Manual", aiMetadataEnabled: true }),
     ).toMatchObject({ ok: false });
+  });
+
+  it("replaces bytes and metadata together while keeping references and isolating environments", async () => {
+    const { upload, ctx, db, project, layout, app, scheduleAiJob } = await fixture();
+    const original = await (
+      await upload({ alt: "Original alt" })
+    ).json<typeof files.$inferSelect>();
+    const now = Date.now();
+    const block = await db
+      .insert(blocks)
+      .values({
+        layoutId: layout.id,
+        type: "hero",
+        content: { image: { _fileId: original.id }, html: `<img src="${original.url}">` },
+        position: "a0",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const item = await db
+      .insert(repeatableItems)
+      .values({
+        blockId: block.id,
+        fieldName: "images",
+        content: { image: { _fileId: original.id }, url: original.url },
+        position: "a0",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const dev = await db
+      .insert(environments)
+      .values({
+        projectId: project.id,
+        name: "dev:other@example.com",
+        type: "development",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const devLayout = await db
+      .insert(layouts)
+      .values({
+        projectId: project.id,
+        environmentId: dev.id,
+        layoutId: "default",
+        createdAt: now,
+        updatedAt: now,
+        contentUpdatedAt: now,
+      })
+      .returning()
+      .get();
+    const devBlock = await db
+      .insert(blocks)
+      .values({
+        layoutId: devLayout.id,
+        type: "hero",
+        content: { url: original.url },
+        position: "a0",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    // Simulate environment replication sharing the same R2 object.
+    const { id: _id, ...copy } = original;
+    await db.insert(files).values({ ...copy, environmentId: dev.id });
+    scheduleAiJob.mockClear();
+    const response = await upload(
+      { alt: "New alt" },
+      "image/webp",
+      "replacement.webp",
+      original.id,
+      "new bytes",
+    );
+    expect(response.status).toBe(200);
+    const replaced = await response.json<typeof files.$inferSelect>();
+    expect(replaced).toMatchObject({
+      id: original.id,
+      filename: "replacement.webp",
+      alt: "New alt",
+      aiMetadataEnabled: false,
+      mimeType: "image/webp",
+      size: 9,
+      createdAt: original.createdAt,
+    });
+    expect(replaced.url).not.toBe(original.url);
+    expect(scheduleAiJob).not.toHaveBeenCalled();
+    expect(await listFiles(ctx, { projectId: project.id })).toHaveLength(1);
+    expect(await db.select().from(blocks).where(eq(blocks.id, block.id)).get()).toMatchObject({
+      content: { image: { _fileId: original.id }, html: `<img src="${replaced.url}">` },
+    });
+    expect(
+      await db.select().from(repeatableItems).where(eq(repeatableItems.id, item.id)).get(),
+    ).toMatchObject({
+      content: { image: { _fileId: original.id }, url: replaced.url },
+    });
+    expect(await db.select().from(blocks).where(eq(blocks.id, devBlock.id)).get()).toMatchObject({
+      content: { url: original.url },
+    });
+    expect(await ctx.env.FILES_BUCKET.head(original.blobId)).not.toBeNull();
+    const served = await app.request(replaced.url, {}, env);
+    expect(new TextDecoder().decode(await served.arrayBuffer())).toBe("new bytes");
+    // The prior AI snapshot must not overwrite the replacement's explicit metadata.
+    await saveGeneratedFileMetadata(db, original, { alt: "Stale", filename: "stale" });
+    expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toMatchObject({
+      alt: "New alt",
+      filename: "replacement.webp",
+    });
+  });
+
+  it("preserves omitted metadata, schedules only the target, and removes unshared old blobs", async () => {
+    const { upload, ctx, project, scheduleAiJob } = await fixture();
+    const original = await (await upload({ alt: "Keep this" })).json<typeof files.$inferSelect>();
+    const target = { id: original.id, projectId: project.id };
+    await updateFile(ctx, { ...target, aiMetadataEnabled: true });
+    scheduleAiJob.mockClear();
+    const replacement = await (
+      await upload({}, "image/webp", "new.webp", original.id)
+    ).json<typeof files.$inferSelect>();
+    expect(replacement).toMatchObject({
+      id: original.id,
+      alt: "Keep this",
+      aiMetadataEnabled: true,
+      filename: "new.webp",
+    });
+    expect(scheduleAiJob).toHaveBeenCalledOnce();
+    const scheduled = JSON.parse(scheduleAiJob.mock.calls[0]![1].body);
+    expect(scheduled).toMatchObject({ entityId: original.id, type: "fileMetadata" });
+    expect(await ctx.env.FILES_BUCKET.head(original.blobId)).toBeNull();
+    scheduleAiJob.mockClear();
+    // AI preferences persist for non-raster replacements, but generation is skipped.
+    expect(
+      await (await upload({}, "application/pdf", "new.pdf", original.id)).json(),
+    ).toMatchObject({ alt: "Keep this", aiMetadataEnabled: true });
+    expect(scheduleAiJob).not.toHaveBeenCalled();
+    expect(
+      await (await upload({ alt: "" }, "image/png", "empty-alt.png", original.id)).json(),
+    ).toMatchObject({ alt: "", aiMetadataEnabled: false });
+  });
+
+  it("rejects invalid replacement metadata and out-of-scope targets without storing uploads", async () => {
+    const { upload, ctx, db, project } = await fixture();
+    const original = await (await upload({ alt: "Original" })).json<typeof files.$inferSelect>();
+    const before = await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` });
+    expect(
+      (
+        await upload(
+          { alt: "Manual", aiMetadataEnabled: "true" },
+          "image/png",
+          "bad.png",
+          original.id,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (await upload({ aiMetadataEnabled: "true" }, "application/pdf", "bad.pdf", original.id))
+        .status,
+    ).toBe(400);
+    expect((await upload({}, "image/png", "missing.png", 999999)).status).toBe(404);
+    const other = await fixture();
+    const otherFile = await (await other.upload()).json<typeof files.$inferSelect>();
+    expect((await upload({}, "image/png", "other.png", otherFile.id)).status).toBe(404);
+    expect(
+      (
+        await upload(
+          { projectId: String(other.project.id) },
+          "image/png",
+          "other.png",
+          otherFile.id,
+        )
+      ).status,
+    ).toBe(403);
+    const dev = await db
+      .insert(environments)
+      .values({
+        projectId: project.id,
+        name: "dev:replace@example.com",
+        type: "development",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .returning()
+      .get();
+    const { id: _id, ...copy } = original;
+    const devFile = await db
+      .insert(files)
+      .values({ ...copy, environmentId: dev.id })
+      .returning()
+      .get();
+    expect((await upload({}, "image/png", "dev.png", devFile.id)).status).toBe(404);
+    expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual(
+      before.objects,
+    );
+    expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toEqual(original);
+  });
+
+  it("rolls back replacement and metadata on database failure and cleans up the new binary", async () => {
+    const { upload, ctx, db, project, layout } = await fixture();
+    const original = await (await upload({ alt: "Original" })).json<typeof files.$inferSelect>();
+    const block = await db
+      .insert(blocks)
+      .values({
+        layoutId: layout.id,
+        type: "hero",
+        content: { url: original.url },
+        position: "a0",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .returning()
+      .get();
+    const triggerName = `fail_replace_${block.id}`;
+    await db.run(
+      sql.raw(
+        `CREATE TRIGGER ${triggerName} BEFORE UPDATE ON blocks WHEN OLD.id = ${block.id} BEGIN SELECT RAISE(ABORT, 'test rollback'); END`,
+      ),
+    );
+    const before = await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` });
+    try {
+      expect(
+        (await upload({ alt: "Should roll back" }, "image/webp", "failed.webp", original.id))
+          .status,
+      ).toBe(500);
+      expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toEqual(
+        original,
+      );
+      expect(await db.select().from(blocks).where(eq(blocks.id, block.id)).get()).toEqual(block);
+      expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual(
+        before.objects,
+      );
+    } finally {
+      await db.run(sql.raw(`DROP TRIGGER ${triggerName}`));
+    }
+  });
+
+  it("keeps the existing Studio replacement API compatible and consumes its temporary row", async () => {
+    const { upload, ctx, db, project } = await fixture();
+    const original = await (
+      await upload({ alt: "Keep original alt" })
+    ).json<typeof files.$inferSelect>();
+    const incoming = await (
+      await upload({ alt: "Temporary alt" }, "image/webp", "new.webp")
+    ).json<typeof files.$inferSelect>();
+    const pending: Promise<unknown>[] = [];
+    expect(
+      await replaceFile(
+        {
+          ...ctx,
+          waitUntil: (promise) => {
+            pending.push(promise);
+          },
+        },
+        {
+          id: original.id,
+          newFileId: incoming.id,
+        },
+      ),
+    ).toEqual({ replaced: true });
+    await Promise.all(pending);
+    expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toMatchObject({
+      id: original.id,
+      blobId: incoming.blobId,
+      url: incoming.url,
+      filename: "new.webp",
+      alt: "Keep original alt",
+      aiMetadataEnabled: false,
+    });
+    expect(await db.select().from(files).where(eq(files.id, incoming.id)).get()).toBeUndefined();
+    expect(await ctx.env.FILES_BUCKET.head(original.blobId)).toBeNull();
+    expect(await ctx.env.FILES_BUCKET.head(incoming.blobId)).not.toBeNull();
   });
 
   it("does not allow an in-flight AI result to overwrite a manual edit", async () => {

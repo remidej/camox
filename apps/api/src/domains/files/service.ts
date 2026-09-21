@@ -2,7 +2,7 @@ import { queryKeys } from "@camox/api-contract/query-keys";
 import { ORPCError } from "@orpc/server";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, or, sql } from "drizzle-orm";
 import { outdent } from "outdent";
 import { z } from "zod";
 
@@ -12,7 +12,7 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { blocks, files, member, projects, repeatableItems } from "../../schema";
+import { blocks, files, layouts, member, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 
 // --- Input Schemas ---
@@ -498,59 +498,93 @@ export async function replaceFile(ctx: ServiceContext, rawInput: z.input<typeof 
   const oldAccess = await assertFileAccess(ctx.db, id, user.id);
   const newAccess = await assertFileAccess(ctx.db, newFileId, user.id);
   if (!oldAccess || !newAccess) throw new ORPCError("NOT_FOUND");
-  if (oldAccess.file.projectId !== newAccess.file.projectId) {
+  if (
+    oldAccess.file.projectId !== newAccess.file.projectId ||
+    oldAccess.file.environmentId !== newAccess.file.environmentId ||
+    oldAccess.file.projectId == null
+  ) {
     throw new ORPCError("FORBIDDEN");
   }
+  await replaceFileContent(
+    ctx,
+    { id, projectId: oldAccess.file.projectId },
+    newAccess.file,
+    {},
+    newFileId,
+  );
+  return { replaced: true };
+}
 
-  const oldUrl = oldAccess.file.url;
-  const oldBlobId = oldAccess.file.blobId;
-  const newAsset = newAccess.file;
+type FileAsset = Pick<
+  typeof files.$inferSelect,
+  "blobId" | "path" | "url" | "filename" | "mimeType" | "size"
+>;
+
+/** Replace bytes and explicit metadata together, retaining the referenced file row. */
+export async function replaceFileContent(
+  ctx: ServiceContext,
+  target: z.input<typeof projectFileInput>,
+  asset: FileAsset,
+  rawMetadata: z.input<typeof fileMetadataInput>,
+  temporaryFileId?: number,
+) {
+  const metadata = fileMetadataInput.parse(rawMetadata);
+  const oldFile = await getProjectFile(ctx, target);
+  if (metadata.aiMetadataEnabled && !isRasterImage(asset.mimeType)) {
+    throw new ORPCError("BAD_REQUEST", { message: "Automatic metadata requires a raster image." });
+  }
+  const { id, projectId } = target;
+  const oldUrl = oldFile.url;
   const now = Date.now();
+  const scopedBlocks = or(
+    inArray(
+      blocks.pageId,
+      ctx.db
+        .select({ id: pages.id })
+        .from(pages)
+        .where(and(eq(pages.projectId, projectId), eq(pages.environmentId, oldFile.environmentId))),
+    ),
+    inArray(
+      blocks.layoutId,
+      ctx.db
+        .select({ id: layouts.id })
+        .from(layouts)
+        .where(
+          and(eq(layouts.projectId, projectId), eq(layouts.environmentId, oldFile.environmentId)),
+        ),
+    ),
+  );
+  const scopedItems = inArray(
+    repeatableItems.blockId,
+    ctx.db.select({ id: blocks.id }).from(blocks).where(scopedBlocks),
+  );
 
-  // Move the new asset onto the old file row. The id stays the same so
-  // every `_fileId: <id>` reference automatically resolves to the new asset.
-  await ctx.db
-    .update(files)
-    .set({
-      blobId: newAsset.blobId,
-      path: newAsset.path,
-      url: newAsset.url,
-      filename: newAsset.filename,
-      mimeType: newAsset.mimeType,
-      size: newAsset.size,
-      updatedAt: now,
-    })
-    .where(eq(files.id, id));
-
-  // Drop the temporary file row created by the upload step.
-  await ctx.db.delete(files).where(eq(files.id, newFileId));
-
-  // Migrate any rich-text/HTML content that embeds the old URL directly.
-  await ctx.db
-    .update(blocks)
-    .set({
-      content: sql`REPLACE(CAST(${blocks.content} AS TEXT), ${oldUrl}, ${newAsset.url})`,
-      updatedAt: now,
-    })
-    .where(sql`INSTR(${blocks.content}, ${oldUrl}) > 0`);
-  await ctx.db
-    .update(repeatableItems)
-    .set({
-      content: sql`REPLACE(CAST(${repeatableItems.content} AS TEXT), ${oldUrl}, ${newAsset.url})`,
-      updatedAt: now,
-    })
-    .where(sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`);
-
-  // Find blocks/items referencing the file by _fileId so we can invalidate them.
+  // Include direct URLs as well as _fileId references in invalidation.
   const marker = `"_fileId":${id}`;
   const affectedBlocks = await ctx.db
     .select({ id: blocks.id, pageId: blocks.pageId })
     .from(blocks)
-    .where(sql`INSTR(${blocks.content}, ${marker}) > 0`);
+    .where(
+      and(
+        scopedBlocks,
+        or(
+          sql`INSTR(${blocks.content}, ${marker}) > 0`,
+          sql`INSTR(${blocks.content}, ${oldUrl}) > 0`,
+        ),
+      ),
+    );
   const affectedItems = await ctx.db
     .select({ id: repeatableItems.id, blockId: repeatableItems.blockId })
     .from(repeatableItems)
-    .where(sql`INSTR(${repeatableItems.content}, ${marker}) > 0`);
+    .where(
+      and(
+        scopedItems,
+        or(
+          sql`INSTR(${repeatableItems.content}, ${marker}) > 0`,
+          sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`,
+        ),
+      ),
+    );
 
   const itemBlockIds = [...new Set(affectedItems.map((i) => i.blockId))];
   let itemBlockPageIds: number[] = [];
@@ -569,24 +603,49 @@ export async function replaceFile(ctx: ServiceContext, rawInput: z.input<typeof 
     ]),
   ];
 
-  // Drop the old R2 blob now that nothing references it — unless another env
-  // still points at the same blobId via push/pull replication. At this point
-  // the row at `id` already points at the new blob and the `newFileId` row is
-  // gone, so any remaining row pointing at `oldBlobId` is a sibling we must
-  // preserve.
-  const oldBlobSibling = await ctx.db
-    .select({ id: files.id })
-    .from(files)
-    .where(eq(files.blobId, oldBlobId))
-    .limit(1)
-    .get();
-  if (!oldBlobSibling) {
-    await ctx.env.FILES_BUCKET.delete(oldBlobId);
-  }
+  const aiMetadataEnabled = metadata.alt !== undefined ? false : metadata.aiMetadataEnabled;
+  // D1 batch is transactional: binary metadata, explicit overrides and URL
+  // migrations either commit together or leave the original file untouched.
+  const [updated] = await ctx.db.batch([
+    ctx.db
+      .update(files)
+      .set({
+        blobId: asset.blobId,
+        path: asset.path,
+        url: asset.url,
+        filename: asset.filename,
+        mimeType: asset.mimeType,
+        size: asset.size,
+        ...(metadata.alt !== undefined ? { alt: metadata.alt } : {}),
+        ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
+        updatedAt: sql`MAX(${files.updatedAt} + 1, ${now})`,
+      })
+      .where(eq(files.id, id))
+      .returning(),
+    ctx.db
+      .update(blocks)
+      .set({
+        content: sql`REPLACE(CAST(${blocks.content} AS TEXT), ${oldUrl}, ${asset.url})`,
+        updatedAt: now,
+      })
+      .where(and(scopedBlocks, sql`INSTR(${blocks.content}, ${oldUrl}) > 0`)),
+    ctx.db
+      .update(repeatableItems)
+      .set({
+        content: sql`REPLACE(CAST(${repeatableItems.content} AS TEXT), ${oldUrl}, ${asset.url})`,
+        updatedAt: now,
+      })
+      .where(and(scopedItems, sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`)),
+    ...(temporaryFileId === undefined
+      ? []
+      : [ctx.db.delete(files).where(eq(files.id, temporaryFileId))]),
+  ]);
+  const result = updated[0];
+  if (!result) throw new ORPCError("NOT_FOUND");
 
-  // Re-run AI metadata if it was enabled and the new asset is a raster image
-  // (vision model can't analyze SVG/PDF/etc.).
-  if (oldAccess.file.aiMetadataEnabled !== false && isRasterImage(newAsset.mimeType)) {
+  // Cleanup is post-commit; never remove a blob still shared by another environment.
+  ctx.waitUntil(deleteUnreferencedFileBlob(ctx, oldFile.blobId));
+  if (result.aiMetadataEnabled !== false && isRasterImage(asset.mimeType)) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
         entityTable: "files",
@@ -597,10 +656,10 @@ export async function replaceFile(ctx: ServiceContext, rawInput: z.input<typeof 
     );
   }
 
-  invalidateFile(ctx, oldAccess.file.projectId!, [
+  invalidateFile(ctx, projectId, [
     queryKeys.files.list,
     queryKeys.files.get(id),
-    queryKeys.files.get(newFileId),
+    ...(temporaryFileId === undefined ? [] : [queryKeys.files.get(temporaryFileId)]),
     ...allBlockIds.map((bid) => queryKeys.blocks.get(bid)),
     ...allPageIds.map((pid) => queryKeys.blocks.getPageMarkdown(pid)),
     ...affectedItems.map((i) => queryKeys.repeatableItems.get(i.id)),
@@ -608,7 +667,17 @@ export async function replaceFile(ctx: ServiceContext, rawInput: z.input<typeof 
       ? [queryKeys.blocks.getUsageCounts, queryKeys.pages.getByPathAll]
       : []),
   ]);
-  return { replaced: true };
+  return result;
+}
+
+export async function deleteUnreferencedFileBlob(ctx: ServiceContext, blobId: string) {
+  const reference = await ctx.db
+    .select({ id: files.id })
+    .from(files)
+    .where(eq(files.blobId, blobId))
+    .limit(1)
+    .get();
+  if (!reference) await ctx.env.FILES_BUCKET.delete(blobId);
 }
 
 export async function setFileAiMetadata(

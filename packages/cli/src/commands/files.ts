@@ -61,16 +61,26 @@ export const parser = command(
       object({
         command: constant("files.update" as const),
         id: option("--id", integer({ min: 1, metavar: "ID" })),
+        file: optional(
+          option("--file", string({ metavar: "PATH" }), {
+            description: message`Replace file content from a local path, keeping its ID and references. Mutually exclusive with --url.`,
+          }),
+        ),
+        url: optional(
+          option("--url", string({ metavar: "URL" }), {
+            description: message`Download and replace file content from an HTTP(S) URL, keeping its ID and references. Mutually exclusive with --file.`,
+          }),
+        ),
         filename: optional(
           option("--filename", string({ metavar: "NAME" }), {
-            description: message`Rename the file without changing its ID or URL. Preserves the AI setting; disable AI to prevent future automatic renaming.`,
+            description: message`Set the filename. Metadata-only renames preserve the URL; replacement uses the source filename unless overridden. Disable AI to prevent future automatic renaming.`,
           }),
         ),
         ...metadata,
         ...common,
       }),
       {
-        description: message`Update the filename, alt text or AI settings. Example: camox files update --id 123 --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
+        description: message`Update metadata or replace file content with --file or --url (maximum 100 MiB). Replacing affects every reference to this file in the selected environment; its ID stays unchanged but its URL changes. Omitted alt text and AI settings are preserved. Example: camox files update --id 123 --file ./hero.jpg --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
       },
     ),
     command(
@@ -115,10 +125,20 @@ export async function handler(args: Args): Promise<never> {
     if (args.command === "files.get") {
       return dispatch({ ...options, toolName: "getFile", args: { id: args.id } });
     }
+    if (args.file !== undefined || args.url !== undefined) {
+      validateUpload(args);
+      const context = await resolveCommandContext(options);
+      const result = await uploadFile(context, args, args.id);
+      printResult(result, outputMode);
+      process.exit(0);
+    }
     validateMetadata(args);
     validateFilename(args.filename);
     if (args.alt === undefined && args.aiMetadata === undefined && args.filename === undefined) {
-      printError({ code: "INVALID_ARGS", message: "Pass --filename, --alt or --ai-metadata." });
+      printError({
+        code: "INVALID_ARGS",
+        message: "Pass --file, --url, --filename, --alt or --ai-metadata.",
+      });
       process.exit(2);
     }
     return dispatch({

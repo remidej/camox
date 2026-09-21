@@ -145,6 +145,7 @@ async function download(source: string, destination: string) {
 export async function uploadFile(
   context: Awaited<ReturnType<typeof resolveCommandContext>>,
   options: UploadOptions,
+  targetId?: number,
 ): Promise<unknown> {
   validateUpload(options);
   let temporaryDirectory: string | undefined;
@@ -182,7 +183,8 @@ export async function uploadFile(
     if (context.disableTelemetry) headers["x-camox-telemetry-disabled"] = "1";
     let response: Response;
     try {
-      response = await fetch(`${context.apiUrl}/files/upload`, {
+      const endpoint = targetId === undefined ? "/files/upload" : `/files/${targetId}/content`;
+      response = await fetch(`${context.apiUrl}${endpoint}`, {
         method: "POST",
         headers,
         body,
@@ -192,12 +194,15 @@ export async function uploadFile(
     } catch {
       return fail(
         "UPLOAD_FAILED",
-        "Media upload failed (network or timeout). Check files list before retrying.",
+        targetId === undefined
+          ? "Media upload failed (network or timeout). Check files list before retrying."
+          : `File replacement failed (network or timeout). Check files get --id ${targetId} before retrying.`,
       );
     }
     if (!response.ok) {
       // Do not echo arbitrary server bodies, which may contain sensitive data.
-      fail("UPLOAD_FAILED", `Media upload failed (HTTP ${response.status}).`);
+      const operation = targetId === undefined ? "Media upload" : "File replacement";
+      fail("UPLOAD_FAILED", `${operation} failed (HTTP ${response.status}).`);
     }
     return await response.json();
   } finally {

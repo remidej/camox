@@ -1,5 +1,6 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { Hono } from "hono";
+import { ORPCError } from "@orpc/server";
+import { Hono, type Handler } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
@@ -9,6 +10,7 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { authed, pub } from "../../orpc";
 import { files } from "../../schema";
 import type { AppEnv } from "../../types";
+import type { ServiceContext } from "../_shared/service-context";
 import * as service from "./service";
 
 // Public procedures
@@ -88,8 +90,22 @@ fileHonoRoutes.get("/serve/*", async (c) => {
   });
 });
 
-fileHonoRoutes.post("/upload", async (c) => {
+const uploadContent: Handler<AppEnv> = async (c) => {
   if (!c.var.user) return c.json({ error: "Unauthorized" }, 401);
+  const idParam = c.req.param("id");
+  const id = idParam === undefined ? undefined : Number(idParam);
+  if (id !== undefined && (!Number.isSafeInteger(id) || id <= 0)) {
+    return c.json({ error: "Invalid file id" }, 400);
+  }
+  const ctx: ServiceContext = {
+    db: c.var.db,
+    user: c.var.user,
+    env: c.env,
+    environmentName: c.var.environmentName,
+    client: c.var.client ?? "unknown",
+    telemetryDisabled: c.var.telemetryDisabled ?? false,
+    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+  };
 
   const body = await c.req.parseBody();
   const file = body["file"];
@@ -115,8 +131,21 @@ fileHonoRoutes.post("/upload", async (c) => {
   let aiMetadataEnabled = metadata.data.aiMetadataEnabled ?? null;
   if (metadata.data.alt !== undefined || !canGenerateAiMetadata) aiMetadataEnabled = false;
 
-  const project = await getAuthorizedProject(c.var.db, projectId, c.var.user.id);
-  if (!project) return c.json({ error: "Not found" }, 404);
+  // Reject incorrect project/environment targets before creating any stored object.
+  try {
+    if (id !== undefined) {
+      await service.getProjectFile(ctx, { projectId, id });
+    } else {
+      const project = await getAuthorizedProject(c.var.db, projectId, c.var.user.id);
+      if (!project) return c.json({ error: "Not found" }, 404);
+    }
+  } catch (error) {
+    if (error instanceof ORPCError && error.code === "NOT_FOUND")
+      return c.json({ error: "Not found" }, 404);
+    if (error instanceof ORPCError && error.code === "FORBIDDEN")
+      return c.json({ error: "Forbidden" }, 403);
+    throw error;
+  }
 
   const environment = await resolveEnvironment(c.var.db, projectId, c.var.environmentName);
 
@@ -131,6 +160,30 @@ fileHonoRoutes.post("/upload", async (c) => {
 
   const apiOrigin = new URL(c.req.url).origin;
   const url = `${apiOrigin}/files/serve/${key}`;
+
+  if (id !== undefined) {
+    try {
+      const result = await service.replaceFileContent(
+        ctx,
+        { projectId, id },
+        {
+          blobId: key,
+          path: key,
+          url,
+          filename,
+          mimeType: file.type,
+          size: file.size,
+        },
+        metadata.data,
+      );
+      return c.json(result);
+    } catch (error) {
+      // A failed database transaction must not leave an orphaned upload. Check
+      // references first so a post-commit error cannot remove the active image.
+      await service.deleteUnreferencedFileBlob(ctx, key);
+      throw error;
+    }
+  }
 
   const result = await c.var.db
     .insert(files)
@@ -169,4 +222,7 @@ fileHonoRoutes.post("/upload", async (c) => {
   });
 
   return c.json(result, 201);
-});
+};
+
+fileHonoRoutes.post("/upload", uploadContent);
+fileHonoRoutes.post("/:id/content", uploadContent);
