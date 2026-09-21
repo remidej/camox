@@ -13,7 +13,7 @@ import * as React from "react";
 import type { OverlayMessage } from "../../../features/preview/overlayMessages";
 import { isOverlayMessage, postOverlayMessage } from "../../../features/preview/overlayMessages";
 import { FORMAT_FLAGS } from "../../lib/modifierFormats";
-import { $selectionHasGradient, $toggleGradient } from "./GradientNode";
+import { $selectionHasHighlight, $toggleHighlight } from "./HighlightNode";
 import { selectTextLink } from "./selectTextLink";
 
 interface SelectionBroadcasterProps {
@@ -68,7 +68,7 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
       for (const key of ["bold", "italic", "underline"] as const) {
         if (selection.hasFormat(key)) format |= FORMAT_FLAGS[key];
       }
-      if ($selectionHasGradient()) format |= FORMAT_FLAGS.gradient;
+      if ($selectionHasHighlight()) format |= FORMAT_FLAGS.highlight;
       linkTarget = getLinkTargetFromSelection();
     });
 
@@ -155,7 +155,7 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
       });
 
       if (data.type === "CAMOX_FORMAT_TEXT") {
-        if (data.formatKey === "gradient") editor.update($toggleGradient);
+        if (data.formatKey === "highlight") editor.update($toggleHighlight);
         else if (
           data.formatKey === "bold" ||
           data.formatKey === "italic" ||

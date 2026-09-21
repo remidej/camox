@@ -23,7 +23,7 @@ Read only the references needed for the current task. Do not preload every refer
 - DOM listeners, scrolling, browser scripts, or third-party widgets:
   [DOM integrations](references/dom-integrations.md).
   Preview DOM lives in an iframe; component globals target the editor.
-- Customize inline text/link formatting or gradients:
+- Customize inline text/link formatting or highlights:
   [Field styling](references/field-styling.md).
 
 For specialized changes to an existing block, read the specialist reference directly. Also read Block Definitions only if creating a block or changing its schema or other field rendering APIs.

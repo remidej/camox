@@ -10,8 +10,8 @@ import {
   resolveTextLinkHref,
   shouldOpenTextLinkInNewTab,
 } from "../../lib/textLinks";
-import { getGradientStyle, getTextAppearance, type InlineStyle } from "../../lib/textStyles";
-import { GradientNode, $normalizeGradient } from "./GradientNode";
+import { getHighlightStyle, getTextAppearance, type InlineStyle } from "../../lib/textStyles";
+import { HighlightNode, $normalizeHighlight } from "./HighlightNode";
 
 const unitless = new Set([
   "animationIterationCount",
@@ -98,7 +98,7 @@ export function InlineStylesPlugin(options: MarkdownToReactNodesOptions) {
         function visit(node: LexicalNode) {
           const dom = editor.getElementByKey(node.getKey());
           if (dom && $isTextNode(node)) apply(dom, getTextAppearance(node.getFormat(), options));
-          if (dom && node instanceof GradientNode) apply(dom, getGradientStyle(options));
+          if (dom && node instanceof HighlightNode) apply(dom, getHighlightStyle(options));
           if (dom && $isLinkNode(node)) {
             const target = node.getURL();
             const href =
@@ -143,6 +143,6 @@ export function InlineStylesPlugin(options: MarkdownToReactNodesOptions) {
     };
   }, [editor, options.textStyle, options.linkStyle, options.pages, options.fallbackHref]);
 
-  React.useEffect(() => editor.registerNodeTransform(GradientNode, $normalizeGradient), [editor]);
+  React.useEffect(() => editor.registerNodeTransform(HighlightNode, $normalizeHighlight), [editor]);
   return null;
 }

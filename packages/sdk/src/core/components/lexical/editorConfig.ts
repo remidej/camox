@@ -3,7 +3,7 @@ import type { InitialConfigType } from "@lexical/react/LexicalComposer";
 import { ParagraphNode } from "lexical";
 
 import { isLexicalState, markdownToLexicalState } from "../../lib/lexicalState";
-import { GradientNode } from "./GradientNode";
+import { HighlightNode } from "./HighlightNode";
 import { InlineParagraphNode } from "./InlineParagraphNode";
 
 export function normalizeLexicalState(value: string | Record<string, unknown>): string {
@@ -42,7 +42,7 @@ export function createEditorConfig(
     theme: {},
     nodes: [
       LinkNode,
-      GradientNode,
+      HighlightNode,
       InlineParagraphNode,
       {
         replace: ParagraphNode,

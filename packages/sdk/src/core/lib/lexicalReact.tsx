@@ -8,7 +8,7 @@ import {
   resolveTextLinkHref,
   shouldOpenTextLinkInNewTab,
 } from "./textLinks";
-import { getGradientStyle, getTextAppearance, type InlineTextStyles } from "./textStyles";
+import { getHighlightStyle, getTextAppearance, type InlineTextStyles } from "./textStyles";
 
 export type { InlineStyle, InlineTextStyles, TextStyleData, TextLinkStyleData } from "./textStyles";
 
@@ -39,9 +39,9 @@ export function markdownToReactNodes(
     }
     if (node.type === "linebreak") return <br key={key} />;
     const children = (node.children ?? []).map(render);
-    if (node.type === "gradient") {
+    if (node.type === "highlight") {
       return (
-        <span key={key} data-camox-gradient="" {...getGradientStyle(options)}>
+        <span key={key} data-camox-highlight="" {...getHighlightStyle(options)}>
           {children}
         </span>
       );

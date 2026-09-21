@@ -5,7 +5,7 @@ import { Kbd } from "@camox/ui/kbd";
 import { Toggle } from "@camox/ui/toggle";
 import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store-react";
-import { Bold, Italic, Underline, Blend } from "lucide-react";
+import { Bold, Italic, Underline, Highlighter } from "lucide-react";
 import * as React from "react";
 
 import { TextLinkPopover } from "@/core/components/lexical/TextLinkPopover";
@@ -26,7 +26,13 @@ const FORMAT_BUTTONS = [
     label: "Underline",
     shortcut: "⌘ U",
   },
-  { key: "gradient", flag: FORMAT_FLAGS.gradient, icon: Blend, label: "Gradient", shortcut: null },
+  {
+    key: "highlight",
+    flag: FORMAT_FLAGS.highlight,
+    icon: Highlighter,
+    label: "Highlight",
+    shortcut: null,
+  },
 ] as const;
 
 export const FieldToolbar = () => {

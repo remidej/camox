@@ -11,22 +11,22 @@ import {
   type SerializedElementNode,
 } from "lexical";
 
-export class GradientNode extends ElementNode {
+export class HighlightNode extends ElementNode {
   static getType(): string {
-    return "gradient";
+    return "highlight";
   }
-  static clone(node: GradientNode): GradientNode {
-    return new GradientNode(node.__key);
+  static clone(node: HighlightNode): HighlightNode {
+    return new HighlightNode(node.__key);
   }
-  static importJSON(value: SerializedElementNode): GradientNode {
-    return $createGradientNode().updateFromJSON(value);
+  static importJSON(value: SerializedElementNode): HighlightNode {
+    return $createHighlightNode().updateFromJSON(value);
   }
   static importDOM(): DOMConversionMap {
     return {
       span: (element) =>
-        element.hasAttribute("data-camox-gradient")
+        element.hasAttribute("data-camox-highlight")
           ? {
-              conversion: () => ({ node: $createGradientNode() }),
+              conversion: () => ({ node: $createHighlightNode() }),
               priority: 1,
             }
           : null,
@@ -34,7 +34,7 @@ export class GradientNode extends ElementNode {
   }
   createDOM(): HTMLElement {
     const span = document.createElement("span");
-    span.dataset.camoxGradient = "";
+    span.dataset.camoxHighlight = "";
     return span;
   }
   updateDOM(): boolean {
@@ -54,33 +54,33 @@ export class GradientNode extends ElementNode {
   }
 }
 
-export function $createGradientNode(): GradientNode {
-  return $applyNodeReplacement(new GradientNode());
+export function $createHighlightNode(): HighlightNode {
+  return $applyNodeReplacement(new HighlightNode());
 }
 
-export function $getGradient(node: LexicalNode): GradientNode | null {
+export function $getHighlight(node: LexicalNode): HighlightNode | null {
   let current: LexicalNode | null = node;
   while (current) {
-    if (current instanceof GradientNode) return current;
+    if (current instanceof HighlightNode) return current;
     current = current.getParent();
   }
   return null;
 }
 
-export function $selectionHasGradient(): boolean {
+export function $selectionHasHighlight(): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
-  if (selection.isCollapsed()) return !!$getGradient(selection.anchor.getNode());
+  if (selection.isCollapsed()) return !!$getHighlight(selection.anchor.getNode());
   const texts = selection.getNodes().filter($isTextNode);
-  return texts.length > 0 && texts.every((node) => !!$getGradient(node));
+  return texts.length > 0 && texts.every((node) => !!$getHighlight(node));
 }
 
-/** Isolate a selected leaf without removing gradient from its unselected siblings. */
-function $removeGradientFrom(node: LexicalNode) {
-  const gradient = $getGradient(node);
-  if (!gradient) return;
+/** Isolate a selected leaf without removing highlight from its unselected siblings. */
+function $removeHighlightFrom(node: LexicalNode) {
+  const highlight = $getHighlight(node);
+  if (!highlight) return;
   let branch = node;
-  while (branch.getKey() !== gradient.getKey()) {
+  while (branch.getKey() !== highlight.getKey()) {
     const parent = branch.getParentOrThrow();
     const before = branch.getPreviousSiblings();
     const after = branch.getNextSiblings();
@@ -96,48 +96,48 @@ function $removeGradientFrom(node: LexicalNode) {
     }
     branch = parent;
   }
-  for (const child of gradient.getChildren()) gradient.insertBefore(child);
-  gradient.remove();
+  for (const child of highlight.getChildren()) highlight.insertBefore(child);
+  highlight.remove();
 }
 
-export function $toggleGradient(): void {
+export function $toggleHighlight(): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || selection.isCollapsed()) return;
-  const remove = $selectionHasGradient();
+  const remove = $selectionHasHighlight();
   const nodes = selection
     .extract()
     .filter((node) => $isTextNode(node) || node.getType() === "linebreak");
   for (const node of nodes) {
     if (remove) {
-      $removeGradientFrom(node);
+      $removeHighlightFrom(node);
       continue;
     }
-    if ($getGradient(node)) continue;
+    if ($getHighlight(node)) continue;
     const previous = node.getPreviousSibling();
-    if (previous instanceof GradientNode) {
+    if (previous instanceof HighlightNode) {
       previous.append(node);
       continue;
     }
-    const gradient = $createGradientNode();
-    node.insertBefore(gradient);
-    gradient.append(node);
+    const highlight = $createHighlightNode();
+    node.insertBefore(highlight);
+    highlight.append(node);
   }
 }
 
 /** Keep one background across adjacent runs, including after formatting changes. */
-export function $normalizeGradient(node: GradientNode): void {
+export function $normalizeHighlight(node: HighlightNode): void {
   const parent = node.getParent();
-  if (parent instanceof GradientNode) {
+  if (parent instanceof HighlightNode) {
     for (const child of node.getChildren()) node.insertBefore(child);
     node.remove();
     return;
   }
   const next = node.getNextSibling();
-  if (next instanceof GradientNode) {
+  if (next instanceof HighlightNode) {
     node.append(...next.getChildren());
     next.remove();
   }
-  // Lift a gradient covering an entire link so its background can join adjacent text.
+  // Lift a highlight covering an entire link so its background can join adjacent text.
   if ($isElementNode(parent) && parent.getType() === "link" && parent.getChildrenSize() === 1) {
     const children = node.getChildren();
     parent.insertBefore(node);

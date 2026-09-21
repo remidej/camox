@@ -3,8 +3,8 @@ export const FORMAT_FLAGS = {
   bold: 1,
   italic: 2,
   underline: 8,
-  // UI selection bit only. Gradient is an inline element, not a Lexical text format.
-  gradient: 1 << 20,
+  // UI selection bit only. Highlight is an inline element, not a Lexical text format.
+  highlight: 1 << 20,
 } as const;
 
 /** Markdown wrappers keyed by format name */

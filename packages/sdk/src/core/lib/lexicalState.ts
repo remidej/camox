@@ -86,8 +86,8 @@ export function lexicalStateToMarkdown(serialized: string | Record<string, unkno
 }
 
 function extractMarkdownFromNode(node: any): string {
-  if (node.type === "gradient") {
-    return `<gradient>${serializeInlineChildren(node.children ?? [])}</gradient>`;
+  if (node.type === "highlight") {
+    return `<highlight>${serializeInlineChildren(node.children ?? [])}</highlight>`;
   }
   if (node.type === "link") {
     const text = serializeInlineChildren(node.children ?? []);
@@ -262,7 +262,7 @@ function parseTokens(tokens: Token[], format: number): any[] {
       continue;
     }
     const tag =
-      token.type === "html" ? /^<(gradient|u|strong|em)>$/.exec(token.raw)?.[1] : undefined;
+      token.type === "html" ? /^<(highlight|u|strong|em)>$/.exec(token.raw)?.[1] : undefined;
     if (tag) {
       let depth = 1;
       let end = i + 1;
@@ -279,7 +279,7 @@ function parseTokens(tokens: Token[], format: number): any[] {
           em: FORMAT_FLAGS.italic,
         };
         const children = parseTokens(tokens.slice(i + 1, end), format | (tagFlags[tag] ?? 0));
-        if (tag === "gradient") nodes.push(inlineElement("gradient", children));
+        if (tag === "highlight") nodes.push(inlineElement("highlight", children));
         else nodes.push(...children);
         i = end;
         continue;

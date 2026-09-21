@@ -29,20 +29,25 @@ const { $getRoot, $isTextNode, createEditor } = await import("lexical");
 const { createEditorConfig } = await import("./editorConfig");
 const { InlineStylesPlugin } = await import("./InlineStylesPlugin");
 const { selectTextLink } = await import("./selectTextLink");
-const { GradientNode, $normalizeGradient, $toggleGradient, $selectionHasGradient } =
-  await import("./GradientNode");
+const { HighlightNode, $normalizeHighlight, $toggleHighlight, $selectionHasHighlight } =
+  await import("./HighlightNode");
 const { lexicalStateToMarkdown, markdownToLexicalState } = await import("../../lib/lexicalState");
 const { markdownToReactNodes } = await import("../../lib/lexicalReact");
 type LexicalEditor = import("lexical").LexicalEditor;
 
-void test("editor and public output share text, gradient, and link appearance", async () => {
-  const value = "<gradient>stay <u>***nimble***</u> [here](https://example.com)</gradient>";
+void test("editor and public output share text, highlight, and link appearance", async () => {
+  const value = "<highlight>stay <u>***nimble***</u> [here](https://example.com)</highlight>";
   const styles = {
-    textStyle: ({ bold, gradient }: { bold: boolean; gradient: boolean }) => {
-      if (gradient)
+    textStyle: ({ bold, highlight }: { bold: boolean; highlight: boolean }) => {
+      if (highlight)
         return {
-          className: "custom-gradient",
-          style: { backgroundImage: "linear-gradient(red, blue)" },
+          className: "custom-highlight",
+          style: {
+            backgroundImage: "linear-gradient(red, blue)",
+            backgroundClip: "text",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          },
         };
       return {
         className: bold ? "red" : undefined,
@@ -73,17 +78,17 @@ void test("editor and public output share text, gradient, and link appearance", 
   });
   const publicHost = document.createElement("div");
   publicHost.innerHTML = renderToStaticMarkup(markdownToReactNodes(value, styles));
-  for (const selector of ["strong", "a", "[data-camox-gradient]"]) {
+  for (const selector of ["strong", "a", "[data-camox-highlight]"]) {
     const editable = host.querySelector<HTMLElement>(selector)!;
     const published = publicHost.querySelector<HTMLElement>(selector)!;
     assert.ok(editable, selector);
     assert.equal(editable.style.cssText, published.style.cssText, selector);
     assert.equal(editable.className, published.className, selector);
   }
-  assert.equal(host.querySelectorAll("[data-camox-gradient]").length, 1);
-  assert.equal(host.querySelectorAll(".custom-gradient").length, 1);
+  assert.equal(host.querySelectorAll("[data-camox-highlight]").length, 1);
+  assert.equal(host.querySelectorAll(".custom-highlight").length, 1);
   assert.equal(
-    host.querySelector<HTMLElement>("[data-camox-gradient]")!.style.backgroundImage,
+    host.querySelector<HTMLElement>("[data-camox-highlight]")!.style.backgroundImage,
     "linear-gradient(red, blue)",
   );
   assert.equal(host.querySelector<HTMLElement>("strong")!.style.backgroundImage, "");
@@ -104,7 +109,7 @@ void test("editor and public output share text, gradient, and link appearance", 
   assert.equal(italic.style.color, "");
   assert.equal(italic.className, "");
   assert.equal(italic.style.textDecorationLine, "underline");
-  assert.equal(host.querySelectorAll("[data-camox-gradient]").length, 1);
+  assert.equal(host.querySelectorAll("[data-camox-highlight]").length, 1);
   await act(async () => root.unmount());
   host.remove();
 });
@@ -164,7 +169,7 @@ function setup(value: string) {
       throw error;
     },
   });
-  editor.registerNodeTransform(GradientNode, $normalizeGradient);
+  editor.registerNodeTransform(HighlightNode, $normalizeHighlight);
   editor.setEditorState(editor.parseEditorState(JSON.stringify(markdownToLexicalState(value))));
   return editor;
 }
@@ -174,47 +179,47 @@ function save(editor: LexicalEditor) {
   );
 }
 
-void test("partial removal preserves unselected gradient and reapplying merges boundaries", () => {
-  const editor = setup("<gradient>stay very nimble</gradient>");
+void test("partial removal preserves unselected highlight and reapplying merges boundaries", () => {
+  const editor = setup("<highlight>stay very nimble</highlight>");
   editor.update(
     () => {
       const text = $getRoot().getAllTextNodes()[0];
       text.select(5, 9);
-      assert.equal($selectionHasGradient(), true);
-      $toggleGradient();
+      assert.equal($selectionHasHighlight(), true);
+      $toggleHighlight();
     },
     { discrete: true },
   );
-  assert.equal(save(editor), "<gradient>stay </gradient>very<gradient> nimble</gradient>");
+  assert.equal(save(editor), "<highlight>stay </highlight>very<highlight> nimble</highlight>");
   editor.update(
     () => {
       const text = $getRoot()
         .getAllTextNodes()
         .find((node) => node.getTextContent() === "very")!;
       text.select(0, 4);
-      $toggleGradient();
+      $toggleHighlight();
     },
     { discrete: true },
   );
-  assert.equal(save(editor), "<gradient>stay very nimble</gradient>");
+  assert.equal(save(editor), "<highlight>stay very nimble</highlight>");
 });
 
-void test("backwards selections and line breaks round trip gradient", () => {
+void test("backwards selections and line breaks round trip highlight", () => {
   const editor = setup("stay very nimble");
   editor.update(
     () => {
       $getRoot().getAllTextNodes()[0].select(9, 5);
-      $toggleGradient();
+      $toggleHighlight();
     },
     { discrete: true },
   );
-  assert.equal(save(editor), "stay <gradient>very</gradient> nimble");
-  const multiline = setup("<gradient>first\n\n***second***</gradient>");
-  assert.equal(save(multiline), "<gradient>first\n\n***second***</gradient>");
+  assert.equal(save(editor), "stay <highlight>very</highlight> nimble");
+  const multiline = setup("<highlight>first\n\n***second***</highlight>");
+  assert.equal(save(multiline), "<highlight>first\n\n***second***</highlight>");
 });
 
-void test("bold inside gradient does not split its boundary", () => {
-  const editor = setup("<gradient>stay very nimble</gradient>");
+void test("bold inside highlight does not split its boundary", () => {
+  const editor = setup("<highlight>stay very nimble</highlight>");
   editor.update(
     () => {
       const text = $getRoot().getAllTextNodes()[0];
@@ -224,19 +229,19 @@ void test("bold inside gradient does not split its boundary", () => {
     },
     { discrete: true },
   );
-  assert.equal(save(editor), "<gradient>stay ***very*** nimble</gradient>");
+  assert.equal(save(editor), "<highlight>stay ***very*** nimble</highlight>");
 });
 
-void test("gradient spans fully selected links and keeps partial link selections linked", () => {
+void test("highlight spans fully selected links and keeps partial link selections linked", () => {
   const editor = setup("stay [very](https://example.com) nimble");
   editor.update(
     () => {
       $getRoot().select(0, $getRoot().getChildrenSize());
-      $toggleGradient();
+      $toggleHighlight();
     },
     { discrete: true },
   );
-  assert.equal(save(editor), "<gradient>stay [very](https://example.com) nimble</gradient>");
+  assert.equal(save(editor), "<highlight>stay [very](https://example.com) nimble</highlight>");
   editor.update(
     () => {
       const text = $getRoot()
@@ -244,7 +249,7 @@ void test("gradient spans fully selected links and keeps partial link selections
         .find((node) => node.getTextContent() === "very")!;
       assert.ok($isTextNode(text));
       text.select(1, 3);
-      $toggleGradient();
+      $toggleHighlight();
     },
     { discrete: true },
   );

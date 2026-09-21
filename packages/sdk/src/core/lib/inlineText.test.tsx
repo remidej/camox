@@ -11,7 +11,7 @@ import {
   parseInlineMarkdown,
 } from "./lexicalState";
 import { FORMAT_FLAGS } from "./modifierFormats";
-import { getGradientStyle, type TextStyleData } from "./textStyles";
+import { getHighlightStyle, type TextStyleData } from "./textStyles";
 
 void test("singleton URL links survive editing round trips and render as internal links", () => {
   const value = "[Explore **Pokédex**](/pokedex)";
@@ -38,41 +38,44 @@ void test("bold, italic, and underline compose, including inside links", () => {
   assert.match(html, /href="https:\/\/example.com"/);
 });
 
-void test("default gradient uses chart colors with theme and inherited-color fallbacks", () => {
-  const expected =
-    "linear-gradient(to right, var(--camox-gradient-from, var(--chart-1, var(--primary, currentColor))), var(--camox-gradient-to, var(--chart-2, var(--muted-foreground, currentColor))))";
-  assert.equal(getGradientStyle({}).style?.backgroundImage, expected);
-  const html = renderToStaticMarkup(markdownToReactNodes("<gradient>nimble</gradient>"));
+void test("default highlight uses primary text color with an inherited-color fallback", () => {
+  const expected = "var(--primary, currentColor)";
+  assert.deepEqual(getHighlightStyle({}).style, { color: expected });
+  const html = renderToStaticMarkup(markdownToReactNodes("<highlight>nimble</highlight>"));
   assert.ok(html.includes(expected));
   assert.equal(
-    getGradientStyle({
-      textStyle: ({ gradient }) =>
-        gradient ? { style: { backgroundImage: "linear-gradient(orange, pink)" } } : undefined,
-    }).style?.backgroundImage,
-    "linear-gradient(orange, pink)",
+    getHighlightStyle({
+      textStyle: ({ highlight }) => (highlight ? { style: { color: "orange" } } : undefined),
+    }).style?.color,
+    "orange",
   );
 });
 
-void test("gradient has one boundary across formatting changes and links", () => {
-  const value = "<gradient>stay **very** [*nimble*](https://example.com)</gradient>";
+void test("highlight has one boundary across formatting changes and links", () => {
+  const value = "<highlight>stay **very** [*nimble*](https://example.com)</highlight>";
   const html = renderToStaticMarkup(markdownToReactNodes(value));
-  assert.equal(html.match(/data-camox-gradient/g)?.length, 1);
+  assert.equal(html.match(/data-camox-highlight/g)?.length, 1);
   assert.match(html, /<strong>very<\/strong>/);
   assert.match(html, /<em>nimble<\/em>/);
   assert.equal(lexicalStateToMarkdown(markdownToLexicalState(value)), value);
   assert.equal(lexicalStateToPlainText(markdownToLexicalState(value)), "stay very nimble");
 });
 
-void test("textStyle resolves a gradient once, independently of its formatted children", () => {
+void test("textStyle resolves a highlight once, independently of its formatted children", () => {
   const calls: TextStyleData[] = [];
   const html = renderToStaticMarkup(
-    markdownToReactNodes("<gradient>stay <u>***nimble***</u></gradient>", {
+    markdownToReactNodes("<highlight>stay <u>***nimble***</u></highlight>", {
       textStyle: (flags) => {
         calls.push(flags);
-        if (flags.gradient)
+        if (flags.highlight)
           return {
-            className: "brand-gradient",
-            style: { backgroundImage: "linear-gradient(orange, pink)" },
+            className: "brand-highlight",
+            style: {
+              backgroundImage: "linear-gradient(orange, pink)",
+              backgroundClip: "text",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            },
           };
         if (flags.bold && flags.italic) return { className: "combined" };
         return undefined;
@@ -80,14 +83,18 @@ void test("textStyle resolves a gradient once, independently of its formatted ch
     }),
   );
   assert.deepEqual(
-    calls.filter(({ gradient }) => gradient),
-    [{ gradient: true, bold: false, italic: false, underline: false }],
+    calls.filter(({ highlight }) => highlight),
+    [{ highlight: true, bold: false, italic: false, underline: false }],
   );
   assert.ok(
-    calls.some(({ gradient, bold, italic, underline }) => !gradient && bold && italic && underline),
+    calls.some(
+      ({ highlight, bold, italic, underline }) => !highlight && bold && italic && underline,
+    ),
   );
   assert.equal(html.match(/linear-gradient\(orange, pink\)/g)?.length, 1);
-  assert.equal(html.match(/brand-gradient/g)?.length, 1);
+  assert.equal(html.match(/brand-highlight/g)?.length, 1);
+  assert.match(html, /background-clip:text/);
+  assert.match(html, /-webkit-text-fill-color:transparent/);
   assert.match(html, /<strong class="combined"/);
 });
 
@@ -97,12 +104,12 @@ void test("formatting round trips nested and adjacent runs", () => {
     "***both* bold**",
     "*italic **both***",
     "***both** italic*",
-    "<gradient><u>***both***</u>\nplain</gradient>",
-    "<gradient>first\n\nsecond</gradient>",
+    "<highlight><u>***both***</u>\nplain</highlight>",
+    "<highlight>first\n\nsecond</highlight>",
     "first\n\nsecond\nthird",
     "_italic_ __bold__ ___both___",
     "snake_case",
-    "\\*literal\\* \\<gradient>literal\\</gradient>",
+    "\\*literal\\* \\<highlight>literal\\</highlight>",
   ]) {
     const state = markdownToLexicalState(value);
     const saved = lexicalStateToMarkdown(state);
@@ -134,7 +141,7 @@ void test("all adjacent format combinations preserve whitespace and punctuation"
 });
 
 void test("legacy Lexical objects and strings retain formatting", () => {
-  const state = markdownToLexicalState("<gradient>***nimble***</gradient>");
+  const state = markdownToLexicalState("<highlight>***nimble***</highlight>");
   assert.equal(
     renderToStaticMarkup(markdownToReactNodes(state)),
     renderToStaticMarkup(markdownToReactNodes(JSON.stringify(state))),
@@ -148,9 +155,9 @@ void test("legacy Lexical objects and strings retain formatting", () => {
 void test("HTML and unsafe links are not rendered as executable markup", () => {
   const html = renderToStaticMarkup(
     markdownToReactNodes(
-      '<script>alert(1)</script> [bad](javascript:alert) <gradient onclick="alert(1)">text</gradient>',
+      '<script>alert(1)</script> [bad](javascript:alert) <highlight onclick="alert(1)">text</highlight>',
     ),
   );
-  assert.doesNotMatch(html, /<script|href="javascript:|<gradient/);
+  assert.doesNotMatch(html, /<script|href="javascript:|<highlight/);
   assert.match(html, /&lt;script&gt;/);
 });

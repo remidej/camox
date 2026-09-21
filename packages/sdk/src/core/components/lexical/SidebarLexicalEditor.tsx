@@ -21,7 +21,7 @@ import {
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
 } from "lexical";
-import { Bold, Italic, Underline, Blend } from "lucide-react";
+import { Bold, Italic, Underline, Highlighter } from "lucide-react";
 import * as React from "react";
 
 import { lexicalStateToMarkdown } from "@/core/lib/lexicalState";
@@ -30,7 +30,7 @@ import { INPUT_BASE_STYLES, INPUT_FOCUS_STYLES, cn } from "@/lib/utils";
 
 import { FORMAT_FLAGS } from "../../lib/modifierFormats";
 import { createEditorConfig, normalizeLexicalState } from "./editorConfig";
-import { $selectionHasGradient, $toggleGradient } from "./GradientNode";
+import { $selectionHasHighlight, $toggleHighlight } from "./HighlightNode";
 import { InlineStylesPlugin } from "./InlineStylesPlugin";
 import { selectTextLink } from "./selectTextLink";
 import { TextLinkPopover } from "./TextLinkPopover";
@@ -136,7 +136,7 @@ function SidebarFloatingTextToolbar() {
       if (selection.hasFormat("bold")) activeFormats |= FORMAT_FLAGS.bold;
       if (selection.hasFormat("italic")) activeFormats |= FORMAT_FLAGS.italic;
       if (selection.hasFormat("underline")) activeFormats |= FORMAT_FLAGS.underline;
-      if ($selectionHasGradient()) activeFormats |= FORMAT_FLAGS.gradient;
+      if ($selectionHasHighlight()) activeFormats |= FORMAT_FLAGS.highlight;
 
       let node: any = selection.anchor.getNode();
       while (node) {
@@ -218,11 +218,11 @@ function SidebarFloatingTextToolbar() {
     $setSelection(lastSelectionRef.current.clone());
   };
 
-  const applyFormat = (formatKey: "bold" | "italic" | "underline" | "gradient") => {
+  const applyFormat = (formatKey: "bold" | "italic" | "underline" | "highlight") => {
     editor.update(() => {
       restoreSelection();
-      if (formatKey === "gradient") {
-        $toggleGradient();
+      if (formatKey === "highlight") {
+        $toggleHighlight();
         return;
       }
       editor.dispatchCommand(FORMAT_TEXT_COMMAND, formatKey);
@@ -322,7 +322,7 @@ function SidebarFloatingTextToolbar() {
       {(
         [
           { key: "underline", label: "Underline", icon: Underline },
-          { key: "gradient", label: "Gradient", icon: Blend },
+          { key: "highlight", label: "Highlight", icon: Highlighter },
         ] as const
       ).map(({ key, label, icon: Icon }) => (
         <Toggle

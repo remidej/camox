@@ -8,8 +8,8 @@ export interface InlineStyle {
 }
 
 export interface TextStyleData {
-  /** True when styling the shared gradient wrapper. Other flags are false for this call. */
-  gradient: boolean;
+  /** True when styling the shared highlight wrapper. Other flags are false for this call. */
+  highlight: boolean;
   bold: boolean;
   italic: boolean;
   underline: boolean;
@@ -30,7 +30,7 @@ export interface InlineTextStyles {
 
 export function getTextStyleData(format: number): TextStyleData {
   return {
-    gradient: false,
+    highlight: false,
     bold: !!(format & FORMAT_FLAGS.bold),
     italic: !!(format & FORMAT_FLAGS.italic),
     underline: !!(format & FORMAT_FLAGS.underline),
@@ -50,25 +50,21 @@ export function getTextAppearance(format: number, styles: InlineTextStyles): Inl
   };
 }
 
-export const defaultGradientStyle: CSSProperties = {
-  backgroundImage:
-    "linear-gradient(to right, var(--camox-gradient-from, var(--chart-1, var(--primary, currentColor))), var(--camox-gradient-to, var(--chart-2, var(--muted-foreground, currentColor))))",
-  backgroundClip: "text",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
+export const defaultHighlightStyle: CSSProperties = {
+  color: "var(--primary, currentColor)",
 };
 
-export function getGradientStyle(styles: InlineTextStyles): InlineStyle {
+export function getHighlightStyle(styles: InlineTextStyles): InlineStyle {
   // Resolve the range independently of its children. The background must not be
   // applied to each formatted run, which would restart it at every boundary.
   const custom = styles.textStyle?.({
-    gradient: true,
+    highlight: true,
     bold: false,
     italic: false,
     underline: false,
   });
   return {
     className: custom?.className,
-    style: { ...defaultGradientStyle, ...custom?.style },
+    style: { ...defaultHighlightStyle, ...custom?.style },
   };
 }
