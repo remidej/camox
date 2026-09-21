@@ -14,6 +14,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, layouts, member, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { readMetadataImage } from "./metadata-image";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -103,12 +104,10 @@ async function generateImageMetadata(
   });
   // Fetch image server-side — the AI provider can't reach localhost URLs in development
   const response = await fetch(optimizedUrl);
-  const buffer = await response.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
+  const { bytes, mimeType } = await readMetadataImage(response);
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   const base64 = btoa(binary);
-  const mimeType = response.headers.get("content-type") || "image/jpeg";
 
   return await chat({
     adapter: createOpenRouterText("google/gemini-2.5-flash-lite", apiKey),
@@ -122,7 +121,7 @@ async function generateImageMetadata(
         content: [
           {
             type: "image" as const,
-            source: { type: "data" as const, value: base64, mimeType: mimeType as "image/png" },
+            source: { type: "data" as const, value: base64, mimeType },
           },
           {
             type: "text" as const,
