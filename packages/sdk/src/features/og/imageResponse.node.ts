@@ -7,12 +7,10 @@
  * about which engine to use any more — it's only about *how* the wasm module
  * gets loaded:
  *
- *   - Here, we read the `.wasm` file off disk and `initSync` it ourselves
- *     before constructing a `Renderer`. `@takumi-rs/wasm` ships a "node"
- *     bundler entry that purports to do this, but its source uses an
- *     extensionless `import "../pkg/takumi_wasm"` which raw Node ESM rejects
- *     once the package is externalised by Nitro/Vite — so we go through the
- *     `no-bundler` entry directly.
+ *   - Here, we import the wasm module and `initSync` it ourselves before
+ *     constructing a `Renderer`. The static `?module` import lets Nitro emit
+ *     the asset into the deployment instead of relying on a runtime
+ *     `require.resolve` that dependency tracing cannot reliably discover.
  *
  *   - In `imageResponse.workerd.ts` there's no filesystem; instead we pass a
  *     `WebAssembly.Module` reference via `?module` import and let the
@@ -22,10 +20,8 @@
  * `module:` option isn't needed here — the renderer is already alive.
  */
 
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-
 import { ImageResponse as WasmImageResponse } from "@takumi-rs/image-response/wasm";
+import wasmModule from "@takumi-rs/wasm/next";
 import { Renderer, initSync } from "@takumi-rs/wasm/no-bundler";
 import type { ReactNode } from "react";
 
@@ -38,9 +34,7 @@ type WasmCtorOptions = ConstructorParameters<typeof WasmImageResponse>[1];
  * compiles the wasm and wires up the JS bindings; subsequent `new Renderer()`
  * calls are cheap.
  */
-const require = createRequire(import.meta.url);
-const wasmPath = require.resolve("@takumi-rs/wasm/takumi_wasm_bg.wasm");
-initSync({ module: readFileSync(wasmPath) });
+initSync({ module: wasmModule });
 
 /**
  * Module-scoped singleton — building the renderer compiles the wasm module

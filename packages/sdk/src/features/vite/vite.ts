@@ -152,7 +152,9 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           const noExternals = Array.isArray(nitro.options.noExternals)
             ? nitro.options.noExternals
             : [];
-          nitro.options.noExternals = [...noExternals, "camox"];
+          // Bundle tslib as well: tracing only its aliased ESM entry leaves a
+          // partial package whose Node exports point to missing modules/index.js.
+          nitro.options.noExternals = [...noExternals, "camox", "tslib"];
         }
         installRuntimeNitroRoutes(nitro, { runtimeBasePath });
         nitro.hooks.hook("compiled", ({ options }) => {

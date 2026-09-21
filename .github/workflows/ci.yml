@@ -28,3 +28,9 @@ jobs:
       - run: pnpm check
 
       - run: pnpm test
+
+      - run: pnpm exec nx run camox:build
+
+      - run: pnpm --filter camox exec tsx --test src/features/vite/vite.test.ts
+
+      - run: pnpm --filter @camox/template-default test:production

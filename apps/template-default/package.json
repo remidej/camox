@@ -8,6 +8,7 @@
     "dev": "vp dev --port 7400",
     "start": "node .output/server/index.mjs",
     "build": "vp build",
+    "test:production": "node scripts/production-smoke.mjs",
     "release": "camox release",
     "serve": "vp preview",
     "lint": "vp lint",
