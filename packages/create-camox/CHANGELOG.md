@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...create-camox-v0.43.0) (2026-09-21)
+
+
+### Miscellaneous
+
+* **create-camox:** Synchronize camox versions
+
 ## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...create-camox-v0.42.0) (2026-09-18)
 
 

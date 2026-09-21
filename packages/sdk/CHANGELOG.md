@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...camox-sdk-v0.43.0) (2026-09-21)
+
+
+### Features
+
+* add camoxify skill ([fa2f5bf](https://github.com/remidej/camox/commit/fa2f5bf3ba3f7cf653d8d2d4802009236dcaa42e))
+* add getElementContext api ([141965c](https://github.com/remidej/camox/commit/141965cedd307e8c47fd5491c1a66ee4ed885900))
+* add singleton layouts ([2dee85d](https://github.com/remidej/camox/commit/2dee85de42600f8095925cc8bc5f18838f4eb8cc))
+* **cli:** support page SEO metadata updates ([1ca122a](https://github.com/remidej/camox/commit/1ca122aad316b5acc678f811e68d024142eb5b16)), closes [#109](https://github.com/remidej/camox/issues/109)
+
+
+### Bug Fixes
+
+* **cli:** populate empty blocks with default content ([cce66cf](https://github.com/remidej/camox/commit/cce66cfe912dd600a45da2ffcd4234bfe86b8d47))
+* **sdk:** generate formatter-compliant layout declarations ([b8883e9](https://github.com/remidej/camox/commit/b8883e95b696ce084e0acc26f41030f126197d88))
+* **sdk:** include production server runtime dependencies ([937528c](https://github.com/remidej/camox/commit/937528cb0bd69c65aa617555deb20b454df17307)), closes [#106](https://github.com/remidej/camox/issues/106)
+
+
+### Miscellaneous
+
+* less verbose skill contents ([ed62cc9](https://github.com/remidej/camox/commit/ed62cc9e831e8007fe64e21d41a92fa9bc072683))
+* more progressive skill discovery ([d837336](https://github.com/remidej/camox/commit/d837336d056b31b651076f7760a6bdf13307f29c))
+* transform gradient marker into highlight ([f11523d](https://github.com/remidej/camox/commit/f11523d4ad57cda07308f536cb5a824625c3bb73))
+
 ## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...camox-sdk-v0.42.0) (2026-09-18)
 
 

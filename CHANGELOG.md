@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...camox-v0.43.0) (2026-09-21)
+
+
+### Features
+
+* add camoxify skill ([fa2f5bf](https://github.com/remidej/camox/commit/fa2f5bf3ba3f7cf653d8d2d4802009236dcaa42e))
+* add getElementContext api ([141965c](https://github.com/remidej/camox/commit/141965cedd307e8c47fd5491c1a66ee4ed885900))
+* add singleton layouts ([2dee85d](https://github.com/remidej/camox/commit/2dee85de42600f8095925cc8bc5f18838f4eb8cc))
+* **cli:** add --cwd for runtime lookup ([dd84e21](https://github.com/remidej/camox/commit/dd84e21222d56448d6d303a8e891cd6f5a393d71))
+* **cli:** add media commands ([349ed6f](https://github.com/remidej/camox/commit/349ed6feeebbbf8126214ad5d95a441c9b2b4557))
+* **cli:** replace image source ([e7bcfe8](https://github.com/remidej/camox/commit/e7bcfe8d70b0a638ff701e95ed46b2414a6067e3))
+* **cli:** support page SEO metadata updates ([1ca122a](https://github.com/remidej/camox/commit/1ca122aad316b5acc678f811e68d024142eb5b16)), closes [#109](https://github.com/remidej/camox/issues/109)
+
+
+### Bug Fixes
+
+* **api:** validate images before generating metadata ([6963deb](https://github.com/remidej/camox/commit/6963debd8a66f41c19f2508447ce5a62a00284bc)), closes [#105](https://github.com/remidej/camox/issues/105)
+* **cli:** populate empty blocks with default content ([cce66cf](https://github.com/remidej/camox/commit/cce66cfe912dd600a45da2ffcd4234bfe86b8d47))
+* **sdk:** generate formatter-compliant layout declarations ([b8883e9](https://github.com/remidej/camox/commit/b8883e95b696ce084e0acc26f41030f126197d88))
+* **sdk:** include production server runtime dependencies ([937528c](https://github.com/remidej/camox/commit/937528cb0bd69c65aa617555deb20b454df17307)), closes [#106](https://github.com/remidej/camox/issues/106)
+
+
+### Miscellaneous
+
+* delete old plan files ([6a72c69](https://github.com/remidej/camox/commit/6a72c69e9ab0be4c0986fdd9228cbe22c1784974))
+* less verbose skill contents ([ed62cc9](https://github.com/remidej/camox/commit/ed62cc9e831e8007fe64e21d41a92fa9bc072683))
+* more progressive skill discovery ([d837336](https://github.com/remidej/camox/commit/d837336d056b31b651076f7760a6bdf13307f29c))
+* **playground:** transform pokedex block into curated selection ([8108fef](https://github.com/remidej/camox/commit/8108fef04980ef7ee8b63cd256d156185acb712f))
+* remove CLAUDE.md instructions file ([b9fdc0c](https://github.com/remidej/camox/commit/b9fdc0caf3efb73861b4bb4657baee23ec5f2b92))
+* transform gradient marker into highlight ([f11523d](https://github.com/remidej/camox/commit/f11523d4ad57cda07308f536cb5a824625c3bb73))
+
 ## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...camox-v0.42.0) (2026-09-18)
 
 

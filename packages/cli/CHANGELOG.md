@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...@camox/cli-v0.43.0) (2026-09-21)
+
+
+### Features
+
+* add camoxify skill ([fa2f5bf](https://github.com/remidej/camox/commit/fa2f5bf3ba3f7cf653d8d2d4802009236dcaa42e))
+* **cli:** add --cwd for runtime lookup ([dd84e21](https://github.com/remidej/camox/commit/dd84e21222d56448d6d303a8e891cd6f5a393d71))
+* **cli:** add media commands ([349ed6f](https://github.com/remidej/camox/commit/349ed6feeebbbf8126214ad5d95a441c9b2b4557))
+* **cli:** replace image source ([e7bcfe8](https://github.com/remidej/camox/commit/e7bcfe8d70b0a638ff701e95ed46b2414a6067e3))
+* **cli:** support page SEO metadata updates ([1ca122a](https://github.com/remidej/camox/commit/1ca122aad316b5acc678f811e68d024142eb5b16)), closes [#109](https://github.com/remidej/camox/issues/109)
+
 ## [0.42.0](https://github.com/remidej/camox/compare/camox-v0.41.1...@camox/cli-v0.42.0) (2026-09-18)
 
 
