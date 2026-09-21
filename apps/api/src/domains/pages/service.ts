@@ -87,12 +87,25 @@ export const createPageInput = z.object({
   parentPageId: z.number().optional(),
   layoutId: z.number(),
 });
-export const updatePageInput = z.object({
-  id: z.number(),
-  nickname: pageNicknameSchema.optional(),
-  pathSegment: z.string().optional(),
-  parentPageId: z.number().nullable().optional(),
-});
+export const updatePageInput = z
+  .object({
+    id: z.number(),
+    nickname: pageNicknameSchema.optional(),
+    pathSegment: z.string().optional(),
+    parentPageId: z.number().nullable().optional(),
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional(),
+    aiSeoEnabled: z.boolean().optional(),
+  })
+  .refine(({ id: _id, ...fields }) => Object.values(fields).some((value) => value !== undefined), {
+    message: "Pass at least one field to update.",
+  })
+  .refine(
+    (input) =>
+      input.aiSeoEnabled !== true ||
+      (input.metaTitle === undefined && input.metaDescription === undefined),
+    { message: "Cannot enable automatic SEO alongside manual metadata." },
+  );
 export const deletePageInput = z.object({ id: z.number() });
 export const setPageAiSeoInput = z.object({ id: z.number(), enabled: z.boolean() });
 export const setPageMetaTitleInput = z.object({ id: z.number(), metaTitle: z.string() });
@@ -828,6 +841,9 @@ export async function createPage(ctx: ServiceContext, rawInput: z.input<typeof c
 export async function updatePage(ctx: ServiceContext, rawInput: z.input<typeof updatePageInput>) {
   const user = assertUser(ctx);
   const { id, ...body } = updatePageInput.parse(rawInput);
+  if (body.metaTitle !== undefined || body.metaDescription !== undefined) {
+    body.aiSeoEnabled = false;
+  }
   const access = await assertPageAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
 
@@ -857,7 +873,7 @@ export async function updatePage(ctx: ServiceContext, rawInput: z.input<typeof u
     await assertUnreservedPagePaths(ctx, access.page.environmentId, [...pathChanges.values()]);
   }
 
-  const now = Date.now();
+  const now = Math.max(Date.now(), access.page.updatedAt + 1);
   const [result] = await ctx.db.batch([
     ctx.db
       .update(pages)
@@ -870,6 +886,16 @@ export async function updatePage(ctx: ServiceContext, rawInput: z.input<typeof u
         ctx.db.update(pages).set({ fullPath, updatedAt: now }).where(eq(pages.id, pageId)),
       ),
   ]);
+  if (body.aiSeoEnabled === true) {
+    ctx.waitUntil(
+      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
+        entityTable: "pages",
+        entityId: id,
+        type: "seo",
+        delayMs: 0,
+      }),
+    );
+  }
   invalidatePage(ctx, access.page.projectId, id);
   return result[0];
 }
@@ -896,7 +922,7 @@ export async function setPageAiSeo(
 
   const result = await ctx.db
     .update(pages)
-    .set({ aiSeoEnabled: enabled, updatedAt: Date.now() })
+    .set({ aiSeoEnabled: enabled, updatedAt: sql`max(${pages.updatedAt} + 1, ${Date.now()})` })
     .where(eq(pages.id, id))
     .returning()
     .get();

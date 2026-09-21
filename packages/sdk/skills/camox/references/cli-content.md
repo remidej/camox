@@ -15,6 +15,25 @@ Use these commands for Pages, metadata, Layout assignments, Block instances and 
 
 Use `--parent-page-id <ID>` to nest the Page under another Page.
 
+### Read and edit SEO metadata
+
+```sh
+{{CAMOX_CMD}} pages get --path /about
+{{CAMOX_CMD}} pages update --path /about --meta-title "About us" --meta-description "Meet the team."
+{{CAMOX_CMD}} pages update --id 25 --meta-description ""
+{{CAMOX_CMD}} pages update --id 25 --ai-seo on
+{{CAMOX_CMD}} pages update --id 25 --ai-seo off
+```
+
+Updates accept exactly one of `--id` or `--path` and require at least one update
+field. Omitted fields are preserved; an empty string clears a metadata field.
+Setting either metadata field disables automatic SEO for both fields and cannot
+be combined with `--ai-seo on`. Disabling AI preserves current metadata; enabling
+it schedules asynchronous generation, so read the Page again to inspect results.
+
+Metadata edits affect only the draft, even with `--production`. Read published
+metadata with `pages get --live`; publish only after user approval.
+
 ## Blocks
 
 ### Inspect before changing

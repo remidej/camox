@@ -1,6 +1,6 @@
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { outdent } from "outdent";
 import { z } from "zod";
 
@@ -173,7 +173,18 @@ export async function executePageSeo(db: Database, apiKey: string, pageId: numbe
       metaDescription: seo.metaDescription,
       updatedAt: Date.now(),
     })
-    .where(eq(pages.id, pageId));
+    // Generation can outlive a manual edit or a content change. NULL means
+    // automatic SEO is enabled by default, just as in the initial check.
+    .where(
+      and(
+        eq(pages.id, pageId),
+        sql`${pages.aiSeoEnabled} is not false`,
+        eq(pages.updatedAt, page.updatedAt),
+        eq(pages.contentUpdatedAt, page.contentUpdatedAt),
+        sql`${pages.metaTitle} is ${page.metaTitle}`,
+        sql`${pages.metaDescription} is ${page.metaDescription}`,
+      ),
+    );
 }
 
 // --- Content Assembly Helpers ---

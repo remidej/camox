@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { pageSourceSchema } from "../../../../apps/api/src/domains/_shared/page-source";
@@ -21,6 +22,7 @@ import {
   updatePage,
   updatePageInput,
 } from "../../../../apps/api/src/domains/pages/service";
+import { resolveEnvironment } from "../../../../apps/api/src/lib/resolve-environment";
 import type { ToolDefinition, ToolProvider } from "../types";
 
 const listPagesToolInput = z.object({});
@@ -40,6 +42,16 @@ const pageMutationTargetInput = z
     path: z.string().optional(),
   })
   .refine((d) => (d.id != null) !== (d.path != null), {
+    message: "Pass exactly one of `id` or `path`.",
+  });
+
+const updatePageToolInput = z
+  .object({
+    ...updatePageInput.shape,
+    id: z.number().optional(),
+    path: z.string().optional(),
+  })
+  .refine((input) => (input.id != null) !== (input.path != null), {
     message: "Pass exactly one of `id` or `path`.",
   });
 
@@ -105,10 +117,19 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "updatePage",
     description:
-      "Update a page's internal `nickname`, `pathSegment`, and/or `parentPageId`. The nickname is only used inside Camox Studio and does not affect visible content or SEO.",
-    inputSchema: updatePageInput,
+      "Update a page draft by id or path: internal nickname, pathSegment, parentPageId, metaTitle, metaDescription, or aiSeoEnabled. Manual metadata disables automatic SEO for both fields and cannot be combined with aiSeoEnabled: true. Empty strings clear metadata; omitted fields are preserved. Enabling AI schedules asynchronous generation. Publish separately to update live content.",
+    inputSchema: updatePageToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => updatePage(ctx, updatePageInput.parse(input)),
+    handler: async (input) => {
+      const parsed = updatePageToolInput.parse(input);
+      const id = await resolvePageTargetId(ctx, parsed);
+      const page = await getPage(ctx, { id, source: "draft" });
+      const environment = await resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
+      if (page.projectId !== ctx.projectId || page.environmentId !== environment.id) {
+        throw new ORPCError("NOT_FOUND");
+      }
+      return updatePage(ctx, { ...parsed, id });
+    },
   },
   {
     name: "setPageLayout",

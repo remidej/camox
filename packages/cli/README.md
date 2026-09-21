@@ -1,5 +1,34 @@
 # Camox CLI
 
+## Page SEO
+
+Use `pages get` to read metadata and `pages update` to edit it:
+
+```sh
+camox pages get --path /about --json
+camox pages update --path /about --meta-title "About us" --meta-description "Meet the team."
+camox pages update --id 42 --meta-description ""
+camox pages update --id 42 --ai-seo on
+camox pages update --id 42 --ai-seo off
+camox pages get --path /about --live
+camox pages publish --path /about
+```
+
+- Updates require exactly one of `--id` or `--path` and at least one update field.
+  Omitted fields are preserved; empty strings clear metadata.
+- Setting either metadata field disables automatic SEO for **both** fields.
+  Manual metadata cannot be combined with `--ai-seo on`.
+- `--ai-seo off` preserves current metadata. `--ai-seo on` schedules asynchronous
+  generation; the returned page contains current values, not necessarily generated
+  values. Use `pages get` to inspect them later.
+- Changes affect the draft only. Publish separately to update live metadata.
+  `pages get --live` reads the published snapshot; without it, reads use the draft.
+- Commands support `--project SLUG`, `--production`, and `--json`, with the usual
+  development-environment default and structured JSON output/errors. `--production`
+  selects the environment; it does not publish the draft.
+
+See `camox pages update --help` for options and examples.
+
 ## Media
 
 Run `camox login` and start your project's dev server (or build once) so the CLI

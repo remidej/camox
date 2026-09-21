@@ -1,7 +1,8 @@
 import { object, or } from "@optique/core/constructs";
+import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { integer, string } from "@optique/core/valueparser";
+import { choice, integer, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, printError } from "../lib/output";
@@ -94,7 +95,23 @@ const update = command(
   "update",
   object({
     command: constant("pages.update" as const),
-    id: option("--id", integer({ metavar: "ID" })),
+    id: optional(option("--id", integer({ min: 1, metavar: "ID" }))),
+    path: optional(option("--path", string({ metavar: "PATH" }))),
+    metaTitle: optional(
+      option("--meta-title", string({ metavar: "TEXT" }), {
+        description: message`Set the SEO title. An empty string clears it. Disables automatic SEO for both fields.`,
+      }),
+    ),
+    metaDescription: optional(
+      option("--meta-description", string({ metavar: "TEXT" }), {
+        description: message`Set the SEO description. An empty string clears it. Disables automatic SEO for both fields.`,
+      }),
+    ),
+    aiSeo: optional(
+      option("--ai-seo", choice(["on", "off"] as const), {
+        description: message`Enable or disable automatic SEO. Enabling schedules asynchronous generation; it cannot be combined with manual metadata. Disabling preserves current metadata.`,
+      }),
+    ),
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: optional(option("--path-segment", string({ metavar: "SEGMENT" }))),
     parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
@@ -102,6 +119,9 @@ const update = command(
     production: productionFlag,
     json: jsonFlag,
   }),
+  {
+    description: message`Update a page draft, including in --production. Pass exactly one of --id or --path and at least one update field. Omitted fields are preserved. Publish separately with pages publish. Example: camox pages update --path /about --meta-title "About us" --meta-description "Meet the team". Read metadata with pages get; add --live for published metadata.`,
+  },
 );
 
 const setLayout = command(
@@ -146,7 +166,11 @@ type Args =
     } & CommonFlags)
   | ({
       command: "pages.update";
-      id: number;
+      id?: number;
+      path?: string;
+      metaTitle?: string;
+      metaDescription?: string;
+      aiSeo?: "on" | "off";
       nickname?: string;
       pathSegment?: string;
       parentPageId?: number;
@@ -206,11 +230,41 @@ export async function handler(args: Args): Promise<never> {
         production,
         outputMode,
       });
-    case "pages.update":
+    case "pages.update": {
+      if ((args.id == null) === (args.path == null)) {
+        printError({ code: "INVALID_ARGS", message: "Pass exactly one of --id or --path." });
+        process.exit(2);
+      }
+      if (
+        args.aiSeo === "on" &&
+        (args.metaTitle !== undefined || args.metaDescription !== undefined)
+      ) {
+        printError({
+          code: "INVALID_ARGS",
+          message: "Cannot enable automatic SEO alongside manual metadata.",
+        });
+        process.exit(2);
+      }
+      if (
+        [
+          args.nickname,
+          args.pathSegment,
+          args.parentPageId,
+          args.metaTitle,
+          args.metaDescription,
+          args.aiSeo,
+        ].every((value) => value === undefined)
+      ) {
+        printError({ code: "INVALID_ARGS", message: "Pass at least one field to update." });
+        process.exit(2);
+      }
       return dispatch({
         toolName: "updatePage",
         args: {
-          id: args.id,
+          ...(args.id != null ? { id: args.id } : { path: args.path }),
+          metaTitle: args.metaTitle,
+          metaDescription: args.metaDescription,
+          aiSeoEnabled: args.aiSeo === undefined ? undefined : args.aiSeo === "on",
           nickname: args.nickname,
           pathSegment: args.pathSegment,
           parentPageId: args.parentPageId,
@@ -219,6 +273,7 @@ export async function handler(args: Args): Promise<never> {
         production,
         outputMode,
       });
+    }
     case "pages.set-layout":
       return dispatch({
         toolName: "setPageLayout",
