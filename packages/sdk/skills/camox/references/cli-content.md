@@ -32,6 +32,10 @@ Look up the Page before creating or moving Blocks so you have its `id`, current 
 {{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}' --position first
 ```
 
+Creation initializes omitted Content and Settings fields from the Block definition's defaults, including when `--content '{}'` is supplied. Explicit field values—including `""`, `null`, `false`, and `[]`—are preserved; defaults do not merge into a supplied Link object. Omitted Repeaters initialize their default item count (or minimum count) with item defaults; supplying an array uses exactly those items, and `[]` creates none. Asset placeholders are not stored. Existing synced Block data still takes precedence for synced types.
+
+Supply reference-specific copy, links, assets, and items directly as instance Content. Definition defaults should remain neutral, reusable examples—not a way to populate a reference site.
+
 `blocks create` and `blocks move` accept the same positioning flags. Pass at most one:
 
 | Flag                      | Meaning                                         |

@@ -39,6 +39,7 @@ import {
 } from "../_shared/snapshot-schemas";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
+import { initializeBlockContent } from "./initialize-content";
 import { normalizeBlockContent, sanitizeAssetValue, type BlockItemSeed } from "./normalize-content";
 import { syncBlockData } from "./synced";
 import { resolveSyncedLiveData } from "./synced-live";
@@ -1000,8 +1001,15 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
       ),
     )
     .get();
-  const { content: normalizedContent, seeds: autoSeeds } = normalizeBlockContent(
+  // The UI supplies a complete seed bundle (including an intentionally empty
+  // one). Do not generate a second set of default repeater rows in that case.
+  const initialContent = initializeBlockContent(
     content,
+    def?.contentSchema,
+    itemSeeds === undefined,
+  );
+  const { content: normalizedContent, seeds: autoSeeds } = normalizeBlockContent(
+    initialContent,
     def?.contentSchema ?? null,
   );
   const allSeeds: BlockItemSeed[] = [...(itemSeeds ?? []), ...autoSeeds];
@@ -1048,7 +1056,7 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
       pageId,
       type,
       content: normalizedContent,
-      settings: settings ?? null,
+      settings: settings === null ? null : initializeBlockContent(settings, def?.settingsSchema),
       position,
       summary: "",
       createdAt: now,
