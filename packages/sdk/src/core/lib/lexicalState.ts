@@ -105,7 +105,7 @@ function extractMarkdownFromNode(node: any): string {
 // **bold*****both*** (an ambiguous sequence of delimiters).
 function serializeInlineChildren(nodes: any[]): string {
   const marks = [
-    { flag: FORMAT_FLAGS.underline, open: "<u>", close: "</u>" },
+    { flag: FORMAT_FLAGS.strikethrough, open: "<s>", close: "</s>" },
     { flag: FORMAT_FLAGS.bold, open: "**", close: "**" },
     { flag: FORMAT_FLAGS.italic, open: "*", close: "*" },
   ];
@@ -138,7 +138,7 @@ function serializeInlineChildren(nodes: any[]): string {
       let text = (node.text ?? "").replace(/[\\*_[\]<>]/g, "\\$&");
       if (node.format & FORMAT_FLAGS.italic) text = `<em>${text}</em>`;
       if (node.format & FORMAT_FLAGS.bold) text = `<strong>${text}</strong>`;
-      if (node.format & FORMAT_FLAGS.underline) text = `<u>${text}</u>`;
+      if (node.format & FORMAT_FLAGS.strikethrough) text = `<s>${text}</s>`;
       return text;
     })
     .join("");
@@ -262,7 +262,7 @@ function parseTokens(tokens: Token[], format: number): any[] {
       continue;
     }
     const tag =
-      token.type === "html" ? /^<(highlight|u|strong|em)>$/.exec(token.raw)?.[1] : undefined;
+      token.type === "html" ? /^<(highlight|s|strong|em)>$/.exec(token.raw)?.[1] : undefined;
     if (tag) {
       let depth = 1;
       let end = i + 1;
@@ -274,7 +274,7 @@ function parseTokens(tokens: Token[], format: number): any[] {
       }
       if (!depth) {
         const tagFlags: Record<string, number> = {
-          u: FORMAT_FLAGS.underline,
+          s: FORMAT_FLAGS.strikethrough,
           strong: FORMAT_FLAGS.bold,
           em: FORMAT_FLAGS.italic,
         };

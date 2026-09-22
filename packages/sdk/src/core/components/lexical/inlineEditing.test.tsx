@@ -36,7 +36,7 @@ const { markdownToReactNodes } = await import("../../lib/lexicalReact");
 type LexicalEditor = import("lexical").LexicalEditor;
 
 void test("editor and public output share text, highlight, and link appearance", async () => {
-  const value = "<highlight>stay <u>***nimble***</u> [here](https://example.com)</highlight>";
+  const value = "<highlight>stay <s>***nimble***</s> [here](https://example.com)</highlight>";
   const styles = {
     textStyle: ({ bold, highlight }: { bold: boolean; highlight: boolean }) => {
       if (highlight)
@@ -108,7 +108,7 @@ void test("editor and public output share text, highlight, and link appearance",
   assert.ok(italic);
   assert.equal(italic.style.color, "");
   assert.equal(italic.className, "");
-  assert.equal(italic.style.textDecorationLine, "underline");
+  assert.equal(italic.style.textDecorationLine, "line-through");
   assert.equal(host.querySelectorAll("[data-camox-highlight]").length, 1);
   await act(async () => root.unmount());
   host.remove();

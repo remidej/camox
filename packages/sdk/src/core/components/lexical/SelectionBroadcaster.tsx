@@ -65,7 +65,7 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
       const selection = $getSelection();
       if (!$isRangeSelection(selection)) return;
       lastTextSelectionRef.current = selection.clone();
-      for (const key of ["bold", "italic", "underline"] as const) {
+      for (const key of ["bold", "italic", "strikethrough"] as const) {
         if (selection.hasFormat(key)) format |= FORMAT_FLAGS[key];
       }
       if ($selectionHasHighlight()) format |= FORMAT_FLAGS.highlight;
@@ -159,7 +159,7 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
         else if (
           data.formatKey === "bold" ||
           data.formatKey === "italic" ||
-          data.formatKey === "underline"
+          data.formatKey === "strikethrough"
         )
           editor.dispatchCommand(FORMAT_TEXT_COMMAND, data.formatKey);
       } else if (data.target === null) {

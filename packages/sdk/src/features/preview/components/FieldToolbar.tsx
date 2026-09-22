@@ -5,7 +5,7 @@ import { Kbd } from "@camox/ui/kbd";
 import { Toggle } from "@camox/ui/toggle";
 import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store-react";
-import { Bold, Italic, Underline, Highlighter } from "lucide-react";
+import { Bold, Italic, Strikethrough, Highlighter } from "lucide-react";
 import * as React from "react";
 
 import { TextLinkPopover } from "@/core/components/lexical/TextLinkPopover";
@@ -20,11 +20,11 @@ const FORMAT_BUTTONS = [
   { key: "bold", flag: FORMAT_FLAGS.bold, icon: Bold, label: "Bold", shortcut: "⌘ B" },
   { key: "italic", flag: FORMAT_FLAGS.italic, icon: Italic, label: "Italic", shortcut: "⌘ I" },
   {
-    key: "underline",
-    flag: FORMAT_FLAGS.underline,
-    icon: Underline,
-    label: "Underline",
-    shortcut: "⌘ U",
+    key: "strikethrough",
+    flag: FORMAT_FLAGS.strikethrough,
+    icon: Strikethrough,
+    label: "Strikethrough",
+    shortcut: null,
   },
   {
     key: "highlight",

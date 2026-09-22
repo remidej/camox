@@ -21,7 +21,7 @@ import {
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
 } from "lexical";
-import { Bold, Italic, Underline, Highlighter } from "lucide-react";
+import { Bold, Italic, Strikethrough, Highlighter } from "lucide-react";
 import * as React from "react";
 
 import { lexicalStateToMarkdown } from "@/core/lib/lexicalState";
@@ -135,7 +135,7 @@ function SidebarFloatingTextToolbar() {
       setSelectedText(selection.getTextContent());
       if (selection.hasFormat("bold")) activeFormats |= FORMAT_FLAGS.bold;
       if (selection.hasFormat("italic")) activeFormats |= FORMAT_FLAGS.italic;
-      if (selection.hasFormat("underline")) activeFormats |= FORMAT_FLAGS.underline;
+      if (selection.hasFormat("strikethrough")) activeFormats |= FORMAT_FLAGS.strikethrough;
       if ($selectionHasHighlight()) activeFormats |= FORMAT_FLAGS.highlight;
 
       let node: any = selection.anchor.getNode();
@@ -218,7 +218,7 @@ function SidebarFloatingTextToolbar() {
     $setSelection(lastSelectionRef.current.clone());
   };
 
-  const applyFormat = (formatKey: "bold" | "italic" | "underline" | "highlight") => {
+  const applyFormat = (formatKey: "bold" | "italic" | "strikethrough" | "highlight") => {
     editor.update(() => {
       restoreSelection();
       if (formatKey === "highlight") {
@@ -321,7 +321,7 @@ function SidebarFloatingTextToolbar() {
       </Toggle>
       {(
         [
-          { key: "underline", label: "Underline", icon: Underline },
+          { key: "strikethrough", label: "Strikethrough", icon: Strikethrough },
           { key: "highlight", label: "Highlight", icon: Highlighter },
         ] as const
       ).map(({ key, label, icon: Icon }) => (

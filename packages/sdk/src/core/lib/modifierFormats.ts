@@ -2,7 +2,7 @@
 export const FORMAT_FLAGS = {
   bold: 1,
   italic: 2,
-  underline: 8,
+  strikethrough: 4,
   // UI selection bit only. Highlight is an inline element, not a Lexical text format.
   highlight: 1 << 20,
 } as const;
@@ -11,7 +11,7 @@ export const FORMAT_FLAGS = {
 export const MARKDOWN_WRAPPERS: Record<string, (text: string) => string> = {
   bold: (text) => `**${text}**`,
   italic: (text) => `*${text}*`,
-  underline: (text) => `<u>${text}</u>`,
+  strikethrough: (text) => `<s>${text}</s>`,
 };
 
 export function lexicalTextToMarkdown(text: string, format: number): string {

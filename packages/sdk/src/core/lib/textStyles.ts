@@ -12,7 +12,7 @@ export interface TextStyleData {
   highlight: boolean;
   bold: boolean;
   italic: boolean;
-  underline: boolean;
+  strikethrough: boolean;
 }
 
 export interface TextLinkStyleData {
@@ -33,7 +33,7 @@ export function getTextStyleData(format: number): TextStyleData {
     highlight: false,
     bold: !!(format & FORMAT_FLAGS.bold),
     italic: !!(format & FORMAT_FLAGS.italic),
-    underline: !!(format & FORMAT_FLAGS.underline),
+    strikethrough: !!(format & FORMAT_FLAGS.strikethrough),
   };
 }
 
@@ -44,7 +44,7 @@ export function getTextAppearance(format: number, styles: InlineTextStyles): Inl
     className: custom?.className,
     style: {
       ...(flags.bold && flags.italic ? { fontStyle: "italic" } : {}),
-      ...(flags.underline ? { textDecorationLine: "underline" } : {}),
+      ...(flags.strikethrough ? { textDecorationLine: "line-through" } : {}),
       ...custom?.style,
     },
   };
@@ -61,7 +61,7 @@ export function getHighlightStyle(styles: InlineTextStyles): InlineStyle {
     highlight: true,
     bold: false,
     italic: false,
-    underline: false,
+    strikethrough: false,
   });
   return {
     className: custom?.className,

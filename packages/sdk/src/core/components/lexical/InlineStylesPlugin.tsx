@@ -1,6 +1,13 @@
 import { $isLinkNode } from "@lexical/link";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { $getRoot, $isElementNode, $isTextNode, type LexicalNode } from "lexical";
+import {
+  $getRoot,
+  $isElementNode,
+  $isTextNode,
+  COMMAND_PRIORITY_HIGH,
+  FORMAT_TEXT_COMMAND,
+  type LexicalNode,
+} from "lexical";
 import * as React from "react";
 
 import type { MarkdownToReactNodesOptions } from "../../lib/lexicalReact";
@@ -143,6 +150,16 @@ export function InlineStylesPlugin(options: MarkdownToReactNodesOptions) {
     };
   }, [editor, options.textStyle, options.linkStyle, options.pages, options.fallbackHref]);
 
+  // Consume Lexical's built-in underline shortcut without applying the removed format.
+  React.useEffect(
+    () =>
+      editor.registerCommand(
+        FORMAT_TEXT_COMMAND,
+        (format) => format === "underline",
+        COMMAND_PRIORITY_HIGH,
+      ),
+    [editor],
+  );
   React.useEffect(() => editor.registerNodeTransform(HighlightNode, $normalizeHighlight), [editor]);
   return null;
 }

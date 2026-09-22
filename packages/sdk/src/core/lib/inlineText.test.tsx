@@ -22,18 +22,18 @@ void test("singleton URL links survive editing round trips and render as interna
   assert.doesNotMatch(html, /target="_blank"/);
 });
 
-void test("bold, italic, and underline compose, including inside links", () => {
+void test("bold, italic, and strikethrough compose, including inside links", () => {
   const html = renderToStaticMarkup(
-    markdownToReactNodes("[<u>***nimble***</u>](https://example.com)", {
-      textStyle: ({ bold, italic, underline }) => ({
-        className: bold && italic && underline ? "combined" : undefined,
+    markdownToReactNodes("[<s>***nimble***</s>](https://example.com)", {
+      textStyle: ({ bold, italic, strikethrough }) => ({
+        className: bold && italic && strikethrough ? "combined" : undefined,
         style: { color: "red" },
       }),
     }),
   );
   assert.match(
     html,
-    /<strong class="combined" style="font-style:italic;text-decoration-line:underline;color:red">nimble<\/strong>/,
+    /<strong class="combined" style="font-style:italic;text-decoration-line:line-through;color:red">nimble<\/strong>/,
   );
   assert.match(html, /href="https:\/\/example.com"/);
 });
@@ -64,7 +64,7 @@ void test("highlight has one boundary across formatting changes and links", () =
 void test("textStyle resolves a highlight once, independently of its formatted children", () => {
   const calls: TextStyleData[] = [];
   const html = renderToStaticMarkup(
-    markdownToReactNodes("<highlight>stay <u>***nimble***</u></highlight>", {
+    markdownToReactNodes("<highlight>stay <s>***nimble***</s></highlight>", {
       textStyle: (flags) => {
         calls.push(flags);
         if (flags.highlight)
@@ -84,11 +84,11 @@ void test("textStyle resolves a highlight once, independently of its formatted c
   );
   assert.deepEqual(
     calls.filter(({ highlight }) => highlight),
-    [{ highlight: true, bold: false, italic: false, underline: false }],
+    [{ highlight: true, bold: false, italic: false, strikethrough: false }],
   );
   assert.ok(
     calls.some(
-      ({ highlight, bold, italic, underline }) => !highlight && bold && italic && underline,
+      ({ highlight, bold, italic, strikethrough }) => !highlight && bold && italic && strikethrough,
     ),
   );
   assert.equal(html.match(/linear-gradient\(orange, pink\)/g)?.length, 1);
@@ -104,7 +104,7 @@ void test("formatting round trips nested and adjacent runs", () => {
     "***both* bold**",
     "*italic **both***",
     "***both** italic*",
-    "<highlight><u>***both***</u>\nplain</highlight>",
+    "<highlight><s>***both***</s>\nplain</highlight>",
     "<highlight>first\n\nsecond</highlight>",
     "first\n\nsecond\nthird",
     "_italic_ __bold__ ___both___",
@@ -118,7 +118,7 @@ void test("formatting round trips nested and adjacent runs", () => {
 });
 
 void test("all adjacent format combinations preserve whitespace and punctuation", () => {
-  const formats = [0, 1, 2, 3, 8, 9, 10, 11];
+  const formats = [0, 1, 2, 3, 4, 5, 6, 7];
   const values = ["word", " word ", "* _ [ ] < > & 😀"];
   const characters = (nodes: any[]): unknown[] =>
     nodes.flatMap((node) => [...node.text].map((letter) => [letter, node.format]));
