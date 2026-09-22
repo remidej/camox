@@ -117,6 +117,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
   }, [open]);
 
   const isImage = file?.mimeType?.startsWith("image/") ?? false;
+  const isVideo = file?.mimeType?.startsWith("video/") ?? false;
   const canUseAiMetadata = isRasterImage(file?.mimeType);
   const fileUrl = file?.url;
   const fileMimeType = file?.mimeType;
@@ -312,6 +313,20 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                   />
                 )}
               </div>
+            ) : isVideo ? (
+              <div className="checkered absolute inset-0 flex items-center justify-center p-6">
+                {open && (
+                  <video
+                    key={file.url}
+                    src={file.url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    aria-label={file.alt || file.filename || "Video preview"}
+                    className="max-h-full max-w-full object-contain shadow-lg"
+                  />
+                )}
+              </div>
             ) : (
               <div className="bg-muted/30 flex h-full min-h-[70vh] items-center justify-center p-6">
                 <FileIcon className="text-muted-foreground h-16 w-16" />
@@ -471,7 +486,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                 ref={replaceInputRef}
                 type="file"
                 className="hidden"
-                accept={isImage ? "image/*" : "*/*"}
+                accept={isImage ? "image/*" : isVideo ? "video/*" : "*/*"}
                 onChange={(e) => {
                   if (e.target.files) void handleReplaceDrop(e.target.files);
                   e.target.value = "";
@@ -482,7 +497,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                 variant="secondary"
                 onClick={() => replaceInputRef.current?.click()}
               >
-                {isImage ? "Replace image" : "Replace file"}
+                {isImage ? "Replace image" : isVideo ? "Replace video" : "Replace file"}
               </Button>
             </div>
           </div>

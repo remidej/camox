@@ -1,4 +1,4 @@
-import { FileIcon } from "lucide-react";
+import { FileIcon, Play } from "lucide-react";
 
 import { transformImageUrl } from "@/core/lib/imageTransform";
 import type { File } from "@/lib/queries";
@@ -15,6 +15,7 @@ const OPAQUE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/jpg"]);
 
 export const AssetCard = ({ file, selected, onSelect, onOpen }: AssetCardProps) => {
   const isImage = file.mimeType?.startsWith("image/");
+  const isVideo = file.mimeType?.startsWith("video/");
   const isOpaqueImage = isImage && OPAQUE_IMAGE_MIME_TYPES.has(file.mimeType ?? "");
   const extension = file.filename?.split(".").pop()?.toUpperCase() ?? "";
 
@@ -57,6 +58,30 @@ export const AssetCard = ({ file, selected, onSelect, onOpen }: AssetCardProps) 
               isOpaqueImage ? "object-cover" : "object-contain",
             )}
           />
+        ) : isVideo ? (
+          <div className="pointer-events-none relative h-full w-full">
+            <video
+              key={file.url}
+              src={file.url}
+              muted
+              playsInline
+              preload="metadata"
+              aria-hidden="true"
+              className="h-full w-full object-cover"
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget;
+                // Seek just past the start so browsers render a thumbnail without playback.
+                if (Number.isFinite(video.duration) && video.duration > 0) {
+                  video.currentTime = Math.min(0.1, video.duration / 2);
+                }
+              }}
+            />
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="rounded-full bg-black/50 p-2 text-white">
+                <Play className="h-5 w-5" fill="currentColor" aria-hidden="true" />
+              </span>
+            </span>
+          </div>
         ) : (
           <div className="text-muted-foreground flex flex-col items-center gap-1">
             <FileIcon className="h-8 w-8" />
