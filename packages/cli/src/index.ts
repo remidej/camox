@@ -11,6 +11,7 @@ import * as layouts from "./commands/layouts";
 import * as login from "./commands/login";
 import * as logout from "./commands/logout";
 import * as pages from "./commands/pages";
+import * as preview from "./commands/preview";
 import * as release from "./commands/release";
 import * as status from "./commands/status";
 
@@ -24,6 +25,7 @@ type Result =
   | { command: "login" }
   | { command: "logout"; cwd?: string }
   | { command: "release" }
+  | Parameters<typeof preview.handler>[0]
   | Parameters<typeof status.handler>[0]
   | Parameters<typeof pages.handler>[0]
   | Parameters<typeof blocks.handler>[0]
@@ -38,6 +40,7 @@ const program = defineProgram({
     logout.parser,
     release.parser,
     status.parser,
+    preview.parser,
     pages.parser,
     blocks.parser,
     layouts.parser,
@@ -64,6 +67,9 @@ switch (result.command) {
     break;
   case "release":
     release.handler();
+    break;
+  case "preview":
+    await preview.handler(result);
     break;
   case "status":
     await status.handler(result);

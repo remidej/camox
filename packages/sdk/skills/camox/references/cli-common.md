@@ -34,6 +34,20 @@ By default, reads and writes operate on the draft in the current developer's iso
 - Omit `--production` unless the user explicitly asks to operate on the production Environment.
 - Publishing a draft and replicating an Environment are different operations. Read the Environment reference before using `env push` or `env pull`.
 
+## Verify drafts in a browser
+
+CLI credentials and browser sessions are separate. A fresh browser shows published content until it signs in, even when CLI draft writes succeeded.
+
+1. Start the app's dev server and check `{{CAMOX_CMD}} preview --help`.
+2. Generate a handoff for the page you changed:
+   `{{CAMOX_CMD}} preview --url http://localhost:3000/about --json`
+   (Use the actual port; add `--cwd apps/site` in a monorepo.)
+3. Open the returned `url` in your verification browser, not a separate default browser.
+4. Wait for `[data-camox-preview="ready"]`. Its text identifies the project and developer environment; the server has loaded authenticated draft content. `[data-camox-preview="error"]` means verification failed, not that the write failed.
+5. Inspect the changed content. Do not publish merely to make it visible.
+
+The URL is a single-use sign-in credential valid for three minutes. Do not share, commit, or include it in reports. Generate a new URL if expired or consumed. Only loopback HTTP(S) destinations are supported; production preview is intentionally unsupported. The SDK must support this handoff: if the ready marker never appears, check the installed SDK version rather than assuming the page is a draft. A project/backend/environment mismatch requires correcting `--cwd` or `--url` (or restarting a dev server running under another account).
+
 ## Write grounded content
 
 Before writing Content:

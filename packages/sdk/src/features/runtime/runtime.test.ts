@@ -35,6 +35,32 @@ const app = {
   getLayoutById: () => null,
 } as unknown as CamoxApp;
 
+void test("preview authenticates before loading an unpublished path", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("No content requests should precede the token exchange");
+  });
+  const response = await handleCamoxRequest(
+    new Request("http://localhost:3000/draft-only?camox-preview=target&ott=token"),
+    {
+      apiUrl: "https://api.test",
+      authenticationUrl: "https://auth.test",
+      environmentName: "dev:me@example.test",
+      projectSlug: "test",
+      pageClientEntryUrl: "/client.js",
+      renderPage: async (input) => {
+        assert.equal(input.previewHandoff, true);
+        assert.equal(input.pathname, "/draft-only");
+        assert.equal(input.loaderData, null);
+        return "Signing in to draft preview…";
+      },
+    },
+  );
+  assert.equal(response?.status, 200);
+  assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
+  assert.equal(response?.headers.get("Referrer-Policy"), "no-referrer");
+  assert.match(await response!.text(), /client.js/);
+});
+
 void test("runtime returns complete route payloads for curated, singleton, derived and studio navigation", async (t) => {
   const calls: string[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {

@@ -3,7 +3,7 @@
 ## Runtime lookup and monorepos
 
 Runtime-backed commands (`status`, `pages`, `blocks`, `layouts`, `env`, `files`,
-and `logout`) accept `--cwd PATH`:
+`preview`, and `logout`) accept `--cwd PATH`:
 
 ```sh
 camox pages list --cwd apps/site
@@ -21,6 +21,27 @@ only affects runtime lookup: other paths, such as `--file ./hero.webp`, still
 resolve against the shell's current directory. Missing or non-directory paths fail
 instead of falling back to the shell's directory. Environment selection is unchanged:
 your development environment by default, with explicit `--production` where supported.
+
+## Authenticated local draft preview
+
+CLI login does not sign in a fresh browser. To verify draft writes without publishing:
+
+```sh
+camox preview --url http://localhost:3000/about --json
+camox preview --cwd apps/site --url http://localhost:3000/about --json
+```
+
+Open the returned `url` in the browser you use for verification. Wait for
+`[data-camox-preview="ready"]`, which identifies the project and developer
+environment after authenticated draft rendering. Errors appear as
+`[data-camox-preview="error"]`; expired or consumed links require a fresh command.
+The CLI and SDK must both support the preview handoff.
+
+The URL transfers your signed-in session: treat it as a credential, do not share
+or commit it, and use it within three minutes. Only HTTP(S) loopback URLs are
+accepted. The destination must match the CLI's project, backend, and developer
+environment. There is no production mode or automatic default-browser opening.
+The local dev server must already be running.
 
 ## Page SEO
 

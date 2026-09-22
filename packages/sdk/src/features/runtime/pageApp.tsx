@@ -42,12 +42,16 @@ export function PageApp({
               initialProject={currentInput.project}
             >
               <PreviewDocumentContext.Provider value={currentInput.previewDocument}>
-                <PageExperience
-                  camoxApp={camoxApp}
-                  input={currentInput}
-                  queryClient={queryClient}
-                  studioDocument={input.presentation === "studio"}
-                />
+                {input.previewHandoff ? (
+                  <div role="status">Signing in to draft preview…</div>
+                ) : (
+                  <PageExperience
+                    camoxApp={camoxApp}
+                    input={currentInput}
+                    queryClient={queryClient}
+                    studioDocument={input.presentation === "studio"}
+                  />
+                )}
               </PreviewDocumentContext.Provider>
             </CoreCamoxProvider>
           )}

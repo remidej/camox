@@ -51,6 +51,8 @@ export interface LayoutIdentity {
 }
 
 export interface PageRenderInput {
+  /** Authenticate before looking up a page that may exist only in draft. */
+  previewHandoff?: boolean;
   previewDocument?: string;
   routeKind?: "studio" | "studio-content" | "studio-nested";
   project?: Awaited<ReturnType<ReturnType<typeof createServerApiClient>["projects"]["getBySlug"]>>;
@@ -342,6 +344,38 @@ async function createPageHtmlResponse({
     !options.renderPage
   ) {
     return createPageDataResponse({ options, pathname, request });
+  }
+
+  const requestUrl = new URL(request.url);
+  if (requestUrl.searchParams.has("camox-preview") && requestUrl.searchParams.has("ott")) {
+    // No page/project lookup yet: a fresh browser cannot read draft-only paths.
+    const input: PageRenderInput = {
+      previewHandoff: true,
+      presentation: "public",
+      source: "live",
+      apiUrl: options.apiUrl,
+      authenticationUrl: options.authenticationUrl,
+      environmentName: options.environmentName,
+      projectSlug: options.projectSlug,
+      href: requestUrl.href,
+      pathname,
+      runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+      head: {},
+      loaderData: null,
+      layoutIdentity: null,
+      dehydratedState: dehydrate(new QueryClient()),
+    };
+    const html = await options.renderPage(input);
+    return new Response(
+      `<!doctype html><html><head><meta name="referrer" content="no-referrer"><title>Camox draft preview</title><script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body><div id="root">${html}</div>${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "private, no-store",
+          "Referrer-Policy": "no-referrer",
+        },
+      },
+    );
   }
 
   const singleton = await createDerivedResponse(options, pathname, request, false, true);

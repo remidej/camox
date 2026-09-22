@@ -5,6 +5,7 @@ import * as React from "react";
 
 import { actionsStore } from "@/features/provider/actionsStore";
 
+import { validatePreviewTarget, type PreviewTarget } from "./preview-handoff";
 import { SERVER_AUTH_COOKIE_NAME, buildClearServerAuthCookieHeader } from "./server-auth-cookie";
 export { buildClearServerAuthCookieHeader, getServerAuthCookieHeader } from "./server-auth-cookie";
 
@@ -262,24 +263,35 @@ export function createCamoxAuthClient(apiUrl: string) {
  * Process a `?ott=` one-time token from the URL before the provider mounts.
  * Verifies the token against the API backend and notifies the session store.
  *
- * Returns `true` once processing is complete (or if there was no OTT).
+ * Reports completion and explicit handoff failures instead of silently showing live content.
  */
-export function useProcessOtt(authClient: CamoxAuthClient) {
+export function useProcessOtt(authClient: CamoxAuthClient, target: PreviewTarget) {
+  const [error, setError] = React.useState<string | null>(null);
+  const processing = React.useRef(false);
   const [ready, setReady] = React.useState(() => {
     if (typeof window === "undefined") return true;
     return !new URL(window.location.href).searchParams.has("ott");
   });
 
   React.useEffect(() => {
-    if (ready) return;
-
     const url = new URL(window.location.href);
+    const targetError = validatePreviewTarget(url.searchParams.get("camox-preview"), target);
+    if (targetError) {
+      url.searchParams.delete("ott");
+      window.history.replaceState({}, "", url);
+      setError(targetError);
+      setReady(true);
+      return;
+    }
+    if (ready || processing.current) return;
+
     const ott = url.searchParams.get("ott");
     if (!ott) {
       setReady(true);
       return;
     }
 
+    processing.current = true;
     // Strip ?ott= immediately so it's not processed again
     url.searchParams.delete("ott");
     window.history.replaceState({}, "", url);
@@ -296,13 +308,15 @@ export function useProcessOtt(authClient: CamoxAuthClient) {
         window.location.reload();
         return;
       } catch {
-        // OTT verification failed — continue unauthenticated
+        setError(
+          "Preview sign-in failed. The link may have expired or already been used. Run camox preview again for a fresh link.",
+        );
       }
       setReady(true);
     })();
-  }, [authClient, ready]);
+  }, [authClient, ready, target.projectSlug, target.environmentName, target.apiUrl]);
 
-  return ready;
+  return { ready, error };
 }
 
 /* -------------------------------------------------------------------------------------------------

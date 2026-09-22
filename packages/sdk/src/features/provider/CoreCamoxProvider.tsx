@@ -50,7 +50,32 @@ export function CoreCamoxProvider({
 
   // OTT processing deliberately does not blank the published tree. Successful
   // exchange still reloads after mirroring the server cookie.
-  useProcessOtt(authClient);
+  const { ready, error } = useProcessOtt(authClient, { projectSlug, environmentName, apiUrl });
+  const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
+  React.useEffect(() => {
+    setIsPreviewHandoff(new URL(window.location.href).searchParams.has("camox-preview"));
+  }, []);
+
+  if (error)
+    return (
+      <div role="alert" data-camox-preview="error">
+        {error}
+      </div>
+    );
+  if (isPreviewHandoff && !ready) {
+    return (
+      <div role="status" data-camox-preview="pending">
+        Signing in to draft preview…
+      </div>
+    );
+  }
+  if (isPreviewHandoff && !initialAuthenticated) {
+    return (
+      <div role="alert" data-camox-preview="error">
+        Draft preview is not authenticated. Run camox preview again for a fresh link.
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider
@@ -63,6 +88,11 @@ export function CoreCamoxProvider({
         initialAuthenticated,
       }}
     >
+      {isPreviewHandoff && (
+        <div role="status" data-camox-preview="ready">
+          Draft preview · {projectSlug} · {environmentName}
+        </div>
+      )}
       <CamoxAppProvider app={camoxApp}>{children}</CamoxAppProvider>
     </AuthContext.Provider>
   );
