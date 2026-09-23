@@ -632,6 +632,9 @@ importers:
       '@tanstack/react-start':
         specifier: ^1.166.2
         version: 1.168.6(@voidzero-dev/vite-plus-core@0.2.7(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(yaml@2.8.1))(crossws@0.4.5(srvx@0.11.15))(esbuild@0.28.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tanstack/react-virtual':
+        specifier: ^3.14.13
+        version: 3.14.13(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@unhead/react':
         specifier: ^3.1.7
         version: 3.1.7(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.2.7(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(yaml@2.8.1))(crossws@0.4.5(srvx@0.11.15))(esbuild@0.28.1)(lightningcss@1.33.0)(oxc-parser@0.137.0)(react@19.2.6)(typescript@5.9.2)
@@ -4972,6 +4975,12 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  '@tanstack/react-virtual@3.14.13':
+    resolution: {integrity: sha512-JbDTAwtzZ99aOeCrAfW5EsE5KSq5RWh6Af2dtFwyLIIk48Ja7vm6n4axu/43T3vfjFnEGJalxJ1wyYjSQD6bSg==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   '@tanstack/router-core@1.168.14':
     resolution: {integrity: sha512-UhCJtjNrd5wcTmhgB2HyUP0+Rj1M7BD4dS11YsF9x6VC2KH/eqxzs/vK+nN5f+cOhPOLZdmLkWMW+WGmacZ8HA==}
     engines: {node: '>=20.19'}
@@ -5054,6 +5063,9 @@ packages:
 
   '@tanstack/store@0.9.3':
     resolution: {integrity: sha512-8reSzl/qGWGGVKhBoxXPMWzATSbZLZFWhwBAFO9NAyp0TxzfBP0mIrGb8CP8KrQTmvzXlR/vFPPUrHTLBGyFyw==}
+
+  '@tanstack/virtual-core@3.17.11':
+    resolution: {integrity: sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==}
 
   '@tanstack/virtual-file-routes@1.162.0':
     resolution: {integrity: sha512-uhOeFyxLcU41HzvrxsGpiWdcMbScY1EDgbZ5K7DVRMYInbLYWAC0EA/kx9wXAoSM8q82bUG2hRl8+EAjE6XAbA==}
@@ -12634,6 +12646,12 @@ snapshots:
       react-dom: 19.2.6(react@19.2.6)
       use-sync-external-store: 1.6.0(react@19.2.6)
 
+  '@tanstack/react-virtual@3.14.13(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      '@tanstack/virtual-core': 3.17.11
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+
   '@tanstack/router-core@1.168.14':
     dependencies:
       '@tanstack/history': 1.161.6
@@ -12920,6 +12938,8 @@ snapshots:
       '@tanstack/router-core': 1.171.2
 
   '@tanstack/store@0.9.3': {}
+
+  '@tanstack/virtual-core@3.17.11': {}
 
   '@tanstack/virtual-file-routes@1.162.0': {}
 

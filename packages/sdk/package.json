@@ -244,6 +244,7 @@
     "@takumi-rs/wasm": "^0.70.4",
     "@tanstack/react-form": "^1.32.0",
     "@tanstack/react-query-devtools": "^5.100.11",
+    "@tanstack/react-virtual": "^3.14.13",
     "@unhead/react": "^3.1.7",
     "@xstate/store": "3.17.1",
     "@xstate/store-react": "^1.0.1",
