@@ -190,7 +190,7 @@ importers:
         version: 7.29.0
       '@cloudflare/vite-plugin':
         specifier: ^1.37.1
-        version: 1.37.1(@voidzero-dev/vite-plus-core@0.2.7(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(yaml@2.8.1))(workerd@1.20260815.1)(wrangler@4.92.0(@cloudflare/workers-types@4.20260519.1))
+        version: 1.37.1(@voidzero-dev/vite-plus-core@0.2.7(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(yaml@2.8.1))(workerd@1.20260515.1)(wrangler@4.92.0(@cloudflare/workers-types@4.20260519.1))
       '@cloudflare/workers-types':
         specifier: ^4.20260519.1
         version: 4.20260519.1
@@ -491,6 +491,13 @@ importers:
         version: 0.1.21(@types/node@24.12.4)(esbuild@0.27.3)(happy-dom@20.14.5)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(vite@8.0.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@24.12.4)(esbuild@0.27.3)(jiti@2.7.0)(tsx@4.22.2)(yaml@2.8.1))(yaml@2.8.1)
 
   packages/api-contract:
+    dependencies:
+      '@iconify/types':
+        specifier: ^2.0.0
+        version: 2.0.0
+      '@iconify/utils':
+        specifier: ^3.1.7
+        version: 3.1.7
     devDependencies:
       dts-bundle-generator:
         specifier: ^9.5.1
@@ -767,6 +774,9 @@ packages:
 
   '@ag-ui/core@0.0.52':
     resolution: {integrity: sha512-Xo0bUaNV56EqylzcrAuhUkQX7et7+SZIrqZZtEByGwEq/I1EHny6ZMkWHLkKR7UNi0FJZwJyhKYmKJS3B2SEgA==}
+
+  '@antfu/install-pkg@2.1.0':
+    resolution: {integrity: sha512-sdg9NxU3zR4Mnawfbc/x6GB5Wf17WYud5qOuEuxXjaKpYpMkISSJEjItGebXJ2bQ4DIcly4NYH23mtkGJjvKUw==}
 
   '@babel/code-frame@7.27.1':
     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
@@ -2171,6 +2181,12 @@ packages:
     resolution: {integrity: sha512-A/IxlMLShx3KjV/HeTcTfaMxdwy690+L/ZADoeaTltLx+CVuzkeVIPuybK3jrRfw7YZnmdKsVVHAlEPIAEUNlA==}
     peerDependencies:
       react-hook-form: ^7.55.0
+
+  '@iconify/types@2.0.0':
+    resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
+
+  '@iconify/utils@3.1.7':
+    resolution: {integrity: sha512-JZHlwdID+dy+lTgbYC8NEC4zeugqeYsc6jewvzb4c58kHauJn+X7rNwQjxz5p2qSjqaEeQoLkCIQ9v/H4PK0/w==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -7687,6 +7703,9 @@ packages:
       oxlint-tsgolint:
         optional: true
 
+  package-manager-detector@1.8.0:
+    resolution: {integrity: sha512-yQA4H19AmPEoMUeavPMDIe1higySl/gH/yaQrkT/s07Qp+7pp2hYz30N3z2l5BkjVkF9Ow6o0wjJamm2y7Sn0A==}
+
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
     engines: {node: '>=6'}
@@ -8335,6 +8354,10 @@ packages:
     resolution: {integrity: sha512-SHf/r48b7vOrjve9PxJo3MN5v5yuyjHvdUcrQffT3WXMUfnGmHDVbC4k3sHJaJTgZCwpUplIaAo5ANtMyp3YHg==}
     engines: {node: '>=18'}
 
+  tinyexec@1.3.1:
+    resolution: {integrity: sha512-GCvB3aoys96IuDFBMcTB46JOR6mdMtAToqwiW8JlWhsoh1mhHi/xn9ss/Dg7N555GiJyEt2qzoG/NHCwM6h1EA==}
+    engines: {node: '>=18'}
+
   tinyglobby@0.2.16:
     resolution: {integrity: sha512-pn99VhoACYR8nFHhxqix+uvsbXineAasWm5ojXoN8xEwK5Kd3/TrhNn1wByuD52UxWRLy8pu+kRMniEi6Eq9Zg==}
     engines: {node: '>=12.0.0'}
@@ -8933,6 +8956,11 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
+  '@antfu/install-pkg@2.1.0':
+    dependencies:
+      package-manager-detector: 1.8.0
+      tinyexec: 1.3.1
+
   '@babel/code-frame@7.27.1':
     dependencies:
       '@babel/helper-validator-identifier': 7.28.5
@@ -9271,9 +9299,9 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260815.1
 
-  '@cloudflare/vite-plugin@1.37.1(@voidzero-dev/vite-plus-core@0.2.7(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(yaml@2.8.1))(workerd@1.20260815.1)(wrangler@4.92.0(@cloudflare/workers-types@4.20260519.1))':
+  '@cloudflare/vite-plugin@1.37.1(@voidzero-dev/vite-plus-core@0.2.7(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(yaml@2.8.1))(workerd@1.20260515.1)(wrangler@4.92.0(@cloudflare/workers-types@4.20260519.1))':
     dependencies:
-      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260815.1)
+      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260515.1)
       miniflare: 4.20260515.0
       unenv: 2.0.0-rc.24
       vite: '@voidzero-dev/vite-plus-core@0.2.7(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.2)(typescript@5.9.2)(yaml@2.8.1)'
@@ -10075,6 +10103,14 @@ snapshots:
     dependencies:
       '@standard-schema/utils': 0.3.0
       react-hook-form: 7.71.2(react@19.2.6)
+
+  '@iconify/types@2.0.0': {}
+
+  '@iconify/utils@3.1.7':
+    dependencies:
+      '@antfu/install-pkg': 2.1.0
+      '@iconify/types': 2.0.0
+      import-meta-resolve: 4.2.0
 
   '@img/colour@1.1.0': {}
 
@@ -15713,6 +15749,8 @@ snapshots:
       '@oxlint/binding-win32-x64-msvc': 1.63.0
       oxlint-tsgolint: 0.22.1
 
+  package-manager-detector@1.8.0: {}
+
   parent-module@1.0.1:
     dependencies:
       callsites: 3.1.0
@@ -16460,6 +16498,8 @@ snapshots:
   tinyexec@1.0.4: {}
 
   tinyexec@1.2.4: {}
+
+  tinyexec@1.3.1: {}
 
   tinyglobby@0.2.16:
     dependencies:

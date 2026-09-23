@@ -22,9 +22,9 @@ const statistics = createBlock({
     }),
     statistics: Type.Repeater({
       content: {
-        icons: Type.ImageList({
-          title: "Icons",
-          defaultItems: 1,
+        icon: Type.Icon({
+          title: "Icon",
+          default: "lucide:zap",
         }),
         number: Type.String({
           default: "100M+",
@@ -103,11 +103,7 @@ function StatisticsComponent() {
                   <div className="flex gap-3">
                     <div className={`w-0.5 ${borderClass}`} />
                     <div className="flex flex-col">
-                      <div className="flex flex-row gap-2">
-                        <stat.ImageList name="icons">
-                          {(props) => <img {...props} className="mb-2 size-8 object-contain" />}
-                        </stat.ImageList>
-                      </div>
+                      <stat.Icon name="icon" className="text-primary mb-2 size-5" />
                       <stat.Field name="number">
                         {(props) => (
                           <div {...props} className="text-foreground mb-2 text-4xl font-bold" />

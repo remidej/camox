@@ -69,10 +69,13 @@
   box-decoration-break: clone;
 }
 
+/* SVG roots cannot render ::after; use the same direct outline as text fields. */
+svg[data-camox-field-type="icon"][data-camox-hovered],
 [data-camox-field-id]:not([data-camox-field-type])[data-camox-hovered] {
   box-shadow: 0 0 0 var(--camox-overlay-width-hover) var(--camox-overlay-color-hover) !important;
 }
 
+svg[data-camox-field-type="icon"][data-camox-focused],
 [data-camox-field-id]:not([data-camox-field-type])[data-camox-focused] {
   box-shadow: 0 0 0 var(--camox-overlay-width-selected) var(--camox-overlay-color-selected) !important;
 }

@@ -9,5 +9,5 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/query-keys.ts"]
+  "include": ["src/query-keys.ts", "src/icons.ts"]
 }

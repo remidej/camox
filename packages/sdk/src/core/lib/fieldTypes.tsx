@@ -1,4 +1,5 @@
 const fieldTypesDictionary = {
+  Icon: { hasOwnView: true },
   String: { hasOwnView: true },
   Repeater: { hasOwnView: true },
   Enum: { hasOwnView: true },

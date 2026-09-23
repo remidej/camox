@@ -13,6 +13,9 @@ execSync(
 );
 
 // Emit index.js — esbuild strips the type-only Router re-export.
-execSync("pnpm exec esbuild src/index.ts --outdir=dist --format=esm --platform=neutral", {
-  stdio: "inherit",
-});
+execSync(
+  "pnpm exec esbuild src/index.ts --bundle --packages=external --outdir=dist --format=esm --platform=neutral",
+  {
+    stdio: "inherit",
+  },
+);

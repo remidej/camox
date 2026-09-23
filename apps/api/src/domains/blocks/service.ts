@@ -40,7 +40,12 @@ import {
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
 import { initializeBlockContent } from "./initialize-content";
-import { normalizeBlockContent, sanitizeAssetValue, type BlockItemSeed } from "./normalize-content";
+import {
+  assertIconValue,
+  normalizeBlockContent,
+  sanitizeAssetValue,
+  type BlockItemSeed,
+} from "./normalize-content";
 import { syncBlockData } from "./synced";
 import { resolveSyncedLiveData } from "./synced-live";
 
@@ -446,6 +451,7 @@ async function applyContentPatch(
   let allItems: Awaited<ReturnType<typeof fetchBlockItems>> | null = null;
   for (const [key, value] of Object.entries(patch)) {
     const fieldSchema = props?.[key];
+    assertIconValue(value, fieldSchema, key);
     if (fieldSchema?.fieldType !== "Repeater") {
       if (fieldSchema?.fieldType === "Image" || fieldSchema?.fieldType === "File") {
         merged[key] = sanitizeAssetValue(value);
@@ -536,6 +542,7 @@ async function applyRepeatableFieldPatch(
       for (const [k, v] of Object.entries(elementObj)) {
         if (k === "_itemId") continue;
         const subSchema = itemSchemaProps?.[k];
+        assertIconValue(v, subSchema, k);
         if (subSchema?.fieldType === "Repeater") {
           await applyRepeatableFieldPatch(ctx, {
             blockId,
@@ -1013,6 +1020,21 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     def?.contentSchema ?? null,
   );
   const allSeeds: BlockItemSeed[] = [...(itemSeeds ?? []), ...autoSeeds];
+  // Explicit SDK seeds bypass the inline repeater walker. Validate them before
+  // any database writes, resolving each nested seed against its parent schema.
+  const seedSchemas = new Map<string, Record<string, FieldSchema> | undefined>();
+  const rootProperties = (def?.contentSchema as { properties?: Record<string, FieldSchema> } | null)
+    ?.properties;
+  for (const seed of allSeeds) {
+    const parentProperties = seed.parentTempId
+      ? seedSchemas.get(seed.parentTempId)
+      : rootProperties;
+    const properties = parentProperties?.[seed.fieldName]?.items?.properties;
+    seedSchemas.set(seed.tempId, properties);
+    if (!seed.content || typeof seed.content !== "object") continue;
+    for (const [key, value] of Object.entries(seed.content))
+      assertIconValue(value, properties?.[key], key);
+  }
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(

@@ -117,6 +117,33 @@ Type.String({
 });
 ```
 
+### Type.Icon
+
+Choose one Iconify collection in Vite config:
+
+```ts
+camox({ projectSlug: "my-project", icons: "lucide" });
+```
+
+Declare a non-nullable icon with a required, prefixed default, then render inline SVG:
+
+```tsx
+// In content:
+icon: Type.Icon({ default: "lucide:zap", title: "Icon" })
+
+// In the component (also supported as <item.Icon> inside repeaters):
+<block.Icon name="icon" className="size-6 text-primary" />
+<block.Icon name="icon" aria-label="Fast" />
+```
+
+Icons are decorative unless given `aria-label` or `aria-labelledby`. Clicking an icon in preview opens the searchable collection picker. Values remain namespaced strings; editors cannot select another collection or an empty value.
+
+Run `pnpm exec camox typegen` **before TypeScript checking in CI**, for example `camox typegen && tsc --noEmit`. This resolves Vite config without starting a server or requiring Camox login. It generates `src/camox/icons.gen.d.ts`; ensure your tsconfig includes it. Dev and build regenerate it automatically. Generation requires network access to the pinned Iconify snapshot.
+
+Camox resolves selected SVGs from that same versioned snapshot and serves them through its API. Server rendering preloads selected/default SVGs into hydration data; no visitor requests to Iconify and no rebuild is needed when content changes. Only the editor fetches collection metadata and picker previews, not a whole SVG catalog.
+
+Collection licenses still apply. SVG responses retain author/license attribution. Include any copyright notices, license text, or attribution required by your chosen collection in your site's distributed notices; Iconify does not relicense the icons. Changing collections or migrating existing icon values is not supported in v1.
+
 ### Type.Boolean and Type.Enum
 
 Use in `settings` for configuration or `content` for editable values. Enum defaults must match an option key.

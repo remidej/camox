@@ -19,6 +19,7 @@ import { generateAppFile, watchAppFile } from "./appGeneration";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
+import { generateIconTypes } from "./iconGeneration";
 
 const PRODUCTION_API_URL = "https://api.camox.dev";
 import { syncDefinitions, syncDefinitionsToApi } from "./definitionsSync";
@@ -77,6 +78,8 @@ function writeRuntimeSidecar(
 export interface CamoxPluginOptions {
   /** Stable, human-readable slug identifying this project (e.g. "prestigious-impala-84") */
   projectSlug: string;
+  /** Iconify collection available to all icon fields. */
+  icons?: string;
   /** Disable telemetry collection (default: false) */
   disableTelemetry?: boolean;
   /** Internal options (intended for Camox contributors in development, not for public use) */
@@ -164,7 +167,11 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         });
       },
     },
-    config(_config, env) {
+    async config(_config, env) {
+      const iconIds = await generateIconTypes(
+        resolve(_config.root ?? process.cwd()),
+        options.icons,
+      );
       isBuild = env.command === "build";
       isRelease = isBuild && process.env.CAMOX_INTERNAL_RELEASE === "1";
       if (isRelease) {
@@ -183,6 +190,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           emitAssets: true,
         },
         define: {
+          __CAMOX_ICON_IDS__: JSON.stringify(iconIds),
           __CAMOX_TELEMETRY_DISABLED__: JSON.stringify(!!options.disableTelemetry),
           __ENABLE_TANSTACK_DEVTOOLS__: JSON.stringify(enableTanstackDevtools),
           __CAMOX_ENABLE_COMMENTS__: JSON.stringify(options._internal?.enableComments ?? false),
@@ -368,6 +376,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         // cannot invalidate the app server's node_modules/.vite/deps cache.
         cacheDir: resolve(resolvedConfig.root, "node_modules", ".vite-camox-temp"),
         resolve: resolvedConfig.resolve,
+        define: resolvedConfig.define,
         server: { middlewareMode: true },
         logLevel: "silent",
       });

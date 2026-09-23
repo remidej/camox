@@ -8,6 +8,9 @@ import {
 } from "@sinclair/typebox";
 
 import type { FieldType } from "./fieldTypes.tsx";
+import type { IconId, IconValue } from "./iconTypes";
+
+declare const __CAMOX_ICON_IDS__: readonly string[];
 
 /* -------------------------------------------------------------------------------------------------
  * toMarkdown builder API
@@ -289,6 +292,20 @@ function _fileList(options: {
  * All fields must have default values.
  */
 export const Type = {
+  Icon: (options: { default: IconId; title?: string }) => {
+    const ids = typeof __CAMOX_ICON_IDS__ === "undefined" ? [] : __CAMOX_ICON_IDS__;
+    if (!ids.includes(options.default))
+      throw new Error(
+        `Invalid icon default "${String(options.default)}". Configure icons in camox() first.`,
+      );
+    return TypeBoxType.Unsafe<IconValue>({
+      type: "string",
+      fieldType: "Icon",
+      enum: [...ids],
+      default: options.default,
+      title: options.title,
+    });
+  },
   /**
    * Creates a string field with a required default value.
    *

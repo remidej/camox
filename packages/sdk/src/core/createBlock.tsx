@@ -20,6 +20,7 @@ import {
   type ImageValue,
   type LinkValue,
 } from "./lib/contentType";
+import { IconSvg } from "./lib/icons";
 import {
   buildImageSrcSet,
   getDefaultImageSizes,
@@ -231,6 +232,12 @@ function createViewBlock(options: EditableOptions) {
     );
   };
 
+  const Icon = ({ name, ...props }: any) => {
+    const editingRuntime = useBlockEditingRuntime();
+    if (editingRuntime) return editingRuntime.renderPrimitive(options, "Icon", { name, ...props });
+    return <IconSvg iconId={useValue(name) as string} {...props} />;
+  };
+
   const Embed = ({ name, children }: any) => {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime) return editingRuntime.renderPrimitive(options, "Embed", { name, children });
@@ -373,6 +380,7 @@ function createViewBlock(options: EditableOptions) {
       const itemId = databaseItem ? item.id : undefined;
       const api = {
         Field,
+        Icon,
         Link,
         Embed,
         Image,
@@ -492,6 +500,7 @@ function createViewBlock(options: EditableOptions) {
 
   return {
     Detached,
+    Icon,
     Field,
     Embed,
     Link,

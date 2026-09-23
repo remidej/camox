@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import { createDb } from "./db";
 import { authRoutes, createAuth } from "./domains/auth/routes";
 import { fileHonoRoutes } from "./domains/files/routes";
+import { iconRoutes } from "./domains/icons/routes";
 import { pageHonoRoutes } from "./domains/pages/og-image-routes";
 import { faviconHonoRoutes } from "./domains/projects/routes";
 import { router } from "./router";
@@ -55,6 +56,8 @@ app.use(
     credentials: true,
   }),
 );
+
+app.route("/icons", iconRoutes);
 
 // Session middleware — populates c.var.user/session
 app.use("*", async (c, next) => {

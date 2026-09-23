@@ -1,3 +1,4 @@
+import { validateIconValue } from "@camox/api-contract";
 import { ORPCError } from "@orpc/server";
 import { generateKeyBetween } from "fractional-indexing";
 
@@ -12,8 +13,18 @@ export type BlockItemSeed = {
 export type SchemaProps = Record<string, FieldSchema>;
 type FieldSchema = {
   fieldType?: string;
+  enum?: unknown;
   items?: { properties?: SchemaProps };
 };
+
+export function assertIconValue(value: unknown, schema: FieldSchema | undefined, field: string) {
+  if (!schema) return;
+  try {
+    validateIconValue(value, schema);
+  } catch {
+    badRequest(`Invalid icon ID for "${field}"`, field);
+  }
+}
 
 function badRequest(message: string, field: string): never {
   throw new ORPCError("BAD_REQUEST", { message, data: { field } });
@@ -68,6 +79,7 @@ function walk(
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawContent as Record<string, unknown>)) {
     const fieldSchema = schemaProps?.[key];
+    assertIconValue(value, fieldSchema, key);
     if (fieldSchema?.fieldType === "Repeater") {
       if (value == null) continue;
       if (!Array.isArray(value)) {
@@ -126,6 +138,7 @@ export function sanitizeItemContent(
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawContent as Record<string, unknown>)) {
     const fieldSchema = itemSchemaProps?.[key];
+    assertIconValue(value, fieldSchema, key);
     if (fieldSchema?.fieldType === "Repeater") continue;
     if (fieldSchema?.fieldType === "Image" || fieldSchema?.fieldType === "File") {
       out[key] = sanitizeAssetValue(value);

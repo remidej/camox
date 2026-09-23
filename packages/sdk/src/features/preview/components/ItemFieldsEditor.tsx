@@ -29,6 +29,7 @@ import {
 
 import type { OverlayMessage } from "../overlayMessages";
 import { previewStore } from "../previewStore";
+import { IconFieldEditor } from "./IconFieldEditor";
 import { RepeatableItemsList } from "./RepeatableItemsList";
 
 /* -------------------------------------------------------------------------------------------------
@@ -275,7 +276,7 @@ const ItemFieldsEditor = ({
         const renderField = () => {
           if (
             !selectedFieldName &&
-            ["String", "Embed", "Repeater", "Enum", "Boolean"].includes(field.fieldType)
+            ["String", "Embed", "Repeater", "Enum", "Boolean", "Icon"].includes(field.fieldType)
           ) {
             const value = data[field.name];
             const preview =
@@ -314,6 +315,18 @@ const ItemFieldsEditor = ({
                     : { variant: "field", fieldId }
                 }
                 postToIframe={postToIframe}
+              />
+            );
+          }
+          if (field.fieldType === "Icon") {
+            return (
+              <IconFieldEditor
+                key={field.name}
+                value={String(
+                  data[field.name] ?? (schema as any)?.properties?.[field.name]?.default ?? "",
+                )}
+                ids={field.enumValues ?? []}
+                onChange={(value) => onFieldChange(field.name, value)}
               />
             );
           }

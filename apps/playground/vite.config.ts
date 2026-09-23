@@ -73,6 +73,7 @@ const config = defineConfig({
     nitro(),
     camox({
       projectSlug: "camox-playground-01",
+      icons: "lucide",
       _internal: {
         authenticationUrl: "http://localhost:3274",
         apiUrl: "http://localhost:8787",

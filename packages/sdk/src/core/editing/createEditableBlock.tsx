@@ -41,6 +41,8 @@ import {
   type ToMarkdownBuilder,
   type ItemSettingsBrand,
 } from "../lib/contentType.ts";
+import { IconSvg, type IconProps } from "../lib/icons";
+import type { IconValue } from "../lib/iconTypes";
 import {
   buildImageSrcSet,
   getDefaultImageSizes,
@@ -482,7 +484,7 @@ export function createEditableBlock<
 
   // Only allow string fields - not objects, arrays, or embed URLs
   type StringFields = {
-    [K in keyof TContent as TContent[K] extends EmbedURL
+    [K in keyof TContent as TContent[K] extends EmbedURL | IconValue
       ? never
       : TContent[K] extends string
         ? K
@@ -490,6 +492,15 @@ export function createEditableBlock<
   };
 
   // Only allow embed URL fields
+  type IconFields = {
+    [K in keyof TContent as TContent[K] extends IconValue ? K : never]: TContent[K];
+  };
+  type ItemIconFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends IconValue
+      ? F
+      : never]: RepeatableItemType<K>[F];
+  };
+
   type EmbedFields = {
     [K in keyof TContent as TContent[K] extends EmbedURL ? K : never]: TContent[K];
   };
@@ -558,9 +569,11 @@ export function createEditableBlock<
 
   // Extract string fields from a repeatable item type
   type ItemStringFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends string
-      ? F
-      : never]: RepeatableItemType<K>[F];
+    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends IconValue
+      ? never
+      : RepeatableItemType<K>[F] extends string
+        ? F
+        : never]: RepeatableItemType<K>[F];
   };
 
   // Extract link fields from a repeatable item type
@@ -887,6 +900,63 @@ export function createEditableBlock<
       ),
     } satisfies FieldRenderProps;
     return <>{children(fieldProps, fieldData)}</>;
+  };
+
+  const Icon = ({ name, ...props }: IconProps & { name: keyof IconFields }) => {
+    const block = React.use(Context);
+    const item = React.use(RepeaterItemContext);
+    const selectTarget = usePreviewSelection();
+    if (!block) throw new Error("Icon must be used within a Block Component");
+    const editable = useIsEditable(block.mode);
+    const fieldName = String(name);
+    const value = (item ? item.itemContent[name] : block.content[name]) as string;
+    const fieldId = getOverlayFieldId(block.blockId, item, fieldName);
+    const { window: iframeWindow } = useFrame();
+    const [isHovered, setIsHovered] = React.useState(false);
+    const isFocused = useFieldSelection(block.blockId, fieldName, "Icon", item?.itemId);
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      editable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+    const overlayState = useOverlayState(isHovered || isHoveredFromSidebar, isFocused);
+    return (
+      <IconSvg
+        {...props}
+        iconId={value}
+        data-camox-field-id={editable ? fieldId : undefined}
+        data-camox-field-type={editable ? "icon" : undefined}
+        {...(editable ? overlayState : {})}
+        data-camox-overlay-mode={editable && options.synced ? "synced" : undefined}
+        onMouseEnter={(event) => {
+          if (editable) setIsHovered(true);
+          props.onMouseEnter?.(event);
+        }}
+        onMouseLeave={(event) => {
+          if (editable) setIsHovered(false);
+          props.onMouseLeave?.(event);
+        }}
+        onClickCapture={
+          editable
+            ? (event) =>
+                selectTarget(
+                  item?.itemId != null
+                    ? {
+                        type: "item-field",
+                        blockId: block.blockId,
+                        itemId: item.itemId,
+                        fieldName,
+                        fieldType: "Icon",
+                      }
+                    : { type: "block-field", blockId: block.blockId, fieldName, fieldType: "Icon" },
+                  event,
+                )
+            : props.onClickCapture
+        }
+      />
+    );
   };
 
   const Embed = <K extends keyof EmbedFields>({
@@ -1491,6 +1561,7 @@ export function createEditableBlock<
           name: F;
           children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
         }) => React.ReactNode;
+        Icon: (props: IconProps & { name: keyof ItemIconFields<K> }) => React.ReactNode;
         Embed: <F extends keyof ItemEmbedFields<K>>(props: {
           name: F;
           children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
@@ -1525,6 +1596,7 @@ export function createEditableBlock<
                 name: string;
                 children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
               }) => React.ReactNode;
+              Icon: (props: IconProps & { name: string }) => React.ReactNode;
               Embed: (props: {
                 name: string;
                 children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
@@ -1619,6 +1691,7 @@ export function createEditableBlock<
             name: string;
             children: (props: LinkRenderProps, data: LinkRenderData) => React.ReactNode;
           }) => React.ReactNode;
+          Icon: (props: IconProps & { name: string }) => React.ReactNode;
           Embed: (props: {
             name: string;
             children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
@@ -1691,6 +1764,7 @@ export function createEditableBlock<
           const itemApi = {
             Field: ItemField,
             Link: ItemLink,
+            Icon: Icon as (props: IconProps & { name: keyof ItemIconFields<K> }) => React.ReactNode,
             Embed: ItemEmbed,
             Image: ItemImage,
             File: ItemFile,
@@ -2048,6 +2122,7 @@ export function createEditableBlock<
 
   return {
     Detached,
+    Icon,
     Field,
     Embed,
     Link,
