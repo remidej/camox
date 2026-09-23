@@ -19,6 +19,7 @@ import {
 import { previewStore } from "../previewStore";
 import { CommentHeader } from "./CommentHeader";
 import { CommentTargetQuote } from "./CommentTargetQuote";
+import { SendFeedbackDialog } from "./SendFeedbackDialog";
 import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
 
 function resizeComposer(element: HTMLTextAreaElement) {
@@ -168,16 +169,7 @@ export function AttachedComments({
             </div>
           </div>
         ))}
-        {allPageComments && (
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full"
-            disabled={attached.length === 0}
-          >
-            Send feedback to agent...
-          </Button>
-        )}
+        {allPageComments && <SendFeedbackDialog key={pageId} disabled={attached.length === 0} />}
         {!allPageComments && (
           <InputGroup>
             <InputGroupTextarea
