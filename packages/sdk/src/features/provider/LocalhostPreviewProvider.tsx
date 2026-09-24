@@ -22,7 +22,7 @@ import { useAdminShortcuts } from "./useAdminShortcuts";
 export function LocalhostPreviewProvider({ children }: { children: React.ReactNode }) {
   const signInRedirect = useSignInRedirect();
   const { resolvedTheme } = useApplyTheme();
-  const [isSignInDialogOpen, setIsSignInDialogOpen] = React.useState(false);
+  const [signInReason, setSignInReason] = React.useState<"edit" | "feedback" | null>(null);
   useAdminShortcuts();
 
   React.useEffect(() => {
@@ -33,7 +33,7 @@ export function LocalhostPreviewProvider({ children }: { children: React.ReactNo
         aliases: ["Enter edit mode", "Edit mode"],
         groupLabel: "Preview",
         checkIfAvailable: () => true,
-        execute: () => setIsSignInDialogOpen(true),
+        execute: () => setSignInReason("edit"),
         shortcut: EDIT_MODE_SHORTCUT,
       },
     ] satisfies Action[];
@@ -54,19 +54,31 @@ export function LocalhostPreviewProvider({ children }: { children: React.ReactNo
         <PreviewPanel
           toolbarProps={{
             onEditModeChange: (checked) => {
-              if (checked) setIsSignInDialogOpen(true);
+              if (checked) setSignInReason("edit");
+            },
+            onCommentModeChange: (enabled) => {
+              if (enabled) setSignInReason("feedback");
             },
           }}
         >
           {children}
         </PreviewPanel>
       </div>
-      <AlertDialog open={isSignInDialogOpen} onOpenChange={setIsSignInDialogOpen}>
+      <AlertDialog
+        open={signInReason !== null}
+        onOpenChange={(open) => {
+          if (!open) setSignInReason(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Sign in to edit</AlertDialogTitle>
+            <AlertDialogTitle>
+              {signInReason === "feedback" ? "Sign in to leave feedback" : "Sign in to edit"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              You need to sign in before you can enable edit mode.
+              {signInReason === "feedback"
+                ? "You need to sign in before you can leave feedback for agents."
+                : "You need to sign in before you can enable edit mode."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

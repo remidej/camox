@@ -3,7 +3,7 @@ import { registerHooks } from "node:module";
 import { test } from "node:test";
 
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { QueryClient, dehydrate } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, dehydrate } from "@tanstack/react-query";
 import * as React from "react";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -105,4 +105,36 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     }),
   );
   assert.doesNotMatch(publicHtml, /Quick find|Edit mode|My actual project|studio.css/);
+});
+
+void test("feedback only depends on the future flag, not page metadata or authentication", async () => {
+  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
+  const { initApiClient } = await import("../../lib/api-client");
+  initApiClient("https://api.test");
+  const { PreviewToolbar } = await import("../preview/components/PreviewToolbar");
+  const renderToolbar = (pageStatus?: "draft" | "published" | "modified") =>
+    renderToString(
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(PreviewToolbar, { pageStatus }),
+      ),
+    );
+  const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+  try {
+    for (const enabled of [true, false]) {
+      Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: enabled });
+      // No auth provider or page metadata is required, including on derived previews.
+      for (const status of [undefined, "draft", "published", "modified"] as const) {
+        const toolbarHtml = renderToolbar(status);
+        if (enabled) {
+          assert.match(toolbarHtml, /Feedback/);
+          continue;
+        }
+        assert.doesNotMatch(toolbarHtml, /Feedback/);
+      }
+    }
+  } finally {
+    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previousFlag });
+  }
 });

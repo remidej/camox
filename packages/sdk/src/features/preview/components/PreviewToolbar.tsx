@@ -17,6 +17,7 @@ import { usePageComments } from "../usePageComments";
 
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
+  onCommentModeChange?: (enabled: boolean) => void;
   pageId?: number;
   pageStatus?: "draft" | "published" | "modified";
   hasLiveVersion?: boolean;
@@ -24,6 +25,7 @@ interface PreviewToolbarProps {
 
 export const PreviewToolbar = ({
   onEditModeChange,
+  onCommentModeChange,
   pageId,
   pageStatus,
   hasLiveVersion,
@@ -61,7 +63,7 @@ export const PreviewToolbar = ({
         </Label>
       </div>
       <div className="flex shrink-0 items-center gap-6 self-stretch">
-        {areCommentsEnabled() && pageStatus && (
+        {areCommentsEnabled() && (
           <Tooltip.Tooltip>
             <Tooltip.TooltipTrigger
               render={
@@ -69,6 +71,11 @@ export const PreviewToolbar = ({
                   pressed={isCommentMode}
                   data-state={isCommentMode ? "on" : "off"}
                   onPressedChange={(enabled) => {
+                    if (onCommentModeChange) {
+                      onCommentModeChange(enabled);
+                      return;
+                    }
+
                     if (enabled && !isEditMode) {
                       previewStore.send({ type: "enterEditMode" });
                     }
@@ -82,7 +89,7 @@ export const PreviewToolbar = ({
               Feedback
               {commentCount > 0 && <span className="text-muted-foreground">({commentCount})</span>}
             </Tooltip.TooltipTrigger>
-            <Tooltip.TooltipContent>Leave feedback for agents or teammates</Tooltip.TooltipContent>
+            <Tooltip.TooltipContent>Leave feedback for agents</Tooltip.TooltipContent>
           </Tooltip.Tooltip>
         )}
         <ButtonGroup>
