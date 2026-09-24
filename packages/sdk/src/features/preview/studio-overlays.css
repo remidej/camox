@@ -2,8 +2,8 @@
  * Visual editing overlay styles injected into the preview iframe.
  *
  * State is driven by data attributes on the elements:
- * - data-camox-hovered: element is hovered
- * - data-camox-focused: element is focused/selected
+ * - data-camox-highlight-hovered: deepest hovered element (local or remote)
+ * - data-camox-highlight-focused: deepest focused/selected element
  * - data-camox-overlay-mode="synced": use synced-block (purple) colors
  *
  * Elements are targeted via their existing data attributes:
@@ -35,9 +35,9 @@
 
 /* ---- Hovered state ---- */
 
-[data-camox-field-id][data-camox-field-type][data-camox-hovered]::after,
-[data-camox-block-id][data-camox-hovered]:not([data-camox-detached])::after,
-[data-camox-repeater-item-id][data-camox-hovered]::after {
+[data-camox-field-id][data-camox-field-type][data-camox-highlight-hovered]::after,
+[data-camox-block-id][data-camox-highlight-hovered]:not([data-camox-detached])::after,
+[data-camox-repeater-item-id][data-camox-highlight-hovered]::after {
   content: "";
   position: absolute;
   pointer-events: none;
@@ -48,8 +48,9 @@
 
 /* ---- Focused state (overrides hovered via source order) ---- */
 
-[data-camox-field-id][data-camox-field-type][data-camox-focused]::after,
-[data-camox-block-id][data-camox-focused]:not([data-camox-detached])::after {
+[data-camox-field-id][data-camox-field-type][data-camox-highlight-focused]::after,
+[data-camox-block-id][data-camox-highlight-focused]:not([data-camox-detached])::after,
+[data-camox-repeater-item-id][data-camox-highlight-focused]::after {
   content: "";
   position: absolute;
   pointer-events: none;
@@ -63,20 +64,20 @@
    fragment when the inline wraps. Applied directly to the element via attribute
    selectors with !important so user-supplied className/style box-shadows can't
    clobber it. */
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-hovered],
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-focused] {
+[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-hovered],
+[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-focused] {
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
 
 /* SVG roots cannot render ::after; use the same direct outline as text fields. */
-svg[data-camox-field-type="icon"][data-camox-hovered],
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-hovered] {
+svg[data-camox-field-type="icon"][data-camox-highlight-hovered],
+[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-hovered] {
   box-shadow: 0 0 0 var(--camox-overlay-width-hover) var(--camox-overlay-color-hover) !important;
 }
 
-svg[data-camox-field-type="icon"][data-camox-focused],
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-focused] {
+svg[data-camox-field-type="icon"][data-camox-highlight-focused],
+[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-focused] {
   box-shadow: 0 0 0 var(--camox-overlay-width-selected) var(--camox-overlay-color-selected) !important;
 }
 
@@ -88,20 +89,20 @@ svg[data-camox-field-type="icon"][data-camox-focused],
 
 /* ---- Embed: z-index above click-interceptor ---- */
 
-[data-camox-field-type="embed"][data-camox-hovered]::after,
-[data-camox-field-type="embed"][data-camox-focused]::after {
+[data-camox-field-type="embed"][data-camox-highlight-hovered]::after,
+[data-camox-field-type="embed"][data-camox-highlight-focused]::after {
   z-index: 11;
 }
 
 /* ---- Detached: styled directly (not ::after) because the parent element
    (e.g. fixed navbar) must not get position: relative ---- */
 
-[data-camox-detached][data-camox-hovered] {
+[data-camox-detached][data-camox-highlight-hovered] {
   inset: var(--camox-overlay-inset-block-hover);
   border: var(--camox-overlay-width-hover) solid var(--camox-overlay-color-hover);
 }
 
-[data-camox-detached][data-camox-focused] {
+[data-camox-detached][data-camox-highlight-focused] {
   inset: var(--camox-overlay-inset-block-selected);
   border: var(--camox-overlay-width-selected) solid var(--camox-overlay-color-selected);
 }

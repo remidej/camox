@@ -1479,6 +1479,13 @@ export function createEditableBlock<
     // Check if the parent repeater container is being hovered from sidebar
     const isRepeaterHovered = React.useContext(RepeaterHoverContext);
 
+    const isSelected = useSelector(previewStore, (state) => {
+      const selection = state.context.selection;
+      return (
+        selection?.type === "item" && selection.blockId === blockId && selection.itemId === itemId
+      );
+    });
+
     const isHovered = useOverlayMessage(
       iframeWindow,
       isContentEditable,
@@ -1489,6 +1496,7 @@ export function createEditableBlock<
 
     const overlayState = useOverlayState(
       isHovered || isRepeaterHovered || (isCommentMode && isLocallyHovered),
+      isSelected,
     );
 
     const handleClick = (event: React.MouseEvent) => {
