@@ -1,5 +1,6 @@
 import { COMMENT_MESSAGE_MAX_LENGTH } from "@camox/api-contract";
 import { Button } from "@camox/ui/button";
+import { ButtonGroup } from "@camox/ui/button-group";
 import {
   InputGroup,
   InputGroupAddon,
@@ -9,7 +10,7 @@ import {
 import { toast } from "@camox/ui/toaster";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { ArrowUp, X } from "lucide-react";
+import { ArrowUp, Check, Eye, X } from "lucide-react";
 import * as React from "react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
@@ -85,6 +86,7 @@ function EnabledAttachedComments({
         (!("itemId" in entry.target) || entry.target.itemId === itemId) &&
         (!("fieldName" in entry.target) || entry.target.fieldName === fieldName)));
   const attached = (commentsQuery.data ?? []).filter(matches);
+  const visible = attached.filter((comment) => !comment.resolved);
   const currentDraft = draft && matches(draft) ? draft : null;
   const selected = attached.find((comment) => comment.id === activeId);
   const textarea = React.useRef<HTMLTextAreaElement>(null);
@@ -92,6 +94,17 @@ function EnabledAttachedComments({
   const draftTarget = currentDraft?.target;
   const message = currentDraft?.message ?? "";
   const submitting = React.useRef(false);
+  const setResolved = useMutation({
+    ...commentMutations.setResolved(),
+    onSuccess: (comment, submitted) => {
+      const queryKey = commentQueries.list(submitted.pageId).queryKey;
+      queryClient.setQueryData<typeof commentsQuery.data>(queryKey, (comments) =>
+        comments?.map((entry) => (entry.id === comment.id ? comment : entry)),
+      );
+      void queryClient.invalidateQueries({ queryKey });
+    },
+    onError: () => toast.error("Could not update feedback. Please try again."),
+  });
   const createComment = useMutation({
     ...commentMutations.create(),
     onSuccess: (comment, submitted) => {
@@ -212,44 +225,66 @@ function EnabledAttachedComments({
             </Button>
           </div>
         )}
-        {allPageComments && commentsQuery.isSuccess && attached.length === 0 && (
+        {allPageComments && commentsQuery.isSuccess && visible.length === 0 && (
           <p className="text-muted-foreground text-sm">
-            No feedback yet. Select something on the page to comment on it.
+            {attached.length === 0 ? "No feedback yet." : "No unresolved feedback."} Select
+            something on the page to comment on it.
           </p>
         )}
-        {attached.map((comment) => (
+        {visible.map((comment) => (
           <div
             key={comment.id}
             ref={comment.id === activeId ? activeComment : undefined}
-            {...(allPageComments &&
-              comment.target != null && {
-                role: "button",
-                tabIndex: 0,
-                className:
-                  "hover:bg-card focus-visible:ring-ring rounded-md p-1 outline-none focus-visible:ring-2",
-                onClick: () => {
-                  if (comment.target) void selectComment(comment.id, comment.target);
-                },
-                onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  event.currentTarget.click();
-                },
-              })}
+            className="rounded-md p-1"
           >
-            <CommentHeader author={comment.author} createdAt={comment.createdAt} />
-            <div className="pl-8">
-              {allPageComments &&
-                (comment.target ? (
-                  <CommentTargetQuote pageId={pageId} target={comment.target} />
-                ) : (
-                  <p className="text-muted-foreground text-sm">Target no longer available</p>
-                ))}
-              <p className="text-sm wrap-break-word whitespace-pre-wrap">{comment.message}</p>
+            <div>
+              <CommentHeader author={comment.author} createdAt={comment.createdAt} />
+              <div className="pl-8">
+                {allPageComments &&
+                  (comment.target ? (
+                    <CommentTargetQuote pageId={pageId} target={comment.target} />
+                  ) : (
+                    <p className="text-muted-foreground text-sm">Target no longer available</p>
+                  ))}
+                <p className="text-sm wrap-break-word whitespace-pre-wrap">{comment.message}</p>
+              </div>
             </div>
+            <ButtonGroup className="mt-2 ml-8" aria-label="Comment actions">
+              {allPageComments && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={comment.target == null}
+                  onClick={() => {
+                    if (comment.target) void selectComment(comment.id, comment.target);
+                  }}
+                >
+                  <Eye className="text-muted-foreground" />
+                  View
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Mark as done"
+                disabled={setResolved.isPending}
+                onClick={() => {
+                  setResolved.mutate({
+                    pageId,
+                    id: comment.id,
+                    resolved: true,
+                  });
+                }}
+              >
+                <Check className="text-muted-foreground" />
+                Done
+              </Button>
+            </ButtonGroup>
           </div>
         ))}
-        {allPageComments && <SendFeedbackDialog key={pageId} disabled={attached.length === 0} />}
+        {allPageComments && <SendFeedbackDialog key={pageId} disabled={visible.length === 0} />}
         {!allPageComments && (
           <InputGroup>
             <InputGroupTextarea

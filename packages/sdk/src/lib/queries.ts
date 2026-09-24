@@ -36,6 +36,7 @@ export const commentQueries = {
 
 export const commentMutations = {
   create: () => getOrpc().comments.create.mutationOptions(),
+  setResolved: () => getOrpc().comments.setResolved.mutationOptions(),
 };
 
 export const pageQueries = {

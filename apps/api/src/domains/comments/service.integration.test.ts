@@ -13,7 +13,7 @@ import {
   repeatableItems,
 } from "../../schema";
 import { replicateEnvironment } from "../environments/service";
-import { createComment, listComments } from "./service";
+import { createComment, listComments, setCommentResolved } from "./service";
 
 const { broadcastInvalidation } = vi.hoisted(() => {
   vi.resetModules();
@@ -106,6 +106,71 @@ async function fixture() {
 }
 
 describe("comments", () => {
+  it("persists resolve/reopen state and invalidates the page comments", async () => {
+    const f = await fixture();
+    const comment = await f.create({ kind: "block", blockId: f.block.id });
+    expect(comment.resolved).toBe(false);
+    const input = { pageId: f.page.id, id: comment.id, resolved: true };
+    vi.mocked(broadcastInvalidation).mockClear();
+    expect(await setCommentResolved(f.ctx, input)).toEqual({ ...comment, resolved: true });
+    expect(broadcastInvalidation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: f.project.id,
+        targets: [["camox", "comments", "list", f.page.id]],
+      }),
+    );
+    expect(await listComments(f.ctx, { pageId: f.page.id })).toEqual([
+      { ...comment, resolved: true },
+    ]);
+    expect(await setCommentResolved(f.ctx, input)).toEqual({ ...comment, resolved: true });
+    await f.db.delete(blocks).where(eq(blocks.id, f.block.id));
+    expect(await setCommentResolved(f.ctx, { ...input, resolved: false })).toEqual({
+      ...comment,
+      target: null,
+    });
+    expect(await f.db.select().from(comments).where(eq(comments.id, comment.id))).toMatchObject([
+      { resolved: false },
+    ]);
+  });
+
+  it("rejects unauthorized, missing, wrong-page, and malformed resolution requests", async () => {
+    const f = await fixture();
+    const comment = await f.create({ kind: "page" });
+    const input = { pageId: f.page.id, id: comment.id, resolved: true };
+    vi.mocked(broadcastInvalidation).mockClear();
+    for (const [ctx, code] of [
+      [{ ...f.ctx, user: null }, "UNAUTHORIZED"],
+      [{ ...f.ctx, user: f.outsiderUser }, "FORBIDDEN"],
+      [{ ...f.ctx, environmentName: "other" }, "NOT_FOUND"],
+    ] as const) {
+      await expect(setCommentResolved(ctx, input)).rejects.toMatchObject({ code });
+    }
+    const sibling = await f.db
+      .insert(pages)
+      .values({ ...f.page, id: undefined, pathSegment: "sibling", fullPath: "/sibling" })
+      .returning()
+      .get();
+    await expect(setCommentResolved(f.ctx, { ...input, pageId: sibling.id })).rejects.toMatchObject(
+      {
+        code: "NOT_FOUND",
+      },
+    );
+    await expect(
+      setCommentResolved(f.ctx, { ...input, id: crypto.randomUUID() }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    for (const invalid of [
+      { ...input, id: "invalid" },
+      { ...input, pageId: 0 },
+      { ...input, resolved: "true" },
+      { pageId: input.pageId, id: input.id },
+      { ...input, authorId: f.memberUser.id },
+    ]) {
+      await expect(setCommentResolved(f.ctx, invalid as never)).rejects.toThrow();
+    }
+    expect(broadcastInvalidation).not.toHaveBeenCalled();
+    expect(await listComments(f.ctx, { pageId: f.page.id })).toEqual([comment]);
+  });
+
   it("lists repeated nested targets with a fixed query budget", async () => {
     const f = await fixture();
     const layoutBlock = await f.db
@@ -213,6 +278,7 @@ describe("comments", () => {
       const first = await createComment(f.ctx, input);
       expect(first).toMatchObject({
         message: "Feedback",
+        resolved: false,
         target,
         author: { name: "Member", image: null },
         environmentId: f.environment.id,
@@ -335,6 +401,7 @@ describe("comments", () => {
       fieldName: "text",
     });
     const unavailable = await f.create({ kind: "block", blockId: f.block.id });
+    await setCommentResolved(f.ctx, { pageId: f.page.id, id: original.id, resolved: true });
     // Delete a separate target without removing the nested target.
     const deleted = await f.db
       .insert(blocks)
@@ -362,6 +429,7 @@ describe("comments", () => {
     expect(nested.itemId).not.toBe(f.nested.id);
     expect(nested.createdAt).toBe(original.createdAt);
     expect(nested.authorId).toBe(f.memberUser.id);
+    expect(nested.resolved).toBe(true);
     expect(nested.target).toMatchObject({
       blockId: nested.blockId,
       itemId: nested.itemId,
