@@ -8,7 +8,7 @@ import * as React from "react";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
-import type { CamoxApp } from "../../core/createApp";
+import { createApp } from "../../core/createApp";
 import type { PageRenderInput } from "./runtime";
 
 // The URL is supplied by Vite in applications. Nothing else is mocked: render
@@ -27,6 +27,7 @@ registerHooks({
 void test("authenticated documents SSR real chrome and server-loaded project data", async () => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { PageApp } = await import("./pageApp");
+  const camoxApp = createApp({ blocks: [] });
   const queryClient = new QueryClient();
   const project = {
     id: 1,
@@ -58,9 +59,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     loaderData: null,
     dehydratedState: dehydrate(queryClient),
   };
-  const html = renderToString(
-    createElement(PageApp, { input, queryClient, camoxApp: {} as CamoxApp }),
-  );
+  const html = renderToString(createElement(PageApp, { input, queryClient, camoxApp }));
   assert.match(html, /My actual project/);
   assert.match(html, /Quick find/);
   assert.match(html, /Edit mode/);
@@ -89,7 +88,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
         routeKind: "studio-content",
       },
       queryClient: new QueryClient(),
-      camoxApp: {} as CamoxApp,
+      camoxApp,
     }),
   );
   assert.match(studioHtml, /My actual project/);
@@ -101,7 +100,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     createElement(PageApp, {
       input: publicInput,
       queryClient: new QueryClient(),
-      camoxApp: {} as CamoxApp,
+      camoxApp,
     }),
   );
   assert.doesNotMatch(publicHtml, /Quick find|Edit mode|My actual project|studio.css/);
