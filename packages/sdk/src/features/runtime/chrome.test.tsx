@@ -3,12 +3,12 @@ import { registerHooks } from "node:module";
 import { test } from "node:test";
 
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { QueryClient, dehydrate } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, dehydrate } from "@tanstack/react-query";
 import * as React from "react";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
-import type { CamoxApp } from "../../core/createApp";
+import { createApp } from "../../core/createApp";
 import type { PageRenderInput } from "./runtime";
 
 // The URL is supplied by Vite in applications. Nothing else is mocked: render
@@ -27,6 +27,7 @@ registerHooks({
 void test("authenticated documents SSR real chrome and server-loaded project data", async () => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { PageApp } = await import("./pageApp");
+  const camoxApp = createApp({ blocks: [] });
   const queryClient = new QueryClient();
   const project = {
     id: 1,
@@ -58,9 +59,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     loaderData: null,
     dehydratedState: dehydrate(queryClient),
   };
-  const html = renderToString(
-    createElement(PageApp, { input, queryClient, camoxApp: {} as CamoxApp }),
-  );
+  const html = renderToString(createElement(PageApp, { input, queryClient, camoxApp }));
   assert.match(html, /My actual project/);
   assert.match(html, /Quick find/);
   assert.match(html, /Edit mode/);
@@ -89,7 +88,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
         routeKind: "studio-content",
       },
       queryClient: new QueryClient(),
-      camoxApp: {} as CamoxApp,
+      camoxApp,
     }),
   );
   assert.match(studioHtml, /My actual project/);
@@ -101,8 +100,40 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     createElement(PageApp, {
       input: publicInput,
       queryClient: new QueryClient(),
-      camoxApp: {} as CamoxApp,
+      camoxApp,
     }),
   );
   assert.doesNotMatch(publicHtml, /Quick find|Edit mode|My actual project|studio.css/);
+});
+
+void test("feedback only depends on the future flag, not page metadata or authentication", async () => {
+  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
+  const { initApiClient } = await import("../../lib/api-client");
+  initApiClient("https://api.test");
+  const { PreviewToolbar } = await import("../preview/components/PreviewToolbar");
+  const renderToolbar = (pageStatus?: "draft" | "published" | "modified") =>
+    renderToString(
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(PreviewToolbar, { pageStatus }),
+      ),
+    );
+  const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+  try {
+    for (const enabled of [true, false]) {
+      Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: enabled });
+      // No auth provider or page metadata is required, including on derived previews.
+      for (const status of [undefined, "draft", "published", "modified"] as const) {
+        const toolbarHtml = renderToolbar(status);
+        if (enabled) {
+          assert.match(toolbarHtml, /Feedback/);
+          continue;
+        }
+        assert.doesNotMatch(toolbarHtml, /Feedback/);
+      }
+    }
+  } finally {
+    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previousFlag });
+  }
 });

@@ -1,3 +1,2 @@
-- Run `pnpm check` from the repo root when you're done making a series of code changes.
 - Prefer using early returns to avoid nesting code in if/else statements
 - Do not add `Co-Authored-By:` trailers or any agent/tool attribution to commits.
