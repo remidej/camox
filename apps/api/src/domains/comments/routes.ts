@@ -8,4 +8,7 @@ export const commentProcedures = {
   create: authed
     .input(service.createCommentInput)
     .handler(({ context, input }) => service.createComment(context, input)),
+  setResolved: authed
+    .input(service.setCommentResolvedInput)
+    .handler(({ context, input }) => service.setCommentResolved(context, input)),
 };

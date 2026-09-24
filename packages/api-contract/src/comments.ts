@@ -23,6 +23,7 @@ export const commentSchema = z.object({
   pageId: objectId,
   environmentId: objectId,
   message: z.string(),
+  resolved: z.boolean(),
   target: commentTargetSchema.nullable(),
   author: z.object({ name: z.string(), image: z.string().nullable() }),
   createdAt: z.number(),

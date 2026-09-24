@@ -28,6 +28,10 @@ export const createCommentInput = listCommentsInput.extend({
   message: z.string().trim().min(1).max(COMMENT_MESSAGE_MAX_LENGTH),
   target: commentTargetSchema,
 });
+export const setCommentResolvedInput = listCommentsInput.extend({
+  id: z.uuid(),
+  resolved: z.boolean(),
+});
 
 async function authorize(ctx: ServiceContext, pageId: number) {
   if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
@@ -50,6 +54,7 @@ function selectComments(ctx: ServiceContext) {
       environmentId: comments.environmentId,
       target: comments.target,
       message: comments.message,
+      resolved: comments.resolved,
       createdAt: comments.createdAt,
       blockId: comments.blockId,
       itemId: comments.itemId,
@@ -70,6 +75,26 @@ export async function listComments(
     .orderBy(asc(comments.createdAt), asc(comments.id));
   const targets = await loadTargets(ctx, page);
   return rows.map((row) => serializeComment(targets, row));
+}
+
+export async function setCommentResolved(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof setCommentResolvedInput>,
+) {
+  const { pageId, id, resolved } = setCommentResolvedInput.parse(rawInput);
+  const access = await authorize(ctx, pageId);
+  const scope = and(eq(comments.id, id), eq(comments.pageId, pageId));
+  const updated = await ctx.db.update(comments).set({ resolved }).where(scope).returning().get();
+  if (!updated) throw new ORPCError("NOT_FOUND");
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    projectId: access.projectId,
+    targets: [queryKeys.comments.list(pageId)],
+  });
+  const result = await selectComments(ctx).where(scope).get();
+  if (!result) throw new ORPCError("NOT_FOUND");
+  return serializeComment(await loadTargets(ctx, access.page), result);
 }
 
 function serializeComment(

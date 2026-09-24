@@ -22,6 +22,7 @@ export const comments = sqliteTable(
     itemId: int("item_id").references(() => repeatableItems.id, { onDelete: "set null" }),
     target: text({ mode: "json" }).$type<CommentTarget>(),
     message: text().notNull(),
+    resolved: int({ mode: "boolean" }).notNull().default(false),
     authorId: text("author_id")
       .notNull()
       .references(() => user.id),

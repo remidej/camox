@@ -17,7 +17,15 @@ const api = {
     environmentId: 1,
     author: { name: "Reviewer", image: null },
     createdAt: 1,
+    resolved: false,
   }),
+  setResolved: async (_input: {
+    id: string;
+    pageId: number;
+    resolved: boolean;
+  }): Promise<Comment> => {
+    throw new Error("Not implemented");
+  },
 };
 
 Object.assign(globalThis, {
@@ -42,6 +50,7 @@ registerHooks({
           };
           export const commentMutations = {
             create: () => ({ mutationFn: (input) => globalThis.__commentsTestApi.create(input) }),
+            setResolved: () => ({ mutationFn: (input) => globalThis.__commentsTestApi.setResolved(input) }),
           };
         `)}`,
         shortCircuit: true,
@@ -91,6 +100,7 @@ function comment(id: string, pageId: number, target: CommentTarget | null): Comm
     message: `Feedback ${id}`,
     author: { name: "Reviewer", image: null },
     createdAt: 1,
+    resolved: false,
   };
 }
 
@@ -147,7 +157,8 @@ void test("Feedback reads persisted comments at every target level without a com
   }
   assert.equal((markup.match(/<blockquote/g) ?? []).length, targets.length);
   assert.doesNotMatch(markup, /Comment text|Post comment/);
-  assert.equal((markup.match(/role="button"/g) ?? []).length, targets.length);
+  assert.doesNotMatch(markup, /role="button"|hover:bg-card/);
+  assert.equal((markup.match(/>View<\/button>/g) ?? []).length, targets.length);
   assert.doesNotMatch(render(<CommentSidebar pageId={4} />), /Feedback 0/);
 
   previewCommentsStore.send({ type: "startComment", pageId: 3, target: targets[4]! });
@@ -203,7 +214,7 @@ async function setupDom() {
   };
 }
 
-void test("clicking or keyboard-activating feedback opens its editor without deleting cached comments", async () => {
+void test("only View opens feedback's editor without deleting cached comments", async () => {
   const dom = await setupDom();
   const { CommentSidebar } = await import("./CommentSidebar");
   const { previewCommentsStore } = await import("../previewCommentsStore");
@@ -214,19 +225,19 @@ void test("clicking or keyboard-activating feedback opens its editor without del
   try {
     previewStore.send({ type: "enterEditMode" });
     previewStore.send({ type: "setCommentMode", enabled: true });
+    previewCommentsStore.send({ type: "clearSelection" });
     await dom.render(<CommentSidebar pageId={88} />);
-    const row = (index: number) => dom.host.querySelectorAll('[role="button"]')[index]!;
-    await React.act(async () => row(0).querySelector("p")!.click());
+    await React.act(async () => dom.host.querySelector("p")!.click());
+    assert.equal(previewCommentsStore.getSnapshot().context.activeId, null);
+    const viewButtons = [...dom.host.querySelectorAll("button")].filter(
+      (button) => button.textContent === "View",
+    );
+    await React.act(async () => viewButtons[0]!.click());
     assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
     assert.equal(previewStore.getSnapshot().context.selection, null);
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, "first");
-    for (const key of ["Enter", " "]) {
-      await React.act(async () => {
-        previewStore.send({ type: "setCommentMode", enabled: true });
-        row(1).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
-      });
-      assert.equal(previewCommentsStore.getSnapshot().context.activeId, "second");
-    }
+    await React.act(async () => viewButtons[1]!.click());
+    assert.equal(previewCommentsStore.getSnapshot().context.activeId, "second");
     assert.deepEqual(dom.client.getQueryData(["comments", 88]), comments);
   } finally {
     await dom.close();
@@ -302,6 +313,61 @@ void test("failed posting retains a retryable draft; success persists without cl
   } finally {
     api.create = originalCreate;
     api.list = originalList;
+    await dom.close();
+    previewCommentsStore.send({ type: "clearSelection" });
+  }
+});
+
+void test("resolved feedback stays hidden in sidebar and object views", async () => {
+  const dom = await setupDom();
+  const { AttachedComments } = await import("./AttachedComments");
+  const { CommentSidebar } = await import("./CommentSidebar");
+  const { previewCommentsStore } = await import("../previewCommentsStore");
+  const originalList = api.list;
+  const originalSetResolved = api.setResolved;
+  let saved = [comment("one", 3, { kind: "page" })];
+  api.list = async () => saved;
+  api.setResolved = async (input) => {
+    saved = saved.map((entry) =>
+      entry.id === input.id ? { ...entry, resolved: input.resolved } : entry,
+    );
+    return saved[0]!;
+  };
+  dom.client.setQueryData(["comments", 3], saved);
+  previewCommentsStore.send({ type: "clearSelection" });
+  const click = async (selector: string) => {
+    await React.act(async () => {
+      const element = dom.host.querySelector(selector);
+      assert.ok(element instanceof dom.window.HTMLElement);
+      element.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  };
+  try {
+    await dom.render(<CommentSidebar pageId={3} />);
+    assert.equal(dom.host.querySelector('input[type="checkbox"]'), null);
+    const succeed = api.setResolved;
+    api.setResolved = async () => {
+      throw new Error("offline");
+    };
+    await click('[aria-label="Mark as done"]');
+    assert.equal(saved[0]?.resolved, false);
+    assert.match(dom.host.textContent, /Feedback one/);
+    api.setResolved = succeed;
+    await click('[aria-label="Mark as done"]');
+    assert.equal(saved[0]?.resolved, true);
+    assert.equal(previewCommentsStore.getSnapshot().context.activeId, null);
+    assert.doesNotMatch(dom.host.textContent, /Show resolved|Feedback one/);
+    assert.match(dom.host.textContent, /No unresolved feedback/);
+    assert.equal(dom.host.querySelector('input[type="checkbox"]'), null);
+    await dom.render(<AttachedComments pageId={3} blockId={7} />);
+    assert.doesNotMatch(dom.host.textContent, /Show resolved|Feedback one/);
+    await dom.render(<AttachedComments pageId={3} />);
+    assert.doesNotMatch(dom.host.textContent, /Show resolved|Feedback one/);
+    assert.equal(dom.host.querySelector('[aria-label="Restore comment"]'), null);
+  } finally {
+    api.list = originalList;
+    api.setResolved = originalSetResolved;
     await dom.close();
     previewCommentsStore.send({ type: "clearSelection" });
   }
