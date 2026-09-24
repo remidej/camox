@@ -33,6 +33,12 @@ Use `Type.Repeater` for every repeated content structure: lists, rows, columns, 
 
 Choose bounds from real constraints, not the number of items visible in the reference. Many sibling fields are a code smell: look for repeated groups or separate sections. Model enough flexibility to add, remove, reorder, and rewrite content without code changes; don't expose every CSS value as a field.
 
+## Use settings for constrained choices
+
+Before adding a `content` field, ask whether the editor is writing free-form content or choosing from known options. For configuration choices such as alignment, theme, size, or variant, use `settings` with `Type.Enum`. For on/off choices such as showing a background or enabling autoplay, use `settings` with `Type.Boolean`.
+
+Do not model these choices as `content` fields using `Type.String`, even if rendering code could interpret strings such as `"left"`, `"dark"`, or `"true"`. Editors should choose a valid option or toggle a setting, not type a magic string. Reserve `content`'s `Type.String` for genuinely free-form text, such as headings and descriptions. Enum defaults must match an option key.
+
 ## Keep formatted text in one field
 
 Use inline formatting and `textStyle`, including highlights, instead of fields such as `headingStart`, `coloredWord`, and `headingEnd`. Editors should be able to move the emphasis by editing content alone. Read [Field styling](../camox/references/field-styling.md).
