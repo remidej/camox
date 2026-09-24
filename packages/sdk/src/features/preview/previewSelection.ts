@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext } from "react";
 
-import { previewCommentsStore, revealCommentTarget } from "./previewCommentsStore";
+import {
+  previewCommentsStore,
+  revealCommentTarget,
+  type CommentTarget,
+} from "./previewCommentsStore";
 import {
   previewStore,
   selectIsCommentMode,
@@ -12,11 +16,27 @@ export const PreviewPageContext = createContext<number | null>(null);
 
 export type SelectionEvent = {
   currentTarget: Element;
-  clientX?: number;
-  clientY?: number;
   preventDefault(): void;
   stopPropagation(): void;
 };
+
+function commentTarget(selection: Selection): CommentTarget {
+  switch (selection.type) {
+    case "block":
+      return { kind: "block", blockId: selection.blockId };
+    case "item":
+      return { kind: "item", blockId: selection.blockId, itemId: selection.itemId };
+    case "block-field":
+      return { kind: "block-field", blockId: selection.blockId, fieldName: selection.fieldName };
+    case "item-field":
+      return {
+        kind: "item-field",
+        blockId: selection.blockId,
+        itemId: selection.itemId,
+        fieldName: selection.fieldName,
+      };
+  }
+}
 
 /** Both editing and commenting use the target already known by the editable component. */
 export function selectPreviewTarget(
@@ -40,40 +60,9 @@ export function selectPreviewTarget(
   event.preventDefault();
   event.stopPropagation();
   if (pageId === null) return;
-  const element = event.currentTarget;
-  const rect = element.getBoundingClientRect();
-  const field = selection.type === "block-field" || selection.type === "item-field";
-  const itemId = "itemId" in selection ? selection.itemId : undefined;
-  const attribute = field
-    ? "data-camox-field-id"
-    : selection.type === "item"
-      ? "data-camox-repeater-item-id"
-      : element.hasAttribute("data-camox-comment-block-id")
-        ? "data-camox-comment-block-id"
-        : "data-camox-block-id";
-  const id = field
-    ? [selection.blockId, itemId, selection.fieldName].filter((part) => part != null).join("__")
-    : String(itemId ?? selection.blockId);
-  const target = {
-    blockId: selection.blockId,
-    itemId,
-    fieldName: field ? selection.fieldName : undefined,
-    fieldType: field ? selection.fieldType : undefined,
-    selector: `[${attribute}="${CSS.escape(id)}"]`,
-    label: field
-      ? `Field · ${selection.fieldName}`
-      : `${selection.type === "item" ? "Item" : "Block"} · ${id}`,
-    x:
-      event.clientX == null
-        ? 0.5
-        : Math.max(0, Math.min(1, (event.clientX - rect.left) / (rect.width || 1))),
-    y:
-      event.clientY == null
-        ? 0.5
-        : Math.max(0, Math.min(1, (event.clientY - rect.top) / (rect.height || 1))),
-  };
+  const target = commentTarget(selection);
   previewCommentsStore.send({ type: "startComment", pageId, target, focusComposer: true });
-  revealCommentTarget(target);
+  revealCommentTarget(target, "fieldType" in selection ? selection.fieldType : undefined);
 }
 
 export function usePreviewSelection() {

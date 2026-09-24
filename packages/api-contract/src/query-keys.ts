@@ -21,6 +21,10 @@ type QueryKeyGroup = Record<string, QueryKey | ((...args: any[]) => QueryKey)>;
 export type ReadSource = "draft" | "live";
 
 export const queryKeys = {
+  comments: {
+    all: ["camox", "comments"],
+    list: (pageId: number) => ["camox", "comments", "list", pageId],
+  },
   pages: {
     list: ["camox", "pages", "list"],
     getByPath: (path: string, source?: ReadSource) =>

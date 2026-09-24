@@ -1,4 +1,4 @@
-import type { InvalidationMessage, QueryKey } from "@camox/api-contract/query-keys";
+import { queryKeys, type InvalidationMessage, type QueryKey } from "@camox/api-contract/query-keys";
 
 import type { ProjectRoom } from "../durable-objects/project-room";
 
@@ -19,6 +19,16 @@ export function broadcastInvalidation({
 }: BroadcastInvalidationOptions) {
   const id = projectRoomNamespace.idFromName(String(projectId));
   const stub = projectRoomNamespace.get(id) as ProjectRoomStub;
-  const message: InvalidationMessage = { type: "invalidate", targets };
+  // Comment availability depends on current objects and field definitions.
+  // Refresh it for every content mutation, including deletions and checkpoint restores.
+  const contentChanged = targets.some(([, domain]) =>
+    ["pages", "blocks", "repeatableItems", "layouts", "blockDefinitions"].includes(String(domain)),
+  );
+  const alreadyIncludesComments = targets.some((key) => key.length === 2 && key[1] === "comments");
+  const message: InvalidationMessage = {
+    type: "invalidate",
+    targets:
+      contentChanged && !alreadyIncludesComments ? [...targets, queryKeys.comments.all] : targets,
+  };
   waitUntil(stub.broadcastInvalidation(message));
 }

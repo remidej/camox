@@ -498,6 +498,9 @@ importers:
       '@iconify/utils':
         specifier: ^3.1.7
         version: 3.1.7
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       dts-bundle-generator:
         specifier: ^9.5.1

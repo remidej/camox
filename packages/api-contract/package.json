@@ -34,7 +34,8 @@
   },
   "dependencies": {
     "@iconify/types": "^2.0.0",
-    "@iconify/utils": "^3.1.7"
+    "@iconify/utils": "^3.1.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "dts-bundle-generator": "^9.5.1",

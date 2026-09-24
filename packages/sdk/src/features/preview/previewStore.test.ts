@@ -65,13 +65,10 @@ void test("comments reveal the existing editor and retain their page and field t
   const { previewStore } = await import("./previewStore");
   const { previewCommentsStore, revealCommentTarget } = await import("./previewCommentsStore");
   const target = {
+    kind: "item-field" as const,
     blockId: 7,
     itemId: 12,
     fieldName: "title",
-    selector: '[data-camox-field-id="7__12__title"]',
-    label: "Field · title",
-    x: 0.5,
-    y: 0.5,
   };
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "openAddBlockSidebar" });
@@ -80,7 +77,7 @@ void test("comments reveal the existing editor and retain their page and field t
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, target);
   previewCommentsStore.send({ type: "composerFocused" });
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, null);
-  revealCommentTarget(target);
+  revealCommentTarget(target, "String");
   assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
   assert.equal(previewStore.getSnapshot().context.isAddBlockSidebarOpen, false);
   assert.deepEqual(previewStore.getSnapshot().context.selection, {
@@ -92,24 +89,12 @@ void test("comments reveal the existing editor and retain their page and field t
   });
   assert.equal(previewCommentsStore.getSnapshot().context.draft?.target, target);
 
-  previewCommentsStore.send({ type: "setMessage", message: "   " });
-  const author = { name: "Rémi de Juvigny", image: "/avatar.png" };
-  const createdAt = 1_700_000_000_000;
-  previewCommentsStore.send({ type: "postComment", id: "empty", author, createdAt });
-  assert.equal(previewCommentsStore.getSnapshot().context.comments.length, 0);
   previewCommentsStore.send({ type: "setMessage", message: "  Shorten this title  " });
-  previewCommentsStore.send({ type: "postComment", id: "comment-1", author, createdAt });
-  assert.deepEqual(previewCommentsStore.getSnapshot().context.comments, [
-    {
-      id: "comment-1",
-      pageId: 3,
-      target,
-      message: "Shorten this title",
-      author,
-      createdAt,
-    },
-  ]);
+  const draft = previewCommentsStore.getSnapshot().context.draft!;
+  previewCommentsStore.send({ type: "postSucceeded", draft });
   assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
+  assert.equal(previewCommentsStore.getSnapshot().context.activeId, draft.id);
+  assert.equal("comments" in previewCommentsStore.getSnapshot().context, false);
   previewCommentsStore.send({ type: "startComment", pageId: 3, target });
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, null);
   previewCommentsStore.send({ type: "cancelDraft" });
@@ -119,7 +104,7 @@ void test("comments reveal the existing editor and retain their page and field t
     keyof typeof fieldTypesDictionary
   >) {
     assert.equal(fieldTypesDictionary[fieldType].hasOwnView, true);
-    revealCommentTarget({ ...target, itemId: undefined, fieldType });
+    revealCommentTarget({ kind: "block-field", blockId: 7, fieldName: "title" }, fieldType);
     assert.deepEqual(previewStore.getSnapshot().context.selection, {
       type: "block-field",
       blockId: 7,
@@ -130,7 +115,7 @@ void test("comments reveal the existing editor and retain their page and field t
     assert.deepEqual(previewStore.getSnapshot().context.selection, { type: "block", blockId: 7 });
   }
 
-  revealCommentTarget({ ...target, itemId: undefined, fieldName: undefined });
+  revealCommentTarget({ kind: "block", blockId: 7 });
   assert.deepEqual(previewStore.getSnapshot().context.selection, { type: "block", blockId: 7 });
   previewStore.send({ type: "exitEditMode" });
 });
@@ -138,8 +123,7 @@ void test("comments reveal the existing editor and retain their page and field t
 void test("page comments retain their page without a block target", async () => {
   const { previewStore } = await import("./previewStore");
   const { previewCommentsStore, revealCommentTarget } = await import("./previewCommentsStore");
-  const target = { selector: "body", label: "Page · 3", x: 0.5, y: 0.5 };
-  const author = { name: "You", image: null };
+  const target = { kind: "page" as const };
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "setFocusedBlock", blockId: 7 });
   revealCommentTarget(target);
@@ -147,19 +131,93 @@ void test("page comments retain their page without a block target", async () => 
 
   previewCommentsStore.send({ type: "startComment", pageId: 3, target });
   previewCommentsStore.send({ type: "setMessage", message: "Review the whole page" });
-  previewCommentsStore.send({ type: "postComment", id: "page-comment", author, createdAt: 1 });
-  const comment = previewCommentsStore
-    .getSnapshot()
-    .context.comments.find((entry) => entry.id === "page-comment")!;
+  const comment = previewCommentsStore.getSnapshot().context.draft!;
+  previewCommentsStore.send({ type: "postSucceeded", draft: comment });
   assert.equal(comment.pageId, 3);
-  assert.equal(comment.target.blockId, undefined);
-  assert.equal(comment.target.fieldName, undefined);
+  assert.deepEqual(comment.target, { kind: "page" });
   assert.equal(comment.message, "Review the whole page");
 
   previewCommentsStore.send({ type: "startComment", pageId: 4, target });
   assert.equal(previewCommentsStore.getSnapshot().context.draft?.pageId, 4);
   assert.equal(comment.pageId, 3);
   previewCommentsStore.send({ type: "clearSelection" });
+  previewStore.send({ type: "exitEditMode" });
+});
+
+void test("draft IDs are stable for retries and stale successes cannot replace current UI", async () => {
+  const { previewCommentsStore: store } = await import("./previewCommentsStore");
+  store.send({ type: "startComment", pageId: 3, target: { kind: "page" }, focusComposer: true });
+  const empty = store.getSnapshot().context.draft!;
+  assert.match(empty.id, /^[0-9a-f-]{36}$/);
+  store.send({ type: "setMessage", message: "First version" });
+  const submitted = store.getSnapshot().context.draft!;
+  assert.notEqual(submitted.id, empty.id);
+  store.send({ type: "setMessage", message: "First version" });
+  assert.equal(store.getSnapshot().context.draft, submitted);
+  store.send({ type: "setMessage", message: "Revised version" });
+  const revised = store.getSnapshot().context;
+  assert.notEqual(revised.draft!.id, submitted.id);
+  store.send({ type: "postSucceeded", draft: submitted });
+  assert.equal(store.getSnapshot().context, revised);
+
+  store.send({ type: "startComment", pageId: 4, target: { kind: "page" } });
+  const replacement = store.getSnapshot().context;
+  store.send({ type: "postSucceeded", draft: revised.draft! });
+  assert.equal(store.getSnapshot().context, replacement);
+  store.send({ type: "cancelDraft" });
+  store.send({ type: "selectComment", id: "another-comment" });
+  store.send({ type: "postSucceeded", draft: replacement.draft! });
+  assert.equal(store.getSnapshot().context.draft, null);
+  assert.equal(store.getSnapshot().context.activeId, "another-comment");
+  store.send({ type: "clearSelection" });
+});
+
+void test("comment field types follow current definitions and nested item ancestry", async () => {
+  const { getCommentTargetFieldType, revealCommentTarget } = await import("./previewCommentsStore");
+  const { previewStore } = await import("./previewStore");
+  const { createApp } = await import("../../core/createApp");
+  const { createBlock, Type } = await import("../../core/createBlock");
+  const definition = createBlock({
+    id: "test",
+    title: "Test",
+    description: "Comment target fixture",
+    content: { title: Type.String({ default: "" }) } as Record<
+      string,
+      import("@sinclair/typebox").TSchema
+    >,
+    component: () => null,
+    toMarkdown: () => [],
+  });
+  const app = createApp({ blocks: [definition] });
+  const bundle = {
+    block: { id: 7, type: "test" },
+    repeatableItems: [
+      { id: 12, fieldName: "rows", parentItemId: null },
+      { id: 13, fieldName: "cells", parentItemId: 12 },
+    ],
+  } as unknown as import("@/lib/queries").BlockBundle;
+  const schema = definition._internal.contentSchema as any;
+  schema.properties.rows = {
+    items: { properties: { cells: { items: { properties: { image: { fieldType: "Image" } } } } } },
+  };
+  assert.equal(
+    getCommentTargetFieldType({ kind: "block-field", blockId: 7, fieldName: "title" }, bundle, app),
+    "String",
+  );
+  const target = { kind: "item-field" as const, blockId: 7, itemId: 13, fieldName: "image" };
+  assert.equal(getCommentTargetFieldType(target, bundle, app), "Image");
+  schema.properties.rows.items.properties.cells.items.properties.image.fieldType = "Link";
+  assert.equal(getCommentTargetFieldType(target, bundle, app), "Link");
+  assert.equal(getCommentTargetFieldType({ ...target, itemId: 99 }, bundle, app), undefined);
+  delete schema.properties.rows;
+  assert.equal(getCommentTargetFieldType(target, bundle, app), undefined);
+  previewStore.send({ type: "enterEditMode" });
+  revealCommentTarget(target);
+  assert.deepEqual(previewStore.getSnapshot().context.selection, {
+    type: "item",
+    blockId: 7,
+    itemId: 13,
+  });
   previewStore.send({ type: "exitEditMode" });
 });
 
@@ -251,9 +309,12 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     const draft = previewCommentsStore.getSnapshot().context.draft!;
     assert.equal(draft.pageId, 3);
     assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, draft.target);
-    assert.equal(draft.target.x, 0.25);
-    assert.equal(draft.target.y, 0.5);
-    assert.equal(doc.querySelector(draft.target.selector), field);
+    assert.deepEqual(draft.target, {
+      kind: "item-field",
+      blockId: 7,
+      itemId: 12,
+      fieldName: "title",
+    });
 
     child.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     assert.equal(clicks, 2);
@@ -262,7 +323,8 @@ void test("comment mode shares normal hover and redirects native preview clicks"
       selection = { ...selection, fieldType };
       previewStore.send({ type: "setCommentMode", enabled: true });
       child.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
-      assert.equal(previewCommentsStore.getSnapshot().context.draft?.target.fieldType, fieldType);
+      assert.deepEqual(previewCommentsStore.getSnapshot().context.draft?.target, draft.target);
+      assert.deepEqual(previewStore.getSnapshot().context.selection, selection);
     }
     previewStore.send({ type: "setCommentMode", enabled: true });
     doc.querySelector("div")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -289,10 +351,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     });
     const itemDraft = previewCommentsStore.getSnapshot().context.draft!;
     assert.equal(itemDraft.pageId, 3);
-    assert.equal(itemDraft.target.itemId, 12);
-    assert.equal(itemDraft.target.fieldName, undefined);
-    assert.equal(itemDraft.target.label, "Item · 12");
-    assert.equal(doc.querySelector(itemDraft.target.selector), item);
+    assert.deepEqual(itemDraft.target, { kind: "item", blockId: 7, itemId: 12 });
 
     previewCommentsStore.send({ type: "cancelDraft" });
     previewStore.send({ type: "setCommentMode", enabled: true });
