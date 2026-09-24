@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/api-contract-v0.44.0) (2026-09-24)
+
+
+### Features
+
+* **feedback:** mark comments as done ([28954ae](https://github.com/remidej/camox/commit/28954ae99ef6adfa07ba4f7dc7821d51349224d9))
+* **feedback:** persist object comments across environments ([816d09a](https://github.com/remidej/camox/commit/816d09acded7d1fab1efbf791e7f3c55b14393c0))
+* **icons:** add typed icon fields and searchable picker ([f7ad47f](https://github.com/remidej/camox/commit/f7ad47f19b92446cda38ebf1a1f6247f7e29b46b))
+
 ## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...@camox/api-contract-v0.43.0) (2026-09-21)
 
 

@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...camox-v0.44.0) (2026-09-24)
+
+
+### Features
+
+* add strikethrough marker instead of underline ([5cf5e11](https://github.com/remidej/camox/commit/5cf5e1139881482cab0a97d6efd5a1e915fd1ef5))
+* **auth:** isolate credentials and databases per checkout ([730095b](https://github.com/remidej/camox/commit/730095b94dd9634549e2a2576487373e4e7b0936))
+* **cli:** list and resolve page comments ([3142dd8](https://github.com/remidej/camox/commit/3142dd8ced6a9a4f08f921ee0583ba9c5c80c391))
+* **feedback:** mark comments as done ([28954ae](https://github.com/remidej/camox/commit/28954ae99ef6adfa07ba4f7dc7821d51349224d9))
+* **feedback:** persist object comments across environments ([816d09a](https://github.com/remidej/camox/commit/816d09acded7d1fab1efbf791e7f3c55b14393c0))
+* **icons:** add typed icon fields and searchable picker ([f7ad47f](https://github.com/remidej/camox/commit/f7ad47f19b92446cda38ebf1a1f6247f7e29b46b))
+* **preview:** add authenticated CLI-to-browser draft handoff ([cdad73b](https://github.com/remidej/camox/commit/cdad73b54783d318ba5603a049e10493388de94c)), closes [#114](https://github.com/remidej/camox/issues/114)
+* **preview:** send feedback to agent ui ([5de0f81](https://github.com/remidej/camox/commit/5de0f81a5ffc4f3af26483dcfec977a17ec22f0b))
+* **sdk:** add feedback shortcut and archive comment action ([99dbf08](https://github.com/remidej/camox/commit/99dbf088afc96948322159cbe4b81220c30b3f3c))
+* **sdk:** send page feedback to agent with actionable prompt ([dee4e1f](https://github.com/remidej/camox/commit/dee4e1f8116d60c01e47c37b68b6896cc0c40208))
+* **studio:** richer video support ([3f57f7d](https://github.com/remidej/camox/commit/3f57f7da9d4791fd4be2bb0607c23dbe3dd7d940))
+
+
+### Bug Fixes
+
+* **dev:** isolate servers across checkouts ([4e74e45](https://github.com/remidej/camox/commit/4e74e455d8bc5a46dd0a060afbdb86c9b154e00b))
+* **sdk:** navigate the icon picker as a grid ([f987b6d](https://github.com/remidej/camox/commit/f987b6d2c95c52792719e760dea6204ba0359f49))
+* **sdk:** pre-optimize dynamically loaded runtime dependencies ([4d31c60](https://github.com/remidej/camox/commit/4d31c608363505a495320d45301f1db58efe5053))
+* **sdk:** show feedback across previews and prompt signed-out users ([595a93a](https://github.com/remidej/camox/commit/595a93a9349e98f12f7c4d587869872ef72d6406))
+* **sdk:** show only the deepest overlay highlights ([035db7a](https://github.com/remidej/camox/commit/035db7acc698e177506edefa8770e1781c1219e9))
+* **sdk:** simplify page picker and command palette UI ([1cdb95c](https://github.com/remidej/camox/commit/1cdb95c8668f00444effa9233347d58214fb3723))
+* **sdk:** tighten page picker and preview path layout ([5d70774](https://github.com/remidej/camox/commit/5d707747bab950ad6a3ec42fc83571f564f2d599))
+
+
+### Performance Improvements
+
+* **dev:** speed up checkout preparation ([f1b1a8c](https://github.com/remidej/camox/commit/f1b1a8c11e735cc0e4ed7ccaa615db5a8b44dcc4))
+* **sdk:** virtualize the icon picker grid ([b3cd1bc](https://github.com/remidej/camox/commit/b3cd1bc2f9118cf85a4691ea2e1bea89b5432745))
+
+
+### Refactoring
+
+* **sdk:** rename comments flag to enableExperimentalFeatures ([fe53fff](https://github.com/remidej/camox/commit/fe53fff36f9586e1240d5623bb9373d1b50fe5a3))
+
+
+### Documentation
+
+* refine readme ([1a15692](https://github.com/remidej/camox/commit/1a1569266eac460149c4549d818fdbd641b66eaf))
+* **sdk:** keep camoxify styling on shadcn and Tailwind ([5dc8099](https://github.com/remidej/camox/commit/5dc8099d6ff6981333817e6eafd2b194f51678fe))
+* **sdk:** prefer settings for constrained camoxify choices ([40e7d83](https://github.com/remidej/camox/commit/40e7d83fdfa4652d7b7d73825754d19779380482))
+
+
+### Miscellaneous
+
+* add direct-to-main landing skill ([211f6aa](https://github.com/remidej/camox/commit/211f6aab9c64fb0395a7aa30cff586aef42a025e))
+* **agents:** streamline landing verification ([abcdaf9](https://github.com/remidej/camox/commit/abcdaf915c2b04491950c4649bd9751778982b75))
+* set up agents prepare file ([7c7684d](https://github.com/remidej/camox/commit/7c7684d536b9383964f23846a20de437ef9442d8))
+
 ## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...camox-v0.43.0) (2026-09-21)
 
 
