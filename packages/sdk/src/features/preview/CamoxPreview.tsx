@@ -15,6 +15,7 @@ import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedChromeContext } from "../runtime/SharedChromeContext";
 import { Navbar } from "../studio/components/Navbar";
+import { areCommentsEnabled } from "./commentsEnabled";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
@@ -24,7 +25,12 @@ import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbarSpacer } from "./components/PreviewToolbarSpacer";
 import { RightSidebar } from "./components/RightSidebar";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
-import { previewStore, selectIsEditMode, selectPreviewSource } from "./previewStore";
+import {
+  previewStore,
+  selectIsCommentMode,
+  selectIsEditMode,
+  selectPreviewSource,
+} from "./previewStore";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
 
@@ -328,6 +334,7 @@ export const PreviewShell = ({
   const isMobileStudio = useIsMobileStudio();
   const sharedChrome = React.useContext(SharedChromeContext);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
+  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const isAddBlockSidebarOpen = useSelector(
     previewStore,
@@ -367,6 +374,23 @@ export const PreviewShell = ({
         checkIfAvailable: () => isAuthenticated && !isEditMode && !isMobileStudio,
         execute: () => previewStore.send({ type: "enterEditMode" }),
         shortcut: EDIT_MODE_SHORTCUT,
+      },
+      {
+        id: "enter-comment-mode",
+        label: "Leave feedback",
+        aliases: ["Comment", "Comment mode", "Show feedback"],
+        groupLabel: "Preview",
+        checkIfAvailable: () =>
+          isAuthenticated &&
+          !isMobileStudio &&
+          pageData != null &&
+          areCommentsEnabled() &&
+          !isCommentMode,
+        execute: () => {
+          if (!isEditMode) previewStore.send({ type: "enterEditMode" });
+          previewStore.send({ type: "setCommentMode", enabled: true });
+        },
+        shortcut: { key: "c" },
       },
       {
         id: "preview-live-content",
@@ -411,7 +435,15 @@ export const PreviewShell = ({
         ids: actions.map((a) => a.id),
       });
     };
-  }, [isEditMode, isAuthenticated, isMobileStudio, previewSource, hasLiveCheckpoint]);
+  }, [
+    isEditMode,
+    isCommentMode,
+    isAuthenticated,
+    isMobileStudio,
+    pageData,
+    previewSource,
+    hasLiveCheckpoint,
+  ]);
 
   if (!isAuthenticated) {
     return <>{children}</>;

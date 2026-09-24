@@ -159,6 +159,8 @@ void test("Feedback reads persisted comments at every target level without a com
   assert.doesNotMatch(markup, /Comment text|Post comment/);
   assert.doesNotMatch(markup, /role="button"|hover:bg-card/);
   assert.equal((markup.match(/>View<\/button>/g) ?? []).length, targets.length);
+  assert.equal((markup.match(/>Archive<\/button>/g) ?? []).length, targets.length);
+  assert.doesNotMatch(markup, /See all|>Done<\/button>/);
   assert.doesNotMatch(render(<CommentSidebar pageId={4} />), /Feedback 0/);
 
   previewCommentsStore.send({ type: "startComment", pageId: 3, target: targets[4]! });
@@ -170,6 +172,9 @@ void test("Feedback reads persisted comments at every target level without a com
   assert.match(editor, /Draft feedback/);
   assert.match(editor, /Comment text/);
   assert.match(editor, /Post comment/);
+  assert.match(editor, />See all<\/button>/);
+  assert.match(editor, />Archive<\/button>/);
+  assert.doesNotMatch(editor, />View<\/button>/);
   client.setQueryData(["comments", 3], [comment("removed", 3, null)]);
   const unavailable = render(<CommentSidebar pageId={3} />);
   assert.match(unavailable, /Feedback removed/);
@@ -255,6 +260,26 @@ void test("only View opens feedback's editor without deleting cached comments", 
   } finally {
     await dom.close();
     previewCommentsStore.send({ type: "clearSelection" });
+    previewStore.send({ type: "exitEditMode" });
+  }
+});
+
+void test("See all returns from a specific comment to page feedback", async () => {
+  const dom = await setupDom();
+  const { AttachedComments } = await import("./AttachedComments");
+  const { previewStore } = await import("../previewStore");
+  dom.client.setQueryData(["comments", 3], [comment("one", 3, { kind: "page" })]);
+  try {
+    previewStore.send({ type: "enterEditMode" });
+    await dom.render(<AttachedComments pageId={3} />);
+    const seeAll = [...dom.host.querySelectorAll("button")].find(
+      (button) => button.textContent === "See all",
+    );
+    assert.ok(seeAll);
+    await React.act(async () => seeAll.click());
+    assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
+  } finally {
+    await dom.close();
     previewStore.send({ type: "exitEditMode" });
   }
 });
@@ -363,11 +388,11 @@ void test("resolved feedback stays hidden in sidebar and object views", async ()
     api.setResolved = async () => {
       throw new Error("offline");
     };
-    await click('[aria-label="Mark as done"]');
+    await click('[aria-label="Archive comment"]');
     assert.equal(saved[0]?.resolved, false);
     assert.match(dom.host.textContent, /Feedback one/);
     api.setResolved = succeed;
-    await click('[aria-label="Mark as done"]');
+    await click('[aria-label="Archive comment"]');
     assert.equal(saved[0]?.resolved, true);
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, null);
     assert.doesNotMatch(dom.host.textContent, /Show resolved|Feedback one/);

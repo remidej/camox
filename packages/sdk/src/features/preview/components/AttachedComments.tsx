@@ -10,7 +10,7 @@ import {
 import { toast } from "@camox/ui/toaster";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { ArrowUp, Check, Eye, X } from "lucide-react";
+import { Archive, ArrowUp, CornerLeftUp, Eye, X } from "lucide-react";
 import * as React from "react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
@@ -264,11 +264,22 @@ function EnabledAttachedComments({
                   View
                 </Button>
               )}
+              {!allPageComments && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => previewStore.send({ type: "setCommentMode", enabled: true })}
+                >
+                  <CornerLeftUp className="text-muted-foreground" />
+                  See all
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                aria-label="Mark as done"
+                aria-label="Archive comment"
                 disabled={setResolved.isPending}
                 onClick={() => {
                   setResolved.mutate({
@@ -278,8 +289,8 @@ function EnabledAttachedComments({
                   });
                 }}
               >
-                <Check className="text-muted-foreground" />
-                Done
+                <Archive className="text-muted-foreground" />
+                Archive
               </Button>
             </ButtonGroup>
           </div>
