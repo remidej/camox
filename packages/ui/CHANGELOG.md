@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/ui-v0.44.0) (2026-09-24)
+
+
+### Performance Improvements
+
+* **sdk:** virtualize the icon picker grid ([b3cd1bc](https://github.com/remidej/camox/commit/b3cd1bc2f9118cf85a4691ea2e1bea89b5432745))
+
 ## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...@camox/ui-v0.43.0) (2026-09-21)
 
 

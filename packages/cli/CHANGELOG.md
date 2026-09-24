@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/cli-v0.44.0) (2026-09-24)
+
+
+### Features
+
+* **auth:** isolate credentials and databases per checkout ([730095b](https://github.com/remidej/camox/commit/730095b94dd9634549e2a2576487373e4e7b0936))
+* **cli:** list and resolve page comments ([3142dd8](https://github.com/remidej/camox/commit/3142dd8ced6a9a4f08f921ee0583ba9c5c80c391))
+* **icons:** add typed icon fields and searchable picker ([f7ad47f](https://github.com/remidej/camox/commit/f7ad47f19b92446cda38ebf1a1f6247f7e29b46b))
+* **preview:** add authenticated CLI-to-browser draft handoff ([cdad73b](https://github.com/remidej/camox/commit/cdad73b54783d318ba5603a049e10493388de94c)), closes [#114](https://github.com/remidej/camox/issues/114)
+
 ## [0.43.0](https://github.com/remidej/camox/compare/camox-v0.42.0...@camox/cli-v0.43.0) (2026-09-21)
 
 
