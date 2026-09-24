@@ -78,7 +78,7 @@ const config = defineConfig({
         authenticationUrl: "http://localhost:3274",
         apiUrl: "http://localhost:8787",
         runtimeBasePath: "/",
-        enableComments: true,
+        enableExperimentalFeatures: true,
       },
     }),
     react(),

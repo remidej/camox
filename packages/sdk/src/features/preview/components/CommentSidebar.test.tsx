@@ -134,7 +134,7 @@ void test("clicking or keyboard-activating a comment opens its editor without de
     Element: window.Element,
     Node: window.Node,
     IS_REACT_ACT_ENVIRONMENT: true,
-    __CAMOX_ENABLE_COMMENTS__: true,
+    __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true,
   });
   const { createRoot } = await import("react-dom/client");
   const { CommentSidebar } = await import("./CommentSidebar");
