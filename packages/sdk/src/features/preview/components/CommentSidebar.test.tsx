@@ -214,6 +214,19 @@ async function setupDom() {
   };
 }
 
+void test("feedback prompt scopes the request to one page and includes optional context", async () => {
+  const { feedbackPrompt } = await import("./SendFeedbackDialog");
+  const request = feedbackPrompt(88, "   ");
+  assert.match(request, /page ID 88/);
+  assert.match(request, /Load the camox skill/);
+  assert.match(request, /resolve each addressed comment/);
+  assert.doesNotMatch(request, /Additional context|Lorem ipsum/);
+  assert.equal(
+    feedbackPrompt(88, "  Prioritize the hero  "),
+    `${request}\n\nAdditional context:\nPrioritize the hero`,
+  );
+});
+
 void test("only View opens feedback's editor without deleting cached comments", async () => {
   const dom = await setupDom();
   const { CommentSidebar } = await import("./CommentSidebar");

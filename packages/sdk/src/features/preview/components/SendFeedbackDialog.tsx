@@ -14,10 +14,13 @@ import { toast } from "@camox/ui/toaster";
 import { Copy, Info } from "lucide-react";
 import * as React from "react";
 
-const placeholderPrompt =
-  "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+export function feedbackPrompt(pageId: number, context: string) {
+  const request = `Address unresolved Camox feedback for page ID ${pageId}. Load the camox skill and follow its feedback workflow: read the page's comments with the CLI, make the requested changes, and resolve each addressed comment.`;
+  const additionalContext = context.trim();
+  return additionalContext ? `${request}\n\nAdditional context:\n${additionalContext}` : request;
+}
 
-export function SendFeedbackDialog({ disabled }: { disabled: boolean }) {
+export function SendFeedbackDialog({ pageId, disabled }: { pageId: number; disabled: boolean }) {
   const contextId = React.useId();
   const [open, setOpen] = React.useState(false);
   const [context, setContext] = React.useState("");
@@ -25,14 +28,10 @@ export function SendFeedbackDialog({ disabled }: { disabled: boolean }) {
 
   const copyPrompt = async () => {
     if (copying) return;
-    const additionalContext = context.trim();
-    const prompt = additionalContext
-      ? `${placeholderPrompt}\n\nAdditional context:\n${additionalContext}`
-      : placeholderPrompt;
 
     setCopying(true);
     try {
-      await navigator.clipboard.writeText(prompt);
+      await navigator.clipboard.writeText(feedbackPrompt(pageId, context));
       toast.success("Prompt copied. Paste it into your coding agent.");
       setOpen(false);
     } catch {

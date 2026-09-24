@@ -284,7 +284,9 @@ function EnabledAttachedComments({
             </ButtonGroup>
           </div>
         ))}
-        {allPageComments && <SendFeedbackDialog key={pageId} disabled={visible.length === 0} />}
+        {allPageComments && (
+          <SendFeedbackDialog key={pageId} pageId={pageId} disabled={visible.length === 0} />
+        )}
         {!allPageComments && (
           <InputGroup>
             <InputGroupTextarea
