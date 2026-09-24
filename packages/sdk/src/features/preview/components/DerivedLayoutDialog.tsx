@@ -7,7 +7,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@camox/ui/dialog";
-import { Input } from "@camox/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from "@camox/ui/input-group";
 import { Label } from "@camox/ui/label";
 import * as React from "react";
 
@@ -58,13 +63,12 @@ export function DerivedLayoutDialog({
     const value = values[param]?.trim();
     return value && !value.includes("/") && value !== "." && value !== "..";
   });
-  const path = `/${segments
-    .map((segment) => {
-      if (!segment.startsWith("$")) return encodeURIComponent(segment);
-      const value = values[segment.slice(1)]?.trim();
-      return value ? encodeURIComponent(value) : segment;
-    })
-    .join("/")}`;
+  const resolvedSegments = segments.map((segment) => {
+    if (!segment.startsWith("$")) return encodeURIComponent(segment);
+    const value = values[segment.slice(1)]?.trim();
+    return value ? encodeURIComponent(value) : segment;
+  });
+  const path = `/${resolvedSegments.join("/")}`;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -97,20 +101,37 @@ export function DerivedLayoutDialog({
               Enter the path parameters for the page you want to preview.
             </DialogDescription>
           </DialogHeader>
-          {params.map((param) => (
-            <div key={param} className="space-y-2">
-              <Label htmlFor={`${id}-${param}`}>{param}</Label>
-              <Input
-                id={`${id}-${param}`}
-                required
-                value={values[param] ?? ""}
-                onChange={(event) =>
-                  setValues((previous) => ({ ...previous, [param]: event.target.value }))
-                }
-              />
-            </div>
-          ))}
-          <p className="text-muted-foreground font-mono text-sm break-all">{path}</p>
+          {params.map((param) => {
+            const index = segments.indexOf(`$${param}`);
+            const prefix = resolvedSegments.slice(0, index).join("/");
+            const suffix = segments.slice(index + 1).every((segment) => !segment.startsWith("$"))
+              ? resolvedSegments.slice(index + 1).join("/")
+              : "";
+
+            return (
+              <div key={param} className="space-y-2">
+                <Label htmlFor={`${id}-${param}`}>{param}</Label>
+                <InputGroup>
+                  <InputGroupAddon>
+                    <InputGroupText className="font-mono">/{prefix && `${prefix}/`}</InputGroupText>
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    id={`${id}-${param}`}
+                    required
+                    value={values[param] ?? ""}
+                    onChange={(event) =>
+                      setValues((previous) => ({ ...previous, [param]: event.target.value }))
+                    }
+                  />
+                  {suffix && (
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupText className="font-mono">/{suffix}</InputGroupText>
+                    </InputGroupAddon>
+                  )}
+                </InputGroup>
+              </div>
+            );
+          })}
           {error && (
             <p role="alert" className="text-destructive text-sm">
               {error}
