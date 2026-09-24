@@ -14,8 +14,8 @@ export default defineConfig({
       projectSlug: "camox-template-default-01", // camox-cli:replace-slug
       // camox-cli:dev-only-start
       _internal: {
-        authenticationUrl: "http://localhost:3274",
-        apiUrl: "http://localhost:8787",
+        authenticationUrl: process.env.VITE_DASHBOARD_URL ?? "http://localhost:3274",
+        apiUrl: process.env.VITE_API_URL ?? "http://localhost:8787",
       },
       // camox-cli:dev-only-end
     }),

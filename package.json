@@ -7,9 +7,10 @@
   "type": "module",
   "scripts": {
     "build": "nx run-many -t build --all",
-    "dev": "nx run-many -t dev -p @camox/api dashboard playground camox --parallel=4",
-    "dev:all": "nx run-many -t dev --all --parallel=7",
-    "dev:servers": "nx run-many -t dev -p @camox/api dashboard --parallel=2",
+    "dev": "node scripts/dev.mjs -p @camox/api dashboard playground camox --parallel=4",
+    "dev:all": "node scripts/dev.mjs --all --parallel=7",
+    "dev:servers": "node scripts/dev.mjs -p @camox/api dashboard --parallel=2",
+    "test:dev": "node --test scripts/dev.test.mjs",
     "db:studio": "nx run @camox/api:db:studio",
     "lint": "nx run-many -t lint --all",
     "test": "nx run-many -t test --all",

@@ -6,6 +6,12 @@ import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 
 const config = defineConfig({
+  server: {
+    port: Number(process.env.CAMOX_DEV_DASHBOARD_PORT ?? 3274),
+    // The launcher shares this URL with the API and playground. Only it may
+    // reallocate the port; Vite must not silently move to a different one.
+    strictPort: Boolean(process.env.CAMOX_DEV_DASHBOARD_PORT),
+  },
   lint: {
     plugins: ["react"],
     rules: {

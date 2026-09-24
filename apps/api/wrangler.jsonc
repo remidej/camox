@@ -51,10 +51,6 @@
       "new_sqlite_classes": ["ProjectRoom"],
     },
   ],
-  "dev": {
-    "host": "localhost:8787",
-    "inspector_port": 9298,
-  },
   "observability": {
     "logs": {
       "enabled": true,

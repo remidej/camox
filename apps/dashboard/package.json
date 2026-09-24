@@ -4,7 +4,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vp dev --port 3274",
+    "dev": "vp dev",
     "build": "vp build",
     "preview": "wrangler dev",
     "deploy": "pnpm build && wrangler deploy",

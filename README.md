@@ -38,6 +38,25 @@ npm create camox@latest
 - **Website features:** SEO metadata generation, image optimization, and customizable Open Graph images.
 - **Markdown for agents:** define how each block’s content is represented in Markdown.
 
+## Developing this repository
+
+Run `.agents/prepare` to install dependencies, build packages, and initialize the
+checkout-local database. Then run `pnpm dev` (`pnpm dev:servers` for only the API
+and dashboard, or `pnpm dev:all` for all apps).
+
+Each launch picks available API and dashboard ports, starting at 8787 and 3274,
+and prints their URLs. Those URLs are passed to the apps together, so the
+playground, template, and dashboard use this checkout's API and authentication
+server. Other frontends and Worker inspectors select their own available ports.
+Port choices are not saved, and shared environment files are not rewritten.
+If a coordinated port is taken during startup, the launcher restarts the group
+with fresh ports. Ctrl-C stops the group.
+
+The setup script's checkout-local dev credentials also work when the dashboard
+port changes. Production configuration is unchanged. For browser login testing,
+remember that localhost cookies are shared across ports, and OAuth providers may
+require registering the chosen API callback URL.
+
 ## License
 
 The Camox framework is MIT-licensed: `camox`, `@camox/cli`, `create-camox`,

@@ -35,7 +35,9 @@ const navbar = createBlock({
 });
 
 function NavbarContent() {
-  const dashboardUrl = import.meta.env.DEV ? "http://localhost:3274" : "https://app.camox.dev";
+  const dashboardUrl = import.meta.env.DEV
+    ? (import.meta.env.VITE_DASHBOARD_URL ?? "http://localhost:3274")
+    : "https://app.camox.dev";
 
   return (
     <div className="container">

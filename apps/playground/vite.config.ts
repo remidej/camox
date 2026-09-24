@@ -75,8 +75,8 @@ const config = defineConfig({
       projectSlug: "camox-playground-01",
       icons: "lucide",
       _internal: {
-        authenticationUrl: "http://localhost:3274",
-        apiUrl: "http://localhost:8787",
+        authenticationUrl: process.env.VITE_DASHBOARD_URL ?? "http://localhost:3274",
+        apiUrl: process.env.VITE_API_URL ?? "http://localhost:8787",
         runtimeBasePath: "/",
         enableExperimentalFeatures: true,
       },
