@@ -8,7 +8,6 @@ import {
   CommandList,
   CommandShortcut,
 } from "@camox/ui/command";
-import { Kbd } from "@camox/ui/kbd";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
@@ -127,18 +126,6 @@ export function CommandPalette() {
               }
             }}
           />
-        </div>
-        <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-5 pb-3 text-xs">
-          <span className="flex items-center gap-1.5">
-            <Kbd>↑</Kbd>
-            <Kbd>↓</Kbd> to navigate
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Kbd>↵</Kbd> to select
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Kbd>Esc</Kbd> {page ? "to go back" : "to close"}
-          </span>
         </div>
         <CommandList className="max-h-[min(24rem,45dvh)] min-h-0 scroll-py-1 px-2 pt-1 pb-2">
           <CommandEmpty className="text-muted-foreground py-8">No results found.</CommandEmpty>

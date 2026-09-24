@@ -142,7 +142,7 @@ const PagePicker = () => {
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </PopoverTrigger>
         <PopoverContent
-          className="flex h-[300px] w-[400px] flex-col p-0"
+          className="flex h-[400px] w-[400px] flex-col p-0"
           align="start"
           side="bottom"
         >
@@ -150,7 +150,7 @@ const PagePicker = () => {
             <CommandInput placeholder="Search page..." className="h-9" />
             <CommandList className="flex-1 overflow-y-auto">
               <CommandEmpty>No page found.</CommandEmpty>
-              <CommandGroup>
+              <CommandGroup heading="Curated pages">
                 {pages.map((page) => (
                   <CommandItem
                     key={page.id}
