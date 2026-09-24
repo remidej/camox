@@ -90,7 +90,7 @@ export interface CamoxPluginOptions {
     authenticationUrl?: string;
     /** Show Tanstack query devtools (default: false) */
     enableTanstackDevtools?: boolean;
-    /** Enable experimental features, including the comments prototype (default: false). */
+    /** Enable experimental features, including feedback (default: false). */
     enableExperimentalFeatures?: boolean;
     /** Disable automatic code generation (route files and app file) (default: false) */
     disableCodeGen?: boolean;

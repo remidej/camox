@@ -1,3 +1,4 @@
+import { COMMENT_MESSAGE_MAX_LENGTH } from "@camox/api-contract";
 import { Button } from "@camox/ui/button";
 import {
   InputGroup,
@@ -5,18 +6,25 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@camox/ui/input-group";
+import { toast } from "@camox/ui/toaster";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { ArrowUp, X } from "lucide-react";
 import * as React from "react";
 
-import { useAuthContext } from "@/lib/auth";
+import type { FieldType } from "@/core/lib/fieldTypes";
+import { blockQueries, commentMutations, commentQueries } from "@/lib/queries";
 
+import { useCamoxApp } from "../../provider/components/CamoxAppContext";
+import { areCommentsEnabled } from "../commentsEnabled";
 import {
   type CommentTarget,
+  getCommentTargetFieldType,
   previewCommentsStore,
   revealCommentTarget,
 } from "../previewCommentsStore";
 import { previewStore } from "../previewStore";
+import { usePageComments } from "../usePageComments";
 import { CommentHeader } from "./CommentHeader";
 import { CommentTargetQuote } from "./CommentTargetQuote";
 import { SendFeedbackDialog } from "./SendFeedbackDialog";
@@ -27,41 +35,104 @@ function resizeComposer(element: HTMLTextAreaElement) {
   element.style.height = `${element.scrollHeight}px`;
 }
 
-/** Shared comment list and composer for editors and the Feedback sidebar. */
-export function AttachedComments({
-  pageId,
-  blockId,
-  itemId,
-  fieldName,
-  fieldType,
-  allPageComments = false,
-}: {
+type AttachedCommentsProps = {
   pageId?: number;
   blockId?: number;
   itemId?: number;
   fieldName?: string;
-  fieldType?: CommentTarget["fieldType"];
+  fieldType?: FieldType;
   allPageComments?: boolean;
-}) {
-  const { authClient } = useAuthContext();
-  const { data: session } = authClient.useSession();
-  const { comments, draft, activeId, focusTarget } = useSelector(
+};
+
+function editorTarget({ blockId, itemId, fieldName }: AttachedCommentsProps): CommentTarget {
+  if (blockId == null) return { kind: "page" };
+  if (itemId != null) {
+    if (fieldName != null) return { kind: "item-field", blockId, itemId, fieldName };
+    return { kind: "item", blockId, itemId };
+  }
+  if (fieldName != null) return { kind: "block-field", blockId, fieldName };
+  return { kind: "block", blockId };
+}
+
+/** Gate before mounting queries, mutations, or composers. */
+export function AttachedComments(props: AttachedCommentsProps) {
+  if (!areCommentsEnabled() || props.pageId == null) return null;
+  return <EnabledAttachedComments {...props} pageId={props.pageId} />;
+}
+
+/** Shared comment list and composer for editors and the Feedback sidebar. */
+function EnabledAttachedComments({
+  pageId,
+  blockId,
+  itemId,
+  fieldName,
+  allPageComments = false,
+}: AttachedCommentsProps & { pageId: number }) {
+  const camoxApp = useCamoxApp();
+  const queryClient = useQueryClient();
+  const commentsQuery = usePageComments(pageId);
+  const { draft, activeId, focusTarget } = useSelector(
     previewCommentsStore,
     (state) => state.context,
   );
-  const matches = (entry: { pageId: number; target: CommentTarget }) =>
+  const target = editorTarget({ blockId, itemId, fieldName });
+  const matches = (entry: { pageId: number; target: CommentTarget | null }) =>
     entry.pageId === pageId &&
     (allPageComments ||
-      (entry.target.blockId === blockId &&
-        entry.target.itemId === itemId &&
-        entry.target.fieldName === fieldName));
-  const attached = comments.filter(matches);
+      (entry.target != null &&
+        entry.target.kind === target.kind &&
+        (!("blockId" in entry.target) || entry.target.blockId === blockId) &&
+        (!("itemId" in entry.target) || entry.target.itemId === itemId) &&
+        (!("fieldName" in entry.target) || entry.target.fieldName === fieldName)));
+  const attached = (commentsQuery.data ?? []).filter(matches);
   const currentDraft = draft && matches(draft) ? draft : null;
   const selected = attached.find((comment) => comment.id === activeId);
   const textarea = React.useRef<HTMLTextAreaElement>(null);
   const activeComment = React.useRef<HTMLDivElement>(null);
   const draftTarget = currentDraft?.target;
   const message = currentDraft?.message ?? "";
+  const submitting = React.useRef(false);
+  const createComment = useMutation({
+    ...commentMutations.create(),
+    onSuccess: (comment, submitted) => {
+      const queryKey = commentQueries.list(submitted.pageId).queryKey;
+      queryClient.setQueryData<typeof commentsQuery.data>(queryKey, (comments) => {
+        if (!comments) return undefined;
+        return [...comments.filter((entry) => entry.id !== comment.id), comment].sort(
+          (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+        );
+      });
+      void queryClient.invalidateQueries({ queryKey });
+      previewCommentsStore.send({ type: "postSucceeded", draft: submitted });
+    },
+    onSettled: () => {
+      submitting.current = false;
+    },
+  });
+
+  const selectComment = async (id: string, target: CommentTarget) => {
+    previewCommentsStore.send({ type: "selectComment", id });
+    if (target.kind === "page") {
+      revealCommentTarget(target);
+      return;
+    }
+    try {
+      const bundle = await queryClient.fetchQuery(blockQueries.get(target.blockId));
+      if (previewCommentsStore.getSnapshot().context.activeId !== id) return;
+      if ("itemId" in target && !bundle.repeatableItems.some((item) => item.id === target.itemId)) {
+        toast.error("This feedback target is no longer available.");
+        return;
+      }
+      const fieldType = getCommentTargetFieldType(target, bundle, camoxApp);
+      if ("fieldName" in target && !fieldType) {
+        toast.error("This feedback field is no longer available.");
+        return;
+      }
+      revealCommentTarget(target, fieldType);
+    } catch {
+      toast.error("This feedback target is no longer available.");
+    }
+  };
 
   React.useLayoutEffect(() => {
     if (textarea.current) resizeComposer(textarea.current);
@@ -81,14 +152,9 @@ export function AttachedComments({
   }, [pageId]);
 
   const submit = () => {
-    if (!message.trim()) return;
-    previewCommentsStore.send({
-      type: "postComment",
-      id: crypto.randomUUID(),
-      author: { name: session?.user.name || "You", image: session?.user.image ?? null },
-      createdAt: Date.now(),
-    });
-    textarea.current?.focus({ preventScroll: true });
+    if (!areCommentsEnabled() || !currentDraft || !message.trim() || submitting.current) return;
+    submitting.current = true;
+    createComment.mutate(currentDraft);
   };
 
   React.useEffect(() => {
@@ -102,8 +168,6 @@ export function AttachedComments({
     if (!selected) return;
     activeComment.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
-
-  if (pageId == null) return null;
 
   return (
     <SidebarSection
@@ -137,7 +201,18 @@ export function AttachedComments({
         <SidebarSectionHeader>Feedback</SidebarSectionHeader>
       )}
       <SidebarSectionContent>
-        {allPageComments && attached.length === 0 && (
+        {commentsQuery.isPending && (
+          <p className="text-muted-foreground text-sm">Loading feedback…</p>
+        )}
+        {commentsQuery.isError && (
+          <div role="alert" className="text-sm">
+            Could not load feedback.{" "}
+            <Button type="button" variant="link" onClick={() => void commentsQuery.refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {allPageComments && commentsQuery.isSuccess && attached.length === 0 && (
           <p className="text-muted-foreground text-sm">
             No feedback yet. Select something on the page to comment on it.
           </p>
@@ -146,25 +221,30 @@ export function AttachedComments({
           <div
             key={comment.id}
             ref={comment.id === activeId ? activeComment : undefined}
-            {...(allPageComments && {
-              role: "button",
-              tabIndex: 0,
-              className:
-                "hover:bg-card focus-visible:ring-ring rounded-md p-1 outline-none focus-visible:ring-2",
-              onClick: () => {
-                previewCommentsStore.send({ type: "selectComment", id: comment.id });
-                revealCommentTarget(comment.target);
-              },
-              onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                event.currentTarget.click();
-              },
-            })}
+            {...(allPageComments &&
+              comment.target != null && {
+                role: "button",
+                tabIndex: 0,
+                className:
+                  "hover:bg-card focus-visible:ring-ring rounded-md p-1 outline-none focus-visible:ring-2",
+                onClick: () => {
+                  if (comment.target) void selectComment(comment.id, comment.target);
+                },
+                onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.currentTarget.click();
+                },
+              })}
           >
             <CommentHeader author={comment.author} createdAt={comment.createdAt} />
             <div className="pl-8">
-              {allPageComments && <CommentTargetQuote pageId={pageId} target={comment.target} />}
+              {allPageComments &&
+                (comment.target ? (
+                  <CommentTargetQuote pageId={pageId} target={comment.target} />
+                ) : (
+                  <p className="text-muted-foreground text-sm">Target no longer available</p>
+                ))}
               <p className="text-sm wrap-break-word whitespace-pre-wrap">{comment.message}</p>
             </div>
           </div>
@@ -179,6 +259,7 @@ export function AttachedComments({
               className="block field-sizing-fixed min-h-0 flex-none overflow-hidden leading-6"
               rows={1}
               value={message}
+              maxLength={COMMENT_MESSAGE_MAX_LENGTH}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
                   return;
@@ -188,36 +269,10 @@ export function AttachedComments({
               }}
               onChange={(event) => {
                 if (!currentDraft) {
-                  const fieldId = [blockId, itemId, fieldName]
-                    .filter((part) => part != null)
-                    .join("__");
                   previewCommentsStore.send({
                     type: "startComment",
                     pageId,
-                    target: {
-                      blockId,
-                      itemId,
-                      fieldName,
-                      fieldType,
-                      selector:
-                        blockId == null
-                          ? "body"
-                          : fieldName != null
-                            ? `[data-camox-field-id="${CSS.escape(fieldId)}"]`
-                            : itemId != null
-                              ? `[data-camox-repeater-item-id="${itemId}"]`
-                              : `[data-camox-block-id="${blockId}"]`,
-                      label:
-                        blockId == null
-                          ? `Page · ${pageId}`
-                          : fieldName != null
-                            ? `Field · ${fieldName}`
-                            : itemId != null
-                              ? `Item · ${itemId}`
-                              : `Block · ${blockId}`,
-                      x: 0.5,
-                      y: 0.5,
-                    },
+                    target,
                   });
                 }
                 previewCommentsStore.send({ type: "setMessage", message: event.target.value });
@@ -230,13 +285,18 @@ export function AttachedComments({
                 variant="default"
                 className="rounded-full"
                 aria-label="Post comment"
-                disabled={!message.trim()}
+                disabled={!message.trim() || createComment.isPending}
                 onClick={submit}
               >
                 <ArrowUp size={16} />
               </InputGroupButton>
             </InputGroupAddon>
           </InputGroup>
+        )}
+        {createComment.isError && currentDraft?.id === createComment.variables?.id && (
+          <p role="alert" className="text-destructive text-sm">
+            Could not post feedback. Your draft is saved here; try posting again.
+          </p>
         )}
       </SidebarSectionContent>
     </SidebarSection>

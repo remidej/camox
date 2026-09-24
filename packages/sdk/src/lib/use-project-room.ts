@@ -1,8 +1,9 @@
-import type { InvalidationMessage, QueryKey } from "@camox/api-contract/query-keys";
+import { queryKeys, type InvalidationMessage, type QueryKey } from "@camox/api-contract/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePartySocket } from "partysocket/react";
 import { useRef } from "react";
 
+import { areCommentsEnabled } from "../features/preview/commentsEnabled";
 import { getAuthCookieHeader } from "./auth";
 
 const DEBOUNCE_MS = 300;
@@ -22,6 +23,9 @@ export function useProjectRoom(apiUrl: string, projectId: number | undefined) {
     query: () => ({ _authCookie: getAuthCookieHeader() }),
     enabled: !!projectId,
     onOpen() {
+      if (areCommentsEnabled()) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.comments.all });
+      }
       if (process.env.NODE_ENV !== "production") {
         console.debug("[useProjectRoom] WebSocket connected");
       }

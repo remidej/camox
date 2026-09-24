@@ -12,6 +12,7 @@ import { stableStringify } from "../../lib/stable-stringify";
 import {
   blockDefinitions,
   blocks,
+  comments,
   files,
   layoutCheckpoints,
   layouts,
@@ -315,6 +316,10 @@ export async function replicateEnvironment(
     .where(eq(blockDefinitions.environmentId, source.id));
   const sourceFiles = await ctx.db.select().from(files).where(eq(files.environmentId, source.id));
   const sourcePages = await ctx.db.select().from(pages).where(eq(pages.environmentId, source.id));
+  const sourceComments = await ctx.db
+    .select()
+    .from(comments)
+    .where(eq(comments.environmentId, source.id));
 
   const sourcePageIds = sourcePages.map((p) => p.id);
   const sourceLayoutPkIds = sourceLayouts.map((l) => l.id);
@@ -373,6 +378,7 @@ export async function replicateEnvironment(
     pages: sourcePages,
     blocks: sourceBlocks,
     repeatableItems: sourceItems,
+    comments: sourceComments,
     pageCheckpoints: sourcePageCheckpoints,
     layoutCheckpoints: sourceLayoutCheckpoints,
   };
@@ -392,6 +398,7 @@ export async function replicateEnvironment(
     .where(eq(layouts.environmentId, target.id));
   const targetPageIds = targetPages.map((p) => p.id);
   const targetLayoutIds = targetLayouts.map((l) => l.id);
+  await ctx.db.delete(comments).where(eq(comments.environmentId, target.id));
   if (targetPageIds.length > 0) {
     await ctx.db.delete(pageCheckpoints).where(inArray(pageCheckpoints.pageId, targetPageIds));
   }
@@ -521,6 +528,38 @@ export async function replicateEnvironment(
       .returning()
       .get();
     itemsMap.set(id, inserted.id);
+  }
+
+  // Comments are new identities in the destination, but retain their provenance.
+  for (const row of sourceComments) {
+    const pageId = pagesMap.get(row.pageId);
+    const blockId = row.blockId === null ? null : blocksMap.get(row.blockId);
+    const itemId = row.itemId === null ? null : itemsMap.get(row.itemId);
+    if (pageId === undefined) {
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: "Comment target could not be remapped",
+      });
+    }
+    const available =
+      row.target &&
+      (!("blockId" in row.target) || blockId != null) &&
+      (!("itemId" in row.target) || itemId != null);
+    const remappedTarget = available
+      ? {
+          ...row.target!,
+          ...("blockId" in row.target! ? { blockId: blockId! } : {}),
+          ...("itemId" in row.target! ? { itemId: itemId! } : {}),
+        }
+      : null;
+    await ctx.db.insert(comments).values({
+      ...row,
+      id: crypto.randomUUID(),
+      environmentId: target.id,
+      pageId,
+      blockId: blockId ?? null,
+      itemId: itemId ?? null,
+      target: remappedTarget,
+    });
   }
 
   // Shared published values can outlive their original placement. Remap them
@@ -690,6 +729,7 @@ export async function replicateEnvironment(
       queryKeys.layouts.all,
       queryKeys.blocks.getUsageCounts,
       queryKeys.environments.checkCompatibility,
+      queryKeys.comments.all,
     ],
   });
 
@@ -703,6 +743,7 @@ export async function replicateEnvironment(
       pages: sourcePages.length,
       blocks: sourceBlocks.length,
       repeatableItems: sourceItems.length,
+      comments: sourceComments.length,
       pageCheckpoints: sourcePageCheckpoints.length,
       layoutCheckpoints: sourceLayoutCheckpoints.length,
     },

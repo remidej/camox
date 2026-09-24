@@ -11,9 +11,9 @@ import { MessageCircle, Monitor, Smartphone, Tablet, X } from "lucide-react";
 import { formatShortcut } from "@/lib/utils";
 
 import { areCommentsEnabled } from "../commentsEnabled";
-import { previewCommentsStore } from "../previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsCommentMode, selectIsEditMode } from "../previewStore";
+import { usePageComments } from "../usePageComments";
 
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
@@ -34,10 +34,8 @@ export const PreviewToolbar = ({
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
-  const commentCount = useSelector(
-    previewCommentsStore,
-    (state) => state.context.comments.filter((comment) => comment.pageId === pageId).length,
-  );
+  const { data: comments } = usePageComments(pageStatus ? pageId : undefined);
+  const commentCount = comments?.length ?? 0;
 
   if (isToolbarHidden || peekedBlock) return null;
 

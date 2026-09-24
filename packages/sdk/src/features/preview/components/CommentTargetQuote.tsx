@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import { isLexicalState, lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import { blockQueries, pageQueries } from "@/lib/queries";
 
-import type { CommentTarget } from "../previewCommentsStore";
+import { useCamoxApp } from "../../provider/components/CamoxAppContext";
+import { getCommentTargetFieldType, type CommentTarget } from "../previewCommentsStore";
 
 function Quote({ children }: { children: ReactNode }) {
   return (
@@ -19,19 +20,21 @@ function PageQuote({ pageId }: { pageId: number }) {
   return <Quote>{page?.nickname || (isPending ? "Loading…" : "Page unavailable")}</Quote>;
 }
 
-function BlockQuote({ target }: { target: CommentTarget & { blockId: number } }) {
+function BlockQuote({ target }: { target: Exclude<CommentTarget, { kind: "page" }> }) {
+  const app = useCamoxApp();
   const { data: bundle, isPending } = useQuery(blockQueries.get(target.blockId));
   if (!bundle) return <Quote>{isPending ? "Loading…" : "Content unavailable"}</Quote>;
 
   const subject =
-    target.itemId == null
-      ? bundle.block
-      : bundle.repeatableItems.find((item) => item.id === target.itemId);
+    "itemId" in target
+      ? bundle.repeatableItems.find((item) => item.id === target.itemId)
+      : bundle.block;
   if (!subject) return <Quote>Content unavailable</Quote>;
 
-  if (target.fieldName != null) {
+  if ("fieldName" in target) {
+    const fieldType = getCommentTargetFieldType(target, bundle, app);
     const value = (subject.content as Record<string, unknown>)[target.fieldName];
-    if (target.fieldType === "String" || target.fieldType == null) {
+    if (fieldType === "String") {
       if (typeof value === "string" || isLexicalState(value)) {
         return (
           <Quote>
@@ -39,10 +42,10 @@ function BlockQuote({ target }: { target: CommentTarget & { blockId: number } })
           </Quote>
         );
       }
-      if (value == null && target.fieldType === "String") return <Quote>Empty text</Quote>;
+      if (value == null) return <Quote>Empty text</Quote>;
     }
     if (
-      target.fieldType === "Link" &&
+      fieldType === "Link" &&
       value &&
       typeof value === "object" &&
       "text" in value &&
@@ -53,11 +56,11 @@ function BlockQuote({ target }: { target: CommentTarget & { blockId: number } })
   }
 
   return (
-    <Quote>{subject.summary || (target.itemId == null ? "Untitled block" : "Untitled item")}</Quote>
+    <Quote>{subject.summary || ("itemId" in target ? "Untitled item" : "Untitled block")}</Quote>
   );
 }
 
 export function CommentTargetQuote({ pageId, target }: { pageId: number; target: CommentTarget }) {
-  if (target.blockId == null) return <PageQuote pageId={pageId} />;
-  return <BlockQuote target={{ ...target, blockId: target.blockId }} />;
+  if (target.kind === "page") return <PageQuote pageId={pageId} />;
+  return <BlockQuote target={target} />;
 }

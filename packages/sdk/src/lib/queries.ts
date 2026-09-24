@@ -27,6 +27,17 @@ export type CompatibilityReason = CheckCompatibilityResponse["reasons"][number];
 
 // --- Query factories ---
 
+export const commentQueries = {
+  list: (pageId: number) => ({
+    ...getOrpc().comments.list.queryOptions({ input: { pageId }, staleTime: 30_000 }),
+    queryKey: [...queryKeys.comments.list(pageId), getEnvironmentName() ?? "production"],
+  }),
+};
+
+export const commentMutations = {
+  create: () => getOrpc().comments.create.mutationOptions(),
+};
+
 export const pageQueries = {
   list: (projectId: number) => ({
     ...getOrpc().pages.list.queryOptions({ input: { projectId }, staleTime: Infinity }),

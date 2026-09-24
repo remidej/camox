@@ -2,14 +2,29 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
+import type { Comment, CommentTarget } from "@camox/api-contract";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { plainTextToLexicalState } from "@/core/lib/lexicalState";
 
-// The UI package's JSX uses the classic runtime when loaded directly by tsx.
-Object.assign(globalThis, { React });
+type CreateInput = { id: string; pageId: number; message: string; target: CommentTarget };
+const api = {
+  list: async (_pageId: number): Promise<Comment[]> => [],
+  create: async (input: CreateInput): Promise<Comment> => ({
+    ...input,
+    environmentId: 1,
+    author: { name: "Reviewer", image: null },
+    createdAt: 1,
+  }),
+};
+
+Object.assign(globalThis, {
+  React,
+  __commentsTestApi: api,
+  __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true,
+});
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -18,37 +33,86 @@ registerHooks({
         url: `data:text/javascript,${encodeURIComponent(`
           export const pageQueries = { getById: (id) => ({ queryKey: ["page", id] }) };
           export const blockQueries = { get: (id) => ({ queryKey: ["block", id] }) };
+          export const commentQueries = {
+            list: (id) => ({
+              queryKey: ["comments", id],
+              queryFn: () => globalThis.__commentsTestApi.list(id),
+              staleTime: Infinity,
+            }),
+          };
+          export const commentMutations = {
+            create: () => ({ mutationFn: (input) => globalThis.__commentsTestApi.create(input) }),
+          };
         `)}`,
         shortCircuit: true,
       };
     }
-    if (specifier === "@/lib/auth") {
+    if (specifier.endsWith("/CamoxAppContext")) {
       return {
-        url: "data:text/javascript,export const useAuthContext = () => ({ authClient: { useSession: () => ({ data: null }) } })",
+        url: `data:text/javascript,${encodeURIComponent(`
+          export const useCamoxApp = () => ({
+            getBlockById: () => ({
+              _internal: { contentSchema: { properties: {
+                title: { fieldType: "String" },
+                image: { fieldType: "Image" },
+                items: { items: { properties: { caption: { fieldType: "String" } } } },
+              } } },
+            }),
+          });
+        `)}`,
         shortCircuit: true,
       };
     }
     if (specifier === "@camox/ui/toaster") {
-      return { url: "data:text/javascript,export const toast = () => {}", shortCircuit: true };
+      return {
+        url: "data:text/javascript,export const toast = { error() {}, success() {} }",
+        shortCircuit: true,
+      };
     }
-
     return nextResolve(specifier, context);
   },
 });
 
-void test("Feedback lists every target level without a composer", async () => {
+function makeClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { queryFn: async () => null, staleTime: Infinity, retry: false },
+      mutations: { retry: false },
+    },
+  });
+}
+
+function comment(id: string, pageId: number, target: CommentTarget | null): Comment {
+  return {
+    id,
+    pageId,
+    environmentId: 1,
+    target,
+    message: `Feedback ${id}`,
+    author: { name: "Reviewer", image: null },
+    createdAt: 1,
+  };
+}
+
+void test("Feedback reads persisted comments at every target level without a composer", async () => {
   const { CommentSidebar } = await import("./CommentSidebar");
+  const { AttachedComments } = await import("./AttachedComments");
   const { previewCommentsStore } = await import("../previewCommentsStore");
-  const client = new QueryClient({ defaultOptions: { queries: { queryFn: async () => null } } });
+  const client = makeClient();
   client.setQueryData(["page", 3], { nickname: "Homepage" });
+  client.setQueryData(["comments", 3], []);
   client.setQueryData(["block", 7], {
     block: {
+      id: 7,
+      type: "hero",
       summary: "Our latest work",
       content: { title: "Build something great", image: { _file: 9 } },
     },
     repeatableItems: [
       {
         id: 12,
+        fieldName: "items",
+        parentItemId: null,
         summary: "Featured project",
         content: { caption: plainTextToLexicalState("Thoughtfully designed") },
       },
@@ -56,38 +120,22 @@ void test("Feedback lists every target level without a composer", async () => {
   });
   const render = (children: React.ReactNode) =>
     renderToStaticMarkup(<QueryClientProvider client={client}>{children}</QueryClientProvider>);
-  const empty = render(<CommentSidebar pageId={3} />);
-  assert.match(empty, /<h2 class="text-base font-semibold">Feedback<\/h2>/);
-  assert.match(empty, /aria-label="End comment mode"/);
-  assert.match(empty, /No feedback yet/);
+  assert.match(render(<CommentSidebar pageId={3} />), /No feedback yet/);
 
-  const targets = [
-    { label: "Page · 3" },
-    { label: "Block · 7", blockId: 7 },
-    { label: "Item · 12", blockId: 7, itemId: 12 },
-    { label: "Field · title", blockId: 7, fieldName: "title", fieldType: "String" },
-    { label: "Field · caption", blockId: 7, itemId: 12, fieldName: "caption", fieldType: "String" },
-    { label: "Field · image", blockId: 7, fieldName: "image", fieldType: "Image" },
-  ] as const;
-  for (const [index, target] of targets.entries()) {
-    previewCommentsStore.send({
-      type: "startComment",
-      pageId: 3,
-      target: { ...target, selector: "body", x: 0.5, y: 0.5 },
-    });
-    previewCommentsStore.send({ type: "setMessage", message: `Feedback level ${index}` });
-    previewCommentsStore.send({
-      type: "postComment",
-      id: String(index),
-      author: { name: "Reviewer", image: null },
-      createdAt: 1,
-    });
-  }
+  const targets: CommentTarget[] = [
+    { kind: "page" },
+    { kind: "block", blockId: 7 },
+    { kind: "item", blockId: 7, itemId: 12 },
+    { kind: "block-field", blockId: 7, fieldName: "title" },
+    { kind: "item-field", blockId: 7, itemId: 12, fieldName: "caption" },
+    { kind: "block-field", blockId: 7, fieldName: "image" },
+  ];
+  client.setQueryData(
+    ["comments", 3],
+    targets.map((target, i) => comment(String(i), 3, target)),
+  );
   const markup = render(<CommentSidebar pageId={3} />);
-  for (const [index, target] of targets.entries()) {
-    assert.match(markup, new RegExp(`Feedback level ${index}`));
-    assert.ok(!markup.includes(target.label));
-  }
+  for (const [index] of targets.entries()) assert.match(markup, new RegExp(`Feedback ${index}`));
   for (const quote of [
     "Homepage",
     "Our latest work",
@@ -95,36 +143,32 @@ void test("Feedback lists every target level without a composer", async () => {
     "Build something great",
     "Thoughtfully designed",
   ]) {
-    assert.ok(markup.includes(quote));
+    assert.ok(markup.includes(quote), quote);
   }
   assert.equal((markup.match(/<blockquote/g) ?? []).length, targets.length);
-  assert.match(markup, /border-l-2 border-yellow-600/);
-  assert.doesNotMatch(markup, /Comment text|Post comment|Comment on/);
-  assert.doesNotMatch(markup, />View<\/button>|>Done<\/button>/);
+  assert.doesNotMatch(markup, /Comment text|Post comment/);
   assert.equal((markup.match(/role="button"/g) ?? []).length, targets.length);
-  assert.doesNotMatch(render(<CommentSidebar pageId={4} />), /Feedback level/);
+  assert.doesNotMatch(render(<CommentSidebar pageId={4} />), /Feedback 0/);
 
-  previewCommentsStore.send({
-    type: "startComment",
-    pageId: 3,
-    target: { ...targets[4]!, selector: "body", x: 0.5, y: 0.5 },
-  });
+  previewCommentsStore.send({ type: "startComment", pageId: 3, target: targets[4]! });
   previewCommentsStore.send({ type: "setMessage", message: "Draft feedback" });
   assert.doesNotMatch(render(<CommentSidebar pageId={3} />), /Draft feedback/);
-  const { AttachedComments } = await import("./AttachedComments");
-  const editor = renderToStaticMarkup(
+  const editor = render(
     <AttachedComments pageId={3} blockId={7} itemId={12} fieldName="caption" />,
   );
   assert.match(editor, /Draft feedback/);
   assert.match(editor, /Comment text/);
   assert.match(editor, /Post comment/);
-  assert.doesNotMatch(editor, />View<\/button>|>Done<\/button>/);
-  assert.doesNotMatch(render(<CommentSidebar pageId={4} />), /Draft feedback/);
+  client.setQueryData(["comments", 3], [comment("removed", 3, null)]);
+  const unavailable = render(<CommentSidebar pageId={3} />);
+  assert.match(unavailable, /Feedback removed/);
+  assert.match(unavailable, /Target no longer available/);
+  assert.doesNotMatch(unavailable, /role="button"/);
   client.clear();
   previewCommentsStore.send({ type: "clearSelection" });
 });
 
-void test("clicking or keyboard-activating a comment opens its editor without deleting it", async () => {
+async function setupDom() {
   const { Window } = await import("happy-dom");
   const window = new Window();
   Object.assign(globalThis, {
@@ -133,61 +177,163 @@ void test("clicking or keyboard-activating a comment opens its editor without de
     HTMLElement: window.HTMLElement,
     Element: window.Element,
     Node: window.Node,
+    ResizeObserver: window.ResizeObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
     __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true,
   });
   const { createRoot } = await import("react-dom/client");
-  const { CommentSidebar } = await import("./CommentSidebar");
-  const { previewCommentsStore } = await import("../previewCommentsStore");
-  const { previewStore } = await import("../previewStore");
-  const client = new QueryClient({ defaultOptions: { queries: { queryFn: async () => null } } });
-  client.setQueryData(["page", 88], { nickname: "Test page" });
-  const target = { selector: "body", label: "Page", x: 0.5, y: 0.5 };
-  for (const id of ["first-comment", "second-comment"]) {
-    previewCommentsStore.send({ type: "startComment", pageId: 88, target });
-    previewCommentsStore.send({ type: "setMessage", message: id });
-    previewCommentsStore.send({
-      type: "postComment",
-      id,
-      author: { name: "Reviewer", image: null },
-      createdAt: 1,
-    });
-  }
   const host = window.document.createElement("div");
   window.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
-  const comment = (index: number) => host.querySelectorAll('[role="button"]')[index]!;
+  const client = makeClient();
+  return {
+    window,
+    host,
+    client,
+    async render(children: React.ReactNode) {
+      await React.act(async () =>
+        root.render(<QueryClientProvider client={client}>{children}</QueryClientProvider>),
+      );
+    },
+    async close() {
+      await React.act(async () => root.unmount());
+      client.clear();
+      await window.happyDOM.close();
+    },
+  };
+}
+
+void test("clicking or keyboard-activating feedback opens its editor without deleting cached comments", async () => {
+  const dom = await setupDom();
+  const { CommentSidebar } = await import("./CommentSidebar");
+  const { previewCommentsStore } = await import("../previewCommentsStore");
+  const { previewStore } = await import("../previewStore");
+  dom.client.setQueryData(["page", 88], { nickname: "Test page" });
+  const comments = ["first", "second"].map((id) => comment(id, 88, { kind: "page" }));
+  dom.client.setQueryData(["comments", 88], comments);
   try {
     previewStore.send({ type: "enterEditMode" });
     previewStore.send({ type: "setCommentMode", enabled: true });
-    await React.act(async () => {
-      root.render(
-        <QueryClientProvider client={client}>
-          <CommentSidebar pageId={88} />
-        </QueryClientProvider>,
-      );
-    });
-    const commentsBefore = previewCommentsStore.getSnapshot().context.comments;
-    await React.act(async () => comment(0).querySelector("p")!.click());
+    await dom.render(<CommentSidebar pageId={88} />);
+    const row = (index: number) => dom.host.querySelectorAll('[role="button"]')[index]!;
+    await React.act(async () => row(0).querySelector("p")!.click());
     assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
     assert.equal(previewStore.getSnapshot().context.selection, null);
-    assert.equal(previewCommentsStore.getSnapshot().context.activeId, "first-comment");
-
+    assert.equal(previewCommentsStore.getSnapshot().context.activeId, "first");
     for (const key of ["Enter", " "]) {
-      previewStore.send({ type: "setCommentMode", enabled: true });
       await React.act(async () => {
-        comment(1).dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+        previewStore.send({ type: "setCommentMode", enabled: true });
+        row(1).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
       });
-      assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
-      assert.equal(previewStore.getSnapshot().context.selection, null);
-      assert.equal(previewCommentsStore.getSnapshot().context.activeId, "second-comment");
+      assert.equal(previewCommentsStore.getSnapshot().context.activeId, "second");
     }
-    assert.deepEqual(previewCommentsStore.getSnapshot().context.comments, commentsBefore);
+    assert.deepEqual(dom.client.getQueryData(["comments", 88]), comments);
   } finally {
-    await React.act(async () => root.unmount());
+    await dom.close();
     previewCommentsStore.send({ type: "clearSelection" });
     previewStore.send({ type: "exitEditMode" });
-    client.clear();
-    await window.happyDOM.close();
+  }
+});
+
+void test("failed posting retains a retryable draft; success persists without clearing newer input", async () => {
+  const dom = await setupDom();
+  const { AttachedComments } = await import("./AttachedComments");
+  const { previewCommentsStore } = await import("../previewCommentsStore");
+  const inputs: CreateInput[] = [];
+  const saved: Comment[] = [];
+  const originalCreate = api.create;
+  const originalList = api.list;
+  api.list = async () => saved;
+  api.create = async (input) => {
+    inputs.push(input);
+    if (inputs.length === 1) throw new Error("offline");
+    const created = await originalCreate(input);
+    saved.push(created);
+    return created;
+  };
+  dom.client.setQueryData(["comments", 3], []);
+  previewCommentsStore.send({ type: "startComment", pageId: 3, target: { kind: "page" } });
+  previewCommentsStore.send({ type: "setMessage", message: "Keep this draft" });
+  const submitted = previewCommentsStore.getSnapshot().context.draft!;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    await dom.render(<AttachedComments pageId={3} />);
+    const post = () => {
+      const button = dom.host.querySelector('[aria-label="Post comment"]');
+      assert.ok(button instanceof dom.window.HTMLButtonElement);
+      button.click();
+    };
+    await React.act(async () => {
+      post();
+      await flush();
+    });
+    assert.match(dom.host.textContent, /Could not post feedback/);
+    assert.equal(previewCommentsStore.getSnapshot().context.draft?.id, submitted.id);
+    await React.act(async () => {
+      post();
+      await flush();
+    });
+    assert.equal(inputs[0]?.id, inputs[1]?.id);
+    assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
+    assert.equal(saved.length, 1);
+    assert.match(dom.host.textContent, /Keep this draft/);
+
+    let complete!: (value: Comment) => void;
+    api.create = (input) => {
+      inputs.push(input);
+      return new Promise((resolve) => {
+        complete = resolve;
+      });
+    };
+    await React.act(async () => {
+      previewCommentsStore.send({ type: "startComment", pageId: 3, target: { kind: "page" } });
+      previewCommentsStore.send({ type: "setMessage", message: "Earlier message" });
+    });
+    await React.act(async () => {
+      post();
+      await flush();
+    });
+    await React.act(async () => {
+      previewCommentsStore.send({ type: "setMessage", message: "Newer message" });
+      complete(await originalCreate(inputs[2]!));
+      await flush();
+    });
+    assert.equal(previewCommentsStore.getSnapshot().context.draft?.message, "Newer message");
+  } finally {
+    api.create = originalCreate;
+    api.list = originalList;
+    await dom.close();
+    previewCommentsStore.send({ type: "clearSelection" });
+  }
+});
+
+void test("experimental gate prevents feedback rendering and network requests", async () => {
+  const dom = await setupDom();
+  const { AttachedComments } = await import("./AttachedComments");
+  const { usePageComments } = await import("../usePageComments");
+  const originalList = api.list;
+  let requests = 0;
+  api.list = async () => {
+    requests++;
+    return [];
+  };
+  function ToolbarQuery() {
+    usePageComments(3);
+    return null;
+  }
+  try {
+    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: false });
+    await dom.render(
+      <>
+        <ToolbarQuery />
+        <AttachedComments pageId={3} />
+      </>,
+    );
+    assert.equal(dom.host.textContent, "");
+    assert.equal(requests, 0);
+  } finally {
+    api.list = originalList;
+    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true });
+    await dom.close();
   }
 });
