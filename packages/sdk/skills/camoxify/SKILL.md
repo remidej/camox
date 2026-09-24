@@ -21,6 +21,14 @@ Before coding, map the reference to:
 
 Read [Block Definitions](../camox/references/block-definitions.md) and, when creating or changing a shell, [Layout Definitions](../camox/references/layout-definitions.md).
 
+## Use the existing styling stack
+
+Strongly prefer the project's existing shadcn components and Tailwind utilities for all styling. Inspect and reuse existing components, theme tokens, and styling conventions before building new ones. Compose or extend them to match the reference.
+
+If the reference uses another styling system, recreate its appearance and behavior with the project's existing shadcn components and Tailwind utilities; do not copy or introduce the reference's styling dependencies.
+
+Do not install other styling libraries or rely on raw CSS, custom stylesheets, or inline styles. Express layout, spacing, typography, colors, responsive behavior, and interactive states through Tailwind and the existing shadcn components.
+
 ## Keep definitions generic
 
 Block names, schemas, rendering, and **default content** must work on other pages. Use `feature-grid`, not `acme-homepage-features`. Defaults are neutral examples, not the reference's copy, links, assets, or item data.
