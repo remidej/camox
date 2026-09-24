@@ -120,6 +120,7 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
     secret: process.env.BETTER_AUTH_SECRET,
     baseURL: "http://localhost:8787",
     emailAndPassword: { enabled: true, requireEmailVerification: false },
+    session: { expiresIn: 60 * 60 * 24 * 90 },
     plugins: [organization()],
   });
 
@@ -178,6 +179,21 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
   const playground = await seedProject("Camox Playground", "camox-playground-01");
   const templateDefault = await seedProject("Camox Template Default", "camox-template-default-01");
 
+  const login = await auth.api.signInEmail({
+    body: { email: "dev@camox.dev", password: "camox-dev-123" },
+  });
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  const authFile = path.join(repoRoot, ".camox/auth.json");
+  const tokens = fs.existsSync(authFile) ? JSON.parse(fs.readFileSync(authFile, "utf-8")) : {};
+  tokens["http://localhost:3274"] = {
+    token: login.token,
+    name: login.user.name,
+    email: login.user.email,
+  };
+  fs.mkdirSync(path.dirname(authFile), { recursive: true });
+  fs.writeFileSync(authFile, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+  fs.chmodSync(authFile, 0o600);
+
   return { projectIds: [playground.id, templateDefault.id] };
 }
 
@@ -193,6 +209,10 @@ async function main() {
   }
 
   const db = createDrizzle(sqlitePath);
+  if (process.argv.includes("--if-empty") && (await db.select().from(user).limit(1)).length) {
+    console.info("Existing database found; skipping seed and leaving credentials unchanged.");
+    return;
+  }
 
   await clearAll(db);
   const { projectIds } = await seed(db);

@@ -3,3 +3,6 @@ set -eu
 
 pnpm install --frozen-lockfile
 pnpm build
+
+pnpm --filter @camox/api db:migrate:local
+pnpm --filter @camox/api seed --if-empty

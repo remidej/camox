@@ -12,6 +12,9 @@ build/
 .output/
 packages/cli/templates
 
+# Checkout-local Camox credentials
+.camox/auth.json
+
 # Environment variables
 .env
 .env.local

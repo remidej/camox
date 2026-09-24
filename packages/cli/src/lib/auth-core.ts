@@ -2,8 +2,23 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const AUTH_DIR = path.join(os.homedir(), ".camox");
-const AUTH_FILE = path.join(AUTH_DIR, "auth.json");
+function globalAuthFile(): string {
+  return path.join(os.homedir(), ".camox", "auth.json");
+}
+
+function localAuthFile(cwd: string): string | null {
+  let directory = path.resolve(cwd);
+  while (true) {
+    // .git can be a directory or a file (linked worktrees).
+    if (fs.existsSync(path.join(directory, ".git"))) {
+      const file = path.join(directory, ".camox", "auth.json");
+      return fs.existsSync(file) ? file : null;
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) return null;
+    directory = parent;
+  }
+}
 
 export interface AuthToken {
   token: string;
@@ -15,46 +30,67 @@ export function normalizeUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-function readAllTokens(): Record<string, AuthToken> {
-  try {
-    return JSON.parse(fs.readFileSync(AUTH_FILE, "utf-8"));
-  } catch {
-    return {};
+type AuthEntries = Record<string, AuthToken | null>;
+
+function readAllTokens(file: string): AuthEntries {
+  if (!fs.existsSync(file)) return {};
+  // Fail closed on malformed files instead of silently using another identity.
+  const entries = JSON.parse(fs.readFileSync(file, "utf-8"));
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) {
+    throw new Error(`Invalid Camox credentials file: ${file}`);
   }
+  return entries;
 }
 
-function writeAllTokens(tokens: Record<string, AuthToken>): void {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
-  fs.writeFileSync(AUTH_FILE, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+function writeAllTokens(file: string, tokens: AuthEntries): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+}
+
+function credentialFile(authenticationUrl: string, cwd: string): string {
+  const local = localAuthFile(cwd);
+  if (local && Object.hasOwn(readAllTokens(local), normalizeUrl(authenticationUrl))) return local;
+  return globalAuthFile();
 }
 
 /** Look up stored credentials for a specific Camox authentication backend. */
-export function readAuthTokenForUrl(authenticationUrl: string): AuthToken | null {
-  const tokens = readAllTokens();
+export function readAuthTokenForUrl(
+  authenticationUrl: string,
+  cwd = process.cwd(),
+): AuthToken | null {
+  const tokens = readAllTokens(credentialFile(authenticationUrl, cwd));
   const entry = tokens[normalizeUrl(authenticationUrl)];
   if (entry?.token && entry?.name && typeof entry.email === "string") return entry;
   return null;
 }
 
-export function writeAuthTokenForUrl(authenticationUrl: string, token: AuthToken): void {
-  const tokens = readAllTokens();
+export function writeAuthTokenForUrl(
+  authenticationUrl: string,
+  token: AuthToken,
+  cwd = process.cwd(),
+): void {
+  const file = credentialFile(authenticationUrl, cwd);
+  const tokens = readAllTokens(file);
   tokens[normalizeUrl(authenticationUrl)] = token;
-  writeAllTokens(tokens);
+  writeAllTokens(file, tokens);
 }
 
-export function removeAuthTokenForUrl(authenticationUrl: string): void {
-  const tokens = readAllTokens();
-  delete tokens[normalizeUrl(authenticationUrl)];
-  if (Object.keys(tokens).length > 0) {
-    writeAllTokens(tokens);
+export function removeAuthTokenForUrl(authenticationUrl: string, cwd = process.cwd()): void {
+  const file = credentialFile(authenticationUrl, cwd);
+  const tokens = readAllTokens(file);
+  if (file !== globalAuthFile()) {
+    // Keep a tombstone so logout never exposes global credentials for this URL.
+    tokens[normalizeUrl(authenticationUrl)] = null;
+    writeAllTokens(file, tokens);
     return;
   }
-
-  try {
-    fs.unlinkSync(AUTH_FILE);
-  } catch {
-    // Ignore if file doesn't exist
+  delete tokens[normalizeUrl(authenticationUrl)];
+  if (Object.keys(tokens).length > 0) {
+    writeAllTokens(file, tokens);
+    return;
   }
+  fs.rmSync(file, { force: true });
 }
 
 export async function verifyOneTimeToken(apiUrl: string, token: string): Promise<AuthToken> {

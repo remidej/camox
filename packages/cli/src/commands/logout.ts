@@ -45,14 +45,16 @@ export function logout(args: { cwd?: string } = {}) {
     if (!(error instanceof RuntimeNotFoundError)) throw error;
   }
 
-  const token = authenticationUrl ? readAuthTokenForUrl(authenticationUrl) : readAuthToken();
+  const token = authenticationUrl
+    ? readAuthTokenForUrl(authenticationUrl, args.cwd)
+    : readAuthToken();
   if (!token) {
     log.error("Not logged in.");
     return;
   }
 
   if (authenticationUrl) {
-    removeAuthTokenForUrl(authenticationUrl);
+    removeAuthTokenForUrl(authenticationUrl, args.cwd);
   } else {
     removeAuthToken();
   }

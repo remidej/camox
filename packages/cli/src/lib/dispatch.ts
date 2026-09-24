@@ -97,7 +97,7 @@ export async function resolveCommandContext(
 
   const slug = opts.projectFlag?.trim() || process.env.CAMOX_PROJECT?.trim() || runtime.projectSlug;
 
-  const token = readAuthTokenForUrl(runtime.authenticationUrl);
+  const token = readAuthTokenForUrl(runtime.authenticationUrl, opts.cwd);
   if (!token) {
     return fail(
       {

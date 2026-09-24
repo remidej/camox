@@ -35,7 +35,7 @@ export async function handler(args: Args): Promise<void> {
       throw new Error("Preview requires an http(s) loopback URL without credentials.");
     }
     const runtime = loadRuntime(args.cwd);
-    const auth = readAuthTokenForUrl(runtime.authenticationUrl);
+    const auth = readAuthTokenForUrl(runtime.authenticationUrl, args.cwd);
     if (!auth?.email) {
       printError({
         code: "NOT_AUTHENTICATED",

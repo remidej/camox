@@ -6,7 +6,3 @@ apps/landing/.env
 apps/playground/.env.local
 apps/template-default/.env.local
 packages/sdk/.env.local
-
-# Share the entire D1 directory, including SQLite WAL/SHM sidecar files.
-# Writes and migrations affect every checkout using this database.
-apps/api/.wrangler/state/v3/d1

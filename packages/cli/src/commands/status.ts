@@ -39,7 +39,7 @@ export async function handler(args: Args): Promise<never> {
     throw err;
   }
 
-  const token = readAuthTokenForUrl(runtime.authenticationUrl);
+  const token = readAuthTokenForUrl(runtime.authenticationUrl, args.cwd);
   const environmentName = args.production
     ? "production"
     : token?.email
