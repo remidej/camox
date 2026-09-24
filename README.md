@@ -40,9 +40,11 @@ npm create camox@latest
 
 ## Developing this repository
 
-Run `.agents/prepare` to install dependencies, build packages, and initialize the
-checkout-local database. Then run `pnpm dev` (`pnpm dev:servers` for only the API
-and dashboard, or `pnpm dev:all` for all apps).
+Run `.agents/prepare` to install dependencies, build shared packages, and initialize
+the checkout-local database. Setup skips production app builds: dev servers compile
+apps on demand. Use `pnpm build` when you need a full production build.
+Then run `pnpm dev` (`pnpm dev:servers` for only the API and dashboard, or
+`pnpm dev:all` for all apps).
 
 Each launch picks available API and dashboard ports, starting at 8787 and 3274,
 and prints their URLs. Those URLs are passed to the apps together, so the
