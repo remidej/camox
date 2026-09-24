@@ -476,6 +476,9 @@ importers:
       '@orpc/server':
         specifier: ^1.14.3
         version: 1.14.3(crossws@0.4.5(srvx@0.11.15))(ws@8.21.0)
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260519.1)(@libsql/client@0.17.3)(kysely@0.28.17)
       zod:
         specifier: ^4.4.3
         version: 4.4.3

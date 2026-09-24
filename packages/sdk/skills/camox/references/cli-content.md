@@ -34,6 +34,17 @@ it schedules asynchronous generation, so read the Page again to inspect results.
 Metadata edits affect only the draft, even with `--production`. Read published
 metadata with `pages get --live`; publish only after user approval.
 
+## Comments
+
+List a Page's comments, then use a returned comment `id` to resolve one on that same Page:
+
+```sh
+{{CAMOX_CMD}} comments list --page-id 25
+{{CAMOX_CMD}} comments resolve --page-id 25 --id <COMMENT_UUID>
+```
+
+`--page-id` is the numeric Page ID (find it with `pages get --path /about`); `--id` is the comment's UUID, not a Block or Page ID. Resolution changes the comment's status, not the Page's draft or published content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project`, `--production`, and `--cwd` select the same project, environment, and working directory as other CLI commands.
+
 ## Blocks
 
 ### Inspect before changing

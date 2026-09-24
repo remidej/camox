@@ -77,6 +77,7 @@ void test("every runtime-backed command group forwards --cwd", async () => {
   for (const command of [
     ["pages", "list"],
     ["blocks", "types"],
+    ["comments", "list", "--page-id", "1"],
     ["layouts", "list"],
     ["env", "check"],
     ["files", "list"],

@@ -4,6 +4,7 @@ import { defineProgram } from "@optique/core/program";
 import { runSync } from "@optique/run";
 
 import * as blocks from "./commands/blocks";
+import * as comments from "./commands/comments";
 import * as env from "./commands/env";
 import * as files from "./commands/files";
 import * as init from "./commands/init";
@@ -29,6 +30,7 @@ type Result =
   | Parameters<typeof status.handler>[0]
   | Parameters<typeof pages.handler>[0]
   | Parameters<typeof blocks.handler>[0]
+  | Parameters<typeof comments.handler>[0]
   | Parameters<typeof layouts.handler>[0]
   | Parameters<typeof env.handler>[0]
   | Parameters<typeof files.handler>[0];
@@ -43,6 +45,7 @@ const program = defineProgram({
     preview.parser,
     pages.parser,
     blocks.parser,
+    comments.parser,
     layouts.parser,
     env.parser,
     files.parser,
@@ -94,6 +97,10 @@ switch (result.command) {
   case "blocks.move":
   case "blocks.delete":
     await blocks.handler(result);
+    break;
+  case "comments.list":
+  case "comments.resolve":
+    await comments.handler(result);
     break;
   case "files.upload":
   case "files.update":
