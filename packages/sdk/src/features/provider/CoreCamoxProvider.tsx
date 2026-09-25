@@ -88,11 +88,6 @@ export function CoreCamoxProvider({
         initialAuthenticated,
       }}
     >
-      {isPreviewHandoff && (
-        <div role="status" data-camox-preview="ready">
-          Draft preview · {projectSlug} · {environmentName}
-        </div>
-      )}
       <CamoxAppProvider app={camoxApp}>{children}</CamoxAppProvider>
     </AuthContext.Provider>
   );

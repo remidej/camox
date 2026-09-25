@@ -19,6 +19,7 @@ import { generateAppFile, watchAppFile } from "./appGeneration";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
+import { installDevSignInLink } from "./devSignIn";
 import { generateIconTypes } from "./iconGeneration";
 
 const PRODUCTION_API_URL = "https://api.camox.dev";
@@ -354,6 +355,15 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         authenticationUrl,
         isAuthenticated: localAuth !== null,
       });
+
+      if (localAuth?.email) {
+        installDevSignInLink(server, {
+          projectSlug: options.projectSlug,
+          environmentName,
+          apiUrl,
+          authToken: localAuth.token,
+        });
+      }
 
       if (!disableCodeGen) {
         watchAppFile(server, server.config.root);

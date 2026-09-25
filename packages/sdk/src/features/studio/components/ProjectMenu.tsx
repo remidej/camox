@@ -17,6 +17,8 @@ import { Link } from "@/features/navigation/navigation";
 import { AuthContext } from "@/lib/auth";
 import { projectQueries } from "@/lib/queries";
 
+import { version } from "../../../../package.json";
+
 export const Favicon = ({ size = 16 }: { size?: number }) => {
   const [faviconUrl, setFaviconUrl] = React.useState<string | null>(null);
   const [hasError, setHasError] = React.useState(false);
@@ -150,6 +152,7 @@ export const ProjectMenu = () => {
         <DropdownMenuItem render={<Link to="https://camox.dev" target="_blank" />}>
           <Info className="h-4 w-4" />
           Powered by Camox
+          <span className="text-muted-foreground ml-auto">v{version}</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
