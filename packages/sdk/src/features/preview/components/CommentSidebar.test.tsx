@@ -31,7 +31,6 @@ const api = {
 Object.assign(globalThis, {
   React,
   __commentsTestApi: api,
-  __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true,
 });
 
 registerHooks({
@@ -195,7 +194,6 @@ async function setupDom() {
     Node: window.Node,
     ResizeObserver: window.ResizeObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
-    __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true,
   });
   const { createRoot } = await import("react-dom/client");
   const host = window.document.createElement("div");
@@ -411,33 +409,45 @@ void test("resolved feedback stays hidden in sidebar and object views", async ()
   }
 });
 
-void test("experimental gate prevents feedback rendering and network requests", async () => {
+void test("feedback loads with experimental features unset or disabled and still requires a page", async () => {
   const dom = await setupDom();
   const { AttachedComments } = await import("./AttachedComments");
   const { usePageComments } = await import("../usePageComments");
-  const originalList = api.list;
-  let requests = 0;
-  api.list = async () => {
-    requests++;
-    return [];
+  const flags = globalThis as typeof globalThis & {
+    __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__?: boolean;
   };
-  function ToolbarQuery() {
-    usePageComments(3);
+  const previousFlag = flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
+  const originalList = api.list;
+  const requests: number[] = [];
+  api.list = async (pageId) => {
+    requests.push(pageId);
+    return [comment("default", pageId, { kind: "page" })];
+  };
+  function ToolbarQuery({ pageId }: { pageId?: number }) {
+    usePageComments(pageId);
     return null;
   }
   try {
-    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: false });
-    await dom.render(
-      <>
-        <ToolbarQuery />
-        <AttachedComments pageId={3} />
-      </>,
-    );
-    assert.equal(dom.host.textContent, "");
-    assert.equal(requests, 0);
+    for (const [index, flag] of [undefined, false].entries()) {
+      if (flag === undefined) delete flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
+      else flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ = flag;
+      await dom.render(<ToolbarQuery />);
+      assert.equal(requests.length, index);
+      const pageId = index + 3;
+      await dom.render(
+        <>
+          <ToolbarQuery pageId={pageId} />
+          <AttachedComments pageId={pageId} />
+        </>,
+      );
+      await React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+      assert.match(dom.host.textContent, /Feedback default/);
+      assert.deepEqual(requests, index === 0 ? [3] : [3, 4]);
+    }
   } finally {
     api.list = originalList;
-    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true });
+    if (previousFlag === undefined) delete flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
+    else flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ = previousFlag;
     await dom.close();
   }
 });

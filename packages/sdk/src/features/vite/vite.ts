@@ -19,6 +19,7 @@ import { generateAppFile, watchAppFile } from "./appGeneration";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
+import { installDevSignInLink } from "./devSignIn";
 import { generateIconTypes } from "./iconGeneration";
 
 const PRODUCTION_API_URL = "https://api.camox.dev";
@@ -90,7 +91,7 @@ export interface CamoxPluginOptions {
     authenticationUrl?: string;
     /** Show Tanstack query devtools (default: false) */
     enableTanstackDevtools?: boolean;
-    /** Enable experimental features, including feedback (default: false). */
+    /** Enable experimental features (default: false). */
     enableExperimentalFeatures?: boolean;
     /** Disable automatic code generation (route files and app file) (default: false) */
     disableCodeGen?: boolean;
@@ -354,6 +355,15 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         authenticationUrl,
         isAuthenticated: localAuth !== null,
       });
+
+      if (localAuth?.email) {
+        installDevSignInLink(server, {
+          projectSlug: options.projectSlug,
+          environmentName,
+          apiUrl,
+          authToken: localAuth.token,
+        });
+      }
 
       if (!disableCodeGen) {
         watchAppFile(server, server.config.root);

@@ -15,7 +15,6 @@ import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedChromeContext } from "../runtime/SharedChromeContext";
 import { Navbar } from "../studio/components/Navbar";
-import { areCommentsEnabled } from "./commentsEnabled";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
@@ -381,11 +380,7 @@ export const PreviewShell = ({
         aliases: ["Comment", "Comment mode", "Show feedback"],
         groupLabel: "Preview",
         checkIfAvailable: () =>
-          isAuthenticated &&
-          !isMobileStudio &&
-          pageData != null &&
-          areCommentsEnabled() &&
-          !isCommentMode,
+          isAuthenticated && !isMobileStudio && pageData != null && !isCommentMode,
         execute: () => {
           if (!isEditMode) previewStore.send({ type: "enterEditMode" });
           previewStore.send({ type: "setCommentMode", enabled: true });

@@ -30,6 +30,47 @@ export function normalizeUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+export function isLoopbackUrl(url: URL): boolean {
+  return (
+    ["http:", "https:"].includes(url.protocol) &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
+    !url.username &&
+    !url.password
+  );
+}
+
+export async function createPreviewSignInUrl(
+  destination: string,
+  target: { projectSlug: string; environmentName: string; apiUrl: string },
+  authToken: string,
+  signal = AbortSignal.timeout(15_000),
+): Promise<string> {
+  const url = new URL(destination);
+  if (!isLoopbackUrl(url)) {
+    throw new Error("Preview requires an http(s) loopback URL without credentials.");
+  }
+  const response = await fetch(`${normalizeUrl(target.apiUrl)}/api/auth/one-time-token/generate`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+    redirect: "error",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Could not create preview sign-in (${response.status}). Check your session with camox login.`,
+    );
+  }
+  const data = (await response.json()) as { token?: unknown };
+  if (typeof data.token !== "string" || !data.token) {
+    throw new Error("Authentication backend returned no one-time token.");
+  }
+  url.searchParams.set(
+    "camox-preview",
+    JSON.stringify({ ...target, apiUrl: normalizeUrl(target.apiUrl) }),
+  );
+  url.searchParams.set("ott", data.token);
+  return url.href;
+}
+
 type AuthEntries = Record<string, AuthToken | null>;
 
 function readAllTokens(file: string): AuthEntries {

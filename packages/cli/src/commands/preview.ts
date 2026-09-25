@@ -3,7 +3,12 @@ import { message } from "@optique/core/message";
 import { command, constant, option } from "@optique/core/primitives";
 import { string } from "@optique/core/valueparser";
 
-import { normalizeUrl, readAuthTokenForUrl } from "../lib/auth-core";
+import {
+  createPreviewSignInUrl,
+  isLoopbackUrl,
+  normalizeUrl,
+  readAuthTokenForUrl,
+} from "../lib/auth-core";
 import { printError, printResult } from "../lib/output";
 import { loadRuntime } from "../lib/runtime";
 import { cwdFlag } from "../lib/runtime-options";
@@ -26,12 +31,7 @@ type Args = { command: "preview"; cwd?: string; url: string; json: boolean };
 export async function handler(args: Args): Promise<void> {
   try {
     const url = new URL(args.url);
-    if (
-      !["http:", "https:"].includes(url.protocol) ||
-      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
-      url.username ||
-      url.password
-    ) {
+    if (!isLoopbackUrl(url)) {
       throw new Error("Preview requires an http(s) loopback URL without credentials.");
     }
     const runtime = loadRuntime(args.cwd);
@@ -44,33 +44,15 @@ export async function handler(args: Args): Promise<void> {
       process.exitCode = 2;
       return;
     }
-    const response = await fetch(
-      `${normalizeUrl(runtime.apiUrl)}/api/auth/one-time-token/generate`,
-      {
-        headers: { Authorization: `Bearer ${auth.token}` },
-        redirect: "error",
-        signal: AbortSignal.timeout(15_000),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        `Could not create preview sign-in (${response.status}). Check your session with camox login.`,
-      );
-    }
-    const data = (await response.json()) as { token?: unknown };
-    if (typeof data.token !== "string" || !data.token) {
-      throw new Error("Authentication backend returned no one-time token.");
-    }
     const target = {
       projectSlug: runtime.projectSlug,
       environmentName: `dev:${auth.email}`,
       apiUrl: normalizeUrl(runtime.apiUrl),
     };
-    url.searchParams.set("camox-preview", JSON.stringify(target));
-    url.searchParams.set("ott", data.token);
+    const signInUrl = await createPreviewSignInUrl(url.href, target, auth.token);
     printResult(
       {
-        url: url.href,
+        url: signInUrl,
         ...target,
         source: "draft",
         warning:

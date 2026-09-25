@@ -16,9 +16,14 @@ import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } fr
 import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import { areCommentsEnabled } from "../commentsEnabled";
-import type { OverlayMessage } from "../overlayMessages";
-import { previewStore, selectionBlockId, selectionField, selectionItemId } from "../previewStore";
+import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
+import {
+  previewStore,
+  selectionBlockId,
+  selectionField,
+  selectionItemId,
+  type Selection,
+} from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
 import { AttachedComments } from "./AttachedComments";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
@@ -145,6 +150,16 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
     },
     [iframeElement],
   );
+
+  const [hoveredBreadcrumb, setHoveredBreadcrumb] = React.useState<{
+    target: Selection;
+    selection: Selection | null;
+  } | null>(null);
+  React.useEffect(() => {
+    if (!hoveredBreadcrumb || hoveredBreadcrumb.selection !== selection) return;
+    postToIframe(selectionHoverMessage(hoveredBreadcrumb.target, true));
+    return () => postToIframe(selectionHoverMessage(hoveredBreadcrumb.target, false));
+  }, [hoveredBreadcrumb, postToIframe, selection]);
 
   const blockId = selectionBlockId(selection);
   const currentItemId = selectionItemId(selection);
@@ -340,7 +355,13 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
   }
 
   const fieldHasOwnView = fieldInfo ? fieldTypesDictionary[fieldInfo.fieldType].hasOwnView : false;
-  const navigationItems = [
+  const navigationItems: {
+    key: string;
+    label: string;
+    isCurrent: boolean;
+    onClick?: () => void;
+    hoverTarget?: Selection;
+  }[] = [
     {
       key: "page",
       label: "Page",
@@ -352,6 +373,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
       label: blockDef._internal.title,
       isCurrent: ancestorChain.length === 0 && !fieldHasOwnView,
       onClick: () => previewStore.send({ type: "setFocusedBlock", blockId: block.id }),
+      hoverTarget: { type: "block", blockId: block.id },
     },
     ...ancestorChain.flatMap((ancestor) => [
       {
@@ -360,6 +382,12 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
           (getArraySchemaForItem(blockDef._internal.contentSchema, ancestor.id, itemsMap) as any)
             ?.title ?? formatFieldName(ancestor.fieldName),
         isCurrent: false,
+        hoverTarget: {
+          type: "block-field" as const,
+          blockId: block.id,
+          fieldName: ancestor.fieldName,
+          fieldType: "Repeater" as const,
+        },
         onClick: () =>
           previewStore.send({
             type: "setSelection",
@@ -383,6 +411,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
       {
         key: `item-${ancestor.id}`,
         label: ancestor.summary || "Item",
+        hoverTarget: { type: "item" as const, blockId: block.id, itemId: ancestor.id },
         isCurrent:
           ancestor.id === currentItemId &&
           !fieldHasOwnView &&
@@ -400,6 +429,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
               formatFieldName(fieldInfo.fieldName),
             isCurrent: true,
             onClick: undefined,
+            hoverTarget: selection ?? undefined,
           },
         ]
       : []),
@@ -414,7 +444,19 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
               const isLastItem = index === navigationItems.length - 1;
 
               return (
-                <li key={item.key} className="relative min-w-0 pl-6">
+                <li
+                  key={item.key}
+                  className="relative min-w-0 pl-6"
+                  onMouseEnter={() =>
+                    setHoveredBreadcrumb(
+                      !item.isCurrent && item.hoverTarget
+                        ? { target: item.hoverTarget, selection }
+                        : null,
+                    )
+                  }
+                  onMouseLeave={() => setHoveredBreadcrumb(null)}
+                  onClickCapture={() => setHoveredBreadcrumb(null)}
+                >
                   <svg
                     aria-hidden="true"
                     className="text-muted-foreground pointer-events-none absolute top-0 left-0 h-7 w-4"
@@ -714,16 +756,14 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}
-              {areCommentsEnabled() &&
-                !fieldHasOwnView &&
-                (currentItemId == null || currentItem) && (
-                  <AttachedComments
-                    pageId={pageId}
-                    blockId={block.id}
-                    itemId={currentItemId ?? undefined}
-                  />
-                )}
-              {areCommentsEnabled() && fieldHasOwnView && fieldInfo && (
+              {!fieldHasOwnView && (currentItemId == null || currentItem) && (
+                <AttachedComments
+                  pageId={pageId}
+                  blockId={block.id}
+                  itemId={currentItemId ?? undefined}
+                />
+              )}
+              {fieldHasOwnView && fieldInfo && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}

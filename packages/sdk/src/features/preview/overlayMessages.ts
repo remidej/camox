@@ -1,3 +1,5 @@
+import type { Selection } from "./previewStore";
+
 export interface FieldRect {
   top: number;
   left: number;
@@ -39,6 +41,33 @@ export type OverlayMessage =
   // Text formatting (Parent → Iframe)
   | { type: "CAMOX_FORMAT_TEXT"; formatKey: string }
   | { type: "CAMOX_TOGGLE_TEXT_LINK"; target: string | null; text?: string };
+
+/** Use the same preview targets for selection-path hover as the sidebar editors. */
+export function selectionHoverMessage(selection: Selection, hovered: boolean): OverlayMessage {
+  const blockId = String(selection.blockId);
+  if (selection.type === "block") {
+    return { type: hovered ? "CAMOX_HOVER_BLOCK" : "CAMOX_HOVER_BLOCK_END", blockId };
+  }
+  if (selection.type === "item") {
+    return {
+      type: hovered ? "CAMOX_HOVER_REPEATER_ITEM" : "CAMOX_HOVER_REPEATER_ITEM_END",
+      blockId,
+      itemId: String(selection.itemId),
+    };
+  }
+  if (selection.fieldType === "Repeater") {
+    return {
+      type: hovered ? "CAMOX_HOVER_REPEATER" : "CAMOX_HOVER_REPEATER_END",
+      blockId,
+      fieldName: selection.fieldName,
+    };
+  }
+  const fieldId =
+    selection.type === "item-field"
+      ? `${blockId}__${selection.itemId}__${selection.fieldName}`
+      : `${blockId}__${selection.fieldName}`;
+  return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
+}
 
 export function isOverlayMessage(data: unknown): data is OverlayMessage {
   return (

@@ -10,7 +10,6 @@ import { MessageCircle, Monitor, Smartphone, Tablet, X } from "lucide-react";
 
 import { formatShortcut } from "@/lib/utils";
 
-import { areCommentsEnabled } from "../commentsEnabled";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsCommentMode, selectIsEditMode } from "../previewStore";
 import { usePageComments } from "../usePageComments";
@@ -63,35 +62,33 @@ export const PreviewToolbar = ({
         </Label>
       </div>
       <div className="flex shrink-0 items-center gap-6 self-stretch">
-        {areCommentsEnabled() && (
-          <Tooltip.Tooltip>
-            <Tooltip.TooltipTrigger
-              render={
-                <Toggle
-                  pressed={isCommentMode}
-                  data-state={isCommentMode ? "on" : "off"}
-                  onPressedChange={(enabled) => {
-                    if (onCommentModeChange) {
-                      onCommentModeChange(enabled);
-                      return;
-                    }
+        <Tooltip.Tooltip>
+          <Tooltip.TooltipTrigger
+            render={
+              <Toggle
+                pressed={isCommentMode}
+                data-state={isCommentMode ? "on" : "off"}
+                onPressedChange={(enabled) => {
+                  if (onCommentModeChange) {
+                    onCommentModeChange(enabled);
+                    return;
+                  }
 
-                    if (enabled && !isEditMode) {
-                      previewStore.send({ type: "enterEditMode" });
-                    }
-                    previewStore.send({ type: "setCommentMode", enabled });
-                  }}
-                  variant="outline"
-                />
-              }
-            >
-              <MessageCircle />
-              Feedback
-              {commentCount > 0 && <span className="text-muted-foreground">({commentCount})</span>}
-            </Tooltip.TooltipTrigger>
-            <Tooltip.TooltipContent>Leave feedback for agents</Tooltip.TooltipContent>
-          </Tooltip.Tooltip>
-        )}
+                  if (enabled && !isEditMode) {
+                    previewStore.send({ type: "enterEditMode" });
+                  }
+                  previewStore.send({ type: "setCommentMode", enabled });
+                }}
+                variant="outline"
+              />
+            }
+          >
+            <MessageCircle />
+            Feedback
+            {commentCount > 0 && <span className="text-muted-foreground">({commentCount})</span>}
+          </Tooltip.TooltipTrigger>
+          <Tooltip.TooltipContent>Leave feedback for agents</Tooltip.TooltipContent>
+        </Tooltip.Tooltip>
         <ButtonGroup>
           <Tooltip.Tooltip>
             <Tooltip.TooltipTrigger

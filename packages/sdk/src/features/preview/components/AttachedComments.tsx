@@ -17,7 +17,6 @@ import type { FieldType } from "@/core/lib/fieldTypes";
 import { blockQueries, commentMutations, commentQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import { areCommentsEnabled } from "../commentsEnabled";
 import {
   type CommentTarget,
   getCommentTargetFieldType,
@@ -55,14 +54,14 @@ function editorTarget({ blockId, itemId, fieldName }: AttachedCommentsProps): Co
   return { kind: "block", blockId };
 }
 
-/** Gate before mounting queries, mutations, or composers. */
+/** Require a page before mounting queries, mutations, or composers. */
 export function AttachedComments(props: AttachedCommentsProps) {
-  if (!areCommentsEnabled() || props.pageId == null) return null;
-  return <EnabledAttachedComments {...props} pageId={props.pageId} />;
+  if (props.pageId == null) return null;
+  return <AttachedCommentsContent {...props} pageId={props.pageId} />;
 }
 
 /** Shared comment list and composer for editors and the Feedback sidebar. */
-function EnabledAttachedComments({
+function AttachedCommentsContent({
   pageId,
   blockId,
   itemId,
@@ -165,7 +164,7 @@ function EnabledAttachedComments({
   }, [pageId]);
 
   const submit = () => {
-    if (!areCommentsEnabled() || !currentDraft || !message.trim() || submitting.current) return;
+    if (!currentDraft || !message.trim() || submitting.current) return;
     submitting.current = true;
     createComment.mutate(currentDraft);
   };

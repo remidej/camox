@@ -7,7 +7,6 @@ import { checkIfInputFocused, cn } from "@/lib/utils";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { SharedChromeContext } from "../../runtime/SharedChromeContext";
-import { areCommentsEnabled } from "../commentsEnabled";
 import { PreviewPageContext } from "../previewSelection";
 import {
   previewStore,
@@ -257,7 +256,7 @@ const PreviewPanel = ({
   return (
     <>
       {page && !isCommentMode && <CuratedBlockShortcuts />}
-      {areCommentsEnabled() && page && <PreviewComments key={page.id} />}
+      {page && <PreviewComments key={page.id} />}
       <PanelContent className="relative overflow-hidden bg-black">
         <div className="absolute inset-0">
           {viewportMode === "full" ? (
