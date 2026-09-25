@@ -464,7 +464,7 @@ export function createEditableBlock<
   const RepeaterItemContext = React.createContext<RepeaterItemContextValue | null>(null);
 
   // Context to track if the parent repeater container is being hovered from sidebar
-  const RepeaterHoverContext = React.createContext<boolean>(false);
+  const RepeaterHoverContext = React.createContext<string | null>(null);
 
   /**
    * Build a field ID that matches the sidebar's `getFieldId` format.
@@ -1477,7 +1477,7 @@ export function createEditableBlock<
     const [isLocallyHovered, setIsLocallyHovered] = React.useState(false);
 
     // Check if the parent repeater container is being hovered from sidebar
-    const isRepeaterHovered = React.useContext(RepeaterHoverContext);
+    const hoveredRepeaterGroup = React.useContext(RepeaterHoverContext);
 
     const isSelected = useSelector(previewStore, (state) => {
       const selection = state.context.selection;
@@ -1495,7 +1495,7 @@ export function createEditableBlock<
     );
 
     const overlayState = useOverlayState(
-      isHovered || isRepeaterHovered || (isCommentMode && isLocallyHovered),
+      isHovered || hoveredRepeaterGroup !== null || isLocallyHovered,
       isSelected,
     );
 
@@ -1515,6 +1515,7 @@ export function createEditableBlock<
     return (
       <div
         data-camox-repeater-item-id={isContentEditable ? itemId : undefined}
+        data-camox-hover-group={isContentEditable ? hoveredRepeaterGroup : undefined}
         onClickCapture={handleClick}
         onMouseEnter={() => setIsLocallyHovered(true)}
         onMouseLeave={() => setIsLocallyHovered(false)}
@@ -1538,6 +1539,7 @@ export function createEditableBlock<
   }) => {
     const isContentEditable = useIsEditable("site");
     const { window: iframeWindow } = useFrame();
+    const hoverGroup = React.useId();
 
     const isHovered = useOverlayMessage(
       iframeWindow,
@@ -1548,7 +1550,9 @@ export function createEditableBlock<
     );
 
     return (
-      <RepeaterHoverContext.Provider value={isHovered}>{children}</RepeaterHoverContext.Provider>
+      <RepeaterHoverContext.Provider value={isHovered ? hoverGroup : null}>
+        {children}
+      </RepeaterHoverContext.Provider>
     );
   };
 
@@ -1829,7 +1833,7 @@ export function createEditableBlock<
     );
     const selectTarget = usePreviewSelection();
     const isBlockSelected = selection?.blockId === blockData._id;
-    const overlayState = useOverlayState(isHovered && !isBlockSelected, isBlockSelected);
+    const overlayState = useOverlayState(isHovered, isBlockSelected);
     const ref = React.useRef<HTMLDivElement>(null);
 
     // Track first render because we won't animate the scroll into view for it
@@ -2042,7 +2046,7 @@ export function createEditableBlock<
     );
     const selectTarget = usePreviewSelection();
     const isBlockSelected = selection?.blockId === blockId;
-    const overlayState = useOverlayState(isHovered && !isBlockSelected, isBlockSelected);
+    const overlayState = useOverlayState(isHovered, isBlockSelected);
 
     const isHoveredFromSidebar = useOverlayMessage(
       iframeWindow,

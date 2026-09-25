@@ -29,6 +29,7 @@ import {
 
 import type { OverlayMessage } from "../overlayMessages";
 import { previewStore } from "../previewStore";
+import { DrillRow } from "./DrillRow";
 import { IconFieldEditor } from "./IconFieldEditor";
 import { RepeatableItemsList } from "./RepeatableItemsList";
 
@@ -70,63 +71,6 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       maxItems: prop.maxItems as number | undefined,
     };
   });
-};
-
-/* -------------------------------------------------------------------------------------------------
- * DrillRow — label + click-to-drill button shared by Link / Image / File / ImageList / FileList
- * -----------------------------------------------------------------------------------------------*/
-
-type DrillRowHover =
-  | { variant: "field"; fieldId: string }
-  | { variant: "repeater"; blockId: number; fieldName: string };
-
-interface DrillRowProps {
-  label: string;
-  preview: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  onClick: () => void;
-  hover: DrillRowHover;
-  postToIframe: (message: OverlayMessage) => void;
-}
-
-const DrillRow = ({ label, preview, Icon, onClick, hover, postToIframe }: DrillRowProps) => {
-  const handleMouseEnter = () => {
-    if (hover.variant === "field") {
-      postToIframe({ type: "CAMOX_HOVER_FIELD", fieldId: hover.fieldId });
-      return;
-    }
-    postToIframe({
-      type: "CAMOX_HOVER_REPEATER",
-      blockId: String(hover.blockId),
-      fieldName: hover.fieldName,
-    });
-  };
-
-  const handleMouseLeave = () => {
-    if (hover.variant === "field") {
-      postToIframe({ type: "CAMOX_HOVER_FIELD_END", fieldId: hover.fieldId });
-      return;
-    }
-    postToIframe({
-      type: "CAMOX_HOVER_REPEATER_END",
-      blockId: String(hover.blockId),
-      fieldName: hover.fieldName,
-    });
-  };
-
-  return (
-    <div className="space-y-2" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      <Label>{label}</Label>
-      <button
-        type="button"
-        className="hover:bg-accent/75 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors"
-        onClick={onClick}
-      >
-        <Icon className="text-muted-foreground h-4 w-4 shrink-0" />
-        <span className="truncate">{preview}</span>
-      </button>
-    </div>
-  );
 };
 
 /* -------------------------------------------------------------------------------------------------

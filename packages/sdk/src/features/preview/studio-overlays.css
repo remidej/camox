@@ -2,7 +2,7 @@
  * Visual editing overlay styles injected into the preview iframe.
  *
  * State is driven by data attributes on the elements:
- * - data-camox-highlight-hovered: deepest hovered element (local or remote)
+ * - data-camox-highlight-hovered: deepest hovered target, or all items in a hovered repeater
  * - data-camox-highlight-focused: deepest focused/selected element
  * - data-camox-overlay-mode="synced": use synced-block (purple) colors
  *

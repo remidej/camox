@@ -27,7 +27,7 @@ void test("one deepest highlight per state, including remote candidates and remo
     assert.deepEqual(highlighted("hovered"), ["item"]);
     assert.deepEqual(highlighted("focused"), ["field"]);
 
-    // Sidebar hover can activate several separate items at once.
+    // Unrelated individual hover candidates still resolve to a single winner.
     document
       .getElementById("block")!
       .insertAdjacentHTML(
@@ -42,6 +42,61 @@ void test("one deepest highlight per state, including remote candidates and remo
     assert.deepEqual(highlighted("hovered"), ["remote"]);
     assert.deepEqual(highlighted("focused"), ["block"]);
 
+    stop();
+    assert.deepEqual(highlighted("hovered"), []);
+    assert.deepEqual(highlighted("focused"), []);
+  } finally {
+    stop();
+    await window.happyDOM.close();
+  }
+});
+
+void test("repeater hover highlights its whole group and preserves individual selection", async () => {
+  const window = new Window();
+  const document = window.document;
+  document.body.innerHTML = `
+    <div id="block" data-camox-hovered>
+      <div id="first" data-camox-hovered data-camox-hover-group="list">
+        <span id="field"></span>
+      </div>
+      <div>
+        <div id="second" data-camox-hovered data-camox-hover-group="list" data-camox-focused></div>
+      </div>
+    </div>`;
+  const stop = observeOverlayHighlights(document as unknown as Document);
+  const highlighted = (state: string) =>
+    Array.from(document.querySelectorAll(`[data-camox-highlight-${state}]`), (el) => el.id);
+  try {
+    // Group membership, not equal DOM depth, identifies the repeater's items.
+    assert.deepEqual(highlighted("hovered"), ["first", "second"]);
+    assert.deepEqual(highlighted("focused"), ["second"]);
+
+    document.getElementById("field")!.setAttribute("data-camox-hovered", "");
+    await window.happyDOM.whenAsyncComplete();
+    assert.deepEqual(highlighted("hovered"), ["field"]);
+    document.getElementById("field")!.removeAttribute("data-camox-hovered");
+    await window.happyDOM.whenAsyncComplete();
+    assert.deepEqual(highlighted("hovered"), ["first", "second"]);
+
+    // Ending group hover must restore individual hover even when its raw
+    // data-camox-hovered attribute stays true throughout the transition.
+    for (const element of document.querySelectorAll("[data-camox-hover-group]")) {
+      element.removeAttribute("data-camox-hover-group");
+    }
+    document.getElementById("first")!.removeAttribute("data-camox-hovered");
+    await window.happyDOM.whenAsyncComplete();
+    assert.deepEqual(highlighted("hovered"), ["second"]);
+    assert.deepEqual(highlighted("focused"), ["second"]);
+
+    document.getElementById("second")!.removeAttribute("data-camox-hovered");
+    await window.happyDOM.whenAsyncComplete();
+    assert.deepEqual(highlighted("hovered"), ["block"]);
+    for (const id of ["first", "second"]) {
+      document.getElementById(id)!.setAttribute("data-camox-hovered", "");
+      document.getElementById(id)!.setAttribute("data-camox-hover-group", "list");
+    }
+    await window.happyDOM.whenAsyncComplete();
+    assert.deepEqual(highlighted("hovered"), ["first", "second"]);
     stop();
     assert.deepEqual(highlighted("hovered"), []);
     assert.deepEqual(highlighted("focused"), []);
