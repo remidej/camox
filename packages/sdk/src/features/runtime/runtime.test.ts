@@ -19,7 +19,7 @@ const app = {
         id: "pokedex",
         kind: "singleton",
         title: "Pokédex",
-        loader: async () => ({ count: 12 }),
+        loader: async () => ({ kind: "data", data: { count: 12 } }),
       },
     },
     { _internal: { id: "about-camox", kind: "singleton", title: "About Camox" } },
@@ -28,7 +28,10 @@ const app = {
         id: "pokemon.$name",
         kind: "derived",
         title: "Pokemon",
-        loader: async ({ params }: { params: { name: string } }) => ({ name: params.name }),
+        loader: async ({ params }: { params: { name: string } }) => ({
+          kind: "data",
+          data: { name: params.name },
+        }),
       },
     },
   ],
@@ -127,12 +130,14 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     assert.equal(input.presentation, "studio");
     assert.ok(input.dehydratedState);
     assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
-    if (path === "/pokedex") assert.deepEqual(input.derived?.data, { count: 12 });
+    if (path === "/pokedex")
+      assert.deepEqual(input.derived?.result, { kind: "data", data: { count: 12 } });
     if (path === "/about-camox") {
       assert.equal(input.derived?.layoutId, "about-camox");
-      assert.equal(input.derived?.data, undefined);
+      assert.equal(input.derived?.result, undefined);
     }
-    if (path.startsWith("/pokemon/")) assert.deepEqual(input.derived?.data, { name: "pikachu" });
+    if (path.startsWith("/pokemon/"))
+      assert.deepEqual(input.derived?.result, { kind: "data", data: { name: "pikachu" } });
     if (path.startsWith("/camox/")) assert.equal(input.routeKind, "studio-content");
     if (!path.startsWith("/camox/")) {
       assert.match(input.previewDocument!, /href="\/site.css"/);
@@ -148,6 +153,14 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
       options,
     );
     const html = await documentResponse!.text();
+    const hydration = JSON.parse(
+      html.match(/<script id="__CAMOX_DATA__" type="application\/json">([\s\S]*?)<\/script>/)![1],
+    ) as PageRenderInput;
+    assert.deepEqual(
+      hydration.derived,
+      input.derived,
+      "document and navigation carry the same envelope",
+    );
     const head = html.split('<script id="__CAMOX_DATA__"')[0];
     assert.match(head, /href="\/studio.css"/);
     assert.match(head, /data-camox-studio/);

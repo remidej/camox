@@ -20,10 +20,13 @@ export const Layout = createLayout("pokedex")({
     const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=2000");
     if (!response.ok) throw new Error(`PokéAPI returned ${response.status}`);
     const data: PokemonList = await response.json();
-    return data.results.map((pokemon) => ({
-      name: pokemon.name,
-      id: Number(pokemon.url.match(/\/pokemon\/(\d+)\/?$/)?.[1]),
-    }));
+    return {
+      kind: "data",
+      data: data.results.map((pokemon) => ({
+        name: pokemon.name,
+        id: Number(pokemon.url.match(/\/pokemon\/(\d+)\/?$/)?.[1]),
+      })),
+    };
   },
   component: PokedexPage,
 });

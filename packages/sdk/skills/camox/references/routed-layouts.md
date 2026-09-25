@@ -19,7 +19,7 @@ import { block as footerBlock } from "../blocks/footer";
 import { loadPokemon } from "../lib/pokemon";
 import { PokemonBrowser } from "../components/pokemon-browser";
 
-export const Layout = createLayout("pokedex")({
+export const layout = createLayout("pokedex")({
   kind: "singleton",
   title: "Pokédex",
   description: "The code-owned Pokémon directory.",
@@ -27,26 +27,26 @@ export const Layout = createLayout("pokedex")({
     before: [navbarBlock, pokedexIntroBlock],
     after: [footerBlock],
   },
-  loader: () => loadPokemon(),
+  loader: async () => ({ kind: "data", data: await loadPokemon() }),
   component: PokedexPage,
   buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
 });
 
 function PokedexPage() {
-  const pokemon = Layout.useData();
+  const pokemon = layout.useData();
   return (
     <>
-      <Layout.BeforeBlocks />
+      <layout.BeforeBlocks />
       <main>
         <PokemonBrowser pokemon={pokemon} />
       </main>
-      <Layout.AfterBlocks />
+      <layout.AfterBlocks />
     </>
   );
 }
 ```
 
-- `loader` is optional. Its awaited result is inferred by `Layout.useData()`. It runs server-side for document requests and client navigation; return JSON-serializable data. Without a loader, `useData()` returns `undefined`.
+- `loader` is optional. Return `{ kind: "data", data }`, synchronously or asynchronously. `layout.useData()` infers and returns the unwrapped `data`, not the envelope. It runs server-side for document requests and client navigation; the entire envelope travels through JSON to hydration. Keep data JSON-serializable (no functions, symbols, BigInt, or cyclic objects). Without a loader, `useData()` returns `undefined`.
 - Before/after blocks must be `layoutOnly: true`. Put editable headings, introductions, and other bespoke content in these blocks; keep structural application UI in the component. See [Block Definitions](block-definitions.md).
 - For a navbar or footer whose content must stay identical across different layouts, also set `synced: true` in its `createBlock` options. `layoutOnly: true` alone only restricts placement. See [Synced blocks](block-definitions.md#synced-blocks-synced-optional) for sharing and publishing behavior.
 - No `children` slot or `blocks.initial`: editors do not compose or create these pages.
@@ -61,7 +61,17 @@ function PokedexPage() {
 
 ## Derived routes
 
-Use the same file-based form with `kind: "derived"`, for example `createLayout("pokemon.$name")`. Its required `loader: ({ params }) => ...` receives typed `params.name`. Read its result through `Layout.useData()`. Use `throw notFound()` (imported from `camox/createLayout`) for a missing record; other loader errors remain server errors. Like singletons, derived routes have before/after blocks but no page-owned `children` or `blocks.initial`. Unlike singletons, curated URLs retain precedence over derived routes.
+Use the same file-based form with `kind: "derived"`, for example `createLayout("pokemon.$name")`. Its required `loader: ({ params }) => ...` receives typed `params.name` and returns `{ kind: "data", data }`. Read its unwrapped data through `layout.useData()`. Use `throw notFound()` (imported from `camox/createLayout`) for a missing record; other loader errors remain server errors. Like singletons, derived routes have before/after blocks but no page-owned `children` or `blocks.initial`. Unlike singletons, curated URLs retain precedence over derived routes.
+
+## Migrating existing loaders
+
+This is a breaking loader contract: replace `return pokemon` with `return { kind: "data", data: pokemon }`. For asynchronous data, await the payload inside the envelope: `return { kind: "data", data: await loadPokemon() }`, not a promise in `data`. Components using `layout.useData()` do not change. Existing layouts without loaders do not change.
+
+For an explicit return annotation, import `type LayoutLoaderResult` from `camox/createLayout` and use `Promise<LayoutLoaderResult<Pokemon>>` instead of `Promise<Pokemon>`. Inline loaders infer their payload automatically. Standalone loader functions can use `LayoutLoaderResult<Pokemon>` (or `satisfies LayoutLoaderResult<Pokemon>`) to keep `kind` a literal rather than a widened string. Wrappers are ordinary functions returning the same envelope; no attached properties or discovery phase are involved.
+
+The playground's `/pokedex`, `/pokemon/pikachu`, and `/pokemon-types/electric` are working external-data examples. Load a URL directly, follow a Pokémon/type link, and refresh: `useData()` receives the same payload in server rendering, navigation, and hydration. Search and “Show more” still run on client state. A nonexistent Pokémon still returns 404; a PokéAPI failure is still a server error.
+
+Only `kind: "data"` is supported here. It does not make external data editable. Collection-item results, collection APIs, route discovery, and layout Markdown are separate future capabilities.
 
 ## File and component conventions
 

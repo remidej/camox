@@ -3,6 +3,7 @@ import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
+import type { LayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { matchDerivedLayout } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
@@ -59,7 +60,7 @@ export interface PageRenderInput {
   presentation?: "public" | "studio";
   derived?: {
     layoutId: string;
-    data: unknown;
+    result?: LayoutLoaderResult;
     layout: Awaited<
       ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["get"]>
     >["layout"];
@@ -480,9 +481,19 @@ async function createDerivedResponse(
   if (!match || (!dataOnly && !options.renderPage)) return null;
   if (singletonOnly && match.layout._internal.kind !== "singleton") return null;
   try {
-    const data = await match.layout._internal.loader?.({ params: match.params });
-    // JSON is the transport contract for request-loaded layout data.
-    const serializedData = data === undefined ? undefined : JSON.parse(JSON.stringify(data));
+    const loader = match.layout._internal.loader;
+    const result = await loader?.({ params: match.params });
+    // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
+    const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
+    if (
+      loader &&
+      (!serializedResult ||
+        serializedResult.kind !== "data" ||
+        !Object.hasOwn(serializedResult, "data"))
+    )
+      throw new Error(
+        `Layout "${match.layout._internal.id}" loader must return { kind: "data", data } with JSON-serializable data`,
+      );
     const queryClient = new QueryClient();
     const authCookieHeader = getServerAuthCookieHeader(request.headers);
     let source: "live" | "draft" = authCookieHeader ? "draft" : "live";
@@ -523,7 +534,11 @@ async function createDerivedResponse(
       pathname,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
       source,
-      derived: { layoutId: match.layout._internal.id, data: serializedData, layout: shared.layout },
+      derived: {
+        layoutId: match.layout._internal.id,
+        result: serializedResult,
+        layout: shared.layout,
+      },
     };
     const document = (await options.getDocument?.()) ?? {};
     await preparePreviewDocument(

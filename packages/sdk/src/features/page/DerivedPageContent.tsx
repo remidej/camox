@@ -23,7 +23,7 @@ export function DerivedPageContent({
   return (
     <SharedLayoutContent
       layout={layout}
-      data={derived.data}
+      result={derived.result}
       blocks={[...beforeBlocks, ...afterBlocks]}
       files={layoutFiles}
       repeatableItems={layoutItems}

@@ -66,14 +66,26 @@ type ValidatePageContentBlocks<T extends readonly LayoutBlock[]> = {
     : T[K];
 };
 
+/** Successful ordinary loader result. Data must be JSON-serializable. */
+export interface LayoutLoaderResult<Data = unknown> {
+  kind: "data";
+  data: Data;
+}
+
+type LoaderReturn = LayoutLoaderResult | PromiseLike<LayoutLoaderResult>;
+type LoaderData<Result extends LoaderReturn> = [Result] extends [never]
+  ? undefined
+  : Awaited<Result>["data"];
+
 interface CreateLayoutOptions<
   TBefore extends readonly LayoutBlock[],
   TAfter extends readonly LayoutBlock[],
   TInitial extends readonly LayoutBlock[],
+  Result extends LoaderReturn = LoaderReturn,
 > {
   id: string;
   kind?: "curated" | "derived" | "singleton";
-  loader?: (context: { params: Record<string, string> }) => unknown;
+  loader?: (context: { params: Record<string, string> }) => Result;
   title: string;
   description: string;
   blocks: {
@@ -104,7 +116,7 @@ function createLayoutDefinition<
   // Each layout gets its own context — avoids cross-module identity issues
   const LayoutContext = React.createContext<{
     layoutBlocks: Record<string, LayoutBlockData>;
-    data?: unknown;
+    result?: LayoutLoaderResult;
   } | null>(null);
 
   // Cast away the validation mapped type — once user-side type-checking has passed,
@@ -183,13 +195,13 @@ function createLayoutDefinition<
   const Provider = ({
     layoutBlocks,
     children,
-    data,
+    result,
   }: {
     layoutBlocks: Record<string, LayoutBlockData>;
     children: React.ReactNode;
-    data?: unknown;
+    result?: LayoutLoaderResult;
   }) => {
-    const value = React.useMemo(() => ({ layoutBlocks, data }), [layoutBlocks, data]);
+    const value = React.useMemo(() => ({ layoutBlocks, result }), [layoutBlocks, result]);
     return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
   };
 
@@ -248,7 +260,7 @@ function createLayoutDefinition<
       const context = React.use(LayoutContext);
       if (!context)
         throw new Error(`Layout "${options.id}" useData must be rendered inside its Provider`);
-      return context.data;
+      return context.result?.data;
     },
     _internal: {
       id: options.id,
@@ -278,7 +290,7 @@ type Params<Id extends string> = Id extends `${infer Head}.${infer Tail}`
 
 type FileOptions<
   Id extends string,
-  Data,
+  Result extends LoaderReturn,
   B extends readonly LayoutBlock[],
   A extends readonly LayoutBlock[],
   I extends readonly LayoutBlock[],
@@ -296,7 +308,7 @@ type FileOptions<
           after: ValidateLayoutOnlyBlocks<A>;
           initial?: never;
         };
-        loader?: (context: { params: Record<string, never> }) => Data;
+        loader?: (context: { params: Record<string, never> }) => Result;
         component: React.ComponentType<{ children?: never }>;
       }
     | {
@@ -312,26 +324,31 @@ type FileOptions<
               ? P
               : Params<Id>
             : Params<Id>;
-        }) => Data;
+        }) => Result;
         component: React.ComponentType<{ children?: never }>;
       }
   );
 
-export function createLayout<const Id extends string>(
-  id: Id,
-): <
-  Data = undefined,
-  const B extends readonly LayoutBlock[] = [],
-  const A extends readonly LayoutBlock[] = [],
-  const I extends readonly LayoutBlock[] = [],
->(
-  options: FileOptions<Id, Data, B, A, I>,
-) => Omit<Layout, "useData"> & { useData: () => Awaited<Data> };
 export function createLayout<
   const B extends readonly LayoutBlock[],
   const A extends readonly LayoutBlock[],
   const I extends readonly LayoutBlock[] = [],
->(options: CreateLayoutOptions<B, A, I>): Layout;
+  Result extends LoaderReturn = never,
+>(
+  options: CreateLayoutOptions<B, A, I, Result>,
+): Omit<Layout, "useData"> & {
+  useData: () => LoaderData<Result>;
+};
+export function createLayout<const Id extends string>(
+  id: Id,
+): <
+  Result extends LoaderReturn = never,
+  const B extends readonly LayoutBlock[] = [],
+  const A extends readonly LayoutBlock[] = [],
+  const I extends readonly LayoutBlock[] = [],
+>(
+  options: FileOptions<Id, Result, B, A, I>,
+) => Omit<Layout, "useData"> & { useData: () => LoaderData<Result> };
 export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any, any>): any {
   if (typeof idOrOptions !== "string") return createLayoutDefinition(idOrOptions);
   return (options: CreateLayoutOptions<any, any, any>) =>

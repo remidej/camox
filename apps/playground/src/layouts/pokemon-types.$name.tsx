@@ -1,4 +1,4 @@
-import { createLayout, notFound } from "camox/createLayout";
+import { createLayout, notFound, type LayoutLoaderResult } from "camox/createLayout";
 import { useState } from "react";
 
 import { block as footerBlock } from "../blocks/footer";
@@ -33,13 +33,13 @@ export const Layout = createLayout("pokemon-types.$name")({
   description: "PokéAPI type detail pages",
   blocks: { before: [navbarBlock], after: [footerBlock] },
   buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
-  loader: async ({ params }): Promise<PokemonType> => {
+  loader: async ({ params }): Promise<LayoutLoaderResult<PokemonType>> => {
     const response = await fetch(
       `https://pokeapi.co/api/v2/type/${encodeURIComponent(params.name)}`,
     );
     if (response.status === 404) throw notFound();
     if (!response.ok) throw new Error(`PokéAPI returned ${response.status}`);
-    return response.json();
+    return { kind: "data", data: await response.json() };
   },
   component: TypePage,
 });

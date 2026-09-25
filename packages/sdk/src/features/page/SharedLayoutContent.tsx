@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import type { Layout, LayoutBlockData } from "../../core/createLayout";
+import type { Layout, LayoutBlockData, LayoutLoaderResult } from "../../core/createLayout";
 import {
   NormalizedDataProvider,
   type NormalizedBlock,
@@ -14,14 +14,14 @@ export function SharedLayoutContent({
   blocks,
   files,
   repeatableItems,
-  data,
+  result,
   children,
 }: {
   layout: Layout;
   blocks: NormalizedBlock[];
   files: NormalizedFile[];
   repeatableItems: NormalizedItem[];
-  data?: unknown;
+  result?: LayoutLoaderResult;
   children?: React.ReactNode;
 }) {
   const layoutBlocks = React.useMemo(() => {
@@ -40,7 +40,7 @@ export function SharedLayoutContent({
   const Component = layout._internal.component;
   return (
     <NormalizedDataProvider files={files} repeatableItems={repeatableItems}>
-      <layout._internal.Provider layoutBlocks={layoutBlocks} data={data}>
+      <layout._internal.Provider layoutBlocks={layoutBlocks} result={result}>
         <Component>{children}</Component>
       </layout._internal.Provider>
     </NormalizedDataProvider>
