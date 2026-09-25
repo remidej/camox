@@ -15,27 +15,30 @@ registerHooks({
   },
 });
 
-void test("comments are opt-in and cannot activate when experimental features are disabled", async () => {
+void test("comment mode is available with experimental features unset or disabled", async () => {
   const flags = globalThis as typeof globalThis & {
     __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__?: boolean;
   };
-  const { areCommentsEnabled } = await import("./commentsEnabled");
+  const previousFlag = flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
   const { previewStore } = await import("./previewStore");
   try {
-    delete flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
-    assert.equal(areCommentsEnabled(), false);
-    flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ = false;
-    assert.equal(areCommentsEnabled(), false);
-    previewStore.send({ type: "enterEditMode" });
-    previewStore.send({ type: "setFocusedBlock", blockId: 1 });
-    previewStore.send({ type: "setCommentMode", enabled: true });
-    assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
-    assert.deepEqual(previewStore.getSnapshot().context.selection, { type: "block", blockId: 1 });
+    for (const flag of [undefined, false]) {
+      if (flag === undefined) delete flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
+      else flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ = flag;
+      previewStore.send({ type: "exitEditMode" });
+      previewStore.send({ type: "setCommentMode", enabled: true });
+      assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
+      previewStore.send({ type: "enterEditMode" });
+      previewStore.send({ type: "setFocusedBlock", blockId: 1 });
+      previewStore.send({ type: "setCommentMode", enabled: true });
+      assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
+      assert.equal(previewStore.getSnapshot().context.selection, null);
+    }
   } finally {
-    flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ = true;
+    if (previousFlag === undefined) delete flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
+    else flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ = previousFlag;
     previewStore.send({ type: "exitEditMode" });
   }
-  assert.equal(areCommentsEnabled(), true);
 });
 
 void test("comment mode is draft-editing only and clears editing selection", async () => {

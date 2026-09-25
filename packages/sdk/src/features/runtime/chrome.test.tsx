@@ -106,7 +106,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.doesNotMatch(publicHtml, /Quick find|Edit mode|My actual project|studio.css/);
 });
 
-void test("feedback only depends on the future flag, not page metadata or authentication", async () => {
+void test("feedback is available without experimental features, page metadata or authentication", async () => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { initApiClient } = await import("../../lib/api-client");
   initApiClient("https://api.test");
@@ -121,19 +121,19 @@ void test("feedback only depends on the future flag, not page metadata or authen
     );
   const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
   try {
-    for (const enabled of [true, false]) {
-      Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: enabled });
+    for (const flag of [undefined, false]) {
+      if (flag === undefined)
+        Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+      else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
       // No auth provider or page metadata is required, including on derived previews.
       for (const status of [undefined, "draft", "published", "modified"] as const) {
         const toolbarHtml = renderToolbar(status);
-        if (enabled) {
-          assert.match(toolbarHtml, /Feedback/);
-          continue;
-        }
-        assert.doesNotMatch(toolbarHtml, /Feedback/);
+        assert.match(toolbarHtml, /Feedback/);
       }
     }
   } finally {
-    Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previousFlag });
+    if (previousFlag === undefined)
+      Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+    else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previousFlag });
   }
 });

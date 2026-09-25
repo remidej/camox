@@ -27,8 +27,6 @@ import {
   projectQueries,
 } from "@/lib/queries";
 
-import { areCommentsEnabled } from "../../preview/commentsEnabled";
-
 const PRODUCTION_ENV = "production";
 
 type Direction = "push" | "pull";
@@ -226,8 +224,7 @@ export const EnvironmentMenu = () => {
                   cannot be undone.
                 </>
               )}
-              {areCommentsEnabled() &&
-                " Feedback comments in the destination will also be replaced."}
+              {" Feedback comments in the destination will also be replaced."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

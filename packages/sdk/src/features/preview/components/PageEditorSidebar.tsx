@@ -16,7 +16,6 @@ import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } fr
 import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import { areCommentsEnabled } from "../commentsEnabled";
 import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
 import {
   previewStore,
@@ -757,16 +756,14 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}
-              {areCommentsEnabled() &&
-                !fieldHasOwnView &&
-                (currentItemId == null || currentItem) && (
-                  <AttachedComments
-                    pageId={pageId}
-                    blockId={block.id}
-                    itemId={currentItemId ?? undefined}
-                  />
-                )}
-              {areCommentsEnabled() && fieldHasOwnView && fieldInfo && (
+              {!fieldHasOwnView && (currentItemId == null || currentItem) && (
+                <AttachedComments
+                  pageId={pageId}
+                  blockId={block.id}
+                  itemId={currentItemId ?? undefined}
+                />
+              )}
+              {fieldHasOwnView && fieldInfo && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}

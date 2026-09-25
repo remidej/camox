@@ -4,8 +4,6 @@ import { createStore } from "@xstate/store-react";
 import { Block } from "@/core/createBlock";
 import type { FieldType } from "@/core/lib/fieldTypes";
 
-import { areCommentsEnabled } from "./commentsEnabled";
-
 /* -------------------------------------------------------------------------------------------------
  * Selection — normalized, flat pointer to the currently selected entity
  * -------------------------------------------------------------------------------------------------
@@ -102,7 +100,7 @@ export const previewStore = createStore({
   on: {
     setCommentMode: (context, event: { enabled: boolean }) => {
       if (!selectIsEditMode({ context })) return context;
-      const commenting = areCommentsEnabled() && event.enabled;
+      const commenting = event.enabled;
       return {
         ...context,
         mode: commenting ? ("commenting-draft" as const) : ("editing-draft" as const),
