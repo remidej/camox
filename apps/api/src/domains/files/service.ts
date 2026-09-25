@@ -14,6 +14,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, layouts, member, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { assertNoCollectionAssetUse } from "../collections/asset-retention";
 import { readMetadataImage } from "./metadata-image";
 
 // --- Input Schemas ---
@@ -405,6 +406,7 @@ export async function deleteFile(ctx: ServiceContext, rawInput: z.input<typeof d
   const access = await assertFileAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
 
+  await assertNoCollectionAssetUse(ctx.db, [id]);
   const { blockIds, blockPageIds, itemIds } = await removeFileReferences(ctx.db, id);
 
   // Other envs may point at the same R2 blob via push/pull replication. Only
@@ -451,6 +453,7 @@ export async function deleteFiles(ctx: ServiceContext, rawInput: z.input<typeof 
     throw new ORPCError("FORBIDDEN");
   }
 
+  await assertNoCollectionAssetUse(ctx.db, ids);
   const allBlockIds: number[] = [];
   const allBlockPageIds: number[] = [];
   const allItemIds: number[] = [];

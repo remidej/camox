@@ -24,6 +24,10 @@ const config = defineConfig({
     alias: [
       // Point to SDK source files directly instead of built output
       {
+        find: "camox/createCollection",
+        replacement: resolve(__dirname, "../../packages/sdk/src/core/createCollection.ts"),
+      },
+      {
         find: "camox/createApp",
         replacement: resolve(__dirname, "../../packages/sdk/src/core/createApp.ts"),
       },

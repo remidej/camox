@@ -47,6 +47,8 @@ function formatReason(reason: CompatibilityReason, direction: Direction): string
     : "Run your dev project locally to register it, then try again.";
 
   switch (reason.kind) {
+    case "collections-replication-unsupported":
+      return "Environment replication with collection records/history is not supported yet. No content was changed.";
     case "block-definition-missing-in-source":
       return `Block type "${reason.blockId}" exists in ${targetLabel} but not in ${sourceLabel}.`;
     case "block-definition-missing-in-target":

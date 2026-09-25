@@ -140,6 +140,21 @@ export async function syncDefinitionsToApi(options: {
     );
   }
 
+  const collectionResult = await client.collectionDefinitions.sync({
+    projectSlug,
+    deployToken,
+    autoCreate,
+    definitions: camoxApp.getSerializableCollectionDefinitions(),
+  });
+  logger.info(`[camox] Synced ${collectionResult.count} collection definitions`, {
+    timestamp: true,
+  });
+  for (const id of collectionResult.retired) {
+    logger.warn(`[camox] Retired collection "${id}"; records and history are preserved`, {
+      timestamp: true,
+    });
+  }
+
   // Sync layouts
   if (layoutDefinitions.length > 0) {
     let layoutSyncResults;
@@ -292,7 +307,9 @@ export async function syncDefinitions(
     // references, so layout reconciliation would be a no-op until the dev
     // server restarts. Invalidate the app module (which propagates up from
     // its glob-imported children) to force re-evaluation.
-    const appModule = server.moduleGraph.getModuleById(CAMOX_APP_PATH);
+    const appModule = server.moduleGraph.getModuleById(
+      path.resolve(server.config.root, CAMOX_APP_PATH),
+    );
     if (appModule) {
       server.moduleGraph.invalidateModule(appModule);
     }
@@ -465,10 +482,14 @@ export async function syncDefinitions(
 
   let layoutSyncTimer: ReturnType<typeof setTimeout> | null = null;
   const handleLayoutFileChange = (filePath: string) => {
-    if (!isLayoutFile(filePath)) return;
+    const isCollection = ["src/collections", "src/camox/collections"].some(
+      (dir) =>
+        filePath.startsWith(path.resolve(server.config.root, dir) + path.sep) &&
+        /\.tsx?$/.test(filePath),
+    );
+    if (!isLayoutFile(filePath) && !isCollection) return;
 
-    const relativePath = "./" + path.relative(server.config.root, filePath);
-    const moduleNode = server.moduleGraph.getModuleById(relativePath);
+    const moduleNode = server.moduleGraph.getModuleById(filePath);
     if (moduleNode) {
       server.moduleGraph.invalidateModule(moduleNode);
     }

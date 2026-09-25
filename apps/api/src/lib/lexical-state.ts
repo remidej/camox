@@ -99,7 +99,9 @@ function extractText(node: any): string {
     return parts.join("");
   }
 
-  return parts.join("\n\n");
+  // Match the SDK: paragraph boundaries live at the root, never between
+  // differently formatted text spans inside an inline link.
+  return parts.join(node.type === "root" ? "\n\n" : "");
 }
 
 export function lexicalStateToMarkdown(serialized: string | Record<string, unknown>): string {

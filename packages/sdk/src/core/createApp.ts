@@ -1,14 +1,22 @@
 import type { Block } from "./createBlock";
+import type { Collection } from "./createCollection";
 import type { Layout } from "./createLayout";
 
 interface CreateAppOptions {
   blocks: Block[];
   layouts?: Layout[];
+  collections?: Collection[];
 }
 
-export function createApp({ blocks, layouts = [] }: CreateAppOptions) {
+export function createApp({ blocks, layouts = [], collections = [] }: CreateAppOptions) {
   const blocksMap = new Map<string, Block>();
   const layoutsMap = new Map<string, Layout>();
+  const collectionsMap = new Map<string, Collection>();
+  for (const collection of collections) {
+    const id = collection._internal.id;
+    if (collectionsMap.has(id)) throw new Error(`Duplicate collection: ${id}`);
+    collectionsMap.set(id, collection);
+  }
 
   for (const block of blocks) {
     blocksMap.set(block._internal.id, block);
@@ -39,6 +47,21 @@ export function createApp({ blocks, layouts = [] }: CreateAppOptions) {
   }
 
   return {
+    getCollections() {
+      return Array.from(collectionsMap.values());
+    },
+    getCollectionById(id: string) {
+      return collectionsMap.get(id);
+    },
+    getSerializableCollectionDefinitions() {
+      return Array.from(collectionsMap.values()).map(({ _internal }) => ({
+        collectionId: _internal.id,
+        title: _internal.title,
+        description: _internal.description,
+        label: _internal.label,
+        contentSchema: JSON.parse(JSON.stringify(_internal.contentSchema)),
+      }));
+    },
     getBlocks() {
       return Array.from(blocksMap.values());
     },

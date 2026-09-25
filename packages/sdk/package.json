@@ -12,6 +12,11 @@
   ],
   "type": "module",
   "exports": {
+    "./createCollection": {
+      "source": "./src/core/createCollection.ts",
+      "types": "./dist/core/createCollection.d.ts",
+      "import": "./dist/core/createCollection.js"
+    },
     "./dom": {
       "source": "./src/core/dom.ts",
       "types": "./dist/core/dom.d.ts",
@@ -123,6 +128,10 @@
   },
   "publishConfig": {
     "exports": {
+      "./createCollection": {
+        "types": "./dist/core/createCollection.d.ts",
+        "import": "./dist/core/createCollection.js"
+      },
       "./dom": {
         "types": "./dist/core/dom.d.ts",
         "import": "./dist/core/dom.js"

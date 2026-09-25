@@ -1,5 +1,36 @@
 # Collections — v1 specification
 
+## Slice 2 decision: record history and checkpoints
+
+Pages/layouts persist immutable checkpoints and switch an explicit live pointer;
+synced blocks overlay the latest independently published data on current live
+reads, but not on explicit historical reads. Collections follow that distinction,
+without copying page/block trees or sharing their restoration behavior.
+
+- A record has a stable UUID, an isolated mutable draft, and an explicit current
+  published revision pointer. Publication snapshots that one record only.
+- Revisions are immutable, versioned snapshots of content and its definition.
+  Manual checkpoints and publication create revisions. Restoration first saves
+  the displaced draft, then replaces only this record's draft. Publication remains
+  separate. Historical reads return exactly the requested revision, never an overlay.
+- Draft/history access and every mutation require site membership. Every lookup
+  also scopes by site, environment, and collection. Public reads return only the
+  current published revision, or null for a missing/unpublished record.
+- Mutations require the expected record version to prevent lost updates. A failed
+  publication may leave an unreferenced immutable snapshot, never partial live data.
+- Missing definitions are retired, not deleted. Re-registration revives them.
+  Schema changes with existing records are rejected rather than silently migrating
+  or discarding content; metadata/label changes remain possible. A migration
+  framework and environment-copy support are not part of this slice.
+- Compatibility guard: environment replication and site deletion are blocked before
+  destructive work only when collection records/history exist. Empty code-owned
+  definitions do not block existing workflows. Replication leaves empty collection
+  definitions to code sync; deletion removes them. This is a deliberate temporary
+  limitation, not silently incomplete replication.
+- String storage preserves plain strings and validated current Camox Lexical inline
+  state (constraints apply to extracted text). Distinct Link/Repeater/Icon fields
+  fail at definition creation/sync until their record storage is supported.
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.

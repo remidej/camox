@@ -7,6 +7,15 @@ const migrations = await readD1Migrations(path.join(import.meta.dirname, "migrat
 
 export default defineConfig({
   logLevel: "silent",
+  resolve: {
+    alias: {
+      // Exercise the real playground collection definition without requiring SDK dist.
+      "camox/createCollection": path.resolve(
+        import.meta.dirname,
+        "../../packages/sdk/src/core/createCollection.ts",
+      ),
+    },
+  },
   plugins: [
     cloudflareTest({
       // Tests must not inherit production-backed bindings (such as EMAIL).

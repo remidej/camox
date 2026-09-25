@@ -22,6 +22,12 @@ function generateCamoxApp(): string {
 import type { Block } from 'camox/createBlock';
 import type { Layout } from 'camox/createLayout';
 
+const collectionModules = import.meta.glob<{ collection: import('camox/createCollection').Collection }>(
+  ['../collections/*.{ts,tsx}', './collections/*.{ts,tsx}'],
+  { eager: true },
+);
+const collections = Object.values(collectionModules).map((mod) => mod.collection);
+
 // Auto-import all blocks from the first-class blocks directory
 const blockModules = import.meta.glob<{ block: Block }>('../blocks/*.{ts,tsx}', {
   eager: true,
@@ -49,6 +55,7 @@ const layouts = [...Object.values(layoutModules), ...Object.values(legacyLayoutM
 export const camoxApp = createApp({
   blocks,
   layouts,
+  collections,
 });
 `
   );

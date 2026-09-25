@@ -9,6 +9,8 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
   aiJobs,
   blockDefinitions,
+  collectionDefinitions,
+  collectionRecords,
   blocks,
   environments,
   files,
@@ -222,6 +224,19 @@ export async function deleteProject(
 
   const projectId = project.id;
 
+  const collection = await ctx.db
+    .select({ id: collectionRecords.id })
+    .from(collectionRecords)
+    .innerJoin(collectionDefinitions, eq(collectionRecords.definitionId, collectionDefinitions.id))
+    .where(eq(collectionDefinitions.projectId, projectId))
+    .get();
+  if (collection) {
+    throw new ORPCError("CONFLICT", {
+      message:
+        "Deleting projects with collection history is not supported yet; no content was changed.",
+    });
+  }
+
   // Collect IDs needed for cascade deletion
   const pageRows = await ctx.db
     .select({ id: pages.id })
@@ -334,6 +349,7 @@ export async function deleteProject(
 
   await ctx.db.delete(layouts).where(eq(layouts.projectId, projectId));
   await ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.projectId, projectId));
+  await ctx.db.delete(collectionDefinitions).where(eq(collectionDefinitions.projectId, projectId));
   await ctx.db.delete(environments).where(eq(environments.projectId, projectId));
 
   const result = await ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get();

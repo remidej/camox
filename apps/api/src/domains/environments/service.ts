@@ -11,6 +11,8 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import {
   blockDefinitions,
+  collectionDefinitions,
+  collectionRecords,
   blocks,
   comments,
   files,
@@ -43,6 +45,7 @@ export const replicateEnvironmentInput = z.object({
 // studio can render a clear "Cannot push because…" message per offending key.
 
 export type CompatibilityReason =
+  | { kind: "collections-replication-unsupported" }
   | { kind: "block-definition-missing-in-source"; blockId: string }
   | { kind: "block-definition-missing-in-target"; blockId: string }
   | {
@@ -77,6 +80,14 @@ async function collectCompatibilityReasons(
   targetEnvId: number,
 ): Promise<CompatibilityReason[]> {
   const reasons: CompatibilityReason[] = [];
+
+  const collection = await db
+    .select({ id: collectionRecords.id })
+    .from(collectionRecords)
+    .innerJoin(collectionDefinitions, eq(collectionRecords.definitionId, collectionDefinitions.id))
+    .where(inArray(collectionDefinitions.environmentId, [sourceEnvId, targetEnvId]))
+    .get();
+  if (collection) reasons.push({ kind: "collections-replication-unsupported" });
 
   // --- Block definitions ---
   const sourceDefs = await db

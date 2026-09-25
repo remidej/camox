@@ -6,6 +6,7 @@ export default defineConfig({
     entry: {
       "core/dom": "src/core/dom.ts",
       "core/createApp": "src/core/createApp.ts",
+      "core/createCollection": "src/core/createCollection.ts",
       "core/createBlock": "src/core/createBlock.tsx",
       "core/createLayout": "src/core/createLayout.tsx",
       "core/defineDocument": "src/core/defineDocument.ts",

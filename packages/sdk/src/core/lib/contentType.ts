@@ -325,7 +325,7 @@ export const Type = {
       ...options,
       default: options.default,
       fieldType: "String" as const,
-    });
+    }) as TUnsafe<string> & { fieldType: "String" };
   },
 
   /**
