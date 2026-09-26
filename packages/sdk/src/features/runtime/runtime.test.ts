@@ -116,7 +116,15 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
         : "<nav>Studio</nav>",
     renderStudio: async () => "<nav>Studio</nav>",
   };
-  for (const path of ["/about", "/pokedex", "/about-camox", "/pokemon/pikachu", "/camox/content"]) {
+  for (const path of [
+    "/about",
+    "/pokedex",
+    "/about-camox",
+    "/pokemon/pikachu",
+    "/camox/content",
+    "/camox/content/collections/articles",
+    "/camox/content/collections/articles/new",
+  ]) {
     const response = await handleCamoxRequest(
       new Request(`https://site.test/_camox/data?path=${encodeURIComponent(path)}`, {
         headers: { Cookie: "camox_auth_cookie=token%3Dtest" },

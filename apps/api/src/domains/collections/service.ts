@@ -1,8 +1,11 @@
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { ORPCError } from "@orpc/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { assertSyncAccess, getAuthorizedProjectBySlug } from "../../authorization";
+import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
@@ -19,7 +22,7 @@ export const syncCollectionDefinitionsInput = z
   })
   .strict();
 
-/** The only routed collection operation in slice 2 is authenticated definition sync. */
+/** Definition sync is the only routed collection write operation. */
 export async function syncCollectionDefinitions(
   ctx: ServiceContext,
   rawInput: z.input<typeof syncCollectionDefinitionsInput>,
@@ -85,6 +88,12 @@ export async function syncCollectionDefinitions(
     ),
   ] as const;
   await ctx.db.batch(statements);
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    projectId: project.id,
+    targets: [queryKeys.collections.list(input.projectSlug, ctx.environmentName)],
+  });
   return {
     count: input.definitions.length,
     retired: existing
@@ -95,9 +104,76 @@ export async function syncCollectionDefinitions(
   };
 }
 
-const scopeInput = z.object({ projectSlug: z.string(), collectionId: z.string() }).strict();
+export const listCollectionDefinitionsInput = z.object({ projectSlug: z.string() }).strict();
+export const listCollectionRecordsInput = listCollectionDefinitionsInput.extend({
+  collectionId: z.string(),
+});
+export const getCollectionDefinitionInput = listCollectionRecordsInput;
+const scopeInput = listCollectionRecordsInput;
 const recordInput = scopeInput.extend({ id: z.uuid() });
 const mutationInput = recordInput.extend({ expectedVersion: z.number().int().positive() });
+
+export async function listCollectionDefinitions(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listCollectionDefinitionsInput>,
+) {
+  const input = listCollectionDefinitionsInput.parse(rawInput);
+  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
+  const project = await getAuthorizedProjectBySlug(ctx.db, input.projectSlug, ctx.user.id);
+  if (!project) throw new ORPCError("NOT_FOUND");
+  const environment = await resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  return (
+    ctx.db
+      .select({
+        collectionId: collectionDefinitions.collectionId,
+        title: collectionDefinitions.title,
+        description: collectionDefinitions.description,
+        label: collectionDefinitions.label,
+      })
+      .from(collectionDefinitions)
+      .where(
+        and(
+          eq(collectionDefinitions.projectId, project.id),
+          eq(collectionDefinitions.environmentId, environment.id),
+          eq(collectionDefinitions.active, true),
+        ),
+      )
+      // Definitions have no creation timestamp; their auto-increment ID preserves creation order.
+      .orderBy(desc(collectionDefinitions.id))
+  );
+}
+
+export async function getCollectionDefinition(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getCollectionDefinitionInput>,
+) {
+  const input = getCollectionDefinitionInput.parse(rawInput);
+  const definition = await definitionFor(ctx, input, true);
+  if (!definition.active) throw new ORPCError("NOT_FOUND");
+  const { collectionId, title, description, label, contentSchema } = definition;
+  return { collectionId, title, description, label, contentSchema };
+}
+
+/** Studio reads current drafts only; public/live reads remain separate. */
+export async function listCollectionRecords(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listCollectionRecordsInput>,
+) {
+  const input = listCollectionRecordsInput.parse(rawInput);
+  const definition = await definitionFor(ctx, input, true);
+  if (!definition.active) throw new ORPCError("NOT_FOUND");
+  const records = await ctx.db
+    .select({ id: collectionRecords.id, content: collectionRecords.draft })
+    .from(collectionRecords)
+    .where(eq(collectionRecords.definitionId, definition.id))
+    .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id));
+  return records.map((record) => ({
+    id: record.id,
+    label: lexicalStateToPlainText(
+      record.content[definition.label] as string | Record<string, unknown>,
+    ),
+  }));
+}
 
 async function definitionFor(
   ctx: ServiceContext,

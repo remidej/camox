@@ -261,8 +261,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             "camox > @base-ui/react/toggle",
             "camox > @base-ui/react/tooltip",
             "camox > @base-ui/react/use-render",
-            "camox > @camox/api-contract",
-            "camox > @camox/api-contract/query-keys",
             "camox > @camox/ui > class-variance-authority",
             "camox > @camox/ui > clsx",
             "camox > @camox/ui > cmdk",
@@ -314,6 +312,10 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             "camox > @tanstack/react-query-devtools/production",
             "camox > partysocket/react",
           ],
+          // This linked workspace package changes as the Studio/API contract evolves.
+          // Pre-bundling it freezes exports until Vite is restarted, crashing the editor
+          // when new queries are added during development.
+          exclude: ["@camox/api-contract", "@camox/api-contract/query-keys"],
         },
       };
     },

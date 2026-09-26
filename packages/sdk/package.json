@@ -227,6 +227,7 @@
     "build:watch": "vp pack --watch",
     "lint": "vp lint",
     "test:inline": "tsx --test src/core/lib/inlineText.test.tsx src/core/components/lexical/inlineEditing.test.tsx",
+    "test:content": "tsx --test src/features/content/content.test.tsx",
     "check": "tsgo --noEmit && vp lint --fix"
   },
   "dependencies": {

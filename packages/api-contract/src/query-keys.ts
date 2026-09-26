@@ -21,6 +21,31 @@ type QueryKeyGroup = Record<string, QueryKey | ((...args: any[]) => QueryKey)>;
 export type ReadSource = "draft" | "live";
 
 export const queryKeys = {
+  collections: {
+    list: (projectSlug: string, environmentName: string) => [
+      "camox",
+      "collections",
+      "list",
+      projectSlug,
+      environmentName,
+    ],
+    get: (projectSlug: string, environmentName: string, collectionId: string) => [
+      "camox",
+      "collections",
+      "get",
+      projectSlug,
+      environmentName,
+      collectionId,
+    ],
+    records: (projectSlug: string, environmentName: string, collectionId: string) => [
+      "camox",
+      "collections",
+      "records",
+      projectSlug,
+      environmentName,
+      collectionId,
+    ],
+  },
   comments: {
     all: ["camox", "comments"],
     list: (pageId: number) => ["camox", "comments", "list", pageId],
