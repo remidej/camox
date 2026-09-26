@@ -47,11 +47,12 @@ const ExperimentalContent = () => {
         <div role={isPending ? "status" : "alert"} className="text-muted-foreground p-6 text-sm">
           {isPending ? "Loading collection…" : "Collection not found."}
         </div>
-      ) : route?.isNew && collection ? (
+      ) : (route?.isNew || route?.itemId) && collection ? (
         <ContentCollectionNew
-          key={collection.collectionId}
+          key={`${collection.collectionId}:${route.itemId ?? "new"}`}
           projectSlug={projectSlug}
           collection={collection}
+          itemId={route.itemId}
         />
       ) : collection ? (
         <ContentCollection

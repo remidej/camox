@@ -30,6 +30,7 @@ const AssetActionButtons = ({
   onPickerOpen,
   onFilesSelected,
   uploads,
+  accept,
 }: {
   isImage: boolean;
   multiple: boolean;
@@ -37,12 +38,14 @@ const AssetActionButtons = ({
   onPickerOpen: () => void;
   onFilesSelected: (files: FileList) => void;
   uploads: UploadItem[];
+  accept?: string[];
 }) => (
   <>
-    <Button variant="default" className="mx-auto flex w-full" onClick={onPickerOpen}>
+    <Button type="button" variant="default" className="mx-auto flex w-full" onClick={onPickerOpen}>
       Select existing {assetLabel(isImage, multiple)}
     </Button>
     <Button
+      type="button"
       variant="secondary"
       className="mx-auto flex w-full"
       onClick={() => fileInputRef.current?.click()}
@@ -55,7 +58,7 @@ const AssetActionButtons = ({
       type="file"
       ref={fileInputRef}
       className="hidden"
-      accept={isImage ? "image/*" : "*/*"}
+      accept={accept?.join(",") ?? (isImage ? "image/*" : "*/*")}
       multiple={multiple}
       onChange={(e) => {
         if (e.target.files) onFilesSelected(e.target.files);
@@ -81,7 +84,11 @@ const SingleAssetFieldEditor = ({
   assetType,
   currentData,
   onFieldChange,
+  resolveLocally = false,
+  accept,
 }: {
+  resolveLocally?: boolean;
+  accept?: string[];
   fieldName: string;
   assetType: "Image" | "File";
   currentData: Record<string, unknown>;
@@ -109,12 +116,16 @@ const SingleAssetFieldEditor = ({
   const { uploads, uploadFiles } = useFileUpload({
     projectId: project?.id,
     onFileCommitted: (result) => {
-      onFieldChange(fieldName, { _fileId: Number(result.fileId) });
+      onFieldChange(fieldName, {
+        ...(resolveLocally ? { ...result, alt: "" } : {}),
+        _fileId: Number(result.fileId),
+      });
     },
   });
 
   const handleDrop = React.useCallback(
     (files: FileList) => {
+      if (!files.length) return;
       // Single-file field: only upload the first file
       const dt = new DataTransfer();
       dt.items.add(files[0]);
@@ -124,7 +135,10 @@ const SingleAssetFieldEditor = ({
   );
 
   const handleSelectExisting = (file: File) => {
-    onFieldChange(fieldName, { _fileId: file.id });
+    onFieldChange(fieldName, {
+      ...(resolveLocally ? file : {}),
+      _fileId: file.id,
+    });
     setPickerOpen(false);
   };
 
@@ -162,6 +176,7 @@ const SingleAssetFieldEditor = ({
             </button>
             <UnlinkAssetButton
               fileId={asset._fileId != null ? Number(asset._fileId) : undefined}
+              persisted={!resolveLocally}
               onUnlink={() => {
                 onFieldChange(fieldName, null);
               }}
@@ -182,6 +197,7 @@ const SingleAssetFieldEditor = ({
           onPickerOpen={() => setPickerOpen(true)}
           onFilesSelected={handleDrop}
           uploads={uploads}
+          accept={accept}
         />
       </div>
       <AssetPickerModal

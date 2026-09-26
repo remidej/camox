@@ -8,13 +8,21 @@ export const collectionContentPath = (collectionId: string) =>
 export const newCollectionItemPath = (collectionId: string) =>
   `${collectionContentPath(collectionId)}/new`;
 
+export const editCollectionItemPath = (collectionId: string, id: string) =>
+  `${collectionContentPath(collectionId)}/${encodeURIComponent(id)}/edit`;
+
 export function matchCollectionContentPath(pathname: string) {
-  const match = /^\/camox\/content\/collections\/([^/]+)(\/new)?$/.exec(pathname);
+  const match = /^\/camox\/content\/collections\/([^/]+)(?:(\/new)|\/([^/]+)\/edit)?$/.exec(
+    pathname,
+  );
   if (!match) return null;
   try {
     const collectionId = decodeURIComponent(match[1]);
     if (!collectionId || collectionId.includes("/")) return null;
-    return { collectionId, isNew: !!match[2] };
+    if (!match[3]) return { collectionId, isNew: !!match[2] };
+    const itemId = decodeURIComponent(match[3]);
+    if (!itemId || itemId.includes("/")) return null;
+    return { collectionId, isNew: false, itemId };
   } catch {
     return null;
   }

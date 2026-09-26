@@ -20,9 +20,15 @@ interface UnlinkAssetButtonProps {
   fileId: number | undefined;
   onUnlink: () => void;
   className?: string;
+  persisted?: boolean;
 }
 
-const UnlinkAssetButton = ({ fileId, onUnlink, className }: UnlinkAssetButtonProps) => {
+const UnlinkAssetButton = ({
+  fileId,
+  onUnlink,
+  className,
+  persisted = true,
+}: UnlinkAssetButtonProps) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const deleteFile = useMutation(fileMutations.delete());
   const { data: usageCount } = useQuery({
@@ -31,7 +37,7 @@ const UnlinkAssetButton = ({ fileId, onUnlink, className }: UnlinkAssetButtonPro
   });
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!fileId || usageCount === undefined || usageCount > 1) {
+    if (!fileId || usageCount === undefined || usageCount > (persisted ? 1 : 0)) {
       onUnlink();
       return;
     }

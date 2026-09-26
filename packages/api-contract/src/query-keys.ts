@@ -37,6 +37,15 @@ export const queryKeys = {
       environmentName,
       collectionId,
     ],
+    record: (projectSlug: string, environmentName: string, collectionId: string, id: string) => [
+      "camox",
+      "collections",
+      "record",
+      projectSlug,
+      environmentName,
+      collectionId,
+      id,
+    ],
     records: (projectSlug: string, environmentName: string, collectionId: string) => [
       "camox",
       "collections",

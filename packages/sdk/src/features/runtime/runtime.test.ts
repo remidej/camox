@@ -124,6 +124,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     "/camox/content",
     "/camox/content/collections/articles",
     "/camox/content/collections/articles/new",
+    "/camox/content/collections/articles/a6479288-341f-4008-b118-dea6d8dd9158/edit",
   ]) {
     const response = await handleCamoxRequest(
       new Request(`https://site.test/_camox/data?path=${encodeURIComponent(path)}`, {

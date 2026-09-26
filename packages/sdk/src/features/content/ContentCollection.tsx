@@ -5,12 +5,32 @@ import { PanelContent, PanelHeader, PanelTitle } from "@camox/ui/panel";
 import { Switch } from "@camox/ui/switch";
 import { Textarea } from "@camox/ui/textarea";
 import { useForm } from "@tanstack/react-form";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftIcon, ListIcon, PlusIcon } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeftIcon, ListIcon, PlusCircleIcon, PlusIcon } from "lucide-react";
+import { useState } from "react";
 
-import { Link } from "@/features/navigation/navigation";
-import { collectionContentPath, newCollectionItemPath } from "@/features/studio/routes";
-import { collectionQueries, type CollectionDefinition } from "@/lib/queries";
+import { Link, useNavigate } from "@/features/navigation/navigation";
+import { SingleAssetFieldEditor } from "@/features/preview/components/AssetFieldEditor";
+import { MultipleAssetFieldEditor } from "@/features/preview/components/MultipleAssetFieldEditor";
+import {
+  collectionContentPath,
+  newCollectionItemPath,
+  editCollectionItemPath,
+} from "@/features/studio/routes";
+import {
+  collectionQueries,
+  collectionMutations,
+  type CollectionDefinition,
+  type CollectionRecord,
+} from "@/lib/queries";
+
+import {
+  collectionFormFields,
+  collectionFormDefaults,
+  collectionFormContent,
+  type FieldSchema,
+} from "./collection-form";
+import { DeleteCollectionItemButton } from "./components/DeleteCollectionItemButton";
 
 export const ContentCollection = ({
   projectSlug,
@@ -76,10 +96,36 @@ export const ContentCollection = ({
         {!isError && records && records.length > 0 && (
           <ul aria-label={`${collection.title} items`} className="divide-y rounded-md border">
             {records.map((record) => (
-              <li key={record.id} className="px-4 py-3 text-sm">
-                {record.label || "Untitled item"}
+              <li key={record.id} className="group hover:bg-accent flex items-center">
+                <Link
+                  to={editCollectionItemPath(collection.collectionId, record.id)}
+                  className="focus-visible:bg-accent block min-w-0 flex-1 px-4 py-3 text-sm"
+                >
+                  {record.label || "Untitled item"}
+                </Link>
+                <DeleteCollectionItemButton
+                  projectSlug={projectSlug}
+                  collectionId={collection.collectionId}
+                  id={record.id}
+                  version={record.version}
+                  label={record.label}
+                  compact
+                />
               </li>
             ))}
+            <li className="flex justify-start px-2 py-1">
+              <Link
+                className={buttonVariants({
+                  variant: "ghost",
+                  size: "sm",
+                  className: "text-muted-foreground hover:text-foreground font-normal",
+                })}
+                to={newCollectionItemPath(collection.collectionId)}
+              >
+                <PlusCircleIcon aria-hidden className="size-3.5" />
+                Add item
+              </Link>
+            </li>
           </ul>
         )}
       </PanelContent>
@@ -87,143 +133,178 @@ export const ContentCollection = ({
   );
 };
 
-type FieldSchema = {
-  fieldType: "String" | "Embed" | "Enum" | "Boolean" | "Image" | "File" | "ImageList" | "FileList";
-  title?: string;
-  default?: unknown;
-  enum?: string[];
-  enumLabels?: Record<string, string>;
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
-  accept?: string[];
-  items?: { accept?: string[] };
-};
-
-type FormValue = string | boolean | File | File[] | null;
-
 const fieldLabel = (name: string, schema: FieldSchema) =>
   schema.title ?? name.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
 
-function collectionFormFields(contentSchema: unknown, label: string) {
-  const schema = contentSchema as { properties: Record<string, FieldSchema> };
-  const fields = Object.entries(schema.properties);
-  return fields.sort(([a], [b]) => Number(b === label) - Number(a === label));
-}
-
-function CollectionItemForm({ contentSchema, label }: { contentSchema: unknown; label: string }) {
+function CollectionItemForm({
+  contentSchema,
+  label,
+  projectSlug,
+  collectionId,
+  record,
+}: {
+  contentSchema: unknown;
+  label: string;
+  projectSlug: string;
+  collectionId: string;
+  record?: CollectionRecord;
+}) {
   const fields = collectionFormFields(contentSchema, label);
-  const defaultValues: Record<string, FormValue> = {};
-  for (const [name, schema] of fields) {
-    if (schema.fieldType === "Boolean") {
-      defaultValues[name] = schema.default === true;
-    } else if (schema.fieldType.endsWith("List")) {
-      defaultValues[name] = [];
-    } else if (schema.fieldType === "Image" || schema.fieldType === "File") {
-      defaultValues[name] = null;
-    } else {
-      defaultValues[name] = typeof schema.default === "string" ? schema.default : "";
-    }
-  }
-  const form = useForm({ defaultValues });
+  // Background refetches must not replace edits or advance the expected version.
+  const [initialRecord] = useState(record);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const create = useMutation(collectionMutations.create());
+  const edit = useMutation(collectionMutations.edit());
+  const saving = create.isPending || edit.isPending;
+  const [defaultValues] = useState(() => collectionFormDefaults(fields, initialRecord?.draft));
+  const form = useForm({
+    defaultValues,
+    onSubmit: async ({ value }) => {
+      setError(null);
+      try {
+        const content = collectionFormContent(fields, value, initialRecord?.draft);
+        const scope = { projectSlug, collectionId, content };
+        const saved = initialRecord
+          ? await edit.mutateAsync({
+              ...scope,
+              id: initialRecord.id,
+              expectedVersion: initialRecord.version,
+            })
+          : await create.mutateAsync(scope);
+        queryClient.setQueryData(
+          collectionQueries.record(projectSlug, collectionId, saved.id).queryKey,
+          saved,
+        );
+        await queryClient.invalidateQueries({
+          queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
+        });
+        await navigate({ to: collectionContentPath(collectionId) });
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Could not save item. Please try again.");
+      }
+    },
+  });
 
   return (
-    <form onSubmit={(event) => event.preventDefault()} className="max-w-2xl space-y-6">
-      {fields.map(([name, schema]) => {
-        const label = fieldLabel(name, schema);
-        return (
-          <form.Field key={name} name={name}>
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={`collection-${name}`}>{label}</Label>
-                {schema.fieldType === "String" && schema.pattern && (
-                  <Input
-                    id={`collection-${name}`}
-                    name={field.name}
-                    value={typeof field.state.value === "string" ? field.state.value : ""}
-                    minLength={schema.minLength}
-                    maxLength={schema.maxLength}
-                    pattern={schema.pattern}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                )}
-                {schema.fieldType === "String" && !schema.pattern && (
-                  <Textarea
-                    id={`collection-${name}`}
-                    name={field.name}
-                    value={typeof field.state.value === "string" ? field.state.value : ""}
-                    minLength={schema.minLength}
-                    maxLength={schema.maxLength}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                )}
-                {schema.fieldType === "Embed" && (
-                  <Input
-                    id={`collection-${name}`}
-                    name={field.name}
-                    type="url"
-                    value={typeof field.state.value === "string" ? field.state.value : ""}
-                    pattern={schema.pattern}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                )}
-                {schema.fieldType === "Enum" && (
-                  <select
-                    id={`collection-${name}`}
-                    name={field.name}
-                    className="border-input bg-background h-9 w-full rounded-md border px-2.5 text-sm"
-                    value={typeof field.state.value === "string" ? field.state.value : ""}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  >
-                    {schema.enum?.map((option) => (
-                      <option key={option} value={option}>
-                        {schema.enumLabels?.[option] ?? option}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {schema.fieldType === "Boolean" && (
-                  <Switch
-                    id={`collection-${name}`}
-                    name={field.name}
-                    checked={field.state.value === true}
-                    onCheckedChange={(checked) => field.handleChange(checked)}
-                  />
-                )}
-                {["Image", "File", "ImageList", "FileList"].includes(schema.fieldType) && (
-                  <Input
-                    id={`collection-${name}`}
-                    name={field.name}
-                    type="file"
-                    multiple={schema.fieldType.endsWith("List")}
-                    accept={
-                      schema.accept?.join(",") ??
-                      schema.items?.accept?.join(",") ??
-                      (schema.fieldType.startsWith("Image") ? "image/*" : undefined)
-                    }
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      const files = Array.from(event.target.files ?? []);
-                      field.handleChange(
-                        schema.fieldType.endsWith("List") ? files : (files[0] ?? null),
-                      );
-                    }}
-                  />
-                )}
-              </div>
-            )}
-          </form.Field>
-        );
-      })}
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+      className="mx-auto w-full max-w-2xl space-y-6"
+    >
+      <fieldset disabled={saving} className="space-y-6">
+        {fields.map(([name, schema]) => {
+          const label = fieldLabel(name, schema);
+          return (
+            <form.Field key={name} name={name}>
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={`collection-${name}`}>{label}</Label>
+                  {schema.fieldType === "String" && schema.pattern && (
+                    <Input
+                      id={`collection-${name}`}
+                      name={field.name}
+                      value={typeof field.state.value === "string" ? field.state.value : ""}
+                      minLength={schema.minLength}
+                      maxLength={schema.maxLength}
+                      pattern={schema.pattern}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                    />
+                  )}
+                  {schema.fieldType === "String" && !schema.pattern && (
+                    <Textarea
+                      id={`collection-${name}`}
+                      name={field.name}
+                      value={typeof field.state.value === "string" ? field.state.value : ""}
+                      minLength={schema.minLength}
+                      maxLength={schema.maxLength}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                    />
+                  )}
+                  {schema.fieldType === "Embed" && (
+                    <Input
+                      id={`collection-${name}`}
+                      name={field.name}
+                      type="url"
+                      value={typeof field.state.value === "string" ? field.state.value : ""}
+                      pattern={schema.pattern}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                    />
+                  )}
+                  {schema.fieldType === "Enum" && (
+                    <select
+                      id={`collection-${name}`}
+                      name={field.name}
+                      className="border-input bg-background h-9 w-full rounded-md border px-2.5 text-sm"
+                      value={typeof field.state.value === "string" ? field.state.value : ""}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                    >
+                      {schema.enum?.map((option) => (
+                        <option key={option} value={option}>
+                          {schema.enumLabels?.[option] ?? option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {schema.fieldType === "Boolean" && (
+                    <Switch
+                      id={`collection-${name}`}
+                      name={field.name}
+                      checked={field.state.value === true}
+                      onCheckedChange={(checked) => field.handleChange(checked)}
+                    />
+                  )}
+                  {["Image", "File", "ImageList", "FileList"].includes(schema.fieldType) && (
+                    <fieldset aria-label={label} onBlur={field.handleBlur}>
+                      {schema.fieldType.endsWith("List") ? (
+                        <MultipleAssetFieldEditor
+                          fieldName={name}
+                          assetType={schema.fieldType === "ImageList" ? "Image" : "File"}
+                          currentData={{ [name]: field.state.value }}
+                          onFieldChange={(_, value) => field.handleChange(value)}
+                          accept={schema.items?.accept ?? schema.accept}
+                          resolveLocally
+                        />
+                      ) : (
+                        <SingleAssetFieldEditor
+                          fieldName={name}
+                          assetType={schema.fieldType === "Image" ? "Image" : "File"}
+                          currentData={{ [name]: field.state.value }}
+                          onFieldChange={(_, value) => field.handleChange(value)}
+                          accept={schema.accept}
+                          resolveLocally
+                        />
+                      )}
+                    </fieldset>
+                  )}
+                </div>
+              )}
+            </form.Field>
+          );
+        })}
+      </fieldset>
+      {error && (
+        <p role="alert" className="text-destructive text-sm">
+          {error}
+        </p>
+      )}
       <div className="flex items-center gap-3">
-        <Button type="submit" disabled>
-          Create item
+        <Button type="submit" disabled={saving}>
+          {saving ? "Saving…" : initialRecord ? "Save changes" : "Create item"}
         </Button>
-        <p className="text-muted-foreground text-sm">Saving items is not available yet.</p>
+        <Link
+          className={buttonVariants({ variant: "outline" })}
+          to={collectionContentPath(collectionId)}
+        >
+          Cancel
+        </Link>
       </div>
     </form>
   );
@@ -232,10 +313,16 @@ function CollectionItemForm({ contentSchema, label }: { contentSchema: unknown; 
 export const ContentCollectionNew = ({
   projectSlug,
   collection,
+  itemId,
 }: {
   projectSlug: string;
   collection: CollectionDefinition;
+  itemId?: string;
 }) => {
+  const recordQuery = useQuery({
+    ...collectionQueries.record(projectSlug, collection.collectionId, itemId ?? ""),
+    enabled: !!itemId,
+  });
   const {
     data: definition,
     isPending,
@@ -245,16 +332,17 @@ export const ContentCollectionNew = ({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <PanelHeader className="space-y-3">
-        <Link
-          to={collectionContentPath(collection.collectionId)}
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeftIcon aria-hidden className="size-4" />
-          {collection.title}
-        </Link>
-        <PanelTitle>New item</PanelTitle>
-      </PanelHeader>
+      <div className="px-6 pt-2">
+        <div className="mx-auto w-full max-w-2xl">
+          <Link
+            to={collectionContentPath(collection.collectionId)}
+            className={buttonVariants({ variant: "ghost", className: "justify-start" })}
+          >
+            <ArrowLeftIcon aria-hidden className="text-muted-foreground" />
+            {itemId ? "Edit item" : "New item"}
+          </Link>
+        </div>
+      </div>
       <PanelContent className="p-6">
         {isPending && <p role="status">Loading fields…</p>}
         {isError && (
@@ -265,8 +353,24 @@ export const ContentCollectionNew = ({
             </Button>
           </div>
         )}
-        {definition && (
-          <CollectionItemForm contentSchema={definition.contentSchema} label={definition.label} />
+        {itemId && recordQuery.isPending && <p role="status">Loading item…</p>}
+        {itemId && recordQuery.isError && (
+          <div role="alert" className="flex items-center gap-3">
+            <p>Could not load item. It may no longer exist.</p>
+            <Button variant="outline" onClick={() => void recordQuery.refetch()}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {definition && (!itemId || recordQuery.data) && (
+          <CollectionItemForm
+            key={itemId ?? "new"}
+            contentSchema={definition.contentSchema}
+            label={definition.label}
+            projectSlug={projectSlug}
+            collectionId={collection.collectionId}
+            record={itemId ? recordQuery.data : undefined}
+          />
         )}
       </PanelContent>
     </div>

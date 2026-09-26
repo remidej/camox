@@ -54,9 +54,16 @@ interface SortableAssetItemProps {
   assetType: "Image" | "File";
   onRemove: (fileId: number) => void;
   onAssetOpen: (asset: ResolvedAsset) => void;
+  persisted: boolean;
 }
 
-const SortableAssetItem = ({ asset, assetType, onRemove, onAssetOpen }: SortableAssetItemProps) => {
+const SortableAssetItem = ({
+  asset,
+  assetType,
+  onRemove,
+  onAssetOpen,
+  persisted,
+}: SortableAssetItemProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: String(asset._fileId),
   });
@@ -118,6 +125,7 @@ const SortableAssetItem = ({ asset, assetType, onRemove, onAssetOpen }: Sortable
 
         <UnlinkAssetButton
           fileId={asset._fileId}
+          persisted={persisted}
           onUnlink={() => onRemove(asset._fileId)}
           className="hidden group-focus-within:flex group-hover:flex"
         />
@@ -131,6 +139,8 @@ const SortableAssetItem = ({ asset, assetType, onRemove, onAssetOpen }: Sortable
  * -----------------------------------------------------------------------------------------------*/
 
 interface MultipleAssetFieldEditorProps {
+  resolveLocally?: boolean;
+  accept?: string[];
   fieldName: string;
   assetType: "Image" | "File";
   currentData: Record<string, unknown>;
@@ -142,6 +152,8 @@ const MultipleAssetFieldEditor = ({
   assetType,
   currentData,
   onFieldChange,
+  resolveLocally = false,
+  accept,
 }: MultipleAssetFieldEditorProps) => {
   const isImage = assetType === "Image";
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -153,17 +165,25 @@ const MultipleAssetFieldEditor = ({
     (a): a is ResolvedAsset => !!a && !!a.url,
   );
 
-  // Persist as bare _fileId markers; the read path resolves them to full assets.
-  const toStorageFormat = (assets: ResolvedAsset[]) => assets.map((a) => ({ _fileId: a._fileId }));
+  // Keep local form assets resolved; persisted sidebar values use bare references.
+  const toStorageFormat = (assets: ResolvedAsset[]) =>
+    resolveLocally ? assets : assets.map((a) => ({ _fileId: a._fileId }));
+  const itemsRef = React.useRef(items);
+  itemsRef.current = items;
 
-  const addFileId = (fileId: number) => {
-    onFieldChange(fieldName, [...toStorageFormat(items), { _fileId: fileId }]);
+  const addAssets = (assets: ResolvedAsset[]) => {
+    const next = [...itemsRef.current];
+    for (const asset of assets) {
+      if (!next.some((item) => item._fileId === asset._fileId)) next.push(asset);
+    }
+    itemsRef.current = next;
+    onFieldChange(fieldName, toStorageFormat(next));
   };
 
   const { uploads, uploadFiles } = useFileUpload({
     projectId: project?.id,
     onFileCommitted: (result) => {
-      addFileId(Number(result.fileId));
+      addAssets([{ ...result, alt: "", _fileId: Number(result.fileId) }]);
     },
   });
 
@@ -198,7 +218,7 @@ const MultipleAssetFieldEditor = ({
   };
 
   const handleSelectMultiple = (files: File[]) => {
-    onFieldChange(fieldName, [...toStorageFormat(items), ...files.map((f) => ({ _fileId: f.id }))]);
+    addAssets(files.map((file) => ({ ...file, alt: file.alt ?? "", _fileId: file.id })));
     setPickerOpen(false);
   };
 
@@ -224,6 +244,7 @@ const MultipleAssetFieldEditor = ({
                     assetType={assetType}
                     onRemove={handleRemove}
                     onAssetOpen={setLightboxAsset}
+                    persisted={!resolveLocally}
                   />
                 ))}
               </ul>
@@ -237,6 +258,7 @@ const MultipleAssetFieldEditor = ({
           onPickerOpen={() => setPickerOpen(true)}
           onFilesSelected={uploadFiles}
           uploads={uploads}
+          accept={accept}
         />
       </div>
       <AssetPickerModal
