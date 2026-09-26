@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...@camox/cli-v0.45.0) (2026-09-26)
+
+
+### Features
+
+* **sdk:** print authenticated development links ([20cbdb8](https://github.com/remidej/camox/commit/20cbdb8b77fd948dc5531fe7986a9240fc453f57))
+
+
+### Miscellaneous
+
+* merge main for collections landing ([c3237cb](https://github.com/remidej/camox/commit/c3237cb474543dac3c4fb042417ddfef5824ef2e))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/cli-v0.44.0) (2026-09-24)
 
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...camox-sdk-v0.45.0) (2026-09-26)
+
+
+### Features
+
+* **collections:** add definitions and record lifecycle ([b3c36fc](https://github.com/remidej/camox/commit/b3c36fcc4490b0f160b6394b069866ab321af4f7))
+* **collections:** add item authoring with media library assets ([0017fcc](https://github.com/remidej/camox/commit/0017fccc67a3870df4405a560cc99490c3d0cee2))
+* **content:** add experimental collection browsing and item forms ([6c211bb](https://github.com/remidej/camox/commit/6c211bb51ed661b16202c93b751c6185730298d6))
+* **sdk:** enable feedback by default ([26ee749](https://github.com/remidej/camox/commit/26ee749f00e51cf57b1e4dabd13b38850a57825e))
+* **sdk:** print authenticated development links ([20cbdb8](https://github.com/remidej/camox/commit/20cbdb8b77fd948dc5531fe7986a9240fc453f57))
+
+
+### Bug Fixes
+
+* **content:** move assets to a dedicated route ([0b11a62](https://github.com/remidej/camox/commit/0b11a6208f43077c71e93f6584052df5f8dd5928))
+* **sdk:** correct repeater and breadcrumb hover highlights ([424b641](https://github.com/remidej/camox/commit/424b64100c4795f390935b1c3c3f040c21defab8))
+
+
+### Refactoring
+
+* **sdk:** migrate layout loaders to result envelopes ([6a9ec27](https://github.com/remidej/camox/commit/6a9ec271b2e1de4108a1310d5c4acc284a926680))
+
+
+### Miscellaneous
+
+* merge main for collections landing ([c3237cb](https://github.com/remidej/camox/commit/c3237cb474543dac3c4fb042417ddfef5824ef2e))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...camox-sdk-v0.44.0) (2026-09-24)
 
 
