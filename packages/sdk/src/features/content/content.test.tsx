@@ -12,6 +12,7 @@ import {
   editCollectionItemPath,
   matchCollectionContentPath,
   newCollectionItemPath,
+  STUDIO_ASSETS_PATH,
   STUDIO_CONTENT_PATH,
 } from "@/features/studio/routes";
 import { initApiClient } from "@/lib/api-client";
@@ -36,7 +37,7 @@ const collections: CollectionDefinition[] = [
   { collectionId: "authors", title: "Authors", description: "", label: "name" },
 ];
 
-function withNavigation(children: React.ReactNode, pathname = STUDIO_CONTENT_PATH) {
+function withNavigation(children: React.ReactNode, pathname = STUDIO_ASSETS_PATH) {
   return (
     <NavigationProvider
       location={{ pathname, href: `http://localhost:3001${pathname}`, search: "", hash: "" }}
@@ -76,7 +77,7 @@ void test("collections are hidden and not queried when experimental UI is unset 
         Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
       else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
       for (const pathname of [
-        STUDIO_CONTENT_PATH,
+        STUDIO_ASSETS_PATH,
         collectionContentPath("articles"),
         newCollectionItemPath("articles"),
       ]) {
@@ -101,6 +102,15 @@ void test("collections are hidden and not queried when experimental UI is unset 
     if (previous === undefined)
       Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
     else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previous });
+  }
+});
+
+void test("content index does not render Assets before redirecting", async () => {
+  const client = new QueryClient();
+  try {
+    assert.equal(await renderContentPage(client, STUDIO_CONTENT_PATH), "");
+  } finally {
+    client.clear();
   }
 });
 
@@ -506,7 +516,7 @@ void test("sidebar selection follows navigation between collections and Assets",
     );
   }
   function App() {
-    const [pathname, setPathname] = useState(STUDIO_CONTENT_PATH);
+    const [pathname, setPathname] = useState(STUDIO_ASSETS_PATH);
     return (
       <NavigationProvider
         location={{ pathname, href: `http://localhost:3001${pathname}`, search: "", hash: "" }}
@@ -521,6 +531,7 @@ void test("sidebar selection follows navigation between collections and Assets",
     for (const title of ["Articles", "Authors", "Assets"]) {
       const link = [...host.querySelectorAll("a")].find((entry) => entry.textContent === title);
       assert.ok(link);
+      if (title === "Assets") assert.equal(link.getAttribute("href"), STUDIO_ASSETS_PATH);
       await act(async () => link.click());
       assert.equal(host.querySelector('[aria-current="page"]')?.textContent, title);
       assert.equal(host.querySelectorAll('[aria-current="page"]').length, 1);

@@ -122,6 +122,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     "/about-camox",
     "/pokemon/pikachu",
     "/camox/content",
+    "/camox/content/assets",
     "/camox/content/collections/articles",
     "/camox/content/collections/articles/new",
     "/camox/content/collections/articles/a6479288-341f-4008-b118-dea6d8dd9158/edit",
