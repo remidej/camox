@@ -39,11 +39,14 @@ import {
 } from "../_shared/snapshot-schemas";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
+import { loadBlockContentSchema } from "./content-schema";
 import { initializeBlockContent } from "./initialize-content";
 import {
   assertIconValue,
   normalizeBlockContent,
   sanitizeAssetValue,
+  validateEmbedContent,
+  validateEmbedSeeds,
   type BlockItemSeed,
 } from "./normalize-content";
 import { syncBlockData } from "./synced";
@@ -1025,6 +1028,7 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
   const seedSchemas = new Map<string, Record<string, FieldSchema> | undefined>();
   const rootProperties = (def?.contentSchema as { properties?: Record<string, FieldSchema> } | null)
     ?.properties;
+  validateEmbedSeeds(allSeeds, rootProperties);
   for (const seed of allSeeds) {
     const parentProperties = seed.parentTempId
       ? seedSchemas.get(seed.parentTempId)
@@ -1154,26 +1158,11 @@ export async function updateBlockContent(
 
   const now = Date.now();
 
-  // Look up the block definition's content schema so the patch helper can detect
-  // Repeater fields and apply replace-within-field semantics. Scope by
-  // environmentId — definitions are per-environment, and the same blockId can
-  // exist in dev and prod with different shapes (e.g. mid-migration from
-  // `Type.RepeatableItem` to `Type.Repeater`).
-  const environment = await resolveEnvironment(ctx.db, access.projectId, ctx.environmentName);
-  const def = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(
-      and(
-        eq(blockDefinitions.projectId, access.projectId),
-        eq(blockDefinitions.environmentId, environment.id),
-        eq(blockDefinitions.blockId, access.block.type),
-      ),
-    )
-    .get();
+  const contentSchema = await loadBlockContentSchema(ctx.db, access.projectId, id);
 
   const patch = (content ?? {}) as Record<string, unknown>;
-  const merged = await applyContentPatch(ctx, access.block, patch, def?.contentSchema ?? null, now);
+  validateEmbedContent(patch, contentSchema?.properties);
+  const merged = await applyContentPatch(ctx, access.block, patch, contentSchema, now);
 
   const result = await ctx.db
     .update(blocks)

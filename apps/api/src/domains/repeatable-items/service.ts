@@ -15,9 +15,14 @@ import {
   bumpContentUpdatedAtForBlock,
 } from "../../lib/bump-content-updated-at";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { blockDefinitions, blocks, files, repeatableItems } from "../../schema";
+import { blocks, files, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { sanitizeItemContent, type SchemaProps } from "../blocks/normalize-content";
+import { loadBlockContentSchema } from "../blocks/content-schema";
+import {
+  sanitizeItemContent,
+  validateEmbedSeeds,
+  type SchemaProps,
+} from "../blocks/normalize-content";
 import { syncBlockData } from "../blocks/synced";
 import { collectFileIds } from "../pages/ai";
 
@@ -67,21 +72,6 @@ function assertUser(ctx: ServiceContext) {
 }
 
 // --- Schema resolution for item content normalization ---
-
-async function loadBlockDefSchema(
-  db: Database,
-  projectId: number,
-  blockId: number,
-): Promise<{ properties?: SchemaProps } | null> {
-  const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).get();
-  if (!block) return null;
-  const def = await db
-    .select()
-    .from(blockDefinitions)
-    .where(and(eq(blockDefinitions.projectId, projectId), eq(blockDefinitions.blockId, block.type)))
-    .get();
-  return (def?.contentSchema as { properties?: SchemaProps } | null) ?? null;
-}
 
 /** Walk `rootProps` descending into `[fieldName].items.properties` for each path entry. */
 function descendItemsProperties(
@@ -289,10 +279,11 @@ export async function createRepeatableItem(
 
   // Resolve schema for sanitization. The root item's content is described by
   // `descendItemsProperties(schema.properties, [...ancestors, fieldName])`.
-  const schema = await loadBlockDefSchema(ctx.db, access.projectId, blockId);
+  const schema = await loadBlockContentSchema(ctx.db, access.projectId, blockId);
   const rootPath = await resolveItemFieldNamePath(ctx.db, blockId, parentItemId ?? null, fieldName);
   const rootItemProps = descendItemsProperties(schema?.properties, rootPath);
   const sanitizedContent = sanitizeItemContent(content, rootItemProps);
+  validateEmbedSeeds(nestedItems ?? [], rootItemProps, "nestedItems");
 
   // Get siblings to determine correct position
   const siblings = (
@@ -419,7 +410,7 @@ export async function updateRepeatableItemContent(
   if (!access) throw new ORPCError("NOT_FOUND");
 
   // Resolve schema for the patch and sanitize asset leaks before merging.
-  const schema = await loadBlockDefSchema(ctx.db, access.projectId, access.item.blockId);
+  const schema = await loadBlockContentSchema(ctx.db, access.projectId, access.item.blockId);
   const itemPath = await resolveItemFieldNamePath(
     ctx.db,
     access.item.blockId,

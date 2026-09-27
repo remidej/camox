@@ -14,8 +14,64 @@ export type SchemaProps = Record<string, FieldSchema>;
 type FieldSchema = {
   fieldType?: string;
   enum?: unknown;
+  pattern?: string;
   items?: { properties?: SchemaProps };
 };
+
+/**
+ * Preflight only submitted Embed fields, before a write can mutate any rows.
+ * Omitted fields (including historical invalid values) are intentionally ignored.
+ */
+export function validateEmbedContent(
+  content: unknown,
+  properties: SchemaProps | undefined,
+  path = "content",
+): void {
+  if (!content || typeof content !== "object" || Array.isArray(content)) return;
+  for (const [key, value] of Object.entries(content)) {
+    const schema = properties?.[key];
+    const field = `${path}.${key}`;
+    if (schema?.fieldType === "Embed") {
+      if (typeof value !== "string") {
+        let received: string = typeof value;
+        if (value === null) received = "null";
+        if (Array.isArray(value)) received = "array";
+        badRequest(`Invalid value at ${field}: expected a string, received ${received}`, field);
+      }
+      if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) {
+        badRequest(`Invalid value at ${field}: string does not match the Embed pattern`, field);
+      }
+      continue;
+    }
+    if (schema?.fieldType !== "Repeater" || !Array.isArray(value)) continue;
+    value.forEach((item, index) =>
+      validateEmbedContent(item, schema.items?.properties, `${field}[${index}]`),
+    );
+  }
+}
+
+/** Explicit seeds carry their parent relationships separately from their content. */
+export function validateEmbedSeeds(
+  seeds: BlockItemSeed[],
+  rootProperties: SchemaProps | undefined,
+  path = "repeatableItems",
+): void {
+  // Persistence inserts in array order. Reject ambiguous ancestry rather than
+  // validating against a different schema from the one the inserted row uses.
+  const schemas = new Map<string, SchemaProps | undefined>();
+  for (const [index, seed] of seeds.entries()) {
+    if (!seed.tempId) badRequest("Repeater seed tempId must not be empty", path);
+    if (schemas.has(seed.tempId)) badRequest("Duplicate repeater seed tempId", path);
+    if (seed.parentTempId !== null && !schemas.has(seed.parentTempId)) {
+      badRequest("Repeater seed parent must precede its child", path);
+    }
+    const parentProperties =
+      seed.parentTempId === null ? rootProperties : schemas.get(seed.parentTempId);
+    const properties = parentProperties?.[seed.fieldName]?.items?.properties;
+    schemas.set(seed.tempId, properties);
+    validateEmbedContent(seed.content, properties, `${path}[${index}].content`);
+  }
+}
 
 export function assertIconValue(value: unknown, schema: FieldSchema | undefined, field: string) {
   if (!schema) return;
@@ -62,6 +118,7 @@ export function normalizeBlockContent(
   contentSchema: unknown,
 ): { content: Record<string, unknown>; seeds: BlockItemSeed[] } {
   const schemaProps = (contentSchema as { properties?: SchemaProps } | null)?.properties;
+  validateEmbedContent(rawContent, schemaProps);
   const ctx = { counter: { v: 0 }, seeds: [] as BlockItemSeed[] };
   const content = walk(rawContent, schemaProps, null, ctx);
   return { content, seeds: ctx.seeds };
@@ -132,6 +189,7 @@ export function sanitizeItemContent(
   rawContent: unknown,
   itemSchemaProps: SchemaProps | undefined,
 ): Record<string, unknown> {
+  validateEmbedContent(rawContent, itemSchemaProps);
   if (rawContent == null || typeof rawContent !== "object" || Array.isArray(rawContent)) {
     return {};
   }
