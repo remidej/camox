@@ -124,6 +124,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     "/camox/content",
     "/camox/content/collections/articles",
     "/camox/content/collections/articles/new",
+    "/camox/canvas",
   ]) {
     const response = await handleCamoxRequest(
       new Request(`https://site.test/_camox/data?path=${encodeURIComponent(path)}`, {
@@ -146,7 +147,8 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     }
     if (path.startsWith("/pokemon/"))
       assert.deepEqual(input.derived?.result, { kind: "data", data: { name: "pikachu" } });
-    if (path.startsWith("/camox/")) assert.equal(input.routeKind, "studio-content");
+    if (path.startsWith("/camox/"))
+      assert.equal(input.routeKind, path === "/camox/canvas" ? "studio-nested" : "studio-content");
     if (!path.startsWith("/camox/")) {
       assert.match(input.previewDocument!, /href="\/site.css"/);
       assert.match(input.previewDocument!, /class="dark"/);

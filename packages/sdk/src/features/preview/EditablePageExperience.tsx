@@ -6,6 +6,8 @@ import { CamoxContent } from "../content/CamoxContent";
 import { AuthenticatedCamoxProvider } from "../provider/AuthenticatedCamoxProvider";
 import type { PageRenderInput } from "../runtime/runtime";
 import { CamoxStudio } from "../studio/CamoxStudio";
+import { CanvasRoute } from "../studio/CanvasRoute";
+import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CamoxPreview } from "./CamoxPreview";
 import { DerivedPreview } from "./DerivedPreview";
 import { EditablePageContent } from "./EditablePageContent";
@@ -19,6 +21,17 @@ export function EditablePageExperience({
   input: PageRenderInput;
   queryClient: QueryClient;
 }) {
+  // Canvas renders drafts with the public block runtime, regardless of the
+  // editing mode retained by the regular preview.
+  if (input.routeKind && input.pathname === STUDIO_CANVAS_PATH)
+    return (
+      <AuthenticatedCamoxProvider>
+        <CamoxStudio>
+          <CanvasRoute runtimeBasePath={input.runtimeBasePath} />
+        </CamoxStudio>
+      </AuthenticatedCamoxProvider>
+    );
+
   return (
     <AuthenticatedCamoxProvider>
       <CompleteBlockEditingRuntimeProvider>

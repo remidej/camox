@@ -95,6 +95,66 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(studioHtml, /Quick find/);
   assert.doesNotMatch(studioHtml, /camox-loading/);
 
+  const { getNavbarLinks } = await import("../studio/components/Navbar");
+  const { CanvasRoute } = await import("../studio/CanvasRoute");
+  const { CamoxStudio } = await import("../studio/CamoxStudio");
+  const { AuthenticatedCamoxProvider } = await import("../provider/AuthenticatedCamoxProvider");
+  const { EditablePageExperience } = await import("../preview/EditablePageExperience");
+  const canvasExperience = EditablePageExperience({
+    camoxApp,
+    queryClient,
+    input: { ...input, pathname: "/camox/canvas", routeKind: "studio-nested" },
+  });
+  assert.equal(canvasExperience.type, AuthenticatedCamoxProvider);
+  // No CompleteBlockEditingRuntimeProvider: Canvas must render public blocks
+  // even when the preview's persisted mode is editing.
+  assert.equal(canvasExperience.props.children.type, CamoxStudio);
+  assert.equal(canvasExperience.props.children.props.children.type, CanvasRoute);
+  const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+  try {
+    for (const flag of [undefined, false, true]) {
+      if (flag === undefined)
+        Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+      else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
+      const canvasHtml = renderToString(
+        createElement(PageApp, {
+          input: {
+            ...input,
+            pathname: "/camox/canvas",
+            href: "https://site.test/camox/canvas",
+            routeKind: "studio-nested",
+          },
+          queryClient: new QueryClient(),
+          camoxApp,
+        }),
+      );
+      assert.match(canvasHtml, /My actual project|Quick find/);
+      assert.doesNotMatch(canvasHtml, /Edit mode|View live page/);
+      // Navbar and command actions intentionally share this filtered list.
+      assert.deepEqual(
+        getNavbarLinks().map((link) => link.title),
+        flag ? ["Preview", "Content", "Canvas"] : ["Preview", "Content"],
+      );
+      if (flag) {
+        assert.match(canvasHtml, /href="\/camox\/canvas"/);
+        const route = CanvasRoute({ runtimeBasePath: "/mounted" });
+        assert.equal(route.type, React.Suspense);
+        assert.equal(route.props.children.props.runtimeBasePath, "/mounted");
+      } else {
+        assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
+        // Render without any providers: reaching Canvas data hooks would fail.
+        assert.match(
+          renderToString(createElement(CanvasRoute, { runtimeBasePath: "" })),
+          /Studio page not found/,
+        );
+      }
+    }
+  } finally {
+    if (previousFlag === undefined)
+      Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
+    else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: previousFlag });
+  }
+
   const publicInput = { ...input, presentation: "public" as const, project: undefined };
   const publicHtml = renderToString(
     createElement(PageApp, {
