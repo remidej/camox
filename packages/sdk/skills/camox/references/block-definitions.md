@@ -255,12 +255,15 @@ import { Link } from "camox/navigation";
 
 ### Repeaters — `block.Repeater`
 
-The callback receives an item-scoped API with the same `.Field`, `.Link`, `.Image`, `.File`, `.Embed`, `.ImageList`, `.FileList`, and `.Repeater` methods.
+The callback signature is `(item, index) => ReactNode`:
+
+- `item` is an item-scoped API with the same `.Field`, `.Link`, `.Image`, `.File`, `.Embed`, `.ImageList`, `.FileList`, and `.Repeater` methods.
+- `index` is the item's zero-based position in the current repeater. Use it for position-based behavior such as first-item styling, numbering, or matching tabs to panels without comparing editable text. It changes when items are reordered or removed; it is not a stable item ID.
 
 ```tsx
 <myBlock.Repeater name="features">
-  {(item) => (
-    <div>
+  {(item, index) => (
+    <div className={index === 0 ? "featured" : undefined}>
       <item.Field name="name">{(props) => <h3 {...props} />}</item.Field>
       <item.Field name="description">{(props) => <p {...props} />}</item.Field>
     </div>
@@ -268,7 +271,7 @@ The callback receives an item-scoped API with the same `.Field`, `.Link`, `.Imag
 </myBlock.Repeater>
 ```
 
-Nested repeaters use the item-scoped `.Repeater`:
+Nested repeaters use the item-scoped `.Repeater` with the same `(item, index)` callback signature. Each index is local to its repeater, so the inner index starts at `0` for each parent item. Omit the index parameter when it is not needed:
 
 ```tsx
 <footer.Repeater name="columns">
