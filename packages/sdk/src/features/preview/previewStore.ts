@@ -1,7 +1,6 @@
 import { toast } from "@camox/ui/toaster";
 import { createStore } from "@xstate/store-react";
 
-import { Block } from "@/core/createBlock";
 import type { FieldType } from "@/core/lib/fieldTypes";
 
 /* -------------------------------------------------------------------------------------------------
@@ -104,13 +103,10 @@ export type ViewportMode = "full" | "tablet" | "mobile";
 interface PreviewContext {
   mode: PreviewMode;
   isToolbarHidden: boolean;
-  isAddBlockSidebarOpen: boolean;
+  addBlockDialog: { afterPosition?: string | null } | null;
   isCreatePageModalOpen: boolean;
   editingPageId: number | null;
   viewportMode: ViewportMode;
-  peekedBlock: Block | null;
-  peekedBlockPosition: string | null;
-  skipPeekedBlockExitAnimation: boolean;
   editingContext: EditingContext | null;
   iframeElement: HTMLIFrameElement | null;
 }
@@ -119,13 +115,10 @@ export const previewStore = createStore({
   context: {
     mode: "previewing-draft",
     isToolbarHidden: false,
-    isAddBlockSidebarOpen: false,
+    addBlockDialog: null,
     isCreatePageModalOpen: false,
     editingPageId: null,
     viewportMode: "full",
-    peekedBlock: null,
-    peekedBlockPosition: null,
-    skipPeekedBlockExitAnimation: false,
     editingContext: null,
     iframeElement: null,
   } as PreviewContext,
@@ -181,26 +174,6 @@ export const previewStore = createStore({
             : "full";
       return { ...context, viewportMode: nextMode };
     },
-    setPeekedBlock: (context, event: { block: Block; afterPosition?: string | null }) => {
-      if (!event.block) return context;
-      return {
-        ...context,
-        peekedBlock: event.block,
-        peekedBlockPosition: event.afterPosition ?? null,
-      };
-    },
-    exitPeekedBlock: (context) => ({
-      ...context,
-      peekedBlock: null,
-      peekedBlockPosition: null,
-      isAddBlockSidebarOpen: false,
-    }),
-    clearPeekedBlock: (context) => ({
-      ...context,
-      peekedBlock: null,
-      peekedBlockPosition: null,
-    }),
-
     /* --- Selection events --- */
 
     activatePage: (context, event: { pageId: number | null }) => {
@@ -210,6 +183,7 @@ export const previewStore = createStore({
       return {
         ...context,
         editingContext: owner ? targetContext(owner, null) : null,
+        addBlockDialog: null,
       };
     },
     activateLayout: (context, event: { layoutId: number }) => {
@@ -218,6 +192,7 @@ export const previewStore = createStore({
       return {
         ...context,
         editingContext: targetContext(owner, null),
+        addBlockDialog: null,
       };
     },
     selectTarget: (context, event: EditingContext) => ({
@@ -227,9 +202,7 @@ export const previewStore = createStore({
     setFocusedBlock: (context, event: EditingOwner & { blockId: number }) => ({
       ...context,
       editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
-      peekedBlock: null,
-      peekedBlockPosition: null,
-      isAddBlockSidebarOpen: false,
+      addBlockDialog: null,
     }),
     selectItem: (context, event: EditingOwner & { blockId: number; itemId: number }) => ({
       ...context,
@@ -308,29 +281,18 @@ export const previewStore = createStore({
         ? { ...context.editingContext, selection: null }
         : null,
     }),
-    openAddBlockSidebar: (context, event: { afterPosition?: string | null }) => ({
+    openAddBlockDialog: (context, event: { afterPosition?: string | null }) => ({
       ...context,
-      isAddBlockSidebarOpen: true,
-      peekedBlock: null,
-      peekedBlockPosition: event.afterPosition ?? null,
+      addBlockDialog: { afterPosition: event.afterPosition },
     }),
-    closeAddBlockSidebar: (context) => ({
+    closeAddBlockDialog: (context) => ({
       ...context,
-      isAddBlockSidebarOpen: false,
-      peekedBlock: null,
-      peekedBlockPosition: null,
+      addBlockDialog: null,
     }),
     focusCreatedBlock: (context, event: EditingOwner & { blockId: number }) => ({
       ...context,
       editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
-      isAddBlockSidebarOpen: false,
-      peekedBlock: null,
-      peekedBlockPosition: null,
-      skipPeekedBlockExitAnimation: true,
-    }),
-    clearSkipPeekedBlockExitAnimation: (context) => ({
-      ...context,
-      skipPeekedBlockExitAnimation: false,
+      addBlockDialog: null,
     }),
     openCreatePageModal: (context) => ({
       ...context,

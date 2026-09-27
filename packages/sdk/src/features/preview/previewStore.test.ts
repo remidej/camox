@@ -59,6 +59,32 @@ void test("page activation preserves same-page selection and clears a different 
   });
 });
 
+void test("block dialog preserves insertion intent and closing leaves selection unchanged", async () => {
+  const { previewStore: store } = await import("./previewStore");
+  const [selected] = store.transition(store.getInitialSnapshot(), {
+    type: "setFocusedBlock",
+    kind: "page",
+    pageId: 3,
+    blockId: 7,
+  });
+
+  for (const afterPosition of [undefined, null, "", "a0"]) {
+    const [opened] = store.transition(selected, { type: "openAddBlockDialog", afterPosition });
+    assert.deepEqual(opened.context.addBlockDialog, { afterPosition });
+    assert.equal(opened.context.editingContext, selected.context.editingContext);
+    const [closed] = store.transition(opened, { type: "closeAddBlockDialog" });
+    assert.equal(closed.context.addBlockDialog, null);
+    assert.equal(closed.context.editingContext, selected.context.editingContext);
+
+    const [samePage] = store.transition(opened, { type: "activatePage", pageId: 3 });
+    assert.equal(samePage.context.addBlockDialog, opened.context.addBlockDialog);
+    const [otherPage] = store.transition(opened, { type: "activatePage", pageId: 4 });
+    assert.equal(otherPage.context.addBlockDialog, null);
+    const [layout] = store.transition(opened, { type: "activateLayout", layoutId: 5 });
+    assert.equal(layout.context.addBlockDialog, null);
+  }
+});
+
 void test("target selection changes page and target in one observable transition", async () => {
   const { previewStore: store } = await import("./previewStore");
   store.send({ type: "activatePage", pageId: 3 });
@@ -153,7 +179,7 @@ void test("parent navigation, insertion focus and modal state remain independent
     pageId: 3,
     selection: { type: "block", blockId: 7 },
   });
-  [snapshot] = store.transition(snapshot, { type: "openAddBlockSidebar", afterPosition: "a0" });
+  [snapshot] = store.transition(snapshot, { type: "openAddBlockDialog", afterPosition: "a0" });
   [snapshot] = store.transition(snapshot, {
     type: "focusCreatedBlock",
     kind: "page",
@@ -165,9 +191,7 @@ void test("parent navigation, insertion focus and modal state remain independent
     pageId: 4,
     selection: { type: "block", blockId: 9 },
   });
-  assert.equal(snapshot.context.isAddBlockSidebarOpen, false);
-  assert.equal(snapshot.context.peekedBlockPosition, null);
-  assert.equal(snapshot.context.skipPeekedBlockExitAnimation, true);
+  assert.equal(snapshot.context.addBlockDialog, null);
   assert.equal(snapshot.context.editingPageId, 99);
   [snapshot] = store.transition(snapshot, { type: "clearSelection" });
   assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: 4, selection: null });
@@ -265,7 +289,7 @@ void test("comments reveal the existing editor and retain their page and field t
     fieldName: "title",
   };
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "openAddBlockSidebar" });
+  previewStore.send({ type: "openAddBlockDialog" });
   previewStore.send({ type: "setCommentMode", enabled: true });
   previewCommentsStore.send({ type: "startComment", pageId: 3, target, focusComposer: true });
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, target);
@@ -273,7 +297,7 @@ void test("comments reveal the existing editor and retain their page and field t
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, null);
   revealCommentTarget(3, target, "String");
   assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
-  assert.equal(previewStore.getSnapshot().context.isAddBlockSidebarOpen, false);
+  assert.equal(previewStore.getSnapshot().context.addBlockDialog, null);
   assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
     type: "item-field",
     blockId: 7,

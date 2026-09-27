@@ -93,14 +93,14 @@ const BlockActionsPopover = ({
     const afterPosition = blockIndex > 0 ? pageBlocks[blockIndex - 1].position : "";
 
     previewStore.send({
-      type: "openAddBlockSidebar",
+      type: "openAddBlockDialog",
       afterPosition,
     });
   };
 
   const handleAddBlockBelow = (block: NormalizedBlock) => {
     previewStore.send({
-      type: "openAddBlockSidebar",
+      type: "openAddBlockDialog",
       afterPosition: block.position,
     });
   };
@@ -158,7 +158,7 @@ const BlockActionsPopover = ({
                       <CommandItem
                         onSelect={() => {
                           previewStore.send({
-                            type: "openAddBlockSidebar",
+                            type: "openAddBlockDialog",
                             afterPosition: "",
                           });
                           onOpenChange(false);
@@ -179,7 +179,7 @@ const BlockActionsPopover = ({
                         onSelect={() => {
                           const lastPageBlock = pageBlocks[pageBlocks.length - 1];
                           previewStore.send({
-                            type: "openAddBlockSidebar",
+                            type: "openAddBlockDialog",
                             afterPosition: lastPageBlock?.position,
                           });
                           onOpenChange(false);
@@ -506,7 +506,7 @@ function useBlockActionsShortcuts() {
           if (!block) return;
 
           previewStore.send({
-            type: "openAddBlockSidebar",
+            type: "openAddBlockDialog",
             afterPosition: block.position,
           });
         },
@@ -531,7 +531,7 @@ function useBlockActionsShortcuts() {
           const afterPosition = blockIndex > 0 ? pageBlocks[blockIndex - 1].position : "";
 
           previewStore.send({
-            type: "openAddBlockSidebar",
+            type: "openAddBlockDialog",
             afterPosition,
           });
         },

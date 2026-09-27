@@ -142,7 +142,7 @@ interface CreateBlockOptions<
    */
   settings?: TSettingsShape;
   /**
-   * When true, this block can only be used inside layouts and won't appear in the AddBlockSidebar
+   * When true, this block can only be used inside layouts and won't appear in the block picker
    * or be available for AI page generation.
    */
   layoutOnly?: TLayoutOnly;
@@ -1828,10 +1828,6 @@ export function createEditableBlock<
 
     // Scroll into view when editing in preview
     const selection = usePreviewTargetSelection();
-    const isAddBlockSidebarOpen = useSelector(
-      previewStore,
-      (state) => state.context.isAddBlockSidebarOpen,
-    );
     const selectTarget = usePreviewSelection();
     const isBlockSelected = selection?.blockId === blockData._id;
     const overlayState = useOverlayState(isHovered, isBlockSelected);
@@ -1927,9 +1923,7 @@ export function createEditableBlock<
     // The bright colors overlays to show selection and editable content
     const shouldShowOverlay =
       isContentEditable &&
-      (overlayState["data-camox-hovered"] || overlayState["data-camox-focused"]) &&
-      !isAddBlockSidebarOpen;
-    const shouldShowAddBlockOverlay = isAddBlockSidebarOpen && mode !== "peek";
+      (overlayState["data-camox-hovered"] || overlayState["data-camox-focused"]);
 
     return (
       <div
@@ -1978,10 +1972,6 @@ export function createEditableBlock<
         >
           <options.component content={normalizedContent} />
         </Context.Provider>
-        <div
-          className="camox-sheet-overlay"
-          data-camox-visible={shouldShowAddBlockOverlay || undefined}
-        />
         {/* AddBlock controls */}
         {shouldShowOverlay &&
           !isCommentMode &&
@@ -1994,7 +1984,6 @@ export function createEditableBlock<
                 {displayTop && (
                   <AddBlockControlBar
                     position="top"
-                    hidden={isAddBlockSidebarOpen}
                     onMouseLeave={() => setIsHovered(false)}
                     onClick={() => handleAddBlockClick("before")}
                   />
@@ -2002,7 +1991,6 @@ export function createEditableBlock<
                 {displayBottom && (
                   <AddBlockControlBar
                     position="bottom"
-                    hidden={isAddBlockSidebarOpen}
                     onMouseLeave={() => setIsHovered(false)}
                     onClick={() => handleAddBlockClick("after")}
                   />
@@ -2024,7 +2012,7 @@ export function createEditableBlock<
 
   /**
    * Wraps block content that renders outside the block's visual bounds (fixed navbars, modals, portals, etc.).
-   * Provides the same hover, selection, and sheet overlays as the main BlockComponent.
+   * Provides the same hover and selection overlays as the main BlockComponent.
    */
   const Detached = ({
     children,
@@ -2041,10 +2029,6 @@ export function createEditableBlock<
     const { window: iframeWindow } = useFrame();
 
     const selection = usePreviewTargetSelection();
-    const isAddBlockSidebarOpen = useSelector(
-      previewStore,
-      (state) => state.context.isAddBlockSidebarOpen,
-    );
     const selectTarget = usePreviewSelection();
     const isBlockSelected = selection?.blockId === blockId;
     const overlayState = useOverlayState(isHovered, isBlockSelected);
@@ -2063,9 +2047,7 @@ export function createEditableBlock<
 
     const shouldShowOverlay =
       isContentEditable &&
-      (overlayState["data-camox-hovered"] || overlayState["data-camox-focused"]) &&
-      !isAddBlockSidebarOpen;
-    const shouldHideForAddBlockSidebar = isAddBlockSidebarOpen && mode !== "peek";
+      (overlayState["data-camox-hovered"] || overlayState["data-camox-focused"]);
 
     const handleClick = (e: React.MouseEvent) => {
       if (!isContentEditable) return;
@@ -2102,7 +2084,7 @@ export function createEditableBlock<
         {children({
           "data-camox-comment-block-id": isContentEditable ? blockId : undefined,
           ref: setContainer,
-          style: { opacity: shouldHideForAddBlockSidebar ? 0 : 1 },
+          style: {},
           onClickCapture: handleClick,
           onMouseEnter: handleMouseEnter,
           onMouseLeave: handleMouseLeave,

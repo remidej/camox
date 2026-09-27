@@ -49,8 +49,7 @@ export function getCommentTargetFieldType(
 /** Field types belong to the current app, never to persisted comment targets. */
 export function revealCommentTarget(pageId: number, target: CommentTarget, fieldType?: FieldType) {
   previewStore.send({ type: "setCommentMode", enabled: false });
-  previewStore.send({ type: "closeAddBlockSidebar" });
-  previewStore.send({ type: "clearPeekedBlock" });
+  previewStore.send({ type: "closeAddBlockDialog" });
   if (target.kind === "page") {
     previewStore.send({ type: "selectTarget", kind: "page", pageId, selection: null });
     return;

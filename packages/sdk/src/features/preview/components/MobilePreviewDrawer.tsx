@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 
 import { UserButton } from "../../studio/components/UserButton";
 import { previewStore, selectionBlockId, selectionForPage } from "../previewStore";
-import { AddBlockSidebar } from "./AddBlockSidebar";
 import { PageEditorSidebar } from "./PageEditorSidebar";
 import { PageInfoSidebar, PageMarkdownContent, PageSeoContent } from "./PageInfoSidebar";
 import { PageNavigatorHeader, type PreviewedPage } from "./PageNavigatorSidebar";
@@ -46,12 +45,8 @@ export function MobilePreviewDrawer({
   const dragDistanceRef = React.useRef(0);
   const rootContentRef = React.useRef<HTMLDivElement>(null);
   const selection = useSelector(previewStore, (state) => selectionForPage(state.context, page.id));
-  const isAddBlockSidebarOpen = useSelector(
-    previewStore,
-    (state) => state.context.isAddBlockSidebarOpen,
-  );
   const selectedBlockId = selectionBlockId(selection);
-  const isContentScreen = selectedBlockId != null || isAddBlockSidebarOpen;
+  const isContentScreen = selectedBlockId != null;
   const isTileScreen = screen !== "root" || isContentScreen;
   const showScreenHeader = isExpanded && isTileScreen;
   const getExpandedHeight = React.useCallback(() => {
@@ -68,7 +63,6 @@ export function MobilePreviewDrawer({
   const goBack = () => {
     if (isContentScreen) {
       previewStore.send({ type: "clearSelection" });
-      previewStore.send({ type: "closeAddBlockSidebar" });
       setScreen("blocks");
       return;
     }
@@ -216,8 +210,6 @@ export function MobilePreviewDrawer({
       >
         {selectedBlockId != null ? (
           <PageEditorSidebar />
-        ) : isAddBlockSidebarOpen ? (
-          <AddBlockSidebar />
         ) : (
           <div key={screen} className="min-h-0 flex-1 overflow-auto">
             {screen === "root" && (
