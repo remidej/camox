@@ -20,11 +20,13 @@ import { CSS } from "@dnd-kit/utilities";
 import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { CircleMinus, CirclePlus, GripVertical } from "lucide-react";
+import { useContext } from "react";
 
 import { repeatableItemMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import type { OverlayMessage } from "../overlayMessages";
+import { PreviewEditingOwnerContext, usePreviewTargetSelection } from "../previewSelection";
 import { previewStore, selectionItemId } from "../previewStore";
 import { useRepeatableItemActions, type RepeatableArraySchema } from "./useRepeatableItemActions";
 
@@ -54,6 +56,7 @@ const SortableRepeatableItem = ({
   canRemove,
   onRemove,
 }: SortableRepeatableItemProps) => {
+  const owner = useContext(PreviewEditingOwnerContext);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: String(item.id),
   });
@@ -65,10 +68,7 @@ const SortableRepeatableItem = ({
   };
 
   // Check if this item is currently selected
-  const isSelected = useSelector(
-    previewStore,
-    (state) => selectionItemId(state.context.selection) === item.id,
-  );
+  const isSelected = selectionItemId(usePreviewTargetSelection()) === item.id;
 
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
 
@@ -123,10 +123,12 @@ const SortableRepeatableItem = ({
             className="flex-1 cursor-default truncate py-1 text-sm"
             title={item.summary}
             onClick={() => {
+              if (owner === null) return;
               // Clear hover overlay before unmounting — mouseLeave won't fire
               handleMouseLeave();
               previewStore.send({
                 type: "selectItem",
+                ...owner,
                 blockId,
                 itemId: item.id,
               });

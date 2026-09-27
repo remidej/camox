@@ -72,6 +72,32 @@ camox pages publish --path /about
 
 See `camox pages update --help` for options and examples.
 
+## Shared navigation and footer content
+
+`pages get` shows page-owned blocks. To find layout-owned block instances:
+
+```sh
+camox layouts list
+camox layouts get --id 39 --json
+camox blocks get --id 99
+camox blocks edit --id 99 --content '{"title": "Updated title"}'
+```
+
+Use the numeric layout `id` from `layouts list` (or the page's numeric
+`layoutId`), not the code-defined string `layoutId`. `layouts get` returns
+`blocks` with instance IDs, types, placement, and content, along with ordered
+`layout.beforeBlockIds` and `layout.afterBlockIds`. Use a returned block `id`
+with `blocks get` and `blocks edit`, inspecting its schema and current content
+before editing.
+
+Reads use the draft by default; `layouts get --id 39 --live` reads the published
+snapshot (an unpublished layout returns no blocks). Commands accept `--cwd`,
+`--project`, `--production`, and `--json`.
+Keep the project and environment consistent when using discovered IDs.
+`--production` selects the environment, not the published state. Editing a
+shared layout block changes the draft for all pages using that layout; publish
+separately only when intended.
+
 ## Media
 
 Run `camox login` and start your project's dev server (or build once) so the CLI

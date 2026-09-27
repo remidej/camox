@@ -21,7 +21,11 @@ import {
   seedBlockCaches,
   loadCamoxPageForRequest,
 } from "../routes/pageRuntime";
-import { matchCollectionContentPath, STUDIO_CONTENT_PATH } from "../studio/routes";
+import {
+  matchCollectionContentPath,
+  STUDIO_ASSETS_PATH,
+  STUDIO_CONTENT_PATH,
+} from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
 import type { StudioRenderInput } from "./studioApp";
 
@@ -156,7 +160,12 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   if (pathname === RUNTIME_REGISTRY_PATH) return { kind: "registry", pathname };
   if (pathname === "/_camox/data") return { kind: "data", pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
-  if (pathname === STUDIO_CONTENT_PATH || matchCollectionContentPath(pathname))
+  if (
+    pathname === STUDIO_CONTENT_PATH ||
+    pathname === `${STUDIO_CONTENT_PATH}/` ||
+    pathname === STUDIO_ASSETS_PATH ||
+    matchCollectionContentPath(pathname)
+  )
     return { kind: "studio-content", pathname };
   if (pathname.startsWith("/camox/")) return { kind: "studio-nested", pathname };
   if (pathname === "/og") return { kind: "og", pathname };

@@ -123,14 +123,16 @@ function AttachedCommentsContent({
   });
 
   const selectComment = async (id: string, target: CommentTarget) => {
+    const editingContext = previewStore.getSnapshot().context.editingContext;
     previewCommentsStore.send({ type: "selectComment", id });
     if (target.kind === "page") {
-      revealCommentTarget(target);
+      revealCommentTarget(pageId, target);
       return;
     }
     try {
       const bundle = await queryClient.fetchQuery(blockQueries.get(target.blockId));
       if (previewCommentsStore.getSnapshot().context.activeId !== id) return;
+      if (previewStore.getSnapshot().context.editingContext !== editingContext) return;
       if ("itemId" in target && !bundle.repeatableItems.some((item) => item.id === target.itemId)) {
         toast.error("This feedback target is no longer available.");
         return;
@@ -140,7 +142,7 @@ function AttachedCommentsContent({
         toast.error("This feedback field is no longer available.");
         return;
       }
-      revealCommentTarget(target, fieldType);
+      revealCommentTarget(pageId, target, fieldType);
     } catch {
       toast.error("This feedback target is no longer available.");
     }

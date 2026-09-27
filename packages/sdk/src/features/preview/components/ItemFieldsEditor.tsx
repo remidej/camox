@@ -28,6 +28,7 @@ import {
 } from "@/lib/normalized-data";
 
 import type { OverlayMessage } from "../overlayMessages";
+import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore } from "../previewStore";
 import { DrillRow } from "./DrillRow";
 import { IconFieldEditor } from "./IconFieldEditor";
@@ -106,6 +107,7 @@ const ItemFieldsEditor = ({
   itemsMap,
   fieldIdPrefix,
 }: ItemFieldsEditorProps) => {
+  const owner = React.useContext(PreviewEditingOwnerContext);
   const fields = React.useMemo(
     () =>
       getSchemaFieldsInOrder(schema).filter(
@@ -174,13 +176,21 @@ const ItemFieldsEditor = ({
   };
 
   const handleFieldFocus = (fieldName: string, fieldType: FieldType) => {
+    if (owner === null) return;
     const fieldId = getFieldId(fieldName);
     focusedFieldIdRef.current = fieldId;
     postToIframe({ type: "CAMOX_FOCUS_FIELD", fieldId });
     if (itemId != null) {
-      previewStore.send({ type: "selectItemField", blockId, itemId, fieldName, fieldType });
+      previewStore.send({
+        type: "selectItemField",
+        ...owner,
+        blockId,
+        itemId,
+        fieldName,
+        fieldType,
+      });
     } else {
-      previewStore.send({ type: "selectBlockField", blockId, fieldName, fieldType });
+      previewStore.send({ type: "selectBlockField", ...owner, blockId, fieldName, fieldType });
     }
   };
 
@@ -193,9 +203,11 @@ const ItemFieldsEditor = ({
 
   /** Dispatch the correct drill-into event depending on whether we're at block or item level. */
   const drillIntoField = (fieldName: string, fieldType: FieldType) => {
+    if (owner === null) return;
     if (itemId != null) {
       previewStore.send({
         type: "selectItemField",
+        ...owner,
         blockId,
         itemId,
         fieldName,
@@ -204,6 +216,7 @@ const ItemFieldsEditor = ({
     } else {
       previewStore.send({
         type: "selectBlockField",
+        ...owner,
         blockId,
         fieldName,
         fieldType,

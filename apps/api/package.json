@@ -23,6 +23,7 @@
   "dependencies": {
     "@camox/ai-tools": "workspace:*",
     "@camox/api-contract": "workspace:*",
+    "@cfworker/json-schema": "^4.1.1",
     "@hono/zod-validator": "^0.7.6",
     "@orpc/server": "^1.14.3",
     "@tanstack/ai": "0.21.3",

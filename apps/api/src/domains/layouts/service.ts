@@ -20,6 +20,7 @@ import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { readLayoutSnapshot } from "../_shared/layout-source";
 import type { ServiceContext } from "../_shared/service-context";
 import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
+import { prepareBlockContent } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData } from "../blocks/synced-live";
 import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
@@ -53,6 +54,7 @@ const repeatableItemSeedSchema = z.object({
   parentTempId: z.string().nullable(),
   fieldName: z.string(),
   content: z.unknown(),
+  settings: z.unknown().optional(),
   position: z.string(),
 });
 
@@ -375,19 +377,38 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
   const now = Date.now();
   const results = [];
 
-  const layoutOnlyDefs = await ctx.db
-    .select({ blockId: blockDefinitions.blockId })
+  const definitions = await ctx.db
+    .select()
     .from(blockDefinitions)
     .where(
       and(
         eq(blockDefinitions.projectId, projectId),
         eq(blockDefinitions.environmentId, environment.id),
-        eq(blockDefinitions.layoutOnly, true),
       ),
     );
-  const layoutOnlyTypes = new Set(layoutOnlyDefs.map((d) => d.blockId));
+  const definitionsByType = new Map(
+    definitions.map((definition) => [definition.blockId, definition]),
+  );
+  const layoutOnlyTypes = new Set(definitions.filter((d) => d.layoutOnly).map((d) => d.blockId));
 
-  for (const def of layoutDefs) {
+  // Preflight the whole submission before updating layouts or removing blocks.
+  // Persist the normalized values returned by validation, including defaults.
+  const preparedLayouts = layoutDefs.map((def) => ({
+    ...def,
+    blocks: def.blocks.map((block) => {
+      const definition = definitionsByType.get(block.type);
+      const prepared = prepareBlockContent(
+        block.content,
+        block.settings,
+        block.repeatableItems,
+        definition?.contentSchema,
+        definition?.settingsSchema,
+      );
+      return { ...block, ...prepared, repeatableItems: prepared.seeds };
+    }),
+  }));
+
+  for (const def of preparedLayouts) {
     const existingLayout = await ctx.db
       .select()
       .from(layouts)
@@ -498,6 +519,7 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
               parentItemId,
               fieldName: seed.fieldName,
               content: seed.content,
+              settings: seed.settings ?? null,
               summary: "",
               position: seed.position,
               createdAt: now,

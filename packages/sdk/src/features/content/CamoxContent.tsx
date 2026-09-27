@@ -1,7 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { useLocation } from "@/features/navigation/navigation";
-import { matchCollectionContentPath } from "@/features/studio/routes";
+import { Navigate, useLocation } from "@/features/navigation/navigation";
+import {
+  matchCollectionContentPath,
+  STUDIO_ASSETS_PATH,
+  STUDIO_CONTENT_PATH,
+} from "@/features/studio/routes";
 import { useProjectSlug } from "@/lib/auth";
 import { collectionQueries } from "@/lib/queries";
 
@@ -10,6 +14,11 @@ import { ContentAssets } from "./ContentAssets";
 import { ContentCollection, ContentCollectionNew } from "./ContentCollection";
 
 export const CamoxContent = () => {
+  const pathname = useLocation({ select: (location) => location.pathname });
+  if (pathname === STUDIO_CONTENT_PATH || pathname === `${STUDIO_CONTENT_PATH}/`) {
+    return <Navigate to={STUDIO_ASSETS_PATH} replace />;
+  }
+
   if (
     typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ !== "undefined" &&
     __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__
@@ -47,11 +56,12 @@ const ExperimentalContent = () => {
         <div role={isPending ? "status" : "alert"} className="text-muted-foreground p-6 text-sm">
           {isPending ? "Loading collection…" : "Collection not found."}
         </div>
-      ) : route?.isNew && collection ? (
+      ) : (route?.isNew || route?.itemId) && collection ? (
         <ContentCollectionNew
-          key={collection.collectionId}
+          key={`${collection.collectionId}:${route.itemId ?? "new"}`}
           projectSlug={projectSlug}
           collection={collection}
+          itemId={route.itemId}
         />
       ) : collection ? (
         <ContentCollection

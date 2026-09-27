@@ -175,6 +175,22 @@ export async function validateContent(
   definition: { projectId: number; environmentId: number; contentSchema: unknown },
   value: unknown,
 ): Promise<Record<string, unknown>> {
+  try {
+    return await validateContentFields(ctx, definition, value);
+  } catch (error) {
+    if (!(error instanceof z.ZodError)) throw error;
+    throw new ORPCError("BAD_REQUEST", {
+      message: `Invalid collection content: ${error.issues.map((issue) => issue.message).join("; ")}`,
+      cause: error,
+    });
+  }
+}
+
+async function validateContentFields(
+  ctx: ServiceContext,
+  definition: { projectId: number; environmentId: number; contentSchema: unknown },
+  value: unknown,
+): Promise<Record<string, unknown>> {
   const schema = contentSchemaInput.parse(definition.contentSchema);
   const content = z.record(z.string(), z.unknown()).parse(value);
   if (Object.keys(content).some((key) => !Object.hasOwn(schema.properties, key))) {
@@ -216,13 +232,11 @@ export async function validateContent(
       );
       continue;
     }
-    result[key] = await validateAsset(
-      ctx,
-      definition.projectId,
-      definition.environmentId,
-      field,
-      value,
-    );
+    // An unlinked single asset is stored as null. Preview placeholders are never data.
+    result[key] =
+      value === null
+        ? null
+        : await validateAsset(ctx, definition.projectId, definition.environmentId, field, value);
   }
   return result;
 }

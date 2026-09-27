@@ -56,13 +56,44 @@ Look up the Page before creating or moving Blocks so you have its `id`, current 
 {{CAMOX_CMD}} blocks describe --type hero
 ```
 
+### Find shared navigation and footer Blocks
+
+`pages get` returns page-owned Blocks, not the Layout's shared shell. Inspect
+the Layout to discover navigation, footer, and other layout-owned instance IDs:
+
+```sh
+{{CAMOX_CMD}} layouts list
+{{CAMOX_CMD}} layouts get --id 39
+{{CAMOX_CMD}} blocks get --id 99
+{{CAMOX_CMD}} blocks edit --id 99 --content '{"title": "Updated title"}'
+```
+
+Use the numeric `id` from `layouts list` (or the Page's numeric `layoutId`)
+for `layouts get --id`, not the code-defined string `layoutId`. The response
+includes `blocks` with instance `id`, `type`, `placement`, and Content, plus
+`layout.beforeBlockIds` and `layout.afterBlockIds`. Pass a Block's `id` to
+`blocks get` and `blocks edit`; do not use the Layout ID or Block type.
+Inspect the Block's schema and current Content before editing, and preserve
+repeatable items as described below.
+
+Layout reads default to the draft; add `--live` to inspect the published
+snapshot (an unpublished Layout returns no Blocks). Keep `--project`,
+`--production`, and `--cwd` consistent across the
+discovery and editing commands. `--production` selects the environment; it does
+not publish anything. Shared shell edits affect every Page using that Layout,
+and synced Block types can share Content across Layouts.
+
 ### Create and position a Block
 
 ```sh
 {{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}' --position first
 ```
 
-Creation initializes omitted Content and Settings fields from the Block definition's defaults, including when `--content '{}'` is supplied. Explicit field values—including `""`, `null`, `false`, and `[]`—are preserved; defaults do not merge into a supplied Link object. Omitted Repeaters initialize their default item count (or minimum count) with item defaults; supplying an array uses exactly those items, and `[]` creates none. Asset placeholders are not stored. Existing synced Block data still takes precedence for synced types.
+Creation initializes omitted Content and Settings fields from the Block definition's defaults, including when `--content '{}'` is supplied. Explicit values are not replaced by defaults and must satisfy the field's JSON Schema; defaults do not merge into a supplied Link object. Omitted Repeaters initialize their default item count (or minimum count) with item defaults. Supplied arrays use exactly those items and must satisfy `minItems`/`maxItems`; `[]` is accepted only when the minimum allows it. Asset placeholders are not stored. Existing synced Block data still takes precedence for synced types.
+
+Content and Settings writes are validated server-side against the owning environment's schemas before mutation. Validation errors include field paths. String fields contain Markdown strings (not rich-text JSON objects); Embed fields contain strings matching their pattern. Assets use managed `{ "_fileId": 123 }` references, with asset lists stored as arrays of references. Asset normalization drops hydrated URL metadata and converts placeholders to null.
+
+Updates validate only submitted fields, so unrelated historical invalid values do not prevent an edit. New records validate after defaults are applied. Unknown properties follow the schema's `additionalProperties` policy (allowed when unspecified); missing definitions retain legacy permissive behavior. Saved snapshots are not retroactively migrated or revalidated when restored.
 
 Supply reference-specific copy, links, assets, and items directly as instance Content. Definition defaults should remain neutral, reusable examples—not a way to populate a reference site.
 

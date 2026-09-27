@@ -32,13 +32,12 @@ export const PreviewToolbar = ({
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
   const { data: comments } = usePageComments(pageStatus ? pageId : undefined);
   const commentCount = comments?.length ?? 0;
 
-  if (isToolbarHidden || peekedBlock) return null;
+  if (isToolbarHidden) return null;
 
   return (
     <FloatingToolbar className="bottom-2 w-max justify-between gap-6 transition-none">

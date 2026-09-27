@@ -1,49 +1,66 @@
-import { validateIconValue } from "@camox/api-contract";
 import { ORPCError } from "@orpc/server";
 import { generateKeyBetween } from "fractional-indexing";
+
+import { normalizeFieldValue } from "./asset-value";
+import { validateContent } from "./validate-content";
+
+export { sanitizeAssetValue } from "./asset-value";
 
 export type BlockItemSeed = {
   tempId: string;
   parentTempId: string | null;
   fieldName: string;
   content: unknown;
+  settings?: unknown;
   position: string;
 };
 
 export type SchemaProps = Record<string, FieldSchema>;
-type FieldSchema = {
+export type FieldSchema = {
+  [key: string]: unknown;
+  type?: string;
   fieldType?: string;
   enum?: unknown;
-  items?: { properties?: SchemaProps };
+  pattern?: string;
+  properties?: SchemaProps;
+  required?: string[];
+  items?: FieldSchema;
+  itemSettingsSchema?: FieldSchema;
+  minItems?: number;
+  maxItems?: number;
 };
 
-export function assertIconValue(value: unknown, schema: FieldSchema | undefined, field: string) {
-  if (!schema) return;
-  try {
-    validateIconValue(value, schema);
-  } catch {
-    badRequest(`Invalid icon ID for "${field}"`, field);
+/** Explicit seeds carry their parent relationships separately from their content. */
+export function validateItemSeeds(
+  seeds: BlockItemSeed[],
+  rootProperties: SchemaProps | undefined,
+  path = "repeatableItems",
+  rootSchema: unknown = { properties: rootProperties },
+): void {
+  // Persistence inserts in array order. Reject ambiguous ancestry rather than
+  // validating against a different schema from the one the inserted row uses.
+  const schemas = new Map<string, SchemaProps | undefined>();
+  for (const [index, seed] of seeds.entries()) {
+    if (!seed.tempId) badRequest("Repeater seed tempId must not be empty", path);
+    if (schemas.has(seed.tempId)) badRequest("Duplicate repeater seed tempId", path);
+    if (seed.parentTempId !== null && !schemas.has(seed.parentTempId)) {
+      badRequest("Repeater seed parent must precede its child", path);
+    }
+    const parentProperties =
+      seed.parentTempId === null ? rootProperties : schemas.get(seed.parentTempId);
+    const fieldSchema = parentProperties?.[seed.fieldName];
+    if (fieldSchema && fieldSchema.fieldType !== "Repeater") {
+      badRequest(`Field "${seed.fieldName}" is not a repeater`, `${path}[${index}].fieldName`);
+    }
+    const schema = fieldSchema?.items;
+    const properties = schema?.properties;
+    schemas.set(seed.tempId, properties);
+    validateContent(seed.content, schema, { path: `${path}[${index}].content`, rootSchema });
   }
 }
 
 function badRequest(message: string, field: string): never {
   throw new ORPCError("BAD_REQUEST", { message, data: { field } });
-}
-
-/**
- * Canonicalize an Image/File field value: keep `{ _fileId: number }` markers
- * (dropping any sibling props like `url`/`alt` the AI may have invented),
- * coerce string ids to number, and reduce anything else to `null`. The
- * frontend renders its own placeholder for null, so we never persist
- * AI-fabricated URLs.
- */
-export function sanitizeAssetValue(value: unknown): { _fileId: number } | null {
-  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
-  const raw = (value as Record<string, unknown>)._fileId;
-  if (raw == null) return null;
-  const id = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(id)) return null;
-  return { _fileId: id };
 }
 
 /**
@@ -60,8 +77,10 @@ export function sanitizeAssetValue(value: unknown): { _fileId: number } | null {
 export function normalizeBlockContent(
   rawContent: unknown,
   contentSchema: unknown,
+  rootSchema: unknown = contentSchema,
 ): { content: Record<string, unknown>; seeds: BlockItemSeed[] } {
   const schemaProps = (contentSchema as { properties?: SchemaProps } | null)?.properties;
+  validateContent(rawContent, contentSchema, { rootSchema });
   const ctx = { counter: { v: 0 }, seeds: [] as BlockItemSeed[] };
   const content = walk(rawContent, schemaProps, null, ctx);
   return { content, seeds: ctx.seeds };
@@ -79,7 +98,6 @@ function walk(
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawContent as Record<string, unknown>)) {
     const fieldSchema = schemaProps?.[key];
-    assertIconValue(value, fieldSchema, key);
     if (fieldSchema?.fieldType === "Repeater") {
       if (value == null) continue;
       if (!Array.isArray(value)) {
@@ -113,11 +131,7 @@ function walk(
       }
       continue;
     }
-    if (fieldSchema?.fieldType === "Image" || fieldSchema?.fieldType === "File") {
-      out[key] = sanitizeAssetValue(value);
-      continue;
-    }
-    out[key] = value;
+    out[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
   }
   return out;
 }
@@ -131,20 +145,17 @@ function walk(
 export function sanitizeItemContent(
   rawContent: unknown,
   itemSchemaProps: SchemaProps | undefined,
+  rootSchema: unknown = { properties: itemSchemaProps },
 ): Record<string, unknown> {
+  validateContent(rawContent, { properties: itemSchemaProps }, { rootSchema });
   if (rawContent == null || typeof rawContent !== "object" || Array.isArray(rawContent)) {
     return {};
   }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawContent as Record<string, unknown>)) {
     const fieldSchema = itemSchemaProps?.[key];
-    assertIconValue(value, fieldSchema, key);
     if (fieldSchema?.fieldType === "Repeater") continue;
-    if (fieldSchema?.fieldType === "Image" || fieldSchema?.fieldType === "File") {
-      out[key] = sanitizeAssetValue(value);
-      continue;
-    }
-    out[key] = value;
+    out[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
   }
   return out;
 }

@@ -49,6 +49,18 @@ export const collectionQueries = {
     ),
   }),
 
+  record: (projectSlug: string, collectionId: string, id: string) => ({
+    ...getOrpc().collectionDefinitions.getRecord.queryOptions({
+      input: { projectSlug, collectionId, id },
+    }),
+    queryKey: queryKeys.collections.record(
+      projectSlug,
+      getEnvironmentName() ?? "production",
+      collectionId,
+      id,
+    ),
+  }),
+
   records: (projectSlug: string, collectionId: string) => ({
     ...getOrpc().collectionDefinitions.listRecords.queryOptions({
       input: { projectSlug, collectionId },
@@ -60,6 +72,14 @@ export const collectionQueries = {
     ),
   }),
 };
+
+export const collectionMutations = {
+  create: () => getOrpc().collectionDefinitions.createRecord.mutationOptions(),
+  edit: () => getOrpc().collectionDefinitions.editRecord.mutationOptions(),
+  delete: () => getOrpc().collectionDefinitions.deleteRecord.mutationOptions(),
+};
+
+export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
 
 export const commentQueries = {
   list: (pageId: number) => ({

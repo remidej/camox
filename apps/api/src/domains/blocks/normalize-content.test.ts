@@ -54,6 +54,6 @@ describe("normalizeBlockContent", () => {
           },
         },
       ),
-    ).toThrow(/cannot reference existing items/);
+    ).toThrow(/_itemId/);
   });
 });

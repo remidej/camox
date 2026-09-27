@@ -1,7 +1,7 @@
 import { ImageIcon, ListIcon, type LucideIcon } from "lucide-react";
 
 import { Link } from "@/features/navigation/navigation";
-import { collectionContentPath, STUDIO_CONTENT_PATH } from "@/features/studio/routes";
+import { collectionContentPath, STUDIO_ASSETS_PATH } from "@/features/studio/routes";
 import type { CollectionDefinition } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +26,7 @@ export const ContentSidebar = ({
           icon={ImageIcon}
           title="Assets"
           selected={selectedCollectionId === null}
-          to={STUDIO_CONTENT_PATH}
+          to={STUDIO_ASSETS_PATH}
         />
       </ContentSidebarGroup>
       {collections.length > 0 && (

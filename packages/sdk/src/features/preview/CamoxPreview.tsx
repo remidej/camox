@@ -15,20 +15,22 @@ import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedChromeContext } from "../runtime/SharedChromeContext";
 import { Navbar } from "../studio/components/Navbar";
+import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
-import { PeekedBlock } from "./components/PeekedBlock";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbarSpacer } from "./components/PreviewToolbarSpacer";
 import { RightSidebar } from "./components/RightSidebar";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
+import { PreviewEditingOwnerContext } from "./previewSelection";
 import {
   previewStore,
   selectIsCommentMode,
   selectIsEditMode,
   selectPreviewSource,
+  type EditingOwner,
 } from "./previewStore";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -141,49 +143,8 @@ export const PageContent = () => {
     pageData,
     previewSource,
   );
-  const peekedBlockPosition = useSelector(
-    previewStore,
-    (state) => state.context.peekedBlockPosition,
-  );
-
-  // Latch the last non-null position so the block doesn't jump during collapse
-  const displayedPositionRef = React.useRef<string | null>(null);
-  if (peekedBlockPosition !== null) {
-    displayedPositionRef.current = peekedBlockPosition;
-  }
-  const effectivePosition = peekedBlockPosition ?? displayedPositionRef.current;
-
-  const onExitComplete = React.useCallback(() => {
-    displayedPositionRef.current = null;
-  }, []);
 
   const camoxApp = useCamoxApp();
-
-  // Find the index where the peeked block should be inserted
-  // If effectivePosition is null, insert at the end
-  // If effectivePosition is "", insert at the beginning
-  const peekedBlockIndex = React.useMemo(() => {
-    if (effectivePosition === "") {
-      return 0; // Insert at the beginning
-    }
-
-    if (effectivePosition === null) {
-      return pageBlocks.length; // Insert at the end
-    }
-
-    // Find the index after the block with the matching position
-    const afterBlockIndex = pageBlocks.findIndex(
-      (block) => String(block.position) === effectivePosition,
-    );
-
-    if (afterBlockIndex === -1) {
-      // Position not found, insert at the end
-      return pageBlocks.length;
-    }
-
-    // Insert after the found block
-    return afterBlockIndex + 1;
-  }, [pageBlocks, effectivePosition]);
 
   // Look up layout
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;
@@ -216,31 +177,21 @@ export const PageContent = () => {
 
   const pageBlocksContent = (
     <>
-      {/* Render peeked block at the beginning if it should be before the first block */}
-      {peekedBlockIndex === 0 && pageBlocks.length > 0 && (
-        <PeekedBlock onExitComplete={onExitComplete} />
-      )}
       {pageBlocks.map((blockData, index) => (
-        <React.Fragment key={blockData.id}>
-          <BlockErrorBoundary blockId={blockData.id} blockType={blockData.type}>
-            <BlockRenderer
-              blockId={blockData.id}
-              mode="site"
-              showAddBlockTop={
-                index === 0
-                  ? (layout?._internal.blockDefinitions.some((b) => b.placement === "before") ??
-                    false)
-                  : true
-              }
-              showAddBlockBottom={true}
-            />
-          </BlockErrorBoundary>
-          {/* Render peeked block after this block if this is the insertion point */}
-          {index === peekedBlockIndex - 1 && <PeekedBlock onExitComplete={onExitComplete} />}
-        </React.Fragment>
+        <BlockErrorBoundary key={blockData.id} blockId={blockData.id} blockType={blockData.type}>
+          <BlockRenderer
+            blockId={blockData.id}
+            mode="site"
+            showAddBlockTop={
+              index === 0
+                ? (layout?._internal.blockDefinitions.some((b) => b.placement === "before") ??
+                  false)
+                : true
+            }
+            showAddBlockBottom={true}
+          />
+        </BlockErrorBoundary>
       ))}
-      {/* Render peeked block at the end if there are no blocks */}
-      {pageBlocks.length === 0 && <PeekedBlock onExitComplete={onExitComplete} />}
     </>
   );
 
@@ -335,11 +286,15 @@ export const PreviewShell = ({
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const isAddBlockSidebarOpen = useSelector(
-    previewStore,
-    (state) => state.context.isAddBlockSidebarOpen,
-  );
   const previewSource = useSelector(previewStore, selectPreviewSource);
+
+  const pageId = pageData?.page.id;
+  const layoutId = derivedLayout?.id;
+  const editingOwner = React.useMemo<EditingOwner | null>(() => {
+    if (pageId != null) return { kind: "page", pageId };
+    if (layoutId != null) return { kind: "layout", layoutId };
+    return null;
+  }, [pageId, layoutId]);
 
   // Gate "Preview live content" on a published snapshot existing — same rule
   // as the sidebar Switch. Without it, flipping to 'live' would Suspense on
@@ -351,7 +306,7 @@ export const PreviewShell = ({
   React.useEffect(() => {
     if (!isMobileStudio) return;
     previewStore.send({ type: "exitEditMode" });
-    previewStore.send({ type: "closeAddBlockSidebar" });
+    previewStore.send({ type: "closeAddBlockDialog" });
   }, [isMobileStudio]);
 
   React.useEffect(() => {
@@ -445,51 +400,44 @@ export const PreviewShell = ({
   }
 
   return (
-    <div
-      className={cn(
-        "bg-background flex flex-col overflow-hidden",
-        sharedChrome ? "h-full" : "h-screen",
-        !isEditMode && "bg-black",
-      )}
-    >
-      {!sharedChrome && !isMobileStudio && !isToolbarHidden && (
-        <div className="relative">
-          <Navbar isPreview />
-          {pageData && isAddBlockSidebarOpen && (
-            <div
-              className="absolute inset-0 z-20"
-              style={{ background: "rgba(0, 0, 0, 0.66)" }}
-              onClick={() => previewStore.send({ type: "closeAddBlockSidebar" })}
-            />
+    <PreviewEditingOwnerContext value={editingOwner}>
+      <div
+        className={cn(
+          "bg-background flex flex-col overflow-hidden",
+          sharedChrome ? "h-full" : "h-screen",
+          !isEditMode && "bg-black",
+        )}
+      >
+        {!sharedChrome && !isMobileStudio && !isToolbarHidden && <Navbar isPreview />}
+        <div className="flex h-full flex-row items-stretch">
+          {!isMobileStudio && (pageData || derivedLayoutId) && (
+            // Keep publication actions registered even when editing controls are hidden.
+            <div className={isEditMode ? "contents" : "hidden"}>
+              <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+            </div>
+          )}
+          <PreviewPanel
+            isMobileExperience={isMobileStudio}
+            page={pageData?.page}
+            layoutId={derivedLayout?.id}
+            projectName={pageData?.projectName}
+            toolbarProps={{
+              pageId: pageData?.page.id,
+              pageStatus: pageData?.page.status,
+              hasLiveVersion: hasLiveCheckpoint,
+            }}
+          >
+            {children}
+            {!isMobileStudio && isEditMode && <PreviewToolbarSpacer />}
+          </PreviewPanel>
+          {!isMobileStudio && isEditMode && (
+            <RightSidebar pageId={pageData?.page.id} derivedLayoutId={derivedLayoutId} />
           )}
         </div>
-      )}
-      <div className="flex h-full flex-row items-stretch">
-        {!isMobileStudio && (pageData || derivedLayoutId) && (
-          // Keep publication actions registered even when editing controls are hidden.
-          <div className={isEditMode ? "contents" : "hidden"}>
-            <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
-          </div>
-        )}
-        <PreviewPanel
-          isMobileExperience={isMobileStudio}
-          page={pageData?.page}
-          projectName={pageData?.projectName}
-          toolbarProps={{
-            pageId: pageData?.page.id,
-            pageStatus: pageData?.page.status,
-            hasLiveVersion: hasLiveCheckpoint,
-          }}
-        >
-          {children}
-          {!isMobileStudio && isEditMode && <PreviewToolbarSpacer />}
-        </PreviewPanel>
-        {!isMobileStudio && isEditMode && (
-          <RightSidebar pageId={pageData?.page.id} derivedLayoutId={derivedLayoutId} />
-        )}
+        {(isMobileStudio || isEditMode) && <CreatePageModal />}
+        {pageData && <AddBlockDialog />}
       </div>
-      {(isMobileStudio || isEditMode) && <CreatePageModal />}
-    </div>
+    </PreviewEditingOwnerContext>
   );
 };
 

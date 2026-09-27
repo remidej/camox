@@ -50,29 +50,28 @@ describe("block creation defaults", () => {
   });
 
   it("preserves explicit emptiness, null, false, zero, and unknown fields", () => {
-    const result = initialize({
+    const input = {
       title: "",
       link: null,
       visible: false,
       count: 0,
       sections: [],
       extra: "custom",
-    });
-    expect(result.content).toEqual({
-      title: "",
-      link: null,
-      visible: false,
-      count: 0,
-      extra: "custom",
-    });
-    expect(result.seeds).toEqual([]);
+    };
+    expect(initializeBlockContent(input, schema)).toEqual(input);
+    // Defaulting preserves explicit values; validation separately rejects
+    // the empty array because this definition requires at least one section.
+    expect(() => initialize(input)).toThrow("content.sections");
   });
 
   it("fills partial items without appending defaults or replacing nested empty repeaters", () => {
-    const result = initialize({ sections: [{ title: "Custom", cards: [] }, { cards: [] }] });
-    expect(result.seeds.map((seed) => seed.content)).toEqual([
-      { title: "Custom" },
-      { title: "Section" },
+    const result = initializeBlockContent(
+      { sections: [{ title: "Custom", cards: [] }, { cards: [] }] },
+      schema,
+    );
+    expect(result.sections).toEqual([
+      { title: "Custom", cards: [] },
+      { title: "Section", cards: [] },
     ]);
   });
 
@@ -89,17 +88,15 @@ describe("block creation defaults", () => {
   });
 
   it("does not hide invalid repeater values from normalization", () => {
-    expect(() => initialize({ sections: [null] })).toThrow(/element must be an object/);
-    expect(() => initialize({ sections: "invalid" })).toThrow(/expected an array/);
-    expect(() => initialize({ sections: [{ _itemId: 1 }] })).toThrow(
-      /cannot reference existing items/,
-    );
+    expect(() => initialize({ sections: [null] })).toThrow("content.sections[0]");
+    expect(() => initialize({ sections: "invalid" })).toThrow("content.sections");
+    expect(() => initialize({ sections: [{ _itemId: 1 }] })).toThrow(/_itemId/);
   });
 
   it("works without a definition and does not mutate input or defaults", () => {
     expect(initializeBlockContent({ title: "Custom" }, undefined)).toEqual({ title: "Custom" });
     const content = { sections: [{ cards: [] }] };
-    initialize(content);
+    initializeBlockContent(content, schema);
     expect(content).toEqual({ sections: [{ cards: [] }] });
     const first = initializeBlockContent({}, schema);
     (first.link as { text: string }).text = "Changed";

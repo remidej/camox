@@ -7,11 +7,12 @@ import { checkIfInputFocused, cn } from "@/lib/utils";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { SharedChromeContext } from "../../runtime/SharedChromeContext";
-import { PreviewPageContext } from "../previewSelection";
+import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
   previewStore,
   selectIsCommentMode,
   selectIsEditMode,
+  type EditingOwner,
   type ViewportMode,
 } from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
@@ -148,6 +149,7 @@ interface PreviewPanelProps {
   children: React.ReactNode;
   isMobileExperience?: boolean;
   page?: PreviewedPage;
+  layoutId?: number;
   projectName?: string;
   toolbarProps?: React.ComponentProps<typeof PreviewToolbar>;
 }
@@ -161,13 +163,24 @@ const PreviewPanel = ({
   children,
   isMobileExperience = false,
   page,
+  layoutId,
   projectName = "Project",
   toolbarProps,
 }: PreviewPanelProps) => {
   const sharedChrome = React.useContext(SharedChromeContext);
-  const previewContent = (
-    <PreviewPageContext value={page?.id ?? null}>{children}</PreviewPageContext>
-  );
+  const pageId = page?.id;
+  const owner = React.useMemo<EditingOwner | null>(() => {
+    if (pageId != null) return { kind: "page", pageId };
+    if (layoutId != null) return { kind: "layout", layoutId };
+    return null;
+  }, [pageId, layoutId]);
+  React.useLayoutEffect(() => {
+    if (owner?.kind === "layout") {
+      previewStore.send({ type: "activateLayout", layoutId: owner.layoutId });
+      return;
+    }
+    previewStore.send({ type: "activatePage", pageId: owner?.pageId ?? null });
+  }, [owner]);
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const handleIframeReady = React.useCallback((element: HTMLIFrameElement) => {
     previewStore.send({ type: "setIframeElement", element });
@@ -237,24 +250,26 @@ const PreviewPanel = ({
 
   if (isMobileExperience) {
     return (
-      <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
-        <div className="relative min-h-0 flex-1">
-          <PreviewFrame className="h-full w-full" onIframeReady={handleIframeReady}>
-            {previewContent}
-          </PreviewFrame>
-        </div>
-        {!isToolbarHidden &&
-          (page ? (
-            <MobilePreviewDrawer page={page} projectName={projectName} />
-          ) : (
-            !sharedChrome && <PreviewToolbar {...toolbarProps} />
-          ))}
-      </PanelContent>
+      <PreviewEditingOwnerContext value={owner}>
+        <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
+          <div className="relative min-h-0 flex-1">
+            <PreviewFrame className="h-full w-full" onIframeReady={handleIframeReady}>
+              {children}
+            </PreviewFrame>
+          </div>
+          {!isToolbarHidden &&
+            (page ? (
+              <MobilePreviewDrawer page={page} projectName={projectName} />
+            ) : (
+              !sharedChrome && <PreviewToolbar {...toolbarProps} />
+            ))}
+        </PanelContent>
+      </PreviewEditingOwnerContext>
     );
   }
 
   return (
-    <>
+    <PreviewEditingOwnerContext value={owner}>
       {page && !isCommentMode && <CuratedBlockShortcuts />}
       {page && <PreviewComments key={page.id} />}
       <PanelContent className="relative overflow-hidden bg-black">
@@ -262,10 +277,10 @@ const PreviewPanel = ({
           {viewportMode === "full" ? (
             <>
               <PreviewFrame className="checkered h-full w-full" onIframeReady={handleIframeReady}>
-                {previewContent}
+                {children}
               </PreviewFrame>
               {isEditMode && !isCommentMode && (
-                <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />
+                <Overlays iframeElement={iframeElement} canAddBlocks={!!page} owner={owner} />
               )}
               {isEditMode && !isCommentMode && <FieldToolbar />}
               {!sharedChrome && <PreviewToolbar {...toolbarProps} />}
@@ -285,10 +300,10 @@ const PreviewPanel = ({
                 )}
               >
                 <PreviewFrame className="overflow-auto" onIframeReady={handleIframeReady}>
-                  {previewContent}
+                  {children}
                 </PreviewFrame>
                 {isEditMode && !isCommentMode && (
-                  <Overlays iframeElement={iframeElement} canAddBlocks={!!page} />
+                  <Overlays iframeElement={iframeElement} canAddBlocks={!!page} owner={owner} />
                 )}
               </div>
               {isEditMode && !isCommentMode && <FieldToolbar />}
@@ -297,7 +312,7 @@ const PreviewPanel = ({
           )}
         </div>
       </PanelContent>
-    </>
+    </PreviewEditingOwnerContext>
   );
 };
 
