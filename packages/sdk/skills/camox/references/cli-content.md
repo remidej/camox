@@ -62,7 +62,11 @@ Look up the Page before creating or moving Blocks so you have its `id`, current 
 {{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}' --position first
 ```
 
-Creation initializes omitted Content and Settings fields from the Block definition's defaults, including when `--content '{}'` is supplied. Explicit field values—including `""`, `null`, `false`, and `[]`—are preserved; defaults do not merge into a supplied Link object. Omitted Repeaters initialize their default item count (or minimum count) with item defaults; supplying an array uses exactly those items, and `[]` creates none. Asset placeholders are not stored. Existing synced Block data still takes precedence for synced types.
+Creation initializes omitted Content and Settings fields from the Block definition's defaults, including when `--content '{}'` is supplied. Explicit values are not replaced by defaults and must satisfy the field's JSON Schema; defaults do not merge into a supplied Link object. Omitted Repeaters initialize their default item count (or minimum count) with item defaults. Supplied arrays use exactly those items and must satisfy `minItems`/`maxItems`; `[]` is accepted only when the minimum allows it. Asset placeholders are not stored. Existing synced Block data still takes precedence for synced types.
+
+Content and Settings writes are validated server-side against the owning environment's schemas before mutation. Validation errors include field paths. String fields contain Markdown strings (not rich-text JSON objects); Embed fields contain strings matching their pattern. Assets use managed `{ "_fileId": 123 }` references, with asset lists stored as arrays of references. Asset normalization drops hydrated URL metadata and converts placeholders to null.
+
+Updates validate only submitted fields, so unrelated historical invalid values do not prevent an edit. New records validate after defaults are applied. Unknown properties follow the schema's `additionalProperties` policy (allowed when unspecified); missing definitions retain legacy permissive behavior. Saved snapshots are not retroactively migrated or revalidated when restored.
 
 Supply reference-specific copy, links, assets, and items directly as instance Content. Definition defaults should remain neutral, reusable examples—not a way to populate a reference site.
 

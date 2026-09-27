@@ -65,21 +65,28 @@ describe("createBlock defaults", () => {
     expect(markdown).toContain("[Learn more](/about)");
   });
 
-  it("preserves supplied content and explicit empty repeaters", async () => {
+  it("preserves supplied content but enforces repeater minimums", async () => {
     const { ctx, page } = await fixture("create-explicit");
+    await expect(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "hero",
+        content: { items: [] },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     const created = await createBlock(ctx, {
       pageId: page.id,
       type: "hero",
-      content: { title: "", items: [] },
+      content: { title: "", items: [{ title: "Explicit" }] },
       settings: { visible: false },
     });
     const result = await getBlock(ctx, { id: created.id, source: "draft" });
     expect(result.block.content).toMatchObject({ title: "", cta: { text: "Learn more" } });
     expect(result.block.settings).toEqual({ visible: false });
-    expect(result.repeatableItems).toEqual([]);
+    expect(result.repeatableItems.map((item) => item.content)).toEqual([{ title: "Explicit" }]);
   });
 
-  it("does not duplicate UI seed bundles, including empty bundles", async () => {
+  it("does not duplicate UI seed bundles and rejects bundles below the minimum", async () => {
     const { ctx, page } = await fixture("create-ui-seeds");
     for (const repeatableItems of [
       [],
@@ -93,6 +100,17 @@ describe("createBlock defaults", () => {
         },
       ],
     ]) {
+      if (repeatableItems.length === 0) {
+        await expect(
+          createBlock(ctx, {
+            pageId: page.id,
+            type: "hero",
+            content: {},
+            repeatableItems,
+          }),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+        continue;
+      }
       const created = await createBlock(ctx, {
         pageId: page.id,
         type: "hero",

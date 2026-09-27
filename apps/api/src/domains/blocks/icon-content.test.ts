@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeBlockContent, sanitizeItemContent, assertIconValue } from "./normalize-content";
+import { normalizeBlockContent, sanitizeItemContent } from "./normalize-content";
+import { validateContent } from "./validate-content";
 
-const icon = { fieldType: "Icon", enum: ["lucide:zap", "lucide:house"] };
+const icon = { type: "string", fieldType: "Icon", enum: ["lucide:zap", "lucide:house"] };
 const schema = {
   properties: { icon, items: { fieldType: "Repeater", items: { properties: { icon } } } },
 };
@@ -23,7 +24,7 @@ describe("icon content validation", () => {
       expect(() => normalizeBlockContent({ icon: value }, schema)).toThrow();
       expect(() => normalizeBlockContent({ items: [{ icon: value }] }, schema)).toThrow();
       expect(() => sanitizeItemContent({ icon: value }, { icon })).toThrow();
-      expect(() => assertIconValue(value, icon, "icon")).toThrow();
+      expect(() => validateContent({ icon: value }, { properties: { icon } })).toThrow();
     },
   );
 });
