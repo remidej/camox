@@ -15,11 +15,11 @@ import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedChromeContext } from "../runtime/SharedChromeContext";
 import { Navbar } from "../studio/components/Navbar";
+import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
-import { PeekedBlock } from "./components/PeekedBlock";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbarSpacer } from "./components/PreviewToolbarSpacer";
 import { RightSidebar } from "./components/RightSidebar";
@@ -143,49 +143,8 @@ export const PageContent = () => {
     pageData,
     previewSource,
   );
-  const peekedBlockPosition = useSelector(
-    previewStore,
-    (state) => state.context.peekedBlockPosition,
-  );
-
-  // Latch the last non-null position so the block doesn't jump during collapse
-  const displayedPositionRef = React.useRef<string | null>(null);
-  if (peekedBlockPosition !== null) {
-    displayedPositionRef.current = peekedBlockPosition;
-  }
-  const effectivePosition = peekedBlockPosition ?? displayedPositionRef.current;
-
-  const onExitComplete = React.useCallback(() => {
-    displayedPositionRef.current = null;
-  }, []);
 
   const camoxApp = useCamoxApp();
-
-  // Find the index where the peeked block should be inserted
-  // If effectivePosition is null, insert at the end
-  // If effectivePosition is "", insert at the beginning
-  const peekedBlockIndex = React.useMemo(() => {
-    if (effectivePosition === "") {
-      return 0; // Insert at the beginning
-    }
-
-    if (effectivePosition === null) {
-      return pageBlocks.length; // Insert at the end
-    }
-
-    // Find the index after the block with the matching position
-    const afterBlockIndex = pageBlocks.findIndex(
-      (block) => String(block.position) === effectivePosition,
-    );
-
-    if (afterBlockIndex === -1) {
-      // Position not found, insert at the end
-      return pageBlocks.length;
-    }
-
-    // Insert after the found block
-    return afterBlockIndex + 1;
-  }, [pageBlocks, effectivePosition]);
 
   // Look up layout
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;
@@ -218,31 +177,21 @@ export const PageContent = () => {
 
   const pageBlocksContent = (
     <>
-      {/* Render peeked block at the beginning if it should be before the first block */}
-      {peekedBlockIndex === 0 && pageBlocks.length > 0 && (
-        <PeekedBlock onExitComplete={onExitComplete} />
-      )}
       {pageBlocks.map((blockData, index) => (
-        <React.Fragment key={blockData.id}>
-          <BlockErrorBoundary blockId={blockData.id} blockType={blockData.type}>
-            <BlockRenderer
-              blockId={blockData.id}
-              mode="site"
-              showAddBlockTop={
-                index === 0
-                  ? (layout?._internal.blockDefinitions.some((b) => b.placement === "before") ??
-                    false)
-                  : true
-              }
-              showAddBlockBottom={true}
-            />
-          </BlockErrorBoundary>
-          {/* Render peeked block after this block if this is the insertion point */}
-          {index === peekedBlockIndex - 1 && <PeekedBlock onExitComplete={onExitComplete} />}
-        </React.Fragment>
+        <BlockErrorBoundary key={blockData.id} blockId={blockData.id} blockType={blockData.type}>
+          <BlockRenderer
+            blockId={blockData.id}
+            mode="site"
+            showAddBlockTop={
+              index === 0
+                ? (layout?._internal.blockDefinitions.some((b) => b.placement === "before") ??
+                  false)
+                : true
+            }
+            showAddBlockBottom={true}
+          />
+        </BlockErrorBoundary>
       ))}
-      {/* Render peeked block at the end if there are no blocks */}
-      {pageBlocks.length === 0 && <PeekedBlock onExitComplete={onExitComplete} />}
     </>
   );
 
@@ -337,10 +286,6 @@ export const PreviewShell = ({
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const isAddBlockSidebarOpen = useSelector(
-    previewStore,
-    (state) => state.context.isAddBlockSidebarOpen,
-  );
   const previewSource = useSelector(previewStore, selectPreviewSource);
 
   const pageId = pageData?.page.id;
@@ -361,7 +306,7 @@ export const PreviewShell = ({
   React.useEffect(() => {
     if (!isMobileStudio) return;
     previewStore.send({ type: "exitEditMode" });
-    previewStore.send({ type: "closeAddBlockSidebar" });
+    previewStore.send({ type: "closeAddBlockDialog" });
   }, [isMobileStudio]);
 
   React.useEffect(() => {
@@ -463,18 +408,7 @@ export const PreviewShell = ({
           !isEditMode && "bg-black",
         )}
       >
-        {!sharedChrome && !isMobileStudio && !isToolbarHidden && (
-          <div className="relative">
-            <Navbar isPreview />
-            {pageData && isAddBlockSidebarOpen && (
-              <div
-                className="absolute inset-0 z-20"
-                style={{ background: "rgba(0, 0, 0, 0.66)" }}
-                onClick={() => previewStore.send({ type: "closeAddBlockSidebar" })}
-              />
-            )}
-          </div>
-        )}
+        {!sharedChrome && !isMobileStudio && !isToolbarHidden && <Navbar isPreview />}
         <div className="flex h-full flex-row items-stretch">
           {!isMobileStudio && (pageData || derivedLayoutId) && (
             // Keep publication actions registered even when editing controls are hidden.
@@ -501,6 +435,7 @@ export const PreviewShell = ({
           )}
         </div>
         {(isMobileStudio || isEditMode) && <CreatePageModal />}
+        {pageData && <AddBlockDialog />}
       </div>
     </PreviewEditingOwnerContext>
   );

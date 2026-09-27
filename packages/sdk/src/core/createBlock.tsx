@@ -461,7 +461,6 @@ function createViewBlock(options: EditableOptions) {
         >
           <AuthoredComponent content={normalizedContent} />
         </Context.Provider>
-        <div className="camox-sheet-overlay" />
       </div>
     );
   };

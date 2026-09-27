@@ -9,7 +9,6 @@ import {
   selectionBlockId,
   selectionForOwner,
 } from "../previewStore";
-import { AddBlockSidebar } from "./AddBlockSidebar";
 import { CommentSidebar } from "./CommentSidebar";
 import { DerivedPageInfoSidebar } from "./DerivedPageInfoSidebar";
 import { PageEditorSidebar } from "./PageEditorSidebar";
@@ -24,10 +23,6 @@ const RightSidebar = ({
 }) => {
   const owner = useContext(PreviewEditingOwnerContext);
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
-  const isAddBlockSidebarOpen = useSelector(
-    previewStore,
-    (state) => state.context.isAddBlockSidebarOpen,
-  );
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const selectedBlockId = selectionBlockId(selection);
   if (pageId == null && derivedLayoutId == null && selectedBlockId == null) return null;
@@ -39,8 +34,6 @@ const RightSidebar = ({
     >
       {pageId != null && isCommentMode ? (
         <CommentSidebar key={pageId} pageId={pageId} />
-      ) : pageId != null && isAddBlockSidebarOpen ? (
-        <AddBlockSidebar />
       ) : selectedBlockId != null ? (
         <PageEditorSidebar />
       ) : pageId != null ? (

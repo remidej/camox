@@ -52,7 +52,7 @@ function CuratedAddBlockListener() {
         }
 
         previewStore.send({
-          type: "openAddBlockSidebar",
+          type: "openAddBlockDialog",
           afterPosition,
         });
       }
@@ -66,11 +66,9 @@ function CuratedAddBlockListener() {
 
 export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: OverlaysProps) => {
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
-  const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
 
   // Send focus command to iframe when selection changes externally
   React.useEffect(() => {
-    if (peekedBlock) return;
     if (!selection) return;
 
     // Only focus String fields in the iframe
@@ -91,7 +89,7 @@ export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: Overlay
       fieldId,
     };
     iframeElement?.contentWindow?.postMessage(message, "*");
-  }, [selection, peekedBlock, iframeElement]);
+  }, [selection, iframeElement]);
 
   return canAddBlocks ? <CuratedAddBlockListener /> : null;
 };
