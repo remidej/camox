@@ -5,9 +5,15 @@ import { usePageBlocks } from "@/lib/normalized-data";
 
 import { usePreviewedPage } from "../CamoxPreview";
 import { isOverlayMessage, type OverlayMessage } from "../overlayMessages";
-import { previewStore, selectIsEditMode } from "../previewStore";
+import {
+  previewStore,
+  selectIsEditMode,
+  selectionForOwner,
+  type EditingOwner,
+} from "../previewStore";
 
 interface OverlaysProps {
+  owner: EditingOwner | null;
   iframeElement: HTMLIFrameElement | null;
   canAddBlocks?: boolean;
 }
@@ -58,8 +64,8 @@ function CuratedAddBlockListener() {
   return null;
 }
 
-export const Overlays = ({ iframeElement, canAddBlocks = false }: OverlaysProps) => {
-  const selection = useSelector(previewStore, (state) => state.context.selection);
+export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: OverlaysProps) => {
+  const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
 
   // Send focus command to iframe when selection changes externally

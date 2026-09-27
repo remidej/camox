@@ -33,7 +33,7 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
-import { previewStore, selectionItemId } from "../previewStore";
+import { previewStore, selectionItemId, selectionForPage } from "../previewStore";
 import { useUpdateBlockPosition } from "./useUpdateBlockPosition";
 
 interface BlockActionsPopoverProps {
@@ -324,7 +324,9 @@ function useBlockActionsShortcuts() {
   const camoxApp = useCamoxApp();
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
-  const selection = useSelector(previewStore, (state) => state.context.selection);
+  const selection = useSelector(previewStore, (state) =>
+    selectionForPage(state.context, page.page.id),
+  );
   const requireDraft = useRequireDraftSource();
 
   const deleteBlockMutation = useMutation(blockMutations.delete());
@@ -343,7 +345,7 @@ function useBlockActionsShortcuts() {
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.mode !== "editing-draft") return false;
-          const sel = ctx.selection;
+          const sel = selectionForPage(ctx, page.page.id);
           if (!sel) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
 
@@ -366,7 +368,7 @@ function useBlockActionsShortcuts() {
         },
         execute: () => {
           if (!requireDraft()) return;
-          const sel = previewStore.getSnapshot().context.selection;
+          const sel = selectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel) return;
 
           const itemId = selectionItemId(sel);
@@ -395,14 +397,14 @@ function useBlockActionsShortcuts() {
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.mode !== "editing-draft") return false;
-          const sel = ctx.selection;
+          const sel = selectionForPage(ctx, page.page.id);
           if (!sel) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
           return true;
         },
         execute: () => {
           if (!requireDraft()) return;
-          const sel = previewStore.getSnapshot().context.selection;
+          const sel = selectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel) return;
 
           const itemId = selectionItemId(sel);
@@ -429,7 +431,7 @@ function useBlockActionsShortcuts() {
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.mode !== "editing-draft") return false;
-          const sel = ctx.selection;
+          const sel = selectionForPage(ctx, page.page.id);
           if (!sel || !page) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
           const index = pageBlocks.findIndex((b) => b.id === sel.blockId);
@@ -437,7 +439,7 @@ function useBlockActionsShortcuts() {
         },
         execute: () => {
           if (!requireDraft()) return;
-          const sel = previewStore.getSnapshot().context.selection;
+          const sel = selectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const index = pageBlocks.findIndex((b) => b.id === sel.blockId);
           if (index <= 0) return;
@@ -461,7 +463,7 @@ function useBlockActionsShortcuts() {
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.mode !== "editing-draft") return false;
-          const sel = ctx.selection;
+          const sel = selectionForPage(ctx, page.page.id);
           if (!sel || !page) return false;
           if (isLayoutBlockId(page, sel.blockId)) return false;
           const index = pageBlocks.findIndex((b) => b.id === sel.blockId);
@@ -469,7 +471,7 @@ function useBlockActionsShortcuts() {
         },
         execute: () => {
           if (!requireDraft()) return;
-          const sel = previewStore.getSnapshot().context.selection;
+          const sel = selectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const index = pageBlocks.findIndex((b) => b.id === sel.blockId);
           if (index === -1 || index >= pageBlocks.length - 1) return;
@@ -494,11 +496,11 @@ function useBlockActionsShortcuts() {
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.mode !== "editing-draft") return false;
-          return ctx.selection !== null;
+          return selectionForPage(ctx, page.page.id) !== null;
         },
         execute: () => {
           if (!requireDraft()) return;
-          const sel = previewStore.getSnapshot().context.selection;
+          const sel = selectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const block = pageBlocks.find((b) => b.id === sel.blockId);
           if (!block) return;
@@ -517,11 +519,11 @@ function useBlockActionsShortcuts() {
         checkIfAvailable: () => {
           const ctx = previewStore.getSnapshot().context;
           if (ctx.mode !== "editing-draft") return false;
-          return ctx.selection !== null;
+          return selectionForPage(ctx, page.page.id) !== null;
         },
         execute: () => {
           if (!requireDraft()) return;
-          const sel = previewStore.getSnapshot().context.selection;
+          const sel = selectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const blockIndex = pageBlocks.findIndex((b) => b.id === sel.blockId);
           if (blockIndex === -1) return;

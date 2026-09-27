@@ -17,11 +17,14 @@ import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
+import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
   previewStore,
   selectionBlockId,
   selectionField,
   selectionItemId,
+  selectionForOwner,
+  type EditingOwner,
   type Selection,
 } from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
@@ -131,7 +134,14 @@ const buildAncestorChain = (
  * PageEditorSidebar
  * -----------------------------------------------------------------------------------------------*/
 
-const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
+const PageEditorSidebar = () => {
+  const owner = React.useContext(PreviewEditingOwnerContext);
+  if (owner == null) return null;
+  return <PageEditorSidebarContent owner={owner} />;
+};
+
+const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
+  const pageId = owner.kind === "page" ? owner.pageId : undefined;
   const camoxApp = useCamoxApp();
   const updateContent = useMutation(blockMutations.updateContent());
   const updateSettings = useMutation(blockMutations.updateSettings());
@@ -140,7 +150,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
   const requireDraft = useRequireDraftSource();
 
   // Get state from store
-  const selection = useSelector(previewStore, (state) => state.context.selection);
+  const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
 
   const postToIframe = React.useCallback(
@@ -364,7 +374,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
   }[] = [
     {
       key: "page",
-      label: "Page",
+      label: owner.kind === "page" ? "Page" : "Layout",
       isCurrent: false,
       onClick: () => previewStore.send({ type: "clearSelection" }),
     },
@@ -372,7 +382,7 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
       key: "block",
       label: blockDef._internal.title,
       isCurrent: ancestorChain.length === 0 && !fieldHasOwnView,
-      onClick: () => previewStore.send({ type: "setFocusedBlock", blockId: block.id }),
+      onClick: () => previewStore.send({ type: "setFocusedBlock", ...owner, blockId: block.id }),
       hoverTarget: { type: "block", blockId: block.id },
     },
     ...ancestorChain.flatMap((ancestor) => [
@@ -390,7 +400,8 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
         },
         onClick: () =>
           previewStore.send({
-            type: "setSelection",
+            type: "selectTarget",
+            ...owner,
             selection:
               ancestor.parentItemId == null
                 ? {
@@ -417,7 +428,12 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
           !fieldHasOwnView &&
           ancestor.id === ancestorChain[ancestorChain.length - 1]?.id,
         onClick: () =>
-          previewStore.send({ type: "selectItem", blockId: block.id, itemId: ancestor.id }),
+          previewStore.send({
+            type: "selectItem",
+            ...owner,
+            blockId: block.id,
+            itemId: ancestor.id,
+          }),
       },
     ]),
     ...(fieldHasOwnView && fieldInfo
@@ -546,7 +562,14 @@ const PageEditorSidebar = ({ pageId }: { pageId?: number }) => {
                         onClick={() => {
                           if (!canRemoveCurrent || !requireDraft()) return;
                           removeCurrent(currentItemId, {
-                            onSuccess: () => previewStore.send({ type: "selectParent" }),
+                            onSuccess: () => {
+                              const selected = selectionForOwner(
+                                previewStore.getSnapshot().context,
+                                owner,
+                              );
+                              if (selectionItemId(selected) !== currentItemId) return;
+                              previewStore.send({ type: "selectParent" });
+                            },
                           });
                         }}
                       >

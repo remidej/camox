@@ -31,7 +31,7 @@ import {
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
-import { previewStore } from "../previewStore";
+import { previewStore, sameEditingOwner } from "../previewStore";
 import { BlockThumbnail } from "./BlockThumbnail";
 
 const AddBlockSidebar = () => {
@@ -185,7 +185,10 @@ const AddBlockSidebar = () => {
       afterPosition,
       repeatableItems: bundle.repeatableItems,
     });
-    previewStore.send({ type: "focusCreatedBlock", blockId });
+    // A completed insertion must not steal focus after navigating away.
+    const owner = { kind: "page", pageId: page.page.id } as const;
+    if (!sameEditingOwner(previewStore.getSnapshot().context.editingContext, owner)) return;
+    previewStore.send({ type: "focusCreatedBlock", ...owner, blockId });
     previewStore.send({ type: "exitPeekedBlock" });
   };
 

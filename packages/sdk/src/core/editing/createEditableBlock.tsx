@@ -17,7 +17,11 @@ import {
 
 import { useFrame } from "../../features/preview/components/Frame";
 import { postOverlayMessage } from "../../features/preview/overlayMessages";
-import { usePreviewSelection, type SelectionEvent } from "../../features/preview/previewSelection";
+import {
+  usePreviewSelection,
+  usePreviewTargetSelection,
+  type SelectionEvent,
+} from "../../features/preview/previewSelection";
 import { previewStore, selectIsCommentMode } from "../../features/preview/previewStore";
 import {
   useNormalizedData,
@@ -1479,12 +1483,9 @@ export function createEditableBlock<
     // Check if the parent repeater container is being hovered from sidebar
     const hoveredRepeaterGroup = React.useContext(RepeaterHoverContext);
 
-    const isSelected = useSelector(previewStore, (state) => {
-      const selection = state.context.selection;
-      return (
-        selection?.type === "item" && selection.blockId === blockId && selection.itemId === itemId
-      );
-    });
+    const selection = usePreviewTargetSelection();
+    const isSelected =
+      selection?.type === "item" && selection.blockId === blockId && selection.itemId === itemId;
 
     const isHovered = useOverlayMessage(
       iframeWindow,
@@ -1826,7 +1827,7 @@ export function createEditableBlock<
     const isCommentMode = useSelector(previewStore, selectIsCommentMode);
 
     // Scroll into view when editing in preview
-    const selection = useSelector(previewStore, (state) => state.context.selection);
+    const selection = usePreviewTargetSelection();
     const isAddBlockSidebarOpen = useSelector(
       previewStore,
       (state) => state.context.isAddBlockSidebarOpen,
@@ -2039,7 +2040,7 @@ export function createEditableBlock<
     const isContentEditable = useIsEditable(mode);
     const { window: iframeWindow } = useFrame();
 
-    const selection = useSelector(previewStore, (state) => state.context.selection);
+    const selection = usePreviewTargetSelection();
     const isAddBlockSidebarOpen = useSelector(
       previewStore,
       (state) => state.context.isAddBlockSidebarOpen,

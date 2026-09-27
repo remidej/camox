@@ -15,6 +15,197 @@ registerHooks({
   },
 });
 
+void test("editing context starts unresolved and clearing cannot invent a page", async () => {
+  const { previewStore: store } = await import("./previewStore");
+  const initial = store.getInitialSnapshot();
+  assert.equal(initial.context.editingContext, null);
+  assert.equal("selection" in initial.context, false);
+  for (const type of ["clearSelection", "selectParent"] as const) {
+    const [next] = store.transition(initial, { type });
+    assert.equal(next.context.editingContext, null);
+  }
+  const [loaded] = store.transition(initial, { type: "activatePage", pageId: 3 });
+  assert.deepEqual(loaded.context.editingContext, { kind: "page", pageId: 3, selection: null });
+  const [unresolved] = store.transition(loaded, { type: "activatePage", pageId: null });
+  assert.equal(unresolved.context.editingContext, null);
+});
+
+void test("page activation preserves same-page selection and clears a different page", async () => {
+  const { previewStore: store, selectionForPage } = await import("./previewStore");
+  const selection: Selection = {
+    type: "item-field",
+    blockId: 7,
+    itemId: 12,
+    fieldName: "title",
+    fieldType: "String",
+  };
+  const [selected] = store.transition(store.getInitialSnapshot(), {
+    type: "selectTarget",
+    kind: "page",
+    pageId: 3,
+    selection,
+  });
+  const [samePage] = store.transition(selected, { type: "activatePage", pageId: 3 });
+  assert.equal(samePage.context.editingContext, selected.context.editingContext);
+  assert.equal(selectionForPage(samePage.context, 3), selection);
+  // Shared layout block IDs must not highlight the same block on another page.
+  assert.equal(selectionForPage(samePage.context, 4), null);
+  assert.equal(selectionForPage(samePage.context, null), null);
+  const [differentPage] = store.transition(samePage, { type: "activatePage", pageId: 4 });
+  assert.deepEqual(differentPage.context.editingContext, {
+    kind: "page",
+    pageId: 4,
+    selection: null,
+  });
+});
+
+void test("target selection changes page and target in one observable transition", async () => {
+  const { previewStore: store } = await import("./previewStore");
+  store.send({ type: "activatePage", pageId: 3 });
+  store.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 7 });
+  const observed: unknown[] = [];
+  const subscription = store.subscribe((snapshot) =>
+    observed.push(snapshot.context.editingContext),
+  );
+  const selection: Selection = {
+    type: "block-field",
+    blockId: 9,
+    fieldName: "image",
+    fieldType: "Image",
+  };
+  try {
+    store.send({ type: "selectTarget", kind: "page", pageId: 4, selection });
+    assert.deepEqual(observed, [{ kind: "page", pageId: 4, selection }]);
+    store.send({ type: "activatePage", pageId: 4 });
+    assert.deepEqual(store.getSnapshot().context.editingContext, {
+      kind: "page",
+      pageId: 4,
+      selection,
+    });
+    store.send({ type: "clearSelection" });
+    assert.deepEqual(store.getSnapshot().context.editingContext, {
+      kind: "page",
+      pageId: 4,
+      selection: null,
+    });
+  } finally {
+    subscription.unsubscribe();
+    store.send({ type: "activatePage", pageId: null });
+  }
+});
+
+void test("derived layout targets use real layout IDs and never alias pages with the same ID", async () => {
+  const { previewStore: store, selectionForOwner } = await import("./previewStore");
+  const selection: Selection = { type: "block", blockId: 7 };
+  let snapshot = store.getInitialSnapshot();
+  [snapshot] = store.transition(snapshot, { type: "activateLayout", layoutId: 3 });
+  assert.deepEqual(snapshot.context.editingContext, {
+    kind: "layout",
+    layoutId: 3,
+    selection: null,
+  });
+  [snapshot] = store.transition(snapshot, {
+    type: "selectTarget",
+    kind: "layout",
+    layoutId: 3,
+    selection,
+  });
+  const selected = snapshot.context.editingContext;
+  [snapshot] = store.transition(snapshot, { type: "activateLayout", layoutId: 3 });
+  assert.equal(snapshot.context.editingContext, selected);
+  assert.equal(selectionForOwner(snapshot.context, { kind: "layout", layoutId: 3 }), selection);
+  assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: 3 }), null);
+  [snapshot] = store.transition(snapshot, { type: "clearSelection" });
+  assert.deepEqual(snapshot.context.editingContext, {
+    kind: "layout",
+    layoutId: 3,
+    selection: null,
+  });
+  [snapshot] = store.transition(snapshot, { type: "activatePage", pageId: 3 });
+  assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: 3, selection: null });
+});
+
+void test("parent navigation, insertion focus and modal state remain independent of the active page", async () => {
+  const { previewStore: store } = await import("./previewStore");
+  let snapshot = store.getInitialSnapshot();
+  [snapshot] = store.transition(snapshot, { type: "openEditPageModal", pageId: 99 });
+  [snapshot] = store.transition(snapshot, {
+    type: "selectTarget",
+    kind: "page",
+    pageId: 3,
+    selection: {
+      type: "item-field",
+      blockId: 7,
+      itemId: 12,
+      fieldName: "title",
+      fieldType: "String",
+    },
+  });
+  [snapshot] = store.transition(snapshot, { type: "selectParent" });
+  assert.deepEqual(snapshot.context.editingContext, {
+    kind: "page",
+    pageId: 3,
+    selection: { type: "item", blockId: 7, itemId: 12 },
+  });
+  [snapshot] = store.transition(snapshot, { type: "selectParent" });
+  assert.deepEqual(snapshot.context.editingContext, {
+    kind: "page",
+    pageId: 3,
+    selection: { type: "block", blockId: 7 },
+  });
+  [snapshot] = store.transition(snapshot, { type: "openAddBlockSidebar", afterPosition: "a0" });
+  [snapshot] = store.transition(snapshot, {
+    type: "focusCreatedBlock",
+    kind: "page",
+    pageId: 4,
+    blockId: 9,
+  });
+  assert.deepEqual(snapshot.context.editingContext, {
+    kind: "page",
+    pageId: 4,
+    selection: { type: "block", blockId: 9 },
+  });
+  assert.equal(snapshot.context.isAddBlockSidebarOpen, false);
+  assert.equal(snapshot.context.peekedBlockPosition, null);
+  assert.equal(snapshot.context.skipPeekedBlockExitAnimation, true);
+  assert.equal(snapshot.context.editingPageId, 99);
+  [snapshot] = store.transition(snapshot, { type: "clearSelection" });
+  assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: 4, selection: null });
+  assert.equal(snapshot.context.editingPageId, 99);
+});
+
+void test("preview clicks select the containing page, and unresolved or nonediting clicks do nothing", async () => {
+  const { previewStore: store } = await import("./previewStore");
+  const { selectPreviewTarget } = await import("./previewSelection");
+  store.send({ type: "enterEditMode" });
+  store.send({ type: "activatePage", pageId: 3 });
+  const selection: Selection = {
+    type: "block-field",
+    blockId: 7,
+    fieldName: "title",
+    fieldType: "String",
+  };
+  selectPreviewTarget(selection, { kind: "page", pageId: 4 });
+  assert.deepEqual(store.getSnapshot().context.editingContext, {
+    kind: "page",
+    pageId: 4,
+    selection,
+  });
+  selectPreviewTarget({ type: "block", blockId: 8 }, { kind: "page", pageId: 5 });
+  assert.deepEqual(store.getSnapshot().context.editingContext, {
+    kind: "page",
+    pageId: 5,
+    selection: { type: "block", blockId: 8 },
+  });
+  const selected = store.getSnapshot().context.editingContext;
+  selectPreviewTarget(selection, null);
+  assert.equal(store.getSnapshot().context.editingContext, selected);
+  store.send({ type: "exitEditMode" });
+  selectPreviewTarget(selection, { kind: "page", pageId: 6 });
+  assert.equal(store.getSnapshot().context.editingContext, selected);
+  store.send({ type: "activatePage", pageId: null });
+});
+
 void test("comment mode is available with experimental features unset or disabled", async () => {
   const flags = globalThis as typeof globalThis & {
     __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__?: boolean;
@@ -29,10 +220,10 @@ void test("comment mode is available with experimental features unset or disable
       previewStore.send({ type: "setCommentMode", enabled: true });
       assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
       previewStore.send({ type: "enterEditMode" });
-      previewStore.send({ type: "setFocusedBlock", blockId: 1 });
+      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 1 });
       previewStore.send({ type: "setCommentMode", enabled: true });
       assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
-      assert.equal(previewStore.getSnapshot().context.selection, null);
+      assert.equal(previewStore.getSnapshot().context.editingContext?.selection, null);
     }
   } finally {
     if (previousFlag === undefined) delete flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
@@ -48,10 +239,10 @@ void test("comment mode is draft-editing only and clears editing selection", asy
   assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
 
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "setFocusedBlock", blockId: 1 });
+  previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 1 });
   previewStore.send({ type: "setCommentMode", enabled: true });
   assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
-  assert.equal(previewStore.getSnapshot().context.selection, null);
+  assert.equal(previewStore.getSnapshot().context.editingContext?.selection, null);
 
   previewStore.send({ type: "exitEditMode" });
   assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
@@ -80,10 +271,10 @@ void test("comments reveal the existing editor and retain their page and field t
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, target);
   previewCommentsStore.send({ type: "composerFocused" });
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, null);
-  revealCommentTarget(target, "String");
+  revealCommentTarget(3, target, "String");
   assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
   assert.equal(previewStore.getSnapshot().context.isAddBlockSidebarOpen, false);
-  assert.deepEqual(previewStore.getSnapshot().context.selection, {
+  assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
     type: "item-field",
     blockId: 7,
     itemId: 12,
@@ -107,19 +298,25 @@ void test("comments reveal the existing editor and retain their page and field t
     keyof typeof fieldTypesDictionary
   >) {
     assert.equal(fieldTypesDictionary[fieldType].hasOwnView, true);
-    revealCommentTarget({ kind: "block-field", blockId: 7, fieldName: "title" }, fieldType);
-    assert.deepEqual(previewStore.getSnapshot().context.selection, {
+    revealCommentTarget(3, { kind: "block-field", blockId: 7, fieldName: "title" }, fieldType);
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "block-field",
       blockId: 7,
       fieldName: "title",
       fieldType,
     });
     previewStore.send({ type: "selectParent" });
-    assert.deepEqual(previewStore.getSnapshot().context.selection, { type: "block", blockId: 7 });
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
+      type: "block",
+      blockId: 7,
+    });
   }
 
-  revealCommentTarget({ kind: "block", blockId: 7 });
-  assert.deepEqual(previewStore.getSnapshot().context.selection, { type: "block", blockId: 7 });
+  revealCommentTarget(3, { kind: "block", blockId: 7 });
+  assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
+    type: "block",
+    blockId: 7,
+  });
   previewStore.send({ type: "exitEditMode" });
 });
 
@@ -128,9 +325,13 @@ void test("page comments retain their page without a block target", async () => 
   const { previewCommentsStore, revealCommentTarget } = await import("./previewCommentsStore");
   const target = { kind: "page" as const };
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "setFocusedBlock", blockId: 7 });
-  revealCommentTarget(target);
-  assert.equal(previewStore.getSnapshot().context.selection, null);
+  previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 4, blockId: 7 });
+  revealCommentTarget(3, target);
+  assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
+    kind: "page",
+    pageId: 3,
+    selection: null,
+  });
 
   previewCommentsStore.send({ type: "startComment", pageId: 3, target });
   previewCommentsStore.send({ type: "setMessage", message: "Review the whole page" });
@@ -215,8 +416,8 @@ void test("comment field types follow current definitions and nested item ancest
   delete schema.properties.rows;
   assert.equal(getCommentTargetFieldType(target, bundle, app), undefined);
   previewStore.send({ type: "enterEditMode" });
-  revealCommentTarget(target);
-  assert.deepEqual(previewStore.getSnapshot().context.selection, {
+  revealCommentTarget(3, target);
+  assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
     type: "item",
     blockId: 7,
     itemId: 13,
@@ -257,7 +458,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     (event) => {
       selectPreviewTarget(
         selection,
-        3,
+        { kind: "page", pageId: 3 },
         event as unknown as MouseEvent & { currentTarget: Element },
       );
     },
@@ -268,7 +469,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     if (event.target !== block) return;
     selectPreviewTarget(
       { type: "block", blockId: 7 },
-      3,
+      { kind: "page", pageId: 3 },
       event as unknown as MouseEvent & { currentTarget: Element },
     );
   });
@@ -302,7 +503,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     assert.equal(click.defaultPrevented, true);
     assert.equal(clicks, 1);
     assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
-    assert.deepEqual(previewStore.getSnapshot().context.selection, {
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "item-field",
       blockId: 7,
       itemId: 12,
@@ -327,11 +528,14 @@ void test("comment mode shares normal hover and redirects native preview clicks"
       previewStore.send({ type: "setCommentMode", enabled: true });
       child.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
       assert.deepEqual(previewCommentsStore.getSnapshot().context.draft?.target, draft.target);
-      assert.deepEqual(previewStore.getSnapshot().context.selection, selection);
+      assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, selection);
     }
     previewStore.send({ type: "setCommentMode", enabled: true });
     doc.querySelector("div")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
-    assert.deepEqual(previewStore.getSnapshot().context.selection, { type: "block", blockId: 7 });
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
+      type: "block",
+      blockId: 7,
+    });
 
     const item = doc.createElement("div");
     item.setAttribute("data-camox-repeater-item-id", "12");
@@ -339,7 +543,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     item.addEventListener("click", (event) => {
       selectPreviewTarget(
         { type: "item", blockId: 7, itemId: 12 },
-        3,
+        { kind: "page", pageId: 3 },
         event as unknown as MouseEvent & { currentTarget: Element },
       );
     });
@@ -347,7 +551,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     const itemClick = new window.MouseEvent("click", { bubbles: true, cancelable: true });
     item.dispatchEvent(itemClick);
     assert.equal(itemClick.defaultPrevented, true);
-    assert.deepEqual(previewStore.getSnapshot().context.selection, {
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "item",
       blockId: 7,
       itemId: 12,
@@ -362,7 +566,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
     assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
     // Focusing an editor while commenting must neither select it nor place a comment.
-    selectPreviewTarget(selection, 3);
+    selectPreviewTarget(selection, { kind: "page", pageId: 3 });
     assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
     selectPreviewTarget(selection, null);
     assert.equal(previewCommentsStore.getSnapshot().context.draft, null);

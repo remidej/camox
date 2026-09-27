@@ -1,7 +1,14 @@
 import { useSelector } from "@xstate/store-react";
+import { useContext } from "react";
 
 import { CMS_SIDEBAR_WIDTH } from "../previewConstants";
-import { previewStore, selectIsCommentMode, selectionBlockId } from "../previewStore";
+import { PreviewEditingOwnerContext } from "../previewSelection";
+import {
+  previewStore,
+  selectIsCommentMode,
+  selectionBlockId,
+  selectionForOwner,
+} from "../previewStore";
 import { AddBlockSidebar } from "./AddBlockSidebar";
 import { CommentSidebar } from "./CommentSidebar";
 import { DerivedPageInfoSidebar } from "./DerivedPageInfoSidebar";
@@ -15,7 +22,8 @@ const RightSidebar = ({
   pageId?: number;
   derivedLayoutId?: string;
 }) => {
-  const selection = useSelector(previewStore, (state) => state.context.selection);
+  const owner = useContext(PreviewEditingOwnerContext);
+  const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const isAddBlockSidebarOpen = useSelector(
     previewStore,
     (state) => state.context.isAddBlockSidebarOpen,
@@ -34,7 +42,7 @@ const RightSidebar = ({
       ) : pageId != null && isAddBlockSidebarOpen ? (
         <AddBlockSidebar />
       ) : selectedBlockId != null ? (
-        <PageEditorSidebar pageId={pageId} />
+        <PageEditorSidebar />
       ) : pageId != null ? (
         <PageInfoSidebar pageId={pageId} />
       ) : (

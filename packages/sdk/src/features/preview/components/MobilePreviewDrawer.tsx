@@ -9,7 +9,7 @@ import { projectQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import { UserButton } from "../../studio/components/UserButton";
-import { previewStore, selectionBlockId } from "../previewStore";
+import { previewStore, selectionBlockId, selectionForPage } from "../previewStore";
 import { AddBlockSidebar } from "./AddBlockSidebar";
 import { PageEditorSidebar } from "./PageEditorSidebar";
 import { PageInfoSidebar, PageMarkdownContent, PageSeoContent } from "./PageInfoSidebar";
@@ -45,7 +45,7 @@ export function MobilePreviewDrawer({
   const dragStartRef = React.useRef({ y: 0, height: COLLAPSED_HEIGHT });
   const dragDistanceRef = React.useRef(0);
   const rootContentRef = React.useRef<HTMLDivElement>(null);
-  const selection = useSelector(previewStore, (state) => state.context.selection);
+  const selection = useSelector(previewStore, (state) => selectionForPage(state.context, page.id));
   const isAddBlockSidebarOpen = useSelector(
     previewStore,
     (state) => state.context.isAddBlockSidebarOpen,

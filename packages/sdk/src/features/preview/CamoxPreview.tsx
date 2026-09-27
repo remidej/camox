@@ -24,11 +24,13 @@ import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbarSpacer } from "./components/PreviewToolbarSpacer";
 import { RightSidebar } from "./components/RightSidebar";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
+import { PreviewEditingOwnerContext } from "./previewSelection";
 import {
   previewStore,
   selectIsCommentMode,
   selectIsEditMode,
   selectPreviewSource,
+  type EditingOwner,
 } from "./previewStore";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -341,6 +343,14 @@ export const PreviewShell = ({
   );
   const previewSource = useSelector(previewStore, selectPreviewSource);
 
+  const pageId = pageData?.page.id;
+  const layoutId = derivedLayout?.id;
+  const editingOwner = React.useMemo<EditingOwner | null>(() => {
+    if (pageId != null) return { kind: "page", pageId };
+    if (layoutId != null) return { kind: "layout", layoutId };
+    return null;
+  }, [pageId, layoutId]);
+
   // Gate "Preview live content" on a published snapshot existing — same rule
   // as the sidebar Switch. Without it, flipping to 'live' would Suspense on
   // an empty cache slot.
@@ -445,51 +455,54 @@ export const PreviewShell = ({
   }
 
   return (
-    <div
-      className={cn(
-        "bg-background flex flex-col overflow-hidden",
-        sharedChrome ? "h-full" : "h-screen",
-        !isEditMode && "bg-black",
-      )}
-    >
-      {!sharedChrome && !isMobileStudio && !isToolbarHidden && (
-        <div className="relative">
-          <Navbar isPreview />
-          {pageData && isAddBlockSidebarOpen && (
-            <div
-              className="absolute inset-0 z-20"
-              style={{ background: "rgba(0, 0, 0, 0.66)" }}
-              onClick={() => previewStore.send({ type: "closeAddBlockSidebar" })}
-            />
-          )}
-        </div>
-      )}
-      <div className="flex h-full flex-row items-stretch">
-        {!isMobileStudio && (pageData || derivedLayoutId) && (
-          // Keep publication actions registered even when editing controls are hidden.
-          <div className={isEditMode ? "contents" : "hidden"}>
-            <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+    <PreviewEditingOwnerContext value={editingOwner}>
+      <div
+        className={cn(
+          "bg-background flex flex-col overflow-hidden",
+          sharedChrome ? "h-full" : "h-screen",
+          !isEditMode && "bg-black",
+        )}
+      >
+        {!sharedChrome && !isMobileStudio && !isToolbarHidden && (
+          <div className="relative">
+            <Navbar isPreview />
+            {pageData && isAddBlockSidebarOpen && (
+              <div
+                className="absolute inset-0 z-20"
+                style={{ background: "rgba(0, 0, 0, 0.66)" }}
+                onClick={() => previewStore.send({ type: "closeAddBlockSidebar" })}
+              />
+            )}
           </div>
         )}
-        <PreviewPanel
-          isMobileExperience={isMobileStudio}
-          page={pageData?.page}
-          projectName={pageData?.projectName}
-          toolbarProps={{
-            pageId: pageData?.page.id,
-            pageStatus: pageData?.page.status,
-            hasLiveVersion: hasLiveCheckpoint,
-          }}
-        >
-          {children}
-          {!isMobileStudio && isEditMode && <PreviewToolbarSpacer />}
-        </PreviewPanel>
-        {!isMobileStudio && isEditMode && (
-          <RightSidebar pageId={pageData?.page.id} derivedLayoutId={derivedLayoutId} />
-        )}
+        <div className="flex h-full flex-row items-stretch">
+          {!isMobileStudio && (pageData || derivedLayoutId) && (
+            // Keep publication actions registered even when editing controls are hidden.
+            <div className={isEditMode ? "contents" : "hidden"}>
+              <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+            </div>
+          )}
+          <PreviewPanel
+            isMobileExperience={isMobileStudio}
+            page={pageData?.page}
+            layoutId={derivedLayout?.id}
+            projectName={pageData?.projectName}
+            toolbarProps={{
+              pageId: pageData?.page.id,
+              pageStatus: pageData?.page.status,
+              hasLiveVersion: hasLiveCheckpoint,
+            }}
+          >
+            {children}
+            {!isMobileStudio && isEditMode && <PreviewToolbarSpacer />}
+          </PreviewPanel>
+          {!isMobileStudio && isEditMode && (
+            <RightSidebar pageId={pageData?.page.id} derivedLayoutId={derivedLayoutId} />
+          )}
+        </div>
+        {(isMobileStudio || isEditMode) && <CreatePageModal />}
       </div>
-      {(isMobileStudio || isEditMode) && <CreatePageModal />}
-    </div>
+    </PreviewEditingOwnerContext>
   );
 };
 

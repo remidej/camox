@@ -32,7 +32,8 @@ import { cn } from "@/lib/utils";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import type { OverlayMessage } from "../overlayMessages";
-import { previewStore, selectPreviewSource } from "../previewStore";
+import { PreviewEditingOwnerContext } from "../previewSelection";
+import { previewStore, selectPreviewSource, selectionForOwner } from "../previewStore";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useUpdateBlockPosition } from "./useUpdateBlockPosition";
 
@@ -43,8 +44,9 @@ const usePreviewSource = () => useSelector(previewStore, selectPreviewSource);
  * -----------------------------------------------------------------------------------------------*/
 
 function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
+  const owner = React.useContext(PreviewEditingOwnerContext);
   const [ellipsisPopoverOpen, setEllipsisPopoverOpen] = React.useState(false);
-  const selection = useSelector(previewStore, (state) => state.context.selection);
+  const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const isBlockActive = selection?.blockId === block.id;
   const isBlockSelected = selection?.type === "block" && selection.blockId === block.id;
@@ -70,11 +72,13 @@ function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
   };
 
   const toggleSelection = () => {
+    if (!owner) return;
     if (isBlockSelected) {
       previewStore.send({ type: "clearSelection" });
     } else {
       previewStore.send({
         type: "setFocusedBlock",
+        ...owner,
         blockId: block.id,
       });
     }

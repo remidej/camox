@@ -47,17 +47,19 @@ export function getCommentTargetFieldType(
 }
 
 /** Field types belong to the current app, never to persisted comment targets. */
-export function revealCommentTarget(target: CommentTarget, fieldType?: FieldType) {
+export function revealCommentTarget(pageId: number, target: CommentTarget, fieldType?: FieldType) {
   previewStore.send({ type: "setCommentMode", enabled: false });
   previewStore.send({ type: "closeAddBlockSidebar" });
   previewStore.send({ type: "clearPeekedBlock" });
   if (target.kind === "page") {
-    previewStore.send({ type: "setSelection", selection: null });
+    previewStore.send({ type: "selectTarget", kind: "page", pageId, selection: null });
     return;
   }
   if ((target.kind === "block-field" || target.kind === "item-field") && fieldType) {
     previewStore.send({
-      type: "setSelection",
+      type: "selectTarget",
+      kind: "page",
+      pageId,
       selection:
         target.kind === "item-field"
           ? {
@@ -77,7 +79,9 @@ export function revealCommentTarget(target: CommentTarget, fieldType?: FieldType
     return;
   }
   previewStore.send({
-    type: "setSelection",
+    type: "selectTarget",
+    kind: "page",
+    pageId,
     selection:
       "itemId" in target
         ? { type: "item", blockId: target.blockId, itemId: target.itemId }

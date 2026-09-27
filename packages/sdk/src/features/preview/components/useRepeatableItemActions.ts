@@ -7,7 +7,8 @@ import type { NormalizedItem } from "@/lib/normalized-data";
 import { blockQueries, repeatableItemMutations } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import { previewStore } from "../previewStore";
+import { PreviewEditingOwnerContext } from "../previewSelection";
+import { previewStore, sameEditingOwner } from "../previewStore";
 
 export type RepeatableItemFieldSchema = {
   type?: string;
@@ -113,6 +114,7 @@ export const useRepeatableItemActions = ({
   arraySchema,
   siblingCount,
 }: UseRepeatableItemActionsArgs) => {
+  const owner = React.useContext(PreviewEditingOwnerContext);
   const createRepeatableItem = useMutation(repeatableItemMutations.create());
   const deleteRepeatableItem = useMutation(repeatableItemMutations.delete());
   const requireDraft = useRequireDraftSource();
@@ -125,6 +127,7 @@ export const useRepeatableItemActions = ({
     (arraySchema.minItems === undefined || siblingCount > arraySchema.minItems);
 
   const addItem = (options?: AddItemOptions) => {
+    if (owner === null) return;
     if (!arraySchema) return;
     if (!requireDraft()) return;
     const itemsSchema = arraySchema.items;
@@ -144,7 +147,8 @@ export const useRepeatableItemActions = ({
       },
       {
         onSuccess: (created) => {
-          previewStore.send({ type: "selectItem", blockId, itemId: created.id });
+          if (!sameEditingOwner(previewStore.getSnapshot().context.editingContext, owner)) return;
+          previewStore.send({ type: "selectItem", ...owner, blockId, itemId: created.id });
         },
       },
     );

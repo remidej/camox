@@ -1,6 +1,8 @@
 import { useSelector } from "@xstate/store-react";
+import { useContext } from "react";
 
-import { previewStore } from "../../features/preview/previewStore";
+import { PreviewEditingOwnerContext } from "../../features/preview/previewSelection";
+import { previewStore, selectionForOwner } from "../../features/preview/previewStore";
 import type { FieldType } from "../lib/fieldTypes.tsx";
 
 /**
@@ -14,8 +16,9 @@ export function useFieldSelection(
   fieldType: FieldType,
   repeaterItemId?: number,
 ): boolean {
+  const owner = useContext(PreviewEditingOwnerContext);
   return useSelector(previewStore, (state) => {
-    const sel = state.context.selection;
+    const sel = selectionForOwner(state.context, owner);
     if (!sel || sel.blockId !== blockId) return false;
 
     // Check for field-level selections
