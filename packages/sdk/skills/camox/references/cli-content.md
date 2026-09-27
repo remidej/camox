@@ -56,6 +56,33 @@ Look up the Page before creating or moving Blocks so you have its `id`, current 
 {{CAMOX_CMD}} blocks describe --type hero
 ```
 
+### Find shared navigation and footer Blocks
+
+`pages get` returns page-owned Blocks, not the Layout's shared shell. Inspect
+the Layout to discover navigation, footer, and other layout-owned instance IDs:
+
+```sh
+{{CAMOX_CMD}} layouts list
+{{CAMOX_CMD}} layouts get --id 39
+{{CAMOX_CMD}} blocks get --id 99
+{{CAMOX_CMD}} blocks edit --id 99 --content '{"title": "Updated title"}'
+```
+
+Use the numeric `id` from `layouts list` (or the Page's numeric `layoutId`)
+for `layouts get --id`, not the code-defined string `layoutId`. The response
+includes `blocks` with instance `id`, `type`, `placement`, and Content, plus
+`layout.beforeBlockIds` and `layout.afterBlockIds`. Pass a Block's `id` to
+`blocks get` and `blocks edit`; do not use the Layout ID or Block type.
+Inspect the Block's schema and current Content before editing, and preserve
+repeatable items as described below.
+
+Layout reads default to the draft; add `--live` to inspect the published
+snapshot (an unpublished Layout returns no Blocks). Keep `--project`,
+`--production`, and `--cwd` consistent across the
+discovery and editing commands. `--production` selects the environment; it does
+not publish anything. Shared shell edits affect every Page using that Layout,
+and synced Block types can share Content across Layouts.
+
 ### Create and position a Block
 
 ```sh

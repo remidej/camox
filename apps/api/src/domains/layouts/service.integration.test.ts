@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
-import { blocks, files, pages, repeatableItems } from "../../schema";
+import { blocks, environments, files, layouts, pages, repeatableItems } from "../../schema";
+import { callTool } from "../agent/service";
 import { getLayout, publishLayout, unpublishLayout } from "./service";
 
 describe("standalone shared layout reads", () => {
@@ -80,7 +81,22 @@ describe("standalone shared layout reads", () => {
       .get();
     const input = { projectSlug: project.slug, layoutId: layout.layoutId };
     const publicCtx = createServiceContext(db, null);
+    const readTool = (source?: "draft" | "live") =>
+      callTool(ctx, {
+        projectId: project.id,
+        name: "getLayout",
+        arguments: { id: layout.id, ...(source ? { source } : {}) },
+      });
     expect((await getLayout(publicCtx, input)).blocks).toEqual([]);
+    expect(await readTool("live")).toMatchObject({
+      ok: true,
+      result: {
+        layout: { id: layout.id, beforeBlockIds: [], afterBlockIds: [] },
+        blocks: [],
+        repeatableItems: [],
+        files: [],
+      },
+    });
     await publishLayout(ctx, { id: layout.id });
     await db
       .update(blocks)
@@ -89,6 +105,18 @@ describe("standalone shared layout reads", () => {
 
     const live = await getLayout(publicCtx, input);
     const draft = await getLayout(ctx, { ...input, source: "draft" });
+    expect(await readTool()).toEqual({ ok: true, result: draft });
+    expect(await readTool("draft")).toEqual({ ok: true, result: draft });
+    expect(await readTool("live")).toEqual({ ok: true, result: live });
+    expect(draft.blocks).toMatchObject([
+      {
+        id: navbar.id,
+        type: "navbar",
+        placement: "before",
+        content: { title: "Draft navigation" },
+      },
+      { id: footer.id, type: "footer", placement: "after", content: { title: "Footer" } },
+    ]);
     expect(live.layout.beforeBlockIds).toEqual([navbar.id]);
     expect(live.layout.afterBlockIds).toEqual([footer.id]);
     expect(live.blocks.map((block) => block.id)).toEqual([navbar.id, footer.id]);
@@ -106,7 +134,67 @@ describe("standalone shared layout reads", () => {
 
     await unpublishLayout(ctx, { id: layout.id });
     expect((await getLayout(publicCtx, input)).blocks).toEqual([]);
+    expect(await readTool("live")).toMatchObject({ ok: true, result: { blocks: [] } });
     expect((await getLayout(ctx, { ...input, source: "draft" })).blocks).toHaveLength(2);
+  });
+
+  it("scopes numeric tool IDs to the selected project and environment for both sources", async () => {
+    const { db, layout, memberUser, project } = await createProjectFixture("layout-tool-scope");
+    const ctx = createServiceContext(db, memberUser);
+    const other = await createProjectFixture("layout-tool-other");
+    const now = Date.now();
+    const development = await db
+      .insert(environments)
+      .values({
+        projectId: project.id,
+        name: "development",
+        type: "development",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const devLayout = await db
+      .insert(layouts)
+      .values({
+        projectId: project.id,
+        environmentId: development.id,
+        layoutId: layout.layoutId,
+        contentUpdatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    const read = (id: unknown, source: string, environmentName = ctx.environmentName) =>
+      callTool(
+        { ...ctx, environmentName },
+        { projectId: project.id, name: "getLayout", arguments: { id, source } },
+      );
+    for (const source of ["draft", "live"]) {
+      for (const id of [999999, other.layout.id, devLayout.id]) {
+        expect(await read(id, source)).toMatchObject({
+          ok: false,
+          error: { code: "NOT_FOUND" },
+        });
+      }
+      expect(await read(layout.id, source, development.name)).toMatchObject({
+        ok: false,
+        error: { code: "NOT_FOUND" },
+      });
+      expect(await read(layout.id, source, "missing")).toMatchObject({
+        ok: false,
+        error: { code: "NOT_FOUND" },
+      });
+      expect(await read(devLayout.id, source, development.name)).toMatchObject({
+        ok: true,
+        result: { layout: { id: devLayout.id } },
+      });
+    }
+    for (const id of [0, -1, 1.5, String(layout.id), undefined]) {
+      expect(await read(id, "draft")).toMatchObject({ ok: false });
+    }
+    expect(await read(layout.id, "invalid")).toMatchObject({ ok: false });
   });
 
   it("protects drafts and scopes file identities to their project and environment", async () => {
