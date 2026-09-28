@@ -18,7 +18,7 @@ interface OverlaysProps {
   canAddBlocks?: boolean;
 }
 
-function CuratedAddBlockListener() {
+function CuratedAddBlockListener({ iframeElement }: { iframeElement: HTMLIFrameElement | null }) {
   const page = usePreviewedPage();
   const { pageBlocks } = usePageBlocks(page);
 
@@ -32,7 +32,13 @@ function CuratedAddBlockListener() {
       // Handle add block request from iframe
       if (message.type === "CAMOX_ADD_BLOCK_REQUEST") {
         // Ignore stale iframe messages after leaving edit mode.
-        if (!selectIsEditMode(previewStore.getSnapshot())) return;
+        const snapshot = previewStore.getSnapshot();
+        if (!selectIsEditMode(snapshot)) return;
+        // Canvas mounts one listener per page. Only the active frame may
+        // resolve insertion positions and open the shared picker.
+        if (!iframeElement || snapshot.context.iframeElement !== iframeElement) return;
+        const owner = snapshot.context.editingContext;
+        if (owner?.kind !== "page" || owner.pageId !== page.page.id) return;
 
         const { blockPosition, insertPosition } = message;
 
@@ -60,7 +66,7 @@ function CuratedAddBlockListener() {
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [pageBlocks]);
+  }, [pageBlocks, page.page.id, iframeElement]);
   return null;
 }
 
@@ -91,5 +97,5 @@ export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: Overlay
     iframeElement?.contentWindow?.postMessage(message, "*");
   }, [selection, iframeElement]);
 
-  return canAddBlocks ? <CuratedAddBlockListener /> : null;
+  return canAddBlocks ? <CuratedAddBlockListener iframeElement={iframeElement} /> : null;
 };

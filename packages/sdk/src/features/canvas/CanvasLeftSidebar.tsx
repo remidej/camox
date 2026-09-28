@@ -12,7 +12,7 @@ import { CreatePageModal } from "../preview/components/CreatePageModal";
 import { LeftSidebar } from "../preview/components/LeftSidebar";
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
-import { previewStore, selectPreviewSource } from "../preview/previewStore";
+import { previewStore, selectPreviewSource, type EditingOwner } from "../preview/previewStore";
 import type { CanvasPage } from "./canvasPages";
 import { canvasSelectionUrl, selectedCanvasPath } from "./canvasSelection";
 
@@ -42,6 +42,7 @@ class SidebarBoundary extends React.Component<{ children: React.ReactNode }, { f
 function CuratedSidebar() {
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
+  const owner = React.useContext(PreviewEditingOwnerContext);
   const source = useSelector(previewStore, selectPreviewSource);
   const { data: structure } = useSuspenseQuery({
     // PageTree reads this same cache slot through usePreviewedPage.
@@ -52,7 +53,9 @@ function CuratedSidebar() {
   return (
     <>
       <LeftSidebar page={structure.page} />
-      <AddBlockDialog focusCreatedBlock={false} />
+      <AddBlockDialog
+        focusCreatedBlock={owner?.kind === "page" && owner.pageId === structure.page.id}
+      />
     </>
   );
 }
@@ -73,7 +76,13 @@ function LayoutSidebar({ layoutId }: { layoutId: string }) {
   return <LeftSidebar derivedLayout={layout} />;
 }
 
-export function CanvasLeftSidebar({ page }: { page: CanvasPage | undefined }) {
+export function CanvasLeftSidebar({
+  page,
+  owner = null,
+}: {
+  page: CanvasPage | undefined;
+  owner?: EditingOwner | null;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const source = useSelector(previewStore, selectPreviewSource);
@@ -87,7 +96,7 @@ export function CanvasLeftSidebar({ page }: { page: CanvasPage | undefined }) {
       location={{ pathname, href: pathname, search: "", hash: "" }}
       navigate={({ to, replace }) => navigate({ to: canvasSelectionUrl(to), replace })}
     >
-      <PreviewEditingOwnerContext value={null}>
+      <PreviewEditingOwnerContext value={owner}>
         <SidebarBoundary key={`${page.key}:${pathname}:${source}`}>
           <React.Suspense fallback={<SidebarMessage />}>
             {page.pageId != null ? (

@@ -44,10 +44,19 @@ export const PreviewFrame = ({
   return (
     <Frame className={className} style={style} onIframeReady={onIframeReady}>
       {children}
+      <PreviewFrameEffects />
+    </Frame>
+  );
+};
+
+/** Shared by the single-page preview and each canvas document. */
+export const PreviewFrameEffects = () => {
+  return (
+    <>
       <FieldOverlayStyles />
       <KeyDownForwarder />
       <OverlayTracker />
-    </Frame>
+    </>
   );
 };
 

@@ -100,8 +100,8 @@ void test("document retains site theme/styles, resolves relative URLs, and remov
   assert.equal(doc.querySelectorAll("base").length, 1);
   assert.equal(doc.querySelectorAll("script").length, 0);
   assert.ok(doc.querySelector("style"));
-  assert.equal(doc.documentElement.inert, true);
-  assert.equal(doc.body.inert, true);
+  assert.equal(doc.documentElement.inert, false);
+  assert.equal(doc.body.inert, false);
   void window.happyDOM.close();
 });
 

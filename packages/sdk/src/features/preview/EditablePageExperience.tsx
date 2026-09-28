@@ -21,14 +21,14 @@ export function EditablePageExperience({
   input: PageRenderInput;
   queryClient: QueryClient;
 }) {
-  // Canvas renders drafts with the public block runtime, regardless of the
-  // editing mode retained by the regular preview.
   if (input.routeKind && isCanvasPath(input.pathname))
     return (
       <AuthenticatedCamoxProvider>
-        <CamoxStudio>
-          <CanvasRoute runtimeBasePath={input.runtimeBasePath} />
-        </CamoxStudio>
+        <CompleteBlockEditingRuntimeProvider>
+          <CamoxStudio>
+            <CanvasRoute runtimeBasePath={input.runtimeBasePath} />
+          </CamoxStudio>
+        </CompleteBlockEditingRuntimeProvider>
       </AuthenticatedCamoxProvider>
     );
 

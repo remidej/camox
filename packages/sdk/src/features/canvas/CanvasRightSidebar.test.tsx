@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import type { Layout } from "../../core/createLayout";
+import type { EditingOwner } from "../preview/previewStore";
 import { getCanvasPages } from "./canvasPages";
 import { selectedCanvasPage, selectedCanvasPath } from "./canvasSelection";
 
@@ -82,12 +83,12 @@ async function setup() {
   return {
     mount,
     store,
-    async render(url: string) {
+    async render(url: string, owner?: EditingOwner) {
       await React.act(async () =>
         root.render(
           <React.StrictMode>
             <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
-              <CanvasRightSidebar page={select(url)} />
+              <CanvasRightSidebar page={select(url)} owner={owner} />
             </PreviewEditingOwnerContext>
           </React.StrictMode>,
         ),
@@ -159,6 +160,25 @@ void test("changing the selected canvas page resets sidebar-local state, but rer
       dom.mount.querySelector("button")!.getAttribute("data-layout-id"),
       "articles.$slug",
     );
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("canvas uses the active frame owner to edit selected page and layout blocks", async () => {
+  const dom = await setup();
+  dom.store.send({ type: "enterEditMode" });
+  try {
+    for (const [url, owner] of [
+      ["/camox/canvas", { kind: "page", pageId: 7 }],
+      ["/camox/canvas/about", { kind: "layout", layoutId: 21 }],
+    ] as const) {
+      dom.store.send({ type: "setFocusedBlock", ...owner, blockId: 42 });
+      await dom.render(url, owner);
+      assert.ok(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'));
+      await dom.render(url, { kind: "page", pageId: 83 });
+      assert.equal(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'), null);
+    }
   } finally {
     await dom.close();
   }

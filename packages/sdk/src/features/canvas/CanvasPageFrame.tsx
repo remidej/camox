@@ -1,16 +1,15 @@
-import {
-  HydrationBoundary,
-  QueryClient,
-  QueryClientProvider,
-  type DehydratedState,
-} from "@tanstack/react-query";
+import { HydrationBoundary, type DehydratedState } from "@tanstack/react-query";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
 import { NavigationProvider } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
-import { PublishedPageContent } from "../page/PublishedPageContent";
 import { FrameContext } from "../preview/components/Frame";
+import { Overlays } from "../preview/components/Overlays";
+import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
+import { EditablePageContent } from "../preview/EditablePageContent";
+import { PreviewEditingOwnerContext } from "../preview/previewSelection";
+import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -22,11 +21,13 @@ export interface CanvasPageFrameProps {
   input: PageRenderInput;
   width: number;
   viewportHeight: number;
+  pageId?: number;
+  onActivate: (owner: EditingOwner) => void;
 }
 
 /**
- * Parent owns /_camox/data loading and the per-card error boundary. Must live outside the
- * editing runtime. Changing page/document remounts the isolated document and query cache.
+ * Parent owns /_camox/data loading and the per-card error boundary. Documents are
+ * isolated, but their cache and editing runtime are shared with the studio.
  */
 export function CanvasPageFrame(props: CanvasPageFrameProps) {
   return (
@@ -37,15 +38,14 @@ export function CanvasPageFrame(props: CanvasPageFrameProps) {
   );
 }
 
-function PageFrame({ input, width, viewportHeight }: CanvasPageFrameProps) {
+function PageFrame({ input, width, viewportHeight, pageId, onActivate }: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
   const href = canvasPageHref(input);
-  const [client] = React.useState(
-    () =>
-      new QueryClient({
-        defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
-      }),
-  );
+  const owner = React.useMemo<EditingOwner | null>(() => {
+    if (input.derived) return { kind: "layout", layoutId: input.derived.layout.id };
+    if (pageId != null) return { kind: "page", pageId };
+    return null;
+  }, [input.derived, pageId]);
   const [srcDoc, setSrcDoc] = React.useState<string>();
   const [mount, setMount] = React.useState<HTMLElement | null>(null);
   const [failure, setFailure] = React.useState<Error | null>(null);
@@ -57,16 +57,55 @@ function PageFrame({ input, width, viewportHeight }: CanvasPageFrameProps) {
       setFailure(error instanceof Error ? error : new Error(String(error)));
     }
   }, [input.previewDocument, href]);
-  React.useEffect(() => () => client.clear(), [client]);
   React.useLayoutEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe || !mount) return;
     return observeCanvasDocument(iframe, mount, viewportHeight);
   }, [mount, viewportHeight, width]);
+  React.useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !mount) return;
+    const doc = mount.ownerDocument;
+    // Native wheel events do not bubble out of a document. Keep the existing
+    // camera behavior over interactive frames, using host-space coordinates.
+    const forwardWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = iframe.getBoundingClientRect();
+      const scale = rect.width / iframe.offsetWidth;
+      iframe.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + event.clientX * scale,
+          clientY: rect.top + event.clientY * scale,
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          deltaMode: event.deltaMode,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+        }),
+      );
+    };
+    doc.addEventListener("wheel", forwardWheel, { passive: false });
+    return () => {
+      doc.removeEventListener("wheel", forwardWheel);
+      if (previewStore.getSnapshot().context.iframeElement !== iframe) return;
+      previewStore.send({ type: "clearSelection" });
+      previewStore.send({ type: "setIframeElement", element: null });
+    };
+  }, [mount]);
+  const activate = () => {
+    if (!owner) return;
+    if (owner.kind === "page") previewStore.send({ type: "activatePage", pageId: owner.pageId });
+    else previewStore.send({ type: "activateLayout", layoutId: owner.layoutId });
+    previewStore.send({ type: "setIframeElement", element: iframeRef.current });
+    onActivate(owner);
+  };
   if (failure) throw failure;
 
   return (
-    <QueryClientProvider client={client}>
+    <PreviewEditingOwnerContext value={owner}>
       <HydrationBoundary state={input.dehydratedState as DehydratedState}>
         <NavigationProvider
           location={{ pathname: input.pathname, href, hash: "", search: "" }}
@@ -82,18 +121,13 @@ function PageFrame({ input, width, viewportHeight }: CanvasPageFrameProps) {
               {srcDoc && (
                 <iframe
                   ref={iframeRef}
-                  title={`Read-only page preview: ${input.pathname}`}
-                  tabIndex={-1}
-                  inert
-                  aria-hidden="true"
-                  sandbox="allow-same-origin"
+                  title={`Page preview: ${input.pathname}`}
                   srcDoc={srcDoc}
                   style={{
                     display: "block",
                     width,
                     height: viewportHeight,
                     border: 0,
-                    pointerEvents: "none",
                   }}
                   onLoad={() => {
                     try {
@@ -101,8 +135,6 @@ function PageFrame({ input, width, viewportHeight }: CanvasPageFrameProps) {
                       const root = doc?.querySelector<HTMLElement>("[data-camox-preview-root]");
                       if (!root) throw new Error("The page preview document has no content root.");
                       if (root === mount) return;
-                      doc!.documentElement.inert = true;
-                      doc!.body.inert = true;
                       root.replaceChildren();
                       setMount(root);
                     } catch (error) {
@@ -115,15 +147,31 @@ function PageFrame({ input, width, viewportHeight }: CanvasPageFrameProps) {
               {mount &&
                 createPortal(
                   <React.Suspense fallback={<div role="status">Loading page…</div>}>
-                    {input.derived ? (
-                      <DerivedPageContent
-                        camoxApp={camoxApp}
-                        derived={input.derived}
-                        source={input.source}
+                    <div
+                      style={{ display: "contents" }}
+                      onPointerDownCapture={activate}
+                      onFocusCapture={activate}
+                      onClick={(event) => {
+                        // Selecting/editing must not navigate the iframe away from its portal.
+                        if ((event.target as Element).closest("a")) event.preventDefault();
+                      }}
+                    >
+                      {input.derived ? (
+                        <DerivedPageContent
+                          camoxApp={camoxApp}
+                          derived={input.derived}
+                          source={input.source}
+                        />
+                      ) : (
+                        <EditablePageContent />
+                      )}
+                      <PreviewFrameEffects />
+                      <Overlays
+                        iframeElement={iframeRef.current}
+                        owner={owner}
+                        canAddBlocks={owner?.kind === "page"}
                       />
-                    ) : (
-                      <PublishedPageContent source={input.source} />
-                    )}
+                    </div>
                   </React.Suspense>,
                   mount,
                 )}
@@ -131,6 +179,6 @@ function PageFrame({ input, width, viewportHeight }: CanvasPageFrameProps) {
           </PreviewDocumentContext.Provider>
         </NavigationProvider>
       </HydrationBoundary>
-    </QueryClientProvider>
+    </PreviewEditingOwnerContext>
   );
 }

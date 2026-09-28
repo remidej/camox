@@ -64,8 +64,6 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   const base = doc.createElement("base");
   base.href = href;
   doc.head.insertBefore(base, doc.head.firstChild);
-  doc.documentElement.inert = true;
-  doc.body.inert = true;
   // Do not execute page bootstraps (which could hydrate a second app or navigate the host).
   // Server-resolved html/body classes and inline style/theme attributes are retained.
   doc.querySelectorAll("script").forEach((script) => script.remove());

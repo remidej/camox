@@ -4,6 +4,8 @@ import * as React from "react";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
 import { pageQueries, projectQueries } from "../../lib/queries";
 import { useLocation, useNavigate } from "../navigation/navigation";
+import { FieldToolbar } from "../preview/components/FieldToolbar";
+import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -64,10 +66,14 @@ function CanvasPagePreview({
   pathname,
   runtimeBasePath,
   templateId,
+  pageId,
+  onActivate,
 }: {
   pathname: string;
   runtimeBasePath: string;
   templateId?: string;
+  pageId?: number;
+  onActivate: (owner: EditingOwner) => void;
 }) {
   const projectSlug = useProjectSlug();
   const { data, error, isPending, refetch } = useQuery({
@@ -112,6 +118,8 @@ function CanvasPagePreview({
       input={data}
       width={CANVAS_VIEWPORT.width}
       viewportHeight={CANVAS_VIEWPORT.height}
+      pageId={pageId}
+      onActivate={onActivate}
     />
   );
 }
@@ -120,10 +128,12 @@ function CanvasWorkspace({
   pages,
   selectedPage,
   runtimeBasePath,
+  onActivate,
 }: {
   pages: CanvasPage[];
   selectedPage: CanvasPage | undefined;
   runtimeBasePath: string;
+  onActivate: (pathname: string, owner: EditingOwner) => void;
 }) {
   const { apiUrl, projectSlug, environmentName } = useAuthContext();
   const location = useLocation();
@@ -165,7 +175,7 @@ function CanvasWorkspace({
     <div
       ref={viewportRef}
       role="region"
-      aria-label="Read-only page canvas"
+      aria-label="Page canvas"
       aria-describedby={instructionsId}
       tabIndex={0}
       data-camox-canvas
@@ -206,6 +216,11 @@ function CanvasWorkspace({
                     pathname={pathname}
                     runtimeBasePath={runtimeBasePath}
                     templateId={page.templateId}
+                    pageId={page.pageId}
+                    onActivate={(owner) => {
+                      onActivate(pathname, owner);
+                      selectPage(pathname);
+                    }}
                   />
                 ) : (
                   <CanvasMessage>
@@ -244,8 +259,9 @@ function CanvasWorkspace({
       ))}
       {!pages.length && <CanvasMessage>No pages to preview yet.</CanvasMessage>}
       <p id={instructionsId} className="sr-only">
-        Drag or scroll to pan. Pinch or Ctrl/⌘ + scroll to zoom. Focus the canvas and use plus or
-        minus to zoom, arrow keys to pan, 0 for 100%, or Home / Shift+1 to fit all pages.
+        Drag the background or scroll to pan. Pinch or Ctrl/⌘ + scroll to zoom. Click a page to edit
+        it. Focus the canvas and use plus or minus to zoom, arrow keys to pan, 0 for 100%, or Home /
+        Shift+1 to fit all pages.
       </p>
     </div>
   );
@@ -254,6 +270,29 @@ function CanvasWorkspace({
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const app = useCamoxApp();
   const location = useLocation();
+  const [activeFrame, setActiveFrame] = React.useState<{
+    pathname: string;
+    owner: EditingOwner;
+  } | null>(null);
+  const selectedPath = selectedCanvasPath(location.pathname);
+  const previousPath = React.useRef(selectedPath);
+  React.useEffect(() => {
+    if (previousPath.current === selectedPath) return;
+    previousPath.current = selectedPath;
+    if (!activeFrame || activeFrame.pathname === selectedPath) return;
+    previewStore.send({ type: "clearSelection" });
+    previewStore.send({ type: "setIframeElement", element: null });
+    setActiveFrame(null);
+  }, [activeFrame, selectedPath]);
+  React.useEffect(() => {
+    previewStore.send({ type: "enterEditMode" });
+    previewStore.send({ type: "setCommentMode", enabled: false });
+    previewStore.send({ type: "clearSelection" });
+    return () => {
+      previewStore.send({ type: "clearSelection" });
+      previewStore.send({ type: "setIframeElement", element: null });
+    };
+  }, []);
   const projectSlug = useProjectSlug();
   const project = useQuery(projectQueries.getBySlug(projectSlug));
   const pages = useQuery({
@@ -290,16 +329,19 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     app.getLayouts(),
     selectedCanvasPath(location.pathname),
   );
+  const editingOwner = activeFrame?.pathname === selectedPath ? activeFrame.owner : null;
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      <CanvasLeftSidebar page={selectedPage} />
+      <CanvasLeftSidebar page={selectedPage} owner={editingOwner} />
       <CanvasWorkspace
         key={project.data.id}
         pages={canvasPages}
         selectedPage={selectedPage}
         runtimeBasePath={runtimeBasePath}
+        onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
       />
-      <CanvasRightSidebar page={selectedPage} />
+      <CanvasRightSidebar page={selectedPage} owner={editingOwner} />
+      {editingOwner && <FieldToolbar key={selectedPath} />}
     </div>
   );
 }

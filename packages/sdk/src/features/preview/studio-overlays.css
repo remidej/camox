@@ -23,6 +23,12 @@
   --camox-overlay-inset-block-selected: 0px;
 }
 
+/* This stylesheet lives inside the page frame. Only nested players/widgets lose
+   pointer input; their editable wrappers and the outer canvas frame still receive it. */
+html[data-camox-edit-mode] iframe {
+  pointer-events: none !important;
+}
+
 /* Position context for typed-field, repeater, and detached overlays.
    BlockComponent already has position: relative inline.
    Inline string fields don't use ::after (see box-shadow rules below) so they

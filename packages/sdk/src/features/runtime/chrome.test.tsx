@@ -106,10 +106,12 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     input: { ...input, pathname: "/camox/canvas/blog/post", routeKind: "studio-nested" },
   });
   assert.equal(canvasExperience.type, AuthenticatedCamoxProvider);
-  // No CompleteBlockEditingRuntimeProvider: Canvas must render public blocks
-  // even when the preview's persisted mode is editing.
-  assert.equal(canvasExperience.props.children.type, CamoxStudio);
-  assert.equal(canvasExperience.props.children.props.children.type, CanvasRoute);
+  const { CompleteBlockEditingRuntimeProvider } =
+    await import("../../core/editing/CompleteBlockEditingRuntime");
+  assert.equal(canvasExperience.props.children.type, CompleteBlockEditingRuntimeProvider);
+  const studio = canvasExperience.props.children.props.children;
+  assert.equal(studio.type, CamoxStudio);
+  assert.equal(studio.props.children.type, CanvasRoute);
   const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
   try {
     for (const flag of [undefined, false, true]) {
