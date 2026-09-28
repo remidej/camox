@@ -19,9 +19,13 @@ import {
 import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
+const MIN_OVERLAY_ZOOM = 0.3;
 
 function isControl(target: EventTarget | null) {
-  return target instanceof Element && !!target.closest("input, select, button, a, textarea");
+  return (
+    target instanceof Element &&
+    !!target.closest("input, select, button, a, textarea, [data-canvas-overlay-control]")
+  );
 }
 
 /** Animate only the camera's CSS properties; page trees never rerender on pan/zoom. */
@@ -153,6 +157,10 @@ export function useCanvasCamera(
       viewport.style.setProperty("--canvas-x", `${camera.x}px`);
       viewport.style.setProperty("--canvas-y", `${camera.y}px`);
       viewport.style.setProperty("--canvas-zoom", String(camera.scale));
+      viewport.style.setProperty(
+        "--canvas-overlays-display",
+        camera.scale < MIN_OVERLAY_ZOOM ? "none" : "block",
+      );
       remember();
     };
     const animate = (time: number) => {

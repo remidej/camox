@@ -2,7 +2,6 @@ import { useSelector } from "@xstate/store-react";
 import { useLayoutEffect } from "react";
 import overlayStyles from "virtual:camox-overlay-css";
 
-import { observeOverlayHighlights } from "../overlayHighlights";
 import { previewStore, selectIsEditMode } from "../previewStore";
 import { useFrame } from "./Frame";
 
@@ -17,11 +16,6 @@ export const FieldOverlayStyles = () => {
       root.removeAttribute("data-camox-edit-mode");
     };
   }, [window, isEditMode]);
-
-  useLayoutEffect(() => {
-    if (!window) return;
-    return observeOverlayHighlights(window.document);
-  }, [window]);
 
   return <style>{overlayStyles}</style>;
 };
