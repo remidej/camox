@@ -10,6 +10,277 @@ import { constrainCanvasCamera, fitCanvas, fitCanvasPage } from "./canvasCamera"
 import { canvasStore } from "./canvasStore";
 import { useCanvasCamera } from "./useCanvasCamera";
 
+void test("page-fit gestures snap, escape, and assist only vertical scrolling without recentering", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let resize = () => {};
+  let sequence = 0;
+  let time = 1000;
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 900, height: 800 };
+  const page = { left: 1606, width: 1366 };
+  const sibling = { left: 3212, width: 1366 };
+  const selections: string[] = [];
+  function Fixture() {
+    const { viewportRef, contentRef } = useCanvasCamera("page-fit-gestures", page, {
+      pages: [
+        { ...page, key: "page" },
+        { ...sibling, key: "sibling" },
+      ],
+      onSelect: (key) => selections.push(key),
+    });
+    return (
+      <div ref={viewportRef}>
+        <div ref={contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+      setPointerCapture: { value: () => {} },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 6000 },
+      offsetHeight: { get: () => 30000 },
+    });
+    resize();
+    const read = () => ({
+      x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      y: parseFloat(viewport.style.getPropertyValue("--canvas-y")),
+      scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
+    });
+    const flush = (check = () => {}) => {
+      for (let count = 0; callbacks.size && count < 100; count++) {
+        const batch = [...callbacks.values()];
+        callbacks.clear();
+        batch.forEach((callback) => callback(count * 16 + 16));
+        check();
+      }
+      assert.equal(callbacks.size, 0);
+    };
+    const wheel = (
+      dx: number,
+      dy: number,
+      modifiers: { ctrlKey?: boolean; shiftKey?: boolean } = {},
+    ) => {
+      const event = new dom.MouseEvent("wheel", {
+        clientX: 400,
+        clientY: 300,
+        cancelable: true,
+        ...modifiers,
+      });
+      time += 16;
+      Object.defineProperties(event, {
+        deltaX: { value: dx },
+        deltaY: { value: dy },
+        deltaMode: { value: 0 },
+        timeStamp: { value: time },
+      });
+      viewport.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, true);
+    };
+    const pan = (
+      dx: number,
+      dy: number,
+      expectedX: number,
+      expectedY: number,
+      shiftKey = false,
+    ) => {
+      const before = read();
+      wheel(dx, dy, { shiftKey });
+      flush();
+      assert.ok(Math.abs(read().x - (before.x - expectedX)) < 1e-8);
+      assert.ok(Math.abs(read().y - (before.y - expectedY)) < 1e-8);
+    };
+    const fitted = read();
+    pan(10, 90, 0, 90);
+    pan(10, 90, 0, 90);
+    pan(60, 90, 0, 90); // Wider release band tolerates substantial drift.
+    pan(3, 1, 0, 1); // Low-magnitude startup/tail noise does not release.
+    pan(60, 60, 60, 60); // Diagonal intent releases the vertical rail immediately.
+    pan(10, 90, 10, 90); // Its momentum tail remains free.
+    time += 200;
+    pan(90, 10, 90, 10); // Never lock horizontally.
+    pan(3, 20, 3, 20); // A horizontal gesture's mostly vertical tail remains free.
+    time += 200;
+    pan(3, 0.5, 3, 0.5); // Noisy startup stays undecided, not permanently free.
+    pan(-2, 4, -2, 4);
+    pan(4, 16, 0, 16); // Magnitude-weighted evidence engages within 32ms.
+    pan(40, 70, 0, 70);
+    pan(6, 6, 0, 6);
+    pan(6, 6, 0, 6);
+    pan(6, 6, 6, 6); // Sustained low-amplitude diagonal input releases too.
+    pan(1, 12, 1, 12);
+    time += 200;
+    pan(10, 90, 0, 90); // A new vertical gesture can acquire the rail.
+    pan(0, 40, 40, 0, true); // Explicit Shift-scroll bypasses it.
+    pan(10, 90, 10, 90); // Releasing Shift cannot lock the same gesture's tail.
+    time += 200;
+    pan(10, 90, 10, 90, true); // Shift also bypasses with native two-axis input.
+
+    const beforeDrag = read();
+    const pointer = (type: string, pointerId: number, clientX: number, clientY: number) => {
+      const event = new dom.PointerEvent(type, { pointerId, button: 0, clientX, clientY });
+      time += 16;
+      Object.defineProperty(event, "timeStamp", { value: time });
+      viewport.dispatchEvent(event);
+    };
+    pointer("pointerdown", 1, 400, 300);
+    pointer("pointermove", 1, 390, 210);
+    viewport.dispatchEvent(new dom.PointerEvent("pointerup", { pointerId: 1 }));
+    assert.equal(read().x, beforeDrag.x - 10);
+    assert.equal(read().y, beforeDrag.y - 90);
+
+    assert.deepEqual(selections, [], "ordinary pan never selects");
+    const partial = read();
+    wheel(0, -1, { ctrlKey: true });
+    flush();
+    assert.ok(read().scale > partial.scale, "a partial-width page cannot capture the detent");
+    assert.deepEqual(selections, []);
+    // Restore the fit scale without a eligible page, then bring it wholly into view.
+    time += 200;
+    wheel(0, 1, { ctrlKey: true });
+    flush();
+    assert.ok(Math.abs(read().scale - fitted.scale) < 1e-8);
+    pointer("pointerdown", 1, 400, 300);
+    pointer("pointermove", 1, 400 + fitted.x + 10 - read().x, 300);
+    pointer("pointerup", 1, 400, 300);
+    const beforeSnap = read();
+    wheel(0, -1, { ctrlKey: true });
+    flush();
+    assert.deepEqual(selections, ["page"]);
+    assert.equal(read().x, fitted.x, "snap entry centers horizontally");
+    assert.equal(read().y, beforeSnap.y, "entry retains vertical reading position");
+    // Horizontal panning within visibility does not repeatedly center/select.
+    pan(10, 0, 10, 0);
+    const beforeZoom = read();
+    const checkAnchor = () => {
+      const next = read();
+      assert.ok(
+        Math.abs((400 - next.x) / next.scale - (400 - beforeZoom.x) / beforeZoom.scale) < 1e-8,
+      );
+      assert.ok(
+        Math.abs((300 - next.y) / next.scale - (300 - beforeZoom.y) / beforeZoom.scale) < 1e-8,
+      );
+    };
+    for (let count = 0; count < 8; count++) wheel(0, -1, { ctrlKey: true });
+    flush(checkAnchor);
+    assert.deepEqual(read(), beforeZoom, "small zoom input is held without recentering");
+    assert.deepEqual(selections, ["page"], "held snap never repeats selection");
+    for (let count = 0; count < 8; count++) wheel(0, -1, { ctrlKey: true });
+    flush(checkAnchor);
+    assert.ok(read().scale > fitted.scale, "accumulated gentle input escapes");
+    pan(10, 90, 10, 90); // Outside snap, even overwhelmingly vertical motion is free.
+
+    wheel(0, 14, { ctrlKey: true }); // Page is wider than viewport: no capture from above.
+    flush();
+    assert.notEqual(read().scale, fitted.scale);
+    assert.deepEqual(selections, ["page"]);
+    wheel(0, 40, { ctrlKey: true });
+    flush();
+    assert.ok(read().scale < fitted.scale, "strong input passes through the detent");
+    time += 200;
+    wheel(0, -40, { ctrlKey: true });
+    flush();
+    assert.equal(read().scale, fitted.scale, "capture also works from below");
+    assert.equal(read().x, fitted.x);
+    assert.deepEqual(selections, ["page", "page"]);
+
+    const beforeSibling = read();
+    pan(
+      (sibling.left - page.left) * fitted.scale - 10,
+      0,
+      (sibling.left - page.left) * fitted.scale - 10,
+      0,
+    );
+    assert.deepEqual(selections, ["page", "page"], "panning to a sibling does not select");
+    wheel(0, -1, { ctrlKey: true });
+    flush();
+    assert.equal(read().x, fitCanvasPage(size, sibling).x);
+    assert.equal(read().y, beforeSibling.y);
+    assert.deepEqual(selections, ["page", "page", "sibling"]);
+
+    pan(
+      -(sibling.left - page.left) * fitted.scale,
+      0,
+      -(sibling.left - page.left) * fitted.scale,
+      0,
+    );
+    const beforeTouchSnap = read();
+    pointer("pointerdown", 1, 300, 300);
+    pointer("pointerdown", 2, 500, 300);
+    pointer("pointermove", 2, 502, 300);
+    assert.equal(read().x, fitted.x, "touch entry centers without the pinch translation offset");
+    assert.equal(read().y, beforeTouchSnap.y);
+    assert.deepEqual(selections, ["page", "page", "sibling", "page"]);
+    pointer("pointerup", 1, 300, 300);
+    pointer("pointerup", 2, 502, 300);
+
+    const beforePinch = read();
+    pointer("pointerdown", 1, 300, 300);
+    pointer("pointerdown", 2, 500, 300);
+    for (let step = 1; step <= 14; step++) {
+      pointer("pointermove", 2, 500 + step * 2, 300);
+      if (step < 12) assert.equal(read().scale, fitted.scale);
+      const next = read();
+      assert.ok(
+        Math.abs((400 + step - next.x) / next.scale - (400 - beforePinch.x) / beforePinch.scale) <
+          1e-8,
+      );
+      assert.ok(
+        Math.abs((300 - next.y) / next.scale - (300 - beforePinch.y) / beforePinch.scale) < 1e-8,
+      );
+    }
+    assert.ok(read().scale > fitted.scale, "touch pinch accumulates small movements too");
+    pointer("pointerup", 1, 300, 300);
+    pointer("pointerup", 2, 528, 300);
+
+    wheel(0, -10000, { ctrlKey: true });
+    flush();
+    assert.equal(read().scale, 2);
+    wheel(0, 1, { ctrlKey: true });
+    flush();
+    assert.ok(read().scale < 2, "zoom limit does not retain excess intended input");
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
 void test("the default camera fits the selected page through loading and viewport resizing", async () => {
   const dom = new Window({ url: "http://localhost/camox/canvas/about" });
   let resize = () => {};

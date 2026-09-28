@@ -14,9 +14,100 @@ export interface CanvasSize {
   height: number;
 }
 
+export interface CanvasSnapPage {
+  key: string;
+  left: number;
+  width: number;
+}
+
+/** Horizontal visibility alone matters; stable input order breaks center-distance ties. */
+export function canvasSnapPage<T extends CanvasSnapPage>(
+  camera: CanvasCamera,
+  viewport: CanvasSize,
+  pages: readonly T[],
+): T | undefined {
+  let closest: T | undefined;
+  let distance = Infinity;
+  for (const page of pages) {
+    const left = camera.x + page.left * camera.scale;
+    const right = left + page.width * camera.scale;
+    if (left < -1e-8 || right > viewport.width + 1e-8) continue;
+    const nextDistance = Math.abs((left + right - viewport.width) / 2);
+    if (nextDistance >= distance) continue;
+    closest = page;
+    distance = nextDistance;
+  }
+  return closest;
+}
+
 export const CANVAS_PADDING = 64;
 export const CANVAS_HEADER_HEIGHT = 52;
 export const MAX_CANVAS_ZOOM = 2;
+
+/** Relative (log-scale) bands make the detent feel the same at every page width. */
+const ZOOM_SNAP_CAPTURE = 0.06;
+const ZOOM_SNAP_RELEASE = 0.12;
+
+export function isCanvasPageScale(scale: number, pageScale: number | undefined) {
+  return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) < 1e-8;
+}
+
+/**
+ * intendedScale is accumulated independently of the displayed scale, so gentle
+ * input can escape the detent. Large steps outside the band pass straight through.
+ */
+export function snapCanvasZoom(
+  scale: number,
+  intendedScale: number,
+  pageScale: number | undefined,
+) {
+  if (pageScale === undefined) return intendedScale;
+  const band = isCanvasPageScale(scale, pageScale) ? ZOOM_SNAP_RELEASE : ZOOM_SNAP_CAPTURE;
+  return Math.abs(Math.log(intendedScale / pageScale)) <= band ? pageScale : intendedScale;
+}
+
+export interface CanvasVerticalRail {
+  mode: "pending" | "vertical" | "free";
+  samples: { x: number; y: number; time: number }[];
+}
+
+const RAIL_EVIDENCE_MS = 80;
+const RAIL_INTENT_PX = 16;
+const RAIL_CAPTURE_RATIO = 0.65;
+const RAIL_RELEASE_RATIO = 0.9;
+
+/**
+ * Small startup deltas are evidence, not a permanent rejection of vertical intent.
+ * Sum magnitudes in a short window so sign-changing jitter cannot cancel out.
+ * Once deliberate two-axis intent wins, never reacquire on its momentum tail.
+ */
+export function canvasVerticalRail(
+  delta: CanvasPoint,
+  time: number,
+  previous?: CanvasVerticalRail,
+): CanvasVerticalRail {
+  if (previous?.mode === "free") return previous;
+  const mode = previous?.mode ?? "pending";
+  const x = Math.abs(delta.x);
+  const y = Math.abs(delta.y);
+  // While locked, only sustained departures count toward release. A tiny
+  // horizontal tail or one low-magnitude jitter event must not break the rail.
+  if (mode === "vertical" && x <= y * RAIL_RELEASE_RATIO) return { mode, samples: [] };
+  const samples = [
+    ...(previous?.samples ?? []).filter((sample) => time - sample.time < RAIL_EVIDENCE_MS),
+    { x, y, time },
+  ];
+  const evidence = samples.reduce((sum, sample) => ({ x: sum.x + sample.x, y: sum.y + sample.y }), {
+    x: 0,
+    y: 0,
+  });
+  if (Math.max(evidence.x, evidence.y) < RAIL_INTENT_PX) return { mode, samples };
+  if (mode === "vertical") return { mode: "free", samples: [] };
+  return {
+    mode: evidence.x <= evidence.y * RAIL_CAPTURE_RATIO ? "vertical" : "free",
+    samples: [],
+  };
+}
 
 /** Start at the selected page's top, fitting its width rather than the whole site. */
 export function fitCanvasPage(

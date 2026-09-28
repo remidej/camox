@@ -4,13 +4,147 @@ import { test } from "node:test";
 import {
   canvasBounds,
   canvasInsets,
+  canvasSnapPage,
+  canvasVerticalRail,
   canvasWheelDelta,
   constrainCanvasCamera,
   fitCanvas,
   fitCanvasPage,
+  isCanvasPageScale,
   MAX_CANVAS_ZOOM,
+  snapCanvasZoom,
   zoomCanvasAt,
+  type CanvasVerticalRail,
 } from "./canvasCamera";
+
+void test("snap candidates require full horizontal visibility and choose the nearest center stably", () => {
+  const viewport = { width: 900, height: 800 };
+  const pages = [
+    { key: "first", left: 0, width: 300 },
+    { key: "second", left: 400, width: 300 },
+    { key: "third", left: 800, width: 300 },
+  ];
+  assert.equal(canvasSnapPage({ x: 0, y: -90000, scale: 1 }, viewport, pages), pages[1]);
+  assert.equal(canvasSnapPage({ x: 0, y: 90000, scale: 1 }, viewport, pages), pages[1]);
+  assert.equal(canvasSnapPage({ x: 100, y: 0, scale: 1 }, viewport, pages), pages[0]);
+  assert.equal(canvasSnapPage({ x: -1, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
+  assert.equal(canvasSnapPage({ x: 601, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
+  assert.equal(canvasSnapPage({ x: 600, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
+  assert.equal(canvasSnapPage({ x: 0, y: 0, scale: 4 }, viewport, pages), undefined);
+});
+
+void test("page zoom detent captures from either side with a wider release band", () => {
+  for (const pageScale of [0.3, 0.8, 1.5]) {
+    for (const direction of [-1, 1]) {
+      const approaching = pageScale * Math.exp(direction * 0.1);
+      const near = pageScale * Math.exp(direction * 0.059);
+      assert.equal(snapCanvasZoom(approaching, near, pageScale), pageScale);
+      const outsideCapture = pageScale * Math.exp(direction * 0.061);
+      assert.equal(snapCanvasZoom(approaching, outsideCapture, pageScale), outsideCapture);
+      const held = pageScale * Math.exp(direction * 0.119);
+      assert.equal(snapCanvasZoom(pageScale, held, pageScale), pageScale);
+      assert.equal(snapCanvasZoom(approaching, held, pageScale), held);
+      const outsideRelease = pageScale * Math.exp(direction * 0.121);
+      assert.equal(snapCanvasZoom(pageScale, outsideRelease, pageScale), outsideRelease);
+      const strong = pageScale * Math.exp(-direction * 0.3);
+      assert.equal(snapCanvasZoom(approaching, strong, pageScale), strong);
+      assert.equal(snapCanvasZoom(pageScale, strong, pageScale), strong);
+
+      let scale = pageScale;
+      let intended = scale;
+      for (let step = 0; step < 14; step++) {
+        intended *= Math.exp(direction * 0.01);
+        scale = snapCanvasZoom(scale, intended, pageScale);
+        if (step < 11) assert.equal(scale, pageScale);
+      }
+      assert.equal(scale, intended, "small deltas accumulate to escape in either direction");
+    }
+  }
+  assert.equal(snapCanvasZoom(0.4, 0.5, undefined), 0.5);
+});
+
+void test("snapping changes scale at the anchor, not the page position", () => {
+  const camera = { x: -750, y: -900, scale: 0.63 };
+  const point = { x: 320, y: 180 };
+  const pageScale = fitCanvasPage({ width: 900, height: 800 }, { left: 1606, width: 1366 }).scale;
+  const next = zoomCanvasAt(camera, point, snapCanvasZoom(camera.scale, 0.62, pageScale));
+  assert.equal(next.scale, pageScale);
+  assert.ok(Math.abs((point.x - next.x) / next.scale - (point.x - camera.x) / camera.scale) < 1e-8);
+  assert.ok(Math.abs((point.y - next.y) / next.scale - (point.y - camera.y) / camera.scale) < 1e-8);
+});
+
+void test("the rail assists vertical intent only and releases to free two-axis motion", () => {
+  const locked = canvasVerticalRail({ x: 50, y: 90 }, 0);
+  assert.equal(locked.mode, "vertical", "substantially wider vertical acquisition");
+  assert.equal(canvasVerticalRail({ x: -50, y: -90 }, 0).mode, "vertical");
+  assert.equal(canvasVerticalRail({ x: 75, y: 90 }, 16, locked).mode, "vertical");
+  for (const delta of [
+    { x: 90, y: 10 },
+    { x: 90, y: 90 },
+    { x: 90, y: 0 },
+  ]) {
+    const free = canvasVerticalRail(delta, 0);
+    assert.equal(free.mode, "free");
+    assert.equal(canvasVerticalRail(delta, 16, locked).mode, "free");
+    assert.equal(canvasVerticalRail({ x: 1, y: 30 }, 32, free).mode, "free");
+  }
+  assert.equal(isCanvasPageScale(0.6, 0.6), true);
+  assert.equal(isCanvasPageScale(0.6001, 0.6), false);
+  assert.equal(isCanvasPageScale(0.6, undefined), false);
+});
+
+void test("noisy trackpad startup can acquire vertical intent in either direction", () => {
+  for (const direction of [-1, 1]) {
+    let rail: CanvasVerticalRail | undefined;
+    let time = 0;
+    for (const [x, y, expected] of [
+      [3, 0.5, "pending"],
+      [-2, 4, "pending"],
+      [4, 16, "vertical"],
+      [-15, 24, "vertical"],
+      [1, 0, "vertical"],
+      [0.2, 2, "vertical"],
+    ] as const) {
+      rail = canvasVerticalRail({ x: direction * x, y: direction * y }, time, rail);
+      assert.equal(rail.mode, expected);
+      time += 8;
+    }
+  }
+});
+
+void test("rail release ignores tiny jitter but responds to sustained diagonal or horizontal intent", () => {
+  const locked = canvasVerticalRail({ x: 20, y: 60 }, 0);
+  const jitter = canvasVerticalRail({ x: 4, y: 1 }, 8, locked);
+  assert.equal(jitter.mode, "vertical");
+  const recovered = canvasVerticalRail({ x: 20, y: 40 }, 16, jitter);
+  assert.equal(recovered.mode, "vertical");
+  for (const y of [0, 6]) {
+    let rail = recovered;
+    for (let step = 1; step <= 3; step++) {
+      rail = canvasVerticalRail({ x: 6, y }, 16 + step * 8, rail);
+      assert.equal(rail.mode, step < 3 ? "vertical" : "free");
+    }
+    for (const [x, tailY] of [
+      [3, 12],
+      [1, 6],
+      [0.1, 2],
+    ]) {
+      rail = canvasVerticalRail({ x, y: tailY }, 64, rail);
+      assert.equal(rail.mode, "free", "released momentum cannot reacquire");
+    }
+  }
+  const staleJitter = canvasVerticalRail({ x: 12, y: 0 }, 8, locked);
+  assert.equal(canvasVerticalRail({ x: 4, y: 0 }, 96, staleJitter).mode, "vertical");
+});
+
+void test("pending evidence expires and alternating horizontal deltas cannot cancel", () => {
+  const noise = canvasVerticalRail({ x: 12, y: 1 }, 0);
+  assert.equal(noise.mode, "pending");
+  assert.equal(canvasVerticalRail({ x: 4, y: 16 }, 96, noise).mode, "vertical");
+  const free = canvasVerticalRail({ x: -12, y: 1 }, 8, noise);
+  assert.equal(free.mode, "free");
+  assert.equal(canvasVerticalRail({ x: 1, y: 20 }, 16, free).mode, "free");
+});
 
 void test("the initial page view fits its width with 24px padding, regardless of site height", () => {
   const viewport = { width: 900, height: 800 };

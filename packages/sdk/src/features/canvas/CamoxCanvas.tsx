@@ -150,15 +150,6 @@ function CanvasWorkspace({
     runtimeBasePath,
   ]);
   const selectedIndex = pages.findIndex((page) => page.key === selectedPage?.key);
-  const { viewportRef, contentRef } = useCanvasCamera(
-    workspaceKey,
-    selectedIndex < 0
-      ? undefined
-      : {
-          left: selectedIndex * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
-          width: CANVAS_VIEWPORT.width,
-        },
-  );
   // Keep other template previews visible; selection itself is always read from the URL.
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
@@ -169,6 +160,26 @@ function CanvasWorkspace({
       page.key === selectedPage?.key ? selectedPath : (previewPathnames[page.key] ?? page.pathname),
     left: index * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
   }));
+  const { viewportRef, contentRef } = useCanvasCamera(
+    workspaceKey,
+    selectedIndex < 0
+      ? undefined
+      : {
+          left: selectedIndex * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
+          width: CANVAS_VIEWPORT.width,
+        },
+    {
+      pages: positionedPages.map(({ page, left }) => ({
+        key: page.key,
+        left,
+        width: CANVAS_VIEWPORT.width,
+      })),
+      onSelect: (key) => {
+        const pathname = positionedPages.find(({ page }) => page.key === key)?.pathname;
+        if (pathname) selectPage(pathname);
+      },
+    },
+  );
   const instructionsId = React.useId();
 
   return (
