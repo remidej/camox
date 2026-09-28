@@ -1,21 +1,24 @@
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@camox/ui/popover";
 import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
 import { pageQueries, projectQueries } from "../../lib/queries";
+import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
+import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
 import { CanvasPageFrame } from "./CanvasPageFrame";
+import { CanvasPageHeader } from "./CanvasPageHeader";
 import {
   CANVAS_DEVICES,
   getCanvasPages,
   validateCanvasPageInput,
   type CanvasPage,
 } from "./canvasPages";
-import { TemplateInstanceInput } from "./TemplateInstanceInput";
+import { CanvasRightSidebar } from "./CanvasRightSidebar";
+import { canvasSelectionUrl, selectedCanvasPage, selectedCanvasPath } from "./canvasSelection";
 import { useCanvasCamera } from "./useCanvasCamera";
 
 const CANVAS_PAGE_GAP = 240;
@@ -28,59 +31,6 @@ function CanvasMessage({ children }: { children: React.ReactNode }) {
     <div className="text-muted-foreground grid min-h-64 place-items-center p-8 text-center text-sm">
       {children}
     </div>
-  );
-}
-
-function CanvasPageHeader({
-  page,
-  pathname,
-  onChange,
-}: {
-  page: CanvasPage;
-  pathname: string | null;
-  onChange: (pathname: string) => void;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const path = pathname ?? page.pattern;
-  const headerClassName = "text-foreground flex h-10 w-full min-w-0 items-center gap-3 text-left";
-  const content = (
-    <>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium" title={page.title}>
-        {page.title}
-      </span>
-      <span
-        data-canvas-path
-        className="text-foreground hidden max-w-1/2 min-w-0 truncate text-right text-xs font-normal @min-[20rem]/canvas-header:block"
-        title={path}
-      >
-        {path}
-      </span>
-    </>
-  );
-  if (!page.templateId) return <h2 className={headerClassName}>{content}</h2>;
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <h2>
-        <PopoverTrigger
-          aria-label={`Edit instance path for ${page.title}`}
-          className={`${headerClassName} focus-visible:ring-ring outline-none focus-visible:ring-2`}
-        >
-          {content}
-        </PopoverTrigger>
-      </h2>
-      <PopoverContent className="w-96 max-w-[calc(100vw-2rem)]" align="start">
-        <PopoverTitle>Preview {page.title}</PopoverTitle>
-        <TemplateInstanceInput
-          page={page}
-          pathname={pathname}
-          onChange={(path) => {
-            onChange(path);
-            setOpen(false);
-          }}
-        />
-      </PopoverContent>
-    </Popover>
   );
 }
 
@@ -168,23 +118,45 @@ function CanvasPagePreview({
 
 function CanvasWorkspace({
   pages,
+  selectedPage,
   runtimeBasePath,
 }: {
   pages: CanvasPage[];
+  selectedPage: CanvasPage | undefined;
   runtimeBasePath: string;
 }) {
   const { apiUrl, projectSlug, environmentName } = useAuthContext();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const selectedPath = selectedCanvasPath(location.pathname);
+  const selectPage = (pathname: string) => {
+    if (selectedPath === pathname) return;
+    void navigate({ to: `${canvasSelectionUrl(pathname)}${location.search}${location.hash}` });
+  };
   const workspaceKey = JSON.stringify([
     apiUrl,
     projectSlug,
     environmentName ?? "production",
     runtimeBasePath,
   ]);
-  const { viewportRef, contentRef } = useCanvasCamera(workspaceKey);
-  const [pathnames, setPathnames] = React.useState<Partial<Record<string, string>>>({});
+  const selectedIndex = pages.findIndex((page) => page.key === selectedPage?.key);
+  const { viewportRef, contentRef } = useCanvasCamera(
+    workspaceKey,
+    selectedIndex < 0
+      ? undefined
+      : {
+          left: selectedIndex * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
+          width: CANVAS_VIEWPORT.width,
+        },
+  );
+  // Keep other template previews visible; selection itself is always read from the URL.
+  const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
+    {},
+  );
   const positionedPages = pages.map((page, index) => ({
     page,
-    pathname: pathnames[page.key] ?? page.pathname,
+    pathname:
+      page.key === selectedPage?.key ? selectedPath : (previewPathnames[page.key] ?? page.pathname),
     left: index * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
   }));
   const instructionsId = React.useId();
@@ -197,7 +169,7 @@ function CanvasWorkspace({
       aria-describedby={instructionsId}
       tabIndex={0}
       data-camox-canvas
-      className="bg-muted relative min-h-0 w-full flex-1 touch-none overflow-clip outline-none"
+      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none"
       style={{
         cursor: "grab",
         userSelect: "none",
@@ -259,7 +231,14 @@ function CanvasWorkspace({
           <CanvasPageHeader
             page={page}
             pathname={pathname}
-            onChange={(path) => setPathnames((current) => ({ ...current, [page.key]: path }))}
+            selected={page.key === selectedPage?.key}
+            onSelect={() => {
+              if (pathname) selectPage(pathname);
+            }}
+            onChange={(path) => {
+              setPreviewPathnames((current) => ({ ...current, [page.key]: path }));
+              selectPage(path);
+            }}
           />
         </div>
       ))}
@@ -274,6 +253,7 @@ function CanvasWorkspace({
 
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const app = useCamoxApp();
+  const location = useLocation();
   const projectSlug = useProjectSlug();
   const project = useQuery(projectQueries.getBySlug(projectSlug));
   const pages = useQuery({
@@ -304,11 +284,22 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         <span role="status">Loading canvas…</span>
       </CanvasMessage>
     );
+  const canvasPages = getCanvasPages(pages.data, app.getLayouts());
+  const selectedPage = selectedCanvasPage(
+    canvasPages,
+    app.getLayouts(),
+    selectedCanvasPath(location.pathname),
+  );
   return (
-    <CanvasWorkspace
-      key={project.data.id}
-      pages={getCanvasPages(pages.data, app.getLayouts())}
-      runtimeBasePath={runtimeBasePath}
-    />
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      <CanvasLeftSidebar page={selectedPage} />
+      <CanvasWorkspace
+        key={project.data.id}
+        pages={canvasPages}
+        selectedPage={selectedPage}
+        runtimeBasePath={runtimeBasePath}
+      />
+      <CanvasRightSidebar page={selectedPage} />
+    </div>
   );
 }

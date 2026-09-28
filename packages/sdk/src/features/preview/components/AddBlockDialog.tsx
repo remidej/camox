@@ -40,11 +40,18 @@ import { previewStore, sameEditingOwner } from "../previewStore";
 import { getGridNavigationIndex } from "./blockGridNavigation";
 import { BlockThumbnail } from "./BlockThumbnail";
 
-const AddBlockDialog = () => {
+const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: boolean }) => {
   const [highlightedValue, setHighlightedValue] = React.useState<string>("");
   const [search, setSearch] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const submitting = React.useRef(false);
+  const mounted = React.useRef(false);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const gridRef = React.useRef<HTMLDivElement>(null);
   const dialog = useSelector(previewStore, (state) => state.context.addBlockDialog);
   const queryClient = useQueryClient();
@@ -219,10 +226,11 @@ const AddBlockDialog = () => {
       // A completed insertion must not steal focus after navigating away,
       // or close a different picker opened while this request was in flight.
       const context = previewStore.getSnapshot().context;
-      if (!sameEditingOwner(context.editingContext, owner)) return;
+      if (!mounted.current) return;
+      if (focusCreatedBlock && !sameEditingOwner(context.editingContext, owner)) return;
       if (context.addBlockDialog !== dialog) return;
       previewStore.send({ type: "closeAddBlockDialog" });
-      previewStore.send({ type: "focusCreatedBlock", ...owner, blockId });
+      if (focusCreatedBlock) previewStore.send({ type: "focusCreatedBlock", ...owner, blockId });
     } catch {
       if (previewStore.getSnapshot().context.addBlockDialog === dialog) {
         setError("Could not add this block. Please try again.");

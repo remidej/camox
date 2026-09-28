@@ -7,9 +7,29 @@ import {
   canvasWheelDelta,
   constrainCanvasCamera,
   fitCanvas,
+  fitCanvasPage,
   MAX_CANVAS_ZOOM,
   zoomCanvasAt,
 } from "./canvasCamera";
+
+void test("the initial page view fits its width with 24px padding, regardless of site height", () => {
+  const viewport = { width: 900, height: 800 };
+  for (const left of [0, 1606, 3212]) {
+    const page = { left, width: 1366 };
+    const camera = fitCanvasPage(viewport, page);
+    assert.equal(camera.scale, (900 - 48) / 1366);
+    assert.ok(Math.abs(camera.x + left * camera.scale - 24) < 1e-8);
+    assert.equal(camera.y, 76);
+    for (const height of [900, 30000])
+      assert.deepEqual(constrainCanvasCamera(camera, viewport, { width: 4578, height }), camera);
+  }
+  const tiny = fitCanvasPage({ width: 0, height: 0 }, { left: 0, width: 1366 });
+  assert.ok(tiny.scale > 0 && Number.isFinite(tiny.scale));
+  assert.equal(
+    fitCanvasPage({ width: 10000, height: 900 }, { left: 0, width: 1366 }).scale,
+    MAX_CANVAS_ZOOM,
+  );
+});
 
 void test("zoom keeps the document point under the pointer stationary", () => {
   const camera = { x: -350, y: 120, scale: 0.4 };

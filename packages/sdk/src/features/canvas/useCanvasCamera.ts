@@ -4,6 +4,7 @@ import {
   canvasWheelDelta,
   constrainCanvasCamera,
   fitCanvas,
+  fitCanvasPage,
   zoomCanvasAt,
   type CanvasCamera,
   type CanvasPoint,
@@ -15,14 +16,35 @@ function isControl(target: EventTarget | null) {
 }
 
 /** Animate only the camera's CSS properties; page trees never rerender on pan/zoom. */
-export function useCanvasCamera(workspaceKey: string) {
+export function useCanvasCamera(
+  workspaceKey: string,
+  initialPage?: { left: number; width: number },
+) {
   const viewportRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
+  const initialPageRef = React.useRef(initialPage);
 
   React.useEffect(() => {
     const viewport = viewportRef.current;
     const content = contentRef.current;
     if (!viewport || !content) return;
+
+    // The transformed, overflow:clip canvas is not a native scroll container.
+    // Contain horizontal overscroll at the document too, so trackpad swipes
+    // cannot turn into browser Back/Forward gestures at the camera's bounds.
+    const rootStyle = viewport.ownerDocument.documentElement.style;
+    const overscrollX = rootStyle.getPropertyValue("overscroll-behavior-x");
+    const overscrollPriority = rootStyle.getPropertyPriority("overscroll-behavior-x");
+    rootStyle.setProperty("overscroll-behavior-x", "none");
+    // Register at the window in capture phase, not just on the clipped canvas.
+    // The browser must know it cannot claim a horizontal gesture anywhere in
+    // this workspace (including gestures starting on the surrounding chrome).
+    const ownerWindow = viewport.ownerDocument.defaultView!;
+    const preventHistorySwipe = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) return;
+      if (event.deltaX !== 0 || (event.shiftKey && event.deltaY !== 0)) event.preventDefault();
+    };
+    ownerWindow.addEventListener("wheel", preventHistorySwipe, { capture: true, passive: false });
 
     let viewportSize = { width: viewport.clientWidth, height: viewport.clientHeight };
     let contentSize = { width: content.offsetWidth, height: content.offsetHeight };
@@ -31,9 +53,15 @@ export function useCanvasCamera(workspaceKey: string) {
     // Clamping against their temporary placeholder sizes must not overwrite it.
     const saved = canvasStore.getSnapshot().context.views[workspaceKey];
     let restoredCamera = saved && !saved.fitted ? saved.camera : undefined;
+    const page = initialPageRef.current;
+    let fittingInitialPage = !saved && !!page;
+    const initialCamera = () =>
+      fittingInitialPage && page
+        ? constrainCanvasCamera(fitCanvasPage(viewportSize, page), viewportSize, contentSize)
+        : fitCanvas(viewportSize, contentSize);
     let camera = restoredCamera
       ? constrainCanvasCamera(restoredCamera, viewportSize, contentSize)
-      : fitCanvas(viewportSize, contentSize);
+      : initialCamera();
     let target = camera;
     let animation = 0;
     let previousTime = 0;
@@ -41,7 +69,8 @@ export function useCanvasCamera(workspaceKey: string) {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     const remember = () => {
-      if (restoredCamera || !viewportSize.width || !viewportSize.height) return;
+      if (restoredCamera || fittingInitialPage || !viewportSize.width || !viewportSize.height)
+        return;
       canvasStore.send({
         type: "rememberView",
         workspaceKey,
@@ -88,6 +117,7 @@ export function useCanvasCamera(workspaceKey: string) {
     const move = (next: CanvasCamera, immediate = false) => {
       // Any new camera interaction takes precedence over the remembered view.
       restoredCamera = undefined;
+      fittingInitialPage = false;
       applyCamera(next, immediate);
     };
     const resize = new ResizeObserver(() => {
@@ -108,6 +138,10 @@ export function useCanvasCamera(workspaceKey: string) {
         applyCamera(restoredCamera, true);
         return;
       }
+      if (fittingInitialPage) {
+        applyCamera(initialCamera(), true);
+        return;
+      }
       // Stay in overview while pages finish loading. Once zoomed in, preserve
       // the working view and only correct positions invalidated by new bounds.
       camera = constrainCanvasCamera(camera, viewportSize, contentSize);
@@ -120,7 +154,8 @@ export function useCanvasCamera(workspaceKey: string) {
       return { x: x - rect.left, y: y - rect.top };
     };
     const onWheel = (event: WheelEvent) => {
-      if (isControl(event.target) && !event.ctrlKey && !event.metaKey) return;
+      // Wheel gestures belong to the camera even over header controls.
+      // Pointer and keyboard events still retain normal control behavior.
       event.preventDefault();
       const dx = canvasWheelDelta(event.deltaX, event.deltaMode, viewport.clientWidth);
       const dy = canvasWheelDelta(event.deltaY, event.deltaMode, viewport.clientHeight);
@@ -236,6 +271,10 @@ export function useCanvasCamera(workspaceKey: string) {
     viewport.addEventListener("keydown", onKeyDown);
     viewport.addEventListener("focusin", onFocusIn);
     return () => {
+      ownerWindow.removeEventListener("wheel", preventHistorySwipe, { capture: true });
+      if (overscrollX)
+        rootStyle.setProperty("overscroll-behavior-x", overscrollX, overscrollPriority);
+      else rootStyle.removeProperty("overscroll-behavior-x");
       remember();
       cancelAnimationFrame(animation);
       resize.disconnect();

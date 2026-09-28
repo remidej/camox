@@ -13,14 +13,20 @@ void test("canvas contains curated pages, singleton pages, and one frame per tem
     ],
   );
   assert.deepEqual(pages, [
-    { key: "page:7", title: "Home", pathname: "/" },
-    { key: "singleton:about", title: "About", pathname: "/about" },
+    { key: "page:7", title: "Home", pathname: "/", pageId: 7 },
+    {
+      key: "singleton:about",
+      title: "About",
+      pathname: "/about",
+      layoutId: "about",
+    },
     {
       key: "template:articles.$slug",
       title: "Article",
       pathname: null,
       templateId: "articles.$slug",
       pattern: "/articles/:slug",
+      layoutId: "articles.$slug",
     },
   ]);
 });

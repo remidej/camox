@@ -103,7 +103,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   const canvasExperience = EditablePageExperience({
     camoxApp,
     queryClient,
-    input: { ...input, pathname: "/camox/canvas", routeKind: "studio-nested" },
+    input: { ...input, pathname: "/camox/canvas/blog/post", routeKind: "studio-nested" },
   });
   assert.equal(canvasExperience.type, AuthenticatedCamoxProvider);
   // No CompleteBlockEditingRuntimeProvider: Canvas must render public blocks
@@ -120,8 +120,9 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
         createElement(PageApp, {
           input: {
             ...input,
-            pathname: "/camox/canvas",
-            href: "https://site.test/camox/canvas",
+            pathname: "/camox/canvas/blog/post",
+            href: "https://site.test/mounted/camox/canvas/blog/post",
+            runtimeBasePath: "/mounted",
             routeKind: "studio-nested",
           },
           queryClient: new QueryClient(),

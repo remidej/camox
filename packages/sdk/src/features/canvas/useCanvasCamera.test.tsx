@@ -6,9 +6,81 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 
-import { constrainCanvasCamera, fitCanvas } from "./canvasCamera";
+import { constrainCanvasCamera, fitCanvas, fitCanvasPage } from "./canvasCamera";
 import { canvasStore } from "./canvasStore";
 import { useCanvasCamera } from "./useCanvasCamera";
+
+void test("the default camera fits the selected page through loading and viewport resizing", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas/about" });
+  let resize = () => {};
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    cancelAnimationFrame: () => {},
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const page = { left: 1606, width: 1366 };
+  const size = { width: 900, height: 800 };
+  let height = 900;
+  function Fixture() {
+    const { viewportRef, contentRef } = useCanvasCamera("initial-selected-page", page);
+    return (
+      <div ref={viewportRef}>
+        <div ref={contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 4578 },
+      offsetHeight: { get: () => height },
+    });
+    const assertCamera = () => {
+      const expected = fitCanvasPage(size, page);
+      assert.equal(parseFloat(viewport.style.getPropertyValue("--canvas-x")), expected.x);
+      assert.equal(parseFloat(viewport.style.getPropertyValue("--canvas-y")), expected.y);
+      assert.equal(Number(viewport.style.getPropertyValue("--canvas-zoom")), expected.scale);
+    };
+    resize();
+    assertCamera();
+    height = 30000;
+    resize();
+    assertCamera();
+    size.width = 1100;
+    resize();
+    assertCamera();
+    assert.equal(canvasStore.getSnapshot().context.views["initial-selected-page"], undefined);
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
 
 void test("canvas gestures own the camera, reveal keyboard controls, and clean up animation", async () => {
   const dom = new Window({ url: "http://localhost/camox/canvas" });
@@ -46,6 +118,8 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
   );
   Object.assign(globalThis, globals);
+  const rootStyle = dom.document.documentElement.style;
+  rootStyle.setProperty("overscroll-behavior-x", "contain", "important");
   const mount = dom.document.createElement("div");
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement);
@@ -66,12 +140,41 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
       <div ref={viewportRef} tabIndex={0}>
         <div ref={contentRef} />
         <input aria-label="Instance" />
+        <button type="button">
+          <span>Page name</span>
+        </button>
       </div>
     );
   }
 
   try {
     await act(async () => root.render(<Fixture />));
+    assert.equal(rootStyle.getPropertyValue("overscroll-behavior-x"), "none");
+    const outsideSwipe = () => {
+      const event = new dom.WheelEvent("wheel", {
+        deltaX: -120,
+        bubbles: true,
+        cancelable: true,
+      });
+      dom.document.body.dispatchEvent(event);
+      return event;
+    };
+    assert.equal(
+      outsideSwipe().defaultPrevented,
+      true,
+      "horizontal gestures starting outside the viewport cannot trigger browser history",
+    );
+    const verticalScroll = new dom.WheelEvent("wheel", {
+      deltaY: 120,
+      bubbles: true,
+      cancelable: true,
+    });
+    dom.document.body.dispatchEvent(verticalScroll);
+    assert.equal(
+      verticalScroll.defaultPrevented,
+      false,
+      "other UI keeps native vertical scrolling",
+    );
     const viewport = mount.querySelector("div")!;
     Object.defineProperties(viewport, {
       clientWidth: { get: () => viewportSize.width },
@@ -126,8 +229,8 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
     input.dispatchEvent(inputWheel);
     assert.equal(
       inputWheel.defaultPrevented,
-      false,
-      "normal scrolling on controls is not intercepted",
+      true,
+      "wheel gestures over controls belong to the canvas",
     );
 
     Object.defineProperty(input, "getBoundingClientRect", {
@@ -136,6 +239,22 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
     input.dispatchEvent(new dom.FocusEvent("focusin", { bubbles: true }));
     assert.equal(parseFloat(style.getPropertyValue("--canvas-x")), x - 116);
     assert.equal(viewport.scrollLeft, 0, "focus uses the camera rather than native scrolling");
+
+    const pageName = viewport.querySelector("button span")!;
+    const beforeSwipe = parseFloat(style.getPropertyValue("--canvas-x"));
+    for (const deltaX of [20, 100_000, 100_000, -100_000, -100_000]) {
+      const swipe = new dom.WheelEvent("wheel", {
+        deltaX,
+        deltaY: 0,
+        bubbles: true,
+        cancelable: true,
+      });
+      pageName.dispatchEvent(swipe);
+      assert.equal(swipe.defaultPrevented, true, "swipes stay consumed at both camera bounds");
+      flush();
+      if (deltaX === 20)
+        assert.equal(parseFloat(style.getPropertyValue("--canvas-x")), beforeSwipe - 20);
+    }
 
     contentSize.height = 30000;
     resized();
@@ -173,6 +292,9 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
     viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "-" }));
     assert.ok(callbacks.size > 0);
     await act(async () => root.unmount());
+    assert.equal(rootStyle.getPropertyValue("overscroll-behavior-x"), "contain");
+    assert.equal(rootStyle.getPropertyPriority("overscroll-behavior-x"), "important");
+    assert.equal(outsideSwipe().defaultPrevented, false, "leaving canvas restores native gestures");
     assert.equal(callbacks.size, 0, "unmount cancels the outstanding animation");
     assert.equal(disconnected, true, "unmount disconnects size observation");
     viewport.dispatchEvent(wheel);

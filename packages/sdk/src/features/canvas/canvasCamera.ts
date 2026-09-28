@@ -18,6 +18,23 @@ export const CANVAS_PADDING = 64;
 export const CANVAS_HEADER_HEIGHT = 52;
 export const MAX_CANVAS_ZOOM = 2;
 
+/** Start at the selected page's top, fitting its width rather than the whole site. */
+export function fitCanvasPage(
+  viewport: CanvasSize,
+  page: { left: number; width: number },
+): CanvasCamera {
+  const padding = Math.min(24, viewport.width / 4);
+  const scale = Math.max(
+    Number.EPSILON,
+    Math.min(MAX_CANVAS_ZOOM, (viewport.width - padding * 2) / Math.max(1, page.width)),
+  );
+  return {
+    x: (viewport.width - page.width * scale) / 2 - page.left * scale,
+    y: Math.min(24 + CANVAS_HEADER_HEIGHT, viewport.height / 3),
+    scale,
+  };
+}
+
 /** Reserve readable padding and unscaled page headers in the fitted overview. */
 export function canvasInsets(viewport: CanvasSize) {
   return {

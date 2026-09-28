@@ -9,6 +9,8 @@ export interface CanvasPage {
   pathname: string | null;
   templateId?: string;
   pattern?: string;
+  pageId?: number;
+  layoutId?: string;
 }
 
 export const CANVAS_DEVICES = {
@@ -26,6 +28,7 @@ export function getCanvasPages(
     key: page.key,
     title: page.title,
     pathname: page.fullPath,
+    ...(page.kind === "curated" ? { pageId: page.pageId } : { layoutId: page.layoutId }),
   }));
   const templates = layouts
     .filter((layout) => layout._internal.kind === "derived")
@@ -38,6 +41,7 @@ export function getCanvasPages(
         pathname: segments.some((part) => part.startsWith("$")) ? null : pattern,
         templateId: layout.id,
         pattern,
+        layoutId: layout.id,
       };
     });
   return [...concrete, ...templates];
