@@ -12,6 +12,7 @@ import { files } from "../../schema";
 import type { AppEnv } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import * as service from "./service";
+import { optimizeVideo } from "./video-optimization";
 
 // Public procedures
 
@@ -74,20 +75,60 @@ export const fileProcedures = {
 
 export const fileHonoRoutes = new Hono<AppEnv>();
 
-fileHonoRoutes.get("/serve/*", async (c) => {
+fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
   const key = c.req.path.replace(/^\/files\/serve\//, "");
   if (!key) return c.json({ error: "Missing file key" }, 400);
 
-  const object = await c.env.FILES_BUCKET.get(key);
-  if (!object) return c.notFound();
+  const metadata = await c.env.FILES_BUCKET.head(key);
+  if (!metadata) return c.notFound();
 
-  return new Response(object.body, {
-    headers: {
-      "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
-      "Cache-Control": "public, max-age=31536000, immutable",
-      "Content-Disposition": "inline",
-    },
+  const headers = new Headers({
+    "Content-Type": metadata.httpMetadata?.contentType ?? "application/octet-stream",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "Content-Disposition": "inline",
+    "Accept-Ranges": "bytes",
   });
+  const range = c.req.header("range");
+  let offset = 0;
+  let length = metadata.size;
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match || (!match[1] && !match[2])) {
+      headers.set("Content-Range", `bytes */${metadata.size}`);
+      return new Response(null, { status: 416, headers });
+    }
+    if (!match[1]) {
+      const suffix = Number(match[2]);
+      if (!Number.isSafeInteger(suffix) || suffix === 0) {
+        headers.set("Content-Range", `bytes */${metadata.size}`);
+        return new Response(null, { status: 416, headers });
+      }
+      offset = Math.max(0, metadata.size - suffix);
+    } else {
+      offset = Number(match[1]);
+      const end = match[2] ? Number(match[2]) : metadata.size - 1;
+      if (
+        !Number.isSafeInteger(offset) ||
+        !Number.isSafeInteger(end) ||
+        offset > end ||
+        offset >= metadata.size
+      ) {
+        headers.set("Content-Range", `bytes */${metadata.size}`);
+        return new Response(null, { status: 416, headers });
+      }
+      length = Math.min(end, metadata.size - 1) - offset + 1;
+    }
+    if (!match[1]) length = metadata.size - offset;
+    headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${metadata.size}`);
+  }
+  headers.set("Content-Length", String(length));
+  if (c.req.method === "HEAD") return new Response(null, { status: range ? 206 : 200, headers });
+  const object = await c.env.FILES_BUCKET.get(
+    key,
+    range ? { range: { offset, length } } : undefined,
+  );
+  if (!object) return c.notFound();
+  return new Response(object.body, { status: range ? 206 : 200, headers });
 });
 
 const uploadContent: Handler<AppEnv> = async (c) => {
@@ -159,7 +200,8 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   });
 
   const apiOrigin = new URL(c.req.url).origin;
-  const url = `${apiOrigin}/files/serve/${key}`;
+  const optimized = await optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
+  const url = `${apiOrigin}/files/serve/${optimized?.key ?? key}`;
 
   if (id !== undefined) {
     try {
@@ -173,6 +215,7 @@ const uploadContent: Handler<AppEnv> = async (c) => {
           filename,
           mimeType: file.type,
           size: file.size,
+          optimizedSize: optimized?.size ?? null,
         },
         metadata.data,
       );
@@ -185,24 +228,31 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     }
   }
 
-  const result = await c.var.db
-    .insert(files)
-    .values({
-      projectId,
-      environmentId: environment.id,
-      blobId: key,
-      filename,
-      mimeType: file.type,
-      size: file.size,
-      path: key,
-      url,
-      alt: metadata.data.alt ?? "",
-      aiMetadataEnabled,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
+  let result: typeof files.$inferSelect;
+  try {
+    result = await c.var.db
+      .insert(files)
+      .values({
+        projectId,
+        environmentId: environment.id,
+        blobId: key,
+        filename,
+        mimeType: file.type,
+        size: file.size,
+        optimizedSize: optimized?.size ?? null,
+        path: key,
+        url,
+        alt: metadata.data.alt ?? "",
+        aiMetadataEnabled,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+  } catch (error) {
+    await service.deleteUnreferencedFileBlob(ctx, key);
+    throw error;
+  }
 
   if (aiMetadataEnabled !== false) {
     c.executionCtx.waitUntil(

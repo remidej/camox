@@ -18,18 +18,39 @@ import { fileMutations, fileQueries } from "@/lib/queries";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
 
-function DeliveredSize({ bytes, raw }: { bytes: number | null; raw: number | null }) {
+function DeliveredSize({
+  bytes,
+  raw,
+  estimated = true,
+}: {
+  bytes: number | null;
+  raw: number | null;
+  estimated?: boolean;
+}) {
   if (bytes == null) return <>…</>;
   const savingsPct = raw != null && raw > 0 ? Math.round(((raw - bytes) / raw) * 100) : null;
-  if (savingsPct == null || savingsPct <= 0) return <>≈{formatFileSize(bytes)}</>;
+  if (savingsPct == null || savingsPct <= 0)
+    return (
+      <>
+        {estimated ? "≈" : ""}
+        {formatFileSize(bytes)}
+      </>
+    );
   return (
     <>
-      ≈{formatFileSize(bytes)} <span className="text-muted-foreground">(−{savingsPct}%)</span>
+      {estimated ? "≈" : ""}
+      {formatFileSize(bytes)} <span className="text-muted-foreground">(−{savingsPct}%)</span>
     </>
   );
 }
 
-function DeliveredLabel({ children }: { children: React.ReactNode }) {
+function DeliveredLabel({
+  children,
+  video = false,
+}: {
+  children: React.ReactNode;
+  video?: boolean;
+}) {
   return (
     <span className="inline-flex items-center gap-1">
       {children}
@@ -39,16 +60,22 @@ function DeliveredLabel({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               className="text-muted-foreground hover:text-foreground"
-              aria-label="About image optimization"
+              aria-label={video ? "About video optimization" : "About image optimization"}
             />
           }
         >
           <Info className="h-3.5 w-3.5" />
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
-          Visitors automatically receive a compressed WebP/AVIF version sized to their device.
-          Estimates use {DELIVERED_PHONE_WIDTH}px (phone) and {DELIVERED_LAPTOP_WIDTH}px (laptop) —
-          the original is preserved.
+          {video ? (
+            <>Visitors receive the optimized video. The original is preserved.</>
+          ) : (
+            <>
+              Visitors automatically receive a compressed WebP/AVIF version sized to their device.
+              Estimates use {DELIVERED_PHONE_WIDTH}px (phone) and {DELIVERED_LAPTOP_WIDTH}px
+              (laptop) — the original is preserved.
+            </>
+          )}
         </TooltipContent>
       </Tooltip>
     </span>
@@ -471,6 +498,11 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                       <DeliveredSize bytes={deliveredSizes.laptop} raw={file.size} />
                     </MetadataRow>
                   </>
+                )}
+                {isVideo && file.optimizedSize != null && (
+                  <MetadataRow label={<DeliveredLabel video>Delivered</DeliveredLabel>}>
+                    <DeliveredSize bytes={file.optimizedSize} raw={file.size} estimated={false} />
+                  </MetadataRow>
                 )}
                 <MetadataRow label="Created">{formatRelativeTime(file.createdAt)}</MetadataRow>
                 <MetadataRow label="Updated">{formatRelativeTime(file.updatedAt)}</MetadataRow>

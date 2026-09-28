@@ -22,6 +22,7 @@ import {
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { syncBlockData } from "../blocks/synced";
+import { optimizedVideoKey } from "../files/video-optimization";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { writePageCheckpointAndPoint } from "../pages/service";
 
@@ -340,7 +341,12 @@ export async function deleteProject(
 
   // Delete files from R2 and database
   if (fileRows.length > 0) {
-    await Promise.all(fileRows.map((f) => ctx.env.FILES_BUCKET.delete(f.blobId)));
+    await Promise.all(
+      fileRows.flatMap((f) => [
+        ctx.env.FILES_BUCKET.delete(f.blobId),
+        ctx.env.FILES_BUCKET.delete(optimizedVideoKey(f.blobId)),
+      ]),
+    );
     await ctx.db.delete(files).where(eq(files.projectId, projectId));
   }
 

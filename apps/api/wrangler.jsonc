@@ -29,6 +29,10 @@
       "bucket_name": "camox-files",
     },
   ],
+  "media": {
+    "binding": "MEDIA",
+    "remote": true,
+  },
   "durable_objects": {
     "bindings": [
       {

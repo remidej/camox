@@ -15,6 +15,7 @@ export const files = sqliteTable(
     filename: text().notNull(),
     mimeType: text("mime_type").notNull(),
     size: int().notNull(),
+    optimizedSize: int("optimized_size"),
     blobId: text("blob_id").notNull(),
     path: text().notNull(),
     aiMetadataEnabled: int("ai_metadata_enabled", { mode: "boolean" }),

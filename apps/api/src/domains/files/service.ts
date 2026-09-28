@@ -16,6 +16,7 @@ import { blocks, files, layouts, member, pages, projects, repeatableItems } from
 import type { ServiceContext } from "../_shared/service-context";
 import { assertNoCollectionAssetUse } from "../collections/asset-retention";
 import { readMetadataImage } from "./metadata-image";
+import { optimizedVideoKey } from "./video-optimization";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -418,7 +419,7 @@ export async function deleteFile(ctx: ServiceContext, rawInput: z.input<typeof d
     .limit(1)
     .get();
   if (!sibling) {
-    await ctx.env.FILES_BUCKET.delete(access.file.blobId);
+    await deleteFileBlob(ctx, access.file.blobId);
   }
   const result = await ctx.db.delete(files).where(eq(files.id, id)).returning().get();
   invalidateFile(ctx, access.file.projectId!, [
@@ -473,7 +474,7 @@ export async function deleteFiles(ctx: ServiceContext, rawInput: z.input<typeof 
     .where(and(inArray(files.blobId, blobIds), notInArray(files.id, ids)));
   const survivingBlobs = new Set(survivors.map((s) => s.blobId));
   const blobsToDelete = blobIds.filter((b) => !survivingBlobs.has(b));
-  await Promise.all(blobsToDelete.map((b) => ctx.env.FILES_BUCKET.delete(b)));
+  await Promise.all(blobsToDelete.map((b) => deleteFileBlob(ctx, b)));
   await ctx.db.delete(files).where(inArray(files.id, ids));
 
   const projectId = authorizedFiles[0]!.projectId!;
@@ -519,7 +520,7 @@ export async function replaceFile(ctx: ServiceContext, rawInput: z.input<typeof 
 
 type FileAsset = Pick<
   typeof files.$inferSelect,
-  "blobId" | "path" | "url" | "filename" | "mimeType" | "size"
+  "blobId" | "path" | "url" | "filename" | "mimeType" | "size" | "optimizedSize"
 >;
 
 /** Replace bytes and explicit metadata together, retaining the referenced file row. */
@@ -618,6 +619,7 @@ export async function replaceFileContent(
         filename: asset.filename,
         mimeType: asset.mimeType,
         size: asset.size,
+        optimizedSize: asset.optimizedSize,
         ...(metadata.alt !== undefined ? { alt: metadata.alt } : {}),
         ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
         updatedAt: sql`MAX(${files.updatedAt} + 1, ${now})`,
@@ -679,7 +681,14 @@ export async function deleteUnreferencedFileBlob(ctx: ServiceContext, blobId: st
     .where(eq(files.blobId, blobId))
     .limit(1)
     .get();
-  if (!reference) await ctx.env.FILES_BUCKET.delete(blobId);
+  if (!reference) await deleteFileBlob(ctx, blobId);
+}
+
+async function deleteFileBlob(ctx: ServiceContext, blobId: string) {
+  await Promise.all([
+    ctx.env.FILES_BUCKET.delete(blobId),
+    ctx.env.FILES_BUCKET.delete(optimizedVideoKey(blobId)),
+  ]);
 }
 
 export async function setFileAiMetadata(

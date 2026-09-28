@@ -9,6 +9,7 @@ import type { AppEnv } from "../../types";
 import { callTool } from "../agent/service";
 import { fileHonoRoutes } from "./routes";
 import {
+  deleteFile,
   saveGeneratedFileMetadata,
   getProjectFile,
   listFiles,
@@ -16,12 +17,13 @@ import {
   updateFile,
 } from "./service";
 
-async function fixture() {
+async function fixture(media?: MediaBinding) {
   const fixture = await createProjectFixture(crypto.randomUUID());
   const scheduleAiJob = vi.fn().mockResolvedValue(new Response(null));
   const baseContext = createServiceContext(fixture.db, fixture.memberUser);
   const bindings = {
     ...baseContext.env,
+    MEDIA: media,
     AI_JOB_SCHEDULER: {
       idFromName: (name: string) => baseContext.env.AI_JOB_SCHEDULER.idFromName(name),
       get: () => ({ fetch: scheduleAiJob }),
@@ -42,7 +44,7 @@ async function fixture() {
     type = "image/png",
     filename = "hero.png",
     targetId?: number,
-    contents = "image bytes",
+    contents: string | Uint8Array = "image bytes",
   ) {
     const body = new FormData();
     body.set("file", new File([contents], filename, { type }));
@@ -80,6 +82,78 @@ describe("media persistence", () => {
       const served = await app.request(record.url, {}, env);
       expect(new TextDecoder().decode(await served.arrayBuffer())).toBe("image bytes");
     }
+  });
+
+  it("supports byte ranges and HEAD for video playback on the same file URL", async () => {
+    const { upload, app, ctx } = await fixture();
+    const file = await (
+      await upload({}, "video/mp4", "clip.mp4", undefined, "0123456789")
+    ).json<typeof files.$inferSelect>();
+    const partial = await app.request(file.url, { headers: { Range: "bytes=2-5" } }, ctx.env);
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(partial.headers.get("accept-ranges")).toBe("bytes");
+    expect(new TextDecoder().decode(await partial.arrayBuffer())).toBe("2345");
+    const suffix = await app.request(file.url, { headers: { Range: "bytes=-3" } }, ctx.env);
+    expect(new TextDecoder().decode(await suffix.arrayBuffer())).toBe("789");
+    const head = await app.request(file.url, { method: "HEAD" }, ctx.env);
+    expect(head.headers.get("content-length")).toBe("10");
+    expect(await head.text()).toBe("");
+    const invalid = await app.request(file.url, { headers: { Range: "bytes=10-" } }, ctx.env);
+    expect(invalid.status).toBe(416);
+    expect(invalid.headers.get("content-range")).toBe("bytes */10");
+  });
+
+  it("publishes a smaller video rendition before returning the file and deletes both blobs", async () => {
+    const frame = (type: string, payload: Uint8Array) => {
+      const bytes = new Uint8Array(payload.length + 8);
+      new DataView(bytes.buffer).setUint32(0, bytes.length);
+      bytes.set(new TextEncoder().encode(type), 4);
+      bytes.set(payload, 8);
+      return bytes;
+    };
+    const movie = new Uint8Array(20);
+    new DataView(movie.buffer).setUint32(12, 1000);
+    new DataView(movie.buffer).setUint32(16, 30_000);
+    const track = new Uint8Array(8);
+    new DataView(track.buffer).setUint32(0, 1280 * 65536);
+    new DataView(track.buffer).setUint32(4, 720 * 65536);
+    const video = (size: number) =>
+      new Uint8Array([
+        ...frame("ftyp", new Uint8Array(4)),
+        ...frame("mdat", new Uint8Array(size)),
+        ...frame(
+          "moov",
+          new Uint8Array([...frame("mvhd", movie), ...frame("trak", frame("tkhd", track))]),
+        ),
+      ]);
+    const original = video(1024 * 1024);
+    const rendition = video(100_000);
+    const transform = vi.fn().mockReturnValue({
+      output: vi.fn().mockReturnValue({
+        response: vi.fn().mockResolvedValue(new Response(rendition)),
+      }),
+    });
+    const input = vi.fn().mockReturnValue({
+      transform,
+    });
+    const { upload, app, ctx, project } = await fixture({ input } as unknown as MediaBinding);
+    const response = await upload({}, "video/mp4", "clip.mp4", undefined, original);
+    expect(response.status).toBe(201);
+    const file = await response.json<typeof files.$inferSelect>();
+    expect(file).toMatchObject({ size: original.length, optimizedSize: rendition.length });
+    expect(file.url).toContain(`${file.blobId}.optimized.mp4`);
+    expect(input).toHaveBeenCalledOnce();
+    expect(transform).toHaveBeenCalledWith({ width: 1280, height: 720, fit: "scale-down" });
+    expect((await app.request(file.url, {}, ctx.env)).headers.get("content-type")).toBe(
+      "video/mp4",
+    );
+    expect((await app.request(file.url, {}, ctx.env)).headers.get("content-length")).toBe(
+      String(rendition.length),
+    );
+    expect((await ctx.env.FILES_BUCKET.head(file.blobId))?.size).toBe(original.length);
+    await deleteFile(ctx, { id: file.id });
+    expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual([]);
   });
 
   it("preserves AI defaults, accepts explicit settings, and rejects conflicts and unsupported media", async () => {
