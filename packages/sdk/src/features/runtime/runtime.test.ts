@@ -116,7 +116,18 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
         : "<nav>Studio</nav>",
     renderStudio: async () => "<nav>Studio</nav>",
   };
-  for (const path of ["/about", "/pokedex", "/about-camox", "/pokemon/pikachu", "/camox/content"]) {
+  for (const path of [
+    "/about",
+    "/pokedex",
+    "/about-camox",
+    "/pokemon/pikachu",
+    "/camox/content",
+    "/camox/content/assets",
+    "/camox/content/collections/articles",
+    "/camox/content/collections/articles/new",
+    "/camox/content/collections/articles/a6479288-341f-4008-b118-dea6d8dd9158/edit",
+    "/camox/canvas",
+  ]) {
     const response = await handleCamoxRequest(
       new Request(`https://site.test/_camox/data?path=${encodeURIComponent(path)}`, {
         headers: { Cookie: "camox_auth_cookie=token%3Dtest" },
@@ -138,7 +149,8 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     }
     if (path.startsWith("/pokemon/"))
       assert.deepEqual(input.derived?.result, { kind: "data", data: { name: "pikachu" } });
-    if (path.startsWith("/camox/")) assert.equal(input.routeKind, "studio-content");
+    if (path.startsWith("/camox/"))
+      assert.equal(input.routeKind, path === "/camox/canvas" ? "studio-nested" : "studio-content");
     if (!path.startsWith("/camox/")) {
       assert.match(input.previewDocument!, /href="\/site.css"/);
       assert.match(input.previewDocument!, /class="dark"/);

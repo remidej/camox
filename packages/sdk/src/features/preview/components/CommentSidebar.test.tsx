@@ -250,7 +250,11 @@ void test("only View opens feedback's editor without deleting cached comments", 
     );
     await React.act(async () => viewButtons[0]!.click());
     assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
-    assert.equal(previewStore.getSnapshot().context.selection, null);
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
+      kind: "page",
+      pageId: 88,
+      selection: null,
+    });
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, "first");
     await React.act(async () => viewButtons[1]!.click());
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, "second");
@@ -259,6 +263,53 @@ void test("only View opens feedback's editor without deleting cached comments", 
     await dom.close();
     previewCommentsStore.send({ type: "clearSelection" });
     previewStore.send({ type: "exitEditMode" });
+  }
+});
+
+void test("field feedback selects its own page and cannot steal focus after navigation", async () => {
+  const dom = await setupDom();
+  const { CommentSidebar } = await import("./CommentSidebar");
+  const { previewStore } = await import("../previewStore");
+  const { previewCommentsStore } = await import("../previewCommentsStore");
+  dom.client.setQueryData(["page", 3], { nickname: "Comment page" });
+  dom.client.setQueryData(["block", 7], {
+    block: { id: 7, type: "hero", content: { title: "Heading" } },
+    repeatableItems: [],
+  });
+  dom.client.setQueryData(
+    ["comments", 3],
+    [comment("field", 3, { kind: "block-field", blockId: 7, fieldName: "title" })],
+  );
+  const view = () =>
+    [...dom.host.querySelectorAll("button")].find((button) => button.textContent === "View")!;
+  try {
+    previewStore.send({ type: "enterEditMode" });
+    previewStore.send({ type: "activatePage", pageId: 4 });
+    previewStore.send({ type: "setCommentMode", enabled: true });
+    await dom.render(<CommentSidebar pageId={3} />);
+    await React.act(async () => view().click());
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
+      kind: "page",
+      pageId: 3,
+      selection: { type: "block-field", blockId: 7, fieldName: "title", fieldType: "String" },
+    });
+
+    await React.act(async () => {
+      previewStore.send({ type: "setCommentMode", enabled: true });
+      view().click();
+      // fetchQuery resumes on a later microtask, after navigation has committed.
+      previewStore.send({ type: "activatePage", pageId: 4 });
+    });
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
+      kind: "page",
+      pageId: 4,
+      selection: null,
+    });
+  } finally {
+    await dom.close();
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    previewCommentsStore.send({ type: "clearSelection" });
   }
 });
 

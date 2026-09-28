@@ -1,8 +1,11 @@
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { ORPCError } from "@orpc/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, exists, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { assertSyncAccess, getAuthorizedProjectBySlug } from "../../authorization";
+import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
@@ -19,7 +22,7 @@ export const syncCollectionDefinitionsInput = z
   })
   .strict();
 
-/** The only routed collection operation in slice 2 is authenticated definition sync. */
+/** Sync code-defined collection schemas. */
 export async function syncCollectionDefinitions(
   ctx: ServiceContext,
   rawInput: z.input<typeof syncCollectionDefinitionsInput>,
@@ -85,6 +88,12 @@ export async function syncCollectionDefinitions(
     ),
   ] as const;
   await ctx.db.batch(statements);
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    projectId: project.id,
+    targets: [queryKeys.collections.list(input.projectSlug, ctx.environmentName)],
+  });
   return {
     count: input.definitions.length,
     retired: existing
@@ -95,9 +104,95 @@ export async function syncCollectionDefinitions(
   };
 }
 
-const scopeInput = z.object({ projectSlug: z.string(), collectionId: z.string() }).strict();
+export const listCollectionDefinitionsInput = z.object({ projectSlug: z.string() }).strict();
+export const listCollectionRecordsInput = listCollectionDefinitionsInput.extend({
+  collectionId: z.string(),
+});
+export const getCollectionDefinitionInput = listCollectionRecordsInput;
+const scopeInput = listCollectionRecordsInput;
 const recordInput = scopeInput.extend({ id: z.uuid() });
 const mutationInput = recordInput.extend({ expectedVersion: z.number().int().positive() });
+export const getCollectionRecordInput = recordInput;
+export const createRecordInput = scopeInput.extend({ content: z.unknown() });
+export const editRecordInput = mutationInput.extend({ content: z.unknown() });
+export const deleteRecordInput = mutationInput;
+
+export async function getCollectionRecord(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getCollectionRecordInput>,
+) {
+  const input = getCollectionRecordInput.parse(rawInput);
+  const { definition, record } = await recordFor(ctx, input, true);
+  if (!definition.active || !record) throw new ORPCError("NOT_FOUND");
+  return record;
+}
+
+export async function listCollectionDefinitions(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listCollectionDefinitionsInput>,
+) {
+  const input = listCollectionDefinitionsInput.parse(rawInput);
+  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
+  const project = await getAuthorizedProjectBySlug(ctx.db, input.projectSlug, ctx.user.id);
+  if (!project) throw new ORPCError("NOT_FOUND");
+  const environment = await resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  return (
+    ctx.db
+      .select({
+        collectionId: collectionDefinitions.collectionId,
+        title: collectionDefinitions.title,
+        description: collectionDefinitions.description,
+        label: collectionDefinitions.label,
+      })
+      .from(collectionDefinitions)
+      .where(
+        and(
+          eq(collectionDefinitions.projectId, project.id),
+          eq(collectionDefinitions.environmentId, environment.id),
+          eq(collectionDefinitions.active, true),
+        ),
+      )
+      // Definitions have no creation timestamp; their auto-increment ID preserves creation order.
+      .orderBy(desc(collectionDefinitions.id))
+  );
+}
+
+export async function getCollectionDefinition(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getCollectionDefinitionInput>,
+) {
+  const input = getCollectionDefinitionInput.parse(rawInput);
+  const definition = await definitionFor(ctx, input, true);
+  if (!definition.active) throw new ORPCError("NOT_FOUND");
+  const { collectionId, title, description, label, contentSchema } = definition;
+  return { collectionId, title, description, label, contentSchema };
+}
+
+/** Studio reads current drafts only; public/live reads remain separate. */
+export async function listCollectionRecords(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listCollectionRecordsInput>,
+) {
+  const input = listCollectionRecordsInput.parse(rawInput);
+  const definition = await definitionFor(ctx, input, true);
+  if (!definition.active) throw new ORPCError("NOT_FOUND");
+  const records = await ctx.db
+    .select({
+      id: collectionRecords.id,
+      content: collectionRecords.draft,
+      version: collectionRecords.version,
+    })
+    .from(collectionRecords)
+    .where(eq(collectionRecords.definitionId, definition.id))
+    .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id));
+  return records.map((record) => ({
+    id: record.id,
+    version: record.version,
+    label: lexicalStateToPlainText(
+      record.content[definition.label] as string | Record<string, unknown>,
+    ),
+  }));
+}
 
 async function definitionFor(
   ctx: ServiceContext,
@@ -150,7 +245,7 @@ export async function createRecord(
   ctx: ServiceContext,
   rawInput: z.input<typeof scopeInput> & { content: unknown },
 ) {
-  const input = scopeInput.extend({ content: z.unknown() }).parse(rawInput);
+  const input = createRecordInput.parse(rawInput);
   const definition = await definitionFor(ctx, input, true);
   assertActive(definition);
   const draft = await validateContent(ctx, definition, input.content);
@@ -183,7 +278,25 @@ export async function createRecord(
     .get();
   if (!record)
     throw new ORPCError("CONFLICT", { message: "Collection definition changed; retry creation" });
+  invalidateRecord(ctx, definition, input, record.id);
   return record;
+}
+
+function invalidateRecord(
+  ctx: ServiceContext,
+  definition: { projectId: number },
+  scope: z.infer<typeof scopeInput>,
+  id: string,
+) {
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    projectId: definition.projectId,
+    targets: [
+      queryKeys.collections.records(scope.projectSlug, ctx.environmentName, scope.collectionId),
+      queryKeys.collections.record(scope.projectSlug, ctx.environmentName, scope.collectionId, id),
+    ],
+  });
 }
 
 /** Live results deliberately omit draft, draft version, and mutable definition metadata. */
@@ -256,10 +369,46 @@ export async function editRecord(
   ctx: ServiceContext,
   rawInput: z.input<typeof mutationInput> & { content: unknown },
 ) {
-  const input = mutationInput.extend({ content: z.unknown() }).parse(rawInput);
+  const input = editRecordInput.parse(rawInput);
   const { definition, record } = await mutation(ctx, input);
   const draft = await validateContent(ctx, definition, input.content);
-  return update(ctx, record, { draft });
+  const updated = await update(ctx, record, { draft });
+  invalidateRecord(ctx, definition, input, record.id);
+  return updated;
+}
+
+export async function deleteRecord(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof deleteRecordInput>,
+) {
+  const input = deleteRecordInput.parse(rawInput);
+  const { definition, record } = await mutation(ctx, input);
+  const guard = and(
+    eq(collectionRecords.id, record.id),
+    eq(collectionRecords.version, input.expectedVersion),
+    sql`exists (select 1 from ${collectionDefinitions} where ${collectionDefinitions.id} = ${record.definitionId} and ${collectionDefinitions.active} = 1)`,
+  );
+  // D1 batches are atomic. Every step is guarded, so a concurrent edit cannot
+  // leave a partially deleted item or remove its history on a version conflict.
+  const [, , deleted] = await ctx.db.batch([
+    ctx.db.update(collectionRecords).set({ publishedRevisionId: null }).where(guard),
+    ctx.db
+      .delete(collectionRevisions)
+      .where(
+        and(
+          eq(collectionRevisions.recordId, record.id),
+          exists(ctx.db.select({ id: collectionRecords.id }).from(collectionRecords).where(guard)),
+        ),
+      ),
+    ctx.db.delete(collectionRecords).where(guard).returning({ id: collectionRecords.id }),
+  ]);
+  if (!deleted.length) {
+    throw new ORPCError("CONFLICT", {
+      message: "Record or definition changed; reload before retrying",
+    });
+  }
+  invalidateRecord(ctx, definition, input, record.id);
+  return { id: record.id };
 }
 
 async function snapshot(

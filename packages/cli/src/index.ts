@@ -109,6 +109,7 @@ switch (result.command) {
     await files.handler(result);
     break;
   case "layouts.list":
+  case "layouts.get":
     await layouts.handler(result);
     break;
   case "env.check":

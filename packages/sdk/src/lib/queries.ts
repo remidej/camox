@@ -9,6 +9,9 @@ export type Page = Awaited<ReturnType<ApiClient["pages"]["list"]>>[number];
 export type PageWithBlocks = Awaited<ReturnType<ApiClient["pages"]["getByPath"]>>;
 export type BlockBundle = Awaited<ReturnType<ApiClient["blocks"]["get"]>>;
 export type File = Awaited<ReturnType<ApiClient["files"]["list"]>>[number];
+export type CollectionDefinition = Awaited<
+  ReturnType<ApiClient["collectionDefinitions"]["list"]>
+>[number];
 
 /** Slim structural data stored in the page query cache (no blocks/items/files). */
 export type PageStructure = {
@@ -26,6 +29,57 @@ type CheckCompatibilityResponse = Awaited<
 export type CompatibilityReason = CheckCompatibilityResponse["reasons"][number];
 
 // --- Query factories ---
+
+export const collectionQueries = {
+  list: (projectSlug: string) => ({
+    ...getOrpc().collectionDefinitions.list.queryOptions({
+      input: { projectSlug },
+    }),
+    queryKey: queryKeys.collections.list(projectSlug, getEnvironmentName() ?? "production"),
+  }),
+
+  get: (projectSlug: string, collectionId: string) => ({
+    ...getOrpc().collectionDefinitions.get.queryOptions({
+      input: { projectSlug, collectionId },
+    }),
+    queryKey: queryKeys.collections.get(
+      projectSlug,
+      getEnvironmentName() ?? "production",
+      collectionId,
+    ),
+  }),
+
+  record: (projectSlug: string, collectionId: string, id: string) => ({
+    ...getOrpc().collectionDefinitions.getRecord.queryOptions({
+      input: { projectSlug, collectionId, id },
+    }),
+    queryKey: queryKeys.collections.record(
+      projectSlug,
+      getEnvironmentName() ?? "production",
+      collectionId,
+      id,
+    ),
+  }),
+
+  records: (projectSlug: string, collectionId: string) => ({
+    ...getOrpc().collectionDefinitions.listRecords.queryOptions({
+      input: { projectSlug, collectionId },
+    }),
+    queryKey: queryKeys.collections.records(
+      projectSlug,
+      getEnvironmentName() ?? "production",
+      collectionId,
+    ),
+  }),
+};
+
+export const collectionMutations = {
+  create: () => getOrpc().collectionDefinitions.createRecord.mutationOptions(),
+  edit: () => getOrpc().collectionDefinitions.editRecord.mutationOptions(),
+  delete: () => getOrpc().collectionDefinitions.deleteRecord.mutationOptions(),
+};
+
+export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
 
 export const commentQueries = {
   list: (pageId: number) => ({

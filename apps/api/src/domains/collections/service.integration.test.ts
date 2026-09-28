@@ -13,6 +13,11 @@ import {
   checkpointRecord,
   createRecord,
   editRecord,
+  deleteRecord,
+  getCollectionDefinition,
+  getCollectionRecord,
+  listCollectionDefinitions,
+  listCollectionRecords,
   publishRecord,
   readRecord,
   restoreRecord,
@@ -36,7 +41,7 @@ const article = {
   excerpt: "An example",
   body: "Public body",
   cover: {
-    url: "https://placehold.co/1200x800.png",
+    url: "https://example.com/article-cover.png",
     alt: "Cover",
     filename: "cover.png",
     mimeType: "image/png",
@@ -59,7 +64,272 @@ async function fixture(suffix: string) {
   return { ...base, ctx, publicCtx, scope, sync };
 }
 
+describe("authenticated collection browsing", () => {
+  it("stores empty and unlinked assets as null without materializing preview defaults", async () => {
+    const f = await fixture("empty-assets");
+    const created = await createRecord(f.ctx, { ...f.scope, content: { ...article, cover: null } });
+    expect(created.draft.cover).toBeNull();
+    expect(
+      (await getCollectionRecord(f.ctx, { ...f.scope, id: created.id })).draft.cover,
+    ).toBeNull();
+    const linked = await editRecord(f.ctx, {
+      ...f.scope,
+      id: created.id,
+      expectedVersion: created.version,
+      content: article,
+    });
+    const unlinked = await editRecord(f.ctx, {
+      ...f.scope,
+      id: created.id,
+      expectedVersion: linked.version,
+      content: { ...article, cover: null },
+    });
+    expect(unlinked.draft.cover).toBeNull();
+    const published = await publishRecord(f.ctx, {
+      ...f.scope,
+      id: created.id,
+      expectedVersion: unlinked.version,
+    });
+    expect(published.revision.content.cover).toBeNull();
+  });
+  it("loads editable drafts within their authorized collection and rejects stale saves", async () => {
+    const f = await fixture("authoring");
+    const created = await createRecord(f.ctx, { ...f.scope, content: article });
+    const input = { ...f.scope, id: created.id };
+    expect(await getCollectionRecord(f.ctx, input)).toEqual(created);
+    await expect(getCollectionRecord(f.publicCtx, input)).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(
+      getCollectionRecord(createServiceContext(f.db, f.outsiderUser), input),
+    ).rejects.toThrow();
+    await expect(
+      getCollectionRecord(f.ctx, { ...input, collectionId: "other" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      getCollectionRecord(f.ctx, { ...input, id: crypto.randomUUID() }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const edited = await editRecord(f.ctx, {
+      ...input,
+      expectedVersion: created.version,
+      content: { ...article, title: "Updated title" },
+    });
+    expect(edited.version).toBe(created.version + 1);
+    expect((await getCollectionRecord(f.ctx, input)).draft.title).toBe("Updated title");
+    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+      { id: created.id, version: edited.version, label: "Updated title" },
+    ]);
+    await expect(
+      editRecord(f.ctx, { ...input, expectedVersion: created.version, content: article }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(createRecord(f.ctx, { ...f.scope, content: {} })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await f.sync([]);
+    await expect(getCollectionRecord(f.ctx, input)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+  it("returns the active definition's stored TypeBox schema and metadata only in its environment", async () => {
+    const f = await fixture("browse-get");
+    expect(await getCollectionDefinition(f.ctx, f.scope)).toEqual({
+      collectionId: definition.collectionId,
+      title: definition.title,
+      description: definition.description,
+      label: definition.label,
+      contentSchema: definition.contentSchema,
+    });
+
+    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    await syncCollectionDefinitions(devCtx, {
+      projectSlug: f.project.slug,
+      autoCreate: true,
+      definitions: [],
+    });
+    await expect(getCollectionDefinition(devCtx, f.scope)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await syncCollectionDefinitions(devCtx, {
+      projectSlug: f.project.slug,
+      autoCreate: false,
+      definitions: [{ ...definition, title: "Development articles" }],
+    });
+    expect(await getCollectionDefinition(devCtx, f.scope)).toMatchObject({
+      title: "Development articles",
+      contentSchema: definition.contentSchema,
+    });
+    expect(await getCollectionDefinition(f.ctx, f.scope)).toMatchObject({
+      title: definition.title,
+    });
+    await syncCollectionDefinitions(devCtx, {
+      projectSlug: f.project.slug,
+      autoCreate: false,
+      definitions: [],
+    });
+    await expect(getCollectionDefinition(devCtx, f.scope)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      getCollectionDefinition({ ...f.ctx, environmentName: "missing" }, f.scope),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      getCollectionDefinition(f.ctx, { ...f.scope, collectionId: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await getCollectionDefinition(f.ctx, f.scope)).toMatchObject({
+      title: definition.title,
+    });
+  });
+
+  it("lists only active definitions in the current project/environment, newest first", async () => {
+    const f = await fixture("browse");
+    const input = { projectSlug: f.project.slug };
+    const newer = { ...definition, collectionId: "newer", title: "Newer" };
+    await f.sync([definition, newer]);
+    const metadata = ({ collectionId, title, description, label }: typeof definition) => ({
+      collectionId,
+      title,
+      description,
+      label,
+    });
+    expect(await listCollectionDefinitions(f.ctx, input)).toEqual([
+      metadata(newer),
+      metadata(definition),
+    ]);
+    const other = await fixture("browse-other");
+    expect(await listCollectionDefinitions(other.ctx, { projectSlug: other.project.slug })).toEqual(
+      [metadata(definition)],
+    );
+    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    await syncCollectionDefinitions(devCtx, { ...input, autoCreate: true, definitions: [] });
+    expect(await listCollectionDefinitions(devCtx, input)).toEqual([]);
+    await f.sync([definition]);
+    expect(await listCollectionDefinitions(f.ctx, input)).toEqual([metadata(definition)]);
+    await f.sync([]);
+    expect(await listCollectionDefinitions(f.ctx, input)).toEqual([]);
+    await expect(
+      listCollectionDefinitions({ ...f.ctx, environmentName: "missing" }, input),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("requires membership and authentication for browsing", async () => {
+    const f = await fixture("browse-auth");
+    for (const ctx of [f.publicCtx, createServiceContext(f.db, f.outsiderUser)]) {
+      const code = ctx.user ? "FORBIDDEN" : "UNAUTHORIZED";
+      await expect(
+        listCollectionDefinitions(ctx, { projectSlug: f.project.slug }),
+      ).rejects.toMatchObject({ code });
+      await expect(getCollectionDefinition(ctx, f.scope)).rejects.toMatchObject({ code });
+      await expect(listCollectionRecords(ctx, f.scope)).rejects.toMatchObject({ code });
+    }
+    await expect(
+      listCollectionDefinitions(f.ctx, { projectSlug: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      listCollectionRecords(f.ctx, { ...f.scope, collectionId: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("returns real current drafts and plain text labels, isolated by collection and environment", async () => {
+    const f = await fixture("browse-records");
+    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([]);
+    let record = await createRecord(f.ctx, { ...f.scope, content: article });
+    record = (
+      await publishRecord(f.ctx, { ...f.scope, id: record.id, expectedVersion: record.version })
+    ).record;
+    const content = { ...article, title: plainTextToLexicalState("Private draft") };
+    await editRecord(f.ctx, {
+      ...f.scope,
+      id: record.id,
+      expectedVersion: record.version,
+      content,
+    });
+    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+      { id: record.id, version: record.version + 1, label: "Private draft" },
+    ]);
+    const unpublished = await createRecord(f.ctx, { ...f.scope, content: article });
+    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+      { id: unpublished.id, version: unpublished.version, label: "Hello" },
+      { id: record.id, version: record.version + 1, label: "Private draft" },
+    ]);
+    await f.sync([definition, { ...definition, collectionId: "other" }]);
+    expect(await listCollectionRecords(f.ctx, { ...f.scope, collectionId: "other" })).toEqual([]);
+    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    await syncCollectionDefinitions(devCtx, {
+      projectSlug: f.project.slug,
+      autoCreate: true,
+      definitions: [definition],
+    });
+    expect(await listCollectionRecords(devCtx, f.scope)).toEqual([]);
+    const other = await fixture("browse-records-other");
+    expect(await listCollectionRecords(other.ctx, other.scope)).toEqual([]);
+    await f.sync([]);
+    await expect(listCollectionRecords(f.ctx, f.scope)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+});
+
 describe("collection record lifecycle (repeatable articles service fixture)", () => {
+  it("deletes an authorized item and its history while protecting stale and foreign requests", async () => {
+    const f = await fixture("delete-record");
+    const file = await f.db
+      .insert(files)
+      .values({
+        projectId: f.project.id,
+        environmentId: f.environment.id,
+        url: "https://example.com/cover.png",
+        alt: "",
+        filename: "cover.png",
+        mimeType: "image/png",
+        size: 5,
+        blobId: "delete-test",
+        path: "cover.png",
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .returning()
+      .get();
+    const created = await createRecord(f.ctx, {
+      ...f.scope,
+      content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
+    });
+    const published = await publishRecord(f.ctx, {
+      ...f.scope,
+      id: created.id,
+      expectedVersion: created.version,
+    });
+    const input = { ...f.scope, id: created.id, expectedVersion: published.record.version };
+    await expect(deleteRecord(f.publicCtx, input)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(deleteRecord(createServiceContext(f.db, f.outsiderUser), input)).rejects.toThrow();
+    await f.sync([definition, { ...definition, collectionId: "other" }]);
+    await expect(deleteRecord(f.ctx, { ...input, collectionId: "other" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      deleteRecord(f.ctx, { ...input, expectedVersion: created.version }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (await getCollectionRecord(f.ctx, { ...f.scope, id: created.id })).publishedRevisionId,
+    ).toBe(published.revision.id);
+    expect(await readRecord(f.publicCtx, { ...f.scope, id: created.id })).not.toBeNull();
+    const other = await createRecord(f.ctx, { ...f.scope, content: article });
+    await deleteRecord(f.ctx, input);
+    await expect(getCollectionRecord(f.ctx, { ...f.scope, id: created.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(await readRecord(f.publicCtx, { ...f.scope, id: created.id })).toBeNull();
+    expect(
+      await f.db
+        .select()
+        .from(collectionRevisions)
+        .where(eq(collectionRevisions.recordId, created.id)),
+    ).toEqual([]);
+    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+      { id: other.id, version: other.version, label: "Hello" },
+    ]);
+    await expect(deleteRecord(f.ctx, input)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await deleteRecord(f.ctx, { ...f.scope, id: other.id, expectedVersion: other.version });
+    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([]);
+    expect(await f.db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
+  });
   it("validates the supported scalar/asset-list fields and rejects unsupported definitions", async () => {
     const f = await fixture("field-matrix");
     const fields = {

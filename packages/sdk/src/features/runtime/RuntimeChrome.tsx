@@ -9,6 +9,7 @@ import { PreviewToolbar } from "../preview/components/PreviewToolbar";
 import { previewStore, selectPreviewSource } from "../preview/previewStore";
 import type { PageStructure } from "../routes/pageRuntime";
 import { Navbar } from "../studio/components/Navbar";
+import { isCanvasPath } from "../studio/routes";
 import type { PageRenderInput } from "./runtime";
 import { SharedChromeContext } from "./SharedChromeContext";
 
@@ -45,13 +46,15 @@ export function RuntimeChrome({
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
           {/* Kept at a stable position, outside route Suspense and editor imports. */}
-          <div hidden={!preview} className={input.derived ? undefined : "max-md:hidden"}>
-            <PreviewToolbar
-              pageId={page?.page.id}
-              pageStatus={preview && !input.derived ? page?.page.status : undefined}
-              hasLiveVersion={!!page?.page.livePublishedCheckpointId}
-            />
-          </div>
+          {!isCanvasPath(input.pathname) && (
+            <div hidden={!preview} className={input.derived ? undefined : "max-md:hidden"}>
+              <PreviewToolbar
+                pageId={page?.page.id}
+                pageStatus={preview && !input.derived ? page?.page.status : undefined}
+                hasLiveVersion={!!page?.page.livePublishedCheckpointId}
+              />
+            </div>
+          )}
         </div>
       </div>
     </SharedChromeContext.Provider>

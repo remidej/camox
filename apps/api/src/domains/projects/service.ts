@@ -21,6 +21,7 @@ import {
   repeatableItems,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { prepareBlockContent } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
@@ -48,6 +49,7 @@ const repeatableItemSeedSchema = z.object({
   parentTempId: z.string().nullable(),
   fieldName: z.string(),
   content: z.unknown(),
+  settings: z.unknown().optional(),
   position: z.string(),
 });
 
@@ -404,6 +406,32 @@ export async function initializeProjectContent(
     return { created: false };
   }
 
+  const definitions = await ctx.db
+    .select()
+    .from(blockDefinitions)
+    .where(
+      and(
+        eq(blockDefinitions.projectId, project.id),
+        eq(blockDefinitions.environmentId, environment.id),
+      ),
+    );
+  const definitionsByType = new Map(
+    definitions.map((definition) => [definition.blockId, definition]),
+  );
+  // Reject an invalid later block before creating the homepage or any earlier
+  // block, and use the same normalized/defaulted values for persistence.
+  const preparedBlocks = input.blocks.map((block) => {
+    const definition = definitionsByType.get(block.type);
+    const prepared = prepareBlockContent(
+      block.content,
+      block.settings,
+      block.repeatableItems,
+      definition?.contentSchema,
+      definition?.settingsSchema,
+    );
+    return { ...block, ...prepared, repeatableItems: prepared.seeds };
+  });
+
   // Create homepage
   const homepage = await ctx.db
     .insert(pages)
@@ -428,7 +456,7 @@ export async function initializeProjectContent(
   let prevPosition: string | null = null;
   let blockCount = 0;
 
-  for (const blockDef of input.blocks) {
+  for (const blockDef of preparedBlocks) {
     const position = generateKeyBetween(prevPosition, null);
     prevPosition = position;
 
@@ -470,6 +498,7 @@ export async function initializeProjectContent(
             parentItemId,
             fieldName: seed.fieldName,
             content: seed.content,
+            settings: seed.settings ?? null,
             summary: "",
             position: seed.position,
             createdAt: now,

@@ -4,6 +4,7 @@ import * as React from "react";
 import type { ActiveHeadEntry, UseHeadInput } from "unhead/types";
 
 import { NavigationProvider } from "../navigation/navigation";
+import { isCanvasPath } from "../studio/routes";
 import { createNavigationRequestTracker } from "./navigationRequest";
 import { getNavigationTarget, runtimePath } from "./navigationTarget";
 import { createPageHeadInput, type LayoutIdentity, type PageRenderInput } from "./runtime";
@@ -73,6 +74,17 @@ export function PageNavigationProvider({
 
       try {
         let next = current.current;
+        // Canvas URLs select pages in the existing workspace, not a new document.
+        if (isCanvasPath(next.pathname) && isCanvasPath(target.pathname)) {
+          next = { ...next, pathname: target.pathname, href: target.url.href };
+          current.current = next;
+          if (!pop) {
+            if (replace) window.history.replaceState(null, "", target.url.href);
+            else window.history.pushState(null, "", target.url.href);
+          }
+          React.startTransition(() => setInput(next));
+          return;
+        }
         // Hash/search-only changes need no new route payload.
         if (target.pathname !== next.pathname || pop) {
           const url = new URL(

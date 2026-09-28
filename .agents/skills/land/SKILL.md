@@ -57,6 +57,15 @@ checks passed. Always inspect current Git status and the outgoing diff and commi
 - Use the repository's pinned pnpm version (`package.json`: `pnpm@11.1.3` at
   setup). CI uses Node 22; use a compatible runtime and investigate version-related
   failures rather than bypassing them. Do not install system tools or read secrets.
+- Before running Nx or committing (hooks also invoke Nx), create a short socket
+  directory with `mktemp -d /tmp/nx-XXXXXX` and retain the returned path for this
+  landing attempt. Export `NX_SOCKET_DIR=<returned-path>` in every shell invocation
+  that runs checks, builds, or Git hooks; exports do not persist between terminal
+  calls. Use the actual path, not the literal placeholder. This avoids
+  `Attempted to open socket that exceeds the maximum socket length` in deeply
+  nested worktrees. Use `/tmp` explicitly rather than a potentially long `TMPDIR`.
+  If that error occurs, rerun the failed command with this environment set,
+  keeping hooks and checks enabled.
 
 ## Integrate
 

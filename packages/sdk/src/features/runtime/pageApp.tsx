@@ -112,8 +112,9 @@ function PageExperience({
     if (input.routeKind && !isAuthenticated && !isLoading) signIn();
   }, [input.routeKind, isAuthenticated, isLoading, signIn]);
 
+  const loading = <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>;
   const published = input.routeKind ? (
-    <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>
+    loading
   ) : input.derived ? (
     <DerivedPageContent camoxApp={camoxApp} derived={input.derived} source={input.source} />
   ) : (
@@ -121,7 +122,7 @@ function PageExperience({
   );
 
   const isolatedPage = <Frame>{published}</Frame>;
-  const fallback = input.routeKind ? published : isolatedPage;
+  const fallback = input.routeKind ? <StudioLoadError /> : isolatedPage;
   if (isAuthenticated) {
     const editor = hasHydrated ? (
       <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
@@ -131,7 +132,7 @@ function PageExperience({
       <RuntimeChrome input={input}>
         <EditingActivationBoundary fallback={fallback}>
           {input.routeKind ? (
-            <React.Suspense fallback={fallback}>{editor ?? fallback}</React.Suspense>
+            <React.Suspense fallback={loading}>{editor ?? loading}</React.Suspense>
           ) : (
             <PreviewActivation
               fallback={<Frame serverOnly={!!input.previewDocument}>{published}</Frame>}
@@ -155,4 +156,22 @@ function PageExperience({
   // suddenly put site markup under its styles or theme while auth reconciles.
   if (studioDocument) return <div style={{ height: "100vh" }}>{isolatedPage}</div>;
   return published;
+}
+
+function StudioLoadError() {
+  return (
+    <div role="alert" className="flex flex-1 flex-col items-start justify-center gap-3 p-6">
+      <h1 className="text-lg font-semibold">Studio failed to load</h1>
+      <p className="text-muted-foreground text-sm">
+        Something went wrong while opening Studio. Reload the page to try again.
+      </p>
+      <button
+        type="button"
+        className="bg-accent text-accent-foreground rounded-md px-3 py-1.5 text-sm font-medium"
+        onClick={() => window.location.reload()}
+      >
+        Reload Studio
+      </button>
+    </div>
+  );
 }

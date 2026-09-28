@@ -6,12 +6,11 @@ import {
   createBlockInput,
   deleteBlock,
   deleteBlockInput,
+  editBlock,
   getBlock,
   resolveBlockPosition,
-  updateBlockContent,
   updateBlockPosition,
   updateBlockPositionInput,
-  updateBlockSettings,
 } from "../../../../apps/api/src/domains/blocks/service";
 import type { ToolDefinition, ToolProvider } from "../types";
 
@@ -111,20 +110,12 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "editBlock",
     description:
-      "Update a block's `content` and/or `settings`. Provide at least one. Both are merged into the existing values, so partial patches are fine.",
+      "Update a block's `content` and/or `settings`. Provide at least one. Both are merged into the existing values, so partial patches are fine. " +
+      "Submitted fields are validated against the owning environment's JSON Schemas before writes; errors include field paths. " +
+      "Repeater arrays replace the field and must satisfy its minItems/maxItems; preserve existing items with _itemId.",
     inputSchema: editBlockToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: async (input) => {
-      const { id, content, settings } = editBlockToolInput.parse(input);
-      let result: unknown = null;
-      if (content !== undefined) {
-        result = await updateBlockContent(ctx, { id, content });
-      }
-      if (settings !== undefined) {
-        result = await updateBlockSettings(ctx, { id, settings });
-      }
-      return result;
-    },
+    handler: (input) => editBlock(ctx, editBlockToolInput.parse(input)),
   },
   {
     name: "moveBlock",

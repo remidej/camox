@@ -6,7 +6,8 @@ import { CamoxContent } from "../content/CamoxContent";
 import { AuthenticatedCamoxProvider } from "../provider/AuthenticatedCamoxProvider";
 import type { PageRenderInput } from "../runtime/runtime";
 import { CamoxStudio } from "../studio/CamoxStudio";
-import { STUDIO_CONTENT_PATH } from "../studio/routes";
+import { CanvasRoute } from "../studio/CanvasRoute";
+import { isCanvasPath } from "../studio/routes";
 import { CamoxPreview } from "./CamoxPreview";
 import { DerivedPreview } from "./DerivedPreview";
 import { EditablePageContent } from "./EditablePageContent";
@@ -20,12 +21,23 @@ export function EditablePageExperience({
   input: PageRenderInput;
   queryClient: QueryClient;
 }) {
+  // Canvas renders drafts with the public block runtime, regardless of the
+  // editing mode retained by the regular preview.
+  if (input.routeKind && isCanvasPath(input.pathname))
+    return (
+      <AuthenticatedCamoxProvider>
+        <CamoxStudio>
+          <CanvasRoute runtimeBasePath={input.runtimeBasePath} />
+        </CamoxStudio>
+      </AuthenticatedCamoxProvider>
+    );
+
   return (
     <AuthenticatedCamoxProvider>
       <CompleteBlockEditingRuntimeProvider>
         {input.routeKind ? (
           <CamoxStudio>
-            {input.pathname === STUDIO_CONTENT_PATH ? (
+            {input.routeKind === "studio-content" ? (
               <CamoxContent />
             ) : (
               <div className="text-muted-foreground p-6 text-sm">Studio page not found</div>

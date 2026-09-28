@@ -121,13 +121,13 @@ function RouteComponent() {
   );
 }
 
-function generateCamoxStudioContent(): string {
+function generateCamoxStudioContent(suffix = ""): string {
   return (
     HEADER +
     `import { createFileRoute } from "@tanstack/react-router";
 import { CamoxContent } from "camox/CamoxContent";
 
-export const Route = createFileRoute("/(camox)/(_studio)/${STUDIO_ROUTE_SEGMENT}/content")({
+export const Route = createFileRoute("/(camox)/(_studio)/${STUDIO_ROUTE_SEGMENT}/content${suffix}")({
   component: RouteComponent,
 });
 
@@ -164,6 +164,10 @@ function getRouteFileEntries({ routesDir, authenticationUrl }: RouteFilesOptions
     {
       path: resolve(studioDir, `${STUDIO_ROUTE_SEGMENT}.content.tsx`),
       content: generateCamoxStudioContent(),
+    },
+    {
+      path: resolve(studioDir, `${STUDIO_ROUTE_SEGMENT}.content.assets.tsx`),
+      content: generateCamoxStudioContent("/assets"),
     },
   ];
 }

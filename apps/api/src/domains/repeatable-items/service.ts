@@ -15,10 +15,18 @@ import {
   bumpContentUpdatedAtForBlock,
 } from "../../lib/bump-content-updated-at";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { blockDefinitions, blocks, files, repeatableItems } from "../../schema";
+import { blocks, files, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { sanitizeItemContent, type SchemaProps } from "../blocks/normalize-content";
+import { loadBlockSchemas } from "../blocks/content-schema";
+import { initializeBlockContent } from "../blocks/initialize-content";
+import {
+  sanitizeItemContent,
+  validateItemSeeds,
+  type FieldSchema,
+} from "../blocks/normalize-content";
+import { contentWithSeeds } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
+import { validateContent } from "../blocks/validate-content";
 import { collectFileIds } from "../pages/ai";
 
 // --- Input Schemas ---
@@ -68,32 +76,66 @@ function assertUser(ctx: ServiceContext) {
 
 // --- Schema resolution for item content normalization ---
 
-async function loadBlockDefSchema(
-  db: Database,
-  projectId: number,
-  blockId: number,
-): Promise<{ properties?: SchemaProps } | null> {
-  const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).get();
-  if (!block) return null;
-  const def = await db
-    .select()
-    .from(blockDefinitions)
-    .where(and(eq(blockDefinitions.projectId, projectId), eq(blockDefinitions.blockId, block.type)))
-    .get();
-  return (def?.contentSchema as { properties?: SchemaProps } | null) ?? null;
+/** Keep the complete repeater schema, including item constraints and settings. */
+function descendRepeaterSchema(
+  rootSchema: FieldSchema | null | undefined,
+  fieldNamePath: string[],
+): FieldSchema | undefined {
+  let schema = rootSchema;
+  let repeater: FieldSchema | undefined;
+  for (const fieldName of fieldNamePath) {
+    if (!schema) return undefined;
+    repeater = schema.properties?.[fieldName];
+    // Undeclared legacy fields remain open, like JSON Schema's default
+    // additionalProperties policy. Known non-repeater fields cannot own rows.
+    if (!repeater && schema.additionalProperties !== false) return undefined;
+    if (repeater?.fieldType !== "Repeater") {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Invalid repeater field: ${fieldNamePath.join(".")}`,
+        data: { field: fieldNamePath.join(".") },
+      });
+    }
+    schema = repeater.items;
+  }
+  return repeater;
 }
 
-/** Walk `rootProps` descending into `[fieldName].items.properties` for each path entry. */
-function descendItemsProperties(
-  rootProps: SchemaProps | undefined,
-  fieldNamePath: string[],
-): SchemaProps | undefined {
-  let props = rootProps;
-  for (const fieldName of fieldNamePath) {
-    if (!props) return undefined;
-    props = props[fieldName]?.items?.properties;
-  }
-  return props;
+function prepareItemContent(
+  content: unknown,
+  schema: FieldSchema | undefined,
+  path: string,
+  rootSchema: unknown,
+) {
+  // Check shape before the initializer can turn malformed input into an object.
+  validateContent(content, null, { path });
+  const initialized = initializeBlockContent(content, schema, false);
+  validateContent(initialized, schema, { path, partial: true, rootSchema });
+  return sanitizeItemContent(initialized, schema?.properties, rootSchema);
+}
+
+function prepareItemSettings(
+  settings: unknown,
+  schema: FieldSchema | undefined,
+  path: string,
+  rootSchema: unknown,
+) {
+  if (settings == null && schema == null) return null;
+  if (settings != null) validateContent(settings, null, { path });
+  const initialized = initializeBlockContent(settings ?? undefined, schema, false);
+  validateContent(initialized, schema, { path, partial: false, rootSchema });
+  return initialized;
+}
+
+function validateRepeaterCount(schema: FieldSchema | undefined, count: number, field: string) {
+  if (!schema) return;
+  validateContent(
+    { [field]: Array.from({ length: count }, () => null) },
+    {
+      properties: {
+        [field]: { type: "array", minItems: schema.minItems, maxItems: schema.maxItems },
+      },
+    },
+  );
 }
 
 /**
@@ -118,10 +160,14 @@ async function resolveItemFieldNamePath(
     .where(eq(repeatableItems.blockId, blockId));
   const byId = new Map(all.map((i) => [i.id, i]));
   const ancestors: string[] = [];
+  const visited = new Set<number>();
   let cur: number | null = parentItemId;
   while (cur != null) {
     const item = byId.get(cur);
-    if (!item) break;
+    if (!item || visited.has(cur)) {
+      throw new ORPCError("BAD_REQUEST", { message: "Invalid parentItemId for this block" });
+    }
+    visited.add(cur);
     ancestors.unshift(item.fieldName);
     cur = item.parentItemId;
   }
@@ -287,12 +333,46 @@ export async function createRepeatableItem(
 
   const now = Date.now();
 
-  // Resolve schema for sanitization. The root item's content is described by
-  // `descendItemsProperties(schema.properties, [...ancestors, fieldName])`.
-  const schema = await loadBlockDefSchema(ctx.db, access.projectId, blockId);
+  const schema = (await loadBlockSchemas(ctx.db, access.projectId, blockId))?.contentSchema;
   const rootPath = await resolveItemFieldNamePath(ctx.db, blockId, parentItemId ?? null, fieldName);
-  const rootItemProps = descendItemsProperties(schema?.properties, rootPath);
-  const sanitizedContent = sanitizeItemContent(content, rootItemProps);
+  const repeater = descendRepeaterSchema(schema, rootPath);
+  const sanitizedContent = prepareItemContent(content, repeater?.items, "content", schema);
+  const sanitizedSettings = prepareItemSettings(
+    settings,
+    repeater?.itemSettingsSchema,
+    "settings",
+    schema,
+  );
+  validateItemSeeds(nestedItems ?? [], repeater?.items?.properties, "nestedItems", schema);
+
+  // Complete every schema check and normalization before inserting the parent.
+  const seedSchemas = new Map<string, FieldSchema | undefined>();
+  const preparedSeeds = (nestedItems ?? []).map((seed, index) => {
+    const parentSchema =
+      seed.parentTempId === null ? repeater?.items : seedSchemas.get(seed.parentTempId);
+    const seedRepeater = descendRepeaterSchema(parentSchema, [seed.fieldName]);
+    seedSchemas.set(seed.tempId, seedRepeater?.items);
+    return {
+      ...seed,
+      content: prepareItemContent(
+        seed.content,
+        seedRepeater?.items,
+        `nestedItems[${index}].content`,
+        schema,
+      ),
+      settings: prepareItemSettings(
+        seed.settings,
+        seedRepeater?.itemSettingsSchema,
+        `nestedItems[${index}].settings`,
+        schema,
+      ),
+    };
+  });
+  validateContent(
+    contentWithSeeds(sanitizedContent, preparedSeeds, repeater?.items),
+    repeater?.items,
+    { path: "content", partial: false, rootSchema: schema },
+  );
 
   // Get siblings to determine correct position
   const siblings = (
@@ -300,7 +380,10 @@ export async function createRepeatableItem(
       .select()
       .from(repeatableItems)
       .where(and(eq(repeatableItems.blockId, blockId), eq(repeatableItems.fieldName, fieldName)))
-  ).sort((a, b) => comparePositions(a.position, b.position));
+  )
+    .filter((item) => item.parentItemId === (parentItemId ?? null))
+    .sort((a, b) => comparePositions(a.position, b.position));
+  validateRepeaterCount(repeater, siblings.length + 1, rootPath.join("."));
 
   let position: string;
   if (afterPosition === undefined || afterPosition === null) {
@@ -325,7 +408,7 @@ export async function createRepeatableItem(
       parentItemId: parentItemId ?? null,
       fieldName,
       content: sanitizedContent,
-      settings: (settings as Record<string, unknown> | undefined) ?? null,
+      settings: sanitizedSettings,
       summary: "",
       position,
       createdAt: now,
@@ -335,40 +418,22 @@ export async function createRepeatableItem(
     .get();
 
   // Insert client-provided nested item seeds
-  if (nestedItems && nestedItems.length > 0) {
+  if (preparedSeeds.length > 0) {
     const tempIdToRealId = new Map<string, number>();
-    const seedById = new Map(nestedItems.map((s) => [s.tempId, s]));
 
-    // Build the path of fieldNames from the root contentSchema down to a seed's
-    // own items.properties. Walks the seed's parentTempId chain in-memory and
-    // prepends the just-created root item's path.
-    const seedPath = (seed: (typeof nestedItems)[number]): string[] => {
-      const chain: string[] = [];
-      let cur: string | null = seed.tempId;
-      while (cur != null) {
-        const s = seedById.get(cur);
-        if (!s) break;
-        chain.unshift(s.fieldName);
-        cur = s.parentTempId;
-      }
-      return [...rootPath, ...chain];
-    };
-
-    for (const seed of nestedItems) {
+    for (const seed of preparedSeeds) {
       // null parentTempId means child of the item being created
       const seedParentId = seed.parentTempId
         ? (tempIdToRealId.get(seed.parentTempId) ?? result.id)
         : result.id;
-      const seedItemProps = descendItemsProperties(schema?.properties, seedPath(seed));
-      const sanitizedSeedContent = sanitizeItemContent(seed.content, seedItemProps);
       const inserted = await ctx.db
         .insert(repeatableItems)
         .values({
           blockId,
           parentItemId: seedParentId,
           fieldName: seed.fieldName,
-          content: sanitizedSeedContent,
-          settings: (seed.settings as Record<string, unknown> | undefined) ?? null,
+          content: seed.content,
+          settings: seed.settings,
           summary: "",
           position: seed.position,
           createdAt: now,
@@ -419,15 +484,17 @@ export async function updateRepeatableItemContent(
   if (!access) throw new ORPCError("NOT_FOUND");
 
   // Resolve schema for the patch and sanitize asset leaks before merging.
-  const schema = await loadBlockDefSchema(ctx.db, access.projectId, access.item.blockId);
+  const schema = (await loadBlockSchemas(ctx.db, access.projectId, access.item.blockId))
+    ?.contentSchema;
   const itemPath = await resolveItemFieldNamePath(
     ctx.db,
     access.item.blockId,
     access.item.parentItemId,
     access.item.fieldName,
   );
-  const itemProps = descendItemsProperties(schema?.properties, itemPath);
-  const sanitizedPatch = sanitizeItemContent(content, itemProps);
+  const itemSchema = descendRepeaterSchema(schema, itemPath)?.items;
+  validateContent(content, itemSchema, { path: "content", partial: true, rootSchema: schema });
+  const sanitizedPatch = sanitizeItemContent(content, itemSchema?.properties, schema);
 
   // Merge partial content into existing content (frontend sends single-field patches)
   const merged = {
@@ -477,6 +544,21 @@ export async function updateRepeatableItemSettings(
   const { id, settings } = updateRepeatableItemSettingsInput.parse(rawInput);
   const access = await assertRepeatableItemAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
+
+  const schema = (await loadBlockSchemas(ctx.db, access.projectId, access.item.blockId))
+    ?.contentSchema;
+  const itemPath = await resolveItemFieldNamePath(
+    ctx.db,
+    access.item.blockId,
+    access.item.parentItemId,
+    access.item.fieldName,
+  );
+  const settingsSchema = descendRepeaterSchema(schema, itemPath)?.itemSettingsSchema;
+  validateContent(settings, settingsSchema, {
+    path: "settings",
+    partial: true,
+    rootSchema: schema,
+  });
 
   const merged = {
     ...(access.item.settings as Record<string, unknown> | null),
@@ -529,7 +611,7 @@ export async function updateRepeatableItemPosition(
         ),
       )
   )
-    .filter((s) => s.id !== id)
+    .filter((s) => s.id !== id && s.parentItemId === item.parentItemId)
     .sort((a, b) => comparePositions(a.position, b.position));
 
   const after = afterPosition || null;
@@ -582,6 +664,15 @@ export async function duplicateRepeatableItem(
   if (!access) throw new ORPCError("NOT_FOUND");
   const original = access.item;
 
+  const schema = (await loadBlockSchemas(ctx.db, access.projectId, original.blockId))
+    ?.contentSchema;
+  const itemPath = await resolveItemFieldNamePath(
+    ctx.db,
+    original.blockId,
+    original.parentItemId,
+    original.fieldName,
+  );
+  const repeater = descendRepeaterSchema(schema, itemPath);
   const now = Date.now();
 
   // Find the next sibling to insert between original and next
@@ -595,7 +686,10 @@ export async function duplicateRepeatableItem(
           eq(repeatableItems.fieldName, original.fieldName),
         ),
       )
-  ).sort((a, b) => comparePositions(a.position, b.position));
+  )
+    .filter((item) => item.parentItemId === original.parentItemId)
+    .sort((a, b) => comparePositions(a.position, b.position));
+  validateRepeaterCount(repeater, siblings.length + 1, itemPath.join("."));
   const originalIndex = siblings.findIndex((s) => s.id === id);
   const nextItem = originalIndex >= 0 ? siblings[originalIndex + 1] : undefined;
   const position = generateKeyBetween(original.position, nextItem?.position ?? null);
@@ -604,6 +698,7 @@ export async function duplicateRepeatableItem(
     .insert(repeatableItems)
     .values({
       blockId: original.blockId,
+      parentItemId: original.parentItemId,
       fieldName: original.fieldName,
       content: original.content,
       settings: original.settings,
@@ -678,6 +773,26 @@ export async function deleteRepeatableItem(
   if (!access) throw new ORPCError("NOT_FOUND");
 
   const blockId = access.item.blockId;
+  const schema = (await loadBlockSchemas(ctx.db, access.projectId, blockId))?.contentSchema;
+  const itemPath = await resolveItemFieldNamePath(
+    ctx.db,
+    blockId,
+    access.item.parentItemId,
+    access.item.fieldName,
+  );
+  const repeater = descendRepeaterSchema(schema, itemPath);
+  const siblings = (
+    await ctx.db
+      .select()
+      .from(repeatableItems)
+      .where(
+        and(
+          eq(repeatableItems.blockId, blockId),
+          eq(repeatableItems.fieldName, access.item.fieldName),
+        ),
+      )
+  ).filter((item) => item.parentItemId === access.item.parentItemId);
+  validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
   const result = await ctx.db
     .delete(repeatableItems)
     .where(eq(repeatableItems.id, id))

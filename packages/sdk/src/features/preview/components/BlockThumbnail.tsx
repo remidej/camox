@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import type { Block } from "@/core/createBlock";
 import { NormalizedDataProvider } from "@/lib/normalized-data";
+import { cn } from "@/lib/utils";
 
 import { previewStore } from "../previewStore";
 import { BlockErrorBoundary } from "./BlockErrorBoundary";
@@ -125,7 +126,7 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
   );
 };
 
-export const BlockThumbnail = ({ block }: { block: Block }) => {
+export const BlockThumbnail = ({ block, className }: { block: Block; className?: string }) => {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = React.useState(false);
   const [width, setWidth] = React.useState(0);
@@ -151,7 +152,10 @@ export const BlockThumbnail = ({ block }: { block: Block }) => {
   return (
     <div
       ref={ref}
-      className="checkered pointer-events-none relative flex h-28 w-full items-center overflow-hidden"
+      className={cn(
+        "checkered pointer-events-none relative flex h-28 w-full items-center overflow-hidden",
+        className,
+      )}
       style={
         width > 0
           ? {

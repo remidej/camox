@@ -1,7 +1,6 @@
 import { toast } from "@camox/ui/toaster";
 import { createStore } from "@xstate/store-react";
 
-import { Block } from "@/core/createBlock";
 import type { FieldType } from "@/core/lib/fieldTypes";
 
 /* -------------------------------------------------------------------------------------------------
@@ -22,6 +21,38 @@ export type Selection =
       fieldName: string;
       fieldType: FieldType;
     };
+
+/** Derived routes have no page row, but their persisted layout remains editable. */
+export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: number };
+export type EditingContext = EditingOwner & { selection: Selection | null };
+
+export function sameEditingOwner(a: EditingOwner | null, b: EditingOwner | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.kind === "page") return b.kind === "page" && a.pageId === b.pageId;
+  return b.kind === "layout" && a.layoutId === b.layoutId;
+}
+
+function targetContext(owner: EditingOwner, selection: Selection | null): EditingContext {
+  // Copy only the owner IDs, never the event or resolved content.
+  if (owner.kind === "page") return { kind: "page", pageId: owner.pageId, selection };
+  return { kind: "layout", layoutId: owner.layoutId, selection };
+}
+
+export function selectionForOwner(
+  context: { editingContext: EditingContext | null },
+  owner: EditingOwner | null,
+): Selection | null {
+  if (!sameEditingOwner(context.editingContext, owner)) return null;
+  return context.editingContext?.selection ?? null;
+}
+
+/** Read a selection only in the page that contains the editor. */
+export function selectionForPage(
+  context: { editingContext: EditingContext | null },
+  pageId: number | null,
+): Selection | null {
+  return selectionForOwner(context, pageId === null ? null : { kind: "page", pageId });
+}
 
 /** Extract the blockId from any selection variant. */
 export function selectionBlockId(sel: Selection | null): number | null {
@@ -72,14 +103,11 @@ export type ViewportMode = "full" | "tablet" | "mobile";
 interface PreviewContext {
   mode: PreviewMode;
   isToolbarHidden: boolean;
-  isAddBlockSidebarOpen: boolean;
+  addBlockDialog: { afterPosition?: string | null } | null;
   isCreatePageModalOpen: boolean;
   editingPageId: number | null;
   viewportMode: ViewportMode;
-  peekedBlock: Block | null;
-  peekedBlockPosition: string | null;
-  skipPeekedBlockExitAnimation: boolean;
-  selection: Selection | null;
+  editingContext: EditingContext | null;
   iframeElement: HTMLIFrameElement | null;
 }
 
@@ -87,14 +115,11 @@ export const previewStore = createStore({
   context: {
     mode: "previewing-draft",
     isToolbarHidden: false,
-    isAddBlockSidebarOpen: false,
+    addBlockDialog: null,
     isCreatePageModalOpen: false,
     editingPageId: null,
     viewportMode: "full",
-    peekedBlock: null,
-    peekedBlockPosition: null,
-    skipPeekedBlockExitAnimation: false,
-    selection: null,
+    editingContext: null,
     iframeElement: null,
   } as PreviewContext,
   on: {
@@ -104,7 +129,10 @@ export const previewStore = createStore({
       return {
         ...context,
         mode: commenting ? ("commenting-draft" as const) : ("editing-draft" as const),
-        selection: commenting ? null : context.selection,
+        editingContext:
+          commenting && context.editingContext
+            ? { ...context.editingContext, selection: null }
+            : context.editingContext,
       };
     },
     exitEditMode: (context) => {
@@ -146,112 +174,125 @@ export const previewStore = createStore({
             : "full";
       return { ...context, viewportMode: nextMode };
     },
-    setPeekedBlock: (context, event: { block: Block; afterPosition?: string | null }) => {
-      if (!event.block) return context;
-      return {
-        ...context,
-        peekedBlock: event.block,
-        peekedBlockPosition: event.afterPosition ?? null,
-      };
-    },
-    exitPeekedBlock: (context) => ({
-      ...context,
-      peekedBlock: null,
-      peekedBlockPosition: null,
-      isAddBlockSidebarOpen: false,
-    }),
-    clearPeekedBlock: (context) => ({
-      ...context,
-      peekedBlock: null,
-      peekedBlockPosition: null,
-    }),
-
     /* --- Selection events --- */
 
-    setSelection: (context, event: { selection: Selection | null }) => ({
+    activatePage: (context, event: { pageId: number | null }) => {
+      const owner: EditingOwner | null =
+        event.pageId === null ? null : { kind: "page", pageId: event.pageId };
+      if (sameEditingOwner(context.editingContext, owner)) return context;
+      return {
+        ...context,
+        editingContext: owner ? targetContext(owner, null) : null,
+        addBlockDialog: null,
+      };
+    },
+    activateLayout: (context, event: { layoutId: number }) => {
+      const owner: EditingOwner = { kind: "layout", layoutId: event.layoutId };
+      if (sameEditingOwner(context.editingContext, owner)) return context;
+      return {
+        ...context,
+        editingContext: targetContext(owner, null),
+        addBlockDialog: null,
+      };
+    },
+    selectTarget: (context, event: EditingContext) => ({
       ...context,
-      selection: event.selection,
+      editingContext: targetContext(event, event.selection),
     }),
-    setFocusedBlock: (context, event: { blockId: number }) => ({
+    setFocusedBlock: (context, event: EditingOwner & { blockId: number }) => ({
       ...context,
-      selection: { type: "block" as const, blockId: event.blockId },
-      peekedBlock: null,
-      peekedBlockPosition: null,
-      isAddBlockSidebarOpen: false,
+      editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
+      addBlockDialog: null,
     }),
-    selectItem: (context, event: { blockId: number; itemId: number }) => ({
+    selectItem: (context, event: EditingOwner & { blockId: number; itemId: number }) => ({
       ...context,
-      selection: { type: "item" as const, blockId: event.blockId, itemId: event.itemId },
+      editingContext: targetContext(event, {
+        type: "item",
+        blockId: event.blockId,
+        itemId: event.itemId,
+      }),
     }),
     selectBlockField: (
       context,
-      event: { blockId: number; fieldName: string; fieldType: FieldType },
+      event: EditingOwner & { blockId: number; fieldName: string; fieldType: FieldType },
     ) => ({
       ...context,
-      selection: {
+      editingContext: targetContext(event, {
         type: "block-field" as const,
         blockId: event.blockId,
         fieldName: event.fieldName,
         fieldType: event.fieldType,
-      },
+      }),
     }),
     selectItemField: (
       context,
-      event: { blockId: number; itemId: number; fieldName: string; fieldType: FieldType },
+      event: EditingOwner & {
+        blockId: number;
+        itemId: number;
+        fieldName: string;
+        fieldType: FieldType;
+      },
     ) => ({
       ...context,
-      selection: {
+      editingContext: targetContext(event, {
         type: "item-field" as const,
         blockId: event.blockId,
         itemId: event.itemId,
         fieldName: event.fieldName,
         fieldType: event.fieldType,
-      },
+      }),
     }),
     selectParent: (context) => {
-      const sel = context.selection;
+      const editingContext = context.editingContext;
+      const sel = editingContext?.selection;
       if (!sel) return context;
       if (sel.type === "block-field") {
-        return { ...context, selection: { type: "block" as const, blockId: sel.blockId } };
+        return {
+          ...context,
+          editingContext: {
+            ...editingContext,
+            selection: { type: "block" as const, blockId: sel.blockId },
+          },
+        };
       }
       if (sel.type === "item-field") {
         return {
           ...context,
-          selection: { type: "item" as const, blockId: sel.blockId, itemId: sel.itemId },
+          editingContext: {
+            ...editingContext,
+            selection: { type: "item" as const, blockId: sel.blockId, itemId: sel.itemId },
+          },
         };
       }
       if (sel.type === "item") {
-        return { ...context, selection: { type: "block" as const, blockId: sel.blockId } };
+        return {
+          ...context,
+          editingContext: {
+            ...editingContext,
+            selection: { type: "block" as const, blockId: sel.blockId },
+          },
+        };
       }
       return context;
     },
     clearSelection: (context) => ({
       ...context,
-      selection: null,
+      editingContext: context.editingContext
+        ? { ...context.editingContext, selection: null }
+        : null,
     }),
-    openAddBlockSidebar: (context, event: { afterPosition?: string | null }) => ({
+    openAddBlockDialog: (context, event: { afterPosition?: string | null }) => ({
       ...context,
-      isAddBlockSidebarOpen: true,
-      peekedBlock: null,
-      peekedBlockPosition: event.afterPosition ?? null,
+      addBlockDialog: { afterPosition: event.afterPosition },
     }),
-    closeAddBlockSidebar: (context) => ({
+    closeAddBlockDialog: (context) => ({
       ...context,
-      isAddBlockSidebarOpen: false,
-      peekedBlock: null,
-      peekedBlockPosition: null,
+      addBlockDialog: null,
     }),
-    focusCreatedBlock: (context, event: { blockId: number }) => ({
+    focusCreatedBlock: (context, event: EditingOwner & { blockId: number }) => ({
       ...context,
-      selection: { type: "block" as const, blockId: event.blockId },
-      isAddBlockSidebarOpen: false,
-      peekedBlock: null,
-      peekedBlockPosition: null,
-      skipPeekedBlockExitAnimation: true,
-    }),
-    clearSkipPeekedBlockExitAnimation: (context) => ({
-      ...context,
-      skipPeekedBlockExitAnimation: false,
+      editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
+      addBlockDialog: null,
     }),
     openCreatePageModal: (context) => ({
       ...context,

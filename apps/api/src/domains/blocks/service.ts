@@ -39,15 +39,13 @@ import {
 } from "../_shared/snapshot-schemas";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
-import { initializeBlockContent } from "./initialize-content";
-import {
-  assertIconValue,
-  normalizeBlockContent,
-  sanitizeAssetValue,
-  type BlockItemSeed,
-} from "./normalize-content";
+import { normalizeFieldValue } from "./asset-value";
+import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
+import { type FieldSchema } from "./normalize-content";
+import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
 import { syncBlockData } from "./synced";
 import { resolveSyncedLiveData } from "./synced-live";
+import { validateContent } from "./validate-content";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -58,6 +56,7 @@ const repeatableItemSeedSchema = z.object({
   parentTempId: z.string().nullable(),
   fieldName: z.string(),
   content: z.unknown(),
+  settings: z.unknown().optional(),
   position: z.string(),
 });
 
@@ -410,11 +409,6 @@ export async function executeBlockSummary(
   return null;
 }
 
-type FieldSchema = {
-  fieldType?: string;
-  items?: { properties?: Record<string, FieldSchema> };
-};
-
 /**
  * Apply a partial content patch to a block, with replace-within-field semantics
  * for any Repeater fields present in the patch:
@@ -449,15 +443,13 @@ async function applyContentPatch(
   }
 
   let allItems: Awaited<ReturnType<typeof fetchBlockItems>> | null = null;
+  // Build the entire mutation plan first: a later bad reference or value must
+  // not leave earlier siblings repositioned, inserted, or deleted.
+  const writes: (() => Promise<unknown>)[] = [];
   for (const [key, value] of Object.entries(patch)) {
     const fieldSchema = props?.[key];
-    assertIconValue(value, fieldSchema, key);
     if (fieldSchema?.fieldType !== "Repeater") {
-      if (fieldSchema?.fieldType === "Image" || fieldSchema?.fieldType === "File") {
-        merged[key] = sanitizeAssetValue(value);
-      } else {
-        merged[key] = value;
-      }
+      merged[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
       continue;
     }
     if (allItems === null) allItems = await fetchBlockItems(ctx, block.id);
@@ -467,10 +459,13 @@ async function applyContentPatch(
       fieldName: key,
       newArray: value,
       allItems,
-      itemSchemaProps: fieldSchema.items?.properties,
+      fieldSchema,
+      rootSchema: contentSchema,
       now,
+      writes,
     });
   }
+  for (const write of writes) await write();
   return merged;
 }
 
@@ -486,11 +481,24 @@ async function applyRepeatableFieldPatch(
     fieldName: string;
     newArray: unknown;
     allItems: Awaited<ReturnType<typeof fetchBlockItems>>;
-    itemSchemaProps: Record<string, FieldSchema> | undefined;
+    fieldSchema: FieldSchema;
+    rootSchema: unknown;
     now: number;
+    writes: (() => Promise<unknown>)[];
   },
 ): Promise<void> {
-  const { blockId, parentItemId, fieldName, newArray, allItems, itemSchemaProps, now } = args;
+  const {
+    blockId,
+    parentItemId,
+    fieldName,
+    newArray,
+    allItems,
+    fieldSchema,
+    rootSchema,
+    now,
+    writes,
+  } = args;
+  const itemSchemaProps = fieldSchema.items?.properties;
   if (newArray == null) return;
   if (!Array.isArray(newArray)) {
     throw new ORPCError("BAD_REQUEST", {
@@ -534,6 +542,12 @@ async function applyRepeatableFieldPatch(
           data: { field: fieldName },
         });
       }
+      if (referenced.has(itemId)) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Field "${fieldName}" references item ${itemId} more than once`,
+          data: { field: fieldName },
+        });
+      }
       referenced.add(itemId);
 
       // Build content overrides + recurse into any nested repeatable overrides.
@@ -542,7 +556,6 @@ async function applyRepeatableFieldPatch(
       for (const [k, v] of Object.entries(elementObj)) {
         if (k === "_itemId") continue;
         const subSchema = itemSchemaProps?.[k];
-        assertIconValue(v, subSchema, k);
         if (subSchema?.fieldType === "Repeater") {
           await applyRepeatableFieldPatch(ctx, {
             blockId,
@@ -550,12 +563,14 @@ async function applyRepeatableFieldPatch(
             fieldName: k,
             newArray: v,
             allItems,
-            itemSchemaProps: subSchema.items?.properties,
+            fieldSchema: subSchema,
+            rootSchema,
             now,
+            writes,
           });
           continue;
         }
-        nonRepeatableOverrides[k] = v;
+        nonRepeatableOverrides[k] = normalizeFieldValue(v, subSchema?.fieldType);
         hasOverride = true;
       }
 
@@ -570,63 +585,78 @@ async function applyRepeatableFieldPatch(
         }
       }
 
-      await ctx.db
-        .update(repeatableItems)
-        .set({ content: newContent, position, updatedAt: now })
-        .where(eq(repeatableItems.id, itemId));
+      writes.push(async () =>
+        ctx.db
+          .update(repeatableItems)
+          .set({ content: newContent, position, updatedAt: now })
+          .where(eq(repeatableItems.id, itemId)),
+      );
       continue;
     }
 
     // New inline item — normalize against the item schema, insert it, then insert
     // any nested-repeatable seeds it produced as descendants of the new item.
-    const { content: itemContent, seeds: childSeeds } = normalizeBlockContent(elementObj, {
-      properties: itemSchemaProps,
-    });
-    const inserted = await ctx.db
-      .insert(repeatableItems)
-      .values({
-        blockId,
-        parentItemId,
-        fieldName,
-        content: itemContent,
-        summary: "",
-        position,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
+    const {
+      content: itemContent,
+      settings: itemSettings,
+      seeds: childSeeds,
+    } = prepareBlockContent(
+      elementObj,
+      undefined,
+      undefined,
+      fieldSchema.items,
+      fieldSchema.itemSettingsSchema,
+      { contentSchema: rootSchema, settingsSchema: rootSchema },
+    );
+    writes.push(async () => {
+      const inserted = await ctx.db
+        .insert(repeatableItems)
+        .values({
+          blockId,
+          parentItemId,
+          fieldName,
+          content: itemContent,
+          settings: itemSettings,
+          summary: "",
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
 
-    if (childSeeds.length > 0) {
-      const tempIdToRealId = new Map<string, number>();
-      for (const seed of childSeeds) {
-        // parentTempId === null → child of the just-inserted item; otherwise resolve.
-        const seedParent = seed.parentTempId
-          ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
-          : inserted.id;
-        const sub = await ctx.db
-          .insert(repeatableItems)
-          .values({
-            blockId,
-            parentItemId: seedParent,
-            fieldName: seed.fieldName,
-            content: seed.content,
-            summary: "",
-            position: seed.position,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get();
-        tempIdToRealId.set(seed.tempId, sub.id);
+      if (childSeeds.length > 0) {
+        const tempIdToRealId = new Map<string, number>();
+        for (const seed of childSeeds) {
+          // parentTempId === null → child of the just-inserted item; otherwise resolve.
+          const seedParent = seed.parentTempId
+            ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
+            : inserted.id;
+          const sub = await ctx.db
+            .insert(repeatableItems)
+            .values({
+              blockId,
+              parentItemId: seedParent,
+              fieldName: seed.fieldName,
+              content: seed.content,
+              settings: seed.settings,
+              summary: "",
+              position: seed.position,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning()
+            .get();
+          tempIdToRealId.set(seed.tempId, sub.id);
+        }
       }
-    }
+    });
   }
 
   // Delete unreferenced existing items (cascades to nested children via FK).
   for (const item of scopeItems) {
     if (referenced.has(item.id)) continue;
-    await ctx.db.delete(repeatableItems).where(eq(repeatableItems.id, item.id));
+    writes.push(async () => ctx.db.delete(repeatableItems).where(eq(repeatableItems.id, item.id)));
   }
 }
 
@@ -1008,33 +1038,14 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
       ),
     )
     .get();
-  // The UI supplies a complete seed bundle (including an intentionally empty
-  // one). Do not generate a second set of default repeater rows in that case.
-  const initialContent = initializeBlockContent(
+  const prepared = prepareBlockContent(
     content,
+    settings,
+    itemSeeds,
     def?.contentSchema,
-    itemSeeds === undefined,
+    def?.settingsSchema,
   );
-  const { content: normalizedContent, seeds: autoSeeds } = normalizeBlockContent(
-    initialContent,
-    def?.contentSchema ?? null,
-  );
-  const allSeeds: BlockItemSeed[] = [...(itemSeeds ?? []), ...autoSeeds];
-  // Explicit SDK seeds bypass the inline repeater walker. Validate them before
-  // any database writes, resolving each nested seed against its parent schema.
-  const seedSchemas = new Map<string, Record<string, FieldSchema> | undefined>();
-  const rootProperties = (def?.contentSchema as { properties?: Record<string, FieldSchema> } | null)
-    ?.properties;
-  for (const seed of allSeeds) {
-    const parentProperties = seed.parentTempId
-      ? seedSchemas.get(seed.parentTempId)
-      : rootProperties;
-    const properties = parentProperties?.[seed.fieldName]?.items?.properties;
-    seedSchemas.set(seed.tempId, properties);
-    if (!seed.content || typeof seed.content !== "object") continue;
-    for (const [key, value] of Object.entries(seed.content))
-      assertIconValue(value, properties?.[key], key);
-  }
+  const allSeeds = prepared.seeds;
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(
@@ -1077,8 +1088,8 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     .values({
       pageId,
       type,
-      content: normalizedContent,
-      settings: settings === null ? null : initializeBlockContent(settings, def?.settingsSchema),
+      content: prepared.content,
+      settings: prepared.settings,
       position,
       summary: "",
       createdAt: now,
@@ -1102,6 +1113,7 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
           parentItemId,
           fieldName: seed.fieldName,
           content: seed.content,
+          settings: seed.settings,
           summary: "",
           position: seed.position,
           createdAt: now,
@@ -1143,6 +1155,31 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
   return (await ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get())!;
 }
 
+/** CLI/AI edits may submit both fields; reject either invalid patch before writing either. */
+export async function editBlock(
+  ctx: ServiceContext,
+  input: { id: number; content?: unknown; settings?: unknown },
+) {
+  const user = assertUser(ctx);
+  const access = await assertBlockAccess(ctx.db, input.id, user.id);
+  if (!access) throw new ORPCError("NOT_FOUND");
+  if (input.content === undefined && input.settings === undefined) {
+    throw new ORPCError("BAD_REQUEST", { message: "Provide content or settings" });
+  }
+  if (input.settings !== undefined) {
+    const schemas = await loadBlockSchemas(ctx.db, access.projectId, input.id);
+    validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
+  }
+  let result: unknown;
+  if (input.content !== undefined) {
+    result = await updateBlockContent(ctx, { id: input.id, content: input.content });
+  }
+  if (input.settings !== undefined) {
+    result = await updateBlockSettings(ctx, { id: input.id, settings: input.settings });
+  }
+  return result;
+}
+
 export async function updateBlockContent(
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockContentInput>,
@@ -1154,26 +1191,11 @@ export async function updateBlockContent(
 
   const now = Date.now();
 
-  // Look up the block definition's content schema so the patch helper can detect
-  // Repeater fields and apply replace-within-field semantics. Scope by
-  // environmentId — definitions are per-environment, and the same blockId can
-  // exist in dev and prod with different shapes (e.g. mid-migration from
-  // `Type.RepeatableItem` to `Type.Repeater`).
-  const environment = await resolveEnvironment(ctx.db, access.projectId, ctx.environmentName);
-  const def = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(
-      and(
-        eq(blockDefinitions.projectId, access.projectId),
-        eq(blockDefinitions.environmentId, environment.id),
-        eq(blockDefinitions.blockId, access.block.type),
-      ),
-    )
-    .get();
+  const contentSchema = await loadBlockContentSchema(ctx.db, access.projectId, id);
 
-  const patch = (content ?? {}) as Record<string, unknown>;
-  const merged = await applyContentPatch(ctx, access.block, patch, def?.contentSchema ?? null, now);
+  const patch = prepareContentPatch(content, contentSchema);
+  validateContent(patch, contentSchema, { allowItemReferences: true });
+  const merged = await applyContentPatch(ctx, access.block, patch, contentSchema, now);
 
   const result = await ctx.db
     .update(blocks)
@@ -1221,6 +1243,8 @@ export async function updateBlockSettings(
   const access = await assertBlockAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
 
+  const schemas = await loadBlockSchemas(ctx.db, access.projectId, id);
+  validateContent(settings, schemas?.settingsSchema, { path: "settings" });
   const merged = {
     ...(access.block.settings as Record<string, unknown> | null),
     ...(settings as Record<string, unknown>),

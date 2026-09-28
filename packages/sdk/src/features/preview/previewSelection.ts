@@ -1,3 +1,4 @@
+import { useSelector } from "@xstate/store-react";
 import { createContext, useCallback, useContext } from "react";
 
 import {
@@ -9,10 +10,17 @@ import {
   previewStore,
   selectIsCommentMode,
   selectIsEditMode,
+  selectionForOwner,
+  type EditingOwner,
   type Selection,
 } from "./previewStore";
 
-export const PreviewPageContext = createContext<number | null>(null);
+export const PreviewEditingOwnerContext = createContext<EditingOwner | null>(null);
+
+export function usePreviewTargetSelection() {
+  const owner = useContext(PreviewEditingOwnerContext);
+  return useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
+}
 
 export type SelectionEvent = {
   currentTarget: Element;
@@ -41,17 +49,18 @@ function commentTarget(selection: Selection): CommentTarget {
 /** Both editing and commenting use the target already known by the editable component. */
 export function selectPreviewTarget(
   selection: Selection,
-  pageId: number | null,
+  owner: EditingOwner | null,
   event?: SelectionEvent,
 ) {
   const snapshot = previewStore.getSnapshot();
   if (!selectIsEditMode(snapshot)) return;
   if (!selectIsCommentMode(snapshot)) {
+    if (owner === null) return;
     if (selection.type === "block") {
-      previewStore.send({ type: "setFocusedBlock", blockId: selection.blockId });
+      previewStore.send({ type: "setFocusedBlock", ...owner, blockId: selection.blockId });
       return;
     }
-    previewStore.send({ type: "setSelection", selection });
+    previewStore.send({ type: "selectTarget", ...owner, selection });
     return;
   }
 
@@ -59,16 +68,17 @@ export function selectPreviewTarget(
   if (!event) return;
   event.preventDefault();
   event.stopPropagation();
-  if (pageId === null) return;
+  if (owner?.kind !== "page") return;
+  const { pageId } = owner;
   const target = commentTarget(selection);
   previewCommentsStore.send({ type: "startComment", pageId, target, focusComposer: true });
-  revealCommentTarget(target, "fieldType" in selection ? selection.fieldType : undefined);
+  revealCommentTarget(pageId, target, "fieldType" in selection ? selection.fieldType : undefined);
 }
 
 export function usePreviewSelection() {
-  const pageId = useContext(PreviewPageContext);
+  const owner = useContext(PreviewEditingOwnerContext);
   return useCallback(
-    (selection: Selection, event?: SelectionEvent) => selectPreviewTarget(selection, pageId, event),
-    [pageId],
+    (selection: Selection, event?: SelectionEvent) => selectPreviewTarget(selection, owner, event),
+    [owner],
   );
 }

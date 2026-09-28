@@ -1,13 +1,13 @@
 import { Button } from "@camox/ui/button";
-import { ButtonGroup } from "@camox/ui/button-group";
 import { FloatingToolbar } from "@camox/ui/floating-toolbar";
 import { Label } from "@camox/ui/label";
 import { Switch } from "@camox/ui/switch";
 import { Toggle } from "@camox/ui/toggle";
 import * as Tooltip from "@camox/ui/tooltip";
 import { useSelector } from "@xstate/store-react";
-import { MessageCircle, Monitor, Smartphone, Tablet, X } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 
+import { DeviceSelector } from "@/components/DeviceSelector";
 import { formatShortcut } from "@/lib/utils";
 
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
@@ -32,13 +32,12 @@ export const PreviewToolbar = ({
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const peekedBlock = useSelector(previewStore, (state) => state.context.peekedBlock);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
   const { data: comments } = usePageComments(pageStatus ? pageId : undefined);
   const commentCount = comments?.length ?? 0;
 
-  if (isToolbarHidden || peekedBlock) return null;
+  if (isToolbarHidden) return null;
 
   return (
     <FloatingToolbar className="bottom-2 w-max justify-between gap-6 transition-none">
@@ -89,62 +88,16 @@ export const PreviewToolbar = ({
           </Tooltip.TooltipTrigger>
           <Tooltip.TooltipContent>Leave feedback for agents</Tooltip.TooltipContent>
         </Tooltip.Tooltip>
-        <ButtonGroup>
-          <Tooltip.Tooltip>
-            <Tooltip.TooltipTrigger
-              render={
-                <Toggle
-                  data-state={viewportMode === "full" ? "on" : "off"}
-                  pressed={viewportMode === "full"}
-                  onPressedChange={() => {
-                    if (viewportMode === "full") return;
-                    previewStore.send({ type: "setViewportMode", mode: "full" });
-                  }}
-                  variant="outline"
-                />
-              }
-            >
-              <Monitor />
-            </Tooltip.TooltipTrigger>
-            <Tooltip.TooltipContent>Full view</Tooltip.TooltipContent>
-          </Tooltip.Tooltip>
-          <Tooltip.Tooltip>
-            <Tooltip.TooltipTrigger
-              render={
-                <Toggle
-                  data-state={viewportMode === "tablet" ? "on" : "off"}
-                  pressed={viewportMode === "tablet"}
-                  onPressedChange={() => {
-                    if (viewportMode === "tablet") return;
-                    previewStore.send({ type: "setViewportMode", mode: "tablet" });
-                  }}
-                  variant="outline"
-                />
-              }
-            >
-              <Tablet />
-            </Tooltip.TooltipTrigger>
-            <Tooltip.TooltipContent>Tablet view</Tooltip.TooltipContent>
-          </Tooltip.Tooltip>
-          <Tooltip.Tooltip>
-            <Tooltip.TooltipTrigger
-              render={
-                <Toggle
-                  data-state={viewportMode === "mobile" ? "on" : "off"}
-                  pressed={viewportMode === "mobile"}
-                  onPressedChange={() => {
-                    if (viewportMode === "mobile") return;
-                    previewStore.send({ type: "setViewportMode", mode: "mobile" });
-                  }}
-                  variant="outline"
-                />
-              }
-            >
-              <Smartphone />
-            </Tooltip.TooltipTrigger>
-            <Tooltip.TooltipContent>Mobile view</Tooltip.TooltipContent>
-          </Tooltip.Tooltip>
-        </ButtonGroup>
+        <DeviceSelector
+          value={viewportMode === "full" ? "desktop" : viewportMode}
+          desktopLabel="Full view"
+          onValueChange={(device) =>
+            previewStore.send({
+              type: "setViewportMode",
+              mode: device === "desktop" ? "full" : device,
+            })
+          }
+        />
         <div className="flex items-center gap-2">
           {pageStatus && (
             <Button
