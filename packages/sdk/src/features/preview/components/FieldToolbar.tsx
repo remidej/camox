@@ -9,7 +9,6 @@ import { Bold, Italic, Strikethrough, Highlighter } from "lucide-react";
 import * as React from "react";
 
 import { TextLinkPopover } from "@/core/components/lexical/TextLinkPopover";
-import { cn } from "@/lib/utils";
 
 import { FORMAT_FLAGS } from "../../../core/lib/modifierFormats";
 import type { OverlayMessage } from "../overlayMessages";
@@ -35,7 +34,7 @@ const FORMAT_BUTTONS = [
   },
 ] as const;
 
-export const FieldToolbar = () => {
+export const FieldToolbar = ({ document }: { document: Document }) => {
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
 
   const [hasSelection, setHasSelection] = React.useState(false);
@@ -44,6 +43,30 @@ export const FieldToolbar = () => {
   const [selectedText, setSelectedText] = React.useState("");
   const [linkPopoverOpen, setLinkPopoverOpen] = React.useState(false);
   const linkPopoverOpenRef = React.useRef(false);
+  const [anchor, setAnchor] = React.useState<{ top: number; left: number } | null>(null);
+
+  const updateAnchor = React.useCallback(() => {
+    if (linkPopoverOpenRef.current) return;
+    const selection = document.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      setHasSelection(false);
+      return;
+    }
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    if (!rect.width && !rect.height) return;
+    setAnchor({ top: rect.top, left: rect.left + rect.width / 2 });
+  }, [document]);
+
+  React.useEffect(() => {
+    document.addEventListener("selectionchange", updateAnchor);
+    document.addEventListener("scroll", updateAnchor, true);
+    document.defaultView?.addEventListener("resize", updateAnchor);
+    return () => {
+      document.removeEventListener("selectionchange", updateAnchor);
+      document.removeEventListener("scroll", updateAnchor, true);
+      document.defaultView?.removeEventListener("resize", updateAnchor);
+    };
+  }, [document, updateAnchor]);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -51,6 +74,7 @@ export const FieldToolbar = () => {
       if (!isOverlayMessage(data)) return;
 
       if (data.type === "CAMOX_TEXT_SELECTION_STATE") {
+        updateAnchor();
         setHasSelection(data.hasSelection);
         setActiveFormats(data.activeFormats);
         // Focus moving into the popover must not replace the link being edited.
@@ -61,6 +85,7 @@ export const FieldToolbar = () => {
       }
 
       if (data.type === "CAMOX_OPEN_TEXT_LINK_POPOVER") {
+        updateAnchor();
         linkPopoverOpenRef.current = true;
         setHasSelection(true);
         setLinkTarget(data.target);
@@ -69,9 +94,11 @@ export const FieldToolbar = () => {
       }
     };
 
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
+    // Multiple previews share the host. Selection state belongs to this frame only.
+    const targetWindow = document.defaultView;
+    targetWindow?.addEventListener("message", handleMessage);
+    return () => targetWindow?.removeEventListener("message", handleMessage);
+  }, [document, updateAnchor]);
 
   const sendFormat = (formatKey: string) => {
     iframeElement?.contentWindow?.postMessage(
@@ -97,7 +124,7 @@ export const FieldToolbar = () => {
     sendTextLink(null);
   };
 
-  const isVisible = hasSelection || linkPopoverOpen;
+  const isVisible = anchor && (hasSelection || linkPopoverOpen);
 
   const handleToolbarMouseDown = (event: React.MouseEvent) => {
     const target = event.target;
@@ -106,18 +133,23 @@ export const FieldToolbar = () => {
       return;
     }
 
-    if (target.closest("input, select, textarea, button, [role='combobox']")) return;
+    if (target.closest("input, select, textarea, [role='combobox']")) return;
 
     event.preventDefault();
   };
 
+  if (!isVisible) return null;
+
   return (
     <FloatingToolbar
+      data-canvas-overlay-control
       onMouseDown={handleToolbarMouseDown}
-      className={cn(
-        "bottom-17 gap-2",
-        isVisible ? "opacity-100 translate-y-0" : "opacity-0 pointer-events-none translate-y-2",
-      )}
+      className="pointer-events-auto gap-2 transition-none"
+      style={{
+        top: `calc(${anchor.top}px * var(--canvas-zoom, 1) - 8px)`,
+        left: `calc(${anchor.left}px * var(--canvas-zoom, 1))`,
+        transform: "translateY(-100%)",
+      }}
     >
       <ButtonGroup>
         {FORMAT_BUTTONS.map(({ key, flag, icon: Icon, label, shortcut }) => {

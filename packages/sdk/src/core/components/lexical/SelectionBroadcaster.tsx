@@ -11,7 +11,7 @@ import {
 import * as React from "react";
 
 import type { OverlayMessage } from "../../../features/preview/overlayMessages";
-import { isOverlayMessage, postOverlayMessage } from "../../../features/preview/overlayMessages";
+import { isOverlayMessage } from "../../../features/preview/overlayMessages";
 import { FORMAT_FLAGS } from "../../lib/modifierFormats";
 import { $selectionHasHighlight, $toggleHighlight } from "./HighlightNode";
 import { selectTextLink } from "./selectTextLink";
@@ -44,17 +44,24 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
     // Use the native selection as the source of truth for whether text is selected,
     // since Lexical's internal state can lag behind on mouseup / double-click / triple-click.
     const nativeSelection = targetWindow.getSelection();
+    const root = editor.getRootElement();
+    if (!root) return;
+    // Every inline editor hears selectionchange. Only its owner may publish state.
+    if (nativeSelection?.anchorNode && !root.contains(nativeSelection.anchorNode)) return;
     const hasNativeSelection =
       nativeSelection != null && nativeSelection.rangeCount > 0 && !nativeSelection.isCollapsed;
 
     if (!hasNativeSelection) {
-      postOverlayMessage({
-        type: "CAMOX_TEXT_SELECTION_STATE",
-        hasSelection: false,
-        activeFormats: 0,
-        linkTarget: null,
-        selectedText: "",
-      });
+      targetWindow.postMessage(
+        {
+          type: "CAMOX_TEXT_SELECTION_STATE",
+          hasSelection: false,
+          activeFormats: 0,
+          linkTarget: null,
+          selectedText: "",
+        } satisfies OverlayMessage,
+        "*",
+      );
       return;
     }
 
@@ -72,13 +79,16 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
       linkTarget = getLinkTargetFromSelection();
     });
 
-    postOverlayMessage({
-      type: "CAMOX_TEXT_SELECTION_STATE",
-      hasSelection: true,
-      activeFormats: format,
-      linkTarget,
-      selectedText: nativeSelection?.toString() ?? "",
-    });
+    targetWindow.postMessage(
+      {
+        type: "CAMOX_TEXT_SELECTION_STATE",
+        hasSelection: true,
+        activeFormats: format,
+        linkTarget,
+        selectedText: nativeSelection?.toString() ?? "",
+      } satisfies OverlayMessage,
+      "*",
+    );
   }, [editor, targetWindow]);
 
   // Listen to the native selectionchange event — fires for drag, click,
@@ -96,7 +106,8 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
 
       const handleLinkClick = (event: MouseEvent) => {
         const target = event.target;
-        if (!(target instanceof HTMLElement)) return;
+        const ElementClass = root.ownerDocument.defaultView?.HTMLElement;
+        if (!ElementClass || !(target instanceof ElementClass)) return;
 
         const anchor = target.closest("a");
         if (!anchor || !root.contains(anchor)) return;
@@ -112,11 +123,14 @@ export function SelectionBroadcaster({ targetWindow }: SelectionBroadcasterProps
         lastTextSelectionRef.current = link.selection;
 
         broadcastSelection();
-        postOverlayMessage({
-          type: "CAMOX_OPEN_TEXT_LINK_POPOVER",
-          target: link.target,
-          text: link.text,
-        });
+        targetWindow.postMessage(
+          {
+            type: "CAMOX_OPEN_TEXT_LINK_POPOVER",
+            target: link.target,
+            text: link.text,
+          } satisfies OverlayMessage,
+          "*",
+        );
       };
 
       root.addEventListener("click", handleLinkClick);

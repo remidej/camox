@@ -10,6 +10,8 @@ registerHooks({
     let source: string | undefined;
     if (specifier === "virtual:camox-overlay-css") source = "export default ''";
     if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
+    if (specifier === "@/hooks/use-page-destinations")
+      source = "export const usePageDestinations = () => []";
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     return nextResolve(specifier, context);
@@ -26,12 +28,20 @@ void test("outlines and interactive controls live above the frame, not in the pa
     HTMLElement: host.HTMLElement,
     Element: host.Element,
     Node: host.Node,
+    navigator: host.navigator,
+    getComputedStyle: host.getComputedStyle.bind(host),
+    requestAnimationFrame: host.requestAnimationFrame.bind(host),
+    cancelAnimationFrame: host.cancelAnimationFrame.bind(host),
+    ResizeObserver: host.ResizeObserver,
+    MutationObserver: host.MutationObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
   );
-  Object.assign(globalThis, globals);
+  for (const [key, value] of Object.entries(globals)) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
   const { createRoot } = await import("react-dom/client");
   const { CanvasOverlays } = await import("./CanvasOverlays");
   const { previewStore } = await import("../preview/previewStore");
@@ -145,8 +155,85 @@ void test("outlines and interactive controls live above the frame, not in the pa
       );
     });
     assert.equal(host.document.querySelector("button"), null);
+
+    // The selected frame owns its text toolbar, in the same unscaled overlay layer.
+    const iframe = host.document.querySelector("iframe")!;
+    Object.defineProperty(iframe, "contentDocument", { value: page.document });
+    const text = page.document.createElement("span");
+    text.contentEditable = "true";
+    text.textContent = "Selected text";
+    page.document.body.append(text);
+    const range = page.document.createRange();
+    range.selectNodeContents(text);
+    range.getBoundingClientRect = () => new page.DOMRect(20, 80, 120, 24);
+    const selection = page.document.getSelection()!;
+    selection.addRange(range);
+    // Happy DOM clones ranges when installing the selection.
+    selection.getRangeAt(0).getBoundingClientRect = range.getBoundingClientRect;
+    const selectionMessage = {
+      type: "CAMOX_TEXT_SELECTION_STATE",
+      hasSelection: true,
+      activeFormats: 1,
+      linkTarget: null,
+      selectedText: "Selected text",
+    };
+    await React.act(async () => {
+      previewStore.send({
+        type: "setIframeElement",
+        element: iframe as unknown as HTMLIFrameElement,
+      });
+    });
+    await React.act(async () => {
+      host.dispatchEvent(new host.MessageEvent("message", { data: selectionMessage }));
+    });
+    assert.equal(host.document.querySelector("[role=toolbar]"), null);
+    await React.act(async () => {
+      page.dispatchEvent(new page.MessageEvent("message", { data: selectionMessage }));
+    });
+    const toolbar = host.document.querySelector("[role=toolbar]")!;
+    assert.ok(toolbar);
+    assert.ok(toolbar.closest("[data-canvas-overlays]"));
+    assert.equal(page.document.querySelector("[role=toolbar]"), null);
+    assert.equal(
+      (toolbar as unknown as HTMLElement).style.top,
+      "calc(80px * var(--canvas-zoom, 1) - 8px)",
+    );
+    assert.equal(
+      (toolbar as unknown as HTMLElement).style.left,
+      "calc(80px * var(--canvas-zoom, 1))",
+    );
+    assert.ok(toolbar.hasAttribute("data-canvas-overlay-control"));
+    const bold = toolbar.querySelector("[aria-label=Bold]")!;
+    const mouseDown = new host.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    bold.dispatchEvent(mouseDown);
+    assert.equal(mouseDown.defaultPrevented, true, "formatting must not steal selection focus");
+
+    await React.act(async () => {
+      page.dispatchEvent(
+        new page.MessageEvent("message", {
+          data: {
+            type: "CAMOX_OPEN_TEXT_LINK_POPOVER",
+            target: "https://example.com",
+            text: "Selected text",
+          },
+        }),
+      );
+    });
+    await React.act(async () => {
+      selection.removeAllRanges();
+      page.document.dispatchEvent(new page.Event("selectionchange"));
+    });
+    assert.ok(
+      host.document.querySelector("[role=toolbar]"),
+      "the toolbar stays anchored while the link popover owns focus",
+    );
+    await React.act(async () => {
+      previewStore.send({ type: "setCommentMode", enabled: true });
+    });
+    assert.equal(host.document.querySelector("[role=toolbar]"), null);
   } finally {
     await React.act(async () => root.unmount());
+    previewStore.send({ type: "setIframeElement", element: null });
     previewStore.send({ type: "exitEditMode" });
     await page.happyDOM.close();
     await host.happyDOM.close();

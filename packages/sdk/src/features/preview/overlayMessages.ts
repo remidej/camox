@@ -29,7 +29,7 @@ export type OverlayMessage =
       insertPosition: "before" | "after";
       afterPosition?: string | null;
     }
-  // Text selection (Iframe → Parent)
+  // Text selection (scoped to the owning preview window)
   | {
       type: "CAMOX_TEXT_SELECTION_STATE";
       hasSelection: boolean;
