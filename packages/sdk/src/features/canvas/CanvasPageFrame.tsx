@@ -17,16 +17,33 @@ import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
-import { canvasPageHref, createCanvasDocument, observeCanvasDocument } from "./canvasFrameDocument";
+import {
+  canvasPageHref,
+  createCanvasDocument,
+  measureCanvasDocument,
+  observeCanvasDocument,
+} from "./canvasFrameDocument";
 import { CanvasOverlays } from "./CanvasOverlays";
 
 const noNavigation = () => {};
 
-function PageContentCommitted({ selected }: { selected: boolean }) {
+function PageContentCommitted({
+  selected,
+  frame,
+  viewportHeight,
+}: {
+  selected: boolean;
+  frame: React.RefObject<HTMLIFrameElement | null>;
+  viewportHeight: number;
+}) {
   const preparation = React.useContext(PreviewPreparationContext);
   React.useEffect(() => {
-    if (selected) preparation?.ready();
-  }, [selected, preparation]);
+    if (!selected) return;
+    const iframe = frame.current;
+    const root = iframe?.contentDocument?.querySelector<HTMLElement>("[data-camox-preview-root]");
+    if (iframe && root) measureCanvasDocument(iframe, root, viewportHeight);
+    preparation?.ready();
+  }, [selected, preparation, frame, viewportHeight]);
   return null;
 }
 
@@ -218,7 +235,11 @@ function PageFrame({
                           />
                         )}
                         {/* This commits only after onLoad and the portal's content resolves. */}
-                        <PageContentCommitted selected={selected} />
+                        <PageContentCommitted
+                          selected={selected}
+                          frame={iframeRef}
+                          viewportHeight={viewportHeight}
+                        />
                       </div>
                     </React.Suspense>,
                     mount,

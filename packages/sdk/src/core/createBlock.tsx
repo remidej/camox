@@ -449,6 +449,7 @@ function createViewBlock(options: EditableOptions) {
     return (
       <div
         className="group visual-editing-block"
+        data-camox-viewport-block={blockData._id}
         style={{
           position: "relative",
           scrollMargin: "5rem",

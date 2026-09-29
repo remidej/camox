@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils";
 
 import { useLocation, useNavigate } from "../../navigation/navigation";
 import { PreviewDocumentContext } from "../../runtime/PreviewDocumentContext";
+import {
+  capturePreviewAnchor,
+  restorePreviewAnchor,
+  ViewportContinuityContext,
+} from "../viewportContinuity";
 import { PreviewActivationContext } from "./PreviewActivation";
 import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "./previewStyles";
 
@@ -60,6 +65,7 @@ export const Frame = ({
   const navigate = useNavigate();
   const { pathname, hash, href } = useLocation();
   const previewDocument = React.useContext(PreviewDocumentContext);
+  const continuity = React.useContext(ViewportContinuityContext);
   // Freeze the srcdoc for this iframe's lifetime. Route updates go through the
   // existing portal, not a document reload that would reset the site's theme.
   const [srcDoc] = React.useState(previewDocument ?? EMPTY_PREVIEW_DOCUMENT);
@@ -72,6 +78,12 @@ export const Frame = ({
   const [iframeElement, setIframeElement] = React.useState<HTMLIFrameElement | null>(null);
   const [mountNode, setMountNode] = React.useState<HTMLElement | null>(null);
   const [hasOpenPopup, setHasOpenPopup] = React.useState(false);
+  const positionedLocation = React.useRef<{ doc: Document; href: string } | null>(null);
+
+  React.useLayoutEffect(() => {
+    if (continuity?.pendingPreview?.pathname === pathname && iframeRef.current)
+      iframeRef.current.style.visibility = "hidden";
+  });
 
   React.useEffect(() => {
     const iframe = iframeRef.current;
@@ -149,14 +161,22 @@ export const Frame = ({
     };
   }, [copyStyles, onIframeReady, srcDoc, serverOnly]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (!iframeWindow || !mountNode) return;
+    if (
+      positionedLocation.current?.doc === iframeWindow.document &&
+      positionedLocation.current.href === href
+    )
+      return;
+    if (positionedLocation.current && continuity?.checkpoint) continuity.checkpoint.moved = true;
+    positionedLocation.current = { doc: iframeWindow.document, href };
     let base = iframeWindow.document.querySelector("base");
     if (!base) {
       base = iframeWindow.document.createElement("base");
       iframeWindow.document.head.insertBefore(base, iframeWindow.document.head.firstChild);
     }
     base.href = href;
+    if (continuity?.pendingPreview?.pathname === pathname) return;
     if (!hash) {
       iframeWindow.scrollTo({ top: 0 });
       return;
@@ -166,7 +186,55 @@ export const Frame = ({
     } catch {
       // Malformed hash escapes must not break navigation.
     }
-  }, [pathname, hash, href, iframeWindow, mountNode]);
+  }, [pathname, hash, href, iframeWindow, mountNode, continuity]);
+
+  React.useLayoutEffect(() => {
+    if (!continuity || !iframeWindow || !mountNode) return;
+    const doc = iframeWindow.document;
+    // Most sites scroll the document. Also support a site-owned full-height
+    // overflow container rather than mistakenly scrolling the studio shell.
+    const center = doc.elementFromPoint?.(
+      iframeWindow.innerWidth / 2,
+      iframeWindow.innerHeight / 2,
+    );
+    let scroll = doc.scrollingElement as HTMLElement | null;
+    for (let element = center; element && element !== doc.body; element = element.parentElement) {
+      const overflow = iframeWindow.getComputedStyle(element).overflowY;
+      if (/(auto|scroll)/.test(overflow) && element.scrollHeight > element.clientHeight) {
+        scroll = element as HTMLElement;
+        break;
+      }
+    }
+    if (!scroll) return;
+    const capture = () => capturePreviewAnchor(doc, scroll);
+    const pending = continuity.pendingPreview;
+    if (pending?.pathname === pathname) {
+      restorePreviewAnchor(doc, scroll, pending.anchor);
+      continuity.pendingPreview = null;
+    }
+    let previousTop = scroll.scrollTop;
+    let previousLeft = scroll.scrollLeft;
+    if (iframeRef.current) iframeRef.current.style.visibility = "";
+    const onScroll = () => {
+      if (scroll.scrollTop === previousTop && scroll.scrollLeft === previousLeft) return;
+      previousTop = scroll.scrollTop;
+      previousLeft = scroll.scrollLeft;
+      continuity.previewMoved(pathname, capture());
+    };
+    const binding = {
+      capture: () => {
+        // Capture can run before the browser delivers the last scroll event.
+        onScroll();
+        return capture();
+      },
+    };
+    continuity.preview = binding;
+    doc.addEventListener("scroll", onScroll, true);
+    return () => {
+      doc.removeEventListener("scroll", onScroll, true);
+      if (continuity.preview === binding) continuity.preview = null;
+    };
+  }, [continuity, iframeWindow, mountNode, pathname, hash]);
 
   // Monitor for Base UI portaled popups in body
   React.useEffect(() => {

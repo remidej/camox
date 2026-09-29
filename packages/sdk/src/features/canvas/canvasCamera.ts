@@ -132,6 +132,22 @@ export function fitCanvasPage(
   };
 }
 
+/** Place the same document reading point at the canvas viewport's top edge. */
+export function placeCanvasPageAnchor(
+  viewport: CanvasSize,
+  page: { left: number; width: number },
+  documentY: number,
+  scale: number,
+  frameOffsetY = 0,
+): CanvasCamera {
+  return {
+    x: viewport.width / 2 - (page.left + page.width / 2) * scale,
+    // At document top retain room for the unscaled page header.
+    y: documentY > 0 ? -(documentY + frameOffsetY) * scale : fitCanvasPage(viewport, page).y,
+    scale,
+  };
+}
+
 /** Reserve readable padding and unscaled page headers in the fitted overview. */
 export function canvasInsets(viewport: CanvasSize) {
   return {
@@ -148,6 +164,7 @@ export function zoomCanvasAt(
   minimumScale = Number.EPSILON,
 ): CanvasCamera {
   const nextScale = Math.min(MAX_CANVAS_ZOOM, Math.max(minimumScale, scale));
+  if (nextScale === camera.scale) return camera;
   const ratio = nextScale / camera.scale;
   return {
     x: point.x - (point.x - camera.x) * ratio,
