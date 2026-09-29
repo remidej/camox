@@ -5,7 +5,6 @@ import * as React from "react";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
 import { pageQueries, projectQueries } from "../../lib/queries";
 import { useLocation, useNavigate } from "../navigation/navigation";
-import { FieldToolbar } from "../preview/components/FieldToolbar";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
@@ -402,7 +401,6 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
       />
       <CanvasRightSidebar page={selectedPage} owner={editingOwner} />
-      {editingOwner && !isCommentMode && <FieldToolbar key={selectedPath} />}
     </div>
   );
 }

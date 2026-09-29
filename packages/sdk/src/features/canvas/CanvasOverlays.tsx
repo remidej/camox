@@ -3,6 +3,7 @@ import { useSelector } from "@xstate/store-react";
 import { PlusIcon } from "lucide-react";
 import * as React from "react";
 
+import { FieldToolbar } from "../preview/components/FieldToolbar";
 import { postOverlayMessage } from "../preview/overlayMessages";
 import { previewStore, selectIsCommentMode, selectIsEditMode } from "../preview/previewStore";
 import { canvasInsertionSeams } from "./canvasInsertionSeams";
@@ -38,6 +39,7 @@ export function CanvasOverlays({
   const [targets, setTargets] = React.useState<CanvasOverlayTarget[]>([]);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
+  const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
   const enabled = isEditMode && !isCommentMode;
   // The frame installs its sizing observer in a layout effect first. Registering
   // afterward keeps content-triggered measurements behind that sizing pass.
@@ -66,6 +68,9 @@ export function CanvasOverlays({
           transformOrigin: "0 0",
         }}
       >
+        {enabled && document && iframeElement?.contentDocument === document && (
+          <FieldToolbar document={document} />
+        )}
         {targets.flatMap((target, index) =>
           target.hovered || target.focused
             ? target.rects.map((rect, fragment) => (
