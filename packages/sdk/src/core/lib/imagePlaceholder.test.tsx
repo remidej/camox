@@ -38,6 +38,7 @@ void test("placeholder labels use field titles and inherit the site's font", () 
     assert.match(html, /font-family:inherit/);
     assert.match(html, /justify-content:center/);
     assert.match(html, /background:currentColor/);
+    assert.match(html, /user-select:none/);
   }
   const special = Type.Image({ title: "<Cover> & art" }).default;
   const html = renderToStaticMarkup(renderImagePlaceholder(special, <img alt="" />));
