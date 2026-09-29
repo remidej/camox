@@ -21,6 +21,7 @@ import {
   type LinkValue,
 } from "./lib/contentType";
 import { IconSvg } from "./lib/icons";
+import { renderImagePlaceholder } from "./lib/imagePlaceholder";
 import {
   buildImageSrcSet,
   getDefaultImageSizes,
@@ -286,18 +287,21 @@ function createViewBlock(options: EditableOptions) {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime) return editingRuntime.renderPrimitive(options, "Image", { name, children });
     const value = useAsset(name) as ImageValue;
-    return children(
-      {
-        src: transformImageUrl(value.url, {
-          width: getDefaultImageWidth(),
-          mimeType: value.mimeType,
-          size: value.size,
-        }),
-        srcSet: buildImageSrcSet(value.url, value.mimeType, value.size),
-        sizes: getDefaultImageSizes(),
-        alt: value.alt,
-      },
+    return renderImagePlaceholder(
       value,
+      children(
+        {
+          src: transformImageUrl(value.url, {
+            width: getDefaultImageWidth(),
+            mimeType: value.mimeType,
+            size: value.size,
+          }),
+          srcSet: buildImageSrcSet(value.url, value.mimeType, value.size),
+          sizes: getDefaultImageSizes(),
+          alt: value.alt,
+        },
+        value,
+      ),
     );
   };
 

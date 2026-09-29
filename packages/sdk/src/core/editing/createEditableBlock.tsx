@@ -47,6 +47,7 @@ import {
 } from "../lib/contentType.ts";
 import { IconSvg, type IconProps } from "../lib/icons";
 import type { IconValue } from "../lib/iconTypes";
+import { renderImagePlaceholder } from "../lib/imagePlaceholder";
 import {
   buildImageSrcSet,
   getDefaultImageSizes,
@@ -1315,8 +1316,9 @@ export function createEditableBlock<
       alt: fieldValue.alt,
     } satisfies ImageRenderProps;
 
+    const renderedImage = renderImagePlaceholder(fieldValue, children(imageProps, fieldValue));
     if (!isContentEditable) {
-      return <>{children(imageProps, fieldValue)}</>;
+      return <>{renderedImage}</>;
     }
 
     return (
@@ -1329,7 +1331,7 @@ export function createEditableBlock<
         onMouseLeave={() => setIsHovered(false)}
         onClickCapture={handleClick}
       >
-        {children(imageProps, fieldValue)}
+        {renderedImage}
       </div>
     );
   };

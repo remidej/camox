@@ -186,6 +186,17 @@ export type LinkValue = ({ type: "external"; href: string } | { type: "page"; pa
  * ImageValue branded type
  * -----------------------------------------------------------------------------------------------*/
 
+// Symbols survive local schema/default copies, but never enter persisted JSON or AI schemas.
+const IMAGE_PLACEHOLDER = Symbol("camox.imagePlaceholder");
+
+export function isImagePlaceholder(value: ImageValue): boolean {
+  return typeof Reflect.get(value, IMAGE_PLACEHOLDER) === "string" && !value._fileId;
+}
+
+export function getImagePlaceholderTitle(value: ImageValue): string {
+  return Reflect.get(value, IMAGE_PLACEHOLDER) as string;
+}
+
 export type ImageValue = {
   url: string;
   alt: string;
@@ -231,6 +242,7 @@ function _imageSingle(options: { title?: string }): TUnsafe<ImageValue> {
       alt: "",
       filename: "placeholder.png",
       mimeType: "image/png",
+      [IMAGE_PLACEHOLDER]: options.title || "image",
     },
     title: options.title,
     fieldType: "Image" as const,
