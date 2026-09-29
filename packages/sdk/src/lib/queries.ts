@@ -77,6 +77,9 @@ export const collectionMutations = {
   create: () => getOrpc().collectionDefinitions.createRecord.mutationOptions(),
   edit: () => getOrpc().collectionDefinitions.editRecord.mutationOptions(),
   delete: () => getOrpc().collectionDefinitions.deleteRecord.mutationOptions(),
+  publish: () => getOrpc().collectionDefinitions.publishRecord.mutationOptions(),
+  unpublish: () => getOrpc().collectionDefinitions.unpublishRecord.mutationOptions(),
+  discard: () => getOrpc().collectionDefinitions.discardRecord.mutationOptions(),
 };
 
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;

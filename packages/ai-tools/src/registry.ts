@@ -1,5 +1,6 @@
 import { blockTypesProvider } from "./providers/block-types";
 import { blocksProvider } from "./providers/blocks";
+import { collectionsProvider } from "./providers/collections";
 import { commentsProvider } from "./providers/comments";
 import { environmentsProvider } from "./providers/environments";
 import { filesProvider } from "./providers/files";
@@ -13,6 +14,7 @@ export const toolProviders: ToolProvider[] = [
   blockTypesProvider,
   blocksProvider,
   commentsProvider,
+  collectionsProvider,
   environmentsProvider,
   filesProvider,
 ];

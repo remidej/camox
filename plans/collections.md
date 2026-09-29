@@ -31,6 +31,50 @@ without copying page/block trees or sharing their restoration behavior.
   state (constraints apply to extracted text). Distinct Link/Repeater/Icon fields
   fail at definition creation/sync until their record storage is supported.
 
+## Slice 3 decision: management and standalone publication
+
+- Experimental Studio exposes code-defined collection browsing and schema-driven
+  create/edit forms. Save changes/Create item writes only a draft; publication
+  is a separate list action. Background refetches never replace in-progress edits
+  or advance the form's reviewed version.
+  The browser reuses PagePicker's Draft, Published, and Modified badges.
+  The Publish/Publish changes and ellipsis button group is visible on row hover
+  or keyboard focus. The ellipsis lists Unpublish and Discard changes, disabled
+  when inapplicable.
+- Standalone publication uses the existing scope/impact confirmation dialog.
+  The explicitly chosen item's switch defaults **on** each time the dialog opens;
+  switching it off disables confirmation. Cancel never mutates content. No other
+  record, block, page, or layout is implicitly included.
+- List publication, unpublication, and discard require confirmation and the reviewed record
+  version. A concurrent edit causes a conflict, not publication of unseen changes.
+  Unpublishing clears only the live pointer, retaining draft and immutable history.
+  Discard restores the current published revision through the validated, scoped
+  restore service and preserves the displaced draft in history; it never changes
+  live content and rejects records without a published revision.
+  Successful operations invalidate record/browser queries in the scoped environment.
+- AI collection discovery, schema/draft reads, create/edit, publish/unpublish and
+  delete call the same validated services. The tool session supplies the project
+  and environment, never caller-controlled scope. Publish/unpublish/delete carry
+  `requiresApproval` metadata for tool consumers, following existing page tools.
+  This is not a server-enforced approval gate: the authenticated tool execution
+  endpoint executes handlers directly. Draft writes do not imply publication.
+- **Future reference rule:** when reference publication planning is implemented,
+  independently selectable changed dependencies default on, matching shared-content
+  switches, but remain explicit in the review. An excluded already-published item
+  retains its previous live revision. A required dependency with no live revision
+  must block publication unless included in a validated atomic publication plan;
+  never silently publish it or substitute a draft. Optional absent/unpublished
+  references resolve as empty, never drafts.
+- **Current safety boundary:** reference schemas/resolution/pickers and dependency
+  publication are not implemented or exposed. The validation layer rejects
+  Reference/ReferenceList fields. There are no supported record dependencies to
+  traverse, cascade, or protect yet. Unpublish/delete currently act on standalone
+  records only; dependency checks, deletion safety, deduplication and atomic
+  reference publication must land together in the later reference slice before
+  references can be enabled. Publishing a standalone record creates no URL.
+- The playground Customers collection and its README provide a repeatable standalone
+  create/edit/publish/unpublish example; articles remain available for lifecycle tests.
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.
@@ -266,7 +310,10 @@ Collection items publish independently, following the shared-content behavior of
 - Publishing a page or layout must not silently publish unselected collection drafts.
 - Publication must refresh affected live references, query membership, derived-page data, and route enumeration. Draft edits refresh preview dependencies instead.
 
-Historical reads must not silently substitute today's shared data for historical content. Exact checkpoint representation, restoration behavior, modal switch defaults, and handling of unpublished required dependencies remain open details; follow existing shared-content conventions rather than inventing a separate lifecycle.
+Historical reads must not silently substitute today's shared data for historical content.
+Standalone history is settled in slice 2, and switch defaults and unpublished-dependency
+policy are settled in slice 3 above. Historical representation/restoration of references
+remains for the reference slice.
 
 ## Layout loading
 
@@ -515,7 +562,7 @@ Implement working examples in `apps/playground` as part of the collections featu
 
 These are not permission to expand v1 into the explicitly deferred features:
 
-1. Exact publication-modal switch defaults and dependency behavior when selected content references unpublished items.
+1. Atomic dependency publication planning implementing the slice 3 policy, before references are exposed.
 2. Checkpoint representation and historical/restore semantics for referenced record revisions.
 3. Delete/unpublish policy for referenced items, including references held by other collections and published snapshots.
 4. Query operator set, system-metadata ordering, and relation-resolution depth/cycle handling.

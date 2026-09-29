@@ -12,6 +12,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "@/features/navigation/navigation";
 import { SingleAssetFieldEditor } from "@/features/preview/components/AssetFieldEditor";
 import { MultipleAssetFieldEditor } from "@/features/preview/components/MultipleAssetFieldEditor";
+import { PageStatusBadge } from "@/features/preview/components/PageStatusBadge";
 import {
   collectionContentPath,
   newCollectionItemPath,
@@ -31,6 +32,7 @@ import {
   type FieldSchema,
 } from "./collection-form";
 import { DeleteCollectionItemButton } from "./components/DeleteCollectionItemButton";
+import { PublishCollectionItemButton } from "./components/PublishCollectionItemButton";
 
 export const ContentCollection = ({
   projectSlug,
@@ -99,10 +101,16 @@ export const ContentCollection = ({
               <li key={record.id} className="group hover:bg-accent flex items-center">
                 <Link
                   to={editCollectionItemPath(collection.collectionId, record.id)}
-                  className="focus-visible:bg-accent block min-w-0 flex-1 px-4 py-3 text-sm"
+                  className="focus-visible:bg-accent flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-sm"
                 >
-                  {record.label || "Untitled item"}
+                  <span className="truncate">{record.label || "Untitled item"}</span>
+                  <PageStatusBadge size="sm" status={record.status} />
                 </Link>
+                <PublishCollectionItemButton
+                  projectSlug={projectSlug}
+                  collectionId={collection.collectionId}
+                  record={record}
+                />
                 <DeleteCollectionItemButton
                   projectSlug={projectSlug}
                   collectionId={collection.collectionId}
@@ -151,28 +159,33 @@ function CollectionItemForm({
 }) {
   const fields = collectionFormFields(contentSchema, label);
   // Background refetches must not replace edits or advance the expected version.
-  const [initialRecord] = useState(record);
+  const [savedRecord, setSavedRecord] = useState(record);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const create = useMutation(collectionMutations.create());
   const edit = useMutation(collectionMutations.edit());
-  const saving = create.isPending || edit.isPending;
-  const [defaultValues] = useState(() => collectionFormDefaults(fields, initialRecord?.draft));
+  const [submitting, setSubmitting] = useState(false);
+  const saving = submitting || create.isPending || edit.isPending;
+  const [defaultValues] = useState(() => collectionFormDefaults(fields, savedRecord?.draft));
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
+      if (submitting) return;
+      setSubmitting(true);
       setError(null);
       try {
-        const content = collectionFormContent(fields, value, initialRecord?.draft);
+        const content = collectionFormContent(fields, value, savedRecord?.draft);
         const scope = { projectSlug, collectionId, content };
-        const saved = initialRecord
+        const saved = savedRecord
           ? await edit.mutateAsync({
               ...scope,
-              id: initialRecord.id,
-              expectedVersion: initialRecord.version,
+              id: savedRecord.id,
+              expectedVersion: savedRecord.version,
             })
           : await create.mutateAsync(scope);
+        // Advance only after our own successful save, never from a refetch.
+        setSavedRecord(saved);
         queryClient.setQueryData(
           collectionQueries.record(projectSlug, collectionId, saved.id).queryKey,
           saved,
@@ -182,7 +195,13 @@ function CollectionItemForm({
         });
         await navigate({ to: collectionContentPath(collectionId) });
       } catch (error) {
-        setError(error instanceof Error ? error.message : "Could not save item. Please try again.");
+        const message = error instanceof Error ? error.message : "Please try again.";
+        setError(`Could not save item. ${message}`);
+        await queryClient.invalidateQueries({
+          queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
+        });
+      } finally {
+        setSubmitting(false);
       }
     },
   });
@@ -297,14 +316,8 @@ function CollectionItemForm({
       )}
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={saving}>
-          {saving ? "Saving…" : initialRecord ? "Save changes" : "Create item"}
+          {saving ? "Saving…" : savedRecord ? "Save changes" : "Create item"}
         </Button>
-        <Link
-          className={buttonVariants({ variant: "outline" })}
-          to={collectionContentPath(collectionId)}
-        >
-          Cancel
-        </Link>
       </div>
     </form>
   );

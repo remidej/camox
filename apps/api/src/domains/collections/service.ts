@@ -116,6 +116,9 @@ export const getCollectionRecordInput = recordInput;
 export const createRecordInput = scopeInput.extend({ content: z.unknown() });
 export const editRecordInput = mutationInput.extend({ content: z.unknown() });
 export const deleteRecordInput = mutationInput;
+export const publishRecordInput = mutationInput;
+export const unpublishRecordInput = mutationInput;
+export const discardRecordInput = mutationInput;
 
 export async function getCollectionRecord(
   ctx: ServiceContext,
@@ -181,17 +184,28 @@ export async function listCollectionRecords(
       id: collectionRecords.id,
       content: collectionRecords.draft,
       version: collectionRecords.version,
+      publishedContent: collectionRevisions.content,
     })
     .from(collectionRecords)
+    .leftJoin(
+      collectionRevisions,
+      eq(collectionRecords.publishedRevisionId, collectionRevisions.id),
+    )
     .where(eq(collectionRecords.definitionId, definition.id))
     .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id));
   return records.map((record) => ({
     id: record.id,
     version: record.version,
+    status: recordStatus(record.content, record.publishedContent),
     label: lexicalStateToPlainText(
       record.content[definition.label] as string | Record<string, unknown>,
     ),
   }));
+}
+
+function recordStatus(draft: unknown, published: unknown): "draft" | "modified" | "published" {
+  if (published == null) return "draft";
+  return stableStringify(draft) === stableStringify(published) ? "published" : "modified";
 }
 
 async function definitionFor(
@@ -449,6 +463,7 @@ export async function publishRecord(ctx: ServiceContext, rawInput: z.input<typeo
   await validateContent(ctx, definition, record.draft);
   const revision = await snapshot(ctx, definition, record, "auto-publish");
   const updated = await update(ctx, record, { publishedRevisionId: revision.id });
+  invalidateRecord(ctx, definition, input, record.id);
   return { record: updated, revision };
 }
 
@@ -457,8 +472,10 @@ export async function unpublishRecord(
   rawInput: z.input<typeof mutationInput>,
 ) {
   const input = mutationInput.parse(rawInput);
-  const { record } = await mutation(ctx, input);
-  return update(ctx, record, { publishedRevisionId: null });
+  const { definition, record } = await mutation(ctx, input);
+  const updated = await update(ctx, record, { publishedRevisionId: null });
+  invalidateRecord(ctx, definition, input, record.id);
+  return updated;
 }
 
 export async function restoreRecord(
@@ -483,4 +500,19 @@ export async function restoreRecord(
   await validateContent(ctx, definition, revision.content);
   const displaced = await snapshot(ctx, definition, record, "auto-draft");
   return { record: await update(ctx, record, { draft: revision.content }), displaced };
+}
+
+export async function discardRecord(
+  ctx: ServiceContext,
+  rawInput: z.input<typeof discardRecordInput>,
+) {
+  const input = discardRecordInput.parse(rawInput);
+  const { definition, record } = await mutation(ctx, input);
+  if (!record.publishedRevisionId)
+    throw new ORPCError("CONFLICT", {
+      message: "Unpublished items have no published draft to restore",
+    });
+  const result = await restoreRecord(ctx, { ...input, revisionId: record.publishedRevisionId });
+  invalidateRecord(ctx, definition, input, record.id);
+  return result.record;
 }

@@ -14,6 +14,7 @@ import {
   createRecord,
   editRecord,
   deleteRecord,
+  discardRecord,
   getCollectionDefinition,
   getCollectionRecord,
   listCollectionDefinitions,
@@ -117,7 +118,7 @@ describe("authenticated collection browsing", () => {
     expect(edited.version).toBe(created.version + 1);
     expect((await getCollectionRecord(f.ctx, input)).draft.title).toBe("Updated title");
     expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
-      { id: created.id, version: edited.version, label: "Updated title" },
+      { id: created.id, version: edited.version, label: "Updated title", status: "draft" },
     ]);
     await expect(
       editRecord(f.ctx, { ...input, expectedVersion: created.version, content: article }),
@@ -242,12 +243,12 @@ describe("authenticated collection browsing", () => {
       content,
     });
     expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
-      { id: record.id, version: record.version + 1, label: "Private draft" },
+      { id: record.id, version: record.version + 1, label: "Private draft", status: "modified" },
     ]);
     const unpublished = await createRecord(f.ctx, { ...f.scope, content: article });
     expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
-      { id: unpublished.id, version: unpublished.version, label: "Hello" },
-      { id: record.id, version: record.version + 1, label: "Private draft" },
+      { id: unpublished.id, version: unpublished.version, label: "Hello", status: "draft" },
+      { id: record.id, version: record.version + 1, label: "Private draft", status: "modified" },
     ]);
     await f.sync([definition, { ...definition, collectionId: "other" }]);
     expect(await listCollectionRecords(f.ctx, { ...f.scope, collectionId: "other" })).toEqual([]);
@@ -323,7 +324,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
         .where(eq(collectionRevisions.recordId, created.id)),
     ).toEqual([]);
     expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
-      { id: other.id, version: other.version, label: "Hello" },
+      { id: other.id, version: other.version, label: "Hello", status: "draft" },
     ]);
     await expect(deleteRecord(f.ctx, input)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await deleteRecord(f.ctx, { ...f.scope, id: other.id, expectedVersion: other.version });
@@ -387,7 +388,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       { ...content, documents: [article.cover] },
     ])
       await expect(createRecord(f.ctx, { ...f.scope, content: invalid })).rejects.toThrow();
-    for (const fieldType of ["Repeater", "Link", "Icon", "Reference"]) {
+    for (const fieldType of ["Repeater", "Link", "Icon", "Reference", "ReferenceList"]) {
       const malformed = {
         ...definition,
         contentSchema: {
@@ -583,6 +584,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       await expect(publishRecord(ctx, input)).rejects.toThrow();
       await expect(checkpointRecord(ctx, input)).rejects.toThrow();
       await expect(unpublishRecord(ctx, input)).rejects.toThrow();
+      await expect(discardRecord(ctx, input)).rejects.toThrow();
       await expect(
         restoreRecord(ctx, { ...input, revisionId: crypto.randomUUID() }),
       ).rejects.toThrow();
@@ -610,6 +612,13 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
     await expect(
       editRecord(anotherSite.ctx, { ...input, ...anotherSite.scope, content: article }),
     ).rejects.toThrow();
+    await expect(
+      discardRecord(anotherSite.ctx, {
+        ...input,
+        ...anotherSite.scope,
+        expectedVersion: published.record.version,
+      }),
+    ).rejects.toThrow();
     const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
     await syncCollectionDefinitions(devCtx, {
       projectSlug: f.project.slug,
@@ -619,6 +628,9 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
     expect(await readRecord(devCtx, { ...read, source: "draft" })).toBeNull();
     await expect(
       publishRecord(devCtx, { ...input, expectedVersion: published.record.version }),
+    ).rejects.toThrow();
+    await expect(
+      discardRecord(devCtx, { ...input, expectedVersion: published.record.version }),
     ).rejects.toThrow();
     await f.sync([definition, { ...definition, collectionId: "customers" }]);
     expect(await readRecord(f.publicCtx, { ...read, collectionId: "customers" })).toBeNull();

@@ -24,6 +24,15 @@ export const collectionDefinitionProcedures = {
   deleteRecord: authed
     .input(service.deleteRecordInput)
     .handler(({ context, input }) => service.deleteRecord(context, input)),
+  publishRecord: authed
+    .input(service.publishRecordInput)
+    .handler(({ context, input }) => service.publishRecord(context, input)),
+  unpublishRecord: authed
+    .input(service.unpublishRecordInput)
+    .handler(({ context, input }) => service.unpublishRecord(context, input)),
+  discardRecord: authed
+    .input(service.discardRecordInput)
+    .handler(({ context, input }) => service.discardRecord(context, input)),
   sync: pub
     .input(service.syncCollectionDefinitionsInput)
     .handler(({ context, input }) => service.syncCollectionDefinitions(context, input)),

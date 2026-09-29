@@ -194,11 +194,19 @@ void test("each empty collection has its own title and empty view", () => {
 void test("nonempty collections render record labels rather than an empty state", () => {
   const client = new QueryClient();
   client.setQueryData(collectionQueries.records("site", "articles").queryKey, [
-    { id: "one", version: 1, label: "First article" },
-    { id: "two", version: 1, label: "" },
+    { id: "one", version: 1, label: "First article", status: "draft" },
+    { id: "two", version: 1, label: "", status: "published" },
+    { id: "three", version: 2, label: "Edited article", status: "modified" },
   ]);
   const html = renderCollection(collections[0], client);
   assert.match(html, /First article/);
+  assert.match(html, /Draft/);
+  assert.match(html, /Published/);
+  assert.match(html, /Modified/);
+  assert.match(
+    html,
+    /First article<\/span>[^<]*<span[^>]*data-slot="badge"[^>]*>Draft<\/span><\/a>/,
+  );
   assert.match(html, /aria-label="Delete First article"/);
   assert.match(html, /Untitled item/);
   assert.ok(html.includes(`href="${editCollectionItemPath("articles", "one")}"`));
@@ -487,6 +495,127 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
     } finally {
       await act(async () => root.unmount());
       host.remove();
+      client.clear();
+    }
+  }
+  await window.happyDOM.close();
+});
+
+void test("forms only save drafts and keep the reviewed version after failures and refetches", async (t) => {
+  const { Window } = await import("happy-dom");
+  const { act } = await import("react");
+  const window = new Window();
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    Event: window.Event,
+    localStorage: window.localStorage,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const { createRoot } = await import("react-dom/client");
+  const id = "a6479288-341f-4008-b118-dea6d8dd9158";
+  for (const editing of [false, true]) {
+    const calls: { path: string; input: Record<string, unknown> }[] = [];
+    let failSave = true;
+    let version = editing ? 2 : 0;
+    t.mock.method(globalThis, "fetch", async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      const { json: input } = (await request.json()) as { json: Record<string, unknown> };
+      calls.push({ path, input });
+      assert.ok(!path.endsWith("/publishRecord"));
+      if (failSave)
+        return Response.json(
+          {
+            json: {
+              defined: false,
+              code: "BAD_REQUEST",
+              status: 400,
+              message: "Invalid content",
+            },
+          },
+          { status: 400 },
+        );
+      if (!path.endsWith("/createRecord")) assert.equal(input.expectedVersion, version);
+      version += 1;
+      const record = { id, version, draft: { title: "Article" } };
+      return Response.json({ json: record });
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    });
+    client.setQueryData(collectionQueries.get("site", "articles").queryKey, {
+      ...collections[0],
+      contentSchema: { properties: { title: { fieldType: "String", default: "Article" } } },
+    });
+    if (editing)
+      client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
+        id,
+        version,
+        draft: { title: "Article" },
+      });
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const navigations: string[] = [];
+    const submit = () =>
+      act(async () => {
+        host.querySelector("form")!.dispatchEvent(
+          new window.SubmitEvent("submit", {
+            bubbles: true,
+            cancelable: true,
+          }) as unknown as Event,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+    try {
+      await act(async () =>
+        root.render(
+          <NavigationProvider
+            navigate={({ to }) => {
+              navigations.push(to);
+            }}
+          >
+            <QueryClientProvider client={client}>
+              <ContentCollectionNew
+                projectSlug="site"
+                collection={collections[0]}
+                itemId={editing ? id : undefined}
+              />
+            </QueryClientProvider>
+          </NavigationProvider>,
+        ),
+      );
+      assert.equal(host.textContent?.includes("Cancel"), false);
+      assert.equal(host.textContent?.includes("Save and publish"), false);
+      assert.equal(host.querySelectorAll('button[type="submit"]').length, 1);
+      await submit();
+      assert.equal(calls.length, 1);
+      assert.match(host.querySelector('[role="alert"]')!.textContent!, /Could not save item/);
+      assert.equal(host.querySelector("textarea")?.value, "Article");
+      assert.deepEqual(navigations, []);
+      // A refetch must not silently advance the form's reviewed version.
+      await act(async () =>
+        client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
+          id,
+          version: 99,
+          draft: { title: "Someone else's edit" },
+        }),
+      );
+      failSave = false;
+      await submit();
+      assert.ok(calls.at(-1)!.path.endsWith(editing ? "/editRecord" : "/createRecord"));
+      if (editing) assert.equal(calls.at(-1)!.input.expectedVersion, version - 1);
+      assert.deepEqual(navigations, [collectionContentPath("articles")]);
+      assert.equal(
+        client.getQueryData<{ version: number }>(
+          collectionQueries.record("site", "articles", id).queryKey,
+        )?.version,
+        version,
+      );
+    } finally {
+      await act(async () => root.unmount());
       client.clear();
     }
   }

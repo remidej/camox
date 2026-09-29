@@ -20,6 +20,7 @@ export type PublicationTarget =
 export type PublicationItem = {
   key: string;
   label: string;
+  switchLabel?: string;
   impact: string;
   optional: boolean;
 };

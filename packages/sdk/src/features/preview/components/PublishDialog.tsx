@@ -20,11 +20,13 @@ export function PublishDialog({
   pending,
   onPublish,
   onOpenChange,
+  error,
 }: {
   plan: PublicationPlan;
   pending: boolean;
   onPublish: (includedKeys: string[]) => void;
   onOpenChange: (open: boolean) => void;
+  error?: string;
 }) {
   const id = React.useId();
   const [excludedKeys, setExcludedKeys] = React.useState<string[]>([]);
@@ -55,19 +57,26 @@ export function PublishDialog({
                   disabled={pending}
                 />
                 <div className="min-w-0 space-y-1">
-                  <Label htmlFor={`${id}-${item.key}`}>Also publish {item.label}</Label>
+                  <Label htmlFor={`${id}-${item.key}`}>
+                    {item.switchLabel ?? `Also publish ${item.label}`}
+                  </Label>
                   <p className="text-muted-foreground text-sm">{item.impact}</p>
                 </div>
               </div>
             ))}
           </div>
         )}
+        {error && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
+          </p>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel variant="outline" disabled={pending}>
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending}
+            disabled={pending || includedKeys.length === 0}
             onClick={(event) => {
               event.preventDefault();
               onPublish(includedKeys);
