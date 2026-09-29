@@ -248,6 +248,7 @@ function CanvasWorkspace({
           >
             <div
               data-canvas-page={page.key}
+              data-canvas-pathname={pathname}
               className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
               style={{ width: viewport.width, minHeight: viewport.height }}
             >

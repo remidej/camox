@@ -11,9 +11,11 @@ import {
 import * as React from "react";
 
 import type { PreviewPreparationContext } from "../previewPreparation";
+import { ViewportContinuityContext } from "../viewportContinuity";
 
 type Signals = NonNullable<React.ContextType<typeof PreviewPreparationContext>>;
 const preparationUrl = new URL("../previewPreparation.ts", import.meta.url).href;
+const continuityUrl = new URL("../viewportContinuity.ts", import.meta.url).href;
 let imports = 0;
 let failImport = false;
 
@@ -29,13 +31,29 @@ registerHooks({
         shortCircuit: true,
         url: `data:text/javascript,${encodeURIComponent(`
           import { PreviewPreparationContext } from ${JSON.stringify(preparationUrl)};
+          import { ViewportContinuityContext } from ${JSON.stringify(continuityUrl)};
           await globalThis.canvasModuleGate;
           export function CamoxCanvas() {
             const preparation = React.useContext(PreviewPreparationContext);
+            const continuity = React.useContext(ViewportContinuityContext);
             if (globalThis.canvasRenderFails) throw new Error("Canvas could not render");
             React.useLayoutEffect(() => {
               globalThis.canvasSignals.push(preparation);
             }, [preparation]);
+            React.useLayoutEffect(() => {
+              const binding = {
+                capture: () => {
+                  globalThis.viewportEvents.push(["canvas-capture", !!document.querySelector("[data-canvas]")]);
+                  return {camera: {x: -123, y: -456, scale: .7}};
+                },
+                restore: (anchor, camera) => {
+                  globalThis.viewportEvents.push(["restore", anchor, camera,
+                    document.querySelector("[data-canvas-preparation]").style.opacity]);
+                },
+              };
+              continuity.canvas = binding;
+              return () => { if (continuity.canvas === binding) continuity.canvas = null; };
+            }, [continuity]);
             return React.createElement("div", {"data-canvas": true}, "Prepared canvas");
           }
         `)}`,
@@ -49,6 +67,7 @@ void test("Canvas handoff retains the original preview through loading, cancella
   const window = new Window();
   let loadModule!: () => void;
   const signals: Signals[] = [];
+  const viewportEvents: unknown[][] = [];
   const globals = {
     React,
     window,
@@ -62,6 +81,7 @@ void test("Canvas handoff retains the original preview through loading, cancella
     canvasModuleGate: new Promise<void>((resolve) => (loadModule = resolve)),
     canvasSignals: signals,
     canvasRenderFails: false,
+    viewportEvents,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -69,6 +89,25 @@ void test("Canvas handoff retains the original preview through loading, cancella
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
   const { CanvasPreview } = await import("./CanvasPreview");
+  function PreviewProbe() {
+    const continuity = React.useContext(ViewportContinuityContext)!;
+    React.useLayoutEffect(() => {
+      const binding = {
+        capture: () => {
+          viewportEvents.push([
+            "preview-capture",
+            !!window.document.querySelector("[data-site-input]"),
+          ]);
+          return { blockId: "42", offset: 200, y: 800 };
+        },
+      };
+      continuity.preview = binding;
+      return () => {
+        if (continuity.preview === binding) continuity.preview = null;
+      };
+    }, [continuity]);
+    return <input data-site-input defaultValue="Visitor input" />;
+  }
   const root = createRoot(window.document.body as unknown as HTMLElement, {
     onCaughtError() {},
   });
@@ -99,7 +138,7 @@ void test("Canvas handoff retains the original preview through loading, cancella
     await React.act(async () => {
       root.render(
         <CanvasPreview enabled={enabled} pathname={pathname} runtimeBasePath="/mounted">
-          <input data-site-input defaultValue="Visitor input" />
+          <PreviewProbe />
         </CanvasPreview>,
       );
     });
@@ -112,6 +151,7 @@ void test("Canvas handoff retains the original preview through loading, cancella
     assert.equal(toast.getToasts().length, 0);
 
     await render(true);
+    assert.deepEqual(viewportEvents[0], ["preview-capture", true], "capture precedes DOM changes");
     assertToast("loading");
     assert.equal(preview(), original, "the original DOM survives module suspension");
     assert.equal(preview()?.value, "Keep this value");
@@ -132,17 +172,41 @@ void test("Canvas handoff retains the original preview through loading, cancella
     const firstSignals = signals.at(-1)!;
     const firstCanvas = canvas();
     await React.act(async () => firstSignals.ready());
+    assert.deepEqual(
+      viewportEvents[1],
+      ["restore", { blockId: "42", offset: 200, y: 800 }, undefined, "0"],
+      "position is staged before revealing the canvas",
+    );
     assert.equal(preview(), null);
     assert.equal(canvas(), firstCanvas, "revealing does not remount the prepared workspace");
     assert.equal(preparation()?.style.opacity, "1");
     assert.equal(preparation()?.hasAttribute("inert"), false);
     assert.equal(toast.getToasts().length, 0, "readiness silently dismisses the promise toast");
 
+    const beforeSubmode = viewportEvents.length;
+    await render(true);
+    assert.equal(
+      viewportEvents.length,
+      beforeSubmode,
+      "edit/comment rerenders do not hand off the viewport",
+    );
+
     await render(false);
+    assert.deepEqual(
+      viewportEvents[2],
+      ["canvas-capture", true],
+      "capture precedes canvas removal",
+    );
     const outgoing = preview();
     await render(true);
     const cancelled = signals.at(-1)!;
+    const beforeCancel = viewportEvents.length;
     await render(false);
+    assert.equal(
+      viewportEvents.length,
+      beforeCancel,
+      "cancellation does not capture an unrevealed camera",
+    );
     assert.equal(toast.getToasts().length, 0, "cancelling dismisses the loading toast");
     await render(true);
     const current = signals.at(-1)!;

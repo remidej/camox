@@ -1914,6 +1914,7 @@ export function createEditableBlock<
     return (
       <div
         className="group visual-editing-block"
+        data-camox-viewport-block={blockData._id}
         ref={ref}
         style={{
           position: "relative",

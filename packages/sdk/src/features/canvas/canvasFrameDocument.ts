@@ -70,6 +70,27 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
 
+export function measureCanvasDocument(
+  iframe: HTMLIFrameElement,
+  root: HTMLElement,
+  baseline: number,
+) {
+  const doc = root.ownerDocument;
+  adaptCanvasStyleSheets(doc);
+  iframe.style.height = `${baseline}px`;
+  const bodyRect = doc.body.getBoundingClientRect();
+  const rootRect = root.getBoundingClientRect();
+  iframe.style.height = `${Math.ceil(
+    Math.max(
+      baseline,
+      doc.body.scrollHeight + bodyRect.top,
+      doc.documentElement.scrollHeight,
+      rootRect.bottom,
+      root.scrollHeight + rootRect.top,
+    ),
+  )}px`;
+}
+
 /**
  * Re-measure at a fixed baseline, not at the previous full-page height: document scrollHeight
  * is at least viewport height and therefore cannot shrink an already expanded iframe.
@@ -96,20 +117,7 @@ export function observeCanvasDocument(
   });
   function measure() {
     frame = 0;
-    adaptCanvasStyleSheets(doc);
-    iframe.style.height = `${baseline}px`;
-    const bodyRect = doc.body.getBoundingClientRect();
-    const rootRect = root.getBoundingClientRect();
-    const height = Math.ceil(
-      Math.max(
-        baseline,
-        doc.body.scrollHeight + bodyRect.top,
-        doc.documentElement.scrollHeight,
-        rootRect.bottom,
-        root.scrollHeight + rootRect.top,
-      ),
-    );
-    iframe.style.height = `${height}px`;
+    measureCanvasDocument(iframe, root, baseline);
     // Record the *final* geometry to ignore ResizeObserver notifications caused by our sizing.
     const elements = new Set<Element>([doc.body, root, ...root.querySelectorAll("*")]);
     for (const element of sizes.keys()) {
@@ -145,7 +153,9 @@ export function observeCanvasDocument(
   doc.addEventListener("error", schedule, true);
   doc.fonts?.addEventListener("loadingdone", schedule);
   void doc.fonts?.ready.then(schedule);
-  schedule();
+  // The selected frame's readiness effect runs after this layout effect.
+  // Give camera handoffs real page bounds before they reveal the workspace.
+  measure();
   return () => {
     disposed = true;
     cancelAnimationFrame(frame);
