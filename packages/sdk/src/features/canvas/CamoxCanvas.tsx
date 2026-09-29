@@ -285,6 +285,7 @@ function CanvasWorkspace({
             height: CANVAS_HEADER_HEIGHT,
             transform: `translate(calc(var(--canvas-x, 64px) + ${left}px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - ${CANVAS_HEADER_HEIGHT}px))`,
             width: `calc(${viewport.width}px * var(--canvas-zoom, .4))`,
+            willChange: "transform",
           }}
         >
           <CanvasPageHeader

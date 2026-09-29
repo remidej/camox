@@ -101,11 +101,21 @@ export function CanvasOverlays({
                 height: 40,
                 transform: "translateY(-50%)",
                 pointerEvents: "auto",
+                cursor: "default",
               }}
             >
+              <div
+                aria-hidden
+                data-canvas-insertion-line
+                className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 opacity-0 group-focus-within/seam:opacity-100 group-hover/seam:opacity-100"
+                style={{
+                  height: "var(--camox-overlay-width-hover)",
+                  backgroundColor: "var(--camox-overlay-color-hover)",
+                }}
+              />
               <Button
                 size="xs"
-                className="text-white opacity-0 shadow-sm group-focus-within/seam:opacity-100 group-hover/seam:opacity-100"
+                className="relative z-10 text-white opacity-0 shadow-sm group-focus-within/seam:opacity-100 group-hover/seam:opacity-100"
                 style={{ backgroundColor: "var(--camox-overlay-color-selected)" }}
                 onClick={(event) => {
                   event.stopPropagation();

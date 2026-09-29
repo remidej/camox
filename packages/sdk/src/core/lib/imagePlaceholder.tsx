@@ -159,6 +159,7 @@ export function renderImagePlaceholder(
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                           lineHeight: 1.25,
+                          userSelect: "none",
                         }}
                       >
                         {getImagePlaceholderTitle(value)}

@@ -111,8 +111,17 @@ void test("outlines and interactive controls live above the frame, not in the pa
     assert.equal(seam.style.left, "0px");
     assert.equal(seam.style.width, "100%");
     assert.equal(seam.style.height, "40px");
+    assert.equal(seam.style.pointerEvents, "auto");
+    assert.equal(seam.style.cursor, "default");
+    const line = seam.querySelector("[data-canvas-insertion-line]") as unknown as HTMLElement;
+    assert.ok(line);
+    assert.equal(line.style.height, "var(--camox-overlay-width-hover)");
+    assert.equal(line.style.backgroundColor, "var(--camox-overlay-color-hover)");
+    assert.ok(line.classList.contains("inset-x-0"));
+    assert.ok(line.classList.contains("group-hover/seam:opacity-100"));
     const button = layer.querySelector("button")!;
     assert.equal(button.style.backgroundColor, "var(--camox-overlay-color-selected)");
+    assert.ok(button.classList.contains("z-10"));
     assert.ok(button.classList.contains("opacity-0"));
     assert.ok(button.classList.contains("group-hover/seam:opacity-100"));
     assert.ok(button.classList.contains("group-focus-within/seam:opacity-100"));
