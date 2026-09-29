@@ -72,7 +72,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(editModeLabel, /class="camox-platform-other">Ctrl ↵/);
   assert.match(html, /class="camox-platform-mac">⌘ K/);
   assert.match(html, /class="camox-platform-other">Ctrl K/);
-  assert.match(html, /View live site/);
+  assert.match(html, /Pending changes/);
   assert.match(html, /PROD/);
   assert.doesNotMatch(html, /camox-loading|Loading editor/);
   assert.match(html, /<iframe[^>]+srcDoc=/i);
@@ -93,9 +93,18 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   );
   assert.match(studioHtml, /My actual project/);
   assert.match(studioHtml, /Quick find/);
-  assert.match(studioHtml, /View live site/);
-  assert.ok(studioHtml.indexOf("View live site") < studioHtml.indexOf("Quick find"));
+  assert.match(studioHtml, /Pending changes/);
+  assert.ok(studioHtml.indexOf("Pending changes") < studioHtml.indexOf("Quick find"));
   assert.doesNotMatch(studioHtml, /camox-loading/);
+
+  const { canViewLiveSite, getSiteStatus } =
+    await import("../studio/components/SiteStatusIndicator");
+  assert.equal(getSiteStatus([{ status: "published" }, { status: "published" }]), "live");
+  assert.equal(getSiteStatus([{ status: "published" }, { status: "modified" }]), "pending");
+  assert.equal(getSiteStatus([]), "pending");
+  assert.equal(canViewLiveSite([{ livePublishedCheckpointId: 1 }], "draft"), true);
+  assert.equal(canViewLiveSite([{ livePublishedCheckpointId: null }], "draft"), false);
+  assert.equal(canViewLiveSite([{ livePublishedCheckpointId: 1 }], "live"), false);
 
   const { getNavbarLinks } = await import("../studio/components/Navbar");
   const { CamoxStudio } = await import("../studio/CamoxStudio");
