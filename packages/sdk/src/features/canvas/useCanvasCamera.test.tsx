@@ -84,6 +84,10 @@ void test("page-fit gestures snap, escape, and assist only vertical scrolling wi
         const batch = [...callbacks.values()];
         callbacks.clear();
         batch.forEach((callback) => callback(count * 16 + 16));
+        assert.equal(
+          viewport.style.getPropertyValue("--canvas-overlays-display"),
+          read().scale < 0.3 ? "none" : "block",
+        );
         check();
       }
       assert.equal(callbacks.size, 0);

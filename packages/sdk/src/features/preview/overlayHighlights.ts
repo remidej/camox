@@ -1,10 +1,5 @@
 const states = ["hovered", "focused"] as const;
 
-/** Detached borders represent their parent, not the portal div's DOM depth. */
-function targetOf(element: Element): Element {
-  return element.hasAttribute("data-camox-detached") ? (element.parentElement ?? element) : element;
-}
-
 function depthOf(element: Element): number {
   let depth = 0;
   for (let parent = element.parentElement; parent; parent = parent.parentElement) depth++;
@@ -17,17 +12,21 @@ function depthOf(element: Element): number {
  * A repeater-level hover represents all items in that group, not just its deepest
  * item. Individual targets still resolve by depth, with document order breaking ties.
  */
-export function observeOverlayHighlights(document: Document): () => void {
+export function observeOverlayHighlights(
+  document: Document,
+  isEligible: (element: Element) => boolean = () => true,
+): { refresh: () => void; dispose: () => void } {
   const Observer = document.defaultView?.MutationObserver;
-  if (!Observer) return () => {};
   const winners = new Map<(typeof states)[number], Set<Element>>();
   const update = () => {
     for (const state of states) {
       let winner: Element | undefined;
       let deepest = -1;
-      const candidates = Array.from(document.querySelectorAll(`[data-camox-${state}]`));
+      const candidates = Array.from(document.querySelectorAll(`[data-camox-${state}]`)).filter(
+        isEligible,
+      );
       for (const candidate of candidates) {
-        const depth = depthOf(targetOf(candidate));
+        const depth = depthOf(candidate);
         if (depth <= deepest) continue;
         deepest = depth;
         winner = candidate;
@@ -52,18 +51,21 @@ export function observeOverlayHighlights(document: Document): () => void {
       winners.set(state, next);
     }
   };
-  const observer = new Observer(update);
-  observer.observe(document, {
+  const observer = Observer ? new Observer(update) : undefined;
+  observer?.observe(document, {
     subtree: true,
     childList: true,
     attributes: true,
     attributeFilter: [...states.map((state) => `data-camox-${state}`), "data-camox-hover-group"],
   });
   update();
-  return () => {
-    observer.disconnect();
-    for (const [state, elements] of winners) {
-      for (const element of elements) element.removeAttribute(`data-camox-highlight-${state}`);
-    }
+  return {
+    refresh: update,
+    dispose: () => {
+      observer?.disconnect();
+      for (const [state, elements] of winners) {
+        for (const element of elements) element.removeAttribute(`data-camox-highlight-${state}`);
+      }
+    },
   };
 }

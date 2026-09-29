@@ -1,18 +1,8 @@
-/*
- * Visual editing overlay styles injected into the preview iframe.
- *
- * State is driven by data attributes on the elements:
- * - data-camox-highlight-hovered: deepest hovered target, or all items in a hovered repeater
- * - data-camox-highlight-focused: deepest focused/selected element
- * - data-camox-overlay-mode="synced": use synced-block (purple) colors
- *
- * Elements are targeted via their existing data attributes:
- * - [data-camox-field-id]: Field, Link, Image, Embed
- * - [data-camox-block-id]: BlockComponent, Detached
- * - [data-camox-repeater-item-id]: RepeaterItemWrapper
- */
+/* Page editing affordances and canvas-only visual overlays. The page document
+   publishes target metadata, but never paints selection/hover decorations. */
 
-:root {
+:root,
+.camox-canvas-overlays {
   --camox-overlay-color-hover: #f472b6bf; /* pink-400 at 75% */
   --camox-overlay-color-selected: #f472b6; /* pink-400 */
   --camox-overlay-width-hover: 3px;
@@ -29,147 +19,35 @@ html[data-camox-edit-mode] iframe {
   pointer-events: none !important;
 }
 
-/* Position context for typed-field, repeater, and detached overlays.
-   BlockComponent already has position: relative inline.
-   Inline string fields don't use ::after (see box-shadow rules below) so they
-   don't need position: relative — adding it to inline elements wouldn't help
-   since inline-relative containing blocks collapse to the start fragment. */
-[data-camox-field-id][data-camox-field-type],
-[data-camox-repeater-item-id] {
-  position: relative;
-}
-
-/* ---- Hovered state ---- */
-
-[data-camox-field-id][data-camox-field-type][data-camox-highlight-hovered]::after,
-[data-camox-block-id][data-camox-highlight-hovered]:not([data-camox-detached])::after,
-[data-camox-repeater-item-id][data-camox-highlight-hovered]::after {
+.camox-canvas-outline::after {
   content: "";
   position: absolute;
   pointer-events: none;
-  z-index: 10;
+  box-sizing: border-box;
   inset: var(--camox-overlay-inset-block-hover);
   border: var(--camox-overlay-width-hover) solid var(--camox-overlay-color-hover);
 }
 
-/* ---- Focused state (overrides hovered via source order) ---- */
-
-[data-camox-field-id][data-camox-field-type][data-camox-highlight-focused]::after,
-[data-camox-block-id][data-camox-highlight-focused]:not([data-camox-detached])::after,
-[data-camox-repeater-item-id][data-camox-highlight-focused]::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  z-index: 10;
+.camox-canvas-outline[data-camox-highlight-focused]::after {
   inset: var(--camox-overlay-inset-block-selected);
   border: var(--camox-overlay-width-selected) solid var(--camox-overlay-color-selected);
 }
 
-/* ---- Inline string fields ----
-   Use box-shadow + box-decoration-break: clone so the outline repeats per line
-   fragment when the inline wraps. Applied directly to the element via attribute
-   selectors with !important so user-supplied className/style box-shadows can't
-   clobber it. */
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-hovered],
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-focused] {
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
+/* One canvas rectangle per inline fragment preserves wrapped text outlines. */
+.camox-canvas-outline[data-camox-inline]::after {
+  inset: 0;
+  border: none;
+  box-shadow: 0 0 0 var(--camox-overlay-width-hover) var(--camox-overlay-color-hover);
 }
 
-/* SVG roots cannot render ::after; use the same direct outline as text fields. */
-svg[data-camox-field-type="icon"][data-camox-highlight-hovered],
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-hovered] {
-  box-shadow: 0 0 0 var(--camox-overlay-width-hover) var(--camox-overlay-color-hover) !important;
-}
-
-svg[data-camox-field-type="icon"][data-camox-highlight-focused],
-[data-camox-field-id]:not([data-camox-field-type])[data-camox-highlight-focused] {
-  box-shadow: 0 0 0 var(--camox-overlay-width-selected) var(--camox-overlay-color-selected) !important;
+.camox-canvas-outline[data-camox-inline][data-camox-highlight-focused]::after {
+  box-shadow: 0 0 0 var(--camox-overlay-width-selected) var(--camox-overlay-color-selected);
 }
 
 /* Shared data is purple, regardless of whether its placement is in a layout. */
 [data-camox-overlay-mode="synced"] {
   --camox-overlay-color-hover: #c084fcbf;
   --camox-overlay-color-selected: #c084fc;
-}
-
-/* ---- Embed: z-index above click-interceptor ---- */
-
-[data-camox-field-type="embed"][data-camox-highlight-hovered]::after,
-[data-camox-field-type="embed"][data-camox-highlight-focused]::after {
-  z-index: 11;
-}
-
-/* ---- Detached: styled directly (not ::after) because the parent element
-   (e.g. fixed navbar) must not get position: relative ---- */
-
-[data-camox-detached][data-camox-highlight-hovered] {
-  inset: var(--camox-overlay-inset-block-hover);
-  border: var(--camox-overlay-width-hover) solid var(--camox-overlay-color-hover);
-}
-
-[data-camox-detached][data-camox-highlight-focused] {
-  inset: var(--camox-overlay-inset-block-selected);
-  border: var(--camox-overlay-width-selected) solid var(--camox-overlay-color-selected);
-}
-
-/* ---- Add block control bar ---- */
-
-.camox-add-block {
-  position: absolute;
-  left: 50%;
-  right: 0;
-  height: 36px;
-  width: fit-content;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 11;
-  transition: opacity 150ms ease;
-}
-
-.camox-add-block[data-camox-position="top"] {
-  top: 0;
-  transform: translateX(-50%) translateY(-50%);
-}
-
-.camox-add-block[data-camox-position="bottom"] {
-  bottom: 0;
-  transform: translateX(-50%) translateY(50%);
-}
-
-.camox-add-block-hitarea {
-  width: 120px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.camox-add-block-button {
-  display: flex;
-  align-items: center;
-  gap: 0px;
-  padding: 0px;
-  width: 20px;
-  height: 20px;
-  justify-content: center;
-  background-color: var(--camox-overlay-color-selected);
-  color: white;
-  border: none;
-  border-radius: 9999px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 150ms ease;
-}
-
-.camox-add-block-button[data-camox-expanded] {
-  gap: 4px;
-  padding: 4px 8px;
-  width: auto;
-  height: auto;
 }
 
 /* ---- Block error boundary ---- */

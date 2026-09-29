@@ -14,7 +14,7 @@ void test("one deepest highlight per state, including remote candidates and remo
         <span id="field" data-camox-field-id="title" data-camox-hovered data-camox-focused></span>
       </div>
     </div>`;
-  const stop = observeOverlayHighlights(document as unknown as Document);
+  const { dispose: stop } = observeOverlayHighlights(document as unknown as Document);
   const highlighted = (state: string) =>
     Array.from(document.querySelectorAll(`[data-camox-highlight-${state}]`), (el) => el.id);
   try {
@@ -63,7 +63,7 @@ void test("repeater hover highlights its whole group and preserves individual se
         <div id="second" data-camox-hovered data-camox-hover-group="list" data-camox-focused></div>
       </div>
     </div>`;
-  const stop = observeOverlayHighlights(document as unknown as Document);
+  const { dispose: stop } = observeOverlayHighlights(document as unknown as Document);
   const highlighted = (state: string) =>
     Array.from(document.querySelectorAll(`[data-camox-highlight-${state}]`), (el) => el.id);
   try {
@@ -106,17 +106,16 @@ void test("repeater hover highlights its whole group and preserves individual se
   }
 });
 
-void test("detached borders cannot outrank fields inside their represented container", async () => {
+void test("Detached targets cannot outrank their own fields", async () => {
   const window = new Window();
   const document = window.document;
   document.body.innerHTML = `
     <div data-camox-block-id="1" data-camox-focused>
-      <nav>
-        <div id="border" data-camox-detached data-camox-block-id="1" data-camox-focused></div>
+      <nav id="border" data-camox-block-id="1" data-camox-focused>
         <svg id="icon" data-camox-field-id="icon" data-camox-field-type="icon" data-camox-focused></svg>
       </nav>
     </div>`;
-  const stop = observeOverlayHighlights(document as unknown as Document);
+  const { dispose: stop } = observeOverlayHighlights(document as unknown as Document);
   try {
     assert.equal(document.querySelector("[data-camox-highlight-focused]")?.id, "icon");
     document.getElementById("icon")!.removeAttribute("data-camox-focused");

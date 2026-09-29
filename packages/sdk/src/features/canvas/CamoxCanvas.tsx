@@ -218,7 +218,7 @@ function CanvasWorkspace({
           >
             <div
               data-canvas-page={page.key}
-              className="bg-background shrink-0 overflow-hidden shadow-xl ring-1 ring-black/10"
+              className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
               style={{ width: CANVAS_VIEWPORT.width, minHeight: CANVAS_VIEWPORT.height }}
             >
               <CanvasPageBoundary key={pathname}>

@@ -1,6 +1,7 @@
 import { HydrationBoundary, type DehydratedState } from "@tanstack/react-query";
 import * as React from "react";
 import { createPortal } from "react-dom";
+import overlayStyles from "virtual:camox-overlay-css";
 
 import { NavigationProvider } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
@@ -14,6 +15,7 @@ import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
 import { canvasPageHref, createCanvasDocument, observeCanvasDocument } from "./canvasFrameDocument";
+import { CanvasOverlays } from "./CanvasOverlays";
 
 const noNavigation = () => {};
 
@@ -118,63 +120,73 @@ function PageFrame({ input, width, viewportHeight, pageId, onActivate }: CanvasP
                 iframeElement: iframeRef.current,
               }}
             >
-              {srcDoc && (
-                <iframe
-                  ref={iframeRef}
-                  title={`Page preview: ${input.pathname}`}
-                  srcDoc={srcDoc}
-                  style={{
-                    display: "block",
-                    width,
-                    height: viewportHeight,
-                    border: 0,
-                  }}
-                  onLoad={() => {
-                    try {
-                      const doc = iframeRef.current?.contentDocument;
-                      const root = doc?.querySelector<HTMLElement>("[data-camox-preview-root]");
-                      if (!root) throw new Error("The page preview document has no content root.");
-                      if (root === mount) return;
-                      root.replaceChildren();
-                      setMount(root);
-                    } catch (error) {
-                      setFailure(error instanceof Error ? error : new Error(String(error)));
+              <CanvasOverlays
+                document={mount?.ownerDocument ?? null}
+                activate={activate}
+                canAddBlocks={owner?.kind === "page"}
+              >
+                <style>{overlayStyles}</style>
+                {srcDoc && (
+                  <iframe
+                    ref={iframeRef}
+                    title={`Page preview: ${input.pathname}`}
+                    srcDoc={srcDoc}
+                    style={{
+                      display: "block",
+                      width,
+                      height: viewportHeight,
+                      border: 0,
+                    }}
+                    onLoad={() => {
+                      try {
+                        const doc = iframeRef.current?.contentDocument;
+                        const root = doc?.querySelector<HTMLElement>("[data-camox-preview-root]");
+                        if (!root)
+                          throw new Error("The page preview document has no content root.");
+                        if (root === mount) return;
+                        root.replaceChildren();
+                        setMount(root);
+                      } catch (error) {
+                        setFailure(error instanceof Error ? error : new Error(String(error)));
+                      }
+                    }}
+                    onError={() =>
+                      setFailure(new Error("The page preview document could not load."))
                     }
-                  }}
-                  onError={() => setFailure(new Error("The page preview document could not load."))}
-                />
-              )}
-              {mount &&
-                createPortal(
-                  <React.Suspense fallback={<div role="status">Loading page…</div>}>
-                    <div
-                      style={{ display: "contents" }}
-                      onPointerDownCapture={activate}
-                      onFocusCapture={activate}
-                      onClick={(event) => {
-                        // Selecting/editing must not navigate the iframe away from its portal.
-                        if ((event.target as Element).closest("a")) event.preventDefault();
-                      }}
-                    >
-                      {input.derived ? (
-                        <DerivedPageContent
-                          camoxApp={camoxApp}
-                          derived={input.derived}
-                          source={input.source}
-                        />
-                      ) : (
-                        <EditablePageContent />
-                      )}
-                      <PreviewFrameEffects />
-                      <Overlays
-                        iframeElement={iframeRef.current}
-                        owner={owner}
-                        canAddBlocks={owner?.kind === "page"}
-                      />
-                    </div>
-                  </React.Suspense>,
-                  mount,
+                  />
                 )}
+                {mount &&
+                  createPortal(
+                    <React.Suspense fallback={<div role="status">Loading page…</div>}>
+                      <div
+                        style={{ display: "contents" }}
+                        onPointerDownCapture={activate}
+                        onFocusCapture={activate}
+                        onClick={(event) => {
+                          // Selecting/editing must not navigate the iframe away from its portal.
+                          if ((event.target as Element).closest("a")) event.preventDefault();
+                        }}
+                      >
+                        {input.derived ? (
+                          <DerivedPageContent
+                            camoxApp={camoxApp}
+                            derived={input.derived}
+                            source={input.source}
+                          />
+                        ) : (
+                          <EditablePageContent />
+                        )}
+                        <PreviewFrameEffects />
+                        <Overlays
+                          iframeElement={iframeRef.current}
+                          owner={owner}
+                          canAddBlocks={owner?.kind === "page"}
+                        />
+                      </div>
+                    </React.Suspense>,
+                    mount,
+                  )}
+              </CanvasOverlays>
             </FrameContext.Provider>
           </PreviewDocumentContext.Provider>
         </NavigationProvider>

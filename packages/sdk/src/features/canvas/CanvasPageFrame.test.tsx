@@ -13,6 +13,7 @@ import type { PageRenderInput } from "../runtime/runtime";
 registerHooks({
   resolve(specifier, context, nextResolve) {
     let source: string | undefined;
+    if (specifier === "virtual:camox-overlay-css") source = "export default ''";
     if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
     if (context.parentURL?.endsWith("/CanvasPageFrame.tsx")) {
       if (specifier.endsWith("/CamoxAppContext")) source = "export const useCamoxApp = () => ({})";

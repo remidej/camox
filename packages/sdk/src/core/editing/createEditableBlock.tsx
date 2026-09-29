@@ -3,7 +3,6 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
-import { createPortal } from "react-dom";
 
 import { useLocation } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
@@ -16,7 +15,6 @@ import {
 } from "@/lib/queries";
 
 import { useFrame } from "../../features/preview/components/Frame";
-import { postOverlayMessage } from "../../features/preview/overlayMessages";
 import {
   usePreviewSelection,
   usePreviewTargetSelection,
@@ -29,7 +27,6 @@ import {
   isItemMarker,
   resolveFileMarker,
 } from "../../lib/normalized-data";
-import { AddBlockControlBar } from "../components/AddBlockControlBar.tsx";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
 import { useFieldSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
@@ -664,10 +661,9 @@ export function createEditableBlock<
    * ---------------------------------------------------------------------- */
 
   /** Common overlay props passed to editable field render functions.
-   *  Field and Link spread these directly onto the user's element (text/inline
-   *  elements support ::after for overlay borders).  Image and Embed keep them
-   *  on an internal wrapper <div> because <img>/<iframe> can't host
-   *  pseudo-elements, so their render-prop types don't include these. */
+   *  Field and Link spread these onto the user's element for canvas measurement.
+   *  Image and Embed keep them on an internal wrapper that also handles editing
+   *  interactions, so their render-prop types don't include these. */
   type EditableProps = {
     ref?: React.Ref<any>;
     "data-camox-field-id"?: string;
@@ -721,9 +717,10 @@ export function createEditableBlock<
   type EmbedRenderData = { url: string };
 
   type DetachedRenderProps = {
-    "data-camox-comment-block-id"?: number;
-    ref: (element: HTMLElement | null) => void;
-    style: React.CSSProperties;
+    "data-camox-block-id"?: number;
+    "data-camox-hovered"?: boolean;
+    "data-camox-focused"?: boolean;
+    "data-camox-overlay-mode"?: "synced";
     onClickCapture: (e: React.MouseEvent) => void;
     onMouseEnter: () => void;
     onMouseLeave: () => void;
@@ -1900,26 +1897,13 @@ export function createEditableBlock<
     };
 
     const handleMouseEnter = () => {
-      if (isContentEditable) {
-        setIsHovered(true);
-      }
+      if (!isContentEditable) return;
+      setIsHovered(true);
     };
 
     const handleMouseLeave = () => {
-      if (isContentEditable) {
-        setIsHovered(false);
-      }
-    };
-
-    const handleAddBlockClick = (insertPosition: "before" | "after") => {
-      postOverlayMessage({
-        type: "CAMOX_ADD_BLOCK_REQUEST",
-        blockPosition: blockData.position,
-        insertPosition,
-        ...(addBlockAfterPosition !== undefined && {
-          afterPosition: addBlockAfterPosition,
-        }),
-      });
+      if (!isContentEditable) return;
+      setIsHovered(false);
     };
 
     // The bright colors overlays to show selection and editable content
@@ -1937,6 +1921,18 @@ export function createEditableBlock<
           background: "var(--background)",
         }}
         data-camox-block-id={isContentEditable ? blockData._id : undefined}
+        data-camox-block-insertion={
+          isContentEditable
+            ? JSON.stringify({
+                position: blockData.position,
+                before: showAddBlockTop ?? (mode !== "layout" && !isFirstBlock),
+                after: showAddBlockBottom ?? mode !== "layout",
+                ...(addBlockAfterPosition !== undefined
+                  ? { afterPosition: addBlockAfterPosition }
+                  : {}),
+              })
+            : undefined
+        }
         {...(shouldShowOverlay ? overlayState : {})}
         data-camox-overlay-mode={options.synced ? "synced" : undefined}
         onClickCapture={handleClick}
@@ -1974,32 +1970,6 @@ export function createEditableBlock<
         >
           <options.component content={normalizedContent} />
         </Context.Provider>
-        {/* AddBlock controls */}
-        {shouldShowOverlay &&
-          !isCommentMode &&
-          (() => {
-            // Use explicit show flags if provided, otherwise fall back to legacy behavior
-            const displayTop = showAddBlockTop ?? (mode !== "layout" && !isFirstBlock);
-            const displayBottom = showAddBlockBottom ?? mode !== "layout";
-            return (
-              <>
-                {displayTop && (
-                  <AddBlockControlBar
-                    position="top"
-                    onMouseLeave={() => setIsHovered(false)}
-                    onClick={() => handleAddBlockClick("before")}
-                  />
-                )}
-                {displayBottom && (
-                  <AddBlockControlBar
-                    position="bottom"
-                    onMouseLeave={() => setIsHovered(false)}
-                    onClick={() => handleAddBlockClick("after")}
-                  />
-                )}
-              </>
-            );
-          })()}
       </div>
     );
   };
@@ -2079,40 +2049,16 @@ export function createEditableBlock<
       }
     };
 
-    const [container, setContainer] = React.useState<HTMLElement | null>(null);
-
     return (
       <>
         {children({
-          "data-camox-comment-block-id": isContentEditable ? blockId : undefined,
-          ref: setContainer,
-          style: {},
+          "data-camox-block-id": isContentEditable ? blockId : undefined,
+          ...(shouldShowOverlay ? overlayState : {}),
+          "data-camox-overlay-mode": options.synced ? "synced" : undefined,
           onClickCapture: handleClick,
           onMouseEnter: handleMouseEnter,
           onMouseLeave: handleMouseLeave,
         } satisfies DetachedRenderProps)}
-        {container &&
-          createPortal(
-            <>
-              {/* Border overlay — uses CSS via data attributes like other components,
-                 but rendered as a portal div (not ::after) because Detached wraps
-                 user elements (e.g. fixed navbars) that must not get position: relative */}
-              {shouldShowOverlay && (
-                <div
-                  data-camox-block-id={blockId}
-                  data-camox-detached
-                  {...overlayState}
-                  data-camox-overlay-mode={options.synced ? "synced" : undefined}
-                  style={{
-                    position: "absolute",
-                    pointerEvents: "none",
-                    zIndex: 10,
-                  }}
-                />
-              )}
-            </>,
-            container,
-          )}
       </>
     );
   };
