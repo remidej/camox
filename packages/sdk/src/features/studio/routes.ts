@@ -2,14 +2,6 @@ export const STUDIO_ROUTE_SEGMENT = "camox";
 export const STUDIO_BASE_PATH = `/${STUDIO_ROUTE_SEGMENT}`;
 export const STUDIO_CONTENT_PATH = `${STUDIO_BASE_PATH}/content`;
 export const STUDIO_ASSETS_PATH = `${STUDIO_CONTENT_PATH}/assets`;
-export const STUDIO_CANVAS_PATH = `${STUDIO_BASE_PATH}/canvas`;
-
-export const isCanvasPath = (pathname: string) =>
-  pathname === STUDIO_CANVAS_PATH || pathname.startsWith(`${STUDIO_CANVAS_PATH}/`);
-
-export const isCanvasEnabled = () =>
-  typeof __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ !== "undefined" &&
-  __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
 
 export const collectionContentPath = (collectionId: string) =>
   `${STUDIO_CONTENT_PATH}/collections/${encodeURIComponent(collectionId)}`;

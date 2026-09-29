@@ -14,7 +14,7 @@ export function BlockEditingRuntimeProvider({
   runtime,
 }: {
   children: React.ReactNode;
-  runtime: BlockEditingRuntime;
+  runtime: BlockEditingRuntime | null;
 }) {
   return (
     <BlockEditingRuntimeContext.Provider value={runtime}>

@@ -1,6 +1,6 @@
 import { Button } from "@camox/ui/button";
 import { Kbd } from "@camox/ui/kbd";
-import { Globe, SearchIcon, Database, PanelsTopLeft } from "lucide-react";
+import { Globe, SearchIcon, Database } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
 
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { PlatformLabel } from "../../../components/PlatformLabel";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
-import { isCanvasEnabled, STUDIO_CANVAS_PATH, STUDIO_CONTENT_PATH } from "../routes";
+import { STUDIO_CONTENT_PATH } from "../routes";
 import { studioStore } from "../studioStore";
 import { EnvironmentMenu } from "./EnvironmentMenu";
 import { ProjectMenu } from "./ProjectMenu";
@@ -42,18 +42,6 @@ const links = [
     icon: "FileText",
     aliases: ["Content", "Pages", "CMS"],
   },
-  {
-    to: STUDIO_CANVAS_PATH as LinkProps["to"],
-    title: "Canvas",
-    children: (
-      <>
-        <PanelsTopLeft className="h-4 w-4" />
-        Canvas
-      </>
-    ),
-    icon: "PanelsTopLeft",
-    aliases: ["Canvas"],
-  },
 ] satisfies Array<{
   to: LinkProps["to"];
   title: string;
@@ -62,8 +50,7 @@ const links = [
   aliases: string[];
 }>;
 
-export const getNavbarLinks = () =>
-  links.filter((link) => link.to !== STUDIO_CANVAS_PATH || isCanvasEnabled());
+export const getNavbarLinks = () => links;
 
 const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
   const pages = usePageDestinations();

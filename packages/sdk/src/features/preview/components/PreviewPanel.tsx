@@ -4,26 +4,17 @@ import * as React from "react";
 
 import { checkIfInputFocused, cn } from "@/lib/utils";
 
-import type { Action } from "../../provider/actionsStore";
+import { BlockEditingRuntimeProvider } from "../../../core/editing/BlockEditingRuntime";
 import { actionsStore } from "../../provider/actionsStore";
 import { SharedChromeContext } from "../../runtime/SharedChromeContext";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import {
-  previewStore,
-  selectIsCommentMode,
-  selectIsEditMode,
-  type EditingOwner,
-  type ViewportMode,
-} from "../previewStore";
+import { previewStore, type EditingOwner, type ViewportMode } from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
-import { FieldToolbar } from "./FieldToolbar";
 import { Frame, useFrame } from "./Frame";
 import { MobilePreviewDrawer } from "./MobilePreviewDrawer";
-import { Overlays } from "./Overlays";
 import { OverlayTracker } from "./OverlayTracker";
 import type { PreviewedPage } from "./PageNavigatorSidebar";
-import { PreviewComments } from "./PreviewComments";
 import { PreviewToolbar } from "./PreviewToolbar";
 
 /* -------------------------------------------------------------------------------------------------
@@ -44,7 +35,7 @@ export const PreviewFrame = ({
   return (
     <Frame className={className} style={style} onIframeReady={onIframeReady}>
       {children}
-      <PreviewFrameEffects />
+      <KeyDownForwarder />
     </Frame>
   );
 };
@@ -156,6 +147,7 @@ const viewportClassName: Record<Exclude<ViewportMode, "full">, string> = {
 
 interface PreviewPanelProps {
   children: React.ReactNode;
+  active?: boolean;
   isMobileExperience?: boolean;
   page?: PreviewedPage;
   layoutId?: number;
@@ -163,13 +155,14 @@ interface PreviewPanelProps {
   toolbarProps?: React.ComponentProps<typeof PreviewToolbar>;
 }
 
-function CuratedBlockShortcuts() {
+export function CuratedBlockShortcuts() {
   useBlockActionsShortcuts();
   return null;
 }
 
 const PreviewPanel = ({
   children,
+  active = true,
   isMobileExperience = false,
   page,
   layoutId,
@@ -183,79 +176,38 @@ const PreviewPanel = ({
     if (layoutId != null) return { kind: "layout", layoutId };
     return null;
   }, [pageId, layoutId]);
+  const activeRef = React.useRef(active);
+  const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   React.useLayoutEffect(() => {
+    activeRef.current = active;
+    return () => {
+      activeRef.current = false;
+    };
+  }, [active]);
+  React.useLayoutEffect(() => {
+    if (!active) return;
+    if (iframeRef.current) {
+      previewStore.send({ type: "setIframeElement", element: iframeRef.current });
+    }
     if (owner?.kind === "layout") {
       previewStore.send({ type: "activateLayout", layoutId: owner.layoutId });
       return;
     }
     previewStore.send({ type: "activatePage", pageId: owner?.pageId ?? null });
-  }, [owner]);
-  const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
+  }, [active, owner]);
   const handleIframeReady = React.useCallback((element: HTMLIFrameElement) => {
+    iframeRef.current = element;
+    // A retained frame can finish loading after Canvas has taken ownership.
+    if (!activeRef.current) return;
     previewStore.send({ type: "setIframeElement", element });
   }, []);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
-  const isEditMode = useSelector(previewStore, selectIsEditMode);
-  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  React.useEffect(() => {
-    const actions = [
-      {
-        id: "cycle-viewport-mode",
-        label: "Cycle viewport mode",
-        aliases: ["Responsive preview", "Viewport preview", "Device preview"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => true,
-        execute: () => previewStore.send({ type: "cycleViewportMode" }),
-        shortcut: { key: "m" },
-      },
-      {
-        id: "set-viewport-full",
-        label: "Set full viewport",
-        aliases: ["Full preview", "Desktop preview", "Full width preview"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => true,
-        execute: () => previewStore.send({ type: "setViewportMode", mode: "full" }),
-      },
-      {
-        id: "set-viewport-tablet",
-        label: "Set tablet viewport",
-        aliases: ["Tablet preview", "Responsive preview"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => true,
-        execute: () => previewStore.send({ type: "setViewportMode", mode: "tablet" }),
-      },
-      {
-        id: "set-viewport-mobile",
-        label: "Set mobile viewport",
-        aliases: ["Mobile preview", "Phone preview", "Responsive preview"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => true,
-        execute: () => previewStore.send({ type: "setViewportMode", mode: "mobile" }),
-      },
-      {
-        id: "clear-selection",
-        label: "Clear selection",
-        aliases: ["Deselect", "Unselect"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => true,
-        execute: () => {
-          previewStore.send({ type: "setCommentMode", enabled: false });
-          previewStore.send({ type: "clearSelection" });
-        },
-        shortcut: { key: "Escape" },
-      },
-    ] satisfies Action[];
-
-    actionsStore.send({ type: "registerManyActions", actions });
-
-    return () => {
-      actionsStore.send({
-        type: "unregisterManyActions",
-        ids: actions.map((a) => a.id),
-      });
-    };
-  }, []);
+  // Keep the same boundary from the initial render so mode changes never enable
+  // editing in this tree or remount the retained page while Canvas prepares.
+  const readOnlyChildren = (
+    <BlockEditingRuntimeProvider runtime={null}>{children}</BlockEditingRuntimeProvider>
+  );
 
   if (isMobileExperience) {
     return (
@@ -263,10 +215,11 @@ const PreviewPanel = ({
         <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
           <div className="relative min-h-0 flex-1">
             <PreviewFrame className="h-full w-full" onIframeReady={handleIframeReady}>
-              {children}
+              {readOnlyChildren}
             </PreviewFrame>
           </div>
-          {!isToolbarHidden &&
+          {active &&
+            !isToolbarHidden &&
             (page ? (
               <MobilePreviewDrawer page={page} projectName={projectName} />
             ) : (
@@ -279,46 +232,22 @@ const PreviewPanel = ({
 
   return (
     <PreviewEditingOwnerContext value={owner}>
-      {page && !isCommentMode && <CuratedBlockShortcuts />}
-      {page && <PreviewComments key={page.id} />}
       <PanelContent className="relative overflow-hidden bg-black">
         <div className="absolute inset-0">
           {viewportMode === "full" ? (
-            <>
-              <PreviewFrame className="checkered h-full w-full" onIframeReady={handleIframeReady}>
-                {children}
-              </PreviewFrame>
-              {isEditMode && !isCommentMode && (
-                <Overlays iframeElement={iframeElement} canAddBlocks={!!page} owner={owner} />
-              )}
-              {isEditMode && !isCommentMode && <FieldToolbar />}
-              {!sharedChrome && <PreviewToolbar {...toolbarProps} />}
-            </>
+            <PreviewFrame className="checkered h-full w-full" onIframeReady={handleIframeReady}>
+              {readOnlyChildren}
+            </PreviewFrame>
           ) : (
-            <div
-              className={cn(
-                "checkered flex h-full justify-center",
-                isEditMode ? "items-start" : "items-center",
-              )}
-            >
-              <div
-                className={cn(
-                  "relative overflow-hidden",
-                  viewportClassName[viewportMode],
-                  isEditMode && "mt-8",
-                )}
-              >
+            <div className="checkered flex h-full items-center justify-center">
+              <div className={cn("relative overflow-hidden", viewportClassName[viewportMode])}>
                 <PreviewFrame className="overflow-auto" onIframeReady={handleIframeReady}>
-                  {children}
+                  {readOnlyChildren}
                 </PreviewFrame>
-                {isEditMode && !isCommentMode && (
-                  <Overlays iframeElement={iframeElement} canAddBlocks={!!page} owner={owner} />
-                )}
               </div>
-              {isEditMode && !isCommentMode && <FieldToolbar />}
-              {!sharedChrome && <PreviewToolbar {...toolbarProps} />}
             </div>
           )}
+          {active && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
         </div>
       </PanelContent>
     </PreviewEditingOwnerContext>

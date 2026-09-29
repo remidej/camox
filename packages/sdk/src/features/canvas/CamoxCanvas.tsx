@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
+import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
 import { pageQueries, projectQueries } from "../../lib/queries";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { FieldToolbar } from "../preview/components/FieldToolbar";
-import { previewStore, type EditingOwner } from "../preview/previewStore";
+import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
+import { PreviewPreparationContext } from "../preview/previewPreparation";
+import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -20,13 +23,23 @@ import {
   type CanvasPage,
 } from "./canvasPages";
 import { CanvasRightSidebar } from "./CanvasRightSidebar";
-import { canvasSelectionUrl, selectedCanvasPage, selectedCanvasPath } from "./canvasSelection";
+import { selectedCanvasPage } from "./canvasSelection";
 import { useCanvasCamera } from "./useCanvasCamera";
 
 const CANVAS_PAGE_GAP = 240;
-// Canvas uses desktop until the app-wide device control is added.
-const CANVAS_VIEWPORT = CANVAS_DEVICES.desktop;
-const CANVAS_SLOT_WIDTH = CANVAS_VIEWPORT.width;
+type CanvasViewport = { width: number; height: number };
+
+function usePreparationFailure(error: Error | null, selected = true) {
+  const preparation = React.useContext(PreviewPreparationContext);
+  React.useEffect(() => {
+    if (error && selected) preparation?.fail(error);
+  }, [error, selected, preparation]);
+}
+
+function PreparationFailure({ error, selected }: { error: Error; selected: boolean }) {
+  usePreparationFailure(error, selected);
+  return null;
+}
 
 function CanvasMessage({ children }: { children: React.ReactNode }) {
   return (
@@ -37,7 +50,7 @@ function CanvasMessage({ children }: { children: React.ReactNode }) {
 }
 
 class CanvasPageBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; selected: boolean },
   { error: Error | null }
 > {
   state = { error: null as Error | null };
@@ -50,6 +63,7 @@ class CanvasPageBoundary extends React.Component<
     if (!this.state.error) return this.props.children;
     return (
       <CanvasMessage>
+        <PreparationFailure error={this.state.error} selected={this.props.selected} />
         <div role="alert">
           <p>This page could not be rendered.</p>
           <p className="mt-2">{this.state.error.message}</p>
@@ -67,16 +81,20 @@ function CanvasPagePreview({
   runtimeBasePath,
   templateId,
   pageId,
+  viewport,
+  selected,
   onActivate,
 }: {
   pathname: string;
   runtimeBasePath: string;
   templateId?: string;
   pageId?: number;
-  onActivate: (owner: EditingOwner) => void;
+  viewport: CanvasViewport;
+  selected: boolean;
+  onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
 }) {
   const projectSlug = useProjectSlug();
-  const { data, error, isPending, refetch } = useQuery({
+  const { data, error, isPending, isFetching, refetch } = useQuery({
     queryKey: ["camox", "canvas", projectSlug, runtimeBasePath, pathname, templateId ?? null],
     queryFn: async ({ signal }) => {
       const url = new URL(runtimePath("/_camox/data", runtimeBasePath), window.location.origin);
@@ -95,6 +113,7 @@ function CanvasPagePreview({
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
+  usePreparationFailure(isFetching ? null : error, selected);
   if (isPending)
     return (
       <CanvasMessage>
@@ -116,9 +135,10 @@ function CanvasPagePreview({
   return (
     <CanvasPageFrame
       input={data}
-      width={CANVAS_VIEWPORT.width}
-      viewportHeight={CANVAS_VIEWPORT.height}
+      width={viewport.width}
+      viewportHeight={viewport.height}
       pageId={pageId}
+      selected={selected}
       onActivate={onActivate}
     />
   );
@@ -128,20 +148,21 @@ function CanvasWorkspace({
   pages,
   selectedPage,
   runtimeBasePath,
+  viewport,
   onActivate,
 }: {
   pages: CanvasPage[];
   selectedPage: CanvasPage | undefined;
   runtimeBasePath: string;
+  viewport: CanvasViewport;
   onActivate: (pathname: string, owner: EditingOwner) => void;
 }) {
   const { apiUrl, projectSlug, environmentName } = useAuthContext();
   const location = useLocation();
   const navigate = useNavigate();
-  const selectedPath = selectedCanvasPath(location.pathname);
+  const selectedPath = location.pathname;
   const selectPage = (pathname: string) => {
-    if (selectedPath === pathname) return;
-    void navigate({ to: `${canvasSelectionUrl(pathname)}${location.search}${location.hash}` });
+    void navigate({ to: `${pathname}${location.search}${location.hash}` });
   };
   const workspaceKey = JSON.stringify([
     apiUrl,
@@ -158,21 +179,21 @@ function CanvasWorkspace({
     page,
     pathname:
       page.key === selectedPage?.key ? selectedPath : (previewPathnames[page.key] ?? page.pathname),
-    left: index * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
+    left: index * (viewport.width + CANVAS_PAGE_GAP),
   }));
   const { viewportRef, contentRef } = useCanvasCamera(
     workspaceKey,
     selectedIndex < 0
       ? undefined
       : {
-          left: selectedIndex * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
-          width: CANVAS_VIEWPORT.width,
+          left: selectedIndex * (viewport.width + CANVAS_PAGE_GAP),
+          width: viewport.width,
         },
     {
       pages: positionedPages.map(({ page, left }) => ({
         key: page.key,
         left,
-        width: CANVAS_VIEWPORT.width,
+        width: viewport.width,
       })),
       onSelect: (key) => {
         const pathname = positionedPages.find(({ page }) => page.key === key)?.pathname;
@@ -214,23 +235,25 @@ function CanvasWorkspace({
             key={page.key}
             data-canvas-slot={page.key}
             className="flex shrink-0 justify-center"
-            style={{ width: CANVAS_SLOT_WIDTH }}
+            style={{ width: viewport.width }}
           >
             <div
               data-canvas-page={page.key}
               className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
-              style={{ width: CANVAS_VIEWPORT.width, minHeight: CANVAS_VIEWPORT.height }}
+              style={{ width: viewport.width, minHeight: viewport.height }}
             >
-              <CanvasPageBoundary key={pathname}>
+              <CanvasPageBoundary key={pathname} selected={page.key === selectedPage?.key}>
                 {pathname ? (
                   <CanvasPagePreview
                     pathname={pathname}
                     runtimeBasePath={runtimeBasePath}
                     templateId={page.templateId}
                     pageId={page.pageId}
-                    onActivate={(owner) => {
+                    viewport={viewport}
+                    selected={page.key === selectedPage?.key}
+                    onActivate={(owner, source) => {
                       onActivate(pathname, owner);
-                      selectPage(pathname);
+                      if (source === "interaction") selectPage(pathname);
                     }}
                   />
                 ) : (
@@ -251,7 +274,7 @@ function CanvasWorkspace({
           style={{
             height: CANVAS_HEADER_HEIGHT,
             transform: `translate(calc(var(--canvas-x, 64px) + ${left}px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - ${CANVAS_HEADER_HEIGHT}px))`,
-            width: `calc(${CANVAS_SLOT_WIDTH}px * var(--canvas-zoom, .4))`,
+            width: `calc(${viewport.width}px * var(--canvas-zoom, .4))`,
           }}
         >
           <CanvasPageHeader
@@ -281,13 +304,16 @@ function CanvasWorkspace({
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const app = useCamoxApp();
   const location = useLocation();
+  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
+  const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
+  const viewport = CANVAS_DEVICES[viewportMode === "full" ? "desktop" : viewportMode];
   const [activeFrame, setActiveFrame] = React.useState<{
     pathname: string;
     owner: EditingOwner;
   } | null>(null);
-  const selectedPath = selectedCanvasPath(location.pathname);
+  const selectedPath = location.pathname;
   const previousPath = React.useRef(selectedPath);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (previousPath.current === selectedPath) return;
     previousPath.current = selectedPath;
     if (!activeFrame || activeFrame.pathname === selectedPath) return;
@@ -296,12 +322,11 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     setActiveFrame(null);
   }, [activeFrame, selectedPath]);
   React.useEffect(() => {
-    previewStore.send({ type: "enterEditMode" });
-    previewStore.send({ type: "setCommentMode", enabled: false });
     previewStore.send({ type: "clearSelection" });
     return () => {
       previewStore.send({ type: "clearSelection" });
-      previewStore.send({ type: "setIframeElement", element: null });
+      // Each frame releases only its own iframe. The read-only preview may
+      // already have reclaimed ownership when preparation is cancelled.
     };
   }, []);
   const projectSlug = useProjectSlug();
@@ -310,6 +335,25 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     ...pageQueries.list(project.data?.id ?? 0),
     enabled: !!project.data,
   });
+  const canvasPages = pages.data ? getCanvasPages(pages.data, app.getLayouts()) : [];
+  const selectedPage = selectedCanvasPage(canvasPages, app.getLayouts(), location.pathname);
+  usePreparationFailure(
+    (!project.isFetching ? project.error : null) ?? (!pages.isFetching ? pages.error : null),
+  );
+  const preparation = React.useContext(PreviewPreparationContext);
+  React.useEffect(() => {
+    if (project.isPending || pages.isPending || project.error || pages.error || selectedPage)
+      return;
+    preparation?.fail(new Error(`No canvas page matches ${location.pathname}.`));
+  }, [
+    project.isPending,
+    pages.isPending,
+    project.error,
+    pages.error,
+    selectedPage,
+    location.pathname,
+    preparation,
+  ]);
   if (project.error || pages.error) {
     return (
       <CanvasMessage>
@@ -334,25 +378,21 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         <span role="status">Loading canvas…</span>
       </CanvasMessage>
     );
-  const canvasPages = getCanvasPages(pages.data, app.getLayouts());
-  const selectedPage = selectedCanvasPage(
-    canvasPages,
-    app.getLayouts(),
-    selectedCanvasPath(location.pathname),
-  );
   const editingOwner = activeFrame?.pathname === selectedPath ? activeFrame.owner : null;
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
+      {selectedPage?.pageId != null && !isCommentMode && <CuratedBlockShortcuts />}
       <CanvasLeftSidebar page={selectedPage} owner={editingOwner} />
       <CanvasWorkspace
         key={project.data.id}
         pages={canvasPages}
         selectedPage={selectedPage}
         runtimeBasePath={runtimeBasePath}
+        viewport={viewport}
         onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
       />
       <CanvasRightSidebar page={selectedPage} owner={editingOwner} />
-      {editingOwner && <FieldToolbar key={selectedPath} />}
+      {editingOwner && !isCommentMode && <FieldToolbar key={selectedPath} />}
     </div>
   );
 }

@@ -1,15 +1,5 @@
 import { matchDerivedLayout } from "../../core/derivedRoutes";
-import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import type { CanvasPage } from "./canvasPages";
-
-/** The bare canvas URL represents the homepage. Paths stay URL-encoded. */
-export function selectedCanvasPath(pathname: string) {
-  return pathname.slice(STUDIO_CANVAS_PATH.length) || "/";
-}
-
-export function canvasSelectionUrl(pathname: string) {
-  return `${STUDIO_CANVAS_PATH}${pathname === "/" ? "" : pathname}`;
-}
 
 export function selectedCanvasPage(
   pages: CanvasPage[],

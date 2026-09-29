@@ -8,7 +8,7 @@ import * as React from "react";
 import type { Layout } from "../../core/createLayout";
 import type { EditingOwner } from "../preview/previewStore";
 import { getCanvasPages } from "./canvasPages";
-import { selectedCanvasPage, selectedCanvasPath } from "./canvasSelection";
+import { selectedCanvasPage } from "./canvasSelection";
 
 // Keep RightSidebar, the owner context, and the preview store real. Only replace
 // its expensive leaf editors, which would otherwise need RPC and router providers.
@@ -56,11 +56,11 @@ function select(url: string) {
     ],
     layouts,
   );
-  return selectedCanvasPage(pages, layouts, selectedCanvasPath(url));
+  return selectedCanvasPage(pages, layouts, url);
 }
 
 async function setup() {
-  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  const dom = new Window({ url: "http://localhost/" });
   const globals = {
     React,
     window: dom,
@@ -117,12 +117,12 @@ void test("canvas URL selection targets page or layout info without inheriting s
   const subscription = store.subscribe((state) => observed.push(state));
   try {
     for (const [url, editor, pageId, layoutId] of [
-      ["/camox/canvas", "PageInfoSidebar", "7", null],
+      ["/", "PageInfoSidebar", "7", null],
       // A concrete page wins over a matching derived template.
-      ["/camox/canvas/articles/special", "PageInfoSidebar", "83", null],
-      ["/camox/canvas/about", "DerivedPageInfoSidebar", null, "about"],
-      ["/camox/canvas/articles/hello%20world", "DerivedPageInfoSidebar", null, "articles.$slug"],
-      ["/camox/canvas/missing", null, null, null],
+      ["/articles/special", "PageInfoSidebar", "83", null],
+      ["/about", "DerivedPageInfoSidebar", null, "about"],
+      ["/articles/hello%20world", "DerivedPageInfoSidebar", null, "articles.$slug"],
+      ["/missing", null, null, null],
     ] as const) {
       await dom.render(url);
       const leaf = dom.mount.querySelector("[data-editor]");
@@ -144,17 +144,17 @@ void test("canvas URL selection targets page or layout info without inheriting s
 void test("changing the selected canvas page resets sidebar-local state, but rerendering does not", async () => {
   const dom = await setup();
   try {
-    await dom.render("/camox/canvas");
+    await dom.render("/");
     await React.act(async () => dom.mount.querySelector("button")!.click());
-    await dom.render("/camox/canvas");
+    await dom.render("/");
     assert.equal(dom.mount.querySelector("button")!.textContent, "1");
-    await dom.render("/camox/canvas/articles/special");
+    await dom.render("/articles/special");
     assert.equal(dom.mount.querySelector("button")!.textContent, "0");
     assert.equal(dom.mount.querySelector("button")!.getAttribute("data-page-id"), "83");
 
-    await dom.render("/camox/canvas/about");
+    await dom.render("/about");
     await React.act(async () => dom.mount.querySelector("button")!.click());
-    await dom.render("/camox/canvas/articles/example");
+    await dom.render("/articles/example");
     assert.equal(dom.mount.querySelector("button")!.textContent, "0");
     assert.equal(
       dom.mount.querySelector("button")!.getAttribute("data-layout-id"),
@@ -170,8 +170,8 @@ void test("canvas uses the active frame owner to edit selected page and layout b
   dom.store.send({ type: "enterEditMode" });
   try {
     for (const [url, owner] of [
-      ["/camox/canvas", { kind: "page", pageId: 7 }],
-      ["/camox/canvas/about", { kind: "layout", layoutId: 21 }],
+      ["/", { kind: "page", pageId: 7 }],
+      ["/about", { kind: "layout", layoutId: 21 }],
     ] as const) {
       dom.store.send({ type: "setFocusedBlock", ...owner, blockId: 42 });
       await dom.render(url, owner);
@@ -190,16 +190,16 @@ void test("comment mode targets the selected persisted page and keeps code layou
   dom.store.send({ type: "setCommentMode", enabled: true });
   const snapshot = dom.store.getSnapshot();
   try {
-    await dom.render("/camox/canvas/articles/special");
+    await dom.render("/articles/special");
     const comments = dom.mount.querySelector('[data-editor="CommentSidebar"]');
     assert.ok(comments);
     assert.equal(comments.getAttribute("data-page-id"), "83");
-    for (const url of ["/camox/canvas/about", "/camox/canvas/articles/example"]) {
+    for (const url of ["/about", "/articles/example"]) {
       await dom.render(url);
       assert.ok(dom.mount.querySelector('[data-editor="DerivedPageInfoSidebar"]'));
       assert.equal(dom.mount.querySelector('[data-editor="CommentSidebar"]'), null);
     }
-    await dom.render("/camox/canvas/missing");
+    await dom.render("/missing");
     assert.equal(dom.mount.innerHTML, "");
     assert.equal(dom.store.getSnapshot(), snapshot);
   } finally {

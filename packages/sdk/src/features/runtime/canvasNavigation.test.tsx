@@ -6,20 +6,12 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import { useLocation, useNavigate } from "../navigation/navigation";
-import { isCanvasPath } from "../studio/routes";
 import { PageNavigationProvider } from "./pageNavigation";
 import type { PageRenderInput } from "./runtime";
 
-void test("canvas path matching respects segment boundaries", () => {
-  for (const path of ["/camox/canvas", "/camox/canvas/", "/camox/canvas/blog/post"])
-    assert.equal(isCanvasPath(path), true);
-  for (const path of ["/camox/canvases", "/camox/content", "/canvas"])
-    assert.equal(isCanvasPath(path), false);
-});
-
 for (const base of ["", "/mounted"]) {
-  void test(`canvas navigation is URL-only (base: ${base || "/"})`, async (t) => {
-    const window = new Window({ url: `https://site.test${base}/camox/canvas` });
+  void test(`canvas preview navigation loads actual site routes (base: ${base || "/"})`, async (t) => {
+    const window = new Window({ url: `https://site.test${base}/` });
     Object.assign(globalThis, {
       React,
       window,
@@ -30,16 +22,11 @@ for (const base of ["", "/mounted"]) {
       Node: window.Node,
       IS_REACT_ACT_ENVIRONMENT: true,
     });
-    const fetchMock = t.mock.method(globalThis, "fetch", async () => {
-      throw new Error("Canvas navigation must not fetch");
-    });
     const scrollMock = t.mock.method(window, "scrollTo", () => {});
-    document.head.innerHTML = "<title data-camox-page-head>Canvas</title>";
+    document.head.innerHTML = "<title data-camox-page-head>Home</title>";
     document.body.innerHTML = '<div id="root"></div>';
-    const head = document.head.innerHTML;
     const queryClient = new QueryClient();
     const seed = new QueryClient();
-    seed.setQueryData(["must-not-hydrate"], "payload");
     const input: PageRenderInput = {
       presentation: "studio",
       apiUrl: "https://api.test",
@@ -48,14 +35,30 @@ for (const base of ["", "/mounted"]) {
       environmentName: "production",
       source: "draft",
       href: window.location.href,
-      pathname: "/camox/canvas",
+      pathname: "/",
       runtimeBasePath: base,
-      routeKind: "studio-nested",
-      head: { title: "Must not replace head" },
+      head: { meta: [{ title: "Home" }] },
       layoutIdentity: null,
       loaderData: null,
       dehydratedState: dehydrate(seed),
     };
+    const fetchMock = t.mock.method(globalThis, "fetch", async (request: URL | RequestInfo) => {
+      const url = new URL(request instanceof Request ? request.url : request);
+      assert.equal(url.pathname, `${base}/_camox/data`);
+      const pathname = url.searchParams.get("path")!;
+      seed.setQueryData(["page", pathname], pathname);
+      return new Response(
+        JSON.stringify({
+          ...input,
+          pathname,
+          head: { meta: [{ title: pathname }] },
+          loaderData: { pathname },
+          dehydratedState: dehydrate(seed),
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    let renderedInput = input;
     let navigate: ReturnType<typeof useNavigate>;
     let mounts = 0;
     let unmounts = 0;
@@ -78,13 +81,17 @@ for (const base of ["", "/mounted"]) {
     }
     const { createRoot } = await import("react-dom/client");
     const root = createRoot(document.getElementById("root")!);
-    const assertLocation = (path: string) => {
+    const assertLocation = (path: string, fetches: number) => {
+      const pathname = new URL(path, "https://site.test").pathname;
       assert.equal(document.querySelector("output")!.textContent, path);
       assert.equal(window.location.href, `https://site.test${base}${path}`);
-      assert.equal(document.head.innerHTML, head);
-      assert.equal(fetchMock.mock.callCount(), 0);
+      assert.equal(document.title, pathname);
+      assert.equal(fetchMock.mock.callCount(), fetches);
       assert.equal(scrollMock.mock.callCount(), 0);
-      assert.equal(queryClient.getQueryData(["must-not-hydrate"]), undefined);
+      assert.equal(queryClient.getQueryData(["page", pathname]), pathname);
+      assert.deepEqual(renderedInput.loaderData, { pathname });
+      assert.equal(renderedInput.pathname, pathname);
+      assert.equal(renderedInput.href, window.location.href);
       assert.equal(mounts, 1);
       assert.equal(unmounts, 0);
     };
@@ -92,34 +99,61 @@ for (const base of ["", "/mounted"]) {
       await React.act(async () => {
         root.render(
           <PageNavigationProvider initialInput={input} queryClient={queryClient}>
-            {() => <Workspace />}
+            {(next) => {
+              renderedInput = next;
+              return <Workspace />;
+            }}
           </PageNavigationProvider>,
         );
       });
       const push = t.mock.method(window.history, "pushState");
       const replace = t.mock.method(window.history, "replaceState");
       await React.act(async () => {
-        await navigate!({ to: "/camox/canvas/blog/post?view=wide#section" });
+        await navigate!({ to: "/blog/hello%20world?view=wide#section" });
       });
-      assertLocation("/camox/canvas/blog/post?view=wide#section");
+      assertLocation("/blog/hello%20world?view=wide#section", 1);
       assert.equal(push.mock.callCount(), 1);
       await React.act(async () => {
-        await navigate!({ to: "/camox/canvas/about", replace: true });
+        await navigate!({ to: "/about", replace: true });
       });
-      assertLocation("/camox/canvas/about");
+      assertLocation("/about", 2);
       assert.equal(replace.mock.callCount(), 1);
+      await React.act(async () => {
+        await navigate!({ to: "/about?view=wide#section", replace: true });
+      });
+      assertLocation("/about?view=wide#section", 2);
       // Happy DOM does not implement history traversal: reproduce the browser's
       // URL update followed by popstate for back and forward.
-      for (const path of ["/camox/canvas", "/camox/canvas/about"]) {
+      for (const [index, path] of ["/", "/about"].entries()) {
         window.history.replaceState(null, "", `${base}${path}`);
         const replacements = replace.mock.callCount();
         await React.act(async () => {
           window.dispatchEvent(new window.PopStateEvent("popstate"));
         });
-        assertLocation(path);
+        assertLocation(path, 3 + index);
         assert.equal(push.mock.callCount(), 1);
         assert.equal(replace.mock.callCount(), replacements);
       }
+
+      // A newer selection of the committed page cancels a pending different
+      // page, even when the fetch implementation ignores its abort signal.
+      let resolve!: (response: Response) => void;
+      fetchMock.mock.mockImplementation(() => new Promise<Response>((done) => (resolve = done)));
+      let pending!: Promise<void> | void;
+      await React.act(async () => {
+        pending = navigate!({ to: "/slow" });
+        await navigate!({ to: "/about" });
+      });
+      await React.act(async () => {
+        resolve(
+          new Response(
+            JSON.stringify({ ...input, pathname: "/slow", dehydratedState: dehydrate(seed) }),
+          ),
+        );
+        await pending;
+      });
+      assertLocation("/about", 5);
+      assert.equal(push.mock.callCount(), 1, "reselection never adds duplicate history entries");
     } finally {
       await React.act(async () => root.unmount());
       queryClient.clear();

@@ -6,7 +6,7 @@ import * as React from "react";
 import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
 import { seedBlockCaches } from "../../lib/normalized-data";
-import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
+import { useLocation } from "../navigation/navigation";
 import { AddBlockDialog } from "../preview/components/AddBlockDialog";
 import { CreatePageModal } from "../preview/components/CreatePageModal";
 import { LeftSidebar } from "../preview/components/LeftSidebar";
@@ -14,7 +14,6 @@ import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import { previewStore, selectPreviewSource, type EditingOwner } from "../preview/previewStore";
 import type { CanvasPage } from "./canvasPages";
-import { canvasSelectionUrl, selectedCanvasPath } from "./canvasSelection";
 
 function SidebarMessage({ error = false }: { error?: boolean }) {
   return (
@@ -83,33 +82,24 @@ export function CanvasLeftSidebar({
   page: CanvasPage | undefined;
   owner?: EditingOwner | null;
 }) {
-  const location = useLocation();
-  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const source = useSelector(previewStore, selectPreviewSource);
   if (!page) return null;
 
-  // A template card has no concrete pathname. The outer URL is the selected
-  // instance, and also the only source of truth when the picker navigates.
-  const pathname = selectedCanvasPath(location.pathname);
   return (
-    <NavigationProvider
-      location={{ pathname, href: pathname, search: "", hash: "" }}
-      navigate={({ to, replace }) => navigate({ to: canvasSelectionUrl(to), replace })}
-    >
-      <PreviewEditingOwnerContext value={owner}>
-        <SidebarBoundary key={`${page.key}:${pathname}:${source}`}>
-          <React.Suspense fallback={<SidebarMessage />}>
-            {page.pageId != null ? (
-              <CuratedSidebar />
-            ) : page.layoutId ? (
-              <LayoutSidebar layoutId={page.layoutId} />
-            ) : (
-              <LeftSidebar />
-            )}
-            <CreatePageModal />
-          </React.Suspense>
-        </SidebarBoundary>
-      </PreviewEditingOwnerContext>
-    </NavigationProvider>
+    <PreviewEditingOwnerContext value={owner}>
+      <SidebarBoundary key={`${page.key}:${pathname}:${source}`}>
+        <React.Suspense fallback={<SidebarMessage />}>
+          {page.pageId != null ? (
+            <CuratedSidebar />
+          ) : page.layoutId ? (
+            <LayoutSidebar layoutId={page.layoutId} />
+          ) : (
+            <LeftSidebar />
+          )}
+          <CreatePageModal />
+        </React.Suspense>
+      </SidebarBoundary>
+    </PreviewEditingOwnerContext>
   );
 }

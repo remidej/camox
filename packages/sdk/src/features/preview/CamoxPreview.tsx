@@ -11,18 +11,21 @@ import { NormalizedDataProvider, seedBlockCaches, usePageBlocks } from "@/lib/no
 import { blockQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
+import type { PageStructure } from "../routes/pageRuntime";
+import type { PageRenderInput } from "../runtime/runtime";
 import { SharedChromeContext } from "../runtime/SharedChromeContext";
 import { Navbar } from "../studio/components/Navbar";
 import { AddBlockDialog } from "./components/AddBlockDialog";
 import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
+import { CanvasPreview } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
-import { PreviewToolbarSpacer } from "./components/PreviewToolbarSpacer";
-import { RightSidebar } from "./components/RightSidebar";
+import { PreviewToolbar } from "./components/PreviewToolbar";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
 import {
@@ -32,6 +35,7 @@ import {
   selectPreviewSource,
   type EditingOwner,
 } from "./previewStore";
+import { usePreviewViewportActions } from "./usePreviewViewportActions";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
 
@@ -223,14 +227,14 @@ export const PageContent = () => {
  * runs for authenticated users — public visitors stay on the live cache.
  * -----------------------------------------------------------------------------------------------*/
 
-function useHydrateDraftCache() {
+function useHydrateDraftCache(enabled: boolean) {
   const isAuthenticated = useIsAuthenticated();
   const queryClient = useQueryClient();
   const projectSlug = useProjectSlug();
   const { pathname } = useLocation();
 
   React.useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !enabled) return;
     let cancelled = false;
     void getApiClient()
       .pages.getByPath({ path: pathname, projectSlug, source: "draft" })
@@ -253,17 +257,71 @@ function useHydrateDraftCache() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, pathname, projectSlug, queryClient]);
+  }, [enabled, isAuthenticated, pathname, projectSlug, queryClient]);
 }
 
 /* -------------------------------------------------------------------------------------------------
  * CamoxPreview
  * -----------------------------------------------------------------------------------------------*/
 
-export const CamoxPreview = ({ children }: { children: React.ReactNode }) => {
-  const pageData = usePreviewedPage();
-  useHydrateDraftCache();
-  return <PreviewShell pageData={pageData}>{children}</PreviewShell>;
+export const CamoxPreview = ({
+  children,
+  runtimeBasePath,
+  derived,
+  source,
+}: {
+  children: React.ReactNode;
+  runtimeBasePath?: string;
+  derived?: PageRenderInput["derived"];
+  source?: ReadSource;
+}) => {
+  const camoxApp = useCamoxApp();
+  const { pathname } = useLocation();
+  const projectSlug = useProjectSlug();
+  const queryClient = useQueryClient();
+  const previewSource = useSelector(previewStore, selectPreviewSource);
+  // Both route kinds resolve through one component so selecting a layout frame
+  // never remounts the workspace, its camera, or its in-progress selection.
+  const { data } = useSuspenseQuery<PageStructure | DerivedLayoutStructure>({
+    queryKey: derived
+      ? [...queryKeys.layouts.all, "get", projectSlug, derived.layoutId, previewSource]
+      : queryKeys.pages.getByPath(pathname, previewSource),
+    queryFn: async () => {
+      if (!derived) return pageStructureQueryFn(pathname, projectSlug, previewSource)();
+      const result = await getApiClient().layouts.get({
+        projectSlug,
+        layoutId: derived.layoutId,
+        source: previewSource,
+      });
+      seedBlockCaches(queryClient, result, previewSource);
+      return result.layout;
+    },
+    // Only the server's source has seeded layout blocks.
+    initialData: derived && previewSource === source ? derived.layout : undefined,
+    staleTime: derived ? 0 : Infinity,
+  });
+  useHydrateDraftCache(!derived);
+  const pageData = "page" in data ? data : undefined;
+  const layout = "page" in data ? undefined : data;
+  return (
+    <PreviewShell
+      pageData={pageData}
+      derivedLayoutId={derived?.layoutId}
+      derivedLayout={layout}
+      hasLiveVersion={layout?.livePublishedCheckpointId != null}
+      runtimeBasePath={runtimeBasePath}
+    >
+      {derived && layout ? (
+        <DerivedPageContent
+          camoxApp={camoxApp}
+          derived={{ ...derived, layout }}
+          source={previewSource}
+        />
+      ) : (
+        children
+      )}
+    </PreviewShell>
+  );
 };
 
 /** Studio chrome is shared; only curated previews require a Camox page record. */
@@ -273,12 +331,14 @@ export const PreviewShell = ({
   hasLiveVersion = false,
   derivedLayoutId,
   derivedLayout,
+  runtimeBasePath = "",
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
   hasLiveVersion?: boolean;
   derivedLayoutId?: string;
   derivedLayout?: DerivedLayoutStructure;
+  runtimeBasePath?: string;
 }) => {
   const isAuthenticated = useIsAuthenticated();
   const isMobileStudio = useIsMobileStudio();
@@ -287,6 +347,9 @@ export const PreviewShell = ({
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const previewSource = useSelector(previewStore, selectPreviewSource);
+  usePreviewViewportActions();
+  const showCanvas = !isMobileStudio && isEditMode;
+  const { pathname } = useLocation();
 
   const pageId = pageData?.page.id;
   const layoutId = derivedLayout?.id;
@@ -399,43 +462,48 @@ export const PreviewShell = ({
     return <>{children}</>;
   }
 
+  const toolbarProps = {
+    pageId: pageData?.page.id,
+    pageStatus: pageData?.page.status,
+    hasLiveVersion: hasLiveCheckpoint,
+  };
   return (
     <PreviewEditingOwnerContext value={editingOwner}>
       <div
         className={cn(
-          "bg-background flex flex-col overflow-hidden",
+          "bg-background relative flex min-h-0 flex-1 flex-col overflow-hidden",
           sharedChrome ? "h-full" : "h-screen",
           !isEditMode && "bg-black",
         )}
       >
         {!sharedChrome && !isMobileStudio && !isToolbarHidden && <Navbar isPreview />}
-        <div className="flex h-full flex-row items-stretch">
-          {!isMobileStudio && (pageData || derivedLayoutId) && (
-            // Keep publication actions registered even when editing controls are hidden.
-            <div className={isEditMode ? "contents" : "hidden"}>
-              <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
-            </div>
-          )}
-          <PreviewPanel
-            isMobileExperience={isMobileStudio}
-            page={pageData?.page}
-            layoutId={derivedLayout?.id}
-            projectName={pageData?.projectName}
-            toolbarProps={{
-              pageId: pageData?.page.id,
-              pageStatus: pageData?.page.status,
-              hasLiveVersion: hasLiveCheckpoint,
-            }}
-          >
-            {children}
-            {!isMobileStudio && isEditMode && <PreviewToolbarSpacer />}
-          </PreviewPanel>
-          {!isMobileStudio && isEditMode && (
-            <RightSidebar pageId={pageData?.page.id} derivedLayoutId={derivedLayoutId} />
-          )}
-        </div>
-        {(isMobileStudio || isEditMode) && <CreatePageModal />}
-        {pageData && <AddBlockDialog />}
+        <CanvasPreview enabled={showCanvas} pathname={pathname} runtimeBasePath={runtimeBasePath}>
+          <div className="flex min-h-0 flex-1 flex-row items-stretch">
+            {!showCanvas && !isMobileStudio && (pageData || derivedLayoutId) && (
+              // Keep publication actions registered in read-only preview.
+              <div hidden>
+                <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+              </div>
+            )}
+            <PreviewPanel
+              active={!showCanvas}
+              isMobileExperience={isMobileStudio}
+              page={pageData?.page}
+              layoutId={derivedLayout?.id}
+              projectName={pageData?.projectName}
+              toolbarProps={toolbarProps}
+            >
+              {children}
+            </PreviewPanel>
+          </div>
+        </CanvasPreview>
+        {showCanvas && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
+        {!showCanvas && (
+          <>
+            <CreatePageModal />
+            {pageData && <AddBlockDialog />}
+          </>
+        )}
       </div>
     </PreviewEditingOwnerContext>
   );

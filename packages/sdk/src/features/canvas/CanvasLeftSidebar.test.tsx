@@ -97,7 +97,7 @@ function pageStructure(path: string) {
 }
 
 async function setup() {
-  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  const dom = new Window({ url: "http://localhost/" });
   const calls: unknown[] = [];
   const api = {
     pages: {
@@ -187,13 +187,13 @@ async function setup() {
   };
 }
 
-void test("curated sidebar shares the selected path cache and maps picker/dialog navigation back to canvas", async () => {
+void test("curated sidebar shares the selected path cache and forwards picker/dialog site navigation", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
   dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: 7, blockId: 42 });
   const snapshot = dom.store.getSnapshot();
   try {
-    await dom.render("/camox/canvas", home);
+    await dom.render("/", home);
     await dom.settle();
     const picker = dom.mount.querySelector<HTMLButtonElement>("[data-sidebar]")!;
     assert.equal(picker.getAttribute("data-path"), "/");
@@ -212,11 +212,11 @@ void test("curated sidebar shares the selected path cache and maps picker/dialog
       dom.mount.querySelector<HTMLButtonElement>("[data-create-page]")!.click(),
     );
     assert.deepEqual(dom.navigations, [
-      { to: "/camox/canvas/articles/hello%20world", replace: undefined },
-      { to: "/camox/canvas/created", replace: true },
+      { to: "/articles/hello%20world" },
+      { to: "/created", replace: true },
     ]);
     assert.equal(picker.getAttribute("data-path"), "/", "selection waits for the outer URL");
-    await dom.render("/camox/canvas/other", {
+    await dom.render("/other", {
       ...home,
       key: "page:8",
       pathname: "/other",
@@ -248,7 +248,7 @@ void test("singleton and template sidebars load shared layouts, seed source-spec
       ["/articles/hello%20world", template],
       ["/articles/another", template],
     ] as const) {
-      await dom.render(`/camox/canvas${path}`, page);
+      await dom.render(path, page);
       await dom.settle();
       const sidebar = dom.mount.querySelector("[data-sidebar]")!;
       assert.equal(sidebar.getAttribute("data-sidebar"), "DerivedLayoutSidebar");
@@ -275,7 +275,7 @@ void test("singleton and template sidebars load shared layouts, seed source-spec
       source: "live",
     });
     assert.ok(dom.client.getQueryData(queryKeys.blocks.get(42, "live")));
-    await dom.render("/camox/canvas/missing", undefined);
+    await dom.render("/missing", undefined);
     assert.equal(dom.mount.querySelector("aside"), null);
   } finally {
     await dom.close();
@@ -290,14 +290,14 @@ void test("loading and failed sidebar requests leave the canvas visible; another
       reject = rejectRequest;
     });
   try {
-    await dom.render("/camox/canvas", home);
+    await dom.render("/", home);
     assert.ok(dom.mount.querySelector('[role="status"]'));
     assert.equal(dom.mount.querySelector("main")?.textContent, "Canvas stays visible");
     await React.act(async () => reject(new Error("Offline")));
     await dom.settle();
     assert.ok(dom.mount.querySelector('[role="alert"]'));
     assert.equal(dom.mount.querySelector("main")?.textContent, "Canvas stays visible");
-    await dom.render("/camox/canvas/about", singleton);
+    await dom.render("/about", singleton);
     await dom.settle();
     assert.equal(dom.mount.querySelector('[role="alert"]'), null);
     assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-id"), "about");

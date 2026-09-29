@@ -1,4 +1,5 @@
 import { HydrationBoundary, type DehydratedState } from "@tanstack/react-query";
+import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import overlayStyles from "virtual:camox-overlay-css";
@@ -7,10 +8,12 @@ import { NavigationProvider } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { FrameContext } from "../preview/components/Frame";
 import { Overlays } from "../preview/components/Overlays";
+import { PreviewComments } from "../preview/components/PreviewComments";
 import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
 import { EditablePageContent } from "../preview/EditablePageContent";
+import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
-import { previewStore, type EditingOwner } from "../preview/previewStore";
+import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -19,12 +22,21 @@ import { CanvasOverlays } from "./CanvasOverlays";
 
 const noNavigation = () => {};
 
+function PageContentCommitted({ selected }: { selected: boolean }) {
+  const preparation = React.useContext(PreviewPreparationContext);
+  React.useEffect(() => {
+    if (selected) preparation?.ready();
+  }, [selected, preparation]);
+  return null;
+}
+
 export interface CanvasPageFrameProps {
   input: PageRenderInput;
   width: number;
   viewportHeight: number;
   pageId?: number;
-  onActivate: (owner: EditingOwner) => void;
+  selected?: boolean;
+  onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
 }
 
 /**
@@ -40,14 +52,23 @@ export function CanvasPageFrame(props: CanvasPageFrameProps) {
   );
 }
 
-function PageFrame({ input, width, viewportHeight, pageId, onActivate }: CanvasPageFrameProps) {
+function PageFrame({
+  input,
+  width,
+  viewportHeight,
+  pageId,
+  selected = false,
+  onActivate,
+}: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
+  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const href = canvasPageHref(input);
+  const layoutId = input.derived?.layout.id;
   const owner = React.useMemo<EditingOwner | null>(() => {
-    if (input.derived) return { kind: "layout", layoutId: input.derived.layout.id };
+    if (layoutId != null) return { kind: "layout", layoutId };
     if (pageId != null) return { kind: "page", pageId };
     return null;
-  }, [input.derived, pageId]);
+  }, [layoutId, pageId]);
   const [srcDoc, setSrcDoc] = React.useState<string>();
   const [mount, setMount] = React.useState<HTMLElement | null>(null);
   const [failure, setFailure] = React.useState<Error | null>(null);
@@ -97,13 +118,21 @@ function PageFrame({ input, width, viewportHeight, pageId, onActivate }: CanvasP
       previewStore.send({ type: "setIframeElement", element: null });
     };
   }, [mount]);
-  const activate = () => {
+  const activateOwner = (source: "selection" | "interaction") => {
     if (!owner) return;
     if (owner.kind === "page") previewStore.send({ type: "activatePage", pageId: owner.pageId });
     else previewStore.send({ type: "activateLayout", layoutId: owner.layoutId });
     previewStore.send({ type: "setIframeElement", element: iframeRef.current });
-    onActivate(owner);
+    onActivate(owner, source);
   };
+  const activate = () => activateOwner("interaction");
+  const activateSelected = React.useEffectEvent(() => activateOwner("selection"));
+  React.useEffect(() => {
+    if (!selected || !mount || !owner) return;
+    // Only a selection/readiness transition takes ownership. Callback changes
+    // or store updates must not steal it back during another frame's navigation.
+    activateSelected();
+  }, [selected, mount, owner]);
   if (failure) throw failure;
 
   return (
@@ -162,6 +191,7 @@ function PageFrame({ input, width, viewportHeight, pageId, onActivate }: CanvasP
                         style={{ display: "contents" }}
                         onPointerDownCapture={activate}
                         onFocusCapture={activate}
+                        onClickCapture={activate}
                         onClick={(event) => {
                           // Selecting/editing must not navigate the iframe away from its portal.
                           if ((event.target as Element).closest("a")) event.preventDefault();
@@ -177,11 +207,18 @@ function PageFrame({ input, width, viewportHeight, pageId, onActivate }: CanvasP
                           <EditablePageContent />
                         )}
                         <PreviewFrameEffects />
-                        <Overlays
-                          iframeElement={iframeRef.current}
-                          owner={owner}
-                          canAddBlocks={owner?.kind === "page"}
-                        />
+                        {owner?.kind === "page" && (
+                          <PreviewComments iframeElement={iframeRef.current} />
+                        )}
+                        {!isCommentMode && (
+                          <Overlays
+                            iframeElement={iframeRef.current}
+                            owner={owner}
+                            canAddBlocks={owner?.kind === "page"}
+                          />
+                        )}
+                        {/* This commits only after onLoad and the portal's content resolves. */}
+                        <PageContentCommitted selected={selected} />
                       </div>
                     </React.Suspense>,
                     mount,

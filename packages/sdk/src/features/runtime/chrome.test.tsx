@@ -96,7 +96,6 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.doesNotMatch(studioHtml, /camox-loading/);
 
   const { getNavbarLinks } = await import("../studio/components/Navbar");
-  const { CanvasRoute } = await import("../studio/CanvasRoute");
   const { CamoxStudio } = await import("../studio/CamoxStudio");
   const { AuthenticatedCamoxProvider } = await import("../provider/AuthenticatedCamoxProvider");
   const { EditablePageExperience } = await import("../preview/EditablePageExperience");
@@ -111,7 +110,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.equal(canvasExperience.props.children.type, CompleteBlockEditingRuntimeProvider);
   const studio = canvasExperience.props.children.props.children;
   assert.equal(studio.type, CamoxStudio);
-  assert.equal(studio.props.children.type, CanvasRoute);
+  assert.equal(studio.props.children.props.children, "Studio page not found");
   const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
   try {
     for (const flag of [undefined, false, true]) {
@@ -132,25 +131,13 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
         }),
       );
       assert.match(canvasHtml, /My actual project|Quick find/);
-      assert.doesNotMatch(canvasHtml, /Edit mode|View live page/);
-      // Navbar and command actions intentionally share this filtered list.
+      assert.match(canvasHtml, /<div hidden=""[^>]*><menu role="toolbar"/);
+      // Navbar and command actions share the same ungated navigation.
       assert.deepEqual(
         getNavbarLinks().map((link) => link.title),
-        flag ? ["Preview", "Content", "Canvas"] : ["Preview", "Content"],
+        ["Preview", "Content"],
       );
-      if (flag) {
-        assert.match(canvasHtml, /href="\/camox\/canvas"/);
-        const route = CanvasRoute({ runtimeBasePath: "/mounted" });
-        assert.equal(route.type, React.Suspense);
-        assert.equal(route.props.children.props.runtimeBasePath, "/mounted");
-      } else {
-        assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
-        // Render without any providers: reaching Canvas data hooks would fail.
-        assert.match(
-          renderToString(createElement(CanvasRoute, { runtimeBasePath: "" })),
-          /Studio page not found/,
-        );
-      }
+      assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
     }
   } finally {
     if (previousFlag === undefined)

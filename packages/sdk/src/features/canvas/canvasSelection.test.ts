@@ -3,20 +3,7 @@ import { test } from "node:test";
 
 import type { Layout } from "../../core/createLayout";
 import { getCanvasPages } from "./canvasPages";
-import { canvasSelectionUrl, selectedCanvasPage, selectedCanvasPath } from "./canvasSelection";
-
-void test("canvas selection URLs map the bare prefix to home and preserve full encoded paths", () => {
-  for (const [path, url] of [
-    ["/", "/camox/canvas"],
-    ["/about", "/camox/canvas/about"],
-    ["/articles/hello%20world", "/camox/canvas/articles/hello%20world"],
-    ["/nested/page/", "/camox/canvas/nested/page/"],
-  ]) {
-    assert.equal(canvasSelectionUrl(path), url);
-    assert.equal(selectedCanvasPath(url), path);
-  }
-  assert.equal(selectedCanvasPath("/camox/canvas/"), "/");
-});
+import { selectedCanvasPage } from "./canvasSelection";
 
 void test("selection resolves concrete pages before templates and supports instance deep links", () => {
   const layouts = [
@@ -30,10 +17,10 @@ void test("selection resolves concrete pages before templates and supports insta
     ],
     layouts,
   );
-  const select = (url: string) => selectedCanvasPage(pages, layouts, selectedCanvasPath(url));
-  assert.equal(select("/camox/canvas")?.key, "page:7");
-  assert.equal(select("/camox/canvas/about")?.key, "singleton:about");
-  assert.equal(select("/camox/canvas/articles/special")?.key, "page:8");
-  assert.equal(select("/camox/canvas/articles/hello%20world")?.key, "template:articles.$slug");
-  assert.equal(select("/camox/canvas/missing"), undefined);
+  const select = (pathname: string) => selectedCanvasPage(pages, layouts, pathname);
+  assert.equal(select("/")?.key, "page:7");
+  assert.equal(select("/about")?.key, "singleton:about");
+  assert.equal(select("/articles/special")?.key, "page:8");
+  assert.equal(select("/articles/hello%20world")?.key, "template:articles.$slug");
+  assert.equal(select("/missing"), undefined);
 });
