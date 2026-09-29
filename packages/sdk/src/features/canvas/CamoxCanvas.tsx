@@ -162,7 +162,8 @@ function CanvasWorkspace({
   const navigate = useNavigate();
   const selectedPath = location.pathname;
   const selectPage = (pathname: string) => {
-    void navigate({ to: `${pathname}${location.search}${location.hash}` });
+    cancelFlight();
+    void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
   };
   const workspaceKey = JSON.stringify([
     apiUrl,
@@ -181,7 +182,7 @@ function CanvasWorkspace({
       page.key === selectedPage?.key ? selectedPath : (previewPathnames[page.key] ?? page.pathname),
     left: index * (viewport.width + CANVAS_PAGE_GAP),
   }));
-  const { viewportRef, contentRef } = useCanvasCamera(
+  const { viewportRef, contentRef, flyToPage, cancelFlight } = useCanvasCamera(
     workspaceKey,
     selectedIndex < 0
       ? undefined
@@ -202,6 +203,15 @@ function CanvasWorkspace({
     },
   );
   const instructionsId = React.useId();
+  const previousPath = React.useRef(selectedPath);
+  React.useEffect(() => {
+    if (previousPath.current === selectedPath) return;
+    // A newly created page can arrive in the route before the page list refresh.
+    if (location.source !== "canvas" && selectedIndex < 0) return;
+    previousPath.current = selectedPath;
+    if (location.source === "canvas") return;
+    flyToPage(pages[selectedIndex]!.key);
+  }, [selectedPath, location.source, selectedIndex, pages, flyToPage]);
 
   return (
     <div

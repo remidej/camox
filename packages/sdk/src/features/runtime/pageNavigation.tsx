@@ -3,7 +3,7 @@ import { createHead, renderDOMHead } from "@unhead/react/client";
 import * as React from "react";
 import type { ActiveHeadEntry, UseHeadInput } from "unhead/types";
 
-import { NavigationProvider } from "../navigation/navigation";
+import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { createNavigationRequestTracker } from "./navigationRequest";
 import { getNavigationTarget, runtimePath } from "./navigationTarget";
 import { createPageHeadInput, type LayoutIdentity, type PageRenderInput } from "./runtime";
@@ -53,7 +53,11 @@ export function PageNavigationProvider({
   initialInput: PageRenderInput;
   queryClient: QueryClient;
 }) {
-  const [input, setInput] = React.useState(initialInput);
+  // Provenance belongs to the committed location, not the payload or browser history.
+  const [{ input, source }, setLocation] = React.useState<{
+    input: PageRenderInput;
+    source?: NavigateOptions["source"];
+  }>({ input: initialInput });
   const current = React.useRef(initialInput);
   const [requests] = React.useState(createNavigationRequestTracker);
   const headManager = React.useRef<{
@@ -62,7 +66,7 @@ export function PageNavigationProvider({
   } | null>(null);
 
   const navigate = React.useCallback(
-    async ({ to, replace, pop = false }: { to: string; replace?: boolean; pop?: boolean }) => {
+    async ({ to, replace, source, pop = false }: NavigateOptions & { pop?: boolean }) => {
       const request = requests.begin();
       const target = getNavigationTarget(to, window.location.href, initialInput.runtimeBasePath);
       if (!target) {
@@ -122,7 +126,7 @@ export function PageNavigationProvider({
           createPageHeadInput((next.head ?? {}) as Parameters<typeof createPageHeadInput>[0]),
         );
         renderDOMHead(manager.head);
-        React.startTransition(() => setInput(next));
+        React.startTransition(() => setLocation({ input: next, source: pop ? undefined : source }));
         if (!pop && !replace && !target.url.hash) window.scrollTo({ top: 0 });
       } catch {
         if (!request.isCurrent()) return;
@@ -170,7 +174,13 @@ export function PageNavigationProvider({
   const url = new URL(input.href);
   return (
     <NavigationProvider
-      location={{ href: input.href, pathname: input.pathname, hash: url.hash, search: url.search }}
+      location={{
+        href: input.href,
+        pathname: input.pathname,
+        hash: url.hash,
+        search: url.search,
+        source,
+      }}
       navigate={navigate}
     >
       {children(input)}

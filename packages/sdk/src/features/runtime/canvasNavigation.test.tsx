@@ -60,11 +60,13 @@ for (const base of ["", "/mounted"]) {
     });
     let renderedInput = input;
     let navigate: ReturnType<typeof useNavigate>;
+    let committedSource: "canvas" | undefined;
     let mounts = 0;
     let unmounts = 0;
     function Workspace() {
       navigate = useNavigate();
       const location = useLocation();
+      committedSource = location.source;
       React.useEffect(() => {
         mounts++;
         return () => {
@@ -114,14 +116,17 @@ for (const base of ["", "/mounted"]) {
       assertLocation("/blog/hello%20world?view=wide#section", 1);
       assert.equal(push.mock.callCount(), 1);
       await React.act(async () => {
-        await navigate!({ to: "/about", replace: true });
+        await navigate!({ to: "/about", replace: true, source: "canvas" });
       });
       assertLocation("/about", 2);
+      assert.equal(committedSource, "canvas");
+      assert.equal(window.history.state, null, "provenance is never persisted in history");
       assert.equal(replace.mock.callCount(), 1);
       await React.act(async () => {
         await navigate!({ to: "/about?view=wide#section", replace: true });
       });
       assertLocation("/about?view=wide#section", 2);
+      assert.equal(committedSource, undefined);
       // Happy DOM does not implement history traversal: reproduce the browser's
       // URL update followed by popstate for back and forward.
       for (const [index, path] of ["/", "/about"].entries()) {
@@ -131,6 +136,7 @@ for (const base of ["", "/mounted"]) {
           window.dispatchEvent(new window.PopStateEvent("popstate"));
         });
         assertLocation(path, 3 + index);
+        assert.equal(committedSource, undefined, "history traversal is external");
         assert.equal(push.mock.callCount(), 1);
         assert.equal(replace.mock.callCount(), replacements);
       }
@@ -154,6 +160,36 @@ for (const base of ["", "/mounted"]) {
       });
       assertLocation("/about", 5);
       assert.equal(push.mock.callCount(), 1, "reselection never adds duplicate history entries");
+
+      const responses: ((response: Response) => void)[] = [];
+      fetchMock.mock.mockImplementation(
+        () => new Promise<Response>((done) => responses.push(done)),
+      );
+      let canvasPending!: Promise<void> | void;
+      let externalPending!: Promise<void> | void;
+      await React.act(async () => {
+        canvasPending = navigate!({ to: "/same#section", source: "canvas" });
+        externalPending = navigate!({ to: "/same#section" });
+      });
+      const response = () =>
+        new Response(
+          JSON.stringify({ ...input, pathname: "/same", dehydratedState: dehydrate(seed) }),
+        );
+      await React.act(async () => {
+        responses[1]!(response());
+        await externalPending;
+      });
+      assert.equal(renderedInput.pathname, "/same");
+      assert.equal(committedSource, undefined, "latest request owns committed provenance");
+      await React.act(async () => {
+        responses[0]!(response());
+        await canvasPending;
+      });
+      assert.equal(
+        committedSource,
+        undefined,
+        "stale canvas request cannot suppress an external flight",
+      );
     } finally {
       await React.act(async () => root.unmount());
       queryClient.clear();

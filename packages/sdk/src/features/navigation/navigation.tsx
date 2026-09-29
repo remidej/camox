@@ -7,16 +7,20 @@ import {
 import type { LinkProps as TanStackLinkProps } from "@tanstack/react-router";
 import * as React from "react";
 
+export type NavigationSource = "canvas";
+
 interface LocationState {
   hash: string;
   href: string;
   pathname: string;
   search: string;
+  source?: NavigationSource;
 }
 
-interface NavigateOptions {
+export interface NavigateOptions {
   replace?: boolean;
   to: string;
+  source?: NavigationSource;
 }
 
 interface NavigationContextValue {
@@ -46,7 +50,7 @@ function toHref(to: string): string {
   return to;
 }
 
-async function browserNavigate({ replace, to }: NavigateOptions): Promise<void> {
+async function browserNavigate({ replace, to, source }: NavigateOptions): Promise<void> {
   if (typeof window === "undefined") return;
 
   const href = toHref(to);
@@ -55,7 +59,7 @@ async function browserNavigate({ replace, to }: NavigateOptions): Promise<void> 
   } else {
     window.history.pushState(null, "", href);
   }
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  window.dispatchEvent(new CustomEvent("camox:navigation", { detail: { source } }));
 }
 
 function NavigationProvider({
@@ -75,7 +79,14 @@ function NavigationProvider({
 
   React.useEffect(() => {
     if (controlledLocation) return;
-    const updateLocation = () => setLocation(getLocation());
+    const updateLocation = (event: Event) =>
+      setLocation({
+        ...getLocation(),
+        source:
+          event.type === "camox:navigation"
+            ? (event as CustomEvent<{ source?: NavigationSource }>).detail?.source
+            : undefined,
+      });
     window.addEventListener("popstate", updateLocation);
     window.addEventListener("camox:navigation", updateLocation);
     return () => {
@@ -101,7 +112,7 @@ function useLocation<T = LocationState>(options?: { select?: (location: Location
   return useTanStackLocation(options as Parameters<typeof useTanStackLocation>[0]) as T;
 }
 
-function useNavigate() {
+function useNavigate(): NavigationContextValue["navigate"] {
   const context = React.useContext(NavigationContext);
   if (context) return context.navigate;
   return useTanStackNavigate();
@@ -145,13 +156,13 @@ const Link: React.ForwardRefExoticComponent<LinkProps & React.RefAttributes<HTML
     );
   });
 
-function Navigate({ replace, to }: NavigateOptions) {
+function Navigate({ replace, to, source }: NavigateOptions) {
   const context = React.useContext(NavigationContext);
   if (!context) return <TanStackNavigate replace={replace} to={to} />;
 
   React.useEffect(() => {
-    void context.navigate({ replace, to });
-  }, [context, replace, to]);
+    void context.navigate({ replace, to, source });
+  }, [context, replace, to, source]);
 
   return null;
 }

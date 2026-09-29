@@ -11,13 +11,14 @@ import {
   fitCanvas,
   fitCanvasPage,
   isCanvasPageScale,
+  isNearCanvasPageScale,
   MAX_CANVAS_ZOOM,
   snapCanvasZoom,
   zoomCanvasAt,
   type CanvasVerticalRail,
 } from "./canvasCamera";
 
-void test("snap candidates require full horizontal visibility and choose the nearest center stably", () => {
+void test("snap candidates require 80% horizontal visibility and choose the nearest center stably", () => {
   const viewport = { width: 900, height: 800 };
   const pages = [
     { key: "first", left: 0, width: 300 },
@@ -27,9 +28,10 @@ void test("snap candidates require full horizontal visibility and choose the nea
   assert.equal(canvasSnapPage({ x: 0, y: -90000, scale: 1 }, viewport, pages), pages[1]);
   assert.equal(canvasSnapPage({ x: 0, y: 90000, scale: 1 }, viewport, pages), pages[1]);
   assert.equal(canvasSnapPage({ x: 100, y: 0, scale: 1 }, viewport, pages), pages[0]);
-  assert.equal(canvasSnapPage({ x: -1, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
-  assert.equal(canvasSnapPage({ x: 601, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
-  assert.equal(canvasSnapPage({ x: 600, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
+  assert.equal(canvasSnapPage({ x: -61, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
+  assert.equal(canvasSnapPage({ x: -60, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
+  assert.equal(canvasSnapPage({ x: 661, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
+  assert.equal(canvasSnapPage({ x: 660, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
   assert.equal(canvasSnapPage({ x: 0, y: 0, scale: 4 }, viewport, pages), undefined);
 });
 
@@ -37,9 +39,9 @@ void test("page zoom detent captures from either side with a wider release band"
   for (const pageScale of [0.3, 0.8, 1.5]) {
     for (const direction of [-1, 1]) {
       const approaching = pageScale * Math.exp(direction * 0.1);
-      const near = pageScale * Math.exp(direction * 0.059);
+      const near = pageScale * Math.exp(direction * 0.089);
       assert.equal(snapCanvasZoom(approaching, near, pageScale), pageScale);
-      const outsideCapture = pageScale * Math.exp(direction * 0.061);
+      const outsideCapture = pageScale * Math.exp(direction * 0.091);
       assert.equal(snapCanvasZoom(approaching, outsideCapture, pageScale), outsideCapture);
       const held = pageScale * Math.exp(direction * 0.119);
       assert.equal(snapCanvasZoom(pageScale, held, pageScale), pageScale);
@@ -61,6 +63,24 @@ void test("page zoom detent captures from either side with a wider release band"
     }
   }
   assert.equal(snapCanvasZoom(0.4, 0.5, undefined), 0.5);
+});
+
+void test("near-page eligibility shares the zoom capture range, not the wider release range", () => {
+  for (const pageScale of [0.3, 0.8, 1.5]) {
+    assert.equal(isNearCanvasPageScale(pageScale, pageScale), true);
+    for (const direction of [-1, 1]) {
+      for (const [distance, eligible] of [
+        [0.089, true],
+        [0.091, false],
+        [0.119, false],
+      ] as const) {
+        const scale = pageScale * Math.exp(direction * distance);
+        assert.equal(isNearCanvasPageScale(scale, pageScale), eligible);
+        assert.equal(snapCanvasZoom(scale, scale, pageScale) === pageScale, eligible);
+      }
+    }
+  }
+  assert.equal(isNearCanvasPageScale(0.5, undefined), false);
 });
 
 void test("snapping changes scale at the anchor, not the page position", () => {
