@@ -272,11 +272,11 @@ void test("comment mode is draft-editing only and clears editing selection", asy
   assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "setCommentMode", enabled: true });
-  previewStore.send({ type: "viewLivePage" });
+  previewStore.send({ type: "viewLiveSite" });
   assert.equal(previewStore.getSnapshot().context.mode, "previewing-live");
   previewStore.send({ type: "setCommentMode", enabled: true });
   assert.equal(previewStore.getSnapshot().context.mode, "previewing-live");
-  previewStore.send({ type: "viewDraftPage" });
+  previewStore.send({ type: "viewDraftSite" });
 });
 
 void test("comments reveal the existing editor and retain their page and field target", async () => {
@@ -620,11 +620,11 @@ void test("preview modes have only valid edit/source combinations across every t
       expected: ["previewing-draft", "previewing-draft", "previewing-live", "previewing-draft"],
     },
     {
-      type: "viewLivePage",
+      type: "viewLiveSite",
       expected: ["previewing-live", "previewing-live", "previewing-live", "previewing-live"],
     },
     {
-      type: "viewDraftPage",
+      type: "viewDraftSite",
       expected: ["editing-draft", "previewing-draft", "previewing-draft", "commenting-draft"],
     },
   ] as const;
@@ -637,7 +637,7 @@ void test("preview modes have only valid edit/source combinations across every t
       previewStore.send({ type: "enterEditMode" });
       if (mode === "commenting-draft") previewStore.send({ type: "setCommentMode", enabled: true });
       if (mode === "previewing-draft") previewStore.send({ type: "exitEditMode" });
-      if (mode === "previewing-live") previewStore.send({ type: "viewLivePage" });
+      if (mode === "previewing-live") previewStore.send({ type: "viewLiveSite" });
 
       previewStore.send({ type });
       const snapshot = previewStore.getSnapshot();
@@ -652,8 +652,8 @@ void test("preview modes have only valid edit/source combinations across every t
       );
       assert.equal(selectIsEditMode(snapshot) && selectPreviewSource(snapshot) === "live", false);
       assert.equal("isCommentMode" in snapshot.context, false);
-      if (type === "viewLivePage") assert.equal(snapshot.context.isToolbarHidden, true);
-      if (type === "enterEditMode" || type === "viewDraftPage") {
+      if (type === "viewLiveSite") assert.equal(snapshot.context.isToolbarHidden, true);
+      if (type === "enterEditMode" || type === "viewDraftSite") {
         assert.equal(snapshot.context.isToolbarHidden, false);
       }
     }

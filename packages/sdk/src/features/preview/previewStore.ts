@@ -151,7 +151,7 @@ export const previewStore = createStore({
       };
     },
     hideToolbar: (context) => ({ ...context, isToolbarHidden: true }),
-    viewLivePage: (context, _, enqueue) => {
+    viewLiveSite: (context, _, enqueue) => {
       enqueue.effect(() => {
         toast("Viewing live version of the site");
       });
@@ -314,7 +314,7 @@ export const previewStore = createStore({
       ...context,
       iframeElement: event.element,
     }),
-    viewDraftPage: (context, _, enqueue) => {
+    viewDraftSite: (context, _, enqueue) => {
       if (context.mode !== "previewing-live") return context;
       enqueue.effect(() => {
         toast("Previewing draft content", { duration: 2500 });

@@ -411,7 +411,7 @@ export const PreviewShell = ({
         aliases: ["Live", "View live", "Published content"],
         groupLabel: "Preview",
         checkIfAvailable: () => isAuthenticated && previewSource === "draft" && hasLiveCheckpoint,
-        execute: () => previewStore.send({ type: "viewLivePage" }),
+        execute: () => previewStore.send({ type: "viewLiveSite" }),
         shortcut: { key: "d", withAlt: true },
       },
       {
@@ -420,7 +420,7 @@ export const PreviewShell = ({
         aliases: ["Draft", "View draft", "Unpublished content"],
         groupLabel: "Preview",
         checkIfAvailable: () => isAuthenticated && previewSource === "live",
-        execute: () => previewStore.send({ type: "viewDraftPage" }),
+        execute: () => previewStore.send({ type: "viewDraftSite" }),
         shortcut: { key: "d", withAlt: true },
       },
       {
@@ -464,8 +464,6 @@ export const PreviewShell = ({
 
   const toolbarProps = {
     pageId: pageData?.page.id,
-    pageStatus: pageData?.page.status,
-    hasLiveVersion: hasLiveCheckpoint,
   };
   return (
     <PreviewEditingOwnerContext value={editingOwner}>

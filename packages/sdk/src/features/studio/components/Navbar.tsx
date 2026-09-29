@@ -1,5 +1,6 @@
 import { Button } from "@camox/ui/button";
 import { Kbd } from "@camox/ui/kbd";
+import { useSelector } from "@xstate/store-react";
 import { Globe, SearchIcon, Database } from "lucide-react";
 import type * as icons from "lucide-react";
 import * as React from "react";
@@ -9,6 +10,7 @@ import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { cn } from "@/lib/utils";
 
 import { PlatformLabel } from "../../../components/PlatformLabel";
+import { previewStore, selectPreviewSource } from "../../preview/previewStore";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
@@ -54,6 +56,7 @@ export const getNavbarLinks = () => links;
 
 const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
   const pages = usePageDestinations();
+  const previewSource = useSelector(previewStore, selectPreviewSource);
 
   const { pathname } = useLocation();
   return (
@@ -89,6 +92,14 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
         </ul>
       </div>
       <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={previewSource === "live"}
+          onClick={() => previewStore.send({ type: "viewLiveSite" })}
+        >
+          View live site
+        </Button>
         <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
           <SearchIcon className="text-muted-foreground size-4" />
           <span className="text-muted-foreground">Quick find</span>

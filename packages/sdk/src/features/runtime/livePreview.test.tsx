@@ -107,7 +107,7 @@ void test("live preview fetches after refreshing with only draft data cached", a
     assert.equal(requests.length, 0);
 
     await React.act(async () => {
-      previewStore.send({ type: "viewLivePage" });
+      previewStore.send({ type: "viewLiveSite" });
     });
     await React.act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 400));

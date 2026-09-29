@@ -267,7 +267,7 @@ void test("singleton and template sidebars load shared layouts, seed source-spec
       files: [],
       repeatableItems: [],
     });
-    await React.act(async () => dom.store.send({ type: "viewLivePage" }));
+    await React.act(async () => dom.store.send({ type: "viewLiveSite" }));
     await dom.settle();
     assert.deepEqual(dom.calls.at(-1), {
       layoutId: "articles.$slug",

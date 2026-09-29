@@ -18,23 +18,19 @@ interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
   onCommentModeChange?: (enabled: boolean) => void;
   pageId?: number;
-  pageStatus?: "draft" | "published" | "modified";
-  hasLiveVersion?: boolean;
 }
 
 export const PreviewToolbar = ({
   onEditModeChange,
   onCommentModeChange,
   pageId,
-  pageStatus,
-  hasLiveVersion,
 }: PreviewToolbarProps) => {
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
-  const { data: comments } = usePageComments(pageStatus ? pageId : undefined);
+  const { data: comments } = usePageComments(pageId);
   const commentCount = comments?.length ?? 0;
 
   if (isToolbarHidden) return null;
@@ -98,17 +94,7 @@ export const PreviewToolbar = ({
             })
           }
         />
-        <div className="flex items-center gap-2">
-          {pageStatus && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pageStatus === "published" || !hasLiveVersion}
-              onClick={() => previewStore.send({ type: "viewLivePage" })}
-            >
-              View live page
-            </Button>
-          )}
+        <div className="-ml-2 flex items-center gap-2">
           <Tooltip.Tooltip>
             <Tooltip.TooltipTrigger
               render={

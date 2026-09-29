@@ -221,9 +221,9 @@ export function MobilePreviewDrawer({
                     variant="outline"
                     className="w-full"
                     disabled={page.status === "published" || page.livePublishedCheckpointId == null}
-                    onClick={() => previewStore.send({ type: "viewLivePage" })}
+                    onClick={() => previewStore.send({ type: "viewLiveSite" })}
                   >
-                    View live page
+                    View live site
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 gap-2 p-3">

@@ -83,7 +83,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
       await api.pages.unpublish({ id: target.page.id });
     },
     onSuccess: async (_, { operation }) => {
-      if (operation !== "publish") previewStore.send({ type: "viewDraftPage" });
+      if (operation !== "publish") previewStore.send({ type: "viewDraftSite" });
       setAction(null);
       toast.success(
         operation === "publish"

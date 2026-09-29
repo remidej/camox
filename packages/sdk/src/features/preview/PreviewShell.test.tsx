@@ -146,7 +146,7 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
   };
   const reset = () => {
     store.send({ type: "exitEditMode" });
-    store.send({ type: "viewDraftPage" });
+    store.send({ type: "viewDraftSite" });
   };
   try {
     reset();
@@ -192,9 +192,9 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
         });
         assert.equal(store.getSnapshot().context.mode, "commenting-draft");
         assertCanvas();
-        await React.act(async () => store.send({ type: "viewLivePage" }));
+        await React.act(async () => store.send({ type: "viewLiveSite" }));
         assertPreview();
-        await React.act(async () => store.send({ type: "viewDraftPage" }));
+        await React.act(async () => store.send({ type: "viewDraftSite" }));
         assertPreview();
         assert.ok(canvasImports > 0);
       });

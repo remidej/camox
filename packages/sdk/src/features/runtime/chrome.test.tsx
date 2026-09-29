@@ -72,7 +72,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(editModeLabel, /class="camox-platform-other">Ctrl ↵/);
   assert.match(html, /class="camox-platform-mac">⌘ K/);
   assert.match(html, /class="camox-platform-other">Ctrl K/);
-  assert.match(html, /View live page/);
+  assert.match(html, /View live site/);
   assert.match(html, /PROD/);
   assert.doesNotMatch(html, /camox-loading|Loading editor/);
   assert.match(html, /<iframe[^>]+srcDoc=/i);
@@ -93,6 +93,8 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   );
   assert.match(studioHtml, /My actual project/);
   assert.match(studioHtml, /Quick find/);
+  assert.match(studioHtml, /View live site/);
+  assert.ok(studioHtml.indexOf("View live site") < studioHtml.indexOf("Quick find"));
   assert.doesNotMatch(studioHtml, /camox-loading/);
 
   const { getNavbarLinks } = await import("../studio/components/Navbar");
@@ -161,12 +163,12 @@ void test("feedback is available without experimental features, page metadata or
   const { initApiClient } = await import("../../lib/api-client");
   initApiClient("https://api.test");
   const { PreviewToolbar } = await import("../preview/components/PreviewToolbar");
-  const renderToolbar = (pageStatus?: "draft" | "published" | "modified") =>
+  const renderToolbar = () =>
     renderToString(
       createElement(
         QueryClientProvider,
         { client: new QueryClient() },
-        createElement(PreviewToolbar, { pageStatus }),
+        createElement(PreviewToolbar),
       ),
     );
   const previousFlag = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
@@ -176,10 +178,7 @@ void test("feedback is available without experimental features, page metadata or
         Reflect.deleteProperty(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
       else Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: flag });
       // No auth provider or page metadata is required, including on derived previews.
-      for (const status of [undefined, "draft", "published", "modified"] as const) {
-        const toolbarHtml = renderToolbar(status);
-        assert.match(toolbarHtml, /Feedback/);
-      }
+      assert.match(renderToolbar(), /Feedback/);
     }
   } finally {
     if (previousFlag === undefined)
