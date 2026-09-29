@@ -8,6 +8,7 @@ import {
   fitCanvas,
   fitCanvasPage,
   isCanvasPageScale,
+  isNearCanvasPageScale,
   MAX_CANVAS_ZOOM,
   snapCanvasZoom,
   zoomCanvasAt,
@@ -20,6 +21,9 @@ import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
 const MIN_OVERLAY_ZOOM = 0.3;
+// Fractions of viewport width: acquire near center, then hold a wider detent.
+const PAN_SNAP_CAPTURE = 0.07;
+const PAN_SNAP_RELEASE = 0.12;
 
 function isControl(target: EventTarget | null) {
   return (
@@ -83,11 +87,17 @@ export function useCanvasCamera(
     let target = camera;
     let animation = 0;
     let previousTime = 0;
-    // A pause or input-mode change starts a fresh gesture. No timers or extra
-    // camera coordinates: zoom retains only unconsumed intent, pan only its rail.
+    // Both detents retain input independently of the displayed camera, so small
+    // deltas can accumulate past a snap. A pause or input-mode change resets intent.
     let gesture:
       | { kind: "zoom"; time: number; intendedScale: number }
-      | { kind: "pan"; time: number; rail: CanvasVerticalRail }
+      | {
+          kind: "pan";
+          time: number;
+          rail: CanvasVerticalRail;
+          intendedX: number;
+          source: "wheel" | "pointer" | "keyboard";
+        }
       | undefined;
     let snappedKey: string | undefined;
     const pages = () => snappingRef.current?.pages ?? (page ? [{ ...page, key: "initial" }] : []);
@@ -135,11 +145,53 @@ export function useCanvasCamera(
         snappedKey = undefined;
         return next;
       }
-      if (snappedKey === candidate.key) return next;
+      if (snappedKey === candidate.key && isCanvasPageScale(scale, fit.scale)) return next;
       snappedKey = candidate.key;
       snappingRef.current?.onSelect(candidate.key);
       // Keep the zoom anchor vertically, rather than jumping back to page top.
       return { ...next, x: fit.x };
+    };
+    const pan = (
+      base: CanvasCamera,
+      delta: CanvasPoint,
+      time: number,
+      source: "wheel" | "pointer" | "keyboard",
+      rail: CanvasVerticalRail = { mode: "free", samples: [] },
+    ) => {
+      const start =
+        gesture?.kind === "pan" &&
+        gesture.source === source &&
+        time - gesture.time < GESTURE_IDLE_MS
+          ? gesture.intendedX
+          : base.x;
+      // Clamp raw intent too: pushing against the canvas bounds must not bank
+      // invisible travel that the user has to undo when reversing direction.
+      const intended = constrainCanvasCamera(
+        { ...base, x: start + delta.x, y: base.y + delta.y },
+        viewportSize,
+        contentSize,
+      );
+      gesture = { kind: "pan", time, rail, intendedX: intended.x, source };
+      if (!delta.x) return { ...intended, x: base.x };
+      const candidate = canvasSnapPage(intended, viewportSize, pages());
+      const fit = candidate && fitCanvasPage(viewportSize, candidate);
+      if (!candidate || !fit || !isNearCanvasPageScale(base.scale, fit.scale)) {
+        snappedKey = undefined;
+        return intended;
+      }
+      // Center at the user's actual scale; horizontal intent must not zoom or
+      // change the vertical reading position just because it is near page fit.
+      const centeredX =
+        viewportSize.width / 2 - (candidate.left + candidate.width / 2) * base.scale;
+      const held = Math.abs(base.x - centeredX) < 1e-8;
+      const band = viewportSize.width * (held ? PAN_SNAP_RELEASE : PAN_SNAP_CAPTURE);
+      if (Math.abs(intended.x - centeredX) > band) {
+        snappedKey = undefined;
+        return intended;
+      }
+      if (snappedKey !== candidate.key) snappingRef.current?.onSelect(candidate.key);
+      snappedKey = candidate.key;
+      return { ...intended, x: centeredX };
     };
     const pointers = new Map<number, CanvasPoint>();
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -202,7 +254,7 @@ export function useCanvasCamera(
       if (
         snapped &&
         (!canvasSnapPage(next, viewportSize, [snapped]) ||
-          !isCanvasPageScale(next.scale, fitCanvasPage(viewportSize, snapped).scale))
+          !isNearCanvasPageScale(next.scale, fitCanvasPage(viewportSize, snapped).scale))
       )
         snappedKey = undefined;
       applyCamera(next, immediate);
@@ -255,7 +307,9 @@ export function useCanvasCamera(
         return;
       }
       const previous =
-        gesture?.kind === "pan" && event.timeStamp - gesture.time < GESTURE_IDLE_MS
+        gesture?.kind === "pan" &&
+        gesture.source === "wheel" &&
+        event.timeStamp - gesture.time < GESTURE_IDLE_MS
           ? gesture.rail
           : undefined;
       const rail: CanvasVerticalRail =
@@ -263,12 +317,18 @@ export function useCanvasCamera(
           ? canvasVerticalRail({ x: dx, y: dy }, event.timeStamp, previous)
           : { mode: "free", samples: [] };
       const vertical = rail.mode === "vertical";
-      gesture = { kind: "pan", time: event.timeStamp, rail };
-      move({
-        ...target,
-        x: target.x - (vertical ? 0 : event.shiftKey && dx === 0 ? dy : dx),
-        y: target.y - (event.shiftKey && dx === 0 ? 0 : dy),
-      });
+      move(
+        pan(
+          target,
+          {
+            x: -(vertical ? 0 : event.shiftKey && dx === 0 ? dy : dx),
+            y: -(event.shiftKey && dx === 0 ? 0 : dy),
+          },
+          event.timeStamp,
+          "wheel",
+          rail,
+        ),
+      );
     };
     const onPointerDown = (event: PointerEvent) => {
       if (isControl(event.target) || (event.button !== 0 && event.button !== 1)) return;
@@ -288,7 +348,12 @@ export function useCanvasCamera(
       pointers.set(event.pointerId, next);
       if (!other) {
         move(
-          { ...camera, x: camera.x + next.x - previous.x, y: camera.y + next.y - previous.y },
+          pan(
+            camera,
+            { x: next.x - previous.x, y: next.y - previous.y },
+            event.timeStamp,
+            "pointer",
+          ),
           true,
         );
         return;
@@ -306,7 +371,8 @@ export function useCanvasCamera(
     const onPointerEnd = (event: PointerEvent) => {
       gesture = undefined;
       pointers.delete(event.pointerId);
-      if (!pointers.size) viewport.style.cursor = "grab";
+      if (pointers.size) return;
+      viewport.style.cursor = "grab";
     };
     const onFocusIn = (event: FocusEvent) => {
       if (!isControl(event.target)) return;
@@ -319,13 +385,14 @@ export function useCanvasCamera(
       if (!dx && !dy) return;
       // overflow:clip prevents focus from scrolling a second, hidden coordinate
       // system. Bring offscreen controls into view using the camera instead.
+      gesture = undefined;
       move({ ...camera, x: camera.x + dx, y: camera.y + dy }, true);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (isControl(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
-      gesture = undefined;
       const center = { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 };
       if (event.key === "+" || event.key === "=" || event.key === "-") {
+        gesture = undefined;
         event.preventDefault();
         move(
           zoomCanvasAt(
@@ -338,11 +405,13 @@ export function useCanvasCamera(
         return;
       }
       if (event.key === "0") {
+        gesture = undefined;
         event.preventDefault();
         move(zoomCanvasAt(target, center, 1, minimumScale));
         return;
       }
       if (event.key === "Home" || (event.shiftKey && event.code === "Digit1")) {
+        gesture = undefined;
         event.preventDefault();
         move(fitCanvas(viewportSize, contentSize));
         return;
@@ -356,7 +425,7 @@ export function useCanvasCamera(
       const direction = directions[event.key];
       if (!direction) return;
       event.preventDefault();
-      move({ ...target, x: target.x + direction.x, y: target.y + direction.y });
+      move(pan(target, direction, event.timeStamp, "keyboard"));
     };
 
     paint();

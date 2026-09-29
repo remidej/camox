@@ -20,7 +20,7 @@ export interface CanvasSnapPage {
   width: number;
 }
 
-/** Horizontal visibility alone matters; stable input order breaks center-distance ties. */
+/** Require 80% horizontal visibility; stable input order breaks center-distance ties. */
 export function canvasSnapPage<T extends CanvasSnapPage>(
   camera: CanvasCamera,
   viewport: CanvasSize,
@@ -31,7 +31,8 @@ export function canvasSnapPage<T extends CanvasSnapPage>(
   for (const page of pages) {
     const left = camera.x + page.left * camera.scale;
     const right = left + page.width * camera.scale;
-    if (left < -1e-8 || right > viewport.width + 1e-8) continue;
+    const visible = Math.max(0, Math.min(right, viewport.width) - Math.max(left, 0));
+    if (visible + 1e-8 < (right - left) * 0.8) continue;
     const nextDistance = Math.abs((left + right - viewport.width) / 2);
     if (nextDistance >= distance) continue;
     closest = page;
@@ -45,11 +46,16 @@ export const CANVAS_HEADER_HEIGHT = 52;
 export const MAX_CANVAS_ZOOM = 2;
 
 /** Relative (log-scale) bands make the detent feel the same at every page width. */
-const ZOOM_SNAP_CAPTURE = 0.06;
+const ZOOM_SNAP_CAPTURE = 0.09;
 const ZOOM_SNAP_RELEASE = 0.12;
 
 export function isCanvasPageScale(scale: number, pageScale: number | undefined) {
   return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) < 1e-8;
+}
+
+/** Horizontal attraction shares the zoom capture range without changing scale. */
+export function isNearCanvasPageScale(scale: number, pageScale: number | undefined) {
+  return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) <= ZOOM_SNAP_CAPTURE;
 }
 
 /**
