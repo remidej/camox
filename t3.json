@@ -1,0 +1,11 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "scripts": [
+    {
+      "name": "Prepare worktree",
+      "command": "bash scripts/copy-linked-files.sh && bash scripts/prepare.sh",
+      "runOnWorktreeCreate": true,
+      "async": false
+    }
+  ]
+}
