@@ -7,6 +7,7 @@ import {
 } from "@camox/ui/dropdown-menu";
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
+import { ChevronDownIcon } from "lucide-react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
@@ -60,6 +61,7 @@ export function SiteStatusIndicator({ isPreview }: { isPreview: boolean }) {
         render={<Button type="button" variant="outline" className={className} />}
       >
         {label}
+        <ChevronDownIcon aria-hidden className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem

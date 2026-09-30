@@ -6,8 +6,8 @@ export const collection = createCollection({
   title: "Customers",
   description: "Create and publish customers independently of page content.",
   content: {
-    name: Type.String({ default: "New customer", minLength: 1 }),
-    company: Type.String({ default: "" }),
+    name: Type.String({ minLength: 1 }),
+    company: Type.String(),
   },
   label: "name",
 });

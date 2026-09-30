@@ -106,7 +106,11 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.equal(canViewLiveSite([{ livePublishedCheckpointId: null }], "draft"), false);
   assert.equal(canViewLiveSite([{ livePublishedCheckpointId: 1 }], "live"), false);
 
-  const { getNavbarLinks } = await import("../studio/components/Navbar");
+  const { getNavbarLinks, isContentNavbarPath } = await import("../studio/components/Navbar");
+  assert.equal(isContentNavbarPath("/camox/content"), true);
+  assert.equal(isContentNavbarPath("/camox/content/assets"), true);
+  assert.equal(isContentNavbarPath("/camox/content/collections/articles/new"), true);
+  assert.equal(isContentNavbarPath("/camox/contentful"), false);
   const { CamoxStudio } = await import("../studio/CamoxStudio");
   const { AuthenticatedCamoxProvider } = await import("../provider/AuthenticatedCamoxProvider");
   const { EditablePageExperience } = await import("../preview/EditablePageExperience");

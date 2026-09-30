@@ -1,6 +1,24 @@
-import { Type as TypeBox, type TObject, type TSchema } from "@sinclair/typebox";
+import { Type as TypeBox, type TObject, type TSchema, type TUnsafe } from "@sinclair/typebox";
 
-export { Type } from "./lib/contentType";
+import { Type as ContentType } from "./lib/contentType";
+
+const CollectionString = (
+  options: {
+    default?: string;
+    title?: string;
+    maxLength?: number;
+    minLength?: number;
+    pattern?: string;
+  } = {},
+) =>
+  TypeBox.Unsafe<string>({
+    type: "string",
+    ...options,
+    fieldType: "String" as const,
+  }) as TUnsafe<string> & { fieldType: "String" };
+
+/** Collection fields can omit defaults because records are created through an authoring form. */
+export const Type = { ...ContentType, String: CollectionString };
 
 type TextKey<T extends Record<string, TSchema>> = {
   [K in keyof T & string]: T[K] extends { fieldType: "String" } ? K : never;

@@ -53,6 +53,9 @@ const links = [
 
 export const getNavbarLinks = () => links;
 
+export const isContentNavbarPath = (pathname: string) =>
+  pathname === STUDIO_CONTENT_PATH || pathname.startsWith(`${STUDIO_CONTENT_PATH}/`);
+
 const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
   const pages = usePageDestinations();
 
@@ -65,28 +68,34 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
           <EnvironmentMenu />
         </div>
         <ul className="flex items-center gap-1">
-          {getNavbarLinks().map((link, index) => (
-            <li key={link.to}>
-              <Link
-                to={link.to}
-                className={cn(
-                  // common layout styles
-                  "flex gap-2 items-center rounded-md px-4 py-2 text-sm font-medium",
-                  // interaction styles
-                  "hover:bg-accent hover:text-accent-foreground outline-none transition-[color,box-shadow] focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
-                  // active style
-                  (isPreview || pages?.some((page) => page.fullPath === pathname)) && index === 0
-                    ? "bg-accent hover:bg-accent text-accent-foreground"
-                    : "text-muted-foreground",
-                )}
-                activeProps={{
-                  className: "bg-accent hover:bg-accent text-accent-foreground!",
-                }}
-              >
-                {link.children}
-              </Link>
-            </li>
-          ))}
+          {getNavbarLinks().map((link, index) => {
+            const isPreviewActive =
+              index === 0 && (isPreview || pages?.some((page) => page.fullPath === pathname));
+            const isContentActive =
+              link.to === STUDIO_CONTENT_PATH && isContentNavbarPath(pathname);
+            return (
+              <li key={link.to}>
+                <Link
+                  to={link.to}
+                  className={cn(
+                    // common layout styles
+                    "flex gap-2 items-center rounded-md px-4 py-2 text-sm font-medium",
+                    // interaction styles
+                    "hover:bg-accent hover:text-accent-foreground outline-none transition-[color,box-shadow] focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
+                    // active style
+                    isPreviewActive || isContentActive
+                      ? "bg-accent hover:bg-accent text-accent-foreground"
+                      : "text-muted-foreground",
+                  )}
+                  activeProps={{
+                    className: "bg-accent hover:bg-accent text-accent-foreground!",
+                  }}
+                >
+                  {link.children}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       </div>
       <div className="flex items-center gap-2">

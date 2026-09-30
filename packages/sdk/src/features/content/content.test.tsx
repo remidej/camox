@@ -17,7 +17,12 @@ import {
 } from "@/features/studio/routes";
 import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
-import { collectionQueries, type CollectionDefinition } from "@/lib/queries";
+import {
+  collectionQueries,
+  fileQueries,
+  projectQueries,
+  type CollectionDefinition,
+} from "@/lib/queries";
 
 import {
   collectionFormContent,
@@ -25,8 +30,9 @@ import {
   collectionFormFields,
   type FieldSchema,
 } from "./collection-form";
+import { CollectionItemModalProvider, useCollectionItemModal } from "./CollectionItemModalContext";
 import { ContentSidebar } from "./components/ContentSidebar";
-import { ContentCollection, ContentCollectionNew } from "./ContentCollection";
+import { ContentCollection, ContentCollectionItemEditor } from "./ContentCollection";
 
 // tsx loads workspace UI sources with the classic JSX transform, unlike Vite.
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
@@ -114,6 +120,31 @@ void test("content index does not render Assets before redirecting", async () =>
   }
 });
 
+void test("the assets empty view offers a multi-file upload control", async () => {
+  const client = new QueryClient();
+  try {
+    client.setQueryData(projectQueries.getBySlug("site").queryKey, {
+      id: 1,
+      slug: "site",
+      name: "Site",
+      deployToken: "",
+      organizationId: "organization",
+      organizationSlug: null,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    client.setQueryData(fileQueries.list(1).queryKey, []);
+    const html = await renderContentPage(client, STUDIO_ASSETS_PATH);
+    assert.match(html, /No assets yet/);
+    assert.match(html, /Upload images, videos, and files to use in your content/);
+    assert.match(html, /Upload assets/);
+    assert.match(html, /type="file"/);
+    assert.match(html, /multiple=""/);
+  } finally {
+    client.clear();
+  }
+});
+
 void test("experimental UI enables collection browsing and the new-item form", async () => {
   const previous = Reflect.get(globalThis, "__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__");
   const client = new QueryClient();
@@ -128,9 +159,9 @@ void test("experimental UI enables collection browsing and the new-item form", a
     const list = await renderContentPage(client, collectionContentPath("articles"));
     assert.match(list, /Collections/);
     assert.match(list, /Create item/);
-    const form = await renderContentPage(client, newCollectionItemPath("articles"));
-    assert.match(form, /New item/);
-    assert.match(form, /New article/);
+    const modalRoute = await renderContentPage(client, newCollectionItemPath("articles"));
+    assert.match(modalRoute, /Articles/);
+    assert.match(modalRoute, /No items yet/);
   } finally {
     client.clear();
     if (previous === undefined)
@@ -165,13 +196,16 @@ void test("Collections group lists every collection in API order with one select
   assert.equal(html.match(/aria-current="page"/g)?.length, 1);
   assert.match(html, /aria-current="page"[^]*?title="Authors"/);
   assert.match(html, /href="\/camox\/content\/collections\/authors"/);
+  assert.equal(html.match(/lucide-list h-4 w-4 shrink-0 text-muted-foreground/g)?.length, 1);
 });
 
 function renderCollection(collection: CollectionDefinition, client: QueryClient) {
   return renderToStaticMarkup(
     withNavigation(
       <QueryClientProvider client={client}>
-        <ContentCollection projectSlug="site" collection={collection} />
+        <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+          <ContentCollection projectSlug="site" collection={collection} />
+        </CollectionItemModalProvider>
       </QueryClientProvider>,
     ),
   );
@@ -186,7 +220,7 @@ void test("each empty collection has its own title and empty view", () => {
     assert.match(html, /No items yet/);
     assert.ok(html.includes(`Items in ${collection.title} will appear here.`));
     assert.doesNotMatch(html, /Loading items/);
-    assert.equal(html.match(/href="[^"]*\/new"/g)?.length, 2);
+    assert.equal((html.match(/Create item/g) ?? []).length, 2);
   }
   client.clear();
 });
@@ -205,14 +239,13 @@ void test("nonempty collections render record labels rather than an empty state"
   assert.match(html, /Modified/);
   assert.match(
     html,
-    /First article<\/span>[^<]*<span[^>]*data-slot="badge"[^>]*>Draft<\/span><\/a>/,
+    /First article<\/span>[^<]*<span[^>]*data-slot="badge"[^>]*>Draft<\/span><\/button>/,
   );
   assert.match(html, /aria-label="Delete First article"/);
   assert.match(html, /Untitled item/);
-  assert.ok(html.includes(`href="${editCollectionItemPath("articles", "one")}"`));
-  assert.ok(html.includes(`href="${editCollectionItemPath("articles", "two")}"`));
+  assert.doesNotMatch(html, /\/edit"/);
   assert.doesNotMatch(html, /No items yet/);
-  assert.equal(html.match(/href="[^"]*\/new"/g)?.length, 2);
+  assert.equal((html.match(/type="button"/g) ?? []).length > 0, true);
   assert.match(html, /Add item/);
   client.clear();
 });
@@ -300,7 +333,11 @@ void test("the new item route builds editable fields and media editors from the 
             authClient: createCamoxAuthClient("http://localhost:8788"),
           }}
         >
-          <ContentCollectionNew projectSlug="site" collection={collections[0]} />
+          <ContentCollectionItemEditor
+            projectSlug="site"
+            collectionId="articles"
+            onSaved={() => {}}
+          />
         </AuthContext.Provider>
       </QueryClientProvider>,
       newCollectionItemPath("articles"),
@@ -322,6 +359,94 @@ void test("the new item route builds editable fields and media editors from the 
   assert.match(html, /type="submit"[^>]*>Create item/);
   assert.ok(html.indexOf('for="collection-title"') < html.indexOf('for="collection-category"'));
   client.clear();
+});
+
+void test("collection item controls open the shared create and edit modal", async () => {
+  const { Window } = await import("happy-dom");
+  const { act } = await import("react");
+  const window = new Window();
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    Event: window.Event,
+    localStorage: window.localStorage,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const { createRoot } = await import("react-dom/client");
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  client.setQueryData(collectionQueries.get("site", "articles").queryKey, {
+    ...collections[0],
+    contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
+  });
+  client.setQueryData(collectionQueries.records("site", "articles").queryKey, [
+    {
+      id: "one",
+      version: 1,
+      label: "First article",
+      status: "draft",
+      draft: { title: "Existing article" },
+    },
+  ]);
+  client.setQueryData(collectionQueries.record("site", "articles", "one").queryKey, {
+    id: "one",
+    version: 1,
+    draft: { title: "Existing article" },
+  });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  function ModalTargetProbe() {
+    const modal = useCollectionItemModal();
+    return (
+      <div>
+        <output data-modal-target>
+          {modal.target ? `${modal.target.collectionId}:${modal.target.itemId ?? "new"}` : "closed"}
+        </output>
+        <button type="button" onClick={modal.close}>
+          Close modal
+        </button>
+      </div>
+    );
+  }
+  try {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+            <ContentCollection projectSlug="site" collection={collections[0]} />
+            <ModalTargetProbe />
+          </CollectionItemModalProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const createButton = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Create item",
+    );
+    assert.ok(createButton);
+    await act(async () => createButton.click());
+    assert.equal(host.querySelector("[data-modal-target]")?.textContent, "articles:new");
+
+    const closeButton = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "Close modal",
+    );
+    assert.ok(closeButton);
+    await act(async () => closeButton.click());
+    const editButton = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("First article"),
+    );
+    assert.ok(editButton);
+    await act(async () => editButton.click());
+    assert.equal(host.querySelector("[data-modal-target]")?.textContent, "articles:one");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    client.clear();
+    await window.happyDOM.close();
+  }
 });
 
 void test("asset preview defaults never enter collection form data", () => {
@@ -444,21 +569,17 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
             }}
           >
             <QueryClientProvider client={client}>
-              <ContentCollectionNew
+              <ContentCollectionItemEditor
                 projectSlug="site"
-                collection={collections[0]}
+                collectionId="articles"
                 itemId={editing ? id : undefined}
+                onSaved={() => navigations.push(collectionContentPath("articles"))}
               />
             </QueryClientProvider>
           </NavigationProvider>,
         );
       });
-      assert.equal(host.textContent?.includes("Delete item"), false);
       assert.ok(host.querySelector("form")?.classList.contains("mx-auto"));
-      const backLink = host.querySelector("a");
-      assert.equal(backLink?.textContent?.trim(), editing ? "Edit item" : "New item");
-      assert.equal(backLink?.getAttribute("href"), collectionContentPath("articles"));
-      assert.ok(backLink?.classList.contains("justify-start"));
       const submit = async () => {
         await act(async () => {
           host
@@ -468,7 +589,6 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
         });
       };
       if (editing) {
-        assert.ok(host.textContent?.includes("Edit item"));
         assert.equal(host.querySelector("textarea")?.value, "Existing article");
         fail = true;
         await submit();
@@ -578,10 +698,11 @@ void test("forms only save drafts and keep the reviewed version after failures a
             }}
           >
             <QueryClientProvider client={client}>
-              <ContentCollectionNew
+              <ContentCollectionItemEditor
                 projectSlug="site"
-                collection={collections[0]}
+                collectionId="articles"
                 itemId={editing ? id : undefined}
+                onSaved={() => navigations.push(collectionContentPath("articles"))}
               />
             </QueryClientProvider>
           </NavigationProvider>,
