@@ -32,7 +32,11 @@ before(async () => {
       return;
     }
     if (input.arguments.pageId === 999) {
-      res.end(JSON.stringify({ json: { ok: false, error: { code: "NOT_FOUND", message: "Page not found" } } }));
+      res.end(
+        JSON.stringify({
+          json: { ok: false, error: { code: "NOT_FOUND", message: "Page not found" } },
+        }),
+      );
       return;
     }
     res.end(JSON.stringify({ json: { ok: true, result: input.arguments } }));
@@ -42,11 +46,18 @@ before(async () => {
   const origin = `http://127.0.0.1:${server.address().port}`;
   await writeFile(
     join(home, ".camox/auth.json"),
-    JSON.stringify({ [origin]: { token: "test-token", email: "tester@example.com", name: "Tester" } }),
+    JSON.stringify({
+      [origin]: { token: "test-token", email: "tester@example.com", name: "Tester" },
+    }),
   );
   await writeFile(
     join(home, "node_modules/.camox/runtime.json"),
-    JSON.stringify({ projectSlug: "test", apiUrl: origin, authenticationUrl: origin, disableTelemetry: true }),
+    JSON.stringify({
+      projectSlug: "test",
+      apiUrl: origin,
+      authenticationUrl: origin,
+      disableTelemetry: true,
+    }),
   );
 });
 
@@ -78,7 +89,16 @@ void test("lists page comments in development and resolves a comment in producti
   assert.equal(calls.at(-1).input.projectId, 7);
   assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
 
-  const resolved = await cli("resolve", "--page-id", "42", "--id", commentId, "--production", "--project", "other");
+  const resolved = await cli(
+    "resolve",
+    "--page-id",
+    "42",
+    "--id",
+    commentId,
+    "--production",
+    "--project",
+    "other",
+  );
   assert.equal(resolved.code, 0, resolved.stderr);
   assert.deepEqual(JSON.parse(resolved.stdout), { pageId: 42, id: commentId });
   assert.equal(calls.at(-1).input.name, "resolveComment");

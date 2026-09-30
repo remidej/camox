@@ -204,7 +204,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
     const selection = page.document.getSelection()!;
     selection.addRange(range);
     // Happy DOM clones ranges when installing the selection.
-    selection.getRangeAt(0).getBoundingClientRect = range.getBoundingClientRect;
+    selection.getRangeAt(0).getBoundingClientRect = () => range.getBoundingClientRect();
     const selectionMessage = {
       type: "CAMOX_TEXT_SELECTION_STATE",
       hasSelection: true,
