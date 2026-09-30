@@ -70,7 +70,7 @@ const ContentSidebarItem = ({
       selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
     )}
   >
-    <Icon aria-hidden className="h-4 w-4 shrink-0" />
+    <Icon aria-hidden className={cn("h-4 w-4 shrink-0", !selected && "text-muted-foreground")} />
     <span className="truncate" title={title}>
       {title}
     </span>

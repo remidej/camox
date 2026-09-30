@@ -9,7 +9,7 @@ void describe("collection definitions", () => {
     id: "articles",
     title: "Articles",
     description: "Editorial",
-    content: { title: Type.String({ default: "" }), cover: Type.Image() },
+    content: { title: Type.String({ minLength: 1 }), cover: Type.Image() },
     label: "title",
   });
   void it("registers and serializes definitions without runtime functions", () => {
@@ -21,6 +21,7 @@ void describe("collection definitions", () => {
     assert.equal(serialized.label, "title");
     assert.deepEqual(serialized.contentSchema.required, ["title", "cover"]);
     assert.equal(serialized.contentSchema.additionalProperties, false);
+    assert.equal("default" in serialized.contentSchema.properties.title, false);
     assert.deepEqual(Object.keys(collection), ["_internal"]);
   });
   void it("rejects duplicate registration and invalid JavaScript labels", () => {

@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
 
-import { Navigate, useLocation } from "@/features/navigation/navigation";
+import { Navigate, useLocation, useNavigate } from "@/features/navigation/navigation";
 import {
+  collectionContentPath,
   matchCollectionContentPath,
   STUDIO_ASSETS_PATH,
   STUDIO_CONTENT_PATH,
@@ -9,9 +11,13 @@ import {
 import { useProjectSlug } from "@/lib/auth";
 import { collectionQueries } from "@/lib/queries";
 
+import {
+  CollectionItemModalProvider,
+  type CollectionItemModalTarget,
+} from "./CollectionItemModalContext";
 import { ContentSidebar } from "./components/ContentSidebar";
 import { ContentAssets } from "./ContentAssets";
-import { ContentCollection, ContentCollectionNew } from "./ContentCollection";
+import { ContentCollection, ContentCollectionItemModal } from "./ContentCollection";
 
 export const CamoxContent = () => {
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -36,6 +42,7 @@ export const CamoxContent = () => {
 
 const ExperimentalContent = () => {
   const projectSlug = useProjectSlug();
+  const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const route = matchCollectionContentPath(pathname);
   const {
@@ -44,34 +51,40 @@ const ExperimentalContent = () => {
     isPending,
   } = useQuery(collectionQueries.list(projectSlug));
   const collection = collections.find((entry) => entry.collectionId === route?.collectionId);
+  const routeTarget =
+    route && (route.isNew || route.itemId)
+      ? { collectionId: route.collectionId, itemId: route.itemId }
+      : null;
+  const closeRouteTarget = useCallback(
+    (target: CollectionItemModalTarget) => {
+      void navigate({ to: collectionContentPath(target.collectionId), replace: true });
+    },
+    [navigate],
+  );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-row">
-      <ContentSidebar
-        collections={collections}
-        selectedCollectionId={route?.collectionId ?? null}
-        collectionsError={isError}
-      />
-      {route && !collection ? (
-        <div role={isPending ? "status" : "alert"} className="text-muted-foreground p-6 text-sm">
-          {isPending ? "Loading collection…" : "Collection not found."}
-        </div>
-      ) : (route?.isNew || route?.itemId) && collection ? (
-        <ContentCollectionNew
-          key={`${collection.collectionId}:${route.itemId ?? "new"}`}
-          projectSlug={projectSlug}
-          collection={collection}
-          itemId={route.itemId}
+    <CollectionItemModalProvider routeTarget={routeTarget} onRouteTargetClose={closeRouteTarget}>
+      <div className="flex min-h-0 flex-1 flex-row">
+        <ContentSidebar
+          collections={collections}
+          selectedCollectionId={route?.collectionId ?? null}
+          collectionsError={isError}
         />
-      ) : collection ? (
-        <ContentCollection
-          key={collection.collectionId}
-          projectSlug={projectSlug}
-          collection={collection}
-        />
-      ) : (
-        <ContentAssets />
-      )}
-    </div>
+        {route && !collection ? (
+          <div role={isPending ? "status" : "alert"} className="text-muted-foreground p-6 text-sm">
+            {isPending ? "Loading collection…" : "Collection not found."}
+          </div>
+        ) : collection ? (
+          <ContentCollection
+            key={collection.collectionId}
+            projectSlug={projectSlug}
+            collection={collection}
+          />
+        ) : (
+          <ContentAssets />
+        )}
+      </div>
+      <ContentCollectionItemModal projectSlug={projectSlug} />
+    </CollectionItemModalProvider>
   );
 };

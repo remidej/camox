@@ -1,4 +1,11 @@
-import { Button, buttonVariants } from "@camox/ui/button";
+import { Button } from "@camox/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@camox/ui/dialog";
 import { Input } from "@camox/ui/input";
 import { Label } from "@camox/ui/label";
 import { PanelContent, PanelHeader, PanelTitle } from "@camox/ui/panel";
@@ -6,18 +13,12 @@ import { Switch } from "@camox/ui/switch";
 import { Textarea } from "@camox/ui/textarea";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftIcon, ListIcon, PlusCircleIcon, PlusIcon } from "lucide-react";
+import { ListIcon, PlusCircleIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
 
-import { Link, useNavigate } from "@/features/navigation/navigation";
 import { SingleAssetFieldEditor } from "@/features/preview/components/AssetFieldEditor";
 import { MultipleAssetFieldEditor } from "@/features/preview/components/MultipleAssetFieldEditor";
 import { PageStatusBadge } from "@/features/preview/components/PageStatusBadge";
-import {
-  collectionContentPath,
-  newCollectionItemPath,
-  editCollectionItemPath,
-} from "@/features/studio/routes";
 import {
   collectionQueries,
   collectionMutations,
@@ -31,6 +32,7 @@ import {
   collectionFormContent,
   type FieldSchema,
 } from "./collection-form";
+import { useCollectionItemModal } from "./CollectionItemModalContext";
 import { DeleteCollectionItemButton } from "./components/DeleteCollectionItemButton";
 import { PublishCollectionItemButton } from "./components/PublishCollectionItemButton";
 
@@ -41,6 +43,7 @@ export const ContentCollection = ({
   projectSlug: string;
   collection: CollectionDefinition;
 }) => {
+  const itemModal = useCollectionItemModal();
   const {
     data: records,
     isPending,
@@ -57,13 +60,13 @@ export const ContentCollection = ({
             <p className="text-muted-foreground mt-2 text-sm">{collection.description}</p>
           )}
         </div>
-        <Link
-          className={buttonVariants({ variant: "outline" })}
-          to={newCollectionItemPath(collection.collectionId)}
+        <Button
+          variant="outline"
+          onClick={() => itemModal.open({ collectionId: collection.collectionId })}
         >
           <PlusIcon aria-hidden className="size-4" />
           Create item
-        </Link>
+        </Button>
       </PanelHeader>
       <PanelContent className="flex flex-col p-4">
         {isPending && (
@@ -86,26 +89,30 @@ export const ContentCollection = ({
             <p className="text-muted-foreground text-sm">
               Items in {collection.title} will appear here.
             </p>
-            <Link
-              className={buttonVariants({ className: "mt-2" })}
-              to={newCollectionItemPath(collection.collectionId)}
+            <Button
+              variant="outline"
+              className="mt-2"
+              onClick={() => itemModal.open({ collectionId: collection.collectionId })}
             >
               <PlusIcon aria-hidden className="size-4" />
               Create item
-            </Link>
+            </Button>
           </div>
         )}
         {!isError && records && records.length > 0 && (
           <ul aria-label={`${collection.title} items`} className="divide-y rounded-md border">
             {records.map((record) => (
               <li key={record.id} className="group hover:bg-accent flex items-center">
-                <Link
-                  to={editCollectionItemPath(collection.collectionId, record.id)}
+                <button
+                  type="button"
+                  onClick={() =>
+                    itemModal.open({ collectionId: collection.collectionId, itemId: record.id })
+                  }
                   className="focus-visible:bg-accent flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-sm"
                 >
                   <span className="truncate">{record.label || "Untitled item"}</span>
                   <PageStatusBadge size="sm" status={record.status} />
-                </Link>
+                </button>
                 <PublishCollectionItemButton
                   projectSlug={projectSlug}
                   collectionId={collection.collectionId}
@@ -122,17 +129,15 @@ export const ContentCollection = ({
               </li>
             ))}
             <li className="flex justify-start px-2 py-1">
-              <Link
-                className={buttonVariants({
-                  variant: "ghost",
-                  size: "sm",
-                  className: "text-muted-foreground hover:text-foreground font-normal",
-                })}
-                to={newCollectionItemPath(collection.collectionId)}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground font-normal"
+                onClick={() => itemModal.open({ collectionId: collection.collectionId })}
               >
                 <PlusCircleIcon aria-hidden className="size-3.5" />
                 Add item
-              </Link>
+              </Button>
             </li>
           </ul>
         )}
@@ -150,19 +155,20 @@ function CollectionItemForm({
   projectSlug,
   collectionId,
   record,
+  onSaved,
 }: {
   contentSchema: unknown;
   label: string;
   projectSlug: string;
   collectionId: string;
   record?: CollectionRecord;
+  onSaved: () => void;
 }) {
   const fields = collectionFormFields(contentSchema, label);
   // Background refetches must not replace edits or advance the expected version.
   const [savedRecord, setSavedRecord] = useState(record);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const create = useMutation(collectionMutations.create());
   const edit = useMutation(collectionMutations.edit());
   const [submitting, setSubmitting] = useState(false);
@@ -193,7 +199,7 @@ function CollectionItemForm({
         await queryClient.invalidateQueries({
           queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
         });
-        await navigate({ to: collectionContentPath(collectionId) });
+        onSaved();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Please try again.";
         setError(`Could not save item. ${message}`);
@@ -323,17 +329,19 @@ function CollectionItemForm({
   );
 }
 
-export const ContentCollectionNew = ({
-  projectSlug,
-  collection,
+export const ContentCollectionItemEditor = ({
+  collectionId,
   itemId,
+  onSaved,
+  projectSlug,
 }: {
-  projectSlug: string;
-  collection: CollectionDefinition;
+  collectionId: string;
   itemId?: string;
+  onSaved: () => void;
+  projectSlug: string;
 }) => {
   const recordQuery = useQuery({
-    ...collectionQueries.record(projectSlug, collection.collectionId, itemId ?? ""),
+    ...collectionQueries.record(projectSlug, collectionId, itemId ?? ""),
     enabled: !!itemId,
   });
   const {
@@ -341,51 +349,69 @@ export const ContentCollectionNew = ({
     isPending,
     isError,
     refetch,
-  } = useQuery(collectionQueries.get(projectSlug, collection.collectionId));
+  } = useQuery({
+    ...collectionQueries.get(projectSlug, collectionId),
+  });
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="px-6 pt-2">
-        <div className="mx-auto w-full max-w-2xl">
-          <Link
-            to={collectionContentPath(collection.collectionId)}
-            className={buttonVariants({ variant: "ghost", className: "justify-start" })}
-          >
-            <ArrowLeftIcon aria-hidden className="text-muted-foreground" />
-            {itemId ? "Edit item" : "New item"}
-          </Link>
+    <>
+      {isPending && <p role="status">Loading fields…</p>}
+      {isError && (
+        <div role="alert" className="flex items-center gap-3">
+          <p>Could not load collection fields.</p>
+          <Button variant="outline" onClick={() => void refetch()}>
+            Try again
+          </Button>
         </div>
-      </div>
-      <PanelContent className="p-6">
-        {isPending && <p role="status">Loading fields…</p>}
-        {isError && (
-          <div role="alert" className="flex items-center gap-3">
-            <p>Could not load collection fields.</p>
-            <Button variant="outline" onClick={() => void refetch()}>
-              Try again
-            </Button>
-          </div>
-        )}
-        {itemId && recordQuery.isPending && <p role="status">Loading item…</p>}
-        {itemId && recordQuery.isError && (
-          <div role="alert" className="flex items-center gap-3">
-            <p>Could not load item. It may no longer exist.</p>
-            <Button variant="outline" onClick={() => void recordQuery.refetch()}>
-              Try again
-            </Button>
-          </div>
-        )}
-        {definition && (!itemId || recordQuery.data) && (
-          <CollectionItemForm
-            key={itemId ?? "new"}
-            contentSchema={definition.contentSchema}
-            label={definition.label}
-            projectSlug={projectSlug}
-            collectionId={collection.collectionId}
-            record={itemId ? recordQuery.data : undefined}
-          />
-        )}
-      </PanelContent>
-    </div>
+      )}
+      {itemId && recordQuery.isPending && <p role="status">Loading item…</p>}
+      {itemId && recordQuery.isError && (
+        <div role="alert" className="flex items-center gap-3">
+          <p>Could not load item. It may no longer exist.</p>
+          <Button variant="outline" onClick={() => void recordQuery.refetch()}>
+            Try again
+          </Button>
+        </div>
+      )}
+      {definition && (!itemId || recordQuery.data) && (
+        <CollectionItemForm
+          key={`${collectionId}:${itemId ?? "new"}`}
+          contentSchema={definition.contentSchema}
+          label={definition.label}
+          projectSlug={projectSlug}
+          collectionId={collectionId}
+          record={itemId ? recordQuery.data : undefined}
+          onSaved={onSaved}
+        />
+      )}
+    </>
+  );
+};
+
+export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: string }) => {
+  const { close, target } = useCollectionItemModal();
+
+  return (
+    <Dialog open={!!target} onOpenChange={(open) => !open && close()}>
+      <DialogContent className="flex max-h-[90dvh] flex-col sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{target?.itemId ? "Edit item" : "New item"}</DialogTitle>
+          <DialogDescription>
+            {target?.itemId ? "Update this collection item." : "Create a new collection item."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="-mx-1 min-h-0 overflow-y-auto px-1">
+          {target && (
+            <ContentCollectionItemEditor
+              key={`${target.collectionId}:${target.itemId ?? "new"}`}
+              projectSlug={projectSlug}
+              collectionId={target.collectionId}
+              itemId={target.itemId}
+              onSaved={close}
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };

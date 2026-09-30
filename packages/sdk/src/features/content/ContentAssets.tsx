@@ -2,6 +2,7 @@ import { Button } from "@camox/ui/button";
 import { FloatingToolbar } from "@camox/ui/floating-toolbar";
 import { PanelContent } from "@camox/ui/panel";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { ImageIcon, UploadIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AssetLightbox } from "@/features/preview/components/AssetLightbox";
@@ -74,8 +75,27 @@ export const ContentAssets = () => {
               </div>
             )}
             {files?.length === 0 && (
-              <div className="flex h-full flex-1 items-center justify-center">
-                <p className="text-muted-foreground">No assets yet</p>
+              <div className="flex h-full items-center justify-center">
+                <div className="flex max-w-sm flex-col items-center gap-2 text-center">
+                  <ImageIcon aria-hidden className="text-muted-foreground mb-2 h-8 w-8" />
+                  <h2 className="font-medium">No assets yet</h2>
+                  <p className="text-muted-foreground text-sm">
+                    Upload images, videos, and files to use in your content.
+                  </p>
+                  <Button variant="outline" className="mt-2" render={<label />}>
+                    <UploadIcon aria-hidden className="size-4" />
+                    Upload assets
+                    <input
+                      type="file"
+                      className="sr-only"
+                      multiple
+                      onChange={(event) => {
+                        if (event.target.files) uploadFiles(event.target.files);
+                        event.target.value = "";
+                      }}
+                    />
+                  </Button>
+                </div>
               </div>
             )}
             {files && files.length > 0 && (
