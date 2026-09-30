@@ -53,6 +53,7 @@ export interface CanvasPageFrameProps {
   viewportHeight: number;
   pageId?: number;
   selected?: boolean;
+  hovered?: boolean;
   onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
 }
 
@@ -70,6 +71,7 @@ function PageFrame({
   viewportHeight,
   pageId,
   selected = false,
+  hovered = false,
   onActivate,
 }: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
@@ -164,6 +166,7 @@ function PageFrame({
               <CanvasOverlays
                 document={mount?.ownerDocument ?? null}
                 activate={activate}
+                pageHovered={hovered}
                 pageId={owner?.kind === "page" ? owner.pageId : undefined}
                 canAddBlocks={owner?.kind === "page"}
               >

@@ -6,10 +6,11 @@ import type { Selection } from "./previewStore";
 
 const cases: {
   name: string;
-  selection: Selection;
+  selection: Selection | null;
   type: string;
   target: Record<string, string>;
 }[] = [
+  { name: "page", selection: null, type: "CAMOX_HOVER_PAGE", target: {} },
   {
     name: "block",
     selection: { type: "block", blockId: 1 },

@@ -162,7 +162,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   );
 
   const [hoveredBreadcrumb, setHoveredBreadcrumb] = React.useState<{
-    target: Selection;
+    target: Selection | null;
     selection: Selection | null;
   } | null>(null);
   React.useEffect(() => {
@@ -379,10 +379,11 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     label: string;
     isCurrent: boolean;
     onClick?: () => void;
-    hoverTarget?: Selection;
+    hoverTarget?: Selection | null;
   }[] = [
     {
       key: "page",
+      hoverTarget: null,
       label: owner.kind === "page" ? "Page" : "Layout",
       isCurrent: false,
       onClick: () => previewStore.send({ type: "clearSelection" }),
@@ -474,7 +475,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   className="relative min-w-0 pl-6"
                   onMouseEnter={() =>
                     setHoveredBreadcrumb(
-                      !item.isCurrent && item.hoverTarget
+                      !item.isCurrent && item.hoverTarget !== undefined
                         ? { target: item.hoverTarget, selection }
                         : null,
                     )
