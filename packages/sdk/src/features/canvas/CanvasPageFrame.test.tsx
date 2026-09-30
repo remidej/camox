@@ -131,6 +131,25 @@ void test("canvas frames share the studio cache, activate their own owner, and f
       (host.querySelector("[data-canvas-overlays]") as unknown as HTMLElement).style.display,
       "none",
     );
+    await React.act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <CanvasPageFrame
+            input={{
+              ...input,
+              previewDocument:
+                "<html><head></head><body><div data-camox-preview-root>Updated server snapshot</div></body></html>",
+            }}
+            pageId={7}
+            width={1000}
+            viewportHeight={800}
+            onActivate={(owner) => activated.push(owner)}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    assert.equal(host.querySelector("iframe"), iframe, "content updates must retain the iframe");
+    assert.ok(frame.document.querySelector("button"), "portal content remains mounted");
     await React.act(async () => previewStore.send({ type: "setCommentMode", enabled: false }));
     assert.ok(clients.length);
     assert.ok(

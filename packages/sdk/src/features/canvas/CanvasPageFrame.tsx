@@ -61,12 +61,7 @@ export interface CanvasPageFrameProps {
  * isolated, but their cache and editing runtime are shared with the studio.
  */
 export function CanvasPageFrame(props: CanvasPageFrameProps) {
-  return (
-    <PageFrame
-      key={`${props.input.pathname}:${props.input.source}:${props.input.previewDocument ?? ""}`}
-      {...props}
-    />
-  );
+  return <PageFrame key={`${props.input.pathname}:${props.input.source}`} {...props} />;
 }
 
 function PageFrame({

@@ -105,6 +105,25 @@ void test("document retains site theme/styles, resolves relative URLs, and remov
   void window.happyDOM.close();
 });
 
+void test("document shell ignores server-rendered preview content", (t) => {
+  const window = new Window();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "DOMParser");
+  Object.defineProperty(globalThis, "DOMParser", { configurable: true, value: window.DOMParser });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "DOMParser", original);
+    else Reflect.deleteProperty(globalThis, "DOMParser");
+  });
+
+  const documentWith = (content: string) =>
+    createCanvasDocument(
+      `<html><head><style>.site {color:red}</style></head><body><div data-camox-preview-root>${content}</div></body></html>`,
+      "https://example.test/site/about",
+    );
+
+  assert.equal(documentWith("<p>Before</p>"), documentWith("<p>After</p>"));
+  void window.happyDOM.close();
+});
+
 void test("sizing grows and shrinks from a fixed baseline, batches changes, and cleans up", (t) => {
   const window = new Window();
   const doc = window.document;

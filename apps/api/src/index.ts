@@ -9,6 +9,7 @@ import { fileHonoRoutes } from "./domains/files/routes";
 import { iconRoutes } from "./domains/icons/routes";
 import { pageHonoRoutes } from "./domains/pages/og-image-routes";
 import { faviconHonoRoutes } from "./domains/projects/routes";
+import { getProjectRoomSessionHeaders } from "./lib/project-room-auth";
 import { router } from "./router";
 import type { AppEnv } from "./types";
 
@@ -94,12 +95,8 @@ app.use(
         const auth = createAuth(db, c.env, url.origin);
 
         // WebSocket upgrades can't carry custom headers, so the client
-        // sends the cross-domain auth cookie as a query parameter instead.
-        const headers = new Headers(req.headers);
-        const authCookie = url.searchParams.get("_authCookie");
-        if (authCookie) {
-          headers.set("Better-Auth-Cookie", authCookie);
-        }
+        // relays its selected cross-domain session as a query parameter.
+        const headers = getProjectRoomSessionHeaders(req);
 
         const session = await auth.api.getSession({ headers });
         if (!session) return new Response("Unauthorized", { status: 401 });

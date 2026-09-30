@@ -67,6 +67,9 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   // Do not execute page bootstraps (which could hydrate a second app or navigate the host).
   // Server-resolved html/body classes and inline style/theme attributes are retained.
   doc.querySelectorAll("script").forEach((script) => script.remove());
+  // React owns preview content through the portal. Excluding the server snapshot
+  // keeps the iframe document stable when realtime data changes only its body.
+  doc.querySelector("[data-camox-preview-root]")?.replaceChildren();
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
 
