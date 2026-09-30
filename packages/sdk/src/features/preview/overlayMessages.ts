@@ -8,6 +8,7 @@ export interface FieldRect {
 }
 
 export type OverlayMessage =
+  | { type: "CAMOX_HOVER_PAGE" | "CAMOX_HOVER_PAGE_END" }
   // Field messages (Parent → Iframe)
   | { type: "CAMOX_FOCUS_FIELD"; fieldId: string }
   | { type: "CAMOX_FOCUS_FIELD_END"; fieldId: string }
@@ -43,7 +44,11 @@ export type OverlayMessage =
   | { type: "CAMOX_TOGGLE_TEXT_LINK"; target: string | null; text?: string };
 
 /** Use the same preview targets for selection-path hover as the sidebar editors. */
-export function selectionHoverMessage(selection: Selection, hovered: boolean): OverlayMessage {
+export function selectionHoverMessage(
+  selection: Selection | null,
+  hovered: boolean,
+): OverlayMessage {
+  if (!selection) return { type: hovered ? "CAMOX_HOVER_PAGE" : "CAMOX_HOVER_PAGE_END" };
   const blockId = String(selection.blockId);
   if (selection.type === "block") {
     return { type: hovered ? "CAMOX_HOVER_BLOCK" : "CAMOX_HOVER_BLOCK_END", blockId };

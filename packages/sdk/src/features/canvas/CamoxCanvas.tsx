@@ -83,6 +83,7 @@ function CanvasPagePreview({
   pageId,
   viewport,
   selected,
+  hovered,
   onActivate,
 }: {
   pathname: string;
@@ -91,6 +92,7 @@ function CanvasPagePreview({
   pageId?: number;
   viewport: CanvasViewport;
   selected: boolean;
+  hovered: boolean;
   onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
 }) {
   const projectSlug = useProjectSlug();
@@ -139,6 +141,7 @@ function CanvasPagePreview({
       viewportHeight={viewport.height}
       pageId={pageId}
       selected={selected}
+      hovered={hovered}
       onActivate={onActivate}
     />
   );
@@ -160,6 +163,7 @@ function CanvasWorkspace({
   const { apiUrl, projectSlug, environmentName } = useAuthContext();
   const location = useLocation();
   const navigate = useNavigate();
+  const [hoveredPageKey, setHoveredPageKey] = React.useState<string | null>(null);
   const selectedPath = location.pathname;
   const selectPage = (pathname: string) => {
     cancelFlight();
@@ -257,6 +261,7 @@ function CanvasWorkspace({
                 <CanvasPageBoundary key={pathname} selected={page.key === selectedPage?.key}>
                   {pathname ? (
                     <CanvasPagePreview
+                      hovered={hoveredPageKey === page.key}
                       pathname={pathname}
                       runtimeBasePath={runtimeBasePath}
                       templateId={page.templateId}
@@ -295,6 +300,7 @@ function CanvasWorkspace({
             page={page}
             pathname={pathname}
             selected={page.key === selectedPage?.key}
+            onHoverChange={(hovered) => setHoveredPageKey(hovered ? page.key : null)}
             onSelect={() => {
               if (pathname) selectPage(pathname);
             }}

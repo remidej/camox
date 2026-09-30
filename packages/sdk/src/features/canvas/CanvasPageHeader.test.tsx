@@ -40,6 +40,7 @@ void test("canvas names report selection without changing preview state or editi
     for (const page of pages) {
       const pathname = page.pathname ?? "/articles/example";
       let selections = 0;
+      const hovers: boolean[] = [];
       const render = async (selected: boolean) =>
         act(async () =>
           root.render(
@@ -48,6 +49,7 @@ void test("canvas names report selection without changing preview state or editi
               pathname={pathname}
               selected={selected}
               onSelect={() => selections++}
+              onHoverChange={(hovered) => hovers.push(hovered)}
               onChange={(path) => changes.push(path)}
             />,
           ),
@@ -56,6 +58,11 @@ void test("canvas names report selection without changing preview state or editi
       const name = mount.querySelector("button")!;
       assert.equal(name.textContent, page.title);
       assert.equal(name.getAttribute("aria-pressed"), "false");
+      await act(async () => {
+        name.dispatchEvent(new dom.MouseEvent("mouseover", { bubbles: true }));
+        name.dispatchEvent(new dom.MouseEvent("mouseout", { bubbles: true }));
+      });
+      assert.deepEqual(hovers, [true, false]);
       await act(async () => name.click());
       assert.equal(selections, 1);
       assert.equal(previewStore.getSnapshot().context.editingContext, originalContext);

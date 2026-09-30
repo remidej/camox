@@ -194,6 +194,35 @@ void test("outlines and interactive controls live above the frame, not in the pa
     // The selected frame owns its text toolbar, in the same unscaled overlay layer.
     const iframe = host.document.querySelector("iframe")!;
     Object.defineProperty(iframe, "contentDocument", { value: page.document });
+    await React.act(async () => {
+      previewStore.send({
+        type: "setIframeElement",
+        element: iframe as unknown as HTMLIFrameElement,
+      });
+    });
+    assert.equal(layer.querySelector("[data-canvas-page-outline]"), null);
+    await React.act(async () => {
+      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 7, blockId: 42 });
+    });
+    assert.equal(layer.querySelector("[data-canvas-page-outline]"), null);
+    await React.act(async () => {
+      page.dispatchEvent(new page.MessageEvent("message", { data: { type: "CAMOX_HOVER_PAGE" } }));
+    });
+    assert.ok(layer.querySelector("[data-canvas-page-outline]"));
+    assert.equal(
+      layer
+        .querySelector("[data-canvas-page-outline]")!
+        .hasAttribute("data-camox-highlight-focused"),
+      false,
+    );
+    await React.act(async () => {
+      page.dispatchEvent(
+        new page.MessageEvent("message", { data: { type: "CAMOX_HOVER_PAGE_END" } }),
+      );
+    });
+    assert.equal(layer.querySelector("[data-canvas-page-outline]"), null);
+    await React.act(async () => previewStore.send({ type: "clearSelection" }));
+    assert.equal(layer.querySelector("[data-canvas-page-outline]"), null);
     const text = page.document.createElement("span");
     text.contentEditable = "true";
     text.textContent = "Selected text";

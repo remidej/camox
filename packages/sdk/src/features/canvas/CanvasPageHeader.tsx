@@ -9,12 +9,14 @@ export function CanvasPageHeader({
   pathname,
   selected,
   onSelect,
+  onHoverChange,
   onChange,
 }: {
   page: CanvasPage;
   pathname: string | null;
   selected: boolean;
   onSelect: () => void;
+  onHoverChange?: (hovered: boolean) => void;
   onChange: (pathname: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -29,6 +31,8 @@ export function CanvasPageHeader({
       aria-pressed={selected}
       disabled={!pathname}
       onClick={onSelect}
+      onMouseEnter={() => onHoverChange?.(true)}
+      onMouseLeave={() => onHoverChange?.(false)}
     >
       {page.title}
     </button>

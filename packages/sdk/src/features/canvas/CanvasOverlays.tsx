@@ -31,18 +31,35 @@ export function CanvasOverlays({
   activate,
   pageId,
   canAddBlocks = false,
+  pageHovered = false,
   children,
 }: {
   document: Document | null;
   activate: () => void;
   pageId?: number;
   canAddBlocks?: boolean;
+  pageHovered?: boolean;
   children: React.ReactNode;
 }) {
   const [targets, setTargets] = React.useState<CanvasOverlayTarget[]>([]);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
+  const [breadcrumbHoveredDocument, setBreadcrumbHoveredDocument] = React.useState<Document | null>(
+    null,
+  );
+  const isActiveFrame = !!document && iframeElement?.contentDocument === document;
+  const pageHover = pageHovered || (isActiveFrame && breadcrumbHoveredDocument === document);
+  React.useEffect(() => {
+    const frameWindow = document?.defaultView;
+    if (!frameWindow) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "CAMOX_HOVER_PAGE") setBreadcrumbHoveredDocument(document);
+      if (event.data?.type === "CAMOX_HOVER_PAGE_END") setBreadcrumbHoveredDocument(null);
+    };
+    frameWindow.addEventListener("message", onMessage);
+    return () => frameWindow.removeEventListener("message", onMessage);
+  }, [document]);
   const editingControlsEnabled = isEditMode && !isCommentMode;
   // The frame installs its sizing observer in a layout effect first. Registering
   // afterward keeps content-triggered measurements behind that sizing pass.
@@ -63,7 +80,7 @@ export function CanvasOverlays({
           left: 0,
           top: 0,
           width: "calc(100% * var(--canvas-zoom, 1))",
-          height: 0,
+          height: "calc(100% * var(--canvas-zoom, 1))",
           zIndex: 10,
           pointerEvents: "none",
           display: isEditMode ? "var(--canvas-overlays-display, block)" : "none",
@@ -71,6 +88,13 @@ export function CanvasOverlays({
           transformOrigin: "0 0",
         }}
       >
+        {pageHover && (
+          <div
+            className="camox-canvas-outline"
+            data-canvas-page-outline
+            style={{ position: "absolute", inset: 0 }}
+          />
+        )}
         {editingControlsEnabled && document && iframeElement?.contentDocument === document && (
           <FieldToolbar document={document} />
         )}
