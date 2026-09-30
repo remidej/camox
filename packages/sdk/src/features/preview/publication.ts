@@ -29,12 +29,76 @@ export type PublicationPlan = {
   title: string;
   description: string;
   items: PublicationItem[];
+  referenceTargets?: ReferencePublicationTarget[];
+  missingRequired?: string[];
 };
 
-/** Scope and impact are shared by all publishing entry points. Only expose choices
- * the backend can execute: a page and its optional layout, or a whole layout.
- * Synced-block dependencies will need backend planning/execution support here,
- * not a separate publishing UI or a sequence of independent block requests.
+export type ReferencePublicationTarget = {
+  id: string;
+  collectionId: string;
+  label: string;
+  expectedVersion: number;
+  status: "draft" | "modified" | "published";
+  required: boolean;
+  hasPublishedRevision: boolean;
+};
+
+export function referencePublicationKey(target: ReferencePublicationTarget) {
+  return `collection:${target.collectionId}:${target.id}`;
+}
+
+/** Keep the reviewed versions, not versions from background cache refreshes. */
+export function withReferenceTargets(
+  plan: PublicationPlan,
+  targets: readonly ReferencePublicationTarget[],
+  missingRequired: string[] = [],
+): PublicationPlan {
+  const unique = new Map<string, ReferencePublicationTarget>();
+  for (const target of targets) {
+    const key = referencePublicationKey(target);
+    const previous = unique.get(key);
+    unique.set(key, { ...target, required: target.required || !!previous?.required });
+  }
+  const referenceTargets = [...unique.values()];
+  return {
+    ...plan,
+    referenceTargets,
+    missingRequired,
+    items: [
+      ...plan.items,
+      ...referenceTargets
+        .filter((target) => target.status !== "published")
+        .map((target) => ({
+          key: referencePublicationKey(target),
+          label: target.label,
+          optional: true,
+          impact: target.hasPublishedRevision
+            ? "Updates this item wherever it is used. If excluded, its previous published revision stays live."
+            : target.required
+              ? "This required item has never been published. Include it to publish this content."
+              : "Publishes this item wherever it is used. If excluded, this reference stays empty.",
+        })),
+    ],
+  };
+}
+
+export function getPublicationBlocker(plan: PublicationPlan, includedKeys: readonly string[]) {
+  if (plan.missingRequired?.length) {
+    return `Choose an item for required references before publishing: ${plan.missingRequired.join(", ")}.`;
+  }
+  const missing = plan.referenceTargets?.filter(
+    (target) =>
+      target.required &&
+      !target.hasPublishedRevision &&
+      !includedKeys.includes(referencePublicationKey(target)),
+  );
+  if (!missing?.length) return undefined;
+  return `Include required unpublished items before publishing: ${missing.map((target) => target.label).join(", ")}.`;
+}
+
+/** Scope and impact are shared by all publishing entry points. Reference targets
+ * are added from the backend's scoped plan; they publish in the same request,
+ * never a sequence of independent record requests.
  */
 export function buildPublicationPlan(target: PublicationTarget): PublicationPlan {
   if (target.kind === "layout" && target.layout.kind === "singleton") {
@@ -120,21 +184,40 @@ export function getPublicationCapabilities(
 }
 
 export type PublicationRequest =
-  | { kind: "page"; input: { id: number; alsoPublishLayout?: true } }
-  | { kind: "layout"; input: { id: number } };
+  | {
+      kind: "page";
+      input: { id: number; alsoPublishLayout?: true; collections?: CollectionPublicationInput[] };
+    }
+  | { kind: "layout"; input: { id: number; collections?: CollectionPublicationInput[] } };
+
+type CollectionPublicationInput = Pick<
+  ReferencePublicationTarget,
+  "id" | "collectionId" | "expectedVersion"
+>;
 
 export function getPublicationRequest(
   target: PublicationTarget,
   includedKeys: readonly string[],
+  plan: PublicationPlan = buildPublicationPlan(target),
 ): PublicationRequest {
-  if (target.kind === "layout") return { kind: "layout", input: { id: target.layout.id } };
-  const optionalLayout = buildPublicationPlan(target).items.find((item) => item.optional);
+  const blocker = getPublicationBlocker(plan, includedKeys);
+  if (blocker) throw new Error(blocker);
+  const collections = plan.referenceTargets
+    ?.filter(
+      (item) => item.status !== "published" && includedKeys.includes(referencePublicationKey(item)),
+    )
+    .map(({ id, collectionId, expectedVersion }) => ({ id, collectionId, expectedVersion }));
+  const collectionInput = collections?.length ? { collections } : {};
+  if (target.kind === "layout")
+    return { kind: "layout", input: { id: target.layout.id, ...collectionInput } };
+  const optionalLayout = plan.items.find((item) => item.optional && item.key.startsWith("layout:"));
   const alsoPublishLayout = optionalLayout && includedKeys.includes(optionalLayout.key);
   return {
     kind: "page",
     input: {
       id: target.page.id,
       ...(alsoPublishLayout ? { alsoPublishLayout: true as const } : {}),
+      ...collectionInput,
     },
   };
 }

@@ -1,5 +1,7 @@
 import { Type, createBlock } from "camox/createBlock";
 
+import { collection as customers } from "../collections/customers";
+
 const testimonial = createBlock({
   id: "testimonial",
   title: "Testimonial",
@@ -13,10 +15,10 @@ const testimonial = createBlock({
     }),
     author: Type.String({ default: "Sarah Chen", title: "Author" }),
     title: Type.String({ default: "Senior Developer", title: "Title" }),
-    company: Type.String({ default: "TechCorp", title: "Company" }),
+    company: Type.Reference(customers, { title: "Company" }),
   },
   component: TestimonialComponent,
-  toMarkdown: (c) => [`> ${c.quote}`, `— ${c.author}, ${c.title}, ${c.company}`],
+  toMarkdown: (c) => [`> ${c.quote}`, `— ${c.author}, ${c.title}, ${c.company.company}`],
 });
 
 function TestimonialComponent() {
@@ -43,7 +45,16 @@ function TestimonialComponent() {
             <div className="text-muted-foreground flex flex-col sm:flex-row sm:items-center sm:gap-2">
               <testimonial.Field name="title">{(props) => <span {...props} />}</testimonial.Field>
               <span className="">&nbsp;—&nbsp;</span>
-              <testimonial.Field name="company">{(props) => <span {...props} />}</testimonial.Field>
+              <testimonial.Reference name="company">
+                {(customer) => (
+                  <span className="inline-flex items-center gap-2">
+                    <customer.Image name="logo">
+                      {(props) => <img {...props} className="h-8 max-w-24 object-contain" />}
+                    </customer.Image>
+                    <customer.Field name="company">{(props) => <span {...props} />}</customer.Field>
+                  </span>
+                )}
+              </testimonial.Reference>
             </div>
           </div>
         </div>

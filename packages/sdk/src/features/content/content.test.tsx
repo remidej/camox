@@ -573,7 +573,9 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
                 projectSlug="site"
                 collectionId="articles"
                 itemId={editing ? id : undefined}
-                onSaved={() => navigations.push(collectionContentPath("articles"))}
+                onSaved={() => {
+                  navigations.push(collectionContentPath("articles"));
+                }}
               />
             </QueryClientProvider>
           </NavigationProvider>,
@@ -702,7 +704,9 @@ void test("forms only save drafts and keep the reviewed version after failures a
                 projectSlug="site"
                 collectionId="articles"
                 itemId={editing ? id : undefined}
-                onSaved={() => navigations.push(collectionContentPath("articles"))}
+                onSaved={() => {
+                  navigations.push(collectionContentPath("articles"));
+                }}
               />
             </QueryClientProvider>
           </NavigationProvider>,

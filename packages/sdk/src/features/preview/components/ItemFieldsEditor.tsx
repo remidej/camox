@@ -32,6 +32,7 @@ import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore } from "../previewStore";
 import { DrillRow } from "./DrillRow";
 import { IconFieldEditor } from "./IconFieldEditor";
+import { ReferenceFieldEditor } from "./ReferenceFieldEditor";
 import { RepeatableItemsList } from "./RepeatableItemsList";
 
 /* -------------------------------------------------------------------------------------------------
@@ -46,6 +47,7 @@ export interface SchemaField {
   enumValues?: string[];
   minItems?: number;
   maxItems?: number;
+  collectionId?: string;
 }
 
 export const formatFieldName = (fieldName: string): string => {
@@ -70,6 +72,7 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       enumValues: prop.enum as string[] | undefined,
       minItems: prop.minItems as number | undefined,
       maxItems: prop.maxItems as number | undefined,
+      collectionId: prop.collectionId as string | undefined,
     };
   });
 };
@@ -85,7 +88,7 @@ interface ItemFieldsEditorProps {
   blockId: number;
   /** When editing a repeatable item's fields, pass its ID for correct overlay targeting */
   itemId?: number;
-  onFieldChange: (fieldName: string, value: unknown) => void;
+  onFieldChange: (fieldName: string, value: unknown) => void | Promise<void>;
   postToIframe: (message: OverlayMessage) => void;
   /** Lookup maps for resolving _fileId and _itemId markers */
   filesMap: Map<number, NormalizedFile>;
@@ -231,6 +234,26 @@ const ItemFieldsEditor = ({
         const fieldId = getFieldId(field.name);
 
         const renderField = () => {
+          if (field.fieldType === "Reference" && field.collectionId) {
+            return (
+              <ReferenceFieldEditor
+                key={field.name}
+                collectionId={field.collectionId}
+                value={data[field.name]}
+                onChange={(value) => onFieldChange(field.name, value)}
+                drill={
+                  selectedFieldName
+                    ? undefined
+                    : {
+                        label,
+                        fieldId,
+                        onClick: () => drillIntoField(field.name, field.fieldType),
+                        postToIframe,
+                      }
+                }
+              />
+            );
+          }
           if (
             !selectedFieldName &&
             ["String", "Embed", "Repeater", "Enum", "Boolean", "Icon"].includes(field.fieldType)

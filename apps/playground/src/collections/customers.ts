@@ -1,6 +1,6 @@
 import { createCollection, Type } from "camox/createCollection";
 
-// Standalone authoring/publication example; no block references this collection.
+// Testimonials share company names and logos from these independently published customers.
 export const collection = createCollection({
   id: "customers",
   title: "Customers",
@@ -8,6 +8,7 @@ export const collection = createCollection({
   content: {
     name: Type.String({ minLength: 1 }),
     company: Type.String(),
+    logo: Type.Image({ title: "Logo" }),
   },
   label: "name",
 });

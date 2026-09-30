@@ -31,6 +31,8 @@ import {
   buildPublicationPlan,
   getPublicationCapabilities,
   getPublicationRequest,
+  withReferenceTargets,
+  type PublicationPlan,
   type PublicationTarget,
 } from "../publication";
 import { PublishDialog } from "./PublishDialog";
@@ -57,14 +59,17 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
     mutationFn: async ({
       operation,
       includedKeys = [],
+      reviewedPlan,
     }: {
       operation: Operation;
       includedKeys?: string[];
+      reviewedPlan?: PublicationPlan;
     }) => {
       if (!target || !capabilities[operation]) throw new Error("Publication action is unavailable");
       const api = getApiClient();
       if (operation === "publish") {
-        const request = getPublicationRequest(target, includedKeys);
+        if (!reviewedPlan) throw new Error("Review referenced items before publishing");
+        const request = getPublicationRequest(target, includedKeys, reviewedPlan);
         if (request.kind === "layout") {
           await api.layouts.publish(request.input);
           return;
@@ -100,6 +105,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
         queryClient.invalidateQueries({ queryKey: queryKeys.pages.getByPathAll }),
         queryClient.invalidateQueries({ queryKey: ["camox", "pages", "getById"] }),
         queryClient.invalidateQueries({ queryKey: ["camox", "blocks", "get"] }),
+        queryClient.invalidateQueries({ queryKey: ["camox", "collections"] }),
       ]);
     },
     onError: () => toast.error("Could not complete this action. Please try again."),
@@ -173,12 +179,13 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </ButtonGroup>
-      {action === "publish" && plan && (
-        <PublishDialog
-          plan={plan}
+      {action === "publish" && target && (
+        <ReferencePublicationDialog
+          target={target}
           pending={mutation.isPending}
-          onPublish={(includedKeys) => {
-            if (canPublish) mutation.mutate({ operation: "publish", includedKeys });
+          error={mutation.error?.message}
+          onPublish={(includedKeys, reviewedPlan) => {
+            if (canPublish) mutation.mutate({ operation: "publish", includedKeys, reviewedPlan });
           }}
           onOpenChange={(open) => !open && setAction(null)}
         />
@@ -240,5 +247,79 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+/** A fresh mount loads a fresh plan. Background updates cannot replace reviewed versions. */
+function ReferencePublicationDialog({
+  target,
+  pending,
+  error,
+  onPublish,
+  onOpenChange,
+}: {
+  target: PublicationTarget;
+  pending: boolean;
+  error?: string;
+  onPublish: (includedKeys: string[], plan: PublicationPlan) => void;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [reviewedTarget] = React.useState(target);
+  const [basePlan] = React.useState(() => buildPublicationPlan(reviewedTarget));
+  const layoutKey = basePlan.items.find((item) => item.optional)?.key;
+  const [alsoPublishLayout, setAlsoPublishLayout] = React.useState(!!layoutKey);
+  const [result, setResult] = React.useState<{
+    scope: boolean;
+    plan?: PublicationPlan;
+    error?: string;
+  }>();
+
+  React.useEffect(() => {
+    let active = true;
+    const api = getApiClient();
+    const request =
+      reviewedTarget.kind === "page"
+        ? api.pages.referenceTargets({ id: reviewedTarget.page.id, alsoPublishLayout })
+        : api.layouts.referenceTargets({ id: reviewedTarget.layout.id });
+    void request.then(
+      ({ targets, missingRequired }) => {
+        if (!active) return;
+        setResult({
+          scope: alsoPublishLayout,
+          plan: withReferenceTargets(basePlan, targets, missingRequired),
+        });
+      },
+      () => {
+        if (!active) return;
+        setResult({
+          scope: alsoPublishLayout,
+          error: "Could not load referenced items. Close and reopen this dialog to try again.",
+        });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [reviewedTarget, basePlan, alsoPublishLayout]);
+
+  const current = result?.scope === alsoPublishLayout ? result : undefined;
+  return (
+    <PublishDialog
+      plan={current?.plan ?? basePlan}
+      pending={pending}
+      loading={!current}
+      unavailable={!!current?.error}
+      error={current?.error ?? error}
+      onSelectionChange={(key, included) => {
+        if (key !== layoutKey) return;
+        setResult(undefined);
+        setAlsoPublishLayout(included);
+      }}
+      onPublish={(includedKeys) => {
+        if (!current?.plan || current.error) return;
+        onPublish(includedKeys, current.plan);
+      }}
+      onOpenChange={onOpenChange}
+    />
   );
 }

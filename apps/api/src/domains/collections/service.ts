@@ -1,6 +1,6 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { ORPCError } from "@orpc/server";
-import { and, desc, eq, exists, sql } from "drizzle-orm";
+import { and, desc, eq, exists, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { assertSyncAccess, getAuthorizedProjectBySlug } from "../../authorization";
@@ -11,6 +11,7 @@ import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
+import { collectionAdditionDefaults } from "./schema-evolution";
 import { collectionDefinitionInput, validateContent } from "./validation";
 
 export const syncCollectionDefinitionsInput = z
@@ -47,8 +48,9 @@ export async function syncCollectionDefinitions(
     eq(collectionDefinitions.environmentId, environment.id),
   );
   const existing = await ctx.db.select().from(collectionDefinitions).where(scope);
-  // Validate the whole sync before making changes. The DB trigger also guards races
-  // with record creation; schema evolution must never invalidate stored content.
+  // Validate the whole sync first. Backfills and schema updates then commit in
+  // one batch; the DB guard also catches races with first-record creation.
+  const backfills = [];
   for (const definition of input.definitions) {
     const previous = existing.find((d) => d.collectionId === definition.collectionId);
     if (
@@ -61,13 +63,66 @@ export async function syncCollectionDefinitions(
       .from(collectionRecords)
       .where(eq(collectionRecords.definitionId, previous.id))
       .get();
-    if (record)
-      throw new ORPCError("CONFLICT", {
-        message: `Collection "${definition.collectionId}" has records; schema migration is not supported yet`,
-      });
+    if (!record) continue;
+    const defaults = JSON.stringify(
+      await collectionAdditionDefaults(ctx, previous.contentSchema, {
+        ...previous,
+        contentSchema: definition.contentSchema,
+      }),
+    );
+    backfills.push(
+      ctx.db
+        .update(collectionRecords)
+        .set({
+          // Merge only missing keys, including nulls. json_patch would delete
+          // null asset fields; json_each also handles arbitrary field names.
+          draft: sql`(
+            select json_group_object(key, case type
+              when 'object' then json(value) when 'array' then json(value)
+              when 'true' then json('true') when 'false' then json('false')
+              else value end)
+            from (
+              select key, value, type from json_each(${collectionRecords.draft})
+              union all
+              select key, value, type from json_each(${defaults}) as addition
+              where not exists (
+                select 1 from json_each(${collectionRecords.draft}) as current
+                where current.key = addition.key
+              )
+            )
+          )`,
+          version: sql`${collectionRecords.version} + 1`,
+          updatedAt: Date.now(),
+        })
+        .where(
+          and(
+            eq(collectionRecords.definitionId, previous.id),
+            sql`exists (select 1 from ${collectionDefinitions}
+            where ${collectionDefinitions.id} = ${previous.id}
+            and ${collectionDefinitions.contentSchema} = ${JSON.stringify(previous.contentSchema)})`,
+            sql`exists (select 1 from json_each(${defaults}) as addition
+            where not exists (select 1 from json_each(${collectionRecords.draft}) as current
+              where current.key = addition.key))`,
+          ),
+        ),
+    );
   }
   const statements = [
-    ctx.db.update(collectionDefinitions).set({ active: false }).where(scope),
+    ctx.db
+      .update(collectionDefinitions)
+      .set({ active: false })
+      .where(
+        and(
+          scope,
+          input.definitions.length
+            ? notInArray(
+                collectionDefinitions.collectionId,
+                input.definitions.map((definition) => definition.collectionId),
+              )
+            : undefined,
+        ),
+      ),
+    ...backfills,
     ...input.definitions.map((definition) =>
       ctx.db
         .insert(collectionDefinitions)
@@ -92,7 +147,13 @@ export async function syncCollectionDefinitions(
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: project.id,
-    targets: [queryKeys.collections.list(input.projectSlug, ctx.environmentName)],
+    targets: [
+      ["camox", "collections"],
+      ["camox", "blocks"],
+      queryKeys.pages.getByPathAll,
+      queryKeys.pages.list,
+      queryKeys.layouts.all,
+    ],
   });
   return {
     count: input.definitions.length,
@@ -309,6 +370,10 @@ function invalidateRecord(
     targets: [
       queryKeys.collections.records(scope.projectSlug, ctx.environmentName, scope.collectionId),
       queryKeys.collections.record(scope.projectSlug, ctx.environmentName, scope.collectionId, id),
+      ["camox", "blocks"],
+      queryKeys.pages.getByPathAll,
+      queryKeys.pages.list,
+      queryKeys.layouts.all,
     ],
   });
 }
@@ -353,6 +418,7 @@ async function mutation(ctx: ServiceContext, input: z.infer<typeof mutationInput
 
 async function update(
   ctx: ServiceContext,
+  definition: typeof collectionDefinitions.$inferSelect,
   record: typeof collectionRecords.$inferSelect,
   values: Partial<typeof collectionRecords.$inferInsert>,
 ) {
@@ -367,7 +433,10 @@ async function update(
       and(
         eq(collectionRecords.id, record.id),
         eq(collectionRecords.version, record.version),
-        sql`exists (select 1 from ${collectionDefinitions} where ${collectionDefinitions.id} = ${record.definitionId} and ${collectionDefinitions.active} = 1)`,
+        sql`exists (select 1 from ${collectionDefinitions}
+          where ${collectionDefinitions.id} = ${record.definitionId}
+          and ${collectionDefinitions.active} = 1
+          and ${collectionDefinitions.contentSchema} = ${JSON.stringify(definition.contentSchema)})`,
       ),
     )
     .returning()
@@ -386,7 +455,7 @@ export async function editRecord(
   const input = editRecordInput.parse(rawInput);
   const { definition, record } = await mutation(ctx, input);
   const draft = await validateContent(ctx, definition, input.content);
-  const updated = await update(ctx, record, { draft });
+  const updated = await update(ctx, definition, record, { draft });
   invalidateRecord(ctx, definition, input, record.id);
   return updated;
 }
@@ -397,6 +466,7 @@ export async function deleteRecord(
 ) {
   const input = deleteRecordInput.parse(rawInput);
   const { definition, record } = await mutation(ctx, input);
+  await assertReferenceRemoval(ctx, record.id, false);
   const guard = and(
     eq(collectionRecords.id, record.id),
     eq(collectionRecords.version, input.expectedVersion),
@@ -453,7 +523,7 @@ export async function checkpointRecord(
   const input = mutationInput.parse(rawInput);
   const { definition, record } = await mutation(ctx, input);
   const revision = await snapshot(ctx, definition, record, "manual");
-  const updated = await update(ctx, record, {});
+  const updated = await update(ctx, definition, record, {});
   return { record: updated, revision };
 }
 
@@ -462,7 +532,7 @@ export async function publishRecord(ctx: ServiceContext, rawInput: z.input<typeo
   const { definition, record } = await mutation(ctx, input);
   await validateContent(ctx, definition, record.draft);
   const revision = await snapshot(ctx, definition, record, "auto-publish");
-  const updated = await update(ctx, record, { publishedRevisionId: revision.id });
+  const updated = await update(ctx, definition, record, { publishedRevisionId: revision.id });
   invalidateRecord(ctx, definition, input, record.id);
   return { record: updated, revision };
 }
@@ -473,9 +543,21 @@ export async function unpublishRecord(
 ) {
   const input = mutationInput.parse(rawInput);
   const { definition, record } = await mutation(ctx, input);
-  const updated = await update(ctx, record, { publishedRevisionId: null });
+  await assertReferenceRemoval(ctx, record.id, true);
+  const updated = await update(ctx, definition, record, { publishedRevisionId: null });
   invalidateRecord(ctx, definition, input, record.id);
   return updated;
+}
+
+async function assertReferenceRemoval(ctx: ServiceContext, id: string, unpublish: boolean) {
+  const usage = await ctx.db.get(sql`select 1 from collection_reference_uses
+    where record_id = ${id} ${unpublish ? sql`and live = 1 and required = 1` : sql``} limit 1`);
+  if (usage)
+    throw new ORPCError("CONFLICT", {
+      message: unpublish
+        ? "Item is required by published content"
+        : "Remove this item's draft and published references before deleting it",
+    });
 }
 
 export async function restoreRecord(
@@ -497,9 +579,15 @@ export async function restoreRecord(
   if (!revision) throw new ORPCError("NOT_FOUND");
   if (revision.schemaVersion !== 1)
     throw new ORPCError("CONFLICT", { message: "Unsupported snapshot version" });
-  await validateContent(ctx, definition, revision.content);
+  const defaults = await collectionAdditionDefaults(
+    ctx,
+    revision.definition.contentSchema,
+    definition,
+  );
+  const draft = { ...defaults, ...revision.content };
+  await validateContent(ctx, definition, draft);
   const displaced = await snapshot(ctx, definition, record, "auto-draft");
-  return { record: await update(ctx, record, { draft: revision.content }), displaced };
+  return { record: await update(ctx, definition, record, { draft }), displaced };
 }
 
 export async function discardRecord(

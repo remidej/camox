@@ -5,12 +5,7 @@ import * as React from "react";
 
 import { useLocation } from "../features/navigation/navigation";
 import { useProjectSlug } from "../lib/auth";
-import {
-  isFileMarker,
-  isItemMarker,
-  resolveFileMarker,
-  useNormalizedData,
-} from "../lib/normalized-data";
+import { isItemMarker, resolveAssetValue, useNormalizedData } from "../lib/normalized-data";
 import { type Page, viewPageQueries, viewProjectQueries } from "../lib/view-queries";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import {
@@ -29,6 +24,7 @@ import {
   transformImageUrl,
 } from "./lib/imageTransform";
 import { markdownToReactNodes } from "./lib/lexicalReact";
+import { resolveReference } from "./lib/reference";
 
 export { Type };
 export type {
@@ -49,6 +45,7 @@ type EditableOptions = Parameters<EditableCreateBlock>[0];
 interface BlockContextValue {
   blockId: number;
   content: Record<string, unknown>;
+  sourceSchema?: Record<string, any>;
   settings: Record<string, unknown>;
   mode: "site" | "peek" | "layout";
 }
@@ -276,7 +273,7 @@ function createViewBlock(options: EditableOptions) {
     const { filesMap } = useNormalizedData();
     if (!block) throw new Error("Asset must be used within a Block Component");
     const raw = item ? item.itemContent[name as string] : block.content[name as string];
-    const resolved = isFileMarker(raw) ? resolveFileMarker(raw, filesMap) : raw;
+    const resolved = resolveAssetValue(raw, filesMap);
     const fallback = item
       ? repeatableDefaults[item.arrayFieldName]?.[String(name)]
       : contentDefaults[String(name)];
@@ -312,6 +309,49 @@ function createViewBlock(options: EditableOptions) {
     return children({ href: value.url, download: value.filename }, value);
   };
 
+  const ReferencePrimitive = ({ primitive: Primitive, ...props }: any) => {
+    const value = useValue(props.name);
+    if (value == null) return null;
+    return <Primitive {...props} />;
+  };
+  const ReferenceImage = (props: any) => <ReferencePrimitive primitive={Image} {...props} />;
+  const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
+  const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
+
+  const Reference = ({ name, children }: any) => {
+    const editingRuntime = useBlockEditingRuntime();
+    if (editingRuntime)
+      return editingRuntime.renderPrimitive(options, "Reference", { name, children });
+    const block = React.use(Context);
+    const { recordsMap } = useNormalizedData();
+    if (!block) throw new Error("Reference must be used within a Block Component");
+    const schema = typeboxSchema.properties[name];
+    const record = resolveReference(block.content[name], schema.collectionId, recordsMap);
+    if (!record) return null;
+    return (
+      <RepeaterContext.Provider value={null}>
+        <Context.Provider
+          value={{
+            ...block,
+            content: record.content,
+            sourceSchema: schema.referenceSchema.properties,
+          }}
+        >
+          {children({
+            id: record.id,
+            label: record.label,
+            Field,
+            Image: ReferenceImage,
+            File: ReferenceFile,
+            Embed: ReferenceEmbed,
+            ImageList,
+            FileList,
+          })}
+        </Context.Provider>
+      </RepeaterContext.Provider>
+    );
+  };
+
   const AssetList = ({ name, children, primitive }: any) => {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime) {
@@ -324,7 +364,7 @@ function createViewBlock(options: EditableOptions) {
     const fieldName = String(name);
     const schema = parent
       ? (typeboxSchema.properties as any)[parent.arrayFieldName]?.items?.properties?.[fieldName]
-      : (typeboxSchema.properties as any)[fieldName];
+      : (block.sourceSchema ?? typeboxSchema.properties)[fieldName];
     const fieldType = schema?.fieldType;
     if (fieldType !== "ImageList" && fieldType !== "FileList") {
       throw new Error(`"${fieldName}" is not a Type.ImageList or Type.FileList field`);
@@ -336,7 +376,7 @@ function createViewBlock(options: EditableOptions) {
     }
     const Single = fieldType === "ImageList" ? Image : File;
     return values
-      .map((value) => (isFileMarker(value) ? resolveFileMarker(value, filesMap) : value))
+      .map((value) => resolveAssetValue(value, filesMap))
       .filter(Boolean)
       .map((value, index) => (
         <RepeaterContext.Provider
@@ -476,7 +516,12 @@ function createViewBlock(options: EditableOptions) {
     description: options.description,
     properties: typeboxSchema.properties,
     required: Object.keys(options.content),
-    toMarkdown: resolveToMarkdown(options.toMarkdown as any, options.settings, "block"),
+    toMarkdown: resolveToMarkdown(
+      options.toMarkdown as any,
+      options.settings,
+      "block",
+      options.content,
+    ),
   };
   const settingsSchema = settingsTypeboxSchema
     ? {
@@ -513,6 +558,7 @@ function createViewBlock(options: EditableOptions) {
     ImageList,
     FileList,
     Repeater,
+    Reference,
     useSetting,
     _internal: {
       Component,

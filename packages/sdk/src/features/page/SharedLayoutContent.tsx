@@ -39,7 +39,7 @@ export function SharedLayoutContent({
   }, [blocks]);
   const Component = layout._internal.component;
   return (
-    <NormalizedDataProvider files={files} repeatableItems={repeatableItems}>
+    <NormalizedDataProvider files={files} repeatableItems={repeatableItems} blocks={blocks}>
       <layout._internal.Provider layoutBlocks={layoutBlocks} result={result}>
         <Component>{children}</Component>
       </layout._internal.Provider>

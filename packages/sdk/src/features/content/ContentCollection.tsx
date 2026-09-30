@@ -19,6 +19,7 @@ import { useState } from "react";
 import { SingleAssetFieldEditor } from "@/features/preview/components/AssetFieldEditor";
 import { MultipleAssetFieldEditor } from "@/features/preview/components/MultipleAssetFieldEditor";
 import { PageStatusBadge } from "@/features/preview/components/PageStatusBadge";
+import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
   collectionQueries,
   collectionMutations,
@@ -162,7 +163,7 @@ function CollectionItemForm({
   projectSlug: string;
   collectionId: string;
   record?: CollectionRecord;
-  onSaved: () => void;
+  onSaved: (record: CollectionRecord) => void | Promise<void>;
 }) {
   const fields = collectionFormFields(contentSchema, label);
   // Background refetches must not replace edits or advance the expected version.
@@ -196,10 +197,8 @@ function CollectionItemForm({
           collectionQueries.record(projectSlug, collectionId, saved.id).queryKey,
           saved,
         );
-        await queryClient.invalidateQueries({
-          queryKey: collectionQueries.records(projectSlug, collectionId).queryKey,
-        });
-        onSaved();
+        await invalidateCollectionRecordViews(queryClient, projectSlug, collectionId);
+        await onSaved(saved);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Please try again.";
         setError(`Could not save item. ${message}`);
@@ -337,7 +336,7 @@ export const ContentCollectionItemEditor = ({
 }: {
   collectionId: string;
   itemId?: string;
-  onSaved: () => void;
+  onSaved: (record: CollectionRecord) => void | Promise<void>;
   projectSlug: string;
 }) => {
   const recordQuery = useQuery({
@@ -389,7 +388,7 @@ export const ContentCollectionItemEditor = ({
 };
 
 export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: string }) => {
-  const { close, target } = useCollectionItemModal();
+  const { close, complete, target } = useCollectionItemModal();
 
   return (
     <Dialog open={!!target} onOpenChange={(open) => !open && close()}>
@@ -407,7 +406,7 @@ export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: strin
               projectSlug={projectSlug}
               collectionId={target.collectionId}
               itemId={target.itemId}
-              onSaved={close}
+              onSaved={(record) => complete(target, record)}
             />
           )}
         </div>

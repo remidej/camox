@@ -47,7 +47,7 @@ describe("standalone customer publication", () => {
       routes.createRecord,
       {
         ...f.scope,
-        content: { name: "Ada", company: "Engines" },
+        content: { name: "Ada", company: "Engines", logo: null },
       },
       options,
     );
@@ -65,7 +65,7 @@ describe("standalone customer publication", () => {
       {
         ...target,
         expectedVersion: published.record.version,
-        content: { name: "Private", company: "Draft" },
+        content: { name: "Private", company: "Draft", logo: null },
       },
       options,
     );
@@ -111,7 +111,7 @@ describe("standalone customer publication", () => {
       routes.createRecord,
       {
         ...f.scope,
-        content: { name: "Ada", company: "Analytical Engines" },
+        content: { name: "Ada", company: "Analytical Engines", logo: null },
       },
       options,
     );
@@ -121,7 +121,7 @@ describe("standalone customer publication", () => {
       routes.editRecord,
       {
         ...stale,
-        content: { name: "Ada Lovelace", company: "Analytical Engines" },
+        content: { name: "Ada Lovelace", company: "Analytical Engines", logo: null },
       },
       options,
     );
@@ -169,7 +169,7 @@ describe("standalone customer publication", () => {
       {
         ...target,
         expectedVersion: published.record.version,
-        content: { name: "Private draft", company: "Private company" },
+        content: { name: "Private draft", company: "Private company", logo: null },
       },
       options,
     );
@@ -219,7 +219,7 @@ describe("standalone customer publication", () => {
       call(agentProcedures.callTool, { projectId, name, arguments: args }, { context });
     const created = await invoke(f.context, "createCollectionRecord", {
       collectionId: "customers",
-      content: { name: "Transport customer", company: "Example" },
+      content: { name: "Transport customer", company: "Example", logo: null },
     });
     expect(created.ok).toBe(true);
     if (!created.ok) throw new Error(created.error.message);
@@ -280,14 +280,14 @@ describe("standalone customer publication", () => {
     await expect(run("listCollections", { projectSlug: "foreign" })).rejects.toThrow();
     const created = (await run("createCollectionRecord", {
       collectionId: "customers",
-      content: { name: "Ada", company: "Engines" },
+      content: { name: "Ada", company: "Engines", logo: null },
     })) as Awaited<ReturnType<typeof getCollectionRecord>>;
     const target = { collectionId: "customers", id: created.id };
     expect(await run("getCollectionRecord", target)).toEqual(created);
     const edited = (await run("editCollectionRecord", {
       ...target,
       expectedVersion: created.version,
-      content: { name: "Ada Lovelace", company: "Engines" },
+      content: { name: "Ada Lovelace", company: "Engines", logo: null },
     })) as typeof created;
     await expect(
       run("publishCollectionRecord", {

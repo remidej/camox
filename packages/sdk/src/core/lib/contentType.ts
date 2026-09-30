@@ -7,8 +7,15 @@ import {
   type TObject,
 } from "@sinclair/typebox";
 
+import type { Collection } from "../createCollection";
 import type { FieldType } from "./fieldTypes.tsx";
 import type { IconId, IconValue } from "./iconTypes";
+
+export declare const ReferenceContentBrand: unique symbol;
+export type ReferenceSchema<T extends Record<string, TSchema>> = TUnsafe<string | null> & {
+  readonly [ReferenceContentBrand]: T;
+  fieldType: "Reference";
+};
 
 declare const __CAMOX_ICON_IDS__: readonly string[];
 
@@ -53,7 +60,9 @@ export type ConditionalChild = string | FieldToken | Conditional;
 export type ConditionalLines = ConditionalChild | ReadonlyArray<ConditionalChild>;
 
 export type ContentProxy<TShape extends Record<string, TSchema>> = {
-  [K in keyof TShape & string]: string & FieldToken;
+  [K in keyof TShape & string]: TShape[K] extends ReferenceSchema<infer T>
+    ? ContentProxy<T>
+    : string & FieldToken;
 };
 
 /**
@@ -80,11 +89,19 @@ export type ToMarkdownBuilder<
   s: SettingsProxy<TSettings>,
 ) => ReadonlyArray<string | FieldToken | Conditional>;
 
-function createContentProxy<TShape extends Record<string, TSchema>>(): ContentProxy<TShape> {
+function createContentProxy<TShape extends Record<string, TSchema>>(
+  shape?: TShape,
+  prefix = "",
+): ContentProxy<TShape> {
   return new Proxy({} as ContentProxy<TShape>, {
     get(_target, prop) {
       if (typeof prop !== "string") return undefined;
-      return new FieldToken(prop);
+      const path = prefix ? `${prefix}.${prop}` : prop;
+      const field = shape?.[prop];
+      if (field?.fieldType === "Reference") {
+        return createContentProxy(field.referenceSchema.properties, path);
+      }
+      return new FieldToken(path);
     },
   });
 }
@@ -136,8 +153,9 @@ export function resolveToMarkdown<
   builder: ToMarkdownBuilder<TContent, TSettings>,
   settingsShape: TSettings | undefined,
   scope: SettingsScope,
+  contentShape?: TContent,
 ): string[] {
-  const contentProxy = createContentProxy<TContent>();
+  const contentProxy = createContentProxy<TContent>(contentShape);
   const settingsProxy = createSettingsProxy<TSettings>(settingsShape, scope);
   const entries = builder(contentProxy, settingsProxy);
 
@@ -304,6 +322,22 @@ function _fileList(options: {
  * All fields must have default values.
  */
 export const Type = {
+  /** Store only the selected record identity; content is resolved independently. */
+  Reference: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options: { title?: string; required?: boolean } = {},
+  ): ReferenceSchema<T> =>
+    TypeBoxType.Unsafe<string | null>({
+      anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+      fieldType: "Reference",
+      collectionId: collection._internal.id,
+      required: options.required ?? false,
+      title: options.title ?? collection._internal.title,
+      default: null,
+      // Used by the typed child scope, not a copy of a record's content.
+      referenceSchema: collection._internal.contentSchema,
+      labelField: collection._internal.label,
+    }) as ReferenceSchema<T>,
   Icon: (options: { default: IconId; title?: string }) => {
     const ids = typeof __CAMOX_ICON_IDS__ === "undefined" ? [] : __CAMOX_ICON_IDS__;
     if (!ids.includes(options.default))
@@ -416,7 +450,12 @@ export const Type = {
       default: defaultArray,
       title: options.title,
       fieldType: "Repeater" as const,
-      toMarkdown: resolveToMarkdown<T, S>(options.toMarkdown, options.settings, "item"),
+      toMarkdown: resolveToMarkdown<T, S>(
+        options.toMarkdown,
+        options.settings,
+        "item",
+        options.content,
+      ),
       itemSettingsSchema,
       defaultItemSettings: settingsTypeboxSchema ? defaultItemSettings : undefined,
     }) as TArray<TObject<T>> & WithItemSettings<S>;

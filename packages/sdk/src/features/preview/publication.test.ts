@@ -5,6 +5,9 @@ import {
   buildPublicationPlan,
   getPublicationCapabilities,
   getPublicationRequest,
+  getPublicationBlocker,
+  withReferenceTargets,
+  type ReferencePublicationTarget,
   type PublicationTarget,
 } from "./publication.ts";
 
@@ -28,6 +31,82 @@ const layoutTarget: Extract<PublicationTarget, { kind: "layout" }> = {
   name: "Pokémon",
   layout: { id: 2, status: "modified", livePublishedCheckpointId: 20 },
 };
+
+const reference: ReferencePublicationTarget = {
+  id: "customer-1",
+  collectionId: "customers",
+  label: "Acme",
+  expectedVersion: 7,
+  status: "modified",
+  required: false,
+  hasPublishedRevision: true,
+};
+
+void test("changed references are deduplicated, selectable and default included", () => {
+  const plan = withReferenceTargets(buildPublicationPlan(pageTarget), [
+    reference,
+    { ...reference, required: true },
+    { ...reference, id: "unchanged", status: "published" },
+  ]);
+  const keys = plan.items.map((item) => item.key);
+  assert.equal(plan.items.filter((item) => item.key.startsWith("collection:")).length, 1);
+  assert.equal(plan.items.at(-1)?.optional, true);
+  assert.match(plan.items.at(-1)!.impact, /previous published revision stays live/);
+  assert.deepEqual(getPublicationRequest(pageTarget, keys, plan).input, {
+    id: 1,
+    alsoPublishLayout: true,
+    collections: [{ id: "customer-1", collectionId: "customers", expectedVersion: 7 }],
+  });
+  assert.deepEqual(getPublicationRequest(pageTarget, ["page:1"], plan).input, { id: 1 });
+  assert.equal(getPublicationBlocker(plan, ["page:1"]), undefined);
+});
+
+void test("required unpublished and absent references block publication with explanations", () => {
+  const plan = withReferenceTargets(buildPublicationPlan(layoutTarget), [
+    { ...reference, status: "draft", required: true, hasPublishedRevision: false },
+  ]);
+  assert.match(getPublicationBlocker(plan, ["layout:2"])!, /Acme/);
+  assert.throws(
+    () => getPublicationRequest(layoutTarget, ["layout:2"], plan),
+    /required unpublished/,
+  );
+  assert.equal(
+    getPublicationBlocker(
+      plan,
+      plan.items.map((item) => item.key),
+    ),
+    undefined,
+  );
+  const missing = withReferenceTargets(buildPublicationPlan(pageTarget), [], ["block:5.customer"]);
+  assert.match(getPublicationBlocker(missing, ["page:1"])!, /block:5.customer/);
+});
+
+void test("optional unpublished exclusion remains empty and reviewed versions do not advance", () => {
+  const source = { ...reference, status: "draft" as const, hasPublishedRevision: false };
+  const plan = withReferenceTargets(buildPublicationPlan(layoutTarget), [source]);
+  source.expectedVersion = 8;
+  assert.equal(getPublicationBlocker(plan, ["layout:2"]), undefined);
+  assert.match(plan.items.at(-1)!.impact, /reference stays empty/);
+  assert.deepEqual(
+    getPublicationRequest(
+      layoutTarget,
+      plan.items.map((item) => item.key),
+      plan,
+    ).input,
+    {
+      id: 2,
+      collections: [{ id: reference.id, collectionId: reference.collectionId, expectedVersion: 7 }],
+    },
+  );
+});
+
+void test("empty reference plans preserve existing requests", () => {
+  const plan = withReferenceTargets(buildPublicationPlan(pageTarget), []);
+  assert.deepEqual(
+    getPublicationRequest(pageTarget, ["page:1", "layout:2"], plan),
+    getPublicationRequest(pageTarget, ["page:1", "layout:2"]),
+  );
+});
 
 void test("page publication separates required content from optional shared changes and reports impact", () => {
   const plan = buildPublicationPlan(pageTarget);

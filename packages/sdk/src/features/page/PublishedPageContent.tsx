@@ -29,7 +29,11 @@ function PublishedBlock({
   if (!blockDef) return null;
 
   return (
-    <NormalizedDataProvider files={data.files} repeatableItems={data.repeatableItems}>
+    <NormalizedDataProvider
+      files={data.files}
+      repeatableItems={data.repeatableItems}
+      blocks={[data.block]}
+    >
       <blockDef._internal.Component
         blockData={{
           _id: data.block.id,

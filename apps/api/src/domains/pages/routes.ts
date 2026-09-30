@@ -1,4 +1,5 @@
 import { authed, pub } from "../../orpc";
+import { referenceTargets, referenceTargetsInput } from "../collections/reference-publication";
 import * as service from "./service";
 
 // Public procedures
@@ -70,6 +71,9 @@ const discardChanges = authed
   .handler(({ context, input }) => service.discardPageChanges(context, input));
 
 export const pageProcedures = {
+  referenceTargets: authed
+    .input(referenceTargetsInput)
+    .handler(({ context, input }) => referenceTargets(context, input, "page")),
   getByPath,
   getStructure,
   list,

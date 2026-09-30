@@ -1,4 +1,6 @@
+import type { ResolvedReference } from "../domains/collections/references";
 import { transformImageUrl } from "./image-transform";
+import { lexicalStateToPlainText } from "./lexical-state";
 
 type ResolvedFile = { url: string; alt: string; filename: string; mimeType: string };
 
@@ -6,6 +8,7 @@ type SettingsContext = {
   settings?: Record<string, unknown> | null;
   itemSettings?: Record<string, unknown> | null;
   files?: Map<number, ResolvedFile> | null;
+  references?: Record<string, ResolvedReference | null>;
 };
 
 export function contentToMarkdown(
@@ -14,7 +17,7 @@ export function contentToMarkdown(
   content: Record<string, unknown>,
   options: { insideList?: boolean } & SettingsContext = {},
 ): string {
-  const { insideList = false, settings, itemSettings, files } = options;
+  const { insideList = false, settings, itemSettings, files, references } = options;
   const parts: string[] = [];
 
   for (const line of toMarkdown) {
@@ -24,6 +27,7 @@ export function contentToMarkdown(
       settings,
       itemSettings,
       files,
+      references,
     });
     if (resolved !== null) parts.push(resolved);
   }
@@ -63,7 +67,7 @@ function evaluateConditionals(line: string, ctx: SettingsContext): string | null
   return current;
 }
 
-const PLACEHOLDER_RE = /\{\{(\w+)\}\}/g;
+const PLACEHOLDER_RE = /\{\{(\w+(?:\.\w+)*)\}\}/g;
 
 function resolveLine(
   line: string,
@@ -74,13 +78,21 @@ function resolveLine(
   const placeholders = [...line.matchAll(PLACEHOLDER_RE)].map((m) => m[1]);
   if (placeholders.length === 0) return line;
 
-  const resolvedValues = placeholders.map((key) =>
-    resolveField(schemaProperties[key], content[key], ctx),
-  );
+  const resolve = (key: string) => {
+    const [root, field, ...nested] = key.split(".");
+    if (!field) return resolveField(schemaProperties[root], content[root], ctx);
+    if (nested.length) return undefined;
+    const reference = ctx.references?.[root];
+    if (!reference) return undefined;
+    const properties = (reference.contentSchema as { properties?: Record<string, unknown> })
+      ?.properties;
+    return resolveField(properties?.[field], reference.content[field], ctx);
+  };
+  const resolvedValues = placeholders.map(resolve);
   if (resolvedValues.every((v) => !v)) return null;
 
   return line.replace(PLACEHOLDER_RE, (_match, key: string) => {
-    return resolveField(schemaProperties[key], content[key], ctx) ?? "";
+    return resolve(key) ?? "";
   });
 }
 
@@ -114,7 +126,7 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
   const fieldType: string | undefined = schema?.fieldType;
 
   if (fieldType === "String") {
-    const text = asString(value);
+    const text = lexicalStateToPlainText(value as string | Record<string, unknown>);
     if (!text) return undefined;
     return text;
   }

@@ -14,6 +14,20 @@ export type NormalizedFile = PageWithBlocks["files"][number];
 export type NormalizedItem = PageWithBlocks["repeatableItems"][number];
 export type NormalizedBlock = PageWithBlocks["blocks"][number];
 
+export interface NormalizedCollectionRecord {
+  id: string;
+  collectionId: string;
+  content: Record<string, unknown>;
+  label: string;
+  version?: number;
+  revisionId?: string;
+}
+
+type ReferenceBlock = {
+  references?: Record<string, NormalizedCollectionRecord | null>;
+};
+const EMPTY_REFERENCE_BLOCKS: ReferenceBlock[] = [];
+
 /* -------------------------------------------------------------------------------------------------
  * Context for block rendering (inside iframe)
  * Provides file/item lookup maps so createBlock components can resolve markers.
@@ -22,28 +36,39 @@ export type NormalizedBlock = PageWithBlocks["blocks"][number];
 interface NormalizedDataContextValue {
   filesMap: Map<number, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
+  recordsMap: Map<string, NormalizedCollectionRecord>;
 }
 
 const NormalizedDataContext = React.createContext<NormalizedDataContextValue>({
   filesMap: new Map(),
   itemsMap: new Map(),
+  recordsMap: new Map(),
 });
 
 export const NormalizedDataProvider = ({
   files,
   repeatableItems,
+  blocks = EMPTY_REFERENCE_BLOCKS,
   children,
 }: {
   files: NormalizedFile[];
   repeatableItems: NormalizedItem[];
+  blocks?: readonly ReferenceBlock[];
   children: React.ReactNode;
 }) => {
   const value = React.useMemo(
     () => ({
       filesMap: new Map(files.map((f) => [f.id, f])),
       itemsMap: new Map(repeatableItems.map((i) => [i.id, i])),
+      recordsMap: new Map(
+        blocks.flatMap((block) =>
+          Object.values(block.references ?? {})
+            .filter((record): record is NormalizedCollectionRecord => record !== null)
+            .map((record) => [record.id, record] as const),
+        ),
+      ),
     }),
-    [files, repeatableItems],
+    [files, repeatableItems, blocks],
   );
 
   return React.createElement(NormalizedDataContext.Provider, { value }, children);
@@ -187,6 +212,9 @@ export function seedBlockCaches(
     // Collect file IDs referenced by this block and its items
     const fileIds = new Set<number>();
     collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
+    for (const record of Object.values((block as ReferenceBlock).references ?? {})) {
+      if (record) collectFileIdsFromContent(record.content, fileIds);
+    }
     for (const item of blockItems) {
       collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);
     }
@@ -204,6 +232,17 @@ export function seedBlockCaches(
   }
 }
 
+/** Materialized collection revisions own their asset metadata. Only marker-only
+ * values consult the mutable file map, so a published source cannot change when
+ * the file's current metadata changes.
+ */
+export function resolveAssetValue(value: unknown, filesMap: Map<number, NormalizedFile>): unknown {
+  if (value && typeof value === "object" && "url" in value && typeof value.url === "string") {
+    return value;
+  }
+  return isFileMarker(value) ? resolveFileMarker(value, filesMap) : value;
+}
+
 /** Resolve a file marker to a full file object */
 export function resolveFileMarker(
   marker: { _fileId: number },
@@ -216,7 +255,7 @@ export function resolveFileMarker(
   size: number;
   _fileId: number;
 } {
-  const file = filesMap.get(marker._fileId);
+  const file = filesMap.get(Number(marker._fileId));
   if (file) {
     return {
       url: file.url,

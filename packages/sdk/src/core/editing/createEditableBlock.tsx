@@ -1,17 +1,20 @@
 import { Type as TypeBoxType, type TSchema, type Static } from "@sinclair/typebox";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import { useLocation } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
+import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
   blockMutations,
   repeatableItemMutations,
   type Page,
   pageQueries,
   projectQueries,
+  collectionMutations,
+  collectionQueries,
 } from "@/lib/queries";
 
 import { useFrame } from "../../features/preview/components/Frame";
@@ -21,12 +24,7 @@ import {
   type SelectionEvent,
 } from "../../features/preview/previewSelection";
 import { previewStore, selectIsCommentMode } from "../../features/preview/previewStore";
-import {
-  useNormalizedData,
-  isFileMarker,
-  isItemMarker,
-  resolveFileMarker,
-} from "../../lib/normalized-data";
+import { useNormalizedData, isItemMarker, resolveAssetValue } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
 import { useFieldSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
@@ -52,6 +50,14 @@ import {
   transformImageUrl,
 } from "../lib/imageTransform";
 import { markdownToReactNodes, type InlineTextStyles } from "../lib/lexicalReact";
+import {
+  resolveReference,
+  referenceOccurrenceId,
+  type ReferenceContent,
+  type ReferenceKeys,
+  type ReferenceScope,
+} from "../lib/reference";
+import { referenceWritesFor } from "./referenceWrites";
 
 export { Type };
 export type {
@@ -368,6 +374,7 @@ export function createEditableBlock<
       options.toMarkdown,
       options.settings,
       "block",
+      options.content,
     ),
   };
 
@@ -443,6 +450,7 @@ export function createEditableBlock<
   type BlockContextValue = {
     blockId: number;
     content: TContent;
+    sourceSchema?: Record<string, any>;
     settings: TSettings;
     isHovered: boolean;
     setIsHovered: React.Dispatch<React.SetStateAction<boolean>>;
@@ -464,6 +472,11 @@ export function createEditableBlock<
 
   const Context = React.createContext<BlockContextValue | null>(null);
   const RepeaterItemContext = React.createContext<RepeaterItemContextValue | null>(null);
+  const ReferenceContext = React.createContext<{
+    occurrenceId: string;
+    select: (event?: React.MouseEvent<HTMLElement>) => void;
+    update: (field: string, value: string) => void;
+  } | null>(null);
 
   // Context to track if the parent repeater container is being hovered from sidebar
   const RepeaterHoverContext = React.createContext<string | null>(null);
@@ -758,7 +771,10 @@ export function createEditableBlock<
     const repeaterContext = React.use(RepeaterItemContext);
 
     // Generate unique field ID for overlay tracking
-    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
+    const reference = React.use(ReferenceContext);
+    const fieldId = reference
+      ? `${reference.occurrenceId}__${String(name)}`
+      : getOverlayFieldId(blockId, repeaterContext, String(name));
 
     // Get field value based on context
     const fieldValue = (repeaterContext ? repeaterContext.itemContent[name] : content[name]) as
@@ -798,6 +814,10 @@ export function createEditableBlock<
 
     const handleChange = React.useCallback(
       (newValue: string) => {
+        if (reference) {
+          reference.update(String(name), newValue);
+          return;
+        }
         if (repeaterContext) {
           const { itemId } = repeaterContext;
           if (itemId != null) {
@@ -813,10 +833,14 @@ export function createEditableBlock<
           });
         }
       },
-      [blockId, name, repeaterContext, updateBlockContent, updateRepeatableContent],
+      [blockId, name, reference, repeaterContext, updateBlockContent, updateRepeatableContent],
     );
 
     const selectField = (event?: React.MouseEvent<HTMLElement>) => {
+      if (reference) {
+        reference.select(event);
+        return;
+      }
       selectTarget(
         repeaterContext?.itemId != null
           ? {
@@ -876,7 +900,7 @@ export function createEditableBlock<
       ref: elementRef,
       "data-camox-field-id": fieldId,
       ...overlayState,
-      "data-camox-overlay-mode": options.synced ? "synced" : undefined,
+      "data-camox-overlay-mode": reference ? "reference" : options.synced ? "synced" : undefined,
       onMouseEnter: handleMouseEnter,
       onMouseLeave: handleMouseLeave,
       onClickCapture: selectField,
@@ -1245,9 +1269,7 @@ export function createEditableBlock<
     const { filesMap } = useNormalizedData();
     const rawSource = repeaterContext ? repeaterContext.itemContent[name] : content[name];
     // Resolve _fileId markers to full file objects
-    const rawValue = isFileMarker(rawSource)
-      ? (resolveFileMarker(rawSource, filesMap) as unknown as ImageValue)
-      : (rawSource as ImageValue | null);
+    const rawValue = resolveAssetValue(rawSource, filesMap) as ImageValue | null;
     const defaultValue = repeaterContext
       ? repeatableItemDefaults[repeaterContext.arrayFieldName]?.[String(name)]
       : contentDefaults[String(name)];
@@ -1350,9 +1372,7 @@ export function createEditableBlock<
     const { filesMap } = useNormalizedData();
     const rawSource = repeaterContext ? repeaterContext.itemContent[name] : content[name];
     // Resolve _fileId markers to full file objects
-    const rawValue = isFileMarker(rawSource)
-      ? (resolveFileMarker(rawSource, filesMap) as unknown as FileValue)
-      : (rawSource as FileValue | null);
+    const rawValue = resolveAssetValue(rawSource, filesMap) as FileValue | null;
     const defaultValue = repeaterContext
       ? repeatableItemDefaults[repeaterContext.arrayFieldName]?.[String(name)]
       : contentDefaults[String(name)];
@@ -1392,7 +1412,7 @@ export function createEditableBlock<
     const fieldSchema = parentRepeaterContext
       ? (typeboxSchema.properties as any)[parentRepeaterContext.arrayFieldName]?.items
           ?.properties?.[fieldName]
-      : (typeboxSchema.properties as any)[fieldName];
+      : (blockContext.sourceSchema ?? typeboxSchema.properties)[fieldName];
     const ft = fieldSchema?.fieldType as "ImageList" | "FileList" | undefined;
     if (ft !== "ImageList" && ft !== "FileList") {
       throw new Error(`"${fieldName}" is not a Type.ImageList or Type.FileList field`);
@@ -1417,7 +1437,7 @@ export function createEditableBlock<
 
     // Resolve _fileId markers and skip nullish (e.g. markers pointing to deleted files).
     const resolved = arr
-      .map((v) => (isFileMarker(v) ? resolveFileMarker(v, filesMap) : v))
+      .map((v) => resolveAssetValue(v, filesMap))
       .filter(
         (v): v is ImageValue | FileValue =>
           v != null && typeof v === "object" && "url" in (v as object),
@@ -1983,6 +2003,144 @@ export function createEditableBlock<
     return ctx.settings[name];
   };
 
+  // Asset/URL changes use the existing record modal. Reuse their renderers,
+  // but never expose a block-field mutation or picker for a source field.
+  const ReferencePrimitive = ({
+    primitive: Primitive,
+    ...props
+  }: {
+    primitive: React.ComponentType<any>;
+    name: string;
+    children: any;
+  }) => {
+    const block = React.use(Context)!;
+    if ((block.content as Record<string, unknown>)[props.name] == null) return null;
+    return (
+      <Context.Provider value={{ ...block, mode: "peek" }}>
+        <Primitive {...props} />
+      </Context.Provider>
+    );
+  };
+  const ReferenceImage = (props: any) => <ReferencePrimitive primitive={Image} {...props} />;
+  const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
+  const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
+  const ReferenceImageList = (props: any) => (
+    <ReferencePrimitive primitive={ImageList} {...props} />
+  );
+  const ReferenceFileList = (props: any) => <ReferencePrimitive primitive={FileList} {...props} />;
+
+  const Reference = <K extends ReferenceKeys<TSchemaShape>>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
+  }): React.ReactNode => {
+    const block = React.use(Context);
+    const { recordsMap } = useNormalizedData();
+    const selectTarget = usePreviewSelection();
+    const projectSlug = useProjectSlug();
+    const queryClient = useQueryClient();
+    const mutation = useMutation(collectionMutations.edit());
+    const [error, setError] = React.useState<string | null>(null);
+    const [hovered, setHovered] = React.useState(false);
+    if (!block) throw new Error("Reference must be used within a Block Component");
+    const editable = useIsEditable(block.mode);
+    const fieldName = String(name);
+    const schema = typeboxSchema.properties[fieldName];
+    const record = resolveReference(
+      (block.content as Record<string, unknown>)[fieldName],
+      schema.collectionId,
+      recordsMap,
+    );
+    const occurrenceId = referenceOccurrenceId(block.blockId, fieldName);
+    const selected = useFieldSelection(block.blockId, fieldName, "Reference");
+    const { window: iframeWindow } = useFrame();
+    const sidebarHovered = useOverlayMessage(
+      iframeWindow,
+      editable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId: occurrenceId },
+    );
+    const overlay = useOverlayState(hovered || sidebarHovered, selected);
+    const select = (event?: React.MouseEvent<HTMLElement>) => {
+      if (!editable) return;
+      selectTarget(
+        {
+          type: "block-field",
+          blockId: block.blockId,
+          fieldName,
+          fieldType: "Reference",
+        },
+        event,
+      );
+    };
+    const update = (field: string, value: string) => {
+      if (!record || !editable) return;
+      setError(null);
+      void referenceWritesFor(queryClient)
+        .save(record, field, value, async (input) => {
+          const saved = await mutation.mutateAsync({ ...input, projectSlug });
+          queryClient.setQueryData(
+            collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
+            saved,
+          );
+          // Shared source changes must refresh every occurrence, not only this block.
+          void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
+          return saved;
+        })
+        .catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : "Could not save item");
+        });
+    };
+    if (!record && !editable) return null;
+    const rendered = record ? (
+      <ReferenceContext.Provider value={{ occurrenceId, select, update }}>
+        <RepeaterItemContext.Provider value={null}>
+          <Context.Provider
+            value={{
+              ...block,
+              content: record.content as TContent,
+              sourceSchema: schema.referenceSchema.properties,
+            }}
+          >
+            {children({
+              id: record.id,
+              label: record.label,
+              Field,
+              Image: ReferenceImage,
+              File: ReferenceFile,
+              Embed: ReferenceEmbed,
+              ImageList: ReferenceImageList,
+              FileList: ReferenceFileList,
+            } as unknown as ReferenceScope<ReferenceContent<TSchemaShape[K]>>)}
+          </Context.Provider>
+        </RepeaterItemContext.Provider>
+      </ReferenceContext.Provider>
+    ) : (
+      <button type="button" onClick={select}>
+        Select {schema.title ?? fieldName} in the sidebar
+      </button>
+    );
+    if (!editable) return rendered;
+    return (
+      <div
+        data-camox-field-id={occurrenceId}
+        data-camox-collection-record-id={record?.id}
+        data-camox-reference-label={record?.label}
+        data-camox-overlay-mode="reference"
+        {...overlay}
+        onClickCapture={select}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {rendered}
+        {error && <p role="alert">Could not save item. {error}</p>}
+      </div>
+    );
+  };
+
   /**
    * Wraps block content that renders outside the block's visual bounds (fixed navbars, modals, portals, etc.).
    * Provides the same hover and selection overlays as the main BlockComponent.
@@ -2075,6 +2233,7 @@ export function createEditableBlock<
     ImageList,
     FileList,
     Repeater,
+    Reference,
     useSetting,
     _internal: {
       /**

@@ -65,6 +65,270 @@ async function fixture(suffix: string) {
   return { ...base, ctx, publicCtx, scope, sync };
 }
 
+function withAddedFields(properties: typeof definition.contentSchema.properties) {
+  return {
+    ...definition,
+    contentSchema: {
+      ...definition.contentSchema,
+      properties: { ...definition.contentSchema.properties, ...properties },
+      required: [...definition.contentSchema.required, ...Object.keys(properties)],
+    },
+  };
+}
+
+describe("additive collection schema sync", () => {
+  it("adds a logo to an edited published draft without changing live or historical content", async () => {
+    const f = await fixture("sync-logo");
+    const created = await createRecord(f.ctx, { ...f.scope, content: article });
+    const read = { ...f.scope, id: created.id };
+    const published = await publishRecord(f.ctx, {
+      ...read,
+      expectedVersion: created.version,
+    });
+    const draft = {
+      ...article,
+      title: "Private title",
+      body: plainTextToLexicalState("Private body"),
+    };
+    const edited = await editRecord(f.ctx, {
+      ...read,
+      expectedVersion: published.record.version,
+      content: draft,
+    });
+    const revisionsBefore = await f.db
+      .select()
+      .from(collectionRevisions)
+      .where(eq(collectionRevisions.recordId, created.id));
+    const liveBefore = await readRecord(f.publicCtx, read);
+    const expanded = withAddedFields({
+      logo: { type: "object", fieldType: "Image", default: article.cover },
+    });
+    await f.sync([expanded]);
+    const backfilled = await getCollectionRecord(f.ctx, read);
+    expect(backfilled).toEqual({
+      ...edited,
+      draft: { ...draft, logo: null },
+      version: edited.version + 1,
+      updatedAt: backfilled.updatedAt,
+    });
+    expect(await getCollectionDefinition(f.ctx, f.scope)).toMatchObject({
+      contentSchema: expanded.contentSchema,
+    });
+    expect(await readRecord(f.publicCtx, read)).toEqual(liveBefore);
+    expect(
+      await f.db
+        .select()
+        .from(collectionRevisions)
+        .where(eq(collectionRevisions.recordId, created.id)),
+    ).toEqual(revisionsBefore);
+    await f.sync([expanded]);
+    expect(await getCollectionRecord(f.ctx, read)).toEqual(backfilled);
+    await expect(
+      editRecord(f.ctx, {
+        ...read,
+        expectedVersion: edited.version,
+        content: { ...draft, logo: article.cover },
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const linked = await editRecord(f.ctx, {
+      ...read,
+      expectedVersion: backfilled.version,
+      content: { ...draft, logo: article.cover },
+    });
+    const republished = await publishRecord(f.ctx, {
+      ...read,
+      expectedVersion: linked.version,
+    });
+    expect(republished.revision.content).toEqual({ ...draft, logo: article.cover });
+    expect(await readRecord(f.publicCtx, read)).toEqual(republished.revision);
+    expect(
+      await readRecord(f.ctx, { ...read, source: { revisionId: published.revision.id } }),
+    ).toEqual(published.revision);
+  });
+
+  it("backfills all supported field initial values and preserves each record's old fields", async () => {
+    const f = await fixture("sync-defaults");
+    const records = await Promise.all(
+      ["First", "Second"].map((title) =>
+        createRecord(f.ctx, { ...f.scope, content: { ...article, title } }),
+      ),
+    );
+    const expanded = withAddedFields({
+      image: { type: "object", fieldType: "Image", default: article.cover },
+      file: { type: "object", fieldType: "File", default: article.cover },
+      images: {
+        type: "array",
+        fieldType: "ImageList",
+        items: { type: "object", fieldType: "Image" },
+        default: [article.cover],
+      },
+      files: {
+        type: "array",
+        fieldType: "FileList",
+        items: { type: "object", fieldType: "File" },
+        default: [article.cover],
+      },
+      text: { type: "string", fieldType: "String" },
+      embed: { type: "string", fieldType: "Embed" },
+      enabled: { type: "boolean", fieldType: "Boolean" },
+      choice: { type: "string", fieldType: "Enum", enum: ["first", "second"] },
+      defaultText: { type: "string", fieldType: "String", minLength: 1, default: "Initial" },
+      defaultEmbed: { type: "string", fieldType: "Embed", default: "https://example.com/embed" },
+      defaultEnabled: { type: "boolean", fieldType: "Boolean", default: true },
+      defaultChoice: {
+        type: "string",
+        fieldType: "Enum",
+        enum: ["first", "second"],
+        default: "second",
+      },
+    });
+    const defaults = {
+      image: null,
+      file: null,
+      images: [],
+      files: [],
+      text: "",
+      embed: "",
+      enabled: false,
+      choice: "first",
+      defaultText: "Initial",
+      defaultEmbed: "https://example.com/embed",
+      defaultEnabled: true,
+      defaultChoice: "second",
+    };
+    await f.sync([expanded]);
+    for (const record of records) {
+      const read = { ...f.scope, id: record.id };
+      const backfilled = await getCollectionRecord(f.ctx, read);
+      expect(backfilled.draft).toEqual({ ...record.draft, ...defaults });
+      expect(backfilled.version).toBe(record.version + 1);
+      await publishRecord(f.ctx, { ...read, expectedVersion: backfilled.version });
+    }
+    const beforeRepeat = await Promise.all(
+      records.map(({ id }) => getCollectionRecord(f.ctx, { ...f.scope, id })),
+    );
+    await f.sync([expanded]);
+    expect(
+      await Promise.all(records.map(({ id }) => getCollectionRecord(f.ctx, { ...f.scope, id }))),
+    ).toEqual(beforeRepeat);
+  });
+
+  it.each([
+    { type: "string", fieldType: "String", minLength: 1 },
+    { type: "string", fieldType: "Embed", pattern: "^https://" },
+    { type: "string", fieldType: "String", maxLength: 2, default: "Too long" },
+    { type: "string", fieldType: "Enum", enum: ["allowed"], default: "unknown" },
+    { type: "boolean", fieldType: "Boolean", default: "true" },
+    {
+      type: "array",
+      fieldType: "ImageList",
+      minItems: 1,
+      items: { type: "object", fieldType: "Image" },
+    },
+  ] satisfies Array<(typeof definition.contentSchema.properties)[string]>)(
+    "rejects additions without a valid initial value: %j",
+    async (field) => {
+      const f = await fixture(`sync-invalid-default-${crypto.randomUUID()}`);
+      const record = await createRecord(f.ctx, { ...f.scope, content: article });
+      const before = await getCollectionDefinition(f.ctx, f.scope);
+      await expect(
+        f.sync([withAddedFields({ safe: { type: "string", fieldType: "String" }, unsafe: field })]),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(await getCollectionDefinition(f.ctx, f.scope)).toEqual(before);
+      expect(await getCollectionRecord(f.ctx, { ...f.scope, id: record.id })).toEqual(record);
+    },
+  );
+
+  it.each(["restore", "discard"] as const)(
+    "%s fills new fields from a pre-addition revision without rewriting history or live publication",
+    async (operation) => {
+      const f = await fixture(`sync-${operation}`);
+      const created = await createRecord(f.ctx, { ...f.scope, content: article });
+      const read = { ...f.scope, id: created.id };
+      const published = await publishRecord(f.ctx, { ...read, expectedVersion: created.version });
+      await f.sync([
+        withAddedFields({
+          logo: { type: "object", fieldType: "Image", default: article.cover },
+          subtitle: { type: "string", fieldType: "String", default: "Initial subtitle" },
+        }),
+      ]);
+      const backfilled = await getCollectionRecord(f.ctx, read);
+      const edited = await editRecord(f.ctx, {
+        ...read,
+        expectedVersion: backfilled.version,
+        content: { ...article, title: "Private edit", logo: article.cover, subtitle: "Edited" },
+      });
+      const input = { ...read, expectedVersion: edited.version };
+      const restored =
+        operation === "restore"
+          ? (await restoreRecord(f.ctx, { ...input, revisionId: published.revision.id })).record
+          : await discardRecord(f.ctx, input);
+      expect(restored.draft).toEqual({ ...article, logo: null, subtitle: "Initial subtitle" });
+      expect(restored.version).toBe(edited.version + 1);
+      expect(await readRecord(f.publicCtx, read)).toEqual(published.revision);
+      expect(
+        await readRecord(f.ctx, { ...read, source: { revisionId: published.revision.id } }),
+      ).toEqual(published.revision);
+      expect(
+        await f.db
+          .select()
+          .from(collectionRevisions)
+          .where(eq(collectionRevisions.id, published.revision.id))
+          .get(),
+      ).toEqual(published.revision);
+    },
+  );
+
+  it.each(["change", "remove"] as const)(
+    "rolls back every definition and draft when another populated collection has an unsafe %s",
+    async (operation) => {
+      const f = await fixture(`sync-rollback-${operation}`);
+      const other = { ...definition, collectionId: "other", title: "Other" };
+      await f.sync([definition, other]);
+      const first = await createRecord(f.ctx, { ...f.scope, content: article });
+      const otherScope = { ...f.scope, collectionId: other.collectionId };
+      const second = await createRecord(f.ctx, { ...otherScope, content: article });
+      const properties = { ...other.contentSchema.properties };
+      if (operation === "remove") delete properties.excerpt;
+      if (operation === "change")
+        properties.excerpt = { ...properties.excerpt, title: "New title" };
+      const unsafe = {
+        ...other,
+        contentSchema: {
+          ...other.contentSchema,
+          properties,
+          required: other.contentSchema.required.filter((key) => key in properties),
+        },
+      };
+      const definitionsBefore = await f.db
+        .select()
+        .from(collectionDefinitions)
+        .where(eq(collectionDefinitions.projectId, f.project.id));
+      await expect(
+        f.sync([
+          withAddedFields({ logo: { type: "object", fieldType: "Image" } }),
+          { ...definition, collectionId: "new-collection" },
+          unsafe,
+        ]),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(
+        await f.db
+          .select()
+          .from(collectionDefinitions)
+          .where(eq(collectionDefinitions.projectId, f.project.id)),
+      ).toEqual(definitionsBefore);
+      expect(await getCollectionRecord(f.ctx, { ...f.scope, id: first.id })).toEqual(first);
+      expect(await getCollectionRecord(f.ctx, { ...otherScope, id: second.id })).toEqual(second);
+      await expect(
+        f.db
+          .update(collectionDefinitions)
+          .set({ contentSchema: unsafe.contentSchema })
+          .where(eq(collectionDefinitions.id, second.definitionId)),
+      ).rejects.toThrow();
+    },
+  );
+});
+
 describe("authenticated collection browsing", () => {
   it("stores empty and unlinked assets as null without materializing preview defaults", async () => {
     const f = await fixture("empty-assets");

@@ -45,7 +45,8 @@ html[data-camox-edit-mode] iframe {
 }
 
 /* Shared data is purple, regardless of whether its placement is in a layout. */
-[data-camox-overlay-mode="synced"] {
+[data-camox-overlay-mode="synced"],
+[data-camox-overlay-mode="reference"] {
   --camox-overlay-color-hover: #c084fcbf;
   --camox-overlay-color-selected: #c084fc;
 }

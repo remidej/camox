@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/server";
 
+import { validateReferenceSchema } from "../collections/references";
 import { initializeBlockContent } from "./initialize-content";
 import {
   normalizeBlockContent,
@@ -52,6 +53,8 @@ export function prepareBlockContent(
   context: { contentSchema?: unknown; settingsSchema?: unknown } = {},
 ) {
   const rootSchema = context.contentSchema ?? contentSchema;
+  validateReferenceSchema(rootSchema);
+  validateReferenceSchema(context.settingsSchema ?? settingsSchema, false);
   // Shape checks precede defaulting, which otherwise turns invalid roots into {}.
   if (rawContent !== undefined) validateContent(rawContent, null);
   if (rawSettings != null) validateContent(rawSettings, null, { path: "settings" });

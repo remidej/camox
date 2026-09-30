@@ -19,9 +19,15 @@ without copying page/block trees or sharing their restoration behavior.
 - Mutations require the expected record version to prevent lost updates. A failed
   publication may leave an unreferenced immutable snapshot, never partial live data.
 - Missing definitions are retired, not deleted. Re-registration revives them.
-  Schema changes with existing records are rejected rather than silently migrating
-  or discarding content; metadata/label changes remain possible. A migration
-  framework and environment-copy support are not part of this slice.
+  With existing records, sync permits additive fields only; existing field
+  definitions cannot change or disappear. New fields must have valid initial
+  values: declared scalar defaults (otherwise empty text, false, or the first enum
+  option), null single assets, and empty asset lists. Asset preview defaults are
+  never stored. Draft backfills and schema sync are atomic and advance affected
+  record versions, without rewriting history or publishing content. Restoring an
+  older revision fills fields added since that revision using the same rule.
+  Metadata/label changes remain possible. A general migration framework and
+  environment-copy support are not part of this slice.
 - Compatibility guard: environment replication and site deletion are blocked before
   destructive work only when collection records/history exist. Empty code-owned
   definitions do not block existing workflows. Replication leaves empty collection
@@ -65,7 +71,7 @@ without copying page/block trees or sharing their restoration behavior.
   must block publication unless included in a validated atomic publication plan;
   never silently publish it or substitute a draft. Optional absent/unpublished
   references resolve as empty, never drafts.
-- **Current safety boundary:** reference schemas/resolution/pickers and dependency
+- **Slice 3 safety boundary:** reference schemas/resolution/pickers and dependency
   publication are not implemented or exposed. The validation layer rejects
   Reference/ReferenceList fields. There are no supported record dependencies to
   traverse, cascade, or protect yet. Unpublish/delete currently act on standalone
@@ -74,6 +80,50 @@ without copying page/block trees or sharing their restoration behavior.
   references can be enabled. Publishing a standalone record creates no URL.
 - The playground Customers collection and its README provide a repeatable standalone
   create/edit/publish/unpublish example; articles remain available for lifecycle tests.
+
+## Slice 4 decision: single references
+
+- A top-level block `Type.Reference(collection, { required?: boolean })` stores
+  only a UUID or null. Resolution is separate from authored block content and
+  always scopes the record by project, environment, and collection. References
+  in settings, repeaters, and collection schemas remain outside this slice.
+- `block.Reference` passes a typed field scope to its child callback. Source
+  record identity is independent of the rendered block/field occurrence:
+  multiple placements edit one draft, but selection and overlays identify the
+  occurrence. Shared fields have purple outlines and use the source record label.
+  Missing/unset references render an editor attachment placeholder, never a fake
+  record; public rendering is empty.
+- The sidebar reference field shows a combobox only when no item is linked. Its selected-item
+  card opens the existing edit modal; an X with an **Unlink** tooltip removes the
+  attachment. **Create item** is offered only when unlinked and opens the existing
+  create modal, attaching the saved item. It does not embed source field editors. A cancelled
+  creation never changes the attachment, and unlinking never deletes the item.
+  Compatible text fields also support inline source editing in preview.
+- Draft resolution reads draft records; live resolution reads only published
+  revisions. Editing a source refreshes its draft occurrences, not live content.
+  Independently publishing a source refreshes live occurrences. Referenced assets
+  are included in hydration and retained through collection revisions.
+  An owner checkpoint preserves reference selection (the UUID), not a pinned
+  source revision: historical page/layout reads resolve that selection against
+  the source's current published revision, never its draft. Explicit collection
+  revision reads still return exactly that immutable revision.
+- Publication review deduplicates source items across placements. Changed source
+  switches default on and retain the reviewed expected version. Excluding an
+  already-published source retains its old live revision; excluding an optional
+  unpublished source leaves the public reference empty.
+- Required references may be unset in drafts, but block publication must reject an
+  absent required target or a required unpublished target excluded from the plan.
+  Included record and owner publication pointers must move together atomically;
+  immutable prepared snapshots are not themselves publication.
+- Deletion cannot leave dangling supported references. Unpublication cannot make
+  a required live reference disappear. Optional unpublished references resolve
+  empty, never to drafts.
+- Per-use Markdown accesses the reference's fields, for example
+  `c.company.company` in the testimonial. There is no collection-level Markdown
+  callback and no copied source content in the placement.
+- The playground testimonial's company demonstrates single references. Existing
+  plain-text company values are not converted into records automatically; the
+  editor explicitly attaches a Customers item.
 
 ## Status and intent
 

@@ -71,6 +71,23 @@ void test("measures line fragments, boxes, SVG icons and empty targets in iframe
   await page.window.happyDOM.close();
 });
 
+void test("reference fields are shared purple targets without recoloring their local block", async () => {
+  const page = fixture();
+  page.document.body.innerHTML = `
+    <div data-camox-block-id="testimonial">
+      <span data-camox-field-id="quote">Local quote</span>
+      <span data-camox-overlay-mode="reference" data-camox-field-id="company">Shared company</span>
+    </div>`;
+  const stop = page.start();
+  await page.flush();
+  assert.deepEqual(
+    page.targets.map((target) => target.synced),
+    [false, false, true],
+  );
+  stop();
+  await page.window.happyDOM.close();
+});
+
 void test("hover/focus and synced state reuse geometry; content batches remeasure all targets", async () => {
   const page = fixture();
   page.document.body.innerHTML =

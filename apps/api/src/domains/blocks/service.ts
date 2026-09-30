@@ -37,6 +37,7 @@ import {
   type SnapshotBlock,
   type SnapshotRepeatableItem,
 } from "../_shared/snapshot-schemas";
+import { blockScope, hydrateReferences, validateReferenceValues } from "../collections/references";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
 import { normalizeFieldValue } from "./asset-value";
@@ -795,9 +796,19 @@ export async function getBlock(ctx: ServiceContext, rawInput: z.input<typeof get
     (item as any).content = itemContent;
   }
 
-  // Collect and fetch referenced files
+  const hydratedBlock = (
+    await hydrateReferences(
+      ctx,
+      await blockScope(ctx, block),
+      [{ ...block, content }],
+      source === "draft" ? "draft" : "live",
+    )
+  )[0];
+
+  // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<number>();
   collectFileIds(content, fileIds);
+  collectFileIds(hydratedBlock.references, fileIds);
   for (const item of sorted) {
     collectFileIds(item.content as Record<string, unknown>, fileIds);
   }
@@ -811,7 +822,7 @@ export async function getBlock(ctx: ServiceContext, rawInput: z.input<typeof get
       : [];
 
   return {
-    block: { ...block, content },
+    block: hydratedBlock,
     repeatableItems: sorted,
     files: fileRows,
   };
@@ -937,16 +948,24 @@ export async function getPageMarkdown(
     }
   }
 
+  const hydrated = await hydrateReferences(
+    ctx,
+    page,
+    [...sorted, ...sortedLayout],
+    source === "draft" ? "draft" : "live",
+  );
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
   const fileIds = new Set<number>();
-  for (const block of [...sorted, ...sortedLayout]) {
+  for (const block of hydrated) {
     collectFileIds(block.content as Record<string, unknown>, fileIds);
+    collectFileIds(block.references, fileIds);
   }
   for (const list of [...itemsByBlock.values(), ...layoutItemsByBlock.values()]) {
     for (const item of list) collectFileIds(item.content as Record<string, unknown>, fileIds);
   }
   const fileMap = await buildFileMap(ctx.db, fileIds);
 
+  const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const renderBlock = (block: RenderableBlock, items: RenderableItem[]) => {
     const schema = schemaByType.get(block.type);
     if (!schema?.toMarkdown) return JSON.stringify(block.content);
@@ -958,7 +977,11 @@ export async function getPageMarkdown(
       schema.toMarkdown,
       schema.properties,
       content,
-      { settings: block.settings as Record<string, unknown> | null | undefined, files: fileMap },
+      {
+        settings: block.settings as Record<string, unknown> | null | undefined,
+        files: fileMap,
+        references: referencesByBlock.get(block.id),
+      },
     )}`;
   };
 
@@ -1046,6 +1069,7 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     def?.settingsSchema,
   );
   const allSeeds = prepared.seeds;
+  await validateReferenceValues(ctx, access.page, def?.contentSchema, prepared.content);
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(
@@ -1195,6 +1219,7 @@ export async function updateBlockContent(
 
   const patch = prepareContentPatch(content, contentSchema);
   validateContent(patch, contentSchema, { allowItemReferences: true });
+  await validateReferenceValues(ctx, await blockScope(ctx, access.block), contentSchema, patch);
   const merged = await applyContentPatch(ctx, access.block, patch, contentSchema, now);
 
   const result = await ctx.db

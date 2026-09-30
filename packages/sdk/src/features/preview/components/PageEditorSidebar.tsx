@@ -328,11 +328,20 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   const handleBlockFieldChange = React.useCallback(
     (fieldName: string, value: unknown) => {
+      // Relationship changes need completion/error feedback, particularly when
+      // a modal creates a record and must wait for its attachment before closing.
+      if ((currentSchema as any)?.properties?.[fieldName]?.fieldType === "Reference") {
+        return (async () => {
+          if (!block || !requireDraft())
+            throw new Error("Switch to draft to change this reference.");
+          await updateContent.mutateAsync({ id: block.id, content: { [fieldName]: value } });
+        })();
+      }
       if (!block) return;
       if (!requireDraft()) return;
       updateContent.mutate({ id: block.id, content: { [fieldName]: value } });
     },
-    [block, updateContent, requireDraft],
+    [block, currentSchema, updateContent, requireDraft],
   );
 
   const handleItemFieldChange = React.useCallback(

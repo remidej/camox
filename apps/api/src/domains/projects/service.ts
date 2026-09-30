@@ -23,6 +23,11 @@ import {
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
+import {
+  referenceFields,
+  resolveReferences,
+  validateReferenceValues,
+} from "../collections/references";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { writePageCheckpointAndPoint } from "../pages/service";
@@ -431,6 +436,18 @@ export async function initializeProjectContent(
     );
     return { ...block, ...prepared, repeatableItems: prepared.seeds };
   });
+
+  for (const block of preparedBlocks) {
+    const scope = { projectId: project.id, environmentId: environment.id };
+    const schema = definitionsByType.get(block.type)?.contentSchema;
+    await validateReferenceValues(ctx, scope, schema, block.content);
+    const live = await resolveReferences(ctx, scope, schema, block.content, "live");
+    if (referenceFields(schema).some(([name, field]) => field.required === true && !live[name])) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "Bootstrap requires published required references",
+      });
+    }
+  }
 
   // Create homepage
   const homepage = await ctx.db

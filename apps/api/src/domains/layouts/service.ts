@@ -23,6 +23,13 @@ import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData } from "../blocks/synced-live";
+import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
+import { collectionSelection } from "../collections/reference-publication-input";
+import {
+  hydrateReferences,
+  referenceChanges,
+  validateReferenceValues,
+} from "../collections/references";
 import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
 import { normalizePagePath, singletonPath } from "./route-ownership";
 
@@ -37,7 +44,7 @@ export const getLayoutInput = z.object({
 });
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
-export const publishLayoutInput = z.object({ id: z.number() });
+export const publishLayoutInput = z.object({ id: z.number(), collections: collectionSelection });
 export const unpublishLayoutInput = z.object({ id: z.number() });
 
 // Snapshot shape version written into `layout_checkpoints.schema_version`.
@@ -99,12 +106,13 @@ function deriveLayoutStatus(args: {
   layout: Pick<LayoutRow, "livePublishedCheckpointId" | "contentUpdatedAt">;
   checkpointCreatedAt: number | null;
   affectedPagesCount: number;
+  referenceModified?: boolean;
 }): LayoutStatusInfo {
   const { layout, checkpointCreatedAt, affectedPagesCount } = args;
   if (layout.livePublishedCheckpointId == null || checkpointCreatedAt == null) {
     return { status: "draft", affectedPagesCount };
   }
-  if (layout.contentUpdatedAt > checkpointCreatedAt) {
+  if (args.referenceModified || layout.contentUpdatedAt > checkpointCreatedAt) {
     return { status: "modified", affectedPagesCount };
   }
   return { status: "published", affectedPagesCount };
@@ -144,6 +152,7 @@ async function fetchLayoutStatuses(
     if (row.layoutId != null) pageCounts.set(row.layoutId, Number(row.count));
   }
 
+  const references = await referenceChanges(ctx, environmentId);
   for (const layout of layoutRows) {
     const cpAt =
       layout.livePublishedCheckpointId != null
@@ -155,6 +164,7 @@ async function fetchLayoutStatuses(
         layout,
         checkpointCreatedAt: cpAt,
         affectedPagesCount: pageCounts.get(layout.id) ?? 0,
+        referenceModified: references.layoutIds.has(layout.id),
       }),
     );
   }
@@ -311,9 +321,16 @@ export async function getLayout(ctx: ServiceContext, rawInput: z.input<typeof ge
       items.filter((item) => item.blockId === block.id),
     ),
   );
+  const hydrated = await hydrateReferences(
+    ctx,
+    layout,
+    normalized.map(({ block }) => block),
+    source,
+  );
   const fileIds = new Set<number>();
   for (const value of [...layoutBlocks, ...items])
     collectFileIds(value.content as Record<string, unknown>, fileIds);
+  for (const block of hydrated) collectFileIds(block.references, fileIds);
   const fileRows = await buildFileMap(ctx.db, fileIds);
   return {
     layout: {
@@ -329,7 +346,7 @@ export async function getLayout(ctx: ServiceContext, rawInput: z.input<typeof ge
         .filter((block) => block.placement === "after")
         .map((block) => block.id),
     },
-    blocks: normalized.map(({ block }) => block),
+    blocks: hydrated,
     repeatableItems: normalized.flatMap(({ items }) => items),
     files: [...fileRows.values()],
   };
@@ -407,6 +424,17 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
       return { ...block, ...prepared, repeatableItems: prepared.seeds };
     }),
   }));
+
+  for (const def of preparedLayouts) {
+    for (const block of def.blocks) {
+      await validateReferenceValues(
+        ctx,
+        { projectId, environmentId: environment.id },
+        definitionsByType.get(block.type)?.contentSchema,
+        block.content,
+      );
+    }
+  }
 
   for (const def of preparedLayouts) {
     const existingLayout = await ctx.db
@@ -648,7 +676,12 @@ export async function publishLayout(
   rawInput: z.input<typeof publishLayoutInput>,
 ) {
   const user = assertUser(ctx);
-  const { id } = publishLayoutInput.parse(rawInput);
+  const input = publishLayoutInput.parse(rawInput);
+  const { id } = input;
+  const references = await referenceTargets(ctx, input, "layout");
+  if (input.collections.length || references.targets.length || references.missingRequired.length) {
+    return (await publishWithReferences(ctx, input, "layout")) as typeof layouts.$inferSelect;
+  }
   const access = await assertLayoutAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
 

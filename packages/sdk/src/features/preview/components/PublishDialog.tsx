@@ -12,7 +12,7 @@ import { Label } from "@camox/ui/label";
 import { Switch } from "@camox/ui/switch";
 import * as React from "react";
 
-import type { PublicationPlan } from "../publication";
+import { getPublicationBlocker, type PublicationPlan } from "../publication";
 
 /** Shared scope/impact review. Mount afresh for each publication attempt. */
 export function PublishDialog({
@@ -21,12 +21,18 @@ export function PublishDialog({
   onPublish,
   onOpenChange,
   error,
+  loading = false,
+  unavailable = false,
+  onSelectionChange,
 }: {
   plan: PublicationPlan;
   pending: boolean;
   onPublish: (includedKeys: string[]) => void;
   onOpenChange: (open: boolean) => void;
   error?: string;
+  loading?: boolean;
+  unavailable?: boolean;
+  onSelectionChange?: (key: string, included: boolean) => void;
 }) {
   const id = React.useId();
   const [excludedKeys, setExcludedKeys] = React.useState<string[]>([]);
@@ -34,27 +40,29 @@ export function PublishDialog({
   const includedKeys = plan.items
     .filter((item) => !item.optional || !excludedKeys.includes(item.key))
     .map((item) => item.key);
+  const blocker = getPublicationBlocker(plan, includedKeys);
 
   return (
     <AlertDialog open onOpenChange={(open) => !pending && onOpenChange(open)}>
-      <AlertDialogContent>
+      <AlertDialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col">
         <AlertDialogHeader>
           <AlertDialogTitle>{plan.title}</AlertDialogTitle>
           <AlertDialogDescription>{plan.description}</AlertDialogDescription>
         </AlertDialogHeader>
         {sideEffects.length > 0 && (
-          <div className="space-y-3">
+          <div className="min-h-0 space-y-3 overflow-y-auto">
             {sideEffects.map((item) => (
               <div key={item.key} className="flex items-start gap-3">
                 <Switch
                   id={`${id}-${item.key}`}
                   checked={!excludedKeys.includes(item.key)}
-                  onCheckedChange={(checked) =>
+                  onCheckedChange={(checked) => {
                     setExcludedKeys((keys) =>
                       checked ? keys.filter((key) => key !== item.key) : [...keys, item.key],
-                    )
-                  }
-                  disabled={pending}
+                    );
+                    onSelectionChange?.(item.key, checked);
+                  }}
+                  disabled={pending || loading}
                 />
                 <div className="min-w-0 space-y-1">
                   <Label htmlFor={`${id}-${item.key}`}>
@@ -66,9 +74,14 @@ export function PublishDialog({
             ))}
           </div>
         )}
-        {error && (
+        {loading && (
+          <p role="status" className="text-sm">
+            Loading referenced items…
+          </p>
+        )}
+        {(error || blocker) && (
           <p role="alert" className="text-destructive text-sm">
-            {error}
+            {error || blocker}
           </p>
         )}
         <AlertDialogFooter>
@@ -76,9 +89,10 @@ export function PublishDialog({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending || includedKeys.length === 0}
+            disabled={pending || loading || unavailable || !!blocker || includedKeys.length === 0}
             onClick={(event) => {
               event.preventDefault();
+              if (loading || unavailable || blocker) return;
               onPublish(includedKeys);
             }}
           >

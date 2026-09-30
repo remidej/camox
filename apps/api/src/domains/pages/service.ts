@@ -30,6 +30,9 @@ import {
 } from "../_shared/snapshot-schemas";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData, resolveSyncedLiveData } from "../blocks/synced-live";
+import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
+import { collectionSelection } from "../collections/reference-publication-input";
+import { hydrateReferences, referenceChanges } from "../collections/references";
 import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
@@ -123,6 +126,7 @@ export const generatePageSeoInput = z.object({ id: z.number() });
 export const publishPageInput = z.object({
   id: z.number(),
   alsoPublishLayout: z.boolean().optional(),
+  collections: collectionSelection,
 });
 export const unpublishPageInput = z.object({ id: z.number() });
 export const discardPageChangesInput = z.object({ id: z.number() });
@@ -229,6 +233,8 @@ function deriveStatus(args: {
   > | null;
   layoutCheckpointCreatedAt: number | null;
   layoutAffectedPagesCount: number;
+  referenceModified?: boolean;
+  layoutReferenceModified?: boolean;
 }): PageStatusInfo {
   const {
     page,
@@ -243,7 +249,8 @@ function deriveStatus(args: {
     return { status: "draft", modifiedReason: null };
   }
 
-  const pageSelfModified = page.contentUpdatedAt > pageCheckpointCreatedAt;
+  const pageSelfModified =
+    args.referenceModified || page.contentUpdatedAt > pageCheckpointCreatedAt;
   // A layout with no live checkpoint, or with content past its live checkpoint,
   // counts as modified for the cascade — visitors see the published checkpoint,
   // so any drift on the layout side puts every dependent page out of sync.
@@ -251,7 +258,8 @@ function deriveStatus(args: {
     layout != null &&
     (layout.livePublishedCheckpointId == null ||
       layoutCheckpointCreatedAt == null ||
-      layout.contentUpdatedAt > layoutCheckpointCreatedAt);
+      layout.contentUpdatedAt > layoutCheckpointCreatedAt ||
+      args.layoutReferenceModified);
 
   if (!pageSelfModified && !layoutModified) {
     return { status: "published", modifiedReason: null };
@@ -338,6 +346,7 @@ async function fetchPageStatuses(
     }
   }
 
+  const references = await referenceChanges(ctx, environmentId);
   for (const page of pageRows) {
     const layout = page.layoutId != null ? (layoutById.get(page.layoutId) ?? null) : null;
     const pageCpAt =
@@ -357,6 +366,8 @@ async function fetchPageStatuses(
         layout,
         layoutCheckpointCreatedAt: layoutCpAt,
         layoutAffectedPagesCount: affected,
+        referenceModified: references.pageIds.has(page.id),
+        layoutReferenceModified: layout != null && references.layoutIds.has(layout.id),
       }),
     );
   }
@@ -409,7 +420,7 @@ export async function readPageSnapshot(
 //
 // Blocks store their content with `_itemId` markers stripped — the read path
 // re-injects them via injectRepeatableItemMarkers when composing a PageView.
-async function buildPageSnapshotFromDraft(
+export async function buildPageSnapshotFromDraft(
   ctx: ServiceContext,
   page: typeof pages.$inferSelect,
 ): Promise<PageSnapshot> {
@@ -586,9 +597,17 @@ export async function getPageByPath(
     allItems = [...pageItems, ...layoutItems];
   }
 
+  const hydrated = await hydrateReferences(
+    ctx,
+    page,
+    [...pageBlocks, ...layoutBlocks],
+    source === "draft" ? "draft" : "live",
+  );
+  const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const fileIds = new Set<number>();
-  for (const block of [...pageBlocks, ...layoutBlocks]) {
+  for (const block of hydrated) {
     collectFileIds(block.content as Record<string, unknown>, fileIds);
+    collectFileIds(block.references, fileIds);
   }
   for (const item of allItems) {
     collectFileIds(item.content as Record<string, unknown>, fileIds);
@@ -608,7 +627,14 @@ export async function getPageByPath(
     allItems,
     fileRows,
   });
-  return { ...view, page: { ...view.page, ...statusInfo } };
+  return {
+    ...view,
+    blocks: view.blocks.map((block) => ({
+      ...block,
+      references: referencesByBlock.get(block.id) ?? {},
+    })),
+    page: { ...view.page, ...statusInfo },
+  };
 }
 
 export async function getPageStructure(
@@ -1014,7 +1040,12 @@ export async function setPageLayout(
 // renderers and simpler than gating the flag.
 export async function publishPage(ctx: ServiceContext, rawInput: z.input<typeof publishPageInput>) {
   const user = assertUser(ctx);
-  const { id, alsoPublishLayout } = publishPageInput.parse(rawInput);
+  const input = publishPageInput.parse(rawInput);
+  const { id, alsoPublishLayout } = input;
+  const references = await referenceTargets(ctx, input, "page");
+  if (input.collections.length || references.targets.length || references.missingRequired.length) {
+    return (await publishWithReferences(ctx, input, "page")) as typeof pages.$inferSelect;
+  }
   const access = await assertPageAccess(ctx.db, id, user.id);
   if (!access) throw new ORPCError("NOT_FOUND");
 

@@ -35,9 +35,9 @@ function stateOf(element: Element) {
   return {
     hovered: element.hasAttribute("data-camox-highlight-hovered"),
     focused: element.hasAttribute("data-camox-highlight-focused"),
-    synced:
-      element.closest("[data-camox-overlay-mode]")?.getAttribute("data-camox-overlay-mode") ===
-      "synced",
+    synced: ["synced", "reference"].includes(
+      element.closest("[data-camox-overlay-mode]")?.getAttribute("data-camox-overlay-mode") ?? "",
+    ),
   };
 }
 

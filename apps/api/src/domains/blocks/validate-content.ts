@@ -120,6 +120,9 @@ function adaptSchema(
 ): ContentSchema | boolean {
   if (typeof schema === "boolean") return schema;
   if (isSingleAsset(schema)) return structuredClone(assetSchema);
+  if (schema.fieldType === "Reference") {
+    return { anyOf: [{ type: "null" }, { type: "string", format: "uuid" }] };
+  }
 
   const out: ContentSchema = { ...schema };
   if (schema.$ref?.startsWith("#")) {

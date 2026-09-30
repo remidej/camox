@@ -1,4 +1,5 @@
 import { authed, pub } from "../../orpc";
+import { referenceTargets, referenceTargetsInput } from "../collections/reference-publication";
 import * as service from "./service";
 
 // Public procedures
@@ -25,4 +26,13 @@ const unpublish = authed
   .input(service.unpublishLayoutInput)
   .handler(({ context, input }) => service.unpublishLayout(context, input));
 
-export const layoutProcedures = { get, list, sync, publish, unpublish };
+export const layoutProcedures = {
+  get,
+  list,
+  sync,
+  publish,
+  unpublish,
+  referenceTargets: authed
+    .input(referenceTargetsInput)
+    .handler(({ context, input }) => referenceTargets(context, input, "layout")),
+};

@@ -6,6 +6,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { blockDefinitions, blocks, layouts, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { reconcileSyncedDefinition } from "../blocks/synced";
+import { validateReferenceSchema } from "../collections/references";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -71,6 +72,10 @@ export async function syncBlockDefinitions(
 ) {
   const input = syncBlockDefinitionsInput.parse(rawInput);
   const { projectSlug, definitions, autoCreate } = input;
+  for (const definition of definitions) {
+    validateReferenceSchema(definition.contentSchema);
+    validateReferenceSchema(definition.settingsSchema, false);
+  }
   const project = await assertSyncAccess(ctx.db, projectSlug, {
     user: ctx.user,
     environmentName: ctx.environmentName,
@@ -203,6 +208,8 @@ export async function upsertBlockDefinition(
   rawInput: z.input<typeof upsertBlockDefinitionInput>,
 ) {
   const { projectSlug, deployToken, ...body } = upsertBlockDefinitionInput.parse(rawInput);
+  validateReferenceSchema(body.contentSchema);
+  validateReferenceSchema(body.settingsSchema, false);
   const project = await assertSyncAccess(ctx.db, projectSlug, {
     user: ctx.user,
     environmentName: ctx.environmentName,

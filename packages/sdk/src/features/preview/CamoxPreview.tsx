@@ -3,6 +3,8 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
+import { CollectionItemModalProvider } from "@/features/content/CollectionItemModalContext";
+import { ContentCollectionItemModal } from "@/features/content/ContentCollection";
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { usePageDestinations } from "@/hooks/use-page-destinations";
 import { getApiClient } from "@/lib/api-client";
@@ -119,7 +121,11 @@ const BlockRenderer = ({
   if (!blockDef) return null;
 
   return (
-    <NormalizedDataProvider files={data.files} repeatableItems={data.repeatableItems}>
+    <NormalizedDataProvider
+      files={data.files}
+      repeatableItems={data.repeatableItems}
+      blocks={[data.block]}
+    >
       <blockDef._internal.Component
         blockData={{
           _id: data.block.id,
@@ -202,7 +208,11 @@ export const PageContent = () => {
   if (layout && layoutBlocksMap) {
     const LayoutComponent = layout._internal.component;
     return (
-      <NormalizedDataProvider files={layoutFiles} repeatableItems={layoutItems}>
+      <NormalizedDataProvider
+        files={layoutFiles}
+        repeatableItems={layoutItems}
+        blocks={[...beforeBlocks, ...afterBlocks]}
+      >
         <layout._internal.Provider layoutBlocks={layoutBlocksMap}>
           <LayoutComponent>{pageBlocksContent}</LayoutComponent>
         </layout._internal.Provider>
@@ -341,6 +351,7 @@ export const PreviewShell = ({
   runtimeBasePath?: string;
 }) => {
   const isAuthenticated = useIsAuthenticated();
+  const projectSlug = useProjectSlug();
   const isMobileStudio = useIsMobileStudio();
   const sharedChrome = React.useContext(SharedChromeContext);
   const isEditMode = useSelector(previewStore, selectIsEditMode);
@@ -466,44 +477,47 @@ export const PreviewShell = ({
     pageId: pageData?.page.id,
   };
   return (
-    <PreviewEditingOwnerContext value={editingOwner}>
-      <div
-        className={cn(
-          "bg-background relative flex min-h-0 flex-1 flex-col overflow-hidden",
-          sharedChrome ? "h-full" : "h-screen",
-          !isEditMode && "bg-black",
-        )}
-      >
-        {!sharedChrome && !isMobileStudio && !isToolbarHidden && <Navbar isPreview />}
-        <CanvasPreview enabled={showCanvas} pathname={pathname} runtimeBasePath={runtimeBasePath}>
-          <div className="flex min-h-0 flex-1 flex-row items-stretch">
-            {!showCanvas && !isMobileStudio && (pageData || derivedLayoutId) && (
-              // Keep publication actions registered in read-only preview.
-              <div hidden>
-                <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
-              </div>
-            )}
-            <PreviewPanel
-              active={!showCanvas}
-              isMobileExperience={isMobileStudio}
-              page={pageData?.page}
-              layoutId={derivedLayout?.id}
-              projectName={pageData?.projectName}
-              toolbarProps={toolbarProps}
-            >
-              {children}
-            </PreviewPanel>
-          </div>
-        </CanvasPreview>
-        {showCanvas && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
-        {!showCanvas && (
-          <>
-            <CreatePageModal />
-            {pageData && <AddBlockDialog />}
-          </>
-        )}
-      </div>
-    </PreviewEditingOwnerContext>
+    <CollectionItemModalProvider onRouteTargetClose={() => {}}>
+      <PreviewEditingOwnerContext value={editingOwner}>
+        <div
+          className={cn(
+            "bg-background relative flex min-h-0 flex-1 flex-col overflow-hidden",
+            sharedChrome ? "h-full" : "h-screen",
+            !isEditMode && "bg-black",
+          )}
+        >
+          {!sharedChrome && !isMobileStudio && !isToolbarHidden && <Navbar isPreview />}
+          <CanvasPreview enabled={showCanvas} pathname={pathname} runtimeBasePath={runtimeBasePath}>
+            <div className="flex min-h-0 flex-1 flex-row items-stretch">
+              {!showCanvas && !isMobileStudio && (pageData || derivedLayoutId) && (
+                // Keep publication actions registered in read-only preview.
+                <div hidden>
+                  <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+                </div>
+              )}
+              <PreviewPanel
+                active={!showCanvas}
+                isMobileExperience={isMobileStudio}
+                page={pageData?.page}
+                layoutId={derivedLayout?.id}
+                projectName={pageData?.projectName}
+                toolbarProps={toolbarProps}
+              >
+                {children}
+              </PreviewPanel>
+            </div>
+          </CanvasPreview>
+          {showCanvas && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
+          {!showCanvas && (
+            <>
+              <CreatePageModal />
+              {pageData && <AddBlockDialog />}
+            </>
+          )}
+        </div>
+      </PreviewEditingOwnerContext>
+      <ContentCollectionItemModal projectSlug={projectSlug} />
+    </CollectionItemModalProvider>
   );
 };
 
