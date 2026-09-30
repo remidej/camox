@@ -12,6 +12,13 @@ registerHooks({
     if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
     if (specifier === "@/hooks/use-page-destinations")
       source = "export const usePageDestinations = () => []";
+    if (
+      context.parentURL?.endsWith("/CanvasOverlays.tsx") &&
+      specifier.endsWith("/CanvasCommentIndicators")
+    ) {
+      source =
+        "export const CanvasPageCommentIndicators = ({ pageId, targets }) => globalThis.React.createElement('div', { 'data-comment-indicators': pageId, 'data-target-count': targets.length })";
+    }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     return nextResolve(specifier, context);
@@ -85,6 +92,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
         <CanvasOverlays
           document={page.document as unknown as Document}
           activate={() => activations++}
+          pageId={7}
           canAddBlocks
         >
           <iframe title="page" />
@@ -97,6 +105,11 @@ void test("outlines and interactive controls live above the frame, not in the pa
     const layer = host.document.querySelector("[data-canvas-overlays]")!;
     const outline = layer.querySelector(".camox-canvas-outline") as unknown as HTMLElement;
     assert.ok(outline);
+    assert.equal(
+      layer.querySelector("[data-comment-indicators]")?.getAttribute("data-comment-indicators"),
+      "7",
+      "field comments are present in edit mode",
+    );
     assert.equal(outline.style.left, "calc(20px * var(--canvas-zoom, 1))");
     assert.equal(outline.style.width, "calc(300px * var(--canvas-zoom, 1))");
     assert.equal(layer.querySelectorAll("[data-canvas-insertion-seam]").length, 2);
@@ -146,10 +159,23 @@ void test("outlines and interactive controls live above the frame, not in the pa
       2,
       "seams do not depend on block hover or selection",
     );
-    await React.act(async () => previewStore.send({ type: "setCommentMode", enabled: true }));
+    await React.act(async () => {
+      target.setAttribute("data-camox-focused", "");
+      previewStore.send({ type: "setCommentMode", enabled: true });
+      await page.happyDOM.waitUntilComplete();
+    });
     assert.equal(layer.querySelector("button"), null);
+    assert.ok(
+      layer.querySelector(".camox-canvas-outline"),
+      "comment mode keeps the selected target overlay visible",
+    );
+    assert.notEqual((layer as unknown as HTMLElement).style.display, "none");
+    const indicators = layer.querySelector("[data-comment-indicators]")!;
+    assert.equal(indicators.getAttribute("data-comment-indicators"), "7");
+    assert.equal(indicators.getAttribute("data-target-count"), "2");
     await React.act(async () => previewStore.send({ type: "setCommentMode", enabled: false }));
     assert.equal(layer.querySelectorAll("button").length, 2);
+    assert.ok(layer.querySelector("[data-comment-indicators]"));
     await React.act(async () => previewStore.send({ type: "exitEditMode" }));
     assert.equal(layer.querySelector("button"), null);
     assert.equal((layer as unknown as HTMLElement).style.display, "none");

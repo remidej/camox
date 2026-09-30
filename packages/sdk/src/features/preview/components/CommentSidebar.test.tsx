@@ -256,8 +256,10 @@ void test("only View opens feedback's editor without deleting cached comments", 
       selection: null,
     });
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, "first");
+    assert.equal(dom.window.document.activeElement, dom.host.querySelector('[tabindex="-1"]'));
     await React.act(async () => viewButtons[1]!.click());
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, "second");
+    assert.equal(dom.window.document.activeElement, dom.host.querySelector('[tabindex="-1"]'));
     assert.deepEqual(dom.client.getQueryData(["comments", 88]), comments);
   } finally {
     await dom.close();

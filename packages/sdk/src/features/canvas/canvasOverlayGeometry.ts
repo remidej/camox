@@ -7,6 +7,7 @@ export type CanvasOverlayTarget = {
   element: Element;
   rects: OverlayRect[];
   bounds: OverlayRect;
+  visible: boolean;
   hovered: boolean;
   focused: boolean;
   synced: boolean;
@@ -53,6 +54,7 @@ function measure(element: Element): CanvasOverlayTarget {
     element,
     bounds,
     rects: rects.filter((rect) => rect.width > 0 && rect.height > 0),
+    visible: false,
     inline,
     insertion: readBlockInsertion(element),
     ...stateOf(element),
@@ -88,7 +90,11 @@ export function observeCanvasOverlays(
         .map(({ element }) => element),
     );
     highlights.refresh();
-    targets = targets.map((target) => ({ ...target, ...stateOf(target.element) }));
+    targets = targets.map((target) => ({
+      ...target,
+      visible: visibleTargets.has(target.element),
+      ...stateOf(target.element),
+    }));
     onChange(targets);
   };
   const scheduleMeasurement = () => {

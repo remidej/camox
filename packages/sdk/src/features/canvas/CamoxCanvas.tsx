@@ -23,6 +23,7 @@ import {
 } from "./canvasPages";
 import { CanvasRightSidebar } from "./CanvasRightSidebar";
 import { selectedCanvasPage } from "./canvasSelection";
+import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 
 const CANVAS_PAGE_GAP = 240;
@@ -181,7 +182,7 @@ function CanvasWorkspace({
       page.key === selectedPage?.key ? selectedPath : (previewPathnames[page.key] ?? page.pathname),
     left: index * (viewport.width + CANVAS_PAGE_GAP),
   }));
-  const { viewportRef, contentRef, flyToPage, cancelFlight } = useCanvasCamera(
+  const { viewportRef, contentRef, flyToPage, cancelFlight, zoomAt } = useCanvasCamera(
     workspaceKey,
     selectedIndex < 0
       ? undefined
@@ -227,55 +228,57 @@ function CanvasWorkspace({
         overscrollBehavior: "none",
       }}
     >
-      <div
-        ref={contentRef}
-        data-canvas-pages
-        className="absolute top-0 left-0 flex w-max items-start"
-        style={{
-          gap: CANVAS_PAGE_GAP,
-          transform:
-            "translate(var(--canvas-x, 64px), var(--canvas-y, 112px)) scale(var(--canvas-zoom, .4))",
-          transformOrigin: "0 0",
-          willChange: "transform",
-        }}
-      >
-        {positionedPages.map(({ page, pathname }) => (
-          <div
-            key={page.key}
-            data-canvas-slot={page.key}
-            className="flex shrink-0 justify-center"
-            style={{ width: viewport.width }}
-          >
+      <CanvasWorkspaceContext value={{ workspaceKey, zoomAt }}>
+        <div
+          ref={contentRef}
+          data-canvas-pages
+          className="absolute top-0 left-0 flex w-max items-start"
+          style={{
+            gap: CANVAS_PAGE_GAP,
+            transform:
+              "translate(var(--canvas-x, 64px), var(--canvas-y, 112px)) scale(var(--canvas-zoom, .4))",
+            transformOrigin: "0 0",
+            willChange: "transform",
+          }}
+        >
+          {positionedPages.map(({ page, pathname }) => (
             <div
-              data-canvas-page={page.key}
-              data-canvas-pathname={pathname}
-              className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
-              style={{ width: viewport.width, minHeight: viewport.height }}
+              key={page.key}
+              data-canvas-slot={page.key}
+              className="flex shrink-0 justify-center"
+              style={{ width: viewport.width }}
             >
-              <CanvasPageBoundary key={pathname} selected={page.key === selectedPage?.key}>
-                {pathname ? (
-                  <CanvasPagePreview
-                    pathname={pathname}
-                    runtimeBasePath={runtimeBasePath}
-                    templateId={page.templateId}
-                    pageId={page.pageId}
-                    viewport={viewport}
-                    selected={page.key === selectedPage?.key}
-                    onActivate={(owner, source) => {
-                      onActivate(pathname, owner);
-                      if (source === "interaction") selectPage(pathname);
-                    }}
-                  />
-                ) : (
-                  <CanvasMessage>
-                    Choose an instance path above to preview this template.
-                  </CanvasMessage>
-                )}
-              </CanvasPageBoundary>
+              <div
+                data-canvas-page={page.key}
+                data-canvas-pathname={pathname}
+                className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
+                style={{ width: viewport.width, minHeight: viewport.height }}
+              >
+                <CanvasPageBoundary key={pathname} selected={page.key === selectedPage?.key}>
+                  {pathname ? (
+                    <CanvasPagePreview
+                      pathname={pathname}
+                      runtimeBasePath={runtimeBasePath}
+                      templateId={page.templateId}
+                      pageId={page.pageId}
+                      viewport={viewport}
+                      selected={page.key === selectedPage?.key}
+                      onActivate={(owner, source) => {
+                        onActivate(pathname, owner);
+                        if (source === "interaction") selectPage(pathname);
+                      }}
+                    />
+                  ) : (
+                    <CanvasMessage>
+                      Choose an instance path above to preview this template.
+                    </CanvasMessage>
+                  )}
+                </CanvasPageBoundary>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      </CanvasWorkspaceContext>
       {positionedPages.map(({ page, pathname, left }) => (
         <div
           key={page.key}
