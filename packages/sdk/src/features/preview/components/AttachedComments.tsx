@@ -14,17 +14,12 @@ import { Archive, ArrowUp, CornerLeftUp, Eye, X } from "lucide-react";
 import * as React from "react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
-import { blockQueries, commentMutations, commentQueries } from "@/lib/queries";
+import { commentMutations, commentQueries } from "@/lib/queries";
 
-import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import {
-  type CommentTarget,
-  getCommentTargetFieldType,
-  previewCommentsStore,
-  revealCommentTarget,
-} from "../previewCommentsStore";
+import { type CommentTarget, previewCommentsStore } from "../previewCommentsStore";
 import { previewStore } from "../previewStore";
 import { usePageComments } from "../usePageComments";
+import { useSelectComment } from "../useSelectComment";
 import { CommentHeader } from "./CommentHeader";
 import { CommentTargetQuote } from "./CommentTargetQuote";
 import { SendFeedbackDialog } from "./SendFeedbackDialog";
@@ -68,9 +63,9 @@ function AttachedCommentsContent({
   fieldName,
   allPageComments = false,
 }: AttachedCommentsProps & { pageId: number }) {
-  const camoxApp = useCamoxApp();
   const queryClient = useQueryClient();
   const commentsQuery = usePageComments(pageId);
+  const selectComment = useSelectComment(pageId);
   const { draft, activeId, focusTarget } = useSelector(
     previewCommentsStore,
     (state) => state.context,
@@ -122,32 +117,6 @@ function AttachedCommentsContent({
     },
   });
 
-  const selectComment = async (id: string, target: CommentTarget) => {
-    const editingContext = previewStore.getSnapshot().context.editingContext;
-    previewCommentsStore.send({ type: "selectComment", id });
-    if (target.kind === "page") {
-      revealCommentTarget(pageId, target);
-      return;
-    }
-    try {
-      const bundle = await queryClient.fetchQuery(blockQueries.get(target.blockId));
-      if (previewCommentsStore.getSnapshot().context.activeId !== id) return;
-      if (previewStore.getSnapshot().context.editingContext !== editingContext) return;
-      if ("itemId" in target && !bundle.repeatableItems.some((item) => item.id === target.itemId)) {
-        toast.error("This feedback target is no longer available.");
-        return;
-      }
-      const fieldType = getCommentTargetFieldType(target, bundle, camoxApp);
-      if ("fieldName" in target && !fieldType) {
-        toast.error("This feedback field is no longer available.");
-        return;
-      }
-      revealCommentTarget(pageId, target, fieldType);
-    } catch {
-      toast.error("This feedback target is no longer available.");
-    }
-  };
-
   React.useLayoutEffect(() => {
     if (textarea.current) resizeComposer(textarea.current);
   }, [message, pageId]);
@@ -181,6 +150,7 @@ function AttachedCommentsContent({
   React.useEffect(() => {
     if (!selected) return;
     activeComment.current?.scrollIntoView({ block: "nearest" });
+    activeComment.current?.focus({ preventScroll: true });
   }, [selected]);
 
   return (
@@ -236,7 +206,8 @@ function AttachedCommentsContent({
           <div
             key={comment.id}
             ref={comment.id === activeId ? activeComment : undefined}
-            className="rounded-md p-1"
+            className="focus-visible:ring-ring rounded-md p-1 outline-none focus-visible:ring-2"
+            tabIndex={comment.id === activeId ? -1 : undefined}
           >
             <div>
               <CommentHeader author={comment.author} createdAt={comment.createdAt} />
@@ -258,7 +229,7 @@ function AttachedCommentsContent({
                   size="sm"
                   disabled={comment.target == null}
                   onClick={() => {
-                    if (comment.target) void selectComment(comment.id, comment.target);
+                    void selectComment(comment);
                   }}
                 >
                   <Eye className="text-muted-foreground" />

@@ -55,12 +55,16 @@ export function useCanvasCamera(
     flyToPage: (key: string) => void;
     cancelFlight: () => void;
     refreshFlight: () => void;
+    zoomAt: (point: CanvasPoint, scale: number) => void;
   } | null>(null);
   const flyToPage = React.useCallback((key: string) => {
     flightControls.current?.flyToPage(key);
   }, []);
   const cancelFlight = React.useCallback(() => {
     flightControls.current?.cancelFlight();
+  }, []);
+  const zoomAt = React.useCallback((point: CanvasPoint, scale: number) => {
+    flightControls.current?.zoomAt(point, scale);
   }, []);
   React.useLayoutEffect(() => {
     snappingRef.current = snapping;
@@ -355,6 +359,19 @@ export function useCanvasCamera(
           return;
         // Device presets and page reordering can change geometry without a new URL.
         startFlight(destination.key);
+      },
+      zoomAt: (point, scale) => {
+        const rect = viewport.getBoundingClientRect();
+        gesture = undefined;
+        snappedKey = undefined;
+        move(
+          zoomCanvasAt(
+            target,
+            { x: point.x - rect.left, y: point.y - rect.top },
+            Math.min(MAX_CANVAS_ZOOM, Math.max(minimumScale, scale)),
+            minimumScale,
+          ),
+        );
       },
     };
     const move = (next: CanvasCamera, immediate = false) => {
@@ -658,5 +675,5 @@ export function useCanvasCamera(
     };
   }, [workspaceKey, continuity]);
 
-  return { viewportRef, contentRef, flyToPage, cancelFlight };
+  return { viewportRef, contentRef, flyToPage, cancelFlight, zoomAt };
 }

@@ -226,6 +226,31 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     assert.deepEqual(read(), fit(destination), "reduced motion can interrupt an active flight");
     assert.equal(callbacks.size, 0);
     media.matches = false;
+    controls.flyToPage(middle.key);
+    flush();
+    const beforeProgrammaticZoom = read();
+    const zoomPoint = { x: 450, y: 400 };
+    const anchoredContentPoint = {
+      x: (zoomPoint.x - beforeProgrammaticZoom.x) / beforeProgrammaticZoom.scale,
+      y: (zoomPoint.y - beforeProgrammaticZoom.y) / beforeProgrammaticZoom.scale,
+    };
+    controls.zoomAt(zoomPoint, 1.25);
+    flush();
+    const afterProgrammaticZoom = read();
+    assert.equal(afterProgrammaticZoom.scale, 1.25);
+    assert.ok(
+      Math.abs(
+        (zoomPoint.x - afterProgrammaticZoom.x) / afterProgrammaticZoom.scale -
+          anchoredContentPoint.x,
+      ) < 1e-8,
+    );
+    assert.ok(
+      Math.abs(
+        (zoomPoint.y - afterProgrammaticZoom.y) / afterProgrammaticZoom.scale -
+          anchoredContentPoint.y,
+      ) < 1e-8,
+    );
+
     controls.flyToPage(initial.key);
     assert.equal(callbacks.size, 1);
     await act(async () => root.unmount());

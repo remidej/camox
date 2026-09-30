@@ -25,6 +25,12 @@ registerHooks({
         source = "export const PreviewFrameEffects = () => null";
       if (specifier.endsWith("/Overlays")) source = "export const Overlays = () => null";
     }
+    if (
+      context.parentURL?.endsWith("/CanvasOverlays.tsx") &&
+      specifier.endsWith("/CanvasCommentIndicators")
+    ) {
+      source = "export const CanvasPageCommentIndicators = () => null";
+    }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     return nextResolve(specifier, context);
@@ -129,7 +135,8 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     assert.match(frame.document.head.textContent, /cursor:/);
     assert.equal(
       (host.querySelector("[data-canvas-overlays]") as unknown as HTMLElement).style.display,
-      "none",
+      "var(--canvas-overlays-display, block)",
+      "comment mode keeps the overlay layer visible",
     );
     await React.act(async () => {
       root.render(

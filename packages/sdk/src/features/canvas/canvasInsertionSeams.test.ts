@@ -15,6 +15,7 @@ function block(id: string, y: number, insertion?: CanvasBlockInsertion): CanvasO
     element: { getAttribute: () => id } as unknown as Element,
     bounds: { x: 20, y, width: 600, height: 100 },
     rects: [],
+    visible: true,
     hovered: false,
     focused: false,
     synced: false,

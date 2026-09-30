@@ -788,14 +788,14 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}
-              {!fieldHasOwnView && (currentItemId == null || currentItem) && (
+              {!fieldInfo && (currentItemId == null || currentItem) && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}
                   itemId={currentItemId ?? undefined}
                 />
               )}
-              {fieldHasOwnView && fieldInfo && (
+              {fieldInfo && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}
