@@ -7,6 +7,15 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
+  server: {
+    port: 7400,
+    // camox-cli:dev-only-start
+    host: process.env.CAMOX_DEV_HOSTNAME,
+    ...(process.env.CAMOX_DEV_TEMPLATE_PORT
+      ? { port: Number(process.env.CAMOX_DEV_TEMPLATE_PORT), strictPort: true }
+      : {}),
+    // camox-cli:dev-only-end
+  },
   plugins: [
     tailwindcss(),
     nitro(),

@@ -16,6 +16,9 @@ export function useProjectRoom(apiUrl: string, projectId: number | undefined) {
 
   usePartySocket({
     host,
+    // Match the API transport instead of PartySocket's hostname-based guess:
+    // custom *.localhost names otherwise default to TLS against our HTTP server.
+    protocol: new URL(apiUrl).protocol === "http:" ? "ws" : "wss",
     party: "project-room",
     room: String(projectId ?? ""),
     prefix: "parties",

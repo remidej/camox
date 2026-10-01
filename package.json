@@ -10,7 +10,7 @@
     "dev": "node scripts/dev.mjs -p @camox/api dashboard playground camox --parallel=4",
     "dev:all": "node scripts/dev.mjs --all --parallel=7",
     "dev:servers": "node scripts/dev.mjs -p @camox/api dashboard --parallel=2",
-    "test:dev": "node --test scripts/dev.test.mjs",
+    "test:dev": "node --test scripts/*.test.mjs",
     "db:studio": "nx run @camox/api:db:studio",
     "lint": "nx run-many -t lint --all",
     "test": "nx run-many -t test --all",

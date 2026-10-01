@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
 
+import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act, StrictMode } from "react";
+
+import type { PageRenderInput } from "../features/runtime/runtime";
 
 const window = new Window({ url: "http://localhost:3000/about" });
 Object.assign(globalThis, {
@@ -14,6 +17,8 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { createCamoxAuthClient, useProcessOtt } = await import("./auth");
+const { useLocation, useNavigate } = await import("../features/navigation/navigation");
+const { PageNavigationProvider } = await import("../features/runtime/pageNavigation");
 
 void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces failures", async () => {
   let exchanges = 0;
@@ -50,31 +55,56 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
     reloads++;
   };
 
-  async function mount(expected = target) {
-    window.localStorage.clear();
-    window.document.cookie = "camox_auth_cookie=; Max-Age=0; Path=/";
-    const url = new URL("http://localhost:3000/about?other=value#heading");
-    url.searchParams.set("camox-preview", JSON.stringify(expected));
-    url.searchParams.set("ott", "single-use-token");
-    window.history.replaceState({}, "", url.href);
+  async function mount(expected = target, { initialAuthenticated = false, resume = false } = {}) {
+    if (!resume) {
+      window.localStorage.clear();
+      window.document.cookie = "camox_auth_cookie=; Max-Age=0; Path=/";
+      const url = new URL("http://localhost:3000/about?other=value#heading");
+      url.searchParams.set("camox-preview", JSON.stringify(expected));
+      url.searchParams.set("ott", "single-use-token");
+      window.history.replaceState({ navigation: "preserved" }, "", url.href);
+    }
     const auth = createCamoxAuthClient(apiUrl);
     const host = document.createElement("div");
     const root = createRoot(host);
+    const queryClient = new QueryClient();
+    const input: PageRenderInput = {
+      ...target,
+      authenticationUrl: "https://auth.test",
+      presentation: initialAuthenticated ? "studio" : "public",
+      source: initialAuthenticated ? "draft" : "live",
+      href: window.location.href,
+      pathname: "/about",
+      runtimeBasePath: "",
+      head: {},
+      loaderData: null,
+      layoutIdentity: null,
+      dehydratedState: { queries: [], mutations: [] },
+    };
+    let navigateWithCurrentSearch: () => Promise<void> | void = () => {};
     function Harness() {
-      const result = useProcessOtt(auth, target);
-      return <div>{JSON.stringify(result)}</div>;
+      const result = useProcessOtt(auth, target, initialAuthenticated);
+      const location = useLocation();
+      const navigate = useNavigate();
+      navigateWithCurrentSearch = () =>
+        navigate({ to: `${location.pathname}${location.search}#next`, source: "canvas" });
+      return <div data-href={location.href}>{JSON.stringify(result)}</div>;
     }
     await act(async () => {
       root.render(
         <StrictMode>
-          <Harness />
+          <PageNavigationProvider initialInput={input} queryClient={queryClient}>
+            {() => <Harness />}
+          </PageNavigationProvider>
         </StrictMode>,
       );
     });
     return {
       host,
+      navigateWithCurrentSearch: () => navigateWithCurrentSearch(),
       async unmount() {
         await act(async () => root.unmount());
+        queryClient.clear();
       },
     };
   }
@@ -95,20 +125,54 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
     assert.equal(new URL(window.location.href).searchParams.has("ott"), false);
     assert.equal(new URL(window.location.href).searchParams.get("other"), "value");
     assert.equal(window.location.hash, "#heading");
+    assert.deepEqual(window.history.state, { navigation: "preserved" });
+    assert.equal(
+      new URL(window.location.href).searchParams.has("camox-preview"),
+      true,
+      "keep the handoff marker until SSR confirms authentication",
+    );
     await success.unmount();
 
+    const unauthenticated = await mount(target, { resume: true });
+    assert.equal(new URL(window.location.href).searchParams.has("camox-preview"), true);
+    await unauthenticated.unmount();
+
+    const historyLength = window.history.length;
+    const authenticated = await mount(target, { initialAuthenticated: true, resume: true });
+    assert.equal(window.location.href, "http://localhost:3000/about?other=value#heading");
+    assert.deepEqual(window.history.state, { navigation: "preserved" });
+    assert.equal(window.history.length, historyLength, "cleanup must not add a history entry");
+    assert.equal(exchanges, 1);
+    assert.equal(reloads, 1, "cleanup must not cause another reload");
+    assert.equal(
+      authenticated.host.firstElementChild?.getAttribute("data-href"),
+      window.location.href,
+    );
+    await act(async () => authenticated.navigateWithCurrentSearch());
+    assert.equal(
+      window.location.href,
+      "http://localhost:3000/about?other=value#next",
+      "query-preserving canvas navigation must not restore sign-in parameters",
+    );
+    await authenticated.unmount();
+
     rejectToken = true;
-    const expired = await mount();
+    const expired = await mount(target, { initialAuthenticated: true });
     await waitFor(() => expired.host.textContent?.includes("Preview sign-in failed") === true);
     assert.equal(reloads, 1);
     assert.equal(window.localStorage.getItem("better-auth_cookie"), null);
+    assert.equal(new URL(window.location.href).searchParams.has("camox-preview"), true);
     await expired.unmount();
 
     const before = exchanges;
-    const mismatch = await mount({ ...target, apiUrl: "https://wrong.example.test" });
+    const mismatch = await mount(
+      { ...target, apiUrl: "https://wrong.example.test" },
+      { initialAuthenticated: true },
+    );
     assert.match(mismatch.host.textContent ?? "", /does not match/);
     assert.equal(exchanges, before);
     assert.equal(new URL(window.location.href).searchParams.has("ott"), false);
+    assert.equal(new URL(window.location.href).searchParams.has("camox-preview"), true);
     await mismatch.unmount();
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

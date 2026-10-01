@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { ZodError, z } from "zod";
 
+import { installLocalhostDns } from "./local-dns";
+
 /**
  * Subset of the camox vite plugin's options that the CLI needs at dispatch
  * time. Written by the plugin to `node_modules/.camox/runtime.json` on every
@@ -78,7 +80,9 @@ export function loadRuntime(cwd: string = process.cwd()): Runtime {
         throw new RuntimeMalformedError(candidate, e instanceof Error ? e.message : String(e));
       }
       try {
-        return runtimeSchema.parse(raw);
+        const runtime = runtimeSchema.parse(raw);
+        installLocalhostDns(new URL(runtime.apiUrl).hostname);
+        return runtime;
       } catch (e) {
         if (e instanceof ZodError) {
           const reason = e.issues

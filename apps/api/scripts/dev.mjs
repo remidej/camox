@@ -12,8 +12,10 @@ for (let attempt = 0; attempt < 3; attempt++) {
     "dev",
     "--port",
     port,
+    "--ip",
+    "127.0.0.1",
     "--host",
-    `localhost:${port}`,
+    `${process.env.CAMOX_DEV_HOSTNAME ?? "localhost"}:${port}`,
   ];
   if (process.env.VITE_DASHBOARD_URL) {
     args.push("--var", `DASHBOARD_URL:${process.env.VITE_DASHBOARD_URL}`);

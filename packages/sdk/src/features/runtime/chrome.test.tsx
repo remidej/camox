@@ -9,7 +9,8 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
 import { createApp } from "../../core/createApp";
-import type { PageRenderInput } from "./runtime";
+import { authPageStyles } from "../../lib/auth-page-styles";
+import { handleCamoxRequest, type PageRenderInput } from "./runtime";
 
 // The URL is supplied by Vite in applications. Nothing else is mocked: render
 // the real Navbar, ProjectMenu, EnvironmentMenu and PreviewToolbar on the server.
@@ -22,6 +23,33 @@ registerHooks({
       };
     return nextResolve(specifier, context);
   },
+});
+
+void test("token links SSR a styled sign-in page before loading any content or stylesheets", async (t) => {
+  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
+  const { PageApp } = await import("./pageApp");
+  const camoxApp = createApp({ blocks: [] });
+  t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("The handoff must not load content before authentication");
+  });
+  const response = await handleCamoxRequest(
+    new Request("http://localhost:3000/draft-only?camox-preview=target&ott=token"),
+    {
+      apiUrl: "https://api.test",
+      authenticationUrl: "https://auth.test",
+      projectSlug: "test",
+      pageClientEntryUrl: "/client.js",
+      renderPage: async (input) =>
+        renderToString(createElement(PageApp, { input, queryClient: new QueryClient(), camoxApp })),
+    },
+  );
+  assert.equal(response?.status, 200);
+  const html = await response!.text();
+  assert.ok(html.includes(`<style>${authPageStyles}</style>`));
+  assert.match(html, /role="status" data-camox-preview="pending"/);
+  assert.match(html, /class="camox-auth-spinner"/);
+  assert.match(html, /Signing in to draft preview…/);
+  assert.doesNotMatch(html, /rel="stylesheet"/);
 });
 
 void test("authenticated documents SSR real chrome and server-loaded project data", async () => {

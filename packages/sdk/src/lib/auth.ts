@@ -264,8 +264,13 @@ export function createCamoxAuthClient(apiUrl: string) {
  * Verifies the token against the API backend and notifies the session store.
  *
  * Reports completion and explicit handoff failures instead of silently showing live content.
+ * Keeps the handoff marker until SSR confirms authentication on the subsequent load.
  */
-export function useProcessOtt(authClient: CamoxAuthClient, target: PreviewTarget) {
+export function useProcessOtt(
+  authClient: CamoxAuthClient,
+  target: PreviewTarget,
+  initialAuthenticated = false,
+) {
   const [error, setError] = React.useState<string | null>(null);
   const processing = React.useRef(false);
   const [ready, setReady] = React.useState(() => {
@@ -278,12 +283,19 @@ export function useProcessOtt(authClient: CamoxAuthClient, target: PreviewTarget
     const targetError = validatePreviewTarget(url.searchParams.get("camox-preview"), target);
     if (targetError) {
       url.searchParams.delete("ott");
-      window.history.replaceState({}, "", url);
+      window.history.replaceState(window.history.state, "", url);
       setError(targetError);
       setReady(true);
       return;
     }
-    if (ready || processing.current) return;
+    if (ready) {
+      if (initialAuthenticated && !error && url.searchParams.has("camox-preview")) {
+        url.searchParams.delete("camox-preview");
+        window.history.replaceState(window.history.state, "", url);
+      }
+      return;
+    }
+    if (processing.current) return;
 
     const ott = url.searchParams.get("ott");
     if (!ott) {
@@ -294,7 +306,7 @@ export function useProcessOtt(authClient: CamoxAuthClient, target: PreviewTarget
     processing.current = true;
     // Strip ?ott= immediately so it's not processed again
     url.searchParams.delete("ott");
-    window.history.replaceState({}, "", url);
+    window.history.replaceState(window.history.state, "", url);
 
     void (async () => {
       try {
@@ -314,7 +326,15 @@ export function useProcessOtt(authClient: CamoxAuthClient, target: PreviewTarget
       }
       setReady(true);
     })();
-  }, [authClient, ready, target.projectSlug, target.environmentName, target.apiUrl]);
+  }, [
+    authClient,
+    ready,
+    error,
+    initialAuthenticated,
+    target.projectSlug,
+    target.environmentName,
+    target.apiUrl,
+  ]);
 
   return { ready, error };
 }

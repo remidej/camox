@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { installLocalhostDns } from "./local-dns";
+
 function globalAuthFile(): string {
   return path.join(os.homedir(), ".camox", "auth.json");
 }
@@ -33,7 +35,8 @@ export function normalizeUrl(url: string): string {
 export function isLoopbackUrl(url: URL): boolean {
   return (
     ["http:", "https:"].includes(url.protocol) &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
+    (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
+      url.hostname.endsWith(".localhost")) &&
     !url.username &&
     !url.password
   );
@@ -49,6 +52,7 @@ export async function createPreviewSignInUrl(
   if (!isLoopbackUrl(url)) {
     throw new Error("Preview requires an http(s) loopback URL without credentials.");
   }
+  installLocalhostDns(new URL(target.apiUrl).hostname);
   const response = await fetch(`${normalizeUrl(target.apiUrl)}/api/auth/one-time-token/generate`, {
     headers: { Authorization: `Bearer ${authToken}` },
     redirect: "error",
@@ -135,6 +139,7 @@ export function removeAuthTokenForUrl(authenticationUrl: string, cwd = process.c
 }
 
 export async function verifyOneTimeToken(apiUrl: string, token: string): Promise<AuthToken> {
+  installLocalhostDns(new URL(apiUrl).hostname);
   const res = await fetch(`${normalizeUrl(apiUrl)}/api/auth/one-time-token/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

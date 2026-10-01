@@ -13,6 +13,7 @@ import { PublishedPageExperience } from "../page/PublishedPageExperience";
 import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
+import { PreviewSignInPage } from "../provider/PreviewSignInPage";
 import { PageNavigationProvider } from "./pageNavigation";
 import { PreviewDocumentContext } from "./PreviewDocumentContext";
 import type { PageRenderInput } from "./runtime";
@@ -43,7 +44,7 @@ export function PageApp({
             >
               <PreviewDocumentContext.Provider value={currentInput.previewDocument}>
                 {input.previewHandoff ? (
-                  <div role="status">Signing in to draft preview…</div>
+                  <PreviewSignInPage />
                 ) : (
                   <PageExperience
                     camoxApp={camoxApp}

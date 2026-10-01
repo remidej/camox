@@ -97,6 +97,12 @@ export interface CamoxPluginOptions {
     disableCodeGen?: boolean;
     /** Mount the Camox-owned dev runtime at this base path. Use "/" for root mode. */
     runtimeBasePath?: string;
+    /** Opt-in browser opening for this app's generated development sign-in link. */
+    devSignIn?: {
+      open?: boolean;
+      /** Empty marker file shared across restarts of one dev invocation. */
+      openOnceFile?: string;
+    };
   };
 }
 
@@ -271,6 +277,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             "camox > @dnd-kit/modifiers",
             "camox > @dnd-kit/sortable",
             "camox > @dnd-kit/utilities",
+            "camox > @iconify/utils",
             "camox > @lexical/react/LexicalComposer",
             "camox > @lexical/react/LexicalComposerContext",
             "camox > @lexical/react/LexicalContentEditable",
@@ -295,6 +302,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             "camox > @tanstack/react-virtual",
             "camox > @unhead/react/client",
             "camox > @unhead/react/server",
+            "camox > @xstate/store",
             "camox > @xstate/store-react",
             "camox > better-auth/client/plugins",
             "camox > better-auth/react",
@@ -311,6 +319,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             "camox > marked",
             "camox > @tanstack/react-query-devtools/production",
             "camox > partysocket/react",
+            "camox > zod",
           ],
           // This linked workspace package changes as the Studio/API contract evolves.
           // Pre-bundling it freezes exports until Vite is restarted, crashing the editor
@@ -364,6 +373,8 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           environmentName,
           apiUrl,
           authToken: localAuth.token,
+          open: options._internal?.devSignIn?.open,
+          openOnceFile: options._internal?.devSignIn?.openOnceFile,
         });
       }
 

@@ -5,6 +5,8 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 
+import { checkoutHostname } from "../../scripts/dev-hostname";
+
 const config = defineConfig({
   server: {
     port: Number(process.env.CAMOX_DEV_DASHBOARD_PORT ?? 3274),
@@ -27,6 +29,7 @@ const config = defineConfig({
     tsconfigPaths: true,
   },
   plugins: [
+    checkoutHostname(process.env.CAMOX_DEV_HOSTNAME),
     cloudflare({ viteEnvironment: { name: "ssr" } }),
     tailwindcss(),
     tanstackStart(),

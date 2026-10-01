@@ -65,6 +65,21 @@ export function PageNavigationProvider({
     entry?: ActiveHeadEntry<UseHeadInput>;
   } | null>(null);
 
+  React.useEffect(() => {
+    // Child effects may clean sign-in parameters during hydration. The browser
+    // also owns the fragment, which SSR never sees. Adopt both before later
+    // navigations preserve a stale search/hash from the server payload.
+    const url = new URL(window.location.href);
+    if (
+      url.href === current.current.href ||
+      url.pathname !== new URL(current.current.href).pathname
+    )
+      return;
+    const next = { ...current.current, href: url.href };
+    current.current = next;
+    setLocation((location) => ({ ...location, input: next }));
+  }, []);
+
   const navigate = React.useCallback(
     async ({ to, replace, source, pop = false }: NavigateOptions & { pop?: boolean }) => {
       const request = requests.begin();

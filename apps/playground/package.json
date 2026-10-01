@@ -4,7 +4,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vp dev --port 3000",
+    "dev": "vp dev",
     "start": "node .output/server/index.mjs",
     "build": "vp build",
     "serve": "vp preview",

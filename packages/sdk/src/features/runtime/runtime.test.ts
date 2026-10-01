@@ -61,7 +61,10 @@ void test("preview authenticates before loading an unpublished path", async (t) 
   assert.equal(response?.status, 200);
   assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
   assert.equal(response?.headers.get("Referrer-Policy"), "no-referrer");
-  assert.match(await response!.text(), /client.js/);
+  const html = await response!.text();
+  assert.match(html, /client.js/);
+  assert.match(html, /<meta charset="utf-8">/);
+  assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
 });
 
 void test("runtime returns complete route payloads for curated, singleton, derived and studio navigation", async (t) => {

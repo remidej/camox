@@ -46,18 +46,26 @@ apps on demand. Use `pnpm build` when you need a full production build.
 Then run `pnpm dev` (`pnpm dev:servers` for only the API and dashboard, or
 `pnpm dev:all` for all apps).
 
-Each launch picks available API and dashboard ports, starting at 8787 and 3274,
-and prints their URLs. Those URLs are passed to the apps together, so the
-playground, template, and dashboard use this checkout's API and authentication
-server. Other frontends and Worker inspectors select their own available ports.
-Port choices are not saved, and shared environment files are not rewritten.
+Each launch picks available ports for the API, dashboard, and frontends,
+checking both IPv4 and IPv6 loopback, and prints their URLs.
+Each checkout also gets a stable hostname ending in
+`.localhost`, so browser cookies are isolated from other running worktrees.
+Use the printed URLs rather than substituting plain `localhost`.
+Those URLs are passed to the apps together, so the playground, template, and
+dashboard use this checkout's API and authentication server.
+Worker inspectors select their own available ports. Port choices are not saved,
+and shared environment files are not rewritten.
 If a coordinated port is taken during startup, the launcher restarts the group
 with fresh ports. Ctrl-C stops the group.
 
+Use `pnpm dev --open` to open the playground's token-enabled sign-in link in your
+default browser once it is ready. Only the playground opens automatically, not
+the dashboard or other apps. The link is still printed if browser opening fails.
+Restarts do not reopen it. Normal `pnpm dev` does not open a browser.
+
 The setup script's checkout-local dev credentials also work when the dashboard
-port changes. Production configuration is unchanged. For browser login testing,
-remember that localhost cookies are shared across ports, and OAuth providers may
-require registering the chosen API callback URL.
+port changes. Production configuration is unchanged. OAuth providers may require
+registering the chosen API callback URL.
 
 ## License
 

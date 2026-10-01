@@ -1,7 +1,35 @@
+import childProcess from "node:child_process";
+import { open } from "node:fs/promises";
 import { setTimeout } from "node:timers/promises";
 
 import { createPreviewSignInUrl, isLoopbackUrl } from "@camox/cli/auth";
 import type { ViteDevServer } from "vite-plus";
+
+// Vite can reload this module when its config changes.
+const openedKey = Symbol.for("camox.devSignIn.opened");
+const processState = globalThis as typeof globalThis & { [openedKey]?: Set<string> };
+const opened = (processState[openedKey] ??= new Set<string>());
+
+function openBrowser(url: string, onError: () => void): void {
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "rundll32.exe"
+        : "xdg-open";
+  const args = process.platform === "win32" ? ["url.dll,FileProtocolHandler", url] : [url];
+  try {
+    // Never pass the token URL through a shell or expose subprocess output.
+    const child = childProcess.spawn(command, args, { stdio: "ignore", detached: true });
+    child.once("error", onError);
+    child.once("exit", (code) => {
+      if (code !== 0) onError();
+    });
+    child.unref();
+  } catch {
+    onError();
+  }
+}
 
 /** Mint only after Vite has resolved its actual port, including port fallback. */
 export function installDevSignInLink(
@@ -11,6 +39,10 @@ export function installDevSignInLink(
     environmentName: string;
     apiUrl: string;
     authToken: string;
+    /** Opt in to opening the generated link; printing remains the default. */
+    open?: boolean;
+    /** Empty atomic marker in a launcher-owned directory, shared across child restarts. */
+    openOnceFile?: string;
   },
 ): void {
   const controller = new AbortController();
@@ -20,7 +52,10 @@ export function installDevSignInLink(
   server.printUrls = () => {
     printUrls();
     if (started) return;
-    const destination = server.resolvedUrls?.local.find((url) => isLoopbackUrl(new URL(url)));
+    const urls = server.resolvedUrls;
+    const destination = [...(urls?.local ?? []), ...(urls?.network ?? [])].find((url) =>
+      isLoopbackUrl(new URL(url)),
+    );
     if (!destination) return;
     started = true;
     void printSignInLink(destination);
@@ -45,6 +80,7 @@ export function installDevSignInLink(
         server.config.logger.info(
           `  ➜  Camox sign in (single-use, expires in 3 minutes; do not share): ${url}`,
         );
+        if (options.open) await openSignInLink(url);
         return;
       } catch {
         // Never log backend bodies or request errors: they can contain credentials.
@@ -59,5 +95,33 @@ export function installDevSignInLink(
     server.config.logger.warn(
       "Camox sign-in link unavailable. Use the normal local URL to sign in, or run camox preview for a fresh link.",
     );
+  }
+
+  async function openSignInLink(url: string): Promise<void> {
+    let warned = false;
+    const warn = () => {
+      if (warned || controller.signal.aborted) return;
+      warned = true;
+      server.config.logger.warn(
+        "Camox could not open your browser. Use the sign-in link printed above.",
+      );
+    };
+    try {
+      if (options.openOnceFile) {
+        // Claim before launching, even on failure: retries/restarts must not open more tabs.
+        const marker = await open(options.openOnceFile, "wx", 0o600);
+        await marker.close();
+      } else {
+        const key = JSON.stringify([server.config.root, options.projectSlug]);
+        if (opened.has(key)) return;
+        opened.add(key);
+      }
+      if (controller.signal.aborted) return;
+      openBrowser(url, warn);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+      // Filesystem and opener errors can include arguments containing credentials.
+      warn();
+    }
   }
 }

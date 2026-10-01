@@ -14,6 +14,7 @@ packages/cli/templates
 
 # Checkout-local Camox credentials
 .camox/auth.json
+.camox/dev-open-*
 
 # Environment variables
 .env

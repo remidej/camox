@@ -61,7 +61,7 @@ export function SiteStatusIndicator({ isPreview }: { isPreview: boolean }) {
         render={<Button type="button" variant="outline" className={className} />}
       >
         {label}
-        <ChevronDownIcon aria-hidden className="size-4" />
+        <ChevronDownIcon aria-hidden className="size-4 opacity-50" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem

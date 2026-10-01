@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
+import { apiTransportUrl } from "../apps/dashboard/src/lib/api-url.ts";
 import {
   aliasDevCredentials,
+  checkoutHostname,
   createDevEnvironment,
   findAvailablePort,
   isPortConflict,
@@ -15,7 +19,7 @@ import {
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const defaultUrl = "http://localhost:3274";
-const alternateUrl = "http://localhost:3275";
+const alternateUrl = "http://camox-test.localhost:3275";
 const inspectorWarning = "Default inspector port 9229 not available, using 9230 instead";
 
 async function listen(t, host, port = 0) {
@@ -71,6 +75,11 @@ await test("createDevEnvironment replaces stale checkout ports and URLs without 
     CUSTOM_SETTING: "preserved",
     CAMOX_DEV_API_PORT: "1",
     CAMOX_DEV_DASHBOARD_PORT: "2",
+    CAMOX_DEV_PLAYGROUND_PORT: "3",
+    CAMOX_DEV_LANDING_PORT: "4",
+    CAMOX_DEV_TEMPLATE_PORT: "5",
+    CAMOX_DEV_HOSTNAME: "stale.localhost",
+    NODE_OPTIONS: "--no-warnings",
     VITE_API_URL: "https://stale-api.invalid",
     VITE_DASHBOARD_URL: "https://stale-dashboard.invalid",
   };
@@ -85,8 +94,125 @@ await test("createDevEnvironment replaces stale checkout ports and URLs without 
   assert.ok(Number(env.CAMOX_DEV_API_PORT) >= 8787);
   assert.ok(Number(env.CAMOX_DEV_DASHBOARD_PORT) >= 3274);
   assert.notEqual(env.CAMOX_DEV_API_PORT, env.CAMOX_DEV_DASHBOARD_PORT);
-  assert.equal(env.VITE_API_URL, `http://localhost:${env.CAMOX_DEV_API_PORT}`);
-  assert.equal(env.VITE_DASHBOARD_URL, `http://localhost:${env.CAMOX_DEV_DASHBOARD_PORT}`);
+  assert.ok(Number(env.CAMOX_DEV_PLAYGROUND_PORT) >= 3000);
+  assert.ok(Number(env.CAMOX_DEV_LANDING_PORT) >= 3001);
+  assert.ok(Number(env.CAMOX_DEV_TEMPLATE_PORT) >= 7400);
+  const ports = Object.entries(env)
+    .filter(([key]) => /^CAMOX_DEV_.*_PORT$/.test(key))
+    .map(([, port]) => port);
+  assert.equal(new Set(ports).size, 5);
+  assert.equal(env.CAMOX_DEV_HOSTNAME, checkoutHostname(root));
+  assert.equal(env.VITE_API_URL, `http://${env.CAMOX_DEV_HOSTNAME}:${env.CAMOX_DEV_API_PORT}`);
+  assert.equal(
+    env.VITE_DASHBOARD_URL,
+    `http://${env.CAMOX_DEV_HOSTNAME}:${env.CAMOX_DEV_DASHBOARD_PORT}`,
+  );
+  assert.match(env.NODE_OPTIONS, /^--no-warnings --import=/);
+});
+
+await test("frontend allocation skips IPv6-only listeners and keeps all app ports distinct", async (t) => {
+  const before = await createDevEnvironment({});
+  const occupied = Number(before.CAMOX_DEV_PLAYGROUND_PORT);
+  try {
+    await listen(t, "::1", occupied);
+  } catch (error) {
+    if (["EAFNOSUPPORT", "EADDRNOTAVAIL"].includes(error.code)) {
+      t.skip("IPv6 loopback is unavailable");
+      return;
+    }
+    throw error;
+  }
+  const env = await createDevEnvironment({});
+  assert.ok(Number(env.CAMOX_DEV_PLAYGROUND_PORT) > occupied);
+  const ports = Object.entries(env)
+    .filter(([key]) => /^CAMOX_DEV_.*_PORT$/.test(key))
+    .map(([, port]) => Number(port));
+  assert.equal(new Set(ports).size, 5);
+  assert.ok(!ports.includes(occupied));
+  for (const port of ports) {
+    await listen(t, "127.0.0.1", port);
+    await listen(t, "::1", port);
+  }
+});
+
+await test("findAvailablePort skips ports already allocated within the launch", async () => {
+  const first = await findAvailablePort(3000);
+  const second = await findAvailablePort(first, new Set([first]));
+  assert.ok(second > first);
+});
+
+await test("checkout hostname is stable, DNS-safe, and unique to the absolute checkout path", () => {
+  const first = checkoutHostname(join(root, "worktrees", "feature one"));
+  assert.match(first, /^camox-[a-f0-9]{12}\.localhost$/);
+  assert.equal(first, checkoutHostname(join(root, "worktrees", "feature one", ".")));
+  assert.notEqual(first, checkoutHostname(join(root, "worktrees", "feature two")));
+  assert.notEqual(first, checkoutHostname(join(root, "another-parent", "feature one")));
+});
+
+await test("dashboard only bypasses OS DNS for local SSR transport", () => {
+  const publicUrl = "http://camox-checkout.localhost:8788";
+  assert.equal(apiTransportUrl(publicUrl, false), publicUrl);
+  assert.equal(apiTransportUrl(publicUrl, true), "http://127.0.0.1:8788");
+  assert.equal(apiTransportUrl("https://api.camox.dev", true), "https://api.camox.dev");
+  assert.equal(
+    apiTransportUrl("https://localhost.example.com", true),
+    "https://localhost.example.com",
+  );
+});
+
+await test("Node resolver and Vite serve the checkout hostname on loopback with the actual port", async () => {
+  const env = await createDevEnvironment(process.env);
+  await promisify(execFile)(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import assert from "node:assert/strict";
+    import dns, { lookup } from "node:dns";
+    import { lookup as promiseLookup } from "node:dns/promises";
+    import { promisify } from "node:util";
+    import { createServer } from "vite-plus";
+    import { checkoutHostname } from "./scripts/dev-hostname.ts";
+    const host = process.env.CAMOX_DEV_HOSTNAME;
+    const expected = { address: "127.0.0.1", family: 4 };
+    assert.deepEqual(await promisify(lookup)(host), expected);
+    assert.deepEqual(await promisify(dns.lookup)(host, { all: true }), [expected]);
+    assert.deepEqual(await promiseLookup(host, 4), expected);
+    assert.deepEqual(await dns.promises.lookup(host, { all: true, verbatim: true }), [expected]);
+    assert.deepEqual(await promiseLookup("192.0.2.1"), { address: "192.0.2.1", family: 4 });
+    await assert.rejects(promiseLookup("not-a-real-host.invalid"), { code: "ENOTFOUND" });
+    const options = { configFile: false, plugins: [checkoutHostname(host)], server: { port: 5173 } };
+    const first = await createServer(options);
+    const second = await createServer(options);
+    let coordinated;
+    try {
+      await first.listen();
+      await second.listen();
+      assert.notEqual(first.httpServer.address().port, second.httpServer.address().port);
+      coordinated = await createServer({
+        ...options,
+        server: { port: first.httpServer.address().port, strictPort: true },
+      });
+      await assert.rejects(coordinated.listen(), /Port \\d+ is already in use/);
+      for (const server of [first, second]) {
+        const address = server.httpServer.address();
+        assert.equal(address.address, "127.0.0.1");
+        const url = "http://" + host + ":" + address.port + "/";
+        // Vite labels custom hostnames "network" even when bound to loopback.
+        assert.ok([...server.resolvedUrls.local, ...server.resolvedUrls.network].includes(url));
+        const response = await fetch(url + "@vite/client");
+        assert.equal(response.status, 200);
+      }
+    } finally {
+      await coordinated?.close();
+      await first.close();
+      await second.close();
+    }
+  `,
+    ],
+    { cwd: root, env },
+  );
 });
 
 for (const credential of ["fake-test-token-not-a-secret", null]) {

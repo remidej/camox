@@ -24,7 +24,8 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
     res.end(JSON.stringify({ token: "single-use-secret" }));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const apiUrl = `http://127.0.0.1:${server.address().port}`;
+  // The CLI runs independently of pnpm dev, without its NODE_OPTIONS resolver.
+  const apiUrl = `http://camox-cli-test.localhost:${server.address().port}`;
   async function cli(url) {
     try {
       return {
@@ -63,6 +64,7 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
       "http://localhost:3000/about?foo=bar#heading",
       "http://[::1]:3000/about",
       "https://127.0.0.1/about",
+      "http://camox-checkout.localhost:5173/about",
     ]) {
       const result = await cli(destination);
       assert.equal(result.code, 0, result.stderr);
@@ -82,6 +84,7 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
     for (const destination of [
       "https://example.com",
       "http://localhost.evil.test",
+      "http://camox-checkout.localhost.evil.test",
       "file:///tmp/site",
       "http://user:pass@localhost:3000",
       "not a URL",

@@ -7,8 +7,13 @@ import { nitro } from "nitro/vite";
 import { defineConfig } from "vite-plus";
 
 import { camox } from "../../packages/sdk/src/features/vite/vite";
+import { checkoutHostname } from "../../scripts/dev-hostname";
 
 const config = defineConfig({
+  server: {
+    port: Number(process.env.CAMOX_DEV_PLAYGROUND_PORT ?? 3000),
+    strictPort: Boolean(process.env.CAMOX_DEV_PLAYGROUND_PORT),
+  },
   lint: {
     plugins: ["react"],
     rules: {
@@ -73,6 +78,7 @@ const config = defineConfig({
     ],
   },
   plugins: [
+    checkoutHostname(process.env.CAMOX_DEV_HOSTNAME),
     tailwindcss(),
     nitro(),
     camox({
@@ -83,6 +89,10 @@ const config = defineConfig({
         apiUrl: process.env.VITE_API_URL ?? "http://localhost:8787",
         runtimeBasePath: "/",
         enableExperimentalFeatures: true,
+        devSignIn: {
+          open: Boolean(process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE),
+          openOnceFile: process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE,
+        },
       },
     }),
     react(),

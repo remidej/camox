@@ -3,8 +3,13 @@ import { getRequestHeader } from "@tanstack/react-start/server";
 import { oneTimeTokenClient, organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
+import { apiTransportUrl } from "./api-url";
+
 export const authClient = createAuthClient({
-  baseURL: import.meta.env.VITE_API_URL!,
+  baseURL: apiTransportUrl(
+    import.meta.env.VITE_API_URL!,
+    import.meta.env.DEV && import.meta.env.SSR,
+  ),
   plugins: [organizationClient(), oneTimeTokenClient()],
 });
 

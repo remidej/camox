@@ -4,7 +4,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vp dev --port 3001",
+    "dev": "vp dev",
     "build": "vp build",
     "release": "camox release",
     "preview": "wrangler dev --config .output/server/wrangler.json",

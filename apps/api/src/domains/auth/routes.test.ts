@@ -13,6 +13,11 @@ describe("getCookieDomain", () => {
     ["https://app.camox.dev", ".camox.dev"],
     ["https://camox.dev", ".camox.dev"],
     ["http://localhost:3274", undefined],
+    ["http://camox-worktree-one.localhost:8787", undefined],
+    ["http://camox-worktree-two.localhost:8788", undefined],
+    ["http://127.0.0.1:8787", undefined],
+    ["http://[::1]:8787", undefined],
+    ["https://localhost.example.com", ".localhost.example.com"],
     ["not a url", undefined],
     ["", undefined],
   ])("maps %s to %s", (siteUrl, expected) => {

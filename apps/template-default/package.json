@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vp dev --port 7400",
+    "dev": "vp dev",
     "start": "node .output/server/index.mjs",
     "build": "vp build",
     "test:production": "node scripts/production-smoke.mjs",

@@ -3,7 +3,10 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
 
+import { installLocalhostDns } from "./local-dns";
+
 const CAMOX_API_URL = process.env.CAMOX_API_URL || "https://api.camox.dev";
+installLocalhostDns(new URL(CAMOX_API_URL).hostname);
 
 function authHeaders(token: string) {
   return {
@@ -18,6 +21,7 @@ function createRpcClient(
   environmentName?: string,
   disableTelemetry?: boolean,
 ) {
+  installLocalhostDns(new URL(apiUrl).hostname);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "x-camox-client": "cli",

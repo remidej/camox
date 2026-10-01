@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { ViteDevServer } from "vite-plus";
 
+import { authPageStyles } from "../../lib/auth-page-styles";
 import { verifyOneTimeToken, writeAuthTokenForUrl } from "./auth";
 
 const CALLBACK_PATH = "/__camox/auth/callback";
@@ -80,17 +81,10 @@ function sendRestartingPage(res: ServerResponse, returnPath: string): void {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Connecting to Camox…</title>
-    <style>
-      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-      body { align-items: center; background: #09090b; color: #fafafa; display: flex; justify-content: center; margin: 0; min-height: 100vh; }
-      main { align-items: center; display: flex; flex-direction: column; gap: 16px; text-align: center; }
-      .spinner { animation: spin 800ms linear infinite; border: 2px solid #3f3f46; border-radius: 999px; border-top-color: #fafafa; height: 24px; width: 24px; }
-      p { color: #a1a1aa; margin: 0; }
-      @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
+    <style>${authPageStyles}</style>
   </head>
   <body>
-    <main><div class="spinner"></div><p>Starting your Camox site…</p></main>
+    <main class="camox-auth-page" role="status"><div class="camox-auth-spinner" aria-hidden="true"></div><p>Starting your Camox site…</p></main>
     <script>
       const returnPath = ${serializedReturnPath};
       async function waitUntilReady() {

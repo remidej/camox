@@ -43,7 +43,9 @@ function generateSlug(name: string): string {
 export function getCookieDomain(siteUrl: string): string | undefined {
   try {
     const siteHost = new URL(siteUrl).hostname;
-    if (siteHost === "localhost") return undefined;
+    // Worktrees share cookies across ports, never across checkout hostnames.
+    if (siteHost === "localhost" || siteHost.endsWith(".localhost")) return undefined;
+    if (siteHost === "127.0.0.1" || siteHost === "[::1]") return undefined;
     if (siteHost === "camox.dev" || siteHost.endsWith(".camox.dev")) return ".camox.dev";
     return `.${siteHost}`;
   } catch {

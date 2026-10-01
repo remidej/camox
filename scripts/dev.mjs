@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { prepareDevOpen } from "./dev-open.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(import.meta.url);
@@ -11,8 +14,9 @@ const defaultDashboardUrl = "http://localhost:3274";
 
 // Check both loopback families: Vite and Wrangler need not resolve localhost
 // to the same address. Release the probes before starting the real servers.
-export async function findAvailablePort(start) {
+export async function findAvailablePort(start, excluded = new Set()) {
   for (let port = start; port <= 65535; port++) {
+    if (excluded.has(port)) continue;
     const probes = [];
     try {
       for (const host of ["127.0.0.1", "::1"]) {
@@ -36,16 +40,38 @@ export async function findAvailablePort(start) {
   throw new Error(`No available dev port at or above ${start}`);
 }
 
-export async function createDevEnvironment(env = process.env) {
-  const apiPort = await findAvailablePort(8787);
-  let dashboardPort = await findAvailablePort(3274);
-  if (dashboardPort === apiPort) dashboardPort = await findAvailablePort(dashboardPort + 1);
+export function checkoutHostname(repoRoot = root) {
+  const id = createHash("sha256").update(resolve(repoRoot)).digest("hex").slice(0, 12);
+  return `camox-${id}.localhost`;
+}
+
+export async function createDevEnvironment(env = process.env, repoRoot = root) {
+  const allocated = new Set();
+  const ports = {};
+  // Probes are released immediately, so reserve each selection within this
+  // launch as well as checking both loopback families for other checkouts.
+  for (const [app, defaultPort] of Object.entries({
+    API: 8787,
+    DASHBOARD: 3274,
+    PLAYGROUND: 3000,
+    LANDING: 3001,
+    TEMPLATE: 7400,
+  })) {
+    const port = await findAvailablePort(defaultPort, allocated);
+    allocated.add(port);
+    ports[`CAMOX_DEV_${app}_PORT`] = String(port);
+  }
+  const hostname = checkoutHostname(repoRoot);
+  // Browsers resolve *.localhost themselves, but Node/OS DNS need not do so.
+  // Inherit this scoped resolver in Nx, Vite, and their Node subprocesses.
+  const preload = new URL("./dev-dns.mjs", import.meta.url).href;
   return {
     ...env,
-    CAMOX_DEV_API_PORT: String(apiPort),
-    CAMOX_DEV_DASHBOARD_PORT: String(dashboardPort),
-    VITE_API_URL: `http://localhost:${apiPort}`,
-    VITE_DASHBOARD_URL: `http://localhost:${dashboardPort}`,
+    ...ports,
+    NODE_OPTIONS: `${env.NODE_OPTIONS ?? ""} --import=${JSON.stringify(preload)}`.trim(),
+    CAMOX_DEV_HOSTNAME: hostname,
+    VITE_API_URL: `http://${hostname}:${ports.CAMOX_DEV_API_PORT}`,
+    VITE_DASHBOARD_URL: `http://${hostname}:${ports.CAMOX_DEV_DASHBOARD_PORT}`,
   };
 }
 
@@ -148,24 +174,29 @@ export async function runDevCommand(
 
 async function main() {
   const nx = require.resolve("nx/bin/nx.js");
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const env = await createDevEnvironment();
-    await aliasDevCredentials(root, env.VITE_DASHBOARD_URL);
-    console.info(`\nCheckout dev servers (${root}):`);
-    console.info(`  API:       ${env.VITE_API_URL}`);
-    console.info(`  Dashboard: ${env.VITE_DASHBOARD_URL}`);
-    console.info("  Other frontends print their URLs when ready.\n");
-    const result = await runDevCommand(
-      process.execPath,
-      [nx, "run-many", "-t", "dev", "--nxBail", "--outputStyle=stream", ...process.argv.slice(2)],
-      { cwd: root, env, retryOnPortConflict: true },
-    );
-    if (result.portConflict && !result.signal && attempt < 2) {
-      console.info("\nA dev port was taken during startup; reallocating checkout URLs.\n");
-      continue;
+  const launch = await prepareDevOpen(root, process.argv.slice(2));
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const env = await createDevEnvironment(launch.env);
+      await aliasDevCredentials(root, env.VITE_DASHBOARD_URL);
+      console.info(`\nCheckout dev servers (${root}):`);
+      console.info(`  API:       ${env.VITE_API_URL}`);
+      console.info(`  Dashboard: ${env.VITE_DASHBOARD_URL}`);
+      console.info("  Other frontends print their URLs when ready.\n");
+      const result = await runDevCommand(
+        process.execPath,
+        [nx, "run-many", "-t", "dev", "--nxBail", "--outputStyle=stream", ...launch.args],
+        { cwd: root, env, retryOnPortConflict: true },
+      );
+      if (result.portConflict && !result.signal && attempt < 2) {
+        console.info("\nA dev port was taken during startup; reallocating checkout URLs.\n");
+        continue;
+      }
+      process.exitCode = result.code;
+      return;
     }
-    process.exitCode = result.code;
-    return;
+  } finally {
+    await launch.cleanup();
   }
 }
 

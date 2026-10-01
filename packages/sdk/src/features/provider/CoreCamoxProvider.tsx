@@ -6,6 +6,7 @@ import { initApiClient } from "../../lib/api-client";
 import { AuthContext, createCamoxAuthClient, useProcessOtt } from "../../lib/auth";
 import { projectQueries, type Project } from "../../lib/queries";
 import { CamoxAppProvider } from "./components/CamoxAppContext";
+import { PreviewSignInPage } from "./PreviewSignInPage";
 
 export interface CoreCamoxProviderProps {
   apiUrl: string;
@@ -21,7 +22,13 @@ export interface CoreCamoxProviderProps {
 export function isLocalhostPreview() {
   if (typeof window === "undefined") return false;
   const { hostname } = window.location;
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname === "::1"
+  );
 }
 
 export function CoreCamoxProvider({
@@ -50,30 +57,21 @@ export function CoreCamoxProvider({
 
   // OTT processing deliberately does not blank the published tree. Successful
   // exchange still reloads after mirroring the server cookie.
-  const { ready, error } = useProcessOtt(authClient, { projectSlug, environmentName, apiUrl });
+  const { ready, error } = useProcessOtt(
+    authClient,
+    { projectSlug, environmentName, apiUrl },
+    initialAuthenticated,
+  );
   const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
   React.useEffect(() => {
     setIsPreviewHandoff(new URL(window.location.href).searchParams.has("camox-preview"));
   }, []);
 
-  if (error)
-    return (
-      <div role="alert" data-camox-preview="error">
-        {error}
-      </div>
-    );
-  if (isPreviewHandoff && !ready) {
-    return (
-      <div role="status" data-camox-preview="pending">
-        Signing in to draft preview…
-      </div>
-    );
-  }
+  if (error) return <PreviewSignInPage error={error} />;
+  if (isPreviewHandoff && !ready) return <PreviewSignInPage />;
   if (isPreviewHandoff && !initialAuthenticated) {
     return (
-      <div role="alert" data-camox-preview="error">
-        Draft preview is not authenticated. Run camox preview again for a fresh link.
-      </div>
+      <PreviewSignInPage error="Draft preview is not authenticated. Run camox preview again for a fresh link." />
     );
   }
 
