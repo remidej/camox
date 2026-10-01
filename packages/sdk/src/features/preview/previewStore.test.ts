@@ -527,13 +527,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     assert.equal(click.defaultPrevented, true);
     assert.equal(clicks, 1);
     assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
-    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
-      type: "item-field",
-      blockId: 7,
-      itemId: 12,
-      fieldName: "title",
-      fieldType: "Link",
-    });
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, selection);
     const draft = previewCommentsStore.getSnapshot().context.draft!;
     assert.equal(draft.pageId, 3);
     assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, draft.target);
@@ -543,6 +537,10 @@ void test("comment mode shares normal hover and redirects native preview clicks"
       itemId: 12,
       fieldName: "title",
     });
+    assert.ok(
+      previewCommentsStore.getSnapshot().context.popover?.anchor === (field as unknown as Element),
+    );
+    assert.deepEqual(previewCommentsStore.getSnapshot().context.popover?.target, draft.target);
 
     child.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     assert.equal(clicks, 2);
@@ -558,6 +556,10 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     doc.querySelector("div")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "block",
+      blockId: 7,
+    });
+    assert.deepEqual(previewCommentsStore.getSnapshot().context.popover?.target, {
+      kind: "block",
       blockId: 7,
     });
 
@@ -577,6 +579,11 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     assert.equal(itemClick.defaultPrevented, true);
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "item",
+      blockId: 7,
+      itemId: 12,
+    });
+    assert.deepEqual(previewCommentsStore.getSnapshot().context.popover?.target, {
+      kind: "item",
       blockId: 7,
       itemId: 12,
     });

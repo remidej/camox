@@ -10,6 +10,8 @@ import { previewStore } from "./previewStore";
 export type { CommentTarget } from "@camox/api-contract";
 export type CommentAuthor = Comment["author"];
 export type CommentDraft = { id: string; pageId: number; target: CommentTarget; message: string };
+/** Ephemeral UI anchor identifies the clicked copy; geometry stays in the overlay cache. */
+export type CommentPopover = { pageId: number; target: CommentTarget; anchor?: Element };
 
 type FieldSchema = {
   properties?: Record<string, FieldSchema>;
@@ -94,16 +96,31 @@ export const previewCommentsStore = createStore({
     draft: null as CommentDraft | null,
     activeId: null as string | null,
     focusTarget: null as CommentTarget | null,
+    popover: null as CommentPopover | null,
   },
   on: {
+    openPopover: (context, event: CommentPopover) => ({
+      ...context,
+      popover: { pageId: event.pageId, target: event.target, anchor: event.anchor },
+    }),
+    closePopover: (context) => ({ ...context, popover: null, focusTarget: null }),
     startComment: (
       context,
-      event: { pageId: number; target: CommentTarget; focusComposer?: boolean },
+      event: {
+        pageId: number;
+        target: CommentTarget;
+        focusComposer?: boolean;
+        popover?: boolean;
+        anchor?: Element;
+      },
     ) => ({
       ...context,
       draft: { id: crypto.randomUUID(), pageId: event.pageId, target: event.target, message: "" },
       activeId: null,
       focusTarget: event.focusComposer ? event.target : null,
+      popover: event.popover
+        ? { pageId: event.pageId, target: event.target, anchor: event.anchor }
+        : context.popover,
     }),
     composerFocused: (context) => ({ ...context, focusTarget: null }),
     setMessage: (context, event: { message: string }) => {
@@ -113,12 +130,27 @@ export const previewCommentsStore = createStore({
         draft: { ...context.draft, id: crypto.randomUUID(), message: event.message },
       };
     },
-    postSucceeded: (context, event: { draft: CommentDraft }) => {
+    postSucceeded: (context, event: { draft: CommentDraft; focusComment?: boolean }) => {
       if (context.draft?.id !== event.draft.id) return context;
-      return { ...context, draft: null, activeId: event.draft.id, focusTarget: null };
+      return {
+        ...context,
+        draft: null,
+        activeId: event.focusComment === false ? null : event.draft.id,
+        focusTarget: null,
+      };
     },
-    selectComment: (context, event: { id: string }) => ({ ...context, activeId: event.id }),
-    cancelDraft: (context) => ({ ...context, draft: null, focusTarget: null }),
-    clearSelection: (context) => ({ ...context, draft: null, activeId: null, focusTarget: null }),
+    selectComment: (context, event: { id: string }) => ({
+      ...context,
+      activeId: event.id,
+      popover: null,
+    }),
+    cancelDraft: (context) => ({ ...context, draft: null, focusTarget: null, popover: null }),
+    clearSelection: (context) => ({
+      ...context,
+      draft: null,
+      activeId: null,
+      focusTarget: null,
+      popover: null,
+    }),
   },
 });

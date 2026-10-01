@@ -72,7 +72,14 @@ export function selectPreviewTarget(
   if (owner?.kind !== "page") return;
   const { pageId } = owner;
   const target = commentTarget(selection);
-  previewCommentsStore.send({ type: "startComment", pageId, target, focusComposer: true });
+  previewCommentsStore.send({
+    type: "startComment",
+    pageId,
+    target,
+    focusComposer: true,
+    popover: true,
+    anchor: event.currentTarget,
+  });
   revealCommentTarget(
     pageId,
     target,

@@ -108,6 +108,9 @@ void test("canvas names report selection without changing preview state or editi
         assert.equal(draft?.pageId, page.pageId);
         assert.deepEqual(draft?.target, { kind: "page" });
         assert.deepEqual(focusTarget, { kind: "page" });
+        assert.deepEqual(previewCommentsStore.getSnapshot().context.popover?.target, {
+          kind: "page",
+        });
         assert.equal(name.style.cursor, "");
         await act(async () => {
           previewStore.send({ type: "clearSelection" });

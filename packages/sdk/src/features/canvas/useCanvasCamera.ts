@@ -40,6 +40,11 @@ function isControl(target: EventTarget | null) {
   );
 }
 
+function isOverlayScroll(event: WheelEvent) {
+  if (event.ctrlKey || event.metaKey) return false;
+  return event.target instanceof Element && !!event.target.closest("[data-canvas-overlay-scroll]");
+}
+
 /** Animate only the camera's CSS properties; page trees never rerender on pan/zoom. */
 export function useCanvasCamera(
   workspaceKey: string,
@@ -89,6 +94,7 @@ export function useCanvasCamera(
     const ownerWindow = viewport.ownerDocument.defaultView!;
     const preventHistorySwipe = (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey) return;
+      if (isOverlayScroll(event)) return;
       if (event.deltaX !== 0 || (event.shiftKey && event.deltaY !== 0)) event.preventDefault();
     };
     ownerWindow.addEventListener("wheel", preventHistorySwipe, { capture: true, passive: false });
@@ -502,7 +508,9 @@ export function useCanvasCamera(
       return { x: x - rect.left, y: y - rect.top };
     };
     const onWheel = (event: WheelEvent) => {
-      // Wheel gestures belong to the camera even over header controls.
+      // Scrollable overlays own ordinary wheel input; pinch still zooms the canvas.
+      if (isOverlayScroll(event)) return;
+      // Other wheel gestures belong to the camera even over header controls.
       // Pointer and keyboard events still retain normal control behavior.
       event.preventDefault();
       const dx = canvasWheelDelta(event.deltaX, event.deltaMode, viewport.clientWidth);

@@ -6,10 +6,12 @@ import {
   AvatarGroupCount,
   AvatarImage,
 } from "@camox/ui/avatar";
+import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
+import { AttachedComments } from "../preview/components/AttachedComments";
+import { previewCommentsStore, type CommentPopover } from "../preview/previewCommentsStore";
 import { usePageComments } from "../preview/usePageComments";
-import { useSelectComment } from "../preview/useSelectComment";
 import { MAX_CANVAS_ZOOM, type CanvasPoint } from "./canvasCamera";
 import type { CanvasOverlayTarget } from "./canvasOverlayGeometry";
 import { useCanvasZoom, useCanvasZoomAt } from "./canvasZoom";
@@ -17,6 +19,8 @@ import { useCanvasZoom, useCanvasZoomAt } from "./canvasZoom";
 // Overlay controls stay screen-sized while page geometry scales.
 const COMMENT_GROUP_SCREEN_DISTANCE = { x: 72, y: 40 };
 const COMMENT_AVATAR_GROUP_LIMIT = 3;
+const INDICATOR_HOVER =
+  "transition-transform duration-300 ease-[cubic-bezier(.34,1.56,.64,1)] hover:scale-110 motion-reduce:transition-none motion-reduce:hover:scale-100";
 
 export type CanvasCommentIndicator = {
   key: string;
@@ -24,6 +28,7 @@ export type CanvasCommentIndicator = {
   synced: boolean;
   x: number;
   y: number;
+  anchor?: Element;
 };
 
 export type CanvasCommentIndicatorGroup = {
@@ -62,16 +67,7 @@ export function canvasCommentIndicators(
   const anchors = new Map<string, { target: CanvasOverlayTarget; index: number }[]>();
   targets.forEach((target, index) => {
     if (!target.visible) return;
-    const { element } = target;
-    const keys: string[] = [];
-    const fieldId = element.getAttribute("data-camox-field-id");
-    if (fieldId) keys.push(`field:${fieldId}`);
-    const blockId = element.getAttribute("data-camox-block-id");
-    if (blockId) keys.push(`block:${blockId}`);
-    const itemId = element.getAttribute("data-camox-repeater-item-id");
-    const ownerId = element.closest("[data-camox-block-id]")?.getAttribute("data-camox-block-id");
-    if (itemId && ownerId) keys.push(`item:${ownerId}:${itemId}`);
-    for (const key of keys) {
+    for (const key of overlayTargetKeys(target.element)) {
       const entries = anchors.get(key) ?? [];
       entries.push({ target, index });
       anchors.set(key, entries);
@@ -85,10 +81,23 @@ export function canvasCommentIndicators(
       key: `${comment.id}:${index}`,
       comment: { ...comment, target },
       synced: anchor.synced,
+      anchor: anchor.element,
       x: anchor.bounds.x + anchor.bounds.width,
       y: anchor.bounds.y,
     }));
   });
+}
+
+function overlayTargetKeys(element: Element) {
+  const keys: string[] = [];
+  const fieldId = element.getAttribute("data-camox-field-id");
+  if (fieldId) keys.push(`field:${fieldId}`);
+  const blockId = element.getAttribute("data-camox-block-id");
+  if (blockId) keys.push(`block:${blockId}`);
+  const itemId = element.getAttribute("data-camox-repeater-item-id");
+  const ownerId = element.closest("[data-camox-block-id]")?.getAttribute("data-camox-block-id");
+  if (itemId && ownerId) keys.push(`item:${ownerId}:${itemId}`);
+  return keys;
 }
 
 export function groupCanvasCommentIndicators(
@@ -132,7 +141,15 @@ export function groupCanvasCommentIndicators(
         : current,
     );
     return {
-      key: members.map((indicator) => indicator.key).join(","),
+      // Keep the popover mounted when comments are added or archived on its object.
+      key: Array.from(
+        new Set(
+          members.map(
+            (indicator) =>
+              `${commentObjectKey(indicator)}${indicator.key.slice(indicator.comment.id.length)}`,
+          ),
+        ),
+      ).join(","),
       indicators: uniqueMembers,
       synced: anchor.synced,
       x: anchor.x,
@@ -212,26 +229,104 @@ function CommentIndicatorAvatar({ comment }: { comment: Comment }) {
 function CommentButton({
   indicator,
   onSelect,
+  ...props
 }: {
   indicator: CanvasCommentIndicator;
-  onSelect: (comment: Comment) => void;
-}) {
+  onSelect: (comment: Comment, anchor?: Element) => void;
+} & Omit<React.ComponentProps<"button">, "onSelect">) {
   const { comment } = indicator;
   return (
     <button
+      {...props}
       type="button"
       data-canvas-overlay-control
       data-canvas-comment={comment.id}
-      className="focus-visible:ring-ring block size-8 rounded-full outline-none focus-visible:ring-2"
+      className={`focus-visible:ring-ring block size-8 rounded-full outline-none focus-visible:ring-2 ${INDICATOR_HOVER}`}
       aria-label={`View comment from ${comment.author.name} on ${commentTargetLabel(comment.target)}`}
       title={comment.message}
       onClick={(event) => {
         event.stopPropagation();
-        onSelect(comment);
+        onSelect(comment, indicator.anchor);
+        props.onClick?.(event);
       }}
     >
       <CommentIndicatorAvatar comment={comment} />
     </button>
+  );
+}
+
+function CanvasCommentPopover({
+  popover,
+  targets,
+  placement,
+}: {
+  popover: CommentPopover;
+  targets: CanvasOverlayTarget[];
+  placement: "preview" | "header";
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const matching = targets.filter(
+    (entry) =>
+      entry.visible && overlayTargetKeys(entry.element).includes(commentTargetKey(popover.target)),
+  );
+  const anchor = matching.find((entry) => entry.element === popover.anchor) ?? matching[0];
+  React.useEffect(() => {
+    const popup = ref.current;
+    if (!popup) return;
+    const documents = new Set([
+      popup.ownerDocument,
+      ...targets.map((entry) => entry.element.ownerDocument),
+    ]);
+    // Native events from preview frames do not bubble into the studio document.
+    for (const iframe of popup.ownerDocument.querySelectorAll("iframe")) {
+      if (iframe.contentDocument) documents.add(iframe.contentDocument);
+    }
+    const dismiss = (event: Event) => {
+      if (event.composedPath().includes(popup)) return;
+      previewCommentsStore.send({ type: "closePopover" });
+    };
+    for (const document of documents) document.addEventListener("pointerdown", dismiss, true);
+    return () => {
+      for (const document of documents) document.removeEventListener("pointerdown", dismiss, true);
+    };
+  }, [targets]);
+  if (placement === "preview" && !anchor) return null;
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label={`Comments on ${commentTargetLabel(popover.target)}`}
+      data-canvas-overlay-control
+      data-canvas-comment-popover
+      data-canvas-overlay-scroll
+      className="bg-popover text-popover-foreground ring-foreground/10 absolute z-30 max-h-[min(32rem,80vh)] w-80 touch-auto overflow-y-auto overscroll-contain rounded-lg shadow-md ring-1"
+      style={{
+        pointerEvents: "auto",
+        // Same cached coordinates and CSS camera as the other canvas overlays.
+        // No portal, viewport measurements, or scroll/animation-frame tracking.
+        // Open below/end, toward the page rather than outside its right edge.
+        // Clamp to the page's overlay bounds entirely in CSS.
+        left:
+          placement === "header"
+            ? 0
+            : `clamp(0px, calc(${anchor!.bounds.x + anchor!.bounds.width}px * var(--canvas-zoom, 1) - 20rem - 4px), max(0px, calc(100% - 20rem)))`,
+        top:
+          placement === "header"
+            ? "calc(100% + 8px)"
+            : `calc(${anchor!.bounds.y}px * var(--canvas-zoom, 1) + 44px)`,
+        maxWidth: placement === "preview" ? "100%" : undefined,
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        previewCommentsStore.send({ type: "closePopover" });
+      }}
+    >
+      <AttachedComments pageId={popover.pageId} {...popover.target} presentation="popover" />
+    </div>
   );
 }
 
@@ -241,13 +336,15 @@ export function CanvasCommentIndicators({
   zoom = 1,
   onZoom,
   onSelect,
+  openTarget,
   placement = "preview",
 }: {
   comments: Comment[];
   targets: CanvasOverlayTarget[];
   zoom?: number;
   onZoom?: (point: CanvasPoint, scale: number) => void;
-  onSelect: (comment: Comment) => void;
+  onSelect: (comment: Comment, anchor?: Element) => void;
+  openTarget?: CommentTarget;
   placement?: "preview" | "header";
 }) {
   const indicators =
@@ -287,7 +384,15 @@ export function CanvasCommentIndicators({
           data-camox-overlay-mode={group.synced ? "synced" : undefined}
           style={style}
         >
-          <CommentButton indicator={group.indicators[0]!} onSelect={onSelect} />
+          <CommentButton
+            indicator={group.indicators[0]!}
+            onSelect={onSelect}
+            aria-haspopup="dialog"
+            aria-expanded={
+              openTarget != null &&
+              commentTargetKey(openTarget) === commentObjectKey(group.indicators[0]!)
+            }
+          />
         </div>
       );
     }
@@ -309,11 +414,16 @@ export function CanvasCommentIndicators({
             type="button"
             data-canvas-overlay-control
             data-comment-capsule
-            className="focus-visible:ring-ring relative block h-8 rounded-full bg-[var(--camox-overlay-color-selected)] p-1 shadow-md outline-none focus-visible:ring-2"
+            className={`focus-visible:ring-ring relative block h-8 rounded-full bg-[var(--camox-overlay-color-selected)] p-1 shadow-md outline-none focus-visible:ring-2 ${INDICATOR_HOVER}`}
+            aria-haspopup="dialog"
+            aria-expanded={
+              openTarget != null &&
+              commentTargetKey(openTarget) === commentObjectKey(group.indicators[0]!)
+            }
             aria-label={`View ${group.indicators.length} comments on ${commentTargetLabel(group.indicators[0]!.comment.target)}`}
             onClick={(event) => {
               event.stopPropagation();
-              onSelect(group.indicators[0]!.comment);
+              onSelect(group.indicators[0]!.comment, group.indicators[0]!.anchor);
             }}
           >
             <AvatarGroup data-canvas-comment-avatar-group>
@@ -336,7 +446,7 @@ export function CanvasCommentIndicators({
         <button
           type="button"
           data-canvas-overlay-control
-          className="focus-visible:ring-ring relative block size-8 rounded-full outline-none focus-visible:ring-2"
+          className={`focus-visible:ring-ring relative block size-8 rounded-full outline-none focus-visible:ring-2 ${INDICATOR_HOVER}`}
           aria-label={`Zoom in to separate ${group.indicators.length} nearby comments`}
           onClick={(event) => {
             event.stopPropagation();
@@ -386,26 +496,56 @@ export const CanvasPageCommentIndicators = React.memo(function CanvasPageComment
   pageId,
   targets,
   activate,
-  placement,
+  placement = "preview",
 }: CanvasPageCommentIndicatorsProps) {
   const comments = usePageComments(pageId);
-  const selectComment = useSelectComment(pageId);
+  const popover = useSelector(previewCommentsStore, (state) => state.context.popover);
+  React.useEffect(
+    () => () => {
+      const current = previewCommentsStore.getSnapshot().context.popover;
+      if (current?.pageId !== pageId) return;
+      if ((current.target.kind === "page") !== (placement === "header")) return;
+      previewCommentsStore.send({ type: "closePopover" });
+    },
+    [pageId, placement],
+  );
+  const visiblePopover =
+    popover?.pageId === pageId && (popover.target.kind === "page") === (placement === "header")
+      ? popover
+      : null;
   const zoom = useCanvasZoom();
   const zoomAt = useCanvasZoomAt();
   return (
-    <CanvasCommentIndicators
-      comments={comments.data ?? []}
-      targets={targets}
-      placement={placement}
-      zoom={zoom}
-      onZoom={(point, scale) => {
-        activate();
-        zoomAt?.(point, scale);
-      }}
-      onSelect={(comment) => {
-        activate();
-        void selectComment(comment);
-      }}
-    />
+    <div style={{ display: placement === "header" ? "flex" : "contents", position: "relative" }}>
+      <CanvasCommentIndicators
+        comments={comments.data ?? []}
+        targets={targets}
+        placement={placement}
+        zoom={zoom}
+        onZoom={(point, scale) => {
+          activate();
+          zoomAt?.(point, scale);
+        }}
+        openTarget={visiblePopover?.target}
+        onSelect={(comment, anchor) => {
+          activate();
+          if (!comment.target) return;
+          previewCommentsStore.send({
+            type: "openPopover",
+            pageId,
+            target: comment.target,
+            anchor,
+          });
+        }}
+      />
+      {visiblePopover && (
+        <CanvasCommentPopover
+          key={commentTargetKey(visiblePopover.target)}
+          popover={visiblePopover}
+          targets={targets}
+          placement={placement}
+        />
+      )}
+    </div>
   );
 }, sameCommentGeometry);

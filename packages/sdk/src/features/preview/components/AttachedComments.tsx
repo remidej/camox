@@ -37,6 +37,7 @@ type AttachedCommentsProps = {
   fieldName?: string;
   fieldType?: FieldType;
   allPageComments?: boolean;
+  presentation?: "sidebar" | "popover";
 };
 
 function editorTarget({ blockId, itemId, fieldName }: AttachedCommentsProps): CommentTarget {
@@ -62,10 +63,12 @@ function AttachedCommentsContent({
   itemId,
   fieldName,
   allPageComments = false,
+  presentation = "sidebar",
 }: AttachedCommentsProps & { pageId: number }) {
   const queryClient = useQueryClient();
   const commentsQuery = usePageComments(pageId);
   const selectComment = useSelectComment(pageId);
+  const isPopover = presentation === "popover";
   const { draft, activeId, focusTarget } = useSelector(
     previewCommentsStore,
     (state) => state.context,
@@ -110,7 +113,11 @@ function AttachedCommentsContent({
         );
       });
       void queryClient.invalidateQueries({ queryKey });
-      previewCommentsStore.send({ type: "postSucceeded", draft: submitted });
+      previewCommentsStore.send({
+        type: "postSucceeded",
+        draft: submitted,
+        focusComment: !isPopover,
+      });
     },
     onSettled: () => {
       submitting.current = false;
@@ -137,21 +144,34 @@ function AttachedCommentsContent({
   const submit = () => {
     if (!currentDraft || !message.trim() || submitting.current) return;
     submitting.current = true;
-    createComment.mutate(currentDraft);
+    const submittedPopover = previewCommentsStore.getSnapshot().context.popover;
+    createComment.mutate(currentDraft, {
+      onSuccess: () => {
+        if (!isPopover || !submittedPopover) return;
+        // A request finishing after closing or retargeting must not reclaim focus.
+        if (previewCommentsStore.getSnapshot().context.popover !== submittedPopover) return;
+        textarea.current?.focus({ preventScroll: true });
+      },
+    });
   };
 
   React.useEffect(() => {
-    if (!draftTarget || focusTarget !== draftTarget || !textarea.current) return;
-    textarea.current?.scrollIntoView({ block: "nearest" });
+    if (!isPopover) return;
     textarea.current?.focus({ preventScroll: true });
-    previewCommentsStore.send({ type: "composerFocused" });
-  }, [draftTarget, focusTarget]);
+  }, [isPopover, pageId, blockId, itemId, fieldName]);
 
   React.useEffect(() => {
-    if (!selected) return;
+    if (!isPopover) return;
+    if (!draftTarget || focusTarget !== draftTarget || !textarea.current) return;
+    textarea.current?.focus({ preventScroll: true });
+    previewCommentsStore.send({ type: "composerFocused" });
+  }, [draftTarget, focusTarget, isPopover]);
+
+  React.useEffect(() => {
+    if (!selected || isPopover || previewCommentsStore.getSnapshot().context.popover) return;
     activeComment.current?.scrollIntoView({ block: "nearest" });
     activeComment.current?.focus({ preventScroll: true });
-  }, [selected]);
+  }, [selected, isPopover]);
 
   return (
     <SidebarSection
@@ -166,9 +186,10 @@ function AttachedCommentsContent({
                 ? "Block comments"
                 : "Item comments"
       }
-      divider={allPageComments ? "none" : "top"}
+      divider={isPopover || allPageComments ? "none" : "top"}
+      className={isPopover ? "space-y-2 p-2" : undefined}
     >
-      {allPageComments ? (
+      {isPopover ? null : allPageComments ? (
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-base font-semibold">Feedback</h2>
           <Button
@@ -184,7 +205,7 @@ function AttachedCommentsContent({
       ) : (
         <SidebarSectionHeader>Feedback</SidebarSectionHeader>
       )}
-      <SidebarSectionContent>
+      <SidebarSectionContent className={isPopover ? "space-y-2" : undefined}>
         {commentsQuery.isPending && (
           <p className="text-muted-foreground text-sm">Loading feedback…</p>
         )}

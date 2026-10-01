@@ -103,7 +103,10 @@ function comment(id: string, pageId: number, target: CommentTarget | null): Comm
   };
 }
 
-void test("Feedback reads persisted comments at every target level without a composer", async () => {
+void test("Feedback reads persisted comments at every target level without a composer", async (t) => {
+  // Initialize DOM capabilities before Base UI is imported for this mixed SSR/DOM suite.
+  const dom = await setupDom();
+  t.after(() => dom.close());
   const { CommentSidebar } = await import("./CommentSidebar");
   const { AttachedComments } = await import("./AttachedComments");
   const { previewCommentsStore } = await import("../previewCommentsStore");
@@ -228,6 +231,288 @@ void test("feedback prompt scopes the request to one page and includes optional 
     feedbackPrompt(88, "  Prioritize the hero  "),
     `${request}\n\nAdditional context:\nPrioritize the hero`,
   );
+});
+
+void test("canvas indicators open object comments and a persistent composer beside the trigger", async () => {
+  const dom = await setupDom();
+  const otherFrame = dom.window.document.createElement("iframe");
+  dom.window.document.body.append(otherFrame);
+  const { CanvasPageCommentIndicators } = await import("../../canvas/CanvasCommentIndicators");
+  const { previewCommentsStore } = await import("../previewCommentsStore");
+  const globals = {
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    MutationObserver: dom.window.MutationObserver,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const originalCreate = api.create;
+  const originalList = api.list;
+  let saved: Comment[] = [];
+  const submitted: CreateInput[] = [];
+  api.list = async () => saved;
+  api.create = async (input) => {
+    submitted.push(input);
+    const created = await originalCreate(input);
+    saved.push(created);
+    return created;
+  };
+  const targets: CommentTarget[] = [
+    { kind: "page" },
+    { kind: "block", blockId: 7 },
+    { kind: "item", blockId: 7, itemId: 12 },
+    { kind: "block-field", blockId: 7, fieldName: "title" },
+    { kind: "item-field", blockId: 7, itemId: 12, fieldName: "caption" },
+  ];
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 30));
+  let activations = 0;
+  try {
+    for (const [index, target] of targets.entries()) {
+      const pageId = 100 + index;
+      saved = [
+        comment("one", pageId, target),
+        comment("other", pageId, { kind: "block", blockId: 99 }),
+        { ...comment("archived", pageId, target), resolved: true },
+      ];
+      dom.client.setQueryData(["comments", pageId], saved);
+      await React.act(async () => previewCommentsStore.send({ type: "clearSelection" }));
+      const element = dom.window.document.createElement("div");
+      element.setAttribute("data-camox-block-id", "7");
+      if ("itemId" in target) element.setAttribute("data-camox-repeater-item-id", "12");
+      if ("fieldName" in target) {
+        element.setAttribute(
+          "data-camox-field-id",
+          `7__${"itemId" in target ? "12__" : ""}${target.fieldName}`,
+        );
+      }
+      await dom.render(
+        <CanvasPageCommentIndicators
+          key={pageId}
+          pageId={pageId}
+          placement={target.kind === "page" ? "header" : "preview"}
+          activate={() => activations++}
+          targets={[
+            {
+              element: element as unknown as HTMLElement,
+              bounds: { x: 10, y: 20, width: 100, height: 30 },
+              rects: [],
+              visible: true,
+              synced: false,
+              hovered: false,
+              focused: false,
+              inline: false,
+            },
+          ]}
+        />,
+      );
+      assert.equal(dom.window.document.querySelector('[role="dialog"]'), null);
+      await React.act(async () => dom.host.querySelector("button")!.click());
+      const popup = dom.window.document.querySelector('[role="dialog"]')!;
+      assert.ok(popup, dom.window.document.body.innerHTML);
+      assert.ok(dom.host.contains(popup), "popover stays in the overlay tree, not a portal");
+      assert.equal(popup.querySelector("h3"), null);
+      assert.equal(popup.querySelector("section")?.classList.contains("border-t"), false);
+      assert.equal(dom.window.document.activeElement, popup.querySelector("textarea"));
+      if (target.kind !== "page") {
+        assert.equal((popup as unknown as HTMLElement).style.maxWidth, "100%");
+        assert.equal(
+          (popup as unknown as HTMLElement).style.top,
+          "calc(20px * var(--canvas-zoom, 1) + 44px)",
+        );
+      }
+      assert.match(popup.textContent, /Feedback one/);
+      assert.doesNotMatch(popup.textContent, /Feedback other|Feedback archived/);
+      assert.ok(popup.querySelector('[aria-label="Comment text"]'));
+      assert.equal(activations, index * 2 + 1);
+      await React.act(async () => {
+        previewCommentsStore.send({ type: "startComment", pageId, target });
+        previewCommentsStore.send({ type: "setMessage", message: "From the popover" });
+      });
+      await React.act(async () => {
+        if (index % 2 === 0) {
+          (popup.querySelector('[aria-label="Post comment"]') as unknown as HTMLElement).click();
+        } else {
+          popup
+            .querySelector("textarea")!
+            .dispatchEvent(
+              new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+            );
+        }
+        await flush();
+      });
+      assert.deepEqual(submitted.at(-1)?.target, target);
+      assert.equal(submitted.at(-1)?.pageId, pageId);
+      assert.equal(dom.window.document.querySelector('[role="dialog"]'), popup);
+      assert.match(popup.textContent, /Feedback one/);
+      assert.match(popup.textContent, /From the popover/);
+      assert.equal(dom.window.document.activeElement, popup.querySelector("textarea"));
+      assert.ok(dom.host.querySelector("[data-comment-capsule]"));
+      await React.act(async () => {
+        popup.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+        await flush();
+      });
+      assert.equal(dom.host.querySelector("button")?.getAttribute("aria-expanded"), "false");
+      await React.act(async () => dom.host.querySelector("button")!.click());
+      assert.match(
+        dom.window.document.querySelector('[role="dialog"]')!.textContent,
+        /From the popover/,
+      );
+      await React.act(async () => {
+        otherFrame.contentDocument!.body.dispatchEvent(
+          new dom.window.PointerEvent("pointerdown", { bubbles: true }),
+        );
+      });
+      assert.equal(
+        dom.host.querySelector('[role="dialog"]'),
+        null,
+        "other preview frames dismiss the popover",
+      );
+    }
+  } finally {
+    api.create = originalCreate;
+    api.list = originalList;
+    await dom.close();
+    previewCommentsStore.send({ type: "clearSelection" });
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("comment-mode clicks select the target, exit comment mode, and focus only the popover composer", async () => {
+  const dom = await setupDom();
+  const { CanvasPageCommentIndicators } = await import("../../canvas/CanvasCommentIndicators");
+  const { AttachedComments } = await import("./AttachedComments");
+  const { previewCommentsStore } = await import("../previewCommentsStore");
+  const { previewStore } = await import("../previewStore");
+  const { selectPreviewTarget } = await import("../previewSelection");
+  const element = dom.window.document.createElement("div");
+  element.setAttribute("data-camox-field-id", "7__title");
+  element.getBoundingClientRect = () => {
+    throw new Error("popover must use cached geometry");
+  };
+  const target = { kind: "block-field", blockId: 7, fieldName: "title" } as const;
+  const originalCreate = api.create;
+  const originalList = api.list;
+  let complete!: (comment: Comment) => void;
+  api.create = () =>
+    new Promise((resolve) => {
+      complete = resolve;
+    });
+  api.list = async () => [];
+  dom.client.setQueryData(["comments", 3], []);
+  try {
+    previewCommentsStore.send({ type: "clearSelection" });
+    previewStore.send({ type: "enterEditMode" });
+    previewStore.send({ type: "setCommentMode", enabled: true });
+    await dom.render(
+      <>
+        <AttachedComments pageId={3} {...target} />
+        <CanvasPageCommentIndicators
+          pageId={3}
+          activate={() => {}}
+          targets={[
+            {
+              element: element as unknown as Element,
+              bounds: { x: 10, y: 20, width: 100, height: 30 },
+              rects: [],
+              visible: true,
+              synced: false,
+              hovered: false,
+              focused: false,
+              inline: false,
+            },
+          ]}
+        />
+        <button data-outside>Outside</button>
+      </>,
+    );
+    await React.act(async () => {
+      selectPreviewTarget(
+        { type: "block-field", blockId: 7, fieldName: "title", fieldType: "String" },
+        { kind: "page", pageId: 3 },
+        { currentTarget: element as unknown as Element, preventDefault() {}, stopPropagation() {} },
+      );
+    });
+    const popup = dom.host.querySelector('[role="dialog"]')!;
+    assert.ok(popup);
+    assert.equal(dom.window.document.activeElement, popup.querySelector("textarea"));
+    assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
+      type: "block-field",
+      blockId: 7,
+      fieldName: "title",
+      fieldType: "String",
+    });
+    assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
+    assert.equal(dom.host.querySelector("[data-canvas-comment-group]"), null);
+    await React.act(async () => {
+      previewCommentsStore.send({ type: "setMessage", message: "Pending comment" });
+    });
+    const draft = previewCommentsStore.getSnapshot().context.draft!;
+    await React.act(async () => {
+      popup
+        .querySelector("textarea")!
+        .dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    const outside = dom.host.querySelector("[data-outside]")!;
+    assert.ok(outside instanceof dom.window.HTMLButtonElement);
+    await React.act(async () => {
+      outside.dispatchEvent(new dom.window.PointerEvent("pointerdown", { bubbles: true }));
+      outside.focus();
+    });
+    assert.equal(dom.host.querySelector('[role="dialog"]'), null);
+    await React.act(async () => {
+      complete(await originalCreate(draft));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    assert.equal(
+      dom.window.document.activeElement,
+      outside,
+      "late submission must not reclaim focus",
+    );
+  } finally {
+    api.create = originalCreate;
+    api.list = originalList;
+    await dom.close();
+    previewCommentsStore.send({ type: "clearSelection" });
+    previewStore.send({ type: "exitEditMode" });
+  }
+});
+
+void test("sidebar comment composers do not autofocus on draft focus requests", async () => {
+  const dom = await setupDom();
+  const { AttachedComments } = await import("./AttachedComments");
+  const { previewCommentsStore } = await import("../previewCommentsStore");
+  dom.client.setQueryData(["comments", 3], []);
+  try {
+    previewCommentsStore.send({ type: "clearSelection" });
+    await dom.render(
+      <>
+        <button>Keep focus</button>
+        <AttachedComments pageId={3} />
+      </>,
+    );
+    const button = dom.host.querySelector("button")!;
+    button.focus();
+    await React.act(async () => {
+      previewCommentsStore.send({
+        type: "startComment",
+        pageId: 3,
+        target: { kind: "page" },
+        focusComposer: true,
+      });
+    });
+    assert.ok(dom.window.document.activeElement === button);
+  } finally {
+    await dom.close();
+    previewCommentsStore.send({ type: "clearSelection" });
+  }
 });
 
 void test("only View opens feedback's editor without deleting cached comments", async () => {

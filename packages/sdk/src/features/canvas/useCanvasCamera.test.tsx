@@ -939,6 +939,29 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
       "wheel gestures over controls belong to the canvas",
     );
 
+    const popover = dom.document.createElement("div");
+    popover.setAttribute("data-canvas-overlay-scroll", "");
+    const composer = dom.document.createElement("textarea");
+    popover.append(composer);
+    viewport.append(popover);
+    const beforePopoverScroll = style.cssText;
+    for (const deltaX of [0, 20]) {
+      const event = new dom.WheelEvent("wheel", {
+        deltaX,
+        deltaY: 100,
+        bubbles: true,
+        cancelable: true,
+      });
+      composer.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, false, "popover wheel input keeps native scrolling");
+      assert.equal(
+        style.cssText,
+        beforePopoverScroll,
+        "scrolling feedback does not pan the canvas",
+      );
+    }
+    popover.remove();
+
     Object.defineProperty(input, "getBoundingClientRect", {
       value: () => ({ left: 1100, top: 20, right: 1300, bottom: 48 }),
     });
