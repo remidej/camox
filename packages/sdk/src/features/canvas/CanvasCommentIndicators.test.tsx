@@ -83,8 +83,45 @@ void test("maps unresolved field comments to exact visible field geometry", asyn
       y,
     })),
     [
-      { id: "block-field", x: 20, y: 40 },
-      { id: "item-field", x: 30, y: 160 },
+      { id: "block-field", x: 120, y: 40 },
+      { id: "item-field", x: 130, y: 160 },
+    ],
+  );
+  await window.happyDOM.close();
+});
+
+void test("maps blocks and nested repeater items to their own visible top-right anchors", async () => {
+  const window = new Window();
+  const document = window.document as unknown as Document;
+  const block = field(document, "", 10, 20);
+  block.element.setAttribute("data-camox-block-id", "12");
+  const item = field(document, "", 30, 100);
+  item.element.setAttribute("data-camox-repeater-item-id", "34");
+  block.element.appendChild(item.element);
+  const nested = field(document, "", 40, 200);
+  nested.element.setAttribute("data-camox-repeater-item-id", "35");
+  item.element.appendChild(nested.element);
+  const hidden = { ...block, visible: false };
+  const comments = [
+    comment("block", { kind: "block", blockId: 12 }),
+    comment("item", { kind: "item", blockId: 12, itemId: 34 }),
+    comment("nested", { kind: "item", blockId: 12, itemId: 35 }),
+    comment("wrong-owner", { kind: "item", blockId: 99, itemId: 34 }),
+    comment("missing", { kind: "block", blockId: 99 }),
+    comment("resolved", { kind: "block", blockId: 12 }, { resolved: true }),
+    comment("page", { kind: "page" }),
+    comment("deleted", null),
+  ];
+  assert.deepEqual(
+    canvasCommentIndicators(comments, [block, item, nested, hidden]).map(({ comment, x, y }) => ({
+      id: comment.id,
+      x,
+      y,
+    })),
+    [
+      { id: "block", x: 110, y: 20 },
+      { id: "item", x: 130, y: 100 },
+      { id: "nested", x: 140, y: 200 },
     ],
   );
   await window.happyDOM.close();
@@ -114,8 +151,8 @@ void test("groups nearby comments transitively while preserving distant field an
       y: group.y,
     })),
     [
-      { comments: ["a", "b", "c"], x: 10, y: 100 },
-      { comments: ["d"], x: 400, y: 200 },
+      { comments: ["a", "b", "c"], x: 110, y: 100 },
+      { comments: ["d"], x: 500, y: 200 },
     ],
   );
   await window.happyDOM.close();
@@ -164,7 +201,7 @@ void test("zooming out groups comments that separate again when zooming in", asy
   await window.happyDOM.close();
 });
 
-void test("renders a clickable comment above its field in the host overlay", async () => {
+void test("renders a rounded clickable comment inset from its field's top-right corner", async () => {
   const window = new Window();
   const globals = {
     React,
@@ -210,21 +247,24 @@ void test("renders a clickable comment above its field in the host overlay", asy
     const group = window.document.querySelector(
       "[data-canvas-comment-group]",
     ) as unknown as HTMLElement;
-    assert.equal(group.style.left, "calc(20px * var(--canvas-zoom, 1))");
-    assert.equal(group.style.top, "calc(40px * var(--canvas-zoom, 1))");
+    assert.equal(group.style.left, "calc(120px * var(--canvas-zoom, 1) - 4px)");
+    assert.equal(group.style.top, "calc(40px * var(--canvas-zoom, 1) + 4px)");
     const button = group.querySelector("button")!;
+    assert.ok(button.classList.contains("block"), "no inline baseline gap below the indicator");
+    assert.equal(button.querySelector("svg"), null);
+    assert.equal(group.style.transform, "translateX(-100%)");
     assert.equal(button.getAttribute("aria-label"), "View comment from Grace Hopper on title");
-    assert.ok(button.querySelector("[data-comment-cursor]"));
+    const avatar = button.querySelector("[data-comment-indicator-avatar]")!;
+    assert.ok(avatar.classList.contains("rounded-full"));
+    assert.ok(avatar.classList.contains("bg-[var(--camox-overlay-color-selected)]"));
+    assert.ok(
+      avatar.querySelector('[data-slot="avatar-group"] [data-slot="avatar"]'),
+      "single indicators use the same avatar ring as grouped indicators",
+    );
     assert.ok(button.querySelector('[data-slot="avatar"]'));
     assert.ok(
       button.querySelector('[data-slot="avatar-fallback"]')?.classList.contains("bg-muted"),
     );
-    assert.equal(
-      button.querySelector("path")?.getAttribute("d"),
-      "M16 1a15 15 0 0 1 0 30H1V16A15 15 0 0 1 16 1Z",
-    );
-    assert.equal(button.querySelector("path")?.getAttribute("stroke"), null);
-    assert.ok(button.querySelector("path")?.classList.contains("fill-primary"));
     await React.act(async () => button.click());
     assert.deepEqual(selected, ["comment-1"]);
 
@@ -252,7 +292,7 @@ void test("renders a clickable comment above its field in the host overlay", asy
       '[aria-label="Zoom in to separate 2 nearby comments"]',
     )!;
     assert.equal(trigger.querySelector("[data-comment-count]")?.textContent, "2");
-    assert.ok(trigger.querySelector("[data-comment-cursor]"));
+    assert.ok(trigger.querySelector("[data-comment-indicator-avatar]"));
     assert.equal(trigger.hasAttribute("data-canvas-overlay-control"), true);
     await React.act(async () => {
       trigger.dispatchEvent(
@@ -283,14 +323,69 @@ void test("renders a clickable comment above its field in the host overlay", asy
     const avatarGroup = sameField.querySelector("[data-canvas-comment-avatar-group]")!;
     assert.equal(avatarGroup.querySelectorAll('[data-slot="avatar"]').length, 2);
     assert.equal(sameField.querySelector("[data-comment-count]"), null);
-    assert.ok(sameField.hasAttribute("data-comment-cursor-capsule"));
-    assert.ok(sameField.classList.contains("bg-primary"));
-    assert.equal((sameField as unknown as HTMLElement).style.borderBottomLeftRadius, "0px");
+    assert.ok(sameField.hasAttribute("data-comment-capsule"));
+    assert.ok(sameField.classList.contains("bg-[var(--camox-overlay-color-selected)]"));
+    assert.ok(sameField.classList.contains("rounded-full"));
+    assert.equal((sameField as unknown as HTMLElement).style.borderBottomLeftRadius, "");
     await React.act(async () => {
       sameField.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
     assert.deepEqual(selected, ["comment-1", "comment-1"]);
     assert.equal(zooms.length, 1);
+
+    for (const target of [
+      { kind: "block", blockId: 12 },
+      { kind: "item", blockId: 12, itemId: 34 },
+      { kind: "page" },
+    ] satisfies CommentTarget[]) {
+      const anchor = field(window.document as unknown as Document, "", 20, 40);
+      anchor.synced = true;
+      anchor.element.setAttribute("data-camox-block-id", "12");
+      if (target.kind === "item") anchor.element.setAttribute("data-camox-repeater-item-id", "34");
+      const label = target.kind === "item" ? "repeater item" : target.kind;
+      for (const count of [1, 2]) {
+        await React.act(async () => {
+          root.render(
+            <CanvasCommentIndicators
+              comments={[
+                ...Array.from({ length: count }, (_, index) => comment(`new-${index}`, target)),
+                comment("resolved", target, { resolved: true }),
+                comment("deleted", null),
+                ...(target.kind === "page"
+                  ? [comment("not-page", { kind: "block", blockId: 12 })]
+                  : [comment("not-preview", { kind: "page" })]),
+              ]}
+              targets={[anchor]}
+              placement={target.kind === "page" ? "header" : "preview"}
+              onSelect={(entry) => selected.push(entry.id)}
+            />,
+          );
+        });
+        const groups = window.document.querySelectorAll("[data-canvas-comment-group]");
+        assert.equal(groups.length, 1);
+        const group = groups[0] as unknown as HTMLElement;
+        assert.equal(
+          group.getAttribute("data-camox-overlay-mode"),
+          target.kind === "page" ? null : "synced",
+        );
+        assert.equal(group.style.position, target.kind === "page" ? "" : "absolute");
+        assert.equal(
+          group.style.display,
+          target.kind === "page" ? "var(--canvas-overlays-display, block)" : "",
+          "page comments follow the camera's shared overlay visibility",
+        );
+        assert.equal(group.style.transform, target.kind === "page" ? "" : "translateX(-100%)");
+        const button = group.querySelector("button")!;
+        assert.equal(
+          button.getAttribute("aria-label"),
+          count === 1
+            ? `View comment from Ada Lovelace on ${label}`
+            : `View 2 comments on ${label}`,
+        );
+        await React.act(async () => button.click());
+        assert.equal(selected.at(-1), "new-0");
+      }
+    }
   } finally {
     await React.act(async () => root.unmount());
     await window.happyDOM.close();

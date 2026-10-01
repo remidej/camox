@@ -12,6 +12,7 @@ import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
+import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
 import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
 import { CanvasPageFrame } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
@@ -299,10 +300,30 @@ function CanvasWorkspace({
           <CanvasPageHeader
             page={page}
             pathname={pathname}
+            comments={
+              page.pageId != null && pathname ? (
+                <CanvasPageCommentIndicators
+                  pageId={page.pageId}
+                  targets={[]}
+                  placement="header"
+                  activate={() => {
+                    previewStore.send({ type: "activatePage", pageId: page.pageId! });
+                    onActivate(pathname, { kind: "page", pageId: page.pageId! });
+                    selectPage(pathname);
+                  }}
+                />
+              ) : null
+            }
             selected={page.key === selectedPage?.key}
             onHoverChange={(hovered) => setHoveredPageKey(hovered ? page.key : null)}
-            onSelect={() => {
-              if (pathname) selectPage(pathname);
+            onSelect={(commenting) => {
+              if (!pathname) return;
+              // Keep the clicked page's ownership through URL navigation, just
+              // like an interaction inside its frame.
+              if (commenting && page.pageId != null) {
+                onActivate(pathname, { kind: "page", pageId: page.pageId });
+              }
+              selectPage(pathname);
             }}
             onChange={(path) => {
               setPreviewPathnames((current) => ({ ...current, [page.key]: path }));

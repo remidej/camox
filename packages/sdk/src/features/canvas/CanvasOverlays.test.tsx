@@ -231,9 +231,10 @@ void test("outlines and interactive controls live above the frame, not in the pa
     range.selectNodeContents(text);
     range.getBoundingClientRect = () => new page.DOMRect(20, 80, 120, 24);
     const selection = page.document.getSelection()!;
-    selection.addRange(range);
-    // Happy DOM clones ranges when installing the selection.
-    selection.getRangeAt(0).getBoundingClientRect = () => range.getBoundingClientRect();
+    await React.act(async () => {
+      selection.addRange(range);
+    });
+    assert.equal(selection.getRangeAt(0), range, "selection retains the measured range");
     const selectionMessage = {
       type: "CAMOX_TEXT_SELECTION_STATE",
       hasSelection: true,

@@ -28,7 +28,8 @@ export type SelectionEvent = {
   stopPropagation(): void;
 };
 
-function commentTarget(selection: Selection): CommentTarget {
+function commentTarget(selection: Selection | null): CommentTarget {
+  if (!selection) return { kind: "page" };
   switch (selection.type) {
     case "block":
       return { kind: "block", blockId: selection.blockId };
@@ -48,7 +49,7 @@ function commentTarget(selection: Selection): CommentTarget {
 
 /** Both editing and commenting use the target already known by the editable component. */
 export function selectPreviewTarget(
-  selection: Selection,
+  selection: Selection | null,
   owner: EditingOwner | null,
   event?: SelectionEvent,
 ) {
@@ -56,7 +57,7 @@ export function selectPreviewTarget(
   if (!selectIsEditMode(snapshot)) return;
   if (!selectIsCommentMode(snapshot)) {
     if (owner === null) return;
-    if (selection.type === "block") {
+    if (selection?.type === "block") {
       previewStore.send({ type: "setFocusedBlock", ...owner, blockId: selection.blockId });
       return;
     }
@@ -72,7 +73,11 @@ export function selectPreviewTarget(
   const { pageId } = owner;
   const target = commentTarget(selection);
   previewCommentsStore.send({ type: "startComment", pageId, target, focusComposer: true });
-  revealCommentTarget(pageId, target, "fieldType" in selection ? selection.fieldType : undefined);
+  revealCommentTarget(
+    pageId,
+    target,
+    selection && "fieldType" in selection ? selection.fieldType : undefined,
+  );
 }
 
 export function usePreviewSelection() {

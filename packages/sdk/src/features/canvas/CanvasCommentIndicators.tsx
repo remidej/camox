@@ -8,7 +8,6 @@ import {
 } from "@camox/ui/avatar";
 import * as React from "react";
 
-import { COMMENT_CURSOR_PATH } from "../preview/commentCursor";
 import { usePageComments } from "../preview/usePageComments";
 import { useSelectComment } from "../preview/useSelectComment";
 import { MAX_CANVAS_ZOOM, type CanvasPoint } from "./canvasCamera";
@@ -19,11 +18,10 @@ import { useCanvasZoom, useCanvasZoomAt } from "./canvasZoom";
 const COMMENT_GROUP_SCREEN_DISTANCE = { x: 72, y: 40 };
 const COMMENT_AVATAR_GROUP_LIMIT = 3;
 
-type FieldCommentTarget = Extract<CommentTarget, { kind: "block-field" | "item-field" }>;
-
 export type CanvasCommentIndicator = {
   key: string;
-  comment: Comment & { target: FieldCommentTarget };
+  comment: Comment & { target: CommentTarget };
+  synced: boolean;
   x: number;
   y: number;
 };
@@ -31,39 +29,64 @@ export type CanvasCommentIndicator = {
 export type CanvasCommentIndicatorGroup = {
   key: string;
   indicators: CanvasCommentIndicator[];
+  synced: boolean;
   x: number;
   y: number;
 };
 
-function commentFieldId(target: FieldCommentTarget) {
-  return target.kind === "item-field"
-    ? `${target.blockId}__${target.itemId}__${target.fieldName}`
-    : `${target.blockId}__${target.fieldName}`;
+function commentTargetKey(target: CommentTarget): string {
+  switch (target.kind) {
+    case "page":
+      return "page";
+    case "block":
+      return `block:${target.blockId}`;
+    case "item":
+      return `item:${target.blockId}:${target.itemId}`;
+    case "block-field":
+      return `field:${target.blockId}__${target.fieldName}`;
+    case "item-field":
+      return `field:${target.blockId}__${target.itemId}__${target.fieldName}`;
+  }
+}
+
+function commentTargetLabel(target: CommentTarget) {
+  if ("fieldName" in target) return target.fieldName;
+  if (target.kind === "item") return "repeater item";
+  return target.kind;
 }
 
 export function canvasCommentIndicators(
   comments: Comment[],
   targets: CanvasOverlayTarget[],
 ): CanvasCommentIndicator[] {
-  const fields = new Map<string, { target: CanvasOverlayTarget; index: number }[]>();
+  const anchors = new Map<string, { target: CanvasOverlayTarget; index: number }[]>();
   targets.forEach((target, index) => {
     if (!target.visible) return;
-    const fieldId = target.element.getAttribute("data-camox-field-id");
-    if (!fieldId) return;
-    const entries = fields.get(fieldId) ?? [];
-    entries.push({ target, index });
-    fields.set(fieldId, entries);
+    const { element } = target;
+    const keys: string[] = [];
+    const fieldId = element.getAttribute("data-camox-field-id");
+    if (fieldId) keys.push(`field:${fieldId}`);
+    const blockId = element.getAttribute("data-camox-block-id");
+    if (blockId) keys.push(`block:${blockId}`);
+    const itemId = element.getAttribute("data-camox-repeater-item-id");
+    const ownerId = element.closest("[data-camox-block-id]")?.getAttribute("data-camox-block-id");
+    if (itemId && ownerId) keys.push(`item:${ownerId}:${itemId}`);
+    for (const key of keys) {
+      const entries = anchors.get(key) ?? [];
+      entries.push({ target, index });
+      anchors.set(key, entries);
+    }
   });
 
   return comments.flatMap((comment) => {
     if (comment.resolved || !comment.target) return [];
-    if (comment.target.kind !== "block-field" && comment.target.kind !== "item-field") return [];
     const target = comment.target;
-    return (fields.get(commentFieldId(target)) ?? []).map(({ target: field, index }) => ({
+    return (anchors.get(commentTargetKey(target)) ?? []).map(({ target: anchor, index }) => ({
       key: `${comment.id}:${index}`,
       comment: { ...comment, target },
-      x: field.bounds.x,
-      y: field.bounds.y,
+      synced: anchor.synced,
+      x: anchor.bounds.x + anchor.bounds.width,
+      y: anchor.bounds.y,
     }));
   });
 }
@@ -111,6 +134,7 @@ export function groupCanvasCommentIndicators(
     return {
       key: members.map((indicator) => indicator.key).join(","),
       indicators: uniqueMembers,
+      synced: anchor.synced,
       x: anchor.x,
       y: anchor.y,
     };
@@ -125,7 +149,7 @@ export function canvasCommentGroupDistance(zoom: number) {
 }
 
 function commentObjectKey(indicator: CanvasCommentIndicator) {
-  return commentFieldId(indicator.comment.target);
+  return commentTargetKey(indicator.comment.target);
 }
 
 export function canvasCommentSeparationZoom(
@@ -171,19 +195,16 @@ function CommentAvatar({ comment }: { comment: Comment }) {
   );
 }
 
-function CommentCursorAvatar({ comment }: { comment: Comment }) {
+function CommentIndicatorAvatar({ comment }: { comment: Comment }) {
   return (
     <span
-      data-comment-cursor
-      className="relative block size-8 shrink-0 drop-shadow-md"
+      data-comment-indicator-avatar
+      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--camox-overlay-color-selected)] p-1 shadow-md"
       aria-hidden="true"
     >
-      <svg className="pointer-events-none absolute inset-0 size-8" viewBox="0 0 32 32">
-        <path className="fill-primary" d={COMMENT_CURSOR_PATH} />
-      </svg>
-      <span className="absolute top-1 right-1">
+      <AvatarGroup>
         <CommentAvatar comment={comment} />
-      </span>
+      </AvatarGroup>
     </span>
   );
 }
@@ -201,15 +222,15 @@ function CommentButton({
       type="button"
       data-canvas-overlay-control
       data-canvas-comment={comment.id}
-      className="focus-visible:ring-ring size-8 outline-none focus-visible:ring-2"
-      aria-label={`View comment from ${comment.author.name} on ${comment.target.fieldName}`}
+      className="focus-visible:ring-ring block size-8 rounded-full outline-none focus-visible:ring-2"
+      aria-label={`View comment from ${comment.author.name} on ${commentTargetLabel(comment.target)}`}
       title={comment.message}
       onClick={(event) => {
         event.stopPropagation();
         onSelect(comment);
       }}
     >
-      <CommentCursorAvatar comment={comment} />
+      <CommentIndicatorAvatar comment={comment} />
     </button>
   );
 }
@@ -220,29 +241,52 @@ export function CanvasCommentIndicators({
   zoom = 1,
   onZoom,
   onSelect,
+  placement = "preview",
 }: {
   comments: Comment[];
   targets: CanvasOverlayTarget[];
   zoom?: number;
   onZoom?: (point: CanvasPoint, scale: number) => void;
   onSelect: (comment: Comment) => void;
+  placement?: "preview" | "header";
 }) {
-  const groups = groupCanvasCommentIndicators(
-    canvasCommentIndicators(comments, targets),
-    canvasCommentGroupDistance(zoom),
-  );
+  const indicators =
+    placement === "header"
+      ? comments.flatMap((comment): CanvasCommentIndicator[] => {
+          if (comment.resolved || comment.target?.kind !== "page") return [];
+          return [
+            {
+              key: comment.id,
+              comment: { ...comment, target: comment.target },
+              synced: false,
+              x: 0,
+              y: 0,
+            },
+          ];
+        })
+      : canvasCommentIndicators(comments, targets);
+  const groups = groupCanvasCommentIndicators(indicators, canvasCommentGroupDistance(zoom));
   return groups.map((group) => {
-    const style: React.CSSProperties = {
-      position: "absolute",
-      left: `calc(${group.x}px * var(--canvas-zoom, 1))`,
-      top: `calc(${group.y}px * var(--canvas-zoom, 1))`,
-      transform: "translateY(-100%)",
-      zIndex: 20,
-      pointerEvents: "auto",
-    };
+    const style: React.CSSProperties =
+      placement === "header"
+        ? { flexShrink: 0, display: "var(--canvas-overlays-display, block)" }
+        : {
+            position: "absolute",
+            // Keep the inset screen-sized, just like the indicator itself.
+            left: `calc(${group.x}px * var(--canvas-zoom, 1) - 4px)`,
+            top: `calc(${group.y}px * var(--canvas-zoom, 1) + 4px)`,
+            transform: "translateX(-100%)",
+            zIndex: 20,
+            pointerEvents: "auto",
+          };
     if (group.indicators.length === 1) {
       return (
-        <div key={group.key} data-canvas-comment-group="1" style={style}>
+        <div
+          key={group.key}
+          data-canvas-comment-group="1"
+          data-camox-overlay-mode={group.synced ? "synced" : undefined}
+          style={style}
+        >
           <CommentButton indicator={group.indicators[0]!} onSelect={onSelect} />
         </div>
       );
@@ -255,14 +299,18 @@ export function CanvasCommentIndicators({
       const visible = group.indicators.slice(0, COMMENT_AVATAR_GROUP_LIMIT);
       const remaining = group.indicators.length - visible.length;
       return (
-        <div key={group.key} data-canvas-comment-group={group.indicators.length} style={style}>
+        <div
+          key={group.key}
+          data-canvas-comment-group={group.indicators.length}
+          data-camox-overlay-mode={group.synced ? "synced" : undefined}
+          style={style}
+        >
           <button
             type="button"
             data-canvas-overlay-control
-            data-comment-cursor-capsule
-            className="focus-visible:ring-ring bg-primary relative block h-8 rounded-full p-1 shadow-md outline-none focus-visible:ring-2"
-            style={{ borderBottomLeftRadius: 0 }}
-            aria-label={`View ${group.indicators.length} comments on ${group.indicators[0]!.comment.target.fieldName}`}
+            data-comment-capsule
+            className="focus-visible:ring-ring relative block h-8 rounded-full bg-[var(--camox-overlay-color-selected)] p-1 shadow-md outline-none focus-visible:ring-2"
+            aria-label={`View ${group.indicators.length} comments on ${commentTargetLabel(group.indicators[0]!.comment.target)}`}
             onClick={(event) => {
               event.stopPropagation();
               onSelect(group.indicators[0]!.comment);
@@ -279,11 +327,16 @@ export function CanvasCommentIndicators({
       );
     }
     return (
-      <div key={group.key} data-canvas-comment-group={group.indicators.length} style={style}>
+      <div
+        key={group.key}
+        data-canvas-comment-group={group.indicators.length}
+        data-camox-overlay-mode={group.synced ? "synced" : undefined}
+        style={style}
+      >
         <button
           type="button"
           data-canvas-overlay-control
-          className="focus-visible:ring-ring relative block size-8 outline-none focus-visible:ring-2"
+          className="focus-visible:ring-ring relative block size-8 rounded-full outline-none focus-visible:ring-2"
           aria-label={`Zoom in to separate ${group.indicators.length} nearby comments`}
           onClick={(event) => {
             event.stopPropagation();
@@ -293,10 +346,10 @@ export function CanvasCommentIndicators({
             );
           }}
         >
-          <CommentCursorAvatar comment={group.indicators[0]!.comment} />
+          <CommentIndicatorAvatar comment={group.indicators[0]!.comment} />
           <span
             data-comment-count={group.indicators.length}
-            className="bg-primary text-primary-foreground ring-background absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-4 font-medium ring-2"
+            className="text-primary-foreground ring-background absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-[var(--camox-overlay-color-selected)] px-1 text-[10px] leading-4 font-medium ring-2"
           >
             {group.indicators.length}
           </span>
@@ -310,6 +363,7 @@ type CanvasPageCommentIndicatorsProps = {
   pageId: number;
   targets: CanvasOverlayTarget[];
   activate: () => void;
+  placement?: "preview" | "header";
 };
 
 function sameCommentGeometry(
@@ -317,11 +371,13 @@ function sameCommentGeometry(
   next: CanvasPageCommentIndicatorsProps,
 ) {
   if (previous.pageId !== next.pageId || previous.activate !== next.activate) return false;
+  if (previous.placement !== next.placement) return false;
   if (previous.targets.length !== next.targets.length) return false;
   return previous.targets.every(
     (target, index) =>
       target.element === next.targets[index]!.element &&
       target.bounds === next.targets[index]!.bounds &&
+      target.synced === next.targets[index]!.synced &&
       target.visible === next.targets[index]!.visible,
   );
 }
@@ -330,6 +386,7 @@ export const CanvasPageCommentIndicators = React.memo(function CanvasPageComment
   pageId,
   targets,
   activate,
+  placement,
 }: CanvasPageCommentIndicatorsProps) {
   const comments = usePageComments(pageId);
   const selectComment = useSelectComment(pageId);
@@ -339,6 +396,7 @@ export const CanvasPageCommentIndicators = React.memo(function CanvasPageComment
     <CanvasCommentIndicators
       comments={comments.data ?? []}
       targets={targets}
+      placement={placement}
       zoom={zoom}
       onZoom={(point, scale) => {
         activate();
