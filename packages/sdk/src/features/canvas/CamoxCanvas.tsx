@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
-import { pageQueries, projectQueries } from "../../lib/queries";
+import { pageMutations, pageQueries, projectQueries } from "../../lib/queries";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
@@ -28,6 +28,8 @@ import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 
 const CANVAS_PAGE_GAP = 240;
+// Device selection resizes previews, not their reserved space in the canvas.
+const CANVAS_SLOT_WIDTH = CANVAS_DEVICES.desktop.width;
 type CanvasViewport = { width: number; height: number };
 
 function usePreparationFailure(error: Error | null, selected = true) {
@@ -162,6 +164,17 @@ function CanvasWorkspace({
   onActivate: (pathname: string, owner: EditingOwner) => void;
 }) {
   const { apiUrl, projectSlug, environmentName } = useAuthContext();
+  const queryClient = useQueryClient();
+  const updatePage = useMutation(pageMutations.update());
+  const renamePage = async (pageId: number, nickname: string) => {
+    const page = await queryClient.fetchQuery(pageQueries.getById(pageId));
+    await updatePage.mutateAsync({
+      id: pageId,
+      nickname,
+      pathSegment: page.pathSegment,
+      parentPageId: page.parentPageId,
+    });
+  };
   const location = useLocation();
   const navigate = useNavigate();
   const [hoveredPageKey, setHoveredPageKey] = React.useState<string | null>(null);
@@ -185,21 +198,21 @@ function CanvasWorkspace({
     page,
     pathname:
       page.key === selectedPage?.key ? selectedPath : (previewPathnames[page.key] ?? page.pathname),
-    left: index * (viewport.width + CANVAS_PAGE_GAP),
+    left: index * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
   }));
   const { viewportRef, contentRef, flyToPage, cancelFlight, zoomAt } = useCanvasCamera(
     workspaceKey,
     selectedIndex < 0
       ? undefined
       : {
-          left: selectedIndex * (viewport.width + CANVAS_PAGE_GAP),
-          width: viewport.width,
+          left: selectedIndex * (CANVAS_SLOT_WIDTH + CANVAS_PAGE_GAP),
+          width: CANVAS_SLOT_WIDTH,
         },
     {
       pages: positionedPages.map(({ page, left }) => ({
         key: page.key,
         left,
-        width: viewport.width,
+        width: CANVAS_SLOT_WIDTH,
       })),
       onSelect: (key) => {
         const pathname = positionedPages.find(({ page }) => page.key === key)?.pathname;
@@ -251,7 +264,7 @@ function CanvasWorkspace({
               key={page.key}
               data-canvas-slot={page.key}
               className="flex shrink-0 justify-center"
-              style={{ width: viewport.width }}
+              style={{ width: CANVAS_SLOT_WIDTH }}
             >
               <div
                 data-canvas-page={page.key}
@@ -293,13 +306,16 @@ function CanvasWorkspace({
           style={{
             height: CANVAS_HEADER_HEIGHT,
             transform: `translate(calc(var(--canvas-x, 64px) + ${left}px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - ${CANVAS_HEADER_HEIGHT}px))`,
-            width: `calc(${viewport.width}px * var(--canvas-zoom, .4))`,
+            width: `calc(${CANVAS_SLOT_WIDTH}px * var(--canvas-zoom, .4))`,
             willChange: "transform",
           }}
         >
           <CanvasPageHeader
             page={page}
             pathname={pathname}
+            onRename={
+              page.pageId != null ? (nickname) => renamePage(page.pageId!, nickname) : undefined
+            }
             comments={
               page.pageId != null && pathname ? (
                 <CanvasPageCommentIndicators

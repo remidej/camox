@@ -45,6 +45,7 @@ void test("canvas names report selection without changing preview state or editi
       let selections = 0;
       const commentSelections: boolean[] = [];
       const hovers: boolean[] = [];
+      const renames: string[] = [];
       const render = async (selected: boolean) =>
         act(async () =>
           root.render(
@@ -58,11 +59,18 @@ void test("canvas names report selection without changing preview state or editi
               }}
               onHoverChange={(hovered) => hovers.push(hovered)}
               onChange={(path) => changes.push(path)}
+              onRename={
+                page.pageId == null
+                  ? undefined
+                  : async (name) => {
+                      renames.push(name);
+                    }
+              }
             />,
           ),
         );
       await render(false);
-      const name = mount.querySelector("button")!;
+      let name = mount.querySelector("button")!;
       assert.equal(name.textContent, page.title);
       assert.equal(name.getAttribute("aria-pressed"), "false");
       await act(async () => {
@@ -80,6 +88,20 @@ void test("canvas names report selection without changing preview state or editi
       assert.equal(dom.document.querySelector('[role="dialog"]'), null);
       assert.deepEqual(changes, []);
       assert.equal(dom.location.pathname, "/camox/canvas");
+      await act(async () => name.dispatchEvent(new dom.MouseEvent("dblclick", { bubbles: true })));
+      const input = mount.querySelector('input[aria-label="Page nickname"]');
+      if (page.pageId != null) {
+        assert.ok(input);
+        assert.equal(dom.document.activeElement, input);
+        await act(async () => {
+          input.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        });
+        assert.equal(mount.querySelector("input"), null);
+        assert.deepEqual(renames, []);
+        name = mount.querySelector("button")!;
+      } else {
+        assert.equal(input, null, "code-defined titles cannot be renamed");
+      }
       await act(async () => {
         previewStore.send({ type: "enterEditMode" });
         previewStore.send({ type: "setCommentMode", enabled: true });

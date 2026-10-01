@@ -11,12 +11,15 @@ registerHooks({
     if (!context.parentURL?.endsWith("/CamoxCanvas.tsx")) return nextResolve(specifier, context);
     let source: string | undefined;
     if (specifier === "@tanstack/react-query")
-      source = "export const useQuery = (options) => globalThis.CanvasQueryProbe(options)";
+      source = `export const useQuery = (options) => globalThis.CanvasQueryProbe(options);
+        export const useMutation = () => ({});
+        export const useQueryClient = () => ({});`;
     if (specifier.endsWith("/auth"))
       source = `export const useProjectSlug = () => "site";
         export const useAuthContext = () => ({apiUrl: "", projectSlug: "site"});`;
     if (specifier.endsWith("/queries"))
       source = `export const projectQueries = {getBySlug: () => ({queryKey: ["project"]})};
+        export const pageMutations = {update: () => ({})};
         export const pageQueries = {list: () => ({queryKey: ["pages"]})};`;
     if (specifier.endsWith("/navigation"))
       source = `export const useLocation = () => globalThis.CanvasLocation;
