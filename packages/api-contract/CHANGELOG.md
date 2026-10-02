@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...@camox/api-contract-v0.45.0) (2026-10-02)
+
+
+### Features
+
+* **collections:** add item authoring with media library assets ([0017fcc](https://github.com/remidej/camox/commit/0017fccc67a3870df4405a560cc99490c3d0cee2))
+* **content:** add experimental collection browsing and item forms ([6c211bb](https://github.com/remidej/camox/commit/6c211bb51ed661b16202c93b751c6185730298d6))
+
+
+### Miscellaneous
+
+* merge main into canvas landing ([6eb58c6](https://github.com/remidej/camox/commit/6eb58c6b36332a982b0330c45c26c0795c5e1112))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/api-contract-v0.44.0) (2026-09-24)
 
 
