@@ -1,5 +1,83 @@
 # Changelog
 
+## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...camox-v0.45.0) (2026-10-02)
+
+
+### Features
+
+* **api:** optimize short videos at source resolution ([2436b6a](https://github.com/remidej/camox/commit/2436b6a0d96a15af72633897ec8a3204705d9ffb))
+* **cli:** expose layout-owned block discovery ([975bf9a](https://github.com/remidej/camox/commit/975bf9a8056810272f24864ade2b87fbaf148418))
+* **collections:** add definitions and record lifecycle ([b3c36fc](https://github.com/remidej/camox/commit/b3c36fcc4490b0f160b6394b069866ab321af4f7))
+* **collections:** add item authoring with media library assets ([0017fcc](https://github.com/remidej/camox/commit/0017fccc67a3870df4405a560cc99490c3d0cee2))
+* **collections:** add standalone record publication and AI tools ([84c9e20](https://github.com/remidej/camox/commit/84c9e202ee678d254f314081034e5423296959cb))
+* **collections:** support single references and additive schemas ([853ff52](https://github.com/remidej/camox/commit/853ff5297abce35eaa28675345cbe10d2aaa1db0))
+* **content:** add experimental collection browsing and item forms ([6c211bb](https://github.com/remidej/camox/commit/6c211bb51ed661b16202c93b751c6185730298d6))
+* **dev:** isolate worktree sessions and open playground sign-in ([e5615b6](https://github.com/remidej/camox/commit/e5615b64c679404cd9ba0f360e5aa3e1df4c1f4f))
+* **sdk:** add experimental multi-page canvas ([c953e0f](https://github.com/remidej/camox/commit/c953e0fa14fa0ef425d9f400772c12492d29b864))
+* **sdk:** add page hover overlays ([#123](https://github.com/remidej/camox/issues/123)) ([0e6e275](https://github.com/remidej/camox/commit/0e6e275ad3969da19a0c5227de3dbc7969317fdb))
+* **sdk:** add URL-selected canvas pages and shared sidebars ([d55d468](https://github.com/remidej/camox/commit/d55d4688886a0073c1f171d253cb62360834b4ab))
+* **sdk:** animate canvas navigation with smooth camera flights ([97a18a3](https://github.com/remidej/camox/commit/97a18a359aa793f51a1bb8574b187d335225d0d0))
+* **sdk:** edit collection items in modals ([de60791](https://github.com/remidej/camox/commit/de607911d1913a82ff7d83dbc0d499aa9fe79d16))
+* **sdk:** enable feedback by default ([26ee749](https://github.com/remidej/camox/commit/26ee749f00e51cf57b1e4dabd13b38850a57825e))
+* **sdk:** enable interactive canvas editing ([9496b27](https://github.com/remidej/camox/commit/9496b273154f2743dadf4c8bc2f932435433c770))
+* **sdk:** extend canvas comment indicators to all page targets ([b8f0bbc](https://github.com/remidej/camox/commit/b8f0bbc294e458c737d1fd6bc8069069ec394200))
+* **sdk:** move live site control to navbar ([621fb2c](https://github.com/remidej/camox/commit/621fb2c7b88bcb8822a7457edcb2bb94e0ee71e7))
+* **sdk:** move preview overlays into the canvas ([284579d](https://github.com/remidej/camox/commit/284579d0c303265423979942d2ae4bc3b77fa160))
+* **sdk:** open canvas comments in inline popovers ([50a3b79](https://github.com/remidej/camox/commit/50a3b795884ce6bc6768e30f0de2b79a9d2417cb))
+* **sdk:** print authenticated development links ([20cbdb8](https://github.com/remidej/camox/commit/20cbdb8b77fd948dc5531fe7986a9240fc453f57))
+* **sdk:** render themed mountain image placeholders ([ad8cb8f](https://github.com/remidej/camox/commit/ad8cb8f5804a1a365ea4eb05d8224efcb04d238f))
+* **sdk:** replace add-block sidebar with a searchable grid dialog ([93ce362](https://github.com/remidej/camox/commit/93ce3624a7b78ea11c8edac749fe13449a38ccbb))
+* **sdk:** replace editable preview with canvas ([b0eda62](https://github.com/remidej/camox/commit/b0eda628823a1d8dbbfd1116fe3ab09fa2b6011d))
+* **sdk:** show field comments on canvas ([a3c2f4b](https://github.com/remidej/camox/commit/a3c2f4bfbe9f0ddd5b802e650e52ecffbe127af9))
+* **sdk:** show insertion seam guides ([6772f39](https://github.com/remidej/camox/commit/6772f39b9833f64125cc0a64a95cf13e8c501f02))
+* **sdk:** show site publication status in navbar ([8919e3e](https://github.com/remidej/camox/commit/8919e3e358fc749d84ade3032b6599fd60f99209))
+* **sdk:** snap canvas zoom to visible pages and assist vertical scrolling ([c1eaffd](https://github.com/remidej/camox/commit/c1eaffdb2b2d487879dfb51143289867d4065756))
+* **sdk:** stabilize canvas slots and enable inline page renaming ([35c8b2b](https://github.com/remidej/camox/commit/35c8b2bfc5174fc3282a6a3c9c3cc64496f927c2))
+
+
+### Bug Fixes
+
+* **api:** enforce JSON schemas before content writes ([d65f58c](https://github.com/remidej/camox/commit/d65f58cfe49ae3ef36615cb458815561f2f786d2)), closes [#122](https://github.com/remidej/camox/issues/122)
+* **api:** validate embed content before writes ([da08a1a](https://github.com/remidej/camox/commit/da08a1a715c4608cd7d5ecac1d75948db3b363a7)), closes [#113](https://github.com/remidej/camox/issues/113)
+* **content:** move assets to a dedicated route ([0b11a62](https://github.com/remidej/camox/commit/0b11a6208f43077c71e93f6584052df5f8dd5928))
+* lint errors ([8ca7cee](https://github.com/remidej/camox/commit/8ca7cee221965a4cd2090c69da863d15163fde09))
+* **sdk:** correct repeater and breadcrumb hover highlights ([424b641](https://github.com/remidej/camox/commit/424b64100c4795f390935b1c3c3f040c21defab8))
+* **sdk:** improve canvas zoom and horizontal snapping ([0879aed](https://github.com/remidej/camox/commit/0879aed2a0caf094a741b409a1c89dbb40efa1a0))
+* **sdk:** position preview toolbar beside selected text ([a42b898](https://github.com/remidej/camox/commit/a42b89895673c165bbd3381c540c837d04744b3f))
+* **sdk:** preserve viewport context across mode switches ([bdd0f8d](https://github.com/remidej/camox/commit/bdd0f8d5389fb2f404e919b96aca3f02c7a0a4a2))
+* **sdk:** prevent placeholder label selection ([40a450b](https://github.com/remidej/camox/commit/40a450bc385fb2cfff9eb22346db287126f09397))
+* **sdk:** refine preview layout and live-site availability ([a348724](https://github.com/remidej/camox/commit/a348724f7632e9a0818bb9b9c0c037fa507d8590))
+* **sdk:** restore realtime preview updates ([bcb6988](https://github.com/remidej/camox/commit/bcb6988e05f9c99363edb90c3d9f1c46c63ccee9))
+
+
+### Performance Improvements
+
+* **sdk:** promote canvas page headers ([2aa1535](https://github.com/remidej/camox/commit/2aa153545d7da2c36a5d94f85297fb72fdff4b2f))
+
+
+### Refactoring
+
+* **sdk:** migrate layout loaders to result envelopes ([6a9ec27](https://github.com/remidej/camox/commit/6a9ec271b2e1de4108a1310d5c4acc284a926680))
+* **sdk:** scope preview selection to its page or layout ([5a6e493](https://github.com/remidej/camox/commit/5a6e493519a1e600e828f3d5234d52368dafc0a9))
+
+
+### Documentation
+
+* **collections:** specify APIs and playground examples ([5e06837](https://github.com/remidej/camox/commit/5e06837e2007d7c938cff90ead6263619037c6b1))
+* **land:** prevent Nx socket path length errors ([248773a](https://github.com/remidej/camox/commit/248773aac6e61f582453fe8a4393dda83b957896))
+* record in-site AI editing platform RFC ([1b092f5](https://github.com/remidej/camox/commit/1b092f5d563a3fd25b21283e8ab14068de6f39e6))
+* **sdk:** document repeater callback index ([f2affa9](https://github.com/remidej/camox/commit/f2affa9ae245ae8f800954311cb0d55ec7e58b32))
+* specify collections v1 API and behavior ([7440062](https://github.com/remidej/camox/commit/744006248c2d356e05e2fab8aba651938aee1367))
+
+
+### Miscellaneous
+
+* integrate latest main into canvas flights ([dff55e0](https://github.com/remidej/camox/commit/dff55e0e71343c4bfe18f5cd4b305db4cf96864e))
+* merge main for collections landing ([c3237cb](https://github.com/remidej/camox/commit/c3237cb474543dac3c4fb042417ddfef5824ef2e))
+* merge main into canvas landing ([6eb58c6](https://github.com/remidej/camox/commit/6eb58c6b36332a982b0330c45c26c0795c5e1112))
+* merge main into schema validation landing ([21f15da](https://github.com/remidej/camox/commit/21f15da740dfdd991d50d0b194b31f51f941af8f))
+* **worktrees:** configure T3 Code setup ([1227455](https://github.com/remidej/camox/commit/12274554ac192fa6bfc47c1a7ab644e30aba71b4))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...camox-v0.44.0) (2026-09-24)
 
 
