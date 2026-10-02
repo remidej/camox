@@ -37,10 +37,14 @@ export function getSiteStatus(pages: readonly Pick<Page, "status">[]): SiteStatu
 }
 
 export function canViewLiveSite(
-  pages: readonly Pick<Page, "livePublishedCheckpointId">[],
+  pages: readonly Pick<Page, "status" | "livePublishedCheckpointId">[],
   previewSource: PreviewSource,
 ): boolean {
-  return previewSource === "draft" && pages.some((page) => page.livePublishedCheckpointId != null);
+  return (
+    previewSource === "draft" &&
+    getSiteStatus(pages) === "pending" &&
+    pages.some((page) => page.livePublishedCheckpointId != null)
+  );
 }
 
 export function SiteStatusIndicator({ isPreview }: { isPreview: boolean }) {

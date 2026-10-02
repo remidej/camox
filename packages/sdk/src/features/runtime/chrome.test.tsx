@@ -130,9 +130,23 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.equal(getSiteStatus([{ status: "published" }, { status: "published" }]), "live");
   assert.equal(getSiteStatus([{ status: "published" }, { status: "modified" }]), "pending");
   assert.equal(getSiteStatus([]), "pending");
-  assert.equal(canViewLiveSite([{ livePublishedCheckpointId: 1 }], "draft"), true);
-  assert.equal(canViewLiveSite([{ livePublishedCheckpointId: null }], "draft"), false);
-  assert.equal(canViewLiveSite([{ livePublishedCheckpointId: 1 }], "live"), false);
+  assert.equal(
+    canViewLiveSite([{ status: "modified", livePublishedCheckpointId: 1 }], "draft"),
+    true,
+  );
+  assert.equal(
+    canViewLiveSite([{ status: "published", livePublishedCheckpointId: 1 }], "draft"),
+    false,
+  );
+  assert.equal(
+    canViewLiveSite([{ status: "modified", livePublishedCheckpointId: null }], "draft"),
+    false,
+  );
+  assert.equal(
+    canViewLiveSite([{ status: "modified", livePublishedCheckpointId: 1 }], "live"),
+    false,
+  );
+  assert.equal(canViewLiveSite([], "draft"), false);
 
   const { getNavbarLinks, isContentNavbarPath } = await import("../studio/components/Navbar");
   assert.equal(isContentNavbarPath("/camox/content"), true);

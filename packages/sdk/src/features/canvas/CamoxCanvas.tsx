@@ -263,7 +263,7 @@ function CanvasWorkspace({
             <div
               key={page.key}
               data-canvas-slot={page.key}
-              className="flex shrink-0 justify-center"
+              className="flex shrink-0 justify-start"
               style={{ width: CANVAS_SLOT_WIDTH }}
             >
               <div

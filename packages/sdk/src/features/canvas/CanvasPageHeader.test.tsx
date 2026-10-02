@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { Window } from "happy-dom";
+import { type HTMLButtonElement, Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
 
@@ -70,7 +70,10 @@ void test("canvas names report selection without changing preview state or editi
           ),
         );
       await render(false);
-      let name = mount.querySelector("button")!;
+      const header = mount.querySelector("h2")!;
+      assert.equal(header.firstElementChild, mount.querySelector("[data-canvas-path]"));
+      assert.ok(header.classList.contains("flex-col"));
+      let name = mount.querySelector<HTMLButtonElement>("button[aria-pressed]")!;
       assert.equal(name.textContent, page.title);
       assert.equal(name.getAttribute("aria-pressed"), "false");
       await act(async () => {
@@ -98,7 +101,7 @@ void test("canvas names report selection without changing preview state or editi
         });
         assert.equal(mount.querySelector("input"), null);
         assert.deepEqual(renames, []);
-        name = mount.querySelector("button")!;
+        name = mount.querySelector<HTMLButtonElement>("button[aria-pressed]")!;
       } else {
         assert.equal(input, null, "code-defined titles cannot be renamed");
       }
