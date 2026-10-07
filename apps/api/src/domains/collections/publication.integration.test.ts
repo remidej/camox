@@ -1,9 +1,11 @@
 import { call } from "@orpc/server";
+import type { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { collectionsProvider } from "../../../../../packages/ai-tools/src/providers/collections";
 import { collection as customers } from "../../../../playground/src/collections/customers";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import type { BaseContext } from "../../orpc";
 import { agentProcedures } from "../agent/routes";
 import { collectionDefinitionProcedures as routes } from "./routes";
@@ -25,12 +27,14 @@ async function fixture() {
     },
   };
   const { id, ...definition } = customers._internal;
-  await syncCollectionDefinitions(createServiceContext(base.db, null), {
-    projectSlug: base.project.slug,
-    deployToken: "test-deploy-token",
-    autoCreate: false,
-    definitions: [JSON.parse(JSON.stringify({ ...definition, collectionId: id }))],
-  });
+  await runService(
+    syncCollectionDefinitions(createServiceContext(base.db, null), {
+      projectSlug: base.project.slug,
+      deployToken: "test-deploy-token",
+      autoCreate: false,
+      definitions: [JSON.parse(JSON.stringify({ ...definition, collectionId: id }))],
+    }),
+  );
   return {
     ...base,
     context,
@@ -98,7 +102,9 @@ describe("standalone customer publication", () => {
     expect(restored.draft).toEqual(created.draft);
     expect(restored.version).toBe(edited.version + 1);
     expect(restored.publishedRevisionId).toBe(published.record.publishedRevisionId);
-    expect(await readRecord(f.publicContext, target)).toMatchObject({ content: created.draft });
+    expect(await runService(readRecord(f.publicContext, target))).toMatchObject({
+      content: created.draft,
+    });
     expect(await call(routes.listRecords, f.scope, options)).toMatchObject([
       { status: "published" },
     ]);
@@ -125,7 +131,7 @@ describe("standalone customer publication", () => {
       },
       options,
     );
-    expect(await readRecord(f.publicContext, target)).toBeNull();
+    expect(await runService(readRecord(f.publicContext, target))).toBeNull();
     const mutations = [
       (input: typeof stale, context: BaseContext) => call(routes.publishRecord, input, { context }),
       (input: typeof stale, context: BaseContext) =>
@@ -176,7 +182,7 @@ describe("standalone customer publication", () => {
     expect(await call(routes.listRecords, f.scope, options)).toMatchObject([
       { status: "modified" },
     ]);
-    expect(await readRecord(f.publicContext, target)).toMatchObject({
+    expect(await runService(readRecord(f.publicContext, target))).toMatchObject({
       content: { name: "Ada Lovelace" },
     });
     const republished = await call(
@@ -184,7 +190,7 @@ describe("standalone customer publication", () => {
       { ...target, expectedVersion: draft.version },
       options,
     );
-    expect(await readRecord(f.publicContext, target)).toMatchObject({
+    expect(await runService(readRecord(f.publicContext, target))).toMatchObject({
       content: draft.draft,
     });
     expect(await call(routes.listRecords, f.scope, options)).toMatchObject([
@@ -199,7 +205,7 @@ describe("standalone customer publication", () => {
       options,
     );
     expect(removed.draft).toEqual(draft.draft);
-    expect(await readRecord(f.publicContext, target)).toBeNull();
+    expect(await runService(readRecord(f.publicContext, target))).toBeNull();
     expect(await call(routes.listRecords, f.scope, options)).toMatchObject([{ status: "draft" }]);
   });
 
@@ -223,20 +229,22 @@ describe("standalone customer publication", () => {
     });
     expect(created.ok).toBe(true);
     if (!created.ok) throw new Error(created.error.message);
-    const record = created.result as Awaited<ReturnType<typeof getCollectionRecord>>;
+    const record = created.result as Effect.Success<ReturnType<typeof getCollectionRecord>>;
     const target = { collectionId: "customers", id: record.id, expectedVersion: record.version };
     const development = { ...f.context, environmentName: `dev:${f.memberUser.email}` };
-    await syncCollectionDefinitions(development, {
-      projectSlug: f.scope.projectSlug,
-      autoCreate: true,
-      definitions: [],
-    });
+    await runService(
+      syncCollectionDefinitions(development, {
+        projectSlug: f.scope.projectSlug,
+        autoCreate: true,
+        definitions: [],
+      }),
+    );
     expect(await invoke(development, "listCollections", {})).toEqual({ ok: true, result: [] });
     expect(await invoke(development, "publishCollectionRecord", target)).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
-    expect(await readRecord(f.publicContext, { ...f.scope, id: record.id })).toBeNull();
+    expect(await runService(readRecord(f.publicContext, { ...f.scope, id: record.id }))).toBeNull();
     expect(await invoke(f.context, "publishCollectionRecord", target)).toMatchObject({ ok: true });
     expect(await invoke(f.context, "publishCollectionRecord", target)).toMatchObject({
       ok: false,
@@ -281,7 +289,7 @@ describe("standalone customer publication", () => {
     const created = (await run("createCollectionRecord", {
       collectionId: "customers",
       content: { name: "Ada", company: "Engines", logo: null },
-    })) as Awaited<ReturnType<typeof getCollectionRecord>>;
+    })) as Effect.Success<ReturnType<typeof getCollectionRecord>>;
     const target = { collectionId: "customers", id: created.id };
     expect(await run("getCollectionRecord", target)).toEqual(created);
     const edited = (await run("editCollectionRecord", {
@@ -296,16 +304,16 @@ describe("standalone customer publication", () => {
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await run("publishCollectionRecord", { ...target, expectedVersion: edited.version });
-    expect(await readRecord(f.publicContext, { ...target, ...f.scope })).toMatchObject({
+    expect(await runService(readRecord(f.publicContext, { ...target, ...f.scope }))).toMatchObject({
       content: { name: "Ada Lovelace" },
     });
-    const published = await getCollectionRecord(f.context, { ...target, ...f.scope });
+    const published = await runService(getCollectionRecord(f.context, { ...target, ...f.scope }));
     expect(await run("listCollectionRecords", { collectionId: "customers" })).toMatchObject([
       { status: "published" },
     ]);
     await run("unpublishCollectionRecord", { ...target, expectedVersion: published.version });
-    expect(await readRecord(f.publicContext, { ...target, ...f.scope })).toBeNull();
-    const draft = await getCollectionRecord(f.context, { ...target, ...f.scope });
+    expect(await runService(readRecord(f.publicContext, { ...target, ...f.scope }))).toBeNull();
+    const draft = await runService(getCollectionRecord(f.context, { ...target, ...f.scope }));
     await run("deleteCollectionRecord", { ...target, expectedVersion: draft.version });
     expect(await run("listCollectionRecords", { collectionId: "customers" })).toEqual([]);
     const outsiderContext = { ...context, user: f.outsiderUser };

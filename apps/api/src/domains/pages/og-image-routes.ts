@@ -1,10 +1,13 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, sql } from "drizzle-orm";
+import { Effect } from "effect";
+import type { Context } from "hono";
 import { Hono } from "hono";
 
 import { assertPageAccess } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import type { ForbiddenError, NotFoundError } from "../../lib/errors";
 import type { AppEnv } from "../../types";
 import { pages } from "./schema";
 
@@ -25,7 +28,7 @@ const OG_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "im
 
 export const pageHonoRoutes = new Hono<AppEnv>();
 
-async function deleteOgBlobIfUnreferenced(
+const deleteOgBlobIfUnreferenced = Effect.fn("deleteOgBlobIfUnreferenced")(function* (
   db: Database,
   bucket: R2Bucket,
   blobId: string,
@@ -33,91 +36,127 @@ async function deleteOgBlobIfUnreferenced(
 ) {
   // Env replication copies the blobId across envs, so only drop the R2 object
   // when no other page row still references it.
-  const sibling = await db
-    .select({ id: pages.id })
-    .from(pages)
-    .where(and(eq(pages.customOgImageBlobId, blobId), sql`${pages.id} != ${excludingPageId}`))
-    .limit(1)
-    .get();
-  if (!sibling) await bucket.delete(blobId);
+  const sibling = yield* Effect.promise(() =>
+    db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.customOgImageBlobId, blobId), sql`${pages.id} != ${excludingPageId}`))
+      .limit(1)
+      .get(),
+  );
+  if (!sibling) yield* Effect.promise(() => bucket.delete(blobId));
+});
+
+function respondToAccessErrors<A>(
+  c: Context<AppEnv>,
+  effect: Effect.Effect<A, NotFoundError | ForbiddenError>,
+) {
+  return effect.pipe(
+    Effect.catchTags({
+      NotFoundError: () => Effect.succeed(c.json({ error: "Not found" }, 404)),
+      ForbiddenError: () => Effect.succeed(c.json({ error: "Forbidden" }, 403)),
+    }),
+  );
 }
 
 pageHonoRoutes.post("/:id/og-image", async (c) => {
-  if (!c.var.user) return c.json({ error: "Unauthorized" }, 401);
+  const user = c.var.user;
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
 
   const pageId = Number(c.req.param("id"));
   if (!pageId || Number.isNaN(pageId)) return c.json({ error: "Invalid page id" }, 400);
 
-  const access = await assertPageAccess(c.var.db, pageId, c.var.user.id);
-  if (!access) return c.json({ error: "Not found" }, 404);
+  const program = Effect.gen(function* () {
+    const access = yield* assertPageAccess(c.var.db, pageId, user.id);
 
-  const body = await c.req.parseBody();
-  const file = body["file"];
-  if (!(file instanceof File)) return c.json({ error: "Missing file" }, 400);
-  if (!OG_IMAGE_MIME_TYPES.has(file.type)) {
-    return c.json({ error: "Image must be JPEG, PNG, GIF, or WebP" }, 400);
-  }
+    const body = yield* Effect.promise(() => c.req.parseBody());
+    const file = body["file"];
+    if (!(file instanceof File)) return c.json({ error: "Missing file" }, 400);
+    if (!OG_IMAGE_MIME_TYPES.has(file.type)) {
+      return c.json({ error: "Image must be JPEG, PNG, GIF, or WebP" }, 400);
+    }
 
-  const now = Date.now();
-  const key = `${access.page.projectId}/page-og/${pageId}-${now}-${file.name}`;
+    const now = Date.now();
+    const key = `${access.page.projectId}/page-og/${pageId}-${now}-${file.name}`;
 
-  await c.env.FILES_BUCKET.put(key, file.stream(), {
-    httpMetadata: { contentType: file.type },
+    yield* Effect.promise(() =>
+      c.env.FILES_BUCKET.put(key, file.stream(), {
+        httpMetadata: { contentType: file.type },
+      }),
+    );
+
+    const apiOrigin = new URL(c.req.url).origin;
+    const url = `${apiOrigin}/files/serve/${key}`;
+
+    const prevBlobId = access.page.customOgImageBlobId;
+
+    const result = yield* Effect.promise(() =>
+      c.var.db
+        .update(pages)
+        .set({ customOgImageBlobId: key, customOgImageUrl: url, updatedAt: now })
+        .where(eq(pages.id, pageId))
+        .returning()
+        .get(),
+    );
+
+    if (prevBlobId && prevBlobId !== key) {
+      yield* deleteOgBlobIfUnreferenced(c.var.db, c.env.FILES_BUCKET, prevBlobId, pageId);
+    }
+
+    broadcastInvalidation({
+      waitUntil: (p) => c.executionCtx.waitUntil(p),
+      projectRoomNamespace: c.env.ProjectRoom,
+      projectId: access.page.projectId,
+      targets: [
+        queryKeys.pages.list,
+        queryKeys.pages.getById(pageId),
+        queryKeys.pages.getByPathAll,
+      ],
+    });
+
+    return c.json(result, 200);
   });
 
-  const apiOrigin = new URL(c.req.url).origin;
-  const url = `${apiOrigin}/files/serve/${key}`;
-
-  const prevBlobId = access.page.customOgImageBlobId;
-
-  const result = await c.var.db
-    .update(pages)
-    .set({ customOgImageBlobId: key, customOgImageUrl: url, updatedAt: now })
-    .where(eq(pages.id, pageId))
-    .returning()
-    .get();
-
-  if (prevBlobId && prevBlobId !== key) {
-    await deleteOgBlobIfUnreferenced(c.var.db, c.env.FILES_BUCKET, prevBlobId, pageId);
-  }
-
-  broadcastInvalidation({
-    waitUntil: (p) => c.executionCtx.waitUntil(p),
-    projectRoomNamespace: c.env.ProjectRoom,
-    projectId: access.page.projectId,
-    targets: [queryKeys.pages.list, queryKeys.pages.getById(pageId), queryKeys.pages.getByPathAll],
-  });
-
-  return c.json(result, 200);
+  return Effect.runPromise(respondToAccessErrors(c, program));
 });
 
 pageHonoRoutes.delete("/:id/og-image", async (c) => {
-  if (!c.var.user) return c.json({ error: "Unauthorized" }, 401);
+  const user = c.var.user;
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
 
   const pageId = Number(c.req.param("id"));
   if (!pageId || Number.isNaN(pageId)) return c.json({ error: "Invalid page id" }, 400);
 
-  const access = await assertPageAccess(c.var.db, pageId, c.var.user.id);
-  if (!access) return c.json({ error: "Not found" }, 404);
+  const program = Effect.gen(function* () {
+    const access = yield* assertPageAccess(c.var.db, pageId, user.id);
 
-  const blobId = access.page.customOgImageBlobId;
-  if (!blobId) return c.json({ ok: true });
+    const blobId = access.page.customOgImageBlobId;
+    if (!blobId) return c.json({ ok: true });
 
-  const result = await c.var.db
-    .update(pages)
-    .set({ customOgImageBlobId: null, customOgImageUrl: null, updatedAt: Date.now() })
-    .where(eq(pages.id, pageId))
-    .returning()
-    .get();
+    const result = yield* Effect.promise(() =>
+      c.var.db
+        .update(pages)
+        .set({ customOgImageBlobId: null, customOgImageUrl: null, updatedAt: Date.now() })
+        .where(eq(pages.id, pageId))
+        .returning()
+        .get(),
+    );
 
-  await deleteOgBlobIfUnreferenced(c.var.db, c.env.FILES_BUCKET, blobId, pageId);
+    yield* deleteOgBlobIfUnreferenced(c.var.db, c.env.FILES_BUCKET, blobId, pageId);
 
-  broadcastInvalidation({
-    waitUntil: (p) => c.executionCtx.waitUntil(p),
-    projectRoomNamespace: c.env.ProjectRoom,
-    projectId: access.page.projectId,
-    targets: [queryKeys.pages.list, queryKeys.pages.getById(pageId), queryKeys.pages.getByPathAll],
+    broadcastInvalidation({
+      waitUntil: (p) => c.executionCtx.waitUntil(p),
+      projectRoomNamespace: c.env.ProjectRoom,
+      projectId: access.page.projectId,
+      targets: [
+        queryKeys.pages.list,
+        queryKeys.pages.getById(pageId),
+        queryKeys.pages.getByPathAll,
+      ],
+    });
+
+    return c.json(result, 200);
   });
 
-  return c.json(result, 200);
+  return Effect.runPromise(respondToAccessErrors(c, program));
 });

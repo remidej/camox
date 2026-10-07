@@ -1,7 +1,9 @@
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, files, pages } from "../../schema";
 import { createBlock, getBlock, getPageMarkdown, updateBlockContent } from "../blocks/service";
 import { getLayout, publishLayout } from "../layouts/service";
@@ -24,40 +26,44 @@ async function fixture(required = false, assets = false) {
   const ctx = createServiceContext(f.db, f.memberUser);
   const publicCtx = createServiceContext(f.db, null);
   const scope = { projectSlug: f.project.slug, collectionId: "customers" };
-  await syncCollectionDefinitions(publicCtx, {
-    projectSlug: f.project.slug,
-    deployToken: "test-deploy-token",
-    autoCreate: false,
-    definitions: [
-      {
-        collectionId: "customers",
-        title: "Customers",
-        description: "",
-        label: "name",
-        contentSchema: {
-          type: "object",
-          properties: {
-            name: { type: "string", fieldType: "String" },
-            ...(assets
-              ? {
-                  logo: { type: "object", fieldType: "Image" as const },
-                  document: { type: "object", fieldType: "File" as const },
-                }
-              : {}),
+  await runService(
+    syncCollectionDefinitions(publicCtx, {
+      projectSlug: f.project.slug,
+      deployToken: "test-deploy-token",
+      autoCreate: false,
+      definitions: [
+        {
+          collectionId: "customers",
+          title: "Customers",
+          description: "",
+          label: "name",
+          contentSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", fieldType: "String" },
+              ...(assets
+                ? {
+                    logo: { type: "object", fieldType: "Image" as const },
+                    document: { type: "object", fieldType: "File" as const },
+                  }
+                : {}),
+            },
+            required: assets ? ["name", "logo", "document"] : ["name"],
+            additionalProperties: false,
           },
-          required: assets ? ["name", "logo", "document"] : ["name"],
-          additionalProperties: false,
         },
+      ],
+    }),
+  );
+  const record = await runService(
+    createRecord(ctx, {
+      ...scope,
+      content: {
+        name: "Original",
+        ...(assets ? { logo: null, document: null } : {}),
       },
-    ],
-  });
-  const record = await createRecord(ctx, {
-    ...scope,
-    content: {
-      name: "Original",
-      ...(assets ? { logo: null, document: null } : {}),
-    },
-  });
+    }),
+  );
   const page = await f.db
     .insert(pages)
     .values({
@@ -100,11 +106,13 @@ async function fixture(required = false, assets = false) {
     createdAt: 1,
     updatedAt: 1,
   });
-  const block = await createBlock(ctx, {
-    pageId: page.id,
-    type: "testimonial",
-    content: { customer: record.id },
-  });
+  const block = await runService(
+    createBlock(ctx, {
+      pageId: page.id,
+      type: "testimonial",
+      content: { customer: record.id },
+    }),
+  );
   return { ...f, ctx, publicCtx, scope, record, page, block, schema };
 }
 
@@ -117,7 +125,7 @@ describe("single collection references", () => {
         .update(blockDefinitions)
         .set({ synced })
         .where(eq(blockDefinitions.projectId, f.project.id));
-      await updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } });
+      await runService(updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } }));
       const { id: _id, ...pageData } = f.page;
       const otherPage = await f.db
         .insert(pages)
@@ -128,13 +136,15 @@ describe("single collection references", () => {
         })
         .returning()
         .get();
-      await createBlock(f.ctx, {
-        pageId: otherPage.id,
-        type: "testimonial",
-        content: { customer: null },
-      });
-      await publishPage(f.ctx, { id: f.page.id });
-      await publishPage(f.ctx, { id: otherPage.id });
+      await runService(
+        createBlock(f.ctx, {
+          pageId: otherPage.id,
+          type: "testimonial",
+          content: { customer: null },
+        }),
+      );
+      await runService(publishPage(f.ctx, { id: f.page.id }));
+      await runService(publishPage(f.ctx, { id: otherPage.id }));
       await f.db
         .update(blockDefinitions)
         .set({
@@ -144,34 +154,40 @@ describe("single collection references", () => {
           },
         })
         .where(eq(blockDefinitions.projectId, f.project.id));
-      await updateBlockContent(f.ctx, { id: f.block.id, content: { customer: f.record.id } });
-      await publishPage(f.ctx, {
-        id: f.page.id,
-        collections: [
-          {
-            id: f.record.id,
-            collectionId: "customers",
-            expectedVersion: 1,
-          },
-        ],
-      });
+      await runService(
+        updateBlockContent(f.ctx, { id: f.block.id, content: { customer: f.record.id } }),
+      );
+      await runService(
+        publishPage(f.ctx, {
+          id: f.page.id,
+          collections: [
+            {
+              id: f.record.id,
+              collectionId: "customers",
+              expectedVersion: 1,
+            },
+          ],
+        }),
+      );
       expect(
-        (await getBlock(f.publicCtx, { id: f.block.id, source: "live" })).block.references.customer
-          ?.id,
+        (await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block
+          .references.customer?.id,
       ).toBe(f.record.id);
     },
   );
 
   it("rejects a placement insert/update after its validated record is concurrently deleted", async () => {
     const f = await fixture();
-    await updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } });
-    await validateReferenceValues(
-      f.ctx,
-      { projectId: f.project.id, environmentId: f.environment.id },
-      f.schema,
-      { customer: f.record.id },
+    await runService(updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } }));
+    await runService(
+      validateReferenceValues(
+        f.ctx,
+        { projectId: f.project.id, environmentId: f.environment.id },
+        f.schema,
+        { customer: f.record.id },
+      ),
     );
-    await deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 1 });
+    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 1 }));
     const { id: _id, ...blockData } = f.block;
     await expect(
       f.db.insert(blocks).values({ ...blockData, content: { customer: f.record.id } }),
@@ -203,40 +219,50 @@ describe("single collection references", () => {
       })
       .returning()
       .get();
-    await createBlock(f.ctx, {
-      pageId: otherPage.id,
-      type: "testimonial",
-      content: { customer: f.record.id },
-    });
-    await publishPage(f.ctx, {
-      id: f.page.id,
-      collections: [
-        {
-          id: f.record.id,
-          collectionId: "customers",
-          expectedVersion: 1,
-        },
-      ],
-    });
-    await publishPage(f.ctx, { id: otherPage.id });
-    const replacement = await createRecord(f.ctx, { ...f.scope, content: { name: "Replacement" } });
-    await updateBlockContent(f.ctx, { id: f.block.id, content: { customer: replacement.id } });
-    await publishPage(f.ctx, {
-      id: otherPage.id,
-      collections: [
-        {
-          id: replacement.id,
-          collectionId: "customers",
-          expectedVersion: 1,
-        },
-      ],
-    });
+    await runService(
+      createBlock(f.ctx, {
+        pageId: otherPage.id,
+        type: "testimonial",
+        content: { customer: f.record.id },
+      }),
+    );
+    await runService(
+      publishPage(f.ctx, {
+        id: f.page.id,
+        collections: [
+          {
+            id: f.record.id,
+            collectionId: "customers",
+            expectedVersion: 1,
+          },
+        ],
+      }),
+    );
+    await runService(publishPage(f.ctx, { id: otherPage.id }));
+    const replacement = await runService(
+      createRecord(f.ctx, { ...f.scope, content: { name: "Replacement" } }),
+    );
+    await runService(
+      updateBlockContent(f.ctx, { id: f.block.id, content: { customer: replacement.id } }),
+    );
+    await runService(
+      publishPage(f.ctx, {
+        id: otherPage.id,
+        collections: [
+          {
+            id: replacement.id,
+            collectionId: "customers",
+            expectedVersion: 1,
+          },
+        ],
+      }),
+    );
     expect(
-      (await getBlock(f.publicCtx, { id: f.block.id, source: "live" })).block.references.customer
-        ?.id,
+      (await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block.references
+        .customer?.id,
     ).toBe(replacement.id);
-    await unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 });
-    await deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 });
+    await runService(unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 }));
+    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 }));
   });
 
   it("includes source image/file identities on every read without replacing immutable asset metadata", async () => {
@@ -280,20 +306,24 @@ describe("single collection references", () => {
       mimeType: file.mimeType,
       size: file.size,
     });
-    await editRecord(f.ctx, {
-      ...f.scope,
-      id: f.record.id,
-      expectedVersion: 1,
-      content: {
-        name: "Original",
-        logo: { ...asset(managed[0]), alt: "Authored logo" },
-        document: asset(managed[1]),
-      },
-    });
-    await publishPage(f.ctx, {
-      id: f.page.id,
-      collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 2 }],
-    });
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: f.record.id,
+        expectedVersion: 1,
+        content: {
+          name: "Original",
+          logo: { ...asset(managed[0]), alt: "Authored logo" },
+          document: asset(managed[1]),
+        },
+      }),
+    );
+    await runService(
+      publishPage(f.ctx, {
+        id: f.page.id,
+        collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 2 }],
+      }),
+    );
     // File-library metadata is mutable; the published source asset is not.
     await f.db
       .update(files)
@@ -301,12 +331,14 @@ describe("single collection references", () => {
       .where(eq(files.id, managed[0].id));
     for (const source of ["draft", "live"] as const) {
       const ctx = source === "draft" ? f.ctx : f.publicCtx;
-      const block = await getBlock(ctx, { id: f.block.id, source });
-      const page = await getPageByPath(ctx, {
-        projectSlug: f.project.slug,
-        path: "/reference",
-        source,
-      });
+      const block = await runService(getBlock(ctx, { id: f.block.id, source }));
+      const page = await runService(
+        getPageByPath(ctx, {
+          projectSlug: f.project.slug,
+          path: "/reference",
+          source,
+        }),
+      );
       for (const result of [block, page]) {
         expect(result.files.map((file) => file.id).sort((a, b) => a - b)).toEqual(
           managed.map((file) => file.id).sort((a, b) => a - b),
@@ -317,7 +349,7 @@ describe("single collection references", () => {
         url: managed[0].url,
         alt: "Authored logo",
       });
-      const markdown = await getPageMarkdown(ctx, { pageId: f.page.id, source });
+      const markdown = await runService(getPageMarkdown(ctx, { pageId: f.page.id, source }));
       expect(markdown.markdown).toContain("![Authored logo]");
       expect(markdown.markdown).toContain("logo.png");
       expect(markdown.markdown).toContain("[report.pdf](https://assets.example.com/report.pdf)");
@@ -327,14 +359,16 @@ describe("single collection references", () => {
       .update(blocks)
       .set({ pageId: null, layoutId: f.layout.id, placement: "before" })
       .where(eq(blocks.id, f.block.id));
-    await publishLayout(f.ctx, { id: f.layout.id });
+    await runService(publishLayout(f.ctx, { id: f.layout.id }));
     for (const source of ["draft", "live"] as const) {
       const ctx = source === "draft" ? f.ctx : f.publicCtx;
-      const layout = await getLayout(ctx, {
-        projectSlug: f.project.slug,
-        layoutId: "default",
-        source,
-      });
+      const layout = await runService(
+        getLayout(ctx, {
+          projectSlug: f.project.slug,
+          layoutId: "default",
+          source,
+        }),
+      );
       expect(layout.files.map((file) => file.id).sort((a, b) => a - b)).toEqual(
         managed.map((file) => file.id).sort((a, b) => a - b),
       );
@@ -342,15 +376,15 @@ describe("single collection references", () => {
         _fileId: String(managed[1].id),
         url: managed[1].url,
       });
-      expect((await getPageMarkdown(ctx, { pageId: f.page.id, source })).markdown).toContain(
-        "[report.pdf](https://assets.example.com/report.pdf)",
-      );
+      expect(
+        (await runService(getPageMarkdown(ctx, { pageId: f.page.id, source }))).markdown,
+      ).toContain("[report.pdf](https://assets.example.com/report.pdf)");
     }
   });
 
   it("stores UUIDs, resolves scoped drafts separately and never leaks unpublished drafts", async () => {
     const f = await fixture();
-    const draft = await getBlock(f.ctx, { id: f.block.id, source: "draft" });
+    const draft = await runService(getBlock(f.ctx, { id: f.block.id, source: "draft" }));
     expect(draft.block.content.customer).toBe(f.record.id);
     expect(draft.block.references.customer).toMatchObject({
       id: f.record.id,
@@ -358,28 +392,36 @@ describe("single collection references", () => {
       version: 1,
     });
     await expect(
-      getBlock(createServiceContext(f.db, f.outsiderUser), { id: f.block.id, source: "draft" }),
+      runService(
+        getBlock(createServiceContext(f.db, f.outsiderUser), { id: f.block.id, source: "draft" }),
+      ),
     ).rejects.toThrow();
-    await publishPage(f.ctx, { id: f.page.id });
-    const live = await getBlock(f.publicCtx, { id: f.block.id, source: "live" });
+    await runService(publishPage(f.ctx, { id: f.page.id }));
+    const live = await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }));
     expect(live.block.references.customer).toBeNull();
     const other = await fixture();
     await expect(
-      updateBlockContent(f.ctx, { id: f.block.id, content: { customer: other.record.id } }),
+      runService(
+        updateBlockContent(f.ctx, { id: f.block.id, content: { customer: other.record.id } }),
+      ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
-      updateBlockContent(f.ctx, { id: f.block.id, content: { customer: { id: f.record.id } } }),
+      runService(
+        updateBlockContent(f.ctx, { id: f.block.id, content: { customer: { id: f.record.id } } }),
+      ),
     ).rejects.toThrow();
   });
 
   it("deduplicates targets, blocks excluded required drafts and atomically publishes selected records", async () => {
     const f = await fixture(true);
-    await createBlock(f.ctx, {
-      pageId: f.page.id,
-      type: "testimonial",
-      content: { customer: f.record.id },
-    });
-    const plan = await referenceTargets(f.ctx, { id: f.page.id }, "page");
+    await runService(
+      createBlock(f.ctx, {
+        pageId: f.page.id,
+        type: "testimonial",
+        content: { customer: f.record.id },
+      }),
+    );
+    const plan = await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"));
     expect(plan.targets).toHaveLength(1);
     expect(plan.targets[0]).toMatchObject({
       id: f.record.id,
@@ -387,68 +429,83 @@ describe("single collection references", () => {
       required: true,
       status: "draft",
     });
-    await expect(publishPage(f.ctx, { id: f.page.id })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(runService(publishPage(f.ctx, { id: f.page.id }))).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
     expect(
       (await f.db.select().from(pages).where(eq(pages.id, f.page.id)).get())
         ?.livePublishedCheckpointId,
     ).toBeNull();
-    await publishPage(f.ctx, {
-      id: f.page.id,
-      collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 1 }],
-    });
-    const live = await getPageByPath(f.publicCtx, {
-      projectSlug: f.project.slug,
-      path: "/reference",
-      source: "live",
-    });
+    await runService(
+      publishPage(f.ctx, {
+        id: f.page.id,
+        collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 1 }],
+      }),
+    );
+    const live = await runService(
+      getPageByPath(f.publicCtx, {
+        projectSlug: f.project.slug,
+        path: "/reference",
+        source: "live",
+      }),
+    );
     expect(live.blocks[0].references.customer).toMatchObject({
       content: { name: "Original" },
       revisionId: expect.any(String),
     });
     expect(live.blocks[0].references.customer).not.toHaveProperty("version");
     expect(
-      (await getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })).markdown,
+      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })))
+        .markdown,
     ).toContain("Customer: Original");
     await expect(
-      unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 }),
+      runService(unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(
-      deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 }),
+      runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
   it("keeps excluded published revisions, derives modified status and updates all live uses on standalone publication", async () => {
     const f = await fixture();
-    const published = await publishRecord(f.ctx, {
-      ...f.scope,
-      id: f.record.id,
-      expectedVersion: 1,
-    });
-    await publishPage(f.ctx, { id: f.page.id, alsoPublishLayout: true });
-    await editRecord(f.ctx, {
-      ...f.scope,
-      id: f.record.id,
-      expectedVersion: published.record.version,
-      content: { name: "Changed" },
-    });
+    const published = await runService(
+      publishRecord(f.ctx, {
+        ...f.scope,
+        id: f.record.id,
+        expectedVersion: 1,
+      }),
+    );
+    await runService(publishPage(f.ctx, { id: f.page.id, alsoPublishLayout: true }));
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: f.record.id,
+        expectedVersion: published.record.version,
+        content: { name: "Changed" },
+      }),
+    );
     expect(
-      (await listPages(f.ctx, { projectId: f.project.id })).find((page) => page.id === f.page.id)
-        ?.status,
+      (await runService(listPages(f.ctx, { projectId: f.project.id }))).find(
+        (page) => page.id === f.page.id,
+      )?.status,
     ).toBe("modified");
     expect(
-      (await getPageMarkdown(f.ctx, { pageId: f.page.id, source: "draft" })).markdown,
+      (await runService(getPageMarkdown(f.ctx, { pageId: f.page.id, source: "draft" }))).markdown,
     ).toContain("Changed");
-    await publishPage(f.ctx, { id: f.page.id });
+    await runService(publishPage(f.ctx, { id: f.page.id }));
     expect(
-      (await getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })).markdown,
+      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })))
+        .markdown,
     ).toContain("Original");
-    await publishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 });
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 }));
     expect(
-      (await getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })).markdown,
+      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })))
+        .markdown,
     ).toContain("Changed");
     expect(
-      (await listPages(f.ctx, { projectId: f.project.id })).find((page) => page.id === f.page.id)
-        ?.status,
+      (await runService(listPages(f.ctx, { projectId: f.project.id }))).find(
+        (page) => page.id === f.page.id,
+      )?.status,
     ).toBe("published");
   });
 
@@ -463,19 +520,21 @@ describe("single collection references", () => {
       return original(statements);
     });
     await expect(
-      publishPage(f.ctx, {
-        id: f.page.id,
-        collections: [
-          {
-            id: f.record.id,
-            collectionId: "customers",
-            expectedVersion: 1,
-          },
-        ],
-      }),
+      runService(
+        publishPage(f.ctx, {
+          id: f.page.id,
+          collections: [
+            {
+              id: f.record.id,
+              collectionId: "customers",
+              expectedVersion: 1,
+            },
+          ],
+        }),
+      ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     spy.mockRestore();
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: f.record.id })).toBeNull();
+    expect(await runService(readRecord(f.publicCtx, { ...f.scope, id: f.record.id }))).toBeNull();
     expect(
       (await f.db.select().from(pages).where(eq(pages.id, f.page.id)).get())
         ?.livePublishedCheckpointId,
@@ -485,18 +544,24 @@ describe("single collection references", () => {
   it("rejects lists and nested reference schemas; null required values remain editable but not publishable", async () => {
     const f = await fixture(true);
     expect(() =>
-      validateReferenceSchema({ properties: { nested: { properties: f.schema.properties } } }),
+      Effect.runSync(
+        validateReferenceSchema({ properties: { nested: { properties: f.schema.properties } } }),
+      ),
     ).toThrow();
     expect(() =>
-      validateReferenceSchema({ properties: { list: { fieldType: "ReferenceList" } } }),
+      Effect.runSync(
+        validateReferenceSchema({ properties: { list: { fieldType: "ReferenceList" } } }),
+      ),
     ).toThrow();
-    await updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } });
-    expect((await referenceTargets(f.ctx, { id: f.page.id }, "page")).missingRequired).toEqual([
-      `${f.block.id}.customer`,
-    ]);
-    await expect(publishPage(f.ctx, { id: f.page.id })).rejects.toMatchObject({ code: "CONFLICT" });
+    await runService(updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } }));
+    expect(
+      (await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"))).missingRequired,
+    ).toEqual([`${f.block.id}.customer`]);
+    await expect(runService(publishPage(f.ctx, { id: f.page.id }))).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
     await f.db.delete(blocks).where(eq(blocks.id, f.block.id));
-    await deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 1 });
+    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 1 }));
   });
 
   it("includes layout dependencies only when selected and resolves layout reads from the same source", async () => {
@@ -505,50 +570,65 @@ describe("single collection references", () => {
       .update(blocks)
       .set({ pageId: null, layoutId: f.layout.id, placement: "before" })
       .where(eq(blocks.id, f.block.id));
-    expect((await referenceTargets(f.ctx, { id: f.page.id }, "page")).targets).toHaveLength(0);
     expect(
-      (await referenceTargets(f.ctx, { id: f.page.id, alsoPublishLayout: true }, "page")).targets,
+      (await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"))).targets,
+    ).toHaveLength(0);
+    expect(
+      (
+        await runService(
+          referenceTargets(f.ctx, { id: f.page.id, alsoPublishLayout: true }, "page"),
+        )
+      ).targets,
     ).toHaveLength(1);
-    const draft = await getLayout(f.ctx, {
-      projectSlug: f.project.slug,
-      layoutId: "default",
-      source: "draft",
-    });
+    const draft = await runService(
+      getLayout(f.ctx, {
+        projectSlug: f.project.slug,
+        layoutId: "default",
+        source: "draft",
+      }),
+    );
     expect(draft.blocks[0].references.customer?.content.name).toBe("Original");
-    await expect(publishLayout(f.ctx, { id: f.layout.id })).rejects.toMatchObject({
+    await expect(runService(publishLayout(f.ctx, { id: f.layout.id }))).rejects.toMatchObject({
       code: "CONFLICT",
     });
-    await publishLayout(f.ctx, {
-      id: f.layout.id,
-      collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 1 }],
-    });
-    const live = await getLayout(f.publicCtx, {
-      projectSlug: f.project.slug,
-      layoutId: "default",
-      source: "live",
-    });
+    await runService(
+      publishLayout(f.ctx, {
+        id: f.layout.id,
+        collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 1 }],
+      }),
+    );
+    const live = await runService(
+      getLayout(f.publicCtx, {
+        projectSlug: f.project.slug,
+        layoutId: "default",
+        source: "live",
+      }),
+    );
     expect(live.blocks[0].references.customer?.content.name).toBe("Original");
     await expect(
-      unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 }),
+      runService(unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
   it("allows optional unpublication without substituting drafts but protects references from deletion", async () => {
     const f = await fixture();
-    await publishPage(f.ctx, {
-      id: f.page.id,
-      collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 1 }],
-    });
-    await unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 });
+    await runService(
+      publishPage(f.ctx, {
+        id: f.page.id,
+        collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 1 }],
+      }),
+    );
+    await runService(unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 }));
     expect(
-      (await getBlock(f.publicCtx, { id: f.block.id, source: "live" })).block.references.customer,
+      (await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block.references
+        .customer,
     ).toBeNull();
     expect(
-      (await getBlock(f.ctx, { id: f.block.id, source: "draft" })).block.references.customer
-        ?.content.name,
+      (await runService(getBlock(f.ctx, { id: f.block.id, source: "draft" }))).block.references
+        .customer?.content.name,
     ).toBe("Original");
     await expect(
-      deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 }),
+      runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 });

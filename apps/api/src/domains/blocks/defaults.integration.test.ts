@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { createBlock, getBlock, getPageMarkdown } from "./service";
@@ -8,27 +9,29 @@ import { createBlock, getBlock, getPageMarkdown } from "./service";
 async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await upsertBlockDefinition(createServiceContext(base.db, null), {
-    projectSlug: base.project.slug,
-    deployToken: base.project.deployToken,
-    blockId: "hero",
-    title: "Hero",
-    description: "Reusable hero",
-    contentSchema: {
-      type: "object",
-      properties: {
-        title: { fieldType: "String", type: "string", default: "Welcome" },
-        cta: { fieldType: "Link", default: { text: "Learn more", href: "/about" } },
-        items: {
-          fieldType: "Repeater",
-          minItems: 1,
-          items: { properties: { title: { default: "Item" } } },
+  await runService(
+    upsertBlockDefinition(createServiceContext(base.db, null), {
+      projectSlug: base.project.slug,
+      deployToken: base.project.deployToken,
+      blockId: "hero",
+      title: "Hero",
+      description: "Reusable hero",
+      contentSchema: {
+        type: "object",
+        properties: {
+          title: { fieldType: "String", type: "string", default: "Welcome" },
+          cta: { fieldType: "Link", default: { text: "Learn more", href: "/about" } },
+          items: {
+            fieldType: "Repeater",
+            minItems: 1,
+            items: { properties: { title: { default: "Item" } } },
+          },
         },
+        toMarkdown: ["# {{title}}", "{{cta}}"],
       },
-      toMarkdown: ["# {{title}}", "{{cta}}"],
-    },
-    settingsSchema: { properties: { visible: { default: true } } },
-  });
+      settingsSchema: { properties: { visible: { default: true } } },
+    }),
+  );
   const now = Date.now();
   const page = await base.db
     .insert(pages)
@@ -51,8 +54,10 @@ async function fixture(suffix: string) {
 describe("createBlock defaults", () => {
   it("stores defaults and exposes them in reads and Markdown", async () => {
     const { ctx, page } = await fixture("create-defaults");
-    const created = await createBlock(ctx, { pageId: page.id, type: "hero", content: {} });
-    const result = await getBlock(ctx, { id: created.id, source: "draft" });
+    const created = await runService(
+      createBlock(ctx, { pageId: page.id, type: "hero", content: {} }),
+    );
+    const result = await runService(getBlock(ctx, { id: created.id, source: "draft" }));
     expect(result.block.content).toMatchObject({
       title: "Welcome",
       cta: { text: "Learn more", href: "/about" },
@@ -60,7 +65,7 @@ describe("createBlock defaults", () => {
     expect(result.block.settings).toEqual({ visible: true });
     expect(result.repeatableItems).toHaveLength(1);
     expect(result.repeatableItems[0].content).toEqual({ title: "Item" });
-    const { markdown } = await getPageMarkdown(ctx, { pageId: page.id });
+    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }));
     expect(markdown).toContain("# Welcome");
     expect(markdown).toContain("[Learn more](/about)");
   });
@@ -68,19 +73,23 @@ describe("createBlock defaults", () => {
   it("preserves supplied content but enforces repeater minimums", async () => {
     const { ctx, page } = await fixture("create-explicit");
     await expect(
+      runService(
+        createBlock(ctx, {
+          pageId: page.id,
+          type: "hero",
+          content: { items: [] },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const created = await runService(
       createBlock(ctx, {
         pageId: page.id,
         type: "hero",
-        content: { items: [] },
+        content: { title: "", items: [{ title: "Explicit" }] },
+        settings: { visible: false },
       }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const created = await createBlock(ctx, {
-      pageId: page.id,
-      type: "hero",
-      content: { title: "", items: [{ title: "Explicit" }] },
-      settings: { visible: false },
-    });
-    const result = await getBlock(ctx, { id: created.id, source: "draft" });
+    );
+    const result = await runService(getBlock(ctx, { id: created.id, source: "draft" }));
     expect(result.block.content).toMatchObject({ title: "", cta: { text: "Learn more" } });
     expect(result.block.settings).toEqual({ visible: false });
     expect(result.repeatableItems.map((item) => item.content)).toEqual([{ title: "Explicit" }]);
@@ -102,22 +111,26 @@ describe("createBlock defaults", () => {
     ]) {
       if (repeatableItems.length === 0) {
         await expect(
-          createBlock(ctx, {
-            pageId: page.id,
-            type: "hero",
-            content: {},
-            repeatableItems,
-          }),
+          runService(
+            createBlock(ctx, {
+              pageId: page.id,
+              type: "hero",
+              content: {},
+              repeatableItems,
+            }),
+          ),
         ).rejects.toMatchObject({ code: "BAD_REQUEST" });
         continue;
       }
-      const created = await createBlock(ctx, {
-        pageId: page.id,
-        type: "hero",
-        content: {},
-        repeatableItems,
-      });
-      const result = await getBlock(ctx, { id: created.id, source: "draft" });
+      const created = await runService(
+        createBlock(ctx, {
+          pageId: page.id,
+          type: "hero",
+          content: {},
+          repeatableItems,
+        }),
+      );
+      const result = await runService(getBlock(ctx, { id: created.id, source: "draft" }));
       expect(result.repeatableItems.map((item) => item.content)).toEqual(
         repeatableItems.map((item) => item.content),
       );

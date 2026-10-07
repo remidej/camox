@@ -1,11 +1,12 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { isRasterImage } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
+import { runService } from "../../lib/run-service";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { authed, pub } from "../../orpc";
 import { files } from "../../schema";
@@ -18,45 +19,45 @@ import { optimizeVideo } from "./video-optimization";
 
 const list = pub
   .input(service.listFilesInput)
-  .handler(({ context, input }) => service.listFiles(context, input));
+  .handler(({ context, input }) => runService(service.listFiles(context, input)));
 
 const get = pub
   .input(service.getFileInput)
-  .handler(({ context, input }) => service.getFile(context, input));
+  .handler(({ context, input }) => runService(service.getFile(context, input)));
 
 const getUsageCount = pub
   .input(service.getFileUsageCountInput)
-  .handler(({ context, input }) => service.getFileUsageCount(context, input));
+  .handler(({ context, input }) => runService(service.getFileUsageCount(context, input)));
 
 // Protected procedures
 
 const setAlt = authed
   .input(service.setFileAltInput)
-  .handler(({ context, input }) => service.setFileAlt(context, input));
+  .handler(({ context, input }) => runService(service.setFileAlt(context, input)));
 
 const setFilename = authed
   .input(service.setFileFilenameInput)
-  .handler(({ context, input }) => service.setFileFilename(context, input));
+  .handler(({ context, input }) => runService(service.setFileFilename(context, input)));
 
 const deleteFn = authed
   .input(service.deleteFileInput)
-  .handler(({ context, input }) => service.deleteFile(context, input));
+  .handler(({ context, input }) => runService(service.deleteFile(context, input)));
 
 const deleteMany = authed
   .input(service.deleteFilesInput)
-  .handler(({ context, input }) => service.deleteFiles(context, input));
+  .handler(({ context, input }) => runService(service.deleteFiles(context, input)));
 
 const replace = authed
   .input(service.replaceFileInput)
-  .handler(({ context, input }) => service.replaceFile(context, input));
+  .handler(({ context, input }) => runService(service.replaceFile(context, input)));
 
 const setAiMetadata = authed
   .input(service.setFileAiMetadataInput)
-  .handler(({ context, input }) => service.setFileAiMetadata(context, input));
+  .handler(({ context, input }) => runService(service.setFileAiMetadata(context, input)));
 
 const generateMetadata = authed
   .input(service.generateFileMetadataInput)
-  .handler(({ context, input }) => service.generateFileMetadata(context, input));
+  .handler(({ context, input }) => runService(service.generateFileMetadata(context, input)));
 
 export const fileProcedures = {
   list,
@@ -173,22 +174,24 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   if (metadata.data.alt !== undefined || !canGenerateAiMetadata) aiMetadataEnabled = false;
 
   // Reject incorrect project/environment targets before creating any stored object.
-  try {
-    if (id !== undefined) {
-      await service.getProjectFile(ctx, { projectId, id });
-    } else {
-      const project = await getAuthorizedProject(c.var.db, projectId, c.var.user.id);
-      if (!project) return c.json({ error: "Not found" }, 404);
-    }
-  } catch (error) {
-    if (error instanceof ORPCError && error.code === "NOT_FOUND")
-      return c.json({ error: "Not found" }, 404);
-    if (error instanceof ORPCError && error.code === "FORBIDDEN")
-      return c.json({ error: "Forbidden" }, 403);
-    throw error;
-  }
+  const target =
+    id !== undefined
+      ? Effect.asVoid(service.getProjectFile(ctx, { projectId, id }))
+      : Effect.asVoid(getAuthorizedProject(c.var.db, projectId, c.var.user.id));
+  const rejection = await runService(
+    target.pipe(
+      Effect.as(null),
+      Effect.catchTags({
+        NotFoundError: () => Effect.succeed(c.json({ error: "Not found" }, 404)),
+        ForbiddenError: () => Effect.succeed(c.json({ error: "Forbidden" }, 403)),
+      }),
+    ),
+  );
+  if (rejection) return rejection;
 
-  const environment = await resolveEnvironment(c.var.db, projectId, c.var.environmentName);
+  const environment = await runService(
+    resolveEnvironment(c.var.db, projectId, c.var.environmentName),
+  );
 
   const now = Date.now();
   const filename = file.name.split(/[\\/]/).pop() || "upload";
@@ -200,30 +203,34 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   });
 
   const apiOrigin = new URL(c.req.url).origin;
-  const optimized = await optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
+  const optimized = await Effect.runPromise(
+    optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA),
+  );
   const url = `${apiOrigin}/files/serve/${optimized?.key ?? key}`;
 
   if (id !== undefined) {
     try {
-      const result = await service.replaceFileContent(
-        ctx,
-        { projectId, id },
-        {
-          blobId: key,
-          path: key,
-          url,
-          filename,
-          mimeType: file.type,
-          size: file.size,
-          optimizedSize: optimized?.size ?? null,
-        },
-        metadata.data,
+      const result = await runService(
+        service.replaceFileContent(
+          ctx,
+          { projectId, id },
+          {
+            blobId: key,
+            path: key,
+            url,
+            filename,
+            mimeType: file.type,
+            size: file.size,
+            optimizedSize: optimized?.size ?? null,
+          },
+          metadata.data,
+        ),
       );
       return c.json(result);
     } catch (error) {
       // A failed database transaction must not leave an orphaned upload. Check
       // references first so a post-commit error cannot remove the active image.
-      await service.deleteUnreferencedFileBlob(ctx, key);
+      await Effect.runPromise(service.deleteUnreferencedFileBlob(ctx, key));
       throw error;
     }
   }
@@ -250,7 +257,7 @@ const uploadContent: Handler<AppEnv> = async (c) => {
       .returning()
       .get();
   } catch (error) {
-    await service.deleteUnreferencedFileBlob(ctx, key);
+    await Effect.runPromise(service.deleteUnreferencedFileBlob(ctx, key));
     throw error;
   }
 

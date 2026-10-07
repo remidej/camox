@@ -1,10 +1,11 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { ORPCError } from "@orpc/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertPageAccess, getAuthorizedProject } from "../../authorization";
+import { assertPageAccess, getAuthorizedProject, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
@@ -24,7 +25,6 @@ import { pageSourceSchema, type PageSource } from "../_shared/page-source";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   pageSnapshotSchema,
-  type PageSnapshot,
   type SnapshotBlock,
   type SnapshotRepeatableItem,
 } from "../_shared/snapshot-schemas";
@@ -134,11 +134,6 @@ export const discardPageChangesInput = z.object({ id: z.number() });
 // Snapshot shape version written into `page_checkpoints.schema_version`.
 // One-way ratchet — bump and add a migration when the snapshot shape changes.
 const PAGE_SNAPSHOT_SCHEMA_VERSION = 2;
-
-function assertUser(ctx: ServiceContext) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  return ctx.user;
-}
 
 function invalidatePage(ctx: ServiceContext, projectId: number, pageId: number) {
   broadcastInvalidation({
@@ -290,11 +285,11 @@ function deriveStatus(args: {
   return { status: "modified", modifiedReason: { reason: "self" } };
 }
 
-async function fetchPageStatuses(
+const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
   ctx: ServiceContext,
   pageRows: PageRow[],
   environmentId: number,
-): Promise<Map<number, PageStatusInfo>> {
+) {
   const result = new Map<number, PageStatusInfo>();
   if (pageRows.length === 0) return result;
   const db = ctx.db;
@@ -304,10 +299,12 @@ async function fetchPageStatuses(
     .filter((id): id is number => id != null);
   const pageCheckpointCreatedAt = new Map<number, number>();
   if (pageCheckpointIds.length > 0) {
-    const rows = await db
-      .select({ id: pageCheckpoints.id, createdAt: pageCheckpoints.createdAt })
-      .from(pageCheckpoints)
-      .where(inArray(pageCheckpoints.id, pageCheckpointIds));
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({ id: pageCheckpoints.id, createdAt: pageCheckpoints.createdAt })
+        .from(pageCheckpoints)
+        .where(inArray(pageCheckpoints.id, pageCheckpointIds)),
+    );
     for (const row of rows) pageCheckpointCreatedAt.set(row.id, row.createdAt);
   }
 
@@ -316,7 +313,9 @@ async function fetchPageStatuses(
   ];
   const layoutById = new Map<number, LayoutRow>();
   if (layoutIds.length > 0) {
-    const rows = await db.select().from(layouts).where(inArray(layouts.id, layoutIds));
+    const rows = yield* Effect.promise(() =>
+      db.select().from(layouts).where(inArray(layouts.id, layoutIds)),
+    );
     for (const row of rows) layoutById.set(row.id, row);
   }
 
@@ -325,10 +324,12 @@ async function fetchPageStatuses(
     .filter((id): id is number => id != null);
   const layoutCheckpointCreatedAt = new Map<number, number>();
   if (layoutCheckpointIds.length > 0) {
-    const rows = await db
-      .select({ id: layoutCheckpoints.id, createdAt: layoutCheckpoints.createdAt })
-      .from(layoutCheckpoints)
-      .where(inArray(layoutCheckpoints.id, layoutCheckpointIds));
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({ id: layoutCheckpoints.id, createdAt: layoutCheckpoints.createdAt })
+        .from(layoutCheckpoints)
+        .where(inArray(layoutCheckpoints.id, layoutCheckpointIds)),
+    );
     for (const row of rows) layoutCheckpointCreatedAt.set(row.id, row.createdAt);
   }
 
@@ -336,17 +337,19 @@ async function fetchPageStatuses(
   // pages" cascade tooltip. One GROUP BY, all layouts at once.
   const layoutPageCounts = new Map<number, number>();
   if (layoutIds.length > 0) {
-    const rows = await db
-      .select({ layoutId: pages.layoutId, count: sql<number>`count(*)` })
-      .from(pages)
-      .where(and(eq(pages.environmentId, environmentId), inArray(pages.layoutId, layoutIds)))
-      .groupBy(pages.layoutId);
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({ layoutId: pages.layoutId, count: sql<number>`count(*)` })
+        .from(pages)
+        .where(and(eq(pages.environmentId, environmentId), inArray(pages.layoutId, layoutIds)))
+        .groupBy(pages.layoutId),
+    );
     for (const row of rows) {
       if (row.layoutId != null) layoutPageCounts.set(row.layoutId, Number(row.count));
     }
   }
 
-  const references = await referenceChanges(ctx, environmentId);
+  const references = yield* referenceChanges(ctx, environmentId);
   for (const page of pageRows) {
     const layout = page.layoutId != null ? (layoutById.get(page.layoutId) ?? null) : null;
     const pageCpAt =
@@ -373,7 +376,7 @@ async function fetchPageStatuses(
   }
 
   return result;
-}
+});
 
 // --- Reads ---
 
@@ -384,11 +387,11 @@ async function fetchPageStatuses(
 type RawBlock = SnapshotBlock;
 type RawItem = SnapshotRepeatableItem;
 
-export async function readPageSnapshot(
+export const readPageSnapshot = Effect.fn("pages.readPageSnapshot")(function* (
   ctx: ServiceContext,
   pageRow: typeof pages.$inferSelect,
   source: PageSource,
-): Promise<PageSnapshot | null> {
+) {
   let checkpointId: number | null = null;
   if (source === "live") {
     checkpointId = pageRow.livePublishedCheckpointId;
@@ -397,11 +400,9 @@ export async function readPageSnapshot(
   }
   if (checkpointId == null) return null;
 
-  const checkpoint = await ctx.db
-    .select()
-    .from(pageCheckpoints)
-    .where(eq(pageCheckpoints.id, checkpointId))
-    .get();
+  const checkpoint = yield* Effect.promise(() =>
+    ctx.db.select().from(pageCheckpoints).where(eq(pageCheckpoints.id, checkpointId)).get(),
+  );
   if (!checkpoint) return null;
   // When the caller pinned to a specific checkpoint id, refuse cross-page
   // reads so a leaked id can't be used to fetch a different page's content.
@@ -409,8 +410,8 @@ export async function readPageSnapshot(
 
   const snapshot = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
   if (source !== "live") return snapshot;
-  return resolveSyncedLiveData(ctx, pageRow.environmentId, snapshot);
-}
+  return yield* resolveSyncedLiveData(ctx, pageRow.environmentId, snapshot);
+});
 
 // Build a canonical page snapshot from the current live (draft) rows. Mirrors
 // the migration's SQL `json_object(...)` shape (snapshotPageRowSchema +
@@ -420,21 +421,20 @@ export async function readPageSnapshot(
 //
 // Blocks store their content with `_itemId` markers stripped — the read path
 // re-injects them via injectRepeatableItemMarkers when composing a PageView.
-export async function buildPageSnapshotFromDraft(
+export const buildPageSnapshotFromDraft = Effect.fn("pages.buildPageSnapshotFromDraft")(function* (
   ctx: ServiceContext,
   page: typeof pages.$inferSelect,
-): Promise<PageSnapshot> {
+) {
   const pageBlocks = sortByPosition(
-    await ctx.db.select().from(blocks).where(eq(blocks.pageId, page.id)),
+    yield* Effect.promise(() => ctx.db.select().from(blocks).where(eq(blocks.pageId, page.id))),
   );
   const blockIds = pageBlocks.map((b) => b.id);
   const items =
     blockIds.length > 0
       ? sortByPosition(
-          await ctx.db
-            .select()
-            .from(repeatableItems)
-            .where(inArray(repeatableItems.blockId, blockIds)),
+          yield* Effect.promise(() =>
+            ctx.db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
+          ),
         )
       : [];
 
@@ -482,7 +482,7 @@ export async function buildPageSnapshotFromDraft(
       updatedAt: item.updatedAt,
     })),
   };
-}
+});
 
 function composePageView(args: {
   page: typeof pages.$inferSelect;
@@ -537,28 +537,34 @@ function composePageView(args: {
   };
 }
 
-export async function getPageByPath(
+export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageByPathInput>,
 ) {
-  const { path: fullPath, projectSlug, source } = getPageByPathInput.parse(rawInput);
-  if (source === "draft") assertUser(ctx);
+  const { path: fullPath, projectSlug, source } = yield* decodeInput(getPageByPathInput, rawInput);
+  if (source === "draft") yield* requireUser(ctx);
   const db = ctx.db;
 
-  const project = await db.select().from(projects).where(eq(projects.slug, projectSlug)).get();
-  if (!project) throw new ORPCError("NOT_FOUND");
+  const project = yield* Effect.promise(() =>
+    db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
+  );
+  if (!project) return yield* new NotFoundError();
 
-  const environment = await resolveEnvironment(db, project.id, ctx.environmentName);
+  const environment = yield* resolveEnvironment(db, project.id, ctx.environmentName);
 
-  const page = await db
-    .select()
-    .from(pages)
-    .where(and(eq(pages.fullPath, fullPath), eq(pages.environmentId, environment.id)))
-    .get();
-  if (!page) throw new ORPCError("NOT_FOUND");
+  const page = yield* Effect.promise(() =>
+    db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.fullPath, fullPath), eq(pages.environmentId, environment.id)))
+      .get(),
+  );
+  if (!page) return yield* new NotFoundError();
 
   const layout = page.layoutId
-    ? ((await db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get()) ?? null)
+    ? ((yield* Effect.promise(() =>
+        db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
+      )) ?? null)
     : null;
 
   let pageBlocks: RawBlock[];
@@ -566,29 +572,37 @@ export async function getPageByPath(
   let allItems: RawItem[];
 
   if (source === "draft") {
-    pageBlocks = sortByPosition(await db.select().from(blocks).where(eq(blocks.pageId, page.id)));
+    pageBlocks = sortByPosition(
+      yield* Effect.promise(() => db.select().from(blocks).where(eq(blocks.pageId, page.id))),
+    );
     layoutBlocks = layout
-      ? sortByPosition(await db.select().from(blocks).where(eq(blocks.layoutId, layout.id)))
+      ? sortByPosition(
+          yield* Effect.promise(() =>
+            db.select().from(blocks).where(eq(blocks.layoutId, layout.id)),
+          ),
+        )
       : [];
     const allBlockIds = [...pageBlocks, ...layoutBlocks].map((b) => b.id);
     allItems =
       allBlockIds.length > 0
         ? sortByPosition(
-            await db
-              .select()
-              .from(repeatableItems)
-              .where(inArray(repeatableItems.blockId, allBlockIds)),
+            yield* Effect.promise(() =>
+              db
+                .select()
+                .from(repeatableItems)
+                .where(inArray(repeatableItems.blockId, allBlockIds)),
+            ),
           )
         : [];
   } else {
-    const pageSnapshot = await readPageSnapshot(ctx, page, source);
-    if (!pageSnapshot) throw new ORPCError("NOT_FOUND");
+    const pageSnapshot = yield* readPageSnapshot(ctx, page, source);
+    if (!pageSnapshot) return yield* new NotFoundError();
     pageBlocks = pageSnapshot.blocks;
     const pageItems = pageSnapshot.repeatableItems;
 
     let layoutItems: RawItem[] = [];
     if (layout) {
-      const layoutSnapshot = await readLayoutSnapshot(ctx, layout);
+      const layoutSnapshot = yield* readLayoutSnapshot(ctx, layout);
       layoutBlocks = layoutSnapshot?.blocks ?? [];
       layoutItems = layoutSnapshot?.repeatableItems ?? [];
     } else {
@@ -597,7 +611,7 @@ export async function getPageByPath(
     allItems = [...pageItems, ...layoutItems];
   }
 
-  const hydrated = await hydrateReferences(
+  const hydrated = yield* hydrateReferences(
     ctx,
     page,
     [...pageBlocks, ...layoutBlocks],
@@ -613,9 +627,9 @@ export async function getPageByPath(
     collectFileIds(item.content as Record<string, unknown>, fileIds);
   }
 
-  const fileRows = await buildFileMap(db, fileIds);
+  const fileRows = yield* buildFileMap(db, fileIds);
 
-  const statuses = await fetchPageStatuses(ctx, [page], environment.id);
+  const statuses = yield* fetchPageStatuses(ctx, [page], environment.id);
   const statusInfo = statuses.get(page.id) ?? { status: "draft" as const, modifiedReason: null };
 
   const view = composePageView({
@@ -635,30 +649,40 @@ export async function getPageByPath(
     })),
     page: { ...view.page, ...statusInfo },
   };
-}
+});
 
-export async function getPageStructure(
+export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageStructureInput>,
 ) {
-  const { path: fullPath, projectSlug, source } = getPageStructureInput.parse(rawInput);
-  if (source === "draft") assertUser(ctx);
+  const {
+    path: fullPath,
+    projectSlug,
+    source,
+  } = yield* decodeInput(getPageStructureInput, rawInput);
+  if (source === "draft") yield* requireUser(ctx);
   const db = ctx.db;
 
-  const project = await db.select().from(projects).where(eq(projects.slug, projectSlug)).get();
-  if (!project) throw new ORPCError("NOT_FOUND");
+  const project = yield* Effect.promise(() =>
+    db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
+  );
+  if (!project) return yield* new NotFoundError();
 
-  const environment = await resolveEnvironment(db, project.id, ctx.environmentName);
+  const environment = yield* resolveEnvironment(db, project.id, ctx.environmentName);
 
-  const page = await db
-    .select()
-    .from(pages)
-    .where(and(eq(pages.fullPath, fullPath), eq(pages.environmentId, environment.id)))
-    .get();
-  if (!page) throw new ORPCError("NOT_FOUND");
+  const page = yield* Effect.promise(() =>
+    db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.fullPath, fullPath), eq(pages.environmentId, environment.id)))
+      .get(),
+  );
+  if (!page) return yield* new NotFoundError();
 
   const layout = page.layoutId
-    ? ((await db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get()) ?? null)
+    ? ((yield* Effect.promise(() =>
+        db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
+      )) ?? null)
     : null;
 
   let pageBlockOrder: { id: number; position: string }[];
@@ -666,25 +690,29 @@ export async function getPageStructure(
 
   if (source === "draft") {
     pageBlockOrder = sortByPosition(
-      await db
-        .select({ id: blocks.id, position: blocks.position })
-        .from(blocks)
-        .where(eq(blocks.pageId, page.id)),
+      yield* Effect.promise(() =>
+        db
+          .select({ id: blocks.id, position: blocks.position })
+          .from(blocks)
+          .where(eq(blocks.pageId, page.id)),
+      ),
     );
     layoutBlockOrder = layout
       ? sortByPosition(
-          await db
-            .select({ id: blocks.id, position: blocks.position, placement: blocks.placement })
-            .from(blocks)
-            .where(eq(blocks.layoutId, layout.id)),
+          yield* Effect.promise(() =>
+            db
+              .select({ id: blocks.id, position: blocks.position, placement: blocks.placement })
+              .from(blocks)
+              .where(eq(blocks.layoutId, layout.id)),
+          ),
         )
       : [];
   } else {
-    const pageSnapshot = await readPageSnapshot(ctx, page, source);
-    if (!pageSnapshot) throw new ORPCError("NOT_FOUND");
+    const pageSnapshot = yield* readPageSnapshot(ctx, page, source);
+    if (!pageSnapshot) return yield* new NotFoundError();
     pageBlockOrder = pageSnapshot.blocks.map((b) => ({ id: b.id, position: b.position }));
     if (layout) {
-      const layoutSnapshot = await readLayoutSnapshot(ctx, layout);
+      const layoutSnapshot = yield* readLayoutSnapshot(ctx, layout);
       layoutBlockOrder = (layoutSnapshot?.blocks ?? []).map((b) => ({
         id: b.id,
         position: b.position,
@@ -695,7 +723,7 @@ export async function getPageStructure(
     }
   }
 
-  const statuses = await fetchPageStatuses(ctx, [page], environment.id);
+  const statuses = yield* fetchPageStatuses(ctx, [page], environment.id);
   const statusInfo = statuses.get(page.id) ?? { status: "draft" as const, modifiedReason: null };
 
   return {
@@ -714,62 +742,79 @@ export async function getPageStructure(
         }
       : null,
   };
-}
+});
 
-export async function listPages(ctx: ServiceContext, rawInput: z.input<typeof listPagesInput>) {
-  const { projectId } = listPagesInput.parse(rawInput);
-  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const rows = await ctx.db
-    .select()
-    .from(pages)
-    .where(and(eq(pages.projectId, projectId), eq(pages.environmentId, environment.id)));
-  const statuses = await fetchPageStatuses(ctx, rows, environment.id);
+export const listPages = Effect.fn("pages.listPages")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listPagesInput>,
+) {
+  const { projectId } = yield* decodeInput(listPagesInput, rawInput);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.projectId, projectId), eq(pages.environmentId, environment.id))),
+  );
+  const statuses = yield* fetchPageStatuses(ctx, rows, environment.id);
   return rows.map((page) => ({
     ...page,
     ...(statuses.get(page.id) ?? { status: "draft" as const, modifiedReason: null }),
   }));
-}
+});
 
-export async function listPagesBySlug(
+export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listPagesBySlugInput>,
 ) {
-  const { projectSlug } = listPagesBySlugInput.parse(rawInput);
-  const project = await ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get();
-  if (!project) throw new ORPCError("NOT_FOUND");
+  const { projectSlug } = yield* decodeInput(listPagesBySlugInput, rawInput);
+  const project = yield* Effect.promise(() =>
+    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
+  );
+  if (!project) return yield* new NotFoundError();
 
-  const environment = await resolveEnvironment(ctx.db, project.id, ctx.environmentName);
-  const rows = await ctx.db
-    .select()
-    .from(pages)
-    .where(and(eq(pages.projectId, project.id), eq(pages.environmentId, environment.id)));
-  const statuses = await fetchPageStatuses(ctx, rows, environment.id);
+  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.projectId, project.id), eq(pages.environmentId, environment.id))),
+  );
+  const statuses = yield* fetchPageStatuses(ctx, rows, environment.id);
   return rows.map((page) => ({
     ...page,
     ...(statuses.get(page.id) ?? { status: "draft" as const, modifiedReason: null }),
   }));
-}
+});
 
-async function getPageAttribution(ctx: ServiceContext, page: PageRow, includeAuthors: boolean) {
-  const checkpoint = await ctx.db
-    .select({
-      createdAt: pageCheckpoints.createdAt,
-      createdBy: pageCheckpoints.createdBy,
-    })
-    .from(pageCheckpoints)
-    .where(and(eq(pageCheckpoints.pageId, page.id), eq(pageCheckpoints.kind, "auto-publish")))
-    .orderBy(desc(pageCheckpoints.createdAt))
-    .get();
+const getPageAttribution = Effect.fn("getPageAttribution")(function* (
+  ctx: ServiceContext,
+  page: PageRow,
+  includeAuthors: boolean,
+) {
+  const checkpoint = yield* Effect.promise(() =>
+    ctx.db
+      .select({
+        createdAt: pageCheckpoints.createdAt,
+        createdBy: pageCheckpoints.createdBy,
+      })
+      .from(pageCheckpoints)
+      .where(and(eq(pageCheckpoints.pageId, page.id), eq(pageCheckpoints.kind, "auto-publish")))
+      .orderBy(desc(pageCheckpoints.createdAt))
+      .get(),
+  );
 
   const userIds = includeAuthors
     ? [page.createdById, checkpoint?.createdBy].filter((id): id is string => id != null)
     : [];
   const users =
     userIds.length > 0
-      ? await ctx.db
-          .select({ id: user.id, name: user.name })
-          .from(user)
-          .where(inArray(user.id, userIds))
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .select({ id: user.id, name: user.name })
+            .from(user)
+            .where(inArray(user.id, userIds)),
+        )
       : [];
   const userNames = new Map(users.map((item) => [item.id, item.name]));
 
@@ -778,115 +823,131 @@ async function getPageAttribution(ctx: ServiceContext, page: PageRow, includeAut
     publishedAt: checkpoint?.createdAt ?? null,
     publishedBy: checkpoint?.createdBy ? (userNames.get(checkpoint.createdBy) ?? null) : null,
   };
-}
+});
 
-export async function getPage(ctx: ServiceContext, rawInput: z.input<typeof getPageInput>) {
-  const parsed = getPageInput.parse(rawInput);
-  if (parsed.source === "draft") assertUser(ctx);
+export const getPage = Effect.fn("pages.getPage")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getPageInput>,
+) {
+  const parsed = yield* decodeInput(getPageInput, rawInput);
+  if (parsed.source === "draft") yield* requireUser(ctx);
   let row: typeof pages.$inferSelect | undefined;
   if ("id" in parsed) {
-    row = await ctx.db.select().from(pages).where(eq(pages.id, parsed.id)).get();
+    row = yield* Effect.promise(() =>
+      ctx.db.select().from(pages).where(eq(pages.id, parsed.id)).get(),
+    );
   } else {
-    const environment = await resolveEnvironment(ctx.db, parsed.projectId, ctx.environmentName);
-    row = await ctx.db
-      .select()
-      .from(pages)
-      .where(
-        and(
-          eq(pages.projectId, parsed.projectId),
-          eq(pages.environmentId, environment.id),
-          eq(pages.fullPath, parsed.path),
-        ),
-      )
-      .get();
+    const environment = yield* resolveEnvironment(ctx.db, parsed.projectId, ctx.environmentName);
+    row = yield* Effect.promise(() =>
+      ctx.db
+        .select()
+        .from(pages)
+        .where(
+          and(
+            eq(pages.projectId, parsed.projectId),
+            eq(pages.environmentId, environment.id),
+            eq(pages.fullPath, parsed.path),
+          ),
+        )
+        .get(),
+    );
   }
-  if (!row) throw new ORPCError("NOT_FOUND");
-  const attribution = await getPageAttribution(ctx, row, parsed.source === "draft");
+  if (!row) return yield* new NotFoundError();
+  const attribution = yield* getPageAttribution(ctx, row, parsed.source === "draft");
   if (parsed.source === "draft") return { ...row, ...attribution };
 
   // Non-draft read: serve the snapshotted page fields (pathSegment, metaTitle,
   // etc. as they were at publish time) layered over the live row's identity
   // and pointer columns so callers still see `livePublishedCheckpointId`.
-  const snapshot = await readPageSnapshot(ctx, row, parsed.source);
+  const snapshot = yield* readPageSnapshot(ctx, row, parsed.source);
   if (!snapshot) {
-    throw new ORPCError("BAD_REQUEST", {
+    return yield* new InvalidInputError({
       message:
         "Page has not been published. Run `camox pages publish` first, or omit --live to read the draft.",
     });
   }
   return { ...row, ...snapshot.page, ...attribution };
-}
+});
 
 // --- Writes ---
 
-export async function createPage(ctx: ServiceContext, rawInput: z.input<typeof createPageInput>) {
-  const user = assertUser(ctx);
-  const { projectId, nickname, pathSegment, parentPageId, layoutId } =
-    createPageInput.parse(rawInput);
-  const project = await getAuthorizedProject(ctx.db, projectId, user.id);
-  if (!project) throw new ORPCError("NOT_FOUND");
-  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+export const createPage = Effect.fn("pages.createPage")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof createPageInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { projectId, nickname, pathSegment, parentPageId, layoutId } = yield* decodeInput(
+    createPageInput,
+    rawInput,
+  );
+  yield* getAuthorizedProject(ctx.db, projectId, user.id);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
 
-  await assertCuratedLayout(ctx, environment.id, layoutId);
+  yield* assertCuratedLayout(ctx, environment.id, layoutId);
   let fullPath = `/${pathSegment}`;
   if (parentPageId) {
-    const parent = await ctx.db
-      .select()
-      .from(pages)
-      .where(and(eq(pages.id, parentPageId), eq(pages.environmentId, environment.id)))
-      .get();
-    if (!parent) throw new ORPCError("NOT_FOUND");
+    const parent = yield* Effect.promise(() =>
+      ctx.db
+        .select()
+        .from(pages)
+        .where(and(eq(pages.id, parentPageId), eq(pages.environmentId, environment.id)))
+        .get(),
+    );
+    if (!parent) return yield* new NotFoundError();
     fullPath = `${parent.fullPath.replace(/\/$/, "")}/${pathSegment}`;
   }
-  await assertUnreservedPagePaths(ctx, environment.id, [fullPath]);
+  yield* assertUnreservedPagePaths(ctx, environment.id, [fullPath]);
 
   const now = Date.now();
-  const page = await ctx.db
-    .insert(pages)
-    .values({
-      projectId,
-      environmentId: environment.id,
-      pathSegment,
-      fullPath,
-      parentPageId: parentPageId ?? null,
-      layoutId,
-      nickname: nickname ?? deriveDefaultPageNickname(pathSegment),
-      contentUpdatedAt: now,
-      createdById: user.id,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
+  const page = yield* Effect.promise(() =>
+    ctx.db
+      .insert(pages)
+      .values({
+        projectId,
+        environmentId: environment.id,
+        pathSegment,
+        fullPath,
+        parentPageId: parentPageId ?? null,
+        layoutId,
+        nickname: nickname ?? deriveDefaultPageNickname(pathSegment),
+        contentUpdatedAt: now,
+        createdById: user.id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get(),
+  );
 
   invalidatePage(ctx, projectId, page.id);
 
   return { page, fullPath: page.fullPath };
-}
+});
 
-export async function updatePage(ctx: ServiceContext, rawInput: z.input<typeof updatePageInput>) {
-  const user = assertUser(ctx);
-  const { id, ...body } = updatePageInput.parse(rawInput);
+export const updatePage = Effect.fn("pages.updatePage")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof updatePageInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id, ...body } = yield* decodeInput(updatePageInput, rawInput);
   if (body.metaTitle !== undefined || body.metaDescription !== undefined) {
     body.aiSeoEnabled = false;
   }
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
   const pathChanges = new Map<number, string>();
   if (body.pathSegment !== undefined || body.parentPageId !== undefined) {
-    const environmentPages = await ctx.db
-      .select()
-      .from(pages)
-      .where(eq(pages.environmentId, access.page.environmentId));
+    const environmentPages = yield* Effect.promise(() =>
+      ctx.db.select().from(pages).where(eq(pages.environmentId, access.page.environmentId)),
+    );
     const parentId = body.parentPageId === undefined ? access.page.parentPageId : body.parentPageId;
     const parent = environmentPages.find((page) => page.id === parentId);
-    if (parentId != null && !parent) throw new ORPCError("NOT_FOUND");
+    if (parentId != null && !parent) return yield* new NotFoundError();
     // Reject cycles before calculating paths for this page and its descendants.
     let ancestor = parent;
     while (ancestor) {
       if (ancestor.id === id)
-        throw new ORPCError("BAD_REQUEST", { message: "A page cannot be its own ancestor" });
+        return yield* new InvalidInputError({ message: "A page cannot be its own ancestor" });
       ancestor = environmentPages.find((page) => page.id === ancestor!.parentPageId);
     }
     const fullPath = `${parent?.fullPath.replace(/\/$/, "") ?? ""}/${body.pathSegment ?? access.page.pathSegment}`;
@@ -896,22 +957,24 @@ export async function updatePage(ctx: ServiceContext, rawInput: z.input<typeof u
         visit(child.id, `${path.replace(/\/$/, "")}/${child.pathSegment}`);
     };
     visit(id, fullPath);
-    await assertUnreservedPagePaths(ctx, access.page.environmentId, [...pathChanges.values()]);
+    yield* assertUnreservedPagePaths(ctx, access.page.environmentId, [...pathChanges.values()]);
   }
 
   const now = Math.max(Date.now(), access.page.updatedAt + 1);
-  const [result] = await ctx.db.batch([
-    ctx.db
-      .update(pages)
-      .set({ ...body, fullPath: pathChanges.get(id) ?? access.page.fullPath, updatedAt: now })
-      .where(eq(pages.id, id))
-      .returning(),
-    ...[...pathChanges]
-      .filter(([pageId]) => pageId !== id)
-      .map(([pageId, fullPath]) =>
-        ctx.db.update(pages).set({ fullPath, updatedAt: now }).where(eq(pages.id, pageId)),
-      ),
-  ]);
+  const [result] = yield* Effect.promise(() =>
+    ctx.db.batch([
+      ctx.db
+        .update(pages)
+        .set({ ...body, fullPath: pathChanges.get(id) ?? access.page.fullPath, updatedAt: now })
+        .where(eq(pages.id, id))
+        .returning(),
+      ...[...pathChanges]
+        .filter(([pageId]) => pageId !== id)
+        .map(([pageId, fullPath]) =>
+          ctx.db.update(pages).set({ fullPath, updatedAt: now }).where(eq(pages.id, pageId)),
+        ),
+    ]),
+  );
   if (body.aiSeoEnabled === true) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -924,34 +987,39 @@ export async function updatePage(ctx: ServiceContext, rawInput: z.input<typeof u
   }
   invalidatePage(ctx, access.page.projectId, id);
   return result[0];
-}
+});
 
-export async function deletePage(ctx: ServiceContext, rawInput: z.input<typeof deletePageInput>) {
-  const user = assertUser(ctx);
-  const { id } = deletePageInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+export const deletePage = Effect.fn("pages.deletePage")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof deletePageInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(deletePageInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const result = await ctx.db.delete(pages).where(eq(pages.id, id)).returning().get();
+  const result = yield* Effect.promise(() =>
+    ctx.db.delete(pages).where(eq(pages.id, id)).returning().get(),
+  );
   invalidatePage(ctx, access.page.projectId, id);
   return result;
-}
+});
 
-export async function setPageAiSeo(
+export const setPageAiSeo = Effect.fn("pages.setPageAiSeo")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageAiSeoInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, enabled } = setPageAiSeoInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id, enabled } = yield* decodeInput(setPageAiSeoInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const result = await ctx.db
-    .update(pages)
-    .set({ aiSeoEnabled: enabled, updatedAt: sql`max(${pages.updatedAt} + 1, ${Date.now()})` })
-    .where(eq(pages.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(pages)
+      .set({ aiSeoEnabled: enabled, updatedAt: sql`max(${pages.updatedAt} + 1, ${Date.now()})` })
+      .where(eq(pages.id, id))
+      .returning()
+      .get(),
+  );
   if (enabled) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -964,65 +1032,68 @@ export async function setPageAiSeo(
   }
   invalidatePage(ctx, access.page.projectId, id);
   return result;
-}
+});
 
-export async function setPageMetaTitle(
+export const setPageMetaTitle = Effect.fn("pages.setPageMetaTitle")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageMetaTitleInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, metaTitle } = setPageMetaTitleInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id, metaTitle } = yield* decodeInput(setPageMetaTitleInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const result = await ctx.db
-    .update(pages)
-    .set({ metaTitle, updatedAt: Date.now() })
-    .where(eq(pages.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(pages)
+      .set({ metaTitle, updatedAt: Date.now() })
+      .where(eq(pages.id, id))
+      .returning()
+      .get(),
+  );
   invalidatePage(ctx, access.page.projectId, id);
   return result;
-}
+});
 
-export async function setPageMetaDescription(
+export const setPageMetaDescription = Effect.fn("pages.setPageMetaDescription")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageMetaDescriptionInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, metaDescription } = setPageMetaDescriptionInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id, metaDescription } = yield* decodeInput(setPageMetaDescriptionInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const result = await ctx.db
-    .update(pages)
-    .set({ metaDescription, updatedAt: Date.now() })
-    .where(eq(pages.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(pages)
+      .set({ metaDescription, updatedAt: Date.now() })
+      .where(eq(pages.id, id))
+      .returning()
+      .get(),
+  );
   invalidatePage(ctx, access.page.projectId, id);
   return result;
-}
+});
 
-export async function setPageLayout(
+export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageLayoutInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, layoutId } = setPageLayoutInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
-  await assertCuratedLayout(ctx, access.page.environmentId, layoutId);
+  const user = yield* requireUser(ctx);
+  const { id, layoutId } = yield* decodeInput(setPageLayoutInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
+  yield* assertCuratedLayout(ctx, access.page.environmentId, layoutId);
 
-  const result = await ctx.db
-    .update(pages)
-    .set({ layoutId, updatedAt: Date.now() })
-    .where(eq(pages.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(pages)
+      .set({ layoutId, updatedAt: Date.now() })
+      .where(eq(pages.id, id))
+      .returning()
+      .get(),
+  );
   invalidatePage(ctx, access.page.projectId, id);
   return result;
-}
+});
 
 // Promote the current draft to public: snapshot the live rows, write a new
 // auto-publish checkpoint, point the page at it. The pointer update is the
@@ -1038,19 +1109,23 @@ export async function setPageLayout(
 // not be. If the page has no layout, the flag is silently ignored. If the
 // layout is clean, we still write a fresh checkpoint; that's a no-op for
 // renderers and simpler than gating the flag.
-export async function publishPage(ctx: ServiceContext, rawInput: z.input<typeof publishPageInput>) {
-  const user = assertUser(ctx);
-  const input = publishPageInput.parse(rawInput);
+export const publishPage = Effect.fn("pages.publishPage")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof publishPageInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const input = yield* decodeInput(publishPageInput, rawInput);
   const { id, alsoPublishLayout } = input;
-  const references = await referenceTargets(ctx, input, "page");
+  const references = yield* referenceTargets(ctx, input, "page");
   if (input.collections.length || references.targets.length || references.missingRequired.length) {
-    return (await publishWithReferences(ctx, input, "page")) as typeof pages.$inferSelect;
+    return (yield* publishWithReferences(ctx, input, "page")) as typeof pages.$inferSelect;
   }
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const pageRow = await ctx.db.select().from(pages).where(eq(pages.id, id)).get();
-  if (!pageRow) throw new ORPCError("NOT_FOUND");
+  const pageRow = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.id, id)).get(),
+  );
+  if (!pageRow) return yield* new NotFoundError();
 
   let layoutCascade: {
     dependentPagePaths: string[];
@@ -1059,39 +1134,39 @@ export async function publishPage(ctx: ServiceContext, rawInput: z.input<typeof 
   } | null = null;
 
   if (alsoPublishLayout && pageRow.layoutId != null) {
-    const layoutRow = await ctx.db
-      .select()
-      .from(layouts)
-      .where(eq(layouts.id, pageRow.layoutId))
-      .get();
+    const layoutRow = yield* Effect.promise(() =>
+      ctx.db.select().from(layouts).where(eq(layouts.id, pageRow.layoutId)).get(),
+    );
     if (layoutRow) {
-      await writeLayoutCheckpointAndPoint(ctx, { layout: layoutRow, userId: user.id });
+      yield* writeLayoutCheckpointAndPoint(ctx, { layout: layoutRow, userId: user.id });
 
       // Build the cascade invalidation set in the same go — pages-using-layout
       // + their block ids + the layout's own block ids. One DB pass per set,
       // bundled with the page invalidation below so the broadcast is single-
       // shot. Excludes the page being published itself; its keys are already
       // in the base invalidation list.
-      const dependentPages = await ctx.db
-        .select({ id: pages.id, fullPath: pages.fullPath })
-        .from(pages)
-        .where(
-          and(eq(pages.layoutId, layoutRow.id), eq(pages.environmentId, layoutRow.environmentId)),
-        );
+      const dependentPages = yield* Effect.promise(() =>
+        ctx.db
+          .select({ id: pages.id, fullPath: pages.fullPath })
+          .from(pages)
+          .where(
+            and(eq(pages.layoutId, layoutRow.id), eq(pages.environmentId, layoutRow.environmentId)),
+          ),
+      );
       const otherPageIds = dependentPages.map((p) => p.id).filter((pid) => pid !== id);
       const otherPagePaths = dependentPages.filter((p) => p.id !== id).map((p) => p.fullPath);
       const otherBlockIds =
         otherPageIds.length > 0
-          ? (
-              await ctx.db
+          ? (yield* Effect.promise(() =>
+              ctx.db
                 .select({ id: blocks.id })
                 .from(blocks)
-                .where(inArray(blocks.pageId, otherPageIds))
-            ).map((b) => b.id)
+                .where(inArray(blocks.pageId, otherPageIds)),
+            )).map((b) => b.id)
           : [];
-      const layoutBlockIds = (
-        await ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.layoutId, layoutRow.id))
-      ).map((b) => b.id);
+      const layoutBlockIds = (yield* Effect.promise(() =>
+        ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.layoutId, layoutRow.id)),
+      )).map((b) => b.id);
 
       layoutCascade = {
         dependentPagePaths: otherPagePaths,
@@ -1101,7 +1176,7 @@ export async function publishPage(ctx: ServiceContext, rawInput: z.input<typeof 
     }
   }
 
-  const { updated, snapshot } = await writePageCheckpointAndPoint(ctx, {
+  const { updated, snapshot } = yield* writePageCheckpointAndPoint(ctx, {
     page: pageRow,
     userId: user.id,
   });
@@ -1115,7 +1190,7 @@ export async function publishPage(ctx: ServiceContext, rawInput: z.input<typeof 
   });
 
   return updated;
-}
+});
 
 // The insert+pointer-update pair, factored so the project-init flow can reuse
 // it without going through `publishPage` (which requires an authenticated
@@ -1125,37 +1200,43 @@ export async function publishPage(ctx: ServiceContext, rawInput: z.input<typeof 
 //
 // `userId` is null for production releases, which authenticate with a deploy
 // token rather than a user session; this also matches the migration backfill.
-export async function writePageCheckpointAndPoint(
-  ctx: ServiceContext,
-  args: { page: typeof pages.$inferSelect; userId: string | null },
-) {
-  const snapshot = await buildPageSnapshotFromDraft(ctx, args.page);
-  const now = Date.now();
+export const writePageCheckpointAndPoint = Effect.fn("pages.writePageCheckpointAndPoint")(
+  function* (
+    ctx: ServiceContext,
+    args: { page: typeof pages.$inferSelect; userId: string | null },
+  ) {
+    const snapshot = yield* buildPageSnapshotFromDraft(ctx, args.page);
+    const now = Date.now();
 
-  const checkpoint = await ctx.db
-    .insert(pageCheckpoints)
-    .values({
-      pageId: args.page.id,
-      kind: "auto-publish",
-      label: null,
-      snapshot: JSON.stringify(snapshot),
-      schemaVersion: PAGE_SNAPSHOT_SCHEMA_VERSION,
-      createdAt: now,
-      createdBy: args.userId,
-    })
-    .returning()
-    .get();
+    const checkpoint = yield* Effect.promise(() =>
+      ctx.db
+        .insert(pageCheckpoints)
+        .values({
+          pageId: args.page.id,
+          kind: "auto-publish",
+          label: null,
+          snapshot: JSON.stringify(snapshot),
+          schemaVersion: PAGE_SNAPSHOT_SCHEMA_VERSION,
+          createdAt: now,
+          createdBy: args.userId,
+        })
+        .returning()
+        .get(),
+    );
 
-  const updated = await ctx.db
-    .update(pages)
-    .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
-    .where(eq(pages.id, args.page.id))
-    .returning()
-    .get();
+    const updated = yield* Effect.promise(() =>
+      ctx.db
+        .update(pages)
+        .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
+        .where(eq(pages.id, args.page.id))
+        .returning()
+        .get(),
+    );
 
-  await publishSyncedData(ctx, args.page.environmentId, snapshot);
-  return { checkpoint, snapshot, updated };
-}
+    yield* publishSyncedData(ctx, args.page.environmentId, snapshot);
+    return { checkpoint, snapshot, updated };
+  },
+);
 
 function sortSnapshotItemsByParent(items: SnapshotRepeatableItem[]) {
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -1178,111 +1259,118 @@ function sortSnapshotItemsByParent(items: SnapshotRepeatableItem[]) {
 
 // Replace the draft rows with the currently published snapshot. The live
 // pointer stays untouched; only the editable working copy is reset.
-export async function discardPageChanges(
+export const discardPageChanges = Effect.fn("pages.discardPageChanges")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof discardPageChangesInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = discardPageChangesInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(discardPageChangesInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const pageRow = await ctx.db.select().from(pages).where(eq(pages.id, id)).get();
-  if (!pageRow) throw new ORPCError("NOT_FOUND");
-  if (pageRow.livePublishedCheckpointId == null) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: "Page has not been published.",
-    });
+  const pageRow = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.id, id)).get(),
+  );
+  if (!pageRow) return yield* new NotFoundError();
+  const liveCheckpointId = pageRow.livePublishedCheckpointId;
+  if (liveCheckpointId == null) {
+    return yield* new InvalidInputError({ message: "Page has not been published." });
   }
 
-  const checkpoint = await ctx.db
-    .select()
-    .from(pageCheckpoints)
-    .where(eq(pageCheckpoints.id, pageRow.livePublishedCheckpointId))
-    .get();
-  if (!checkpoint) throw new ORPCError("NOT_FOUND");
+  const checkpoint = yield* Effect.promise(() =>
+    ctx.db.select().from(pageCheckpoints).where(eq(pageCheckpoints.id, liveCheckpointId)).get(),
+  );
+  if (!checkpoint) return yield* new NotFoundError();
 
   const snapshot = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
-  if (snapshot.page.id !== id) throw new ORPCError("NOT_FOUND");
-  await assertUnreservedPagePaths(ctx, pageRow.environmentId, [snapshot.page.fullPath]);
-  await assertCuratedLayout(ctx, pageRow.environmentId, snapshot.page.layoutId);
+  if (snapshot.page.id !== id) return yield* new NotFoundError();
+  yield* assertUnreservedPagePaths(ctx, pageRow.environmentId, [snapshot.page.fullPath]);
+  yield* assertCuratedLayout(ctx, pageRow.environmentId, snapshot.page.layoutId);
 
-  const existingBlocks = await ctx.db
-    .select({ id: blocks.id })
-    .from(blocks)
-    .where(eq(blocks.pageId, id));
+  const existingBlocks = yield* Effect.promise(() =>
+    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.pageId, id)),
+  );
   const existingBlockIds = existingBlocks.map((block) => block.id);
 
   if (existingBlockIds.length > 0) {
-    const existingItems = await ctx.db
-      .select({ id: repeatableItems.id })
-      .from(repeatableItems)
-      .where(inArray(repeatableItems.blockId, existingBlockIds));
+    const existingItems = yield* Effect.promise(() =>
+      ctx.db
+        .select({ id: repeatableItems.id })
+        .from(repeatableItems)
+        .where(inArray(repeatableItems.blockId, existingBlockIds)),
+    );
     if (existingItems.length > 0) {
-      await ctx.db.delete(repeatableItems).where(
-        inArray(
-          repeatableItems.id,
-          existingItems.map((item) => item.id),
+      yield* Effect.promise(() =>
+        ctx.db.delete(repeatableItems).where(
+          inArray(
+            repeatableItems.id,
+            existingItems.map((item) => item.id),
+          ),
         ),
       );
     }
-    await ctx.db.delete(blocks).where(inArray(blocks.id, existingBlockIds));
+    yield* Effect.promise(() => ctx.db.delete(blocks).where(inArray(blocks.id, existingBlockIds)));
   }
 
   for (const block of snapshot.blocks) {
-    await ctx.db.insert(blocks).values({
-      id: block.id,
-      pageId: id,
-      layoutId: null,
-      type: block.type,
-      content: block.content,
-      settings: block.settings,
-      placement: block.placement,
-      summary: block.summary,
-      position: block.position,
-      createdAt: block.createdAt,
-      updatedAt: block.updatedAt,
-    });
+    yield* Effect.promise(() =>
+      ctx.db.insert(blocks).values({
+        id: block.id,
+        pageId: id,
+        layoutId: null,
+        type: block.type,
+        content: block.content,
+        settings: block.settings,
+        placement: block.placement,
+        summary: block.summary,
+        position: block.position,
+        createdAt: block.createdAt,
+        updatedAt: block.updatedAt,
+      }),
+    );
   }
 
   for (const item of sortSnapshotItemsByParent(snapshot.repeatableItems)) {
-    await ctx.db.insert(repeatableItems).values({
-      id: item.id,
-      blockId: item.blockId,
-      parentItemId: item.parentItemId,
-      fieldName: item.fieldName,
-      content: item.content,
-      settings: item.settings,
-      summary: item.summary,
-      position: item.position,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    });
+    yield* Effect.promise(() =>
+      ctx.db.insert(repeatableItems).values({
+        id: item.id,
+        blockId: item.blockId,
+        parentItemId: item.parentItemId,
+        fieldName: item.fieldName,
+        content: item.content,
+        settings: item.settings,
+        summary: item.summary,
+        position: item.position,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      }),
+    );
   }
 
   const now = Date.now();
-  const updated = await ctx.db
-    .update(pages)
-    .set({
-      pathSegment: snapshot.page.pathSegment,
-      fullPath: snapshot.page.fullPath,
-      parentPageId: snapshot.page.parentPageId,
-      layoutId: snapshot.page.layoutId,
-      nickname: snapshot.page.nickname,
-      metaTitle: snapshot.page.metaTitle,
-      metaDescription: snapshot.page.metaDescription,
-      aiSeoEnabled: snapshot.page.aiSeoEnabled,
-      customOgImageBlobId: snapshot.page.customOgImageBlobId,
-      customOgImageUrl: snapshot.page.customOgImageUrl,
-      contentUpdatedAt: checkpoint.createdAt,
-      updatedAt: now,
-    })
-    .where(eq(pages.id, id))
-    .returning()
-    .get();
+  const updated = yield* Effect.promise(() =>
+    ctx.db
+      .update(pages)
+      .set({
+        pathSegment: snapshot.page.pathSegment,
+        fullPath: snapshot.page.fullPath,
+        parentPageId: snapshot.page.parentPageId,
+        layoutId: snapshot.page.layoutId,
+        nickname: snapshot.page.nickname,
+        metaTitle: snapshot.page.metaTitle,
+        metaDescription: snapshot.page.metaDescription,
+        aiSeoEnabled: snapshot.page.aiSeoEnabled,
+        customOgImageBlobId: snapshot.page.customOgImageBlobId,
+        customOgImageUrl: snapshot.page.customOgImageUrl,
+        contentUpdatedAt: checkpoint.createdAt,
+        updatedAt: now,
+      })
+      .where(eq(pages.id, id))
+      .returning()
+      .get(),
+  );
 
   // Restoring a placement must not roll back shared content in other owners.
-  for (const block of snapshot.blocks) await syncBlockData(ctx, block.id, true);
+  for (const block of snapshot.blocks) yield* syncBlockData(ctx, block.id, true);
   const snapshotBlockIds = snapshot.blocks.map((block) => block.id);
   const affectedBlockIds = [...new Set([...existingBlockIds, ...snapshotBlockIds])];
   const affectedPaths = [...new Set([pageRow.fullPath, snapshot.page.fullPath])];
@@ -1300,52 +1388,50 @@ export async function discardPageChanges(
   });
 
   return updated;
-}
+});
 
 // Clear the live pointer. The public router will start 404'ing for this page;
 // the draft is untouched, and the previous auto-publish checkpoint stays in
 // the DB so a future history-sidebar feature can re-point at it.
-export async function unpublishPage(
+export const unpublishPage = Effect.fn("pages.unpublishPage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof unpublishPageInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = unpublishPageInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(unpublishPageInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const pageRow = await ctx.db.select().from(pages).where(eq(pages.id, id)).get();
-  if (!pageRow) throw new ORPCError("NOT_FOUND");
+  const pageRow = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.id, id)).get(),
+  );
+  if (!pageRow) return yield* new NotFoundError();
   if (pageRow.fullPath === "/") {
-    throw new ORPCError("BAD_REQUEST", {
-      message: "The home page cannot be unpublished.",
-    });
+    return yield* new InvalidInputError({ message: "The home page cannot be unpublished." });
   }
 
   // Surface a clear error rather than silently no-op when the user hits
   // unpublish on a never-published page — the menu should already be
   // disabled in that case, but a stale UI shouldn't write garbage.
   if (pageRow.livePublishedCheckpointId == null) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: "Page is not published.",
-    });
+    return yield* new InvalidInputError({ message: "Page is not published." });
   }
 
   const now = Date.now();
-  const updated = await ctx.db
-    .update(pages)
-    .set({ livePublishedCheckpointId: null, updatedAt: now })
-    .where(eq(pages.id, id))
-    .returning()
-    .get();
+  const updated = yield* Effect.promise(() =>
+    ctx.db
+      .update(pages)
+      .set({ livePublishedCheckpointId: null, updatedAt: now })
+      .where(eq(pages.id, id))
+      .returning()
+      .get(),
+  );
 
   // Block-level 'live' caches still hold the previous published snapshot;
   // invalidate them so a subsequent Live preview (or public read on the path
   // that just became 404) doesn't render stale block content from the cache.
-  const blockRows = await ctx.db
-    .select({ id: blocks.id })
-    .from(blocks)
-    .where(eq(blocks.pageId, id));
+  const blockRows = yield* Effect.promise(() =>
+    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.pageId, id)),
+  );
   invalidatePagePublish(ctx, {
     projectId: access.page.projectId,
     pageId: id,
@@ -1354,19 +1440,20 @@ export async function unpublishPage(
   });
 
   return updated;
-}
+});
 
-export async function generatePageSeo(
+export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generatePageSeoInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = generatePageSeoInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  await executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
+  yield* executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
   invalidatePage(ctx, access.page.projectId, id);
-  const updated = await ctx.db.select().from(pages).where(eq(pages.id, id)).get();
+  const updated = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.id, id)).get(),
+  );
   return updated;
-}
+});

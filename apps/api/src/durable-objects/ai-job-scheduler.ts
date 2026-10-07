@@ -1,6 +1,7 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { DurableObject } from "cloudflare:workers";
 import { eq, or } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createDb } from "../db";
 import { executeBlockSummary } from "../domains/blocks/service";
@@ -45,9 +46,9 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     const job = await this.ctx.storage.get<StoredJob>("job");
     if (!job) return;
 
-    // Only clear the job once it succeeded. If it throws, the job stays stored
+    // Only clear the job once it succeeded. If it fails, the job stays stored
     // and Cloudflare retries the alarm with backoff.
-    await this.runJob(job);
+    await Effect.runPromise(this.runJob(job));
 
     // A newer job may have been scheduled while this one ran — keep it.
     const current = await this.ctx.storage.get<StoredJob>("job");
@@ -56,7 +57,10 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     }
   }
 
-  private async runJob(job: StoredJob): Promise<void> {
+  private runJob = Effect.fn("AiJobScheduler.runJob")(function* (
+    this: AiJobScheduler,
+    job: StoredJob,
+  ) {
     const db = createDb(this.env.DB);
     const apiKey = this.env.OPEN_ROUTER_API_KEY;
 
@@ -64,12 +68,12 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     const label = `${entityTable}:${entityId}:${type}`;
 
     if (entityTable === "blocks" && type === "summary") {
-      const seoStale = await retryAiCall(label, (abortController) =>
+      const seoStale = yield* retryAiCall(label, (abortController) =>
         executeBlockSummary(db, apiKey, entityId, abortController),
       );
       if (seoStale) {
         // Cascade: schedule page SEO regeneration
-        const { scheduleAiJob } = await import("../lib/schedule-ai-job");
+        const { scheduleAiJob } = yield* Effect.promise(() => import("../lib/schedule-ai-job"));
         this.ctx.waitUntil(
           scheduleAiJob(this.env.AI_JOB_SCHEDULER, {
             entityTable: "pages",
@@ -81,7 +85,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       }
 
       // Broadcast block summary update
-      const projectId = await this.getBlockProjectId(db, entityId);
+      const projectId = yield* Effect.promise(() => this.getBlockProjectId(db, entityId));
       if (projectId) {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
@@ -91,12 +95,12 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         });
       }
     } else if (entityTable === "repeatableItems" && type === "summary") {
-      const cascade = await retryAiCall(label, (abortController) =>
+      const cascade = yield* retryAiCall(label, (abortController) =>
         executeRepeatableItemSummary(db, apiKey, entityId, abortController),
       );
       if (cascade) {
         // Cascade: schedule parent block summary regeneration
-        const { scheduleAiJob } = await import("../lib/schedule-ai-job");
+        const { scheduleAiJob } = yield* Effect.promise(() => import("../lib/schedule-ai-job"));
         this.ctx.waitUntil(
           scheduleAiJob(this.env.AI_JOB_SCHEDULER, {
             entityTable: "blocks",
@@ -108,13 +112,11 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       }
 
       // Broadcast repeatable item summary update
-      const item = await db
-        .select()
-        .from(repeatableItems)
-        .where(eq(repeatableItems.id, entityId))
-        .get();
+      const item = yield* Effect.promise(() =>
+        db.select().from(repeatableItems).where(eq(repeatableItems.id, entityId)).get(),
+      );
       if (item) {
-        const projectId = await this.getBlockProjectId(db, item.blockId);
+        const projectId = yield* Effect.promise(() => this.getBlockProjectId(db, item.blockId));
         if (projectId) {
           broadcastInvalidation({
             waitUntil: (p) => this.ctx.waitUntil(p),
@@ -125,11 +127,13 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         }
       }
     } else if (entityTable === "files" && type === "fileMetadata") {
-      await retryAiCall(label, (abortController) =>
+      yield* retryAiCall(label, (abortController) =>
         executeFileMetadata(db, apiKey, entityId, abortController),
       );
 
-      const file = await db.select().from(files).where(eq(files.id, entityId)).get();
+      const file = yield* Effect.promise(() =>
+        db.select().from(files).where(eq(files.id, entityId)).get(),
+      );
       if (file?.projectId) {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
@@ -139,11 +143,13 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         });
       }
     } else if (entityTable === "pages" && type === "seo") {
-      await retryAiCall(label, (abortController) =>
+      yield* retryAiCall(label, (abortController) =>
         executePageSeo(db, apiKey, entityId, abortController),
       );
 
-      const page = await db.select().from(pages).where(eq(pages.id, entityId)).get();
+      const page = yield* Effect.promise(() =>
+        db.select().from(pages).where(eq(pages.id, entityId)).get(),
+      );
       if (page) {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
@@ -153,7 +159,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         });
       }
     }
-  }
+  });
 
   private async getBlockProjectId(
     db: ReturnType<typeof createDb>,

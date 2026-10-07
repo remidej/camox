@@ -1,3 +1,9 @@
+import { Data, Effect } from "effect";
+
+class VideoOptimizationError extends Data.TaggedError("VideoOptimizationError")<{
+  readonly cause: unknown;
+}> {}
+
 // Media Transformations can output at most 60 seconds. Inspect the MP4 movie
 // header before calling it so a longer upload can never be silently truncated.
 const MIN_SIZE = 1024 * 1024;
@@ -90,19 +96,37 @@ export function optimizedVideoKey(key: string): string {
   return `${key}.optimized.mp4`;
 }
 
-export async function optimizeVideo(
+const attempt = <A>(run: () => PromiseLike<A>) =>
+  Effect.tryPromise({ try: run, catch: (cause) => new VideoOptimizationError({ cause }) });
+
+export const optimizeVideo = Effect.fn("files.optimizeVideo")(function* (
   file: File,
   key: string,
   bucket: R2Bucket,
   media?: MediaBinding,
-): Promise<{ key: string; size: number } | null> {
+) {
   if (!media || file.type !== "video/mp4" || file.size < MIN_SIZE || file.size > MAX_SIZE)
     return null;
-  try {
-    const metadata = await mp4Metadata(file);
-    if (!metadata || metadata.duration <= 0 || metadata.duration > MAX_DURATION_SECONDS)
-      return null;
-    const response = await media
+  return yield* transcodeVideo(file, key, bucket, media).pipe(
+    Effect.catchTag("VideoOptimizationError", (error) =>
+      Effect.sync(() => {
+        console.warn("Video optimization failed; serving original", error.cause);
+        return null;
+      }),
+    ),
+  );
+});
+
+const transcodeVideo = Effect.fn("files.transcodeVideo")(function* (
+  file: File,
+  key: string,
+  bucket: R2Bucket,
+  media: MediaBinding,
+) {
+  const metadata = yield* attempt(() => mp4Metadata(file));
+  if (!metadata || metadata.duration <= 0 || metadata.duration > MAX_DURATION_SECONDS) return null;
+  const response = yield* attempt(() =>
+    media
       .input(file.stream())
       .transform({
         width: Math.min(MAX_DIMENSION, Math.round(metadata.width)),
@@ -110,48 +134,51 @@ export async function optimizeVideo(
         fit: "scale-down",
       })
       .output({ mode: "video" })
-      .response();
-    if (!response.ok || !response.body) throw new Error(`Media transformation: ${response.status}`);
+      .response(),
+  );
+  if (!response.ok || !response.body) {
+    return yield* new VideoOptimizationError({
+      cause: new Error(`Media transformation: ${response.status}`),
+    });
+  }
 
-    // Read with a hard cap: even an inefficient encode must not exhaust Worker memory.
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    const maxOutputSize = Math.floor(file.size * 0.9);
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size >= maxOutputSize) {
-        await reader.cancel();
-        return null;
-      }
-      chunks.push(value);
-    }
-    if (!size) return null;
-    const bytes = new Uint8Array(size);
-    let position = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, position);
-      position += chunk.byteLength;
-    }
-    // The binding's undocumented no-dimensions default produced 360p from a
-    // 720p upload. Reject a lower-resolution result rather than shipping it.
-    const output = await mp4Metadata(new Blob([bytes]));
-    const scale = Math.min(1, MAX_DIMENSION / metadata.width, MAX_DIMENSION / metadata.height);
-    if (
-      !output ||
-      output.width < metadata.width * scale * 0.95 ||
-      output.height < metadata.height * scale * 0.95 ||
-      Math.abs(output.duration - metadata.duration) > 1
-    ) {
+  // Read with a hard cap: even an inefficient encode must not exhaust Worker memory.
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const maxOutputSize = Math.floor(file.size * 0.9);
+  while (true) {
+    const { done, value } = yield* attempt(() => reader.read());
+    if (done) break;
+    size += value.byteLength;
+    if (size >= maxOutputSize) {
+      yield* attempt(() => reader.cancel());
       return null;
     }
-    const optimizedKey = optimizedVideoKey(key);
-    await bucket.put(optimizedKey, bytes, { httpMetadata: { contentType: "video/mp4" } });
-    return { key: optimizedKey, size };
-  } catch (error) {
-    console.warn("Video optimization failed; serving original", error);
+    chunks.push(value);
+  }
+  if (!size) return null;
+  const bytes = new Uint8Array(size);
+  let position = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, position);
+    position += chunk.byteLength;
+  }
+  // The binding's undocumented no-dimensions default produced 360p from a
+  // 720p upload. Reject a lower-resolution result rather than shipping it.
+  const output = yield* attempt(() => mp4Metadata(new Blob([bytes])));
+  const scale = Math.min(1, MAX_DIMENSION / metadata.width, MAX_DIMENSION / metadata.height);
+  if (
+    !output ||
+    output.width < metadata.width * scale * 0.95 ||
+    output.height < metadata.height * scale * 0.95 ||
+    Math.abs(output.duration - metadata.duration) > 1
+  ) {
     return null;
   }
-}
+  const optimizedKey = optimizedVideoKey(key);
+  yield* attempt(() =>
+    bucket.put(optimizedKey, bytes, { httpMetadata: { contentType: "video/mp4" } }),
+  );
+  return { key: optimizedKey, size };
+});

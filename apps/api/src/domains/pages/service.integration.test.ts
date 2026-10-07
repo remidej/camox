@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { assertSyncAccess, getAuthorizedProject } from "../../authorization";
+import { runService } from "../../lib/run-service";
 import { blocks, pages } from "../../schema";
 import { getPageByPath, publishPage } from "./service";
 
@@ -11,25 +12,33 @@ describe("page persistence", () => {
   it("enforces tenant and environment boundaries with a real local D1 database", async () => {
     const { db, memberUser, outsiderUser, project } = await createProjectFixture("auth");
 
-    await expect(getAuthorizedProject(db, project.id, memberUser.id)).resolves.toMatchObject({
+    await expect(
+      runService(getAuthorizedProject(db, project.id, memberUser.id)),
+    ).resolves.toMatchObject({
       id: project.id,
     });
-    await expect(getAuthorizedProject(db, project.id, outsiderUser.id)).rejects.toMatchObject({
+    await expect(
+      runService(getAuthorizedProject(db, project.id, outsiderUser.id)),
+    ).rejects.toMatchObject({
       status: 403,
     });
     await expect(
-      assertSyncAccess(db, project.slug, {
-        user: null,
-        environmentName: "production",
-        deployToken: "test-deploy-token",
-      }),
+      runService(
+        assertSyncAccess(db, project.slug, {
+          user: null,
+          environmentName: "production",
+          deployToken: "test-deploy-token",
+        }),
+      ),
     ).resolves.toMatchObject({ id: project.id });
     await expect(
-      assertSyncAccess(db, project.slug, {
-        user: null,
-        environmentName: "dev:member@example.com",
-        deployToken: "test-deploy-token",
-      }),
+      runService(
+        assertSyncAccess(db, project.slug, {
+          user: null,
+          environmentName: "dev:member@example.com",
+          deployToken: "test-deploy-token",
+        }),
+      ),
     ).rejects.toMatchObject({ status: 403 });
   });
 
@@ -67,7 +76,7 @@ describe("page persistence", () => {
       .returning()
       .get();
 
-    await publishPage(ctx, { id: page.id });
+    await runService(publishPage(ctx, { id: page.id }));
     const publishedPage = await db.select().from(pages).where(eq(pages.id, page.id)).get();
     expect(publishedPage?.livePublishedCheckpointId).not.toBeNull();
 
@@ -80,16 +89,20 @@ describe("page persistence", () => {
       .set({ contentUpdatedAt: Date.now() + 1 })
       .where(eq(pages.id, page.id));
 
-    const draft = await getPageByPath(ctx, {
-      projectSlug: project.slug,
-      path: page.fullPath,
-      source: "draft",
-    });
-    const live = await getPageByPath(createServiceContext(db, null), {
-      projectSlug: project.slug,
-      path: page.fullPath,
-      source: "live",
-    });
+    const draft = await runService(
+      getPageByPath(ctx, {
+        projectSlug: project.slug,
+        path: page.fullPath,
+        source: "draft",
+      }),
+    );
+    const live = await runService(
+      getPageByPath(createServiceContext(db, null), {
+        projectSlug: project.slug,
+        path: page.fullPath,
+        source: "live",
+      }),
+    );
 
     expect(draft.blocks[0].content).toEqual({ title: "Draft title" });
     expect(draft.page.status).toBe("modified");

@@ -6,10 +6,11 @@ import {
   toJsonSchemaTool,
   toolProviders,
 } from "@camox/ai-tools";
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import { z } from "zod";
 
-import { getAuthorizedProject } from "../../authorization";
+import { getAuthorizedProject, requireUser } from "../../authorization";
+import { decodeInput, type ServiceError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
 
 // --- Input Schemas ---
@@ -24,16 +25,15 @@ export const listToolsInput = z.object({ projectId: z.number() });
 
 // --- Helpers ---
 
-export async function buildToolContext(
+export const buildToolContext = Effect.fn("agent.buildToolContext")(function* (
   ctx: ServiceContext,
   projectId: number,
-): Promise<ToolContext> {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  const project = await getAuthorizedProject(ctx.db, projectId, ctx.user.id);
-  if (!project) throw new ORPCError("NOT_FOUND");
+): Effect.fn.Return<ToolContext, ServiceError> {
+  const user = yield* requireUser(ctx);
+  yield* getAuthorizedProject(ctx.db, projectId, user.id);
   return {
     db: ctx.db,
-    user: ctx.user,
+    user,
     env: ctx.env,
     waitUntil: ctx.waitUntil,
     environmentName: ctx.environmentName,
@@ -41,7 +41,7 @@ export async function buildToolContext(
     telemetryDisabled: ctx.telemetryDisabled,
     projectId,
   };
-}
+});
 
 function findTool(tools: ToolDefinition[], name: string) {
   return tools.find((t) => t.name === name) ?? null;
@@ -51,12 +51,12 @@ export type ToolExecutionResponse =
   | { ok: true; result: unknown }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
 
-export async function executeTool(params: {
+export const executeTool = Effect.fn("agent.executeTool")(function* (params: {
   toolCtx: ToolContext;
   tools: ToolDefinition[];
   name: string;
   args: unknown;
-}): Promise<ToolExecutionResponse> {
+}): Effect.fn.Return<ToolExecutionResponse> {
   const { toolCtx, tools, name, args } = params;
   const tool = findTool(tools, name);
   if (!tool) {
@@ -70,15 +70,16 @@ export async function executeTool(params: {
     };
   }
 
-  try {
-    const parsed = tool.inputSchema.parse(args ?? {});
-    const result = await tool.handler(parsed, toolCtx);
-
-    return { ok: true, result };
-  } catch (err) {
-    return { ok: false, error: formatToolError(err) };
-  }
-}
+  return yield* Effect.tryPromise({
+    try: async () => tool.handler(tool.inputSchema.parse(args ?? {}), toolCtx),
+    catch: (err) => err,
+  }).pipe(
+    Effect.match({
+      onSuccess: (result): ToolExecutionResponse => ({ ok: true, result }),
+      onFailure: (err): ToolExecutionResponse => ({ ok: false, error: formatToolError(err) }),
+    }),
+  );
+});
 
 // --- Procedures ---
 
@@ -86,12 +87,15 @@ export async function executeTool(params: {
  * Surface the resolved tool list as JSON Schema. Adapters that need to render
  * a flat list (CLI `tools list`, future MCP `tools/list`) can call this.
  */
-export async function listTools(ctx: ServiceContext, rawInput: z.input<typeof listToolsInput>) {
-  const { projectId } = listToolsInput.parse(rawInput);
-  const toolCtx = await buildToolContext(ctx, projectId);
-  const tools = await resolveTools(toolProviders, toolCtx);
+export const listTools = Effect.fn("agent.listTools")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listToolsInput>,
+) {
+  const { projectId } = yield* decodeInput(listToolsInput, rawInput);
+  const toolCtx = yield* buildToolContext(ctx, projectId);
+  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx));
   return tools.map(toJsonSchemaTool);
-}
+});
 
 /**
  * Adapter-agnostic tool dispatch. Validates input via Zod, runs the handler,
@@ -99,12 +103,15 @@ export async function listTools(ctx: ServiceContext, rawInput: z.input<typeof li
  * tool-side failures — the LLM/CLI consumer needs to read the error to retry).
  *
  * Auth and project membership are checked in `buildToolContext` and surface as
- * regular ORPCError so the transport's error path handles them.
+ * typed service errors so the transport's error path handles them.
  */
-export async function callTool(ctx: ServiceContext, rawInput: z.input<typeof callToolInput>) {
-  const { projectId, name, arguments: args } = callToolInput.parse(rawInput);
-  const toolCtx = await buildToolContext(ctx, projectId);
+export const callTool = Effect.fn("agent.callTool")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof callToolInput>,
+) {
+  const { projectId, name, arguments: args } = yield* decodeInput(callToolInput, rawInput);
+  const toolCtx = yield* buildToolContext(ctx, projectId);
 
-  const tools = await resolveTools(toolProviders, toolCtx);
-  return executeTool({ toolCtx, tools, name, args });
-}
+  const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx));
+  return yield* executeTool({ toolCtx, tools, name, args });
+});

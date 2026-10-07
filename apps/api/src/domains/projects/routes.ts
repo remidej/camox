@@ -1,7 +1,10 @@
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { Hono } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
+import type { Database } from "../../db";
+import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
 import { projects } from "../../schema";
 import type { AppEnv } from "../../types";
@@ -11,41 +14,43 @@ import * as service from "./service";
 
 const initializeContent = pub
   .input(service.initializeProjectContentInput)
-  .handler(({ context, input }) => service.initializeProjectContent(context, input));
+  .handler(({ context, input }) => runService(service.initializeProjectContent(context, input)));
 
 // Protected procedures
 
 const list = authed
   .input(service.listProjectsInput)
-  .handler(({ context, input }) => service.listProjects(context, input));
+  .handler(({ context, input }) => runService(service.listProjects(context, input)));
 
 const getFirst = authed
   .input(service.getFirstProjectInput)
-  .handler(({ context, input }) => service.getFirstProject(context, input));
+  .handler(({ context, input }) => runService(service.getFirstProject(context, input)));
 
 const getBySlug = authed
   .input(service.getProjectBySlugInput)
-  .handler(({ context, input }) => service.getProjectBySlug(context, input));
+  .handler(({ context, input }) => runService(service.getProjectBySlug(context, input)));
 
 const get = authed
   .input(service.getProjectInput)
-  .handler(({ context, input }) => service.getProject(context, input));
+  .handler(({ context, input }) => runService(service.getProject(context, input)));
 
 const checkSlugAvailability = authed
   .input(service.checkProjectSlugAvailabilityInput)
-  .handler(({ context, input }) => service.checkProjectSlugAvailability(context, input));
+  .handler(({ context, input }) =>
+    runService(service.checkProjectSlugAvailability(context, input)),
+  );
 
 const create = authed
   .input(service.createProjectInput)
-  .handler(({ context, input }) => service.createProject(context, input));
+  .handler(({ context, input }) => runService(service.createProject(context, input)));
 
 const update = authed
   .input(service.updateProjectInput)
-  .handler(({ context, input }) => service.updateProject(context, input));
+  .handler(({ context, input }) => runService(service.updateProject(context, input)));
 
 const deleteFn = authed
   .input(service.deleteProjectInput)
-  .handler(({ context, input }) => service.deleteProject(context, input));
+  .handler(({ context, input }) => runService(service.deleteProject(context, input)));
 
 export const projectProcedures = {
   list,
@@ -75,6 +80,20 @@ const FAVICON_MAX_BYTES = 500 * 1024;
 
 function faviconKey(projectId: number) {
   return `favicons/${projectId}`;
+}
+
+function authorizeFavicon(db: Database, projectId: number, userId: string) {
+  return Effect.runPromise(
+    getAuthorizedProject(db, projectId, userId).pipe(
+      Effect.as({ ok: true as const }),
+      Effect.catchTags({
+        NotFoundError: () =>
+          Effect.succeed({ ok: false as const, error: "Not found", status: 404 as const }),
+        ForbiddenError: () =>
+          Effect.succeed({ ok: false as const, error: "Forbidden", status: 403 as const }),
+      }),
+    ),
+  );
 }
 
 export const faviconHonoRoutes = new Hono<AppEnv>();
@@ -126,8 +145,8 @@ faviconHonoRoutes.post("/upload", async (c) => {
     return c.json({ error: "Favicon must be 500 KB or smaller." }, 413);
   }
 
-  const project = await getAuthorizedProject(c.var.db, projectId, c.var.user.id);
-  if (!project) return c.json({ error: "Not found" }, 404);
+  const access = await authorizeFavicon(c.var.db, projectId, c.var.user.id);
+  if (!access.ok) return c.json({ error: access.error }, access.status);
 
   await c.env.FILES_BUCKET.put(faviconKey(projectId), file.stream(), {
     httpMetadata: { contentType: file.type },
@@ -147,8 +166,8 @@ faviconHonoRoutes.delete("/:projectId", async (c) => {
     return c.json({ error: "Invalid projectId" }, 400);
   }
 
-  const project = await getAuthorizedProject(c.var.db, projectId, c.var.user.id);
-  if (!project) return c.json({ error: "Not found" }, 404);
+  const access = await authorizeFavicon(c.var.db, projectId, c.var.user.id);
+  if (!access.ok) return c.json({ error: access.error }, access.status);
 
   await c.env.FILES_BUCKET.delete(faviconKey(projectId));
   await c.var.db.update(projects).set({ updatedAt: Date.now() }).where(eq(projects.id, projectId));

@@ -1,14 +1,15 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { ORPCError } from "@orpc/server";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray, notInArray, or, sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
 
-import { assertFileAccess, getAuthorizedProject } from "../../authorization";
+import { assertFileAccess, getAuthorizedProject, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { decodeInput, ForbiddenError, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
@@ -67,11 +68,6 @@ export const replaceFileInput = z.object({ id: z.number(), newFileId: z.number()
 export const setFileAiMetadataInput = z.object({ id: z.number(), enabled: z.boolean() });
 export const generateFileMetadataInput = z.object({ id: z.number() });
 
-function assertUser(ctx: ServiceContext) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  return ctx.user;
-}
-
 function invalidateFile(
   ctx: ServiceContext,
   projectId: number,
@@ -87,7 +83,7 @@ function invalidateFile(
 
 // --- AI Executor ---
 
-async function generateImageMetadata(
+const generateImageMetadata = Effect.fn("generateImageMetadata")(function* (
   apiKey: string,
   imageUrl: string,
   imageMimeType: string,
@@ -106,82 +102,92 @@ async function generateImageMetadata(
     mimeType: imageMimeType,
   });
   // Fetch image server-side — the AI provider can't reach localhost URLs in development
-  const response = await fetch(optimizedUrl, { signal: abortController?.signal });
-  const { bytes, mimeType } = await readMetadataImage(response);
+  const response = yield* Effect.promise(() =>
+    fetch(optimizedUrl, { signal: abortController?.signal }),
+  );
+  const { bytes, mimeType } = yield* readMetadataImage(response);
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   const base64 = btoa(binary);
 
-  return await chat({
-    adapter: createOpenRouterText("google/gemini-2.5-flash-lite", apiKey),
-    abortController,
-    outputSchema: z.object({
-      filename: z.string(),
-      alt: z.string(),
-    }),
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image" as const,
-            source: { type: "data" as const, value: base64, mimeType },
-          },
-          {
-            type: "text" as const,
-            content: outdent`
+  return yield* Effect.promise(() =>
+    chat({
+      adapter: createOpenRouterText("google/gemini-2.5-flash-lite", apiKey),
+      abortController,
+      outputSchema: z.object({
+        filename: z.string(),
+        alt: z.string(),
+      }),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image" as const,
+              source: { type: "data" as const, value: base64, mimeType },
+            },
+            {
+              type: "text" as const,
+              content: outdent`
               Analyze this image and generate metadata for it:
               - "filename": a clean, descriptive filename in kebab-case (no extension). The current filename is "${currentFilename}". If it's already human-readable and descriptive, keep it as-is (without the extension). Only rewrite it if it's gibberish, a random hash, or not meaningful (e.g. "IMG_2847", "DSC0042", "a7f3b2c9").
               - "alt": SEO-optimized alt text describing the image content. Be concise but descriptive (1 sentence max).
             `,
-          },
-        ],
-      },
-    ],
-  });
-}
+            },
+          ],
+        },
+      ],
+    }),
+  );
+});
 
-export async function executeFileMetadata(
+export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(function* (
   db: Database,
   apiKey: string,
   fileId: number,
   abortController?: AbortController,
 ) {
-  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  const file = yield* Effect.promise(() =>
+    db.select().from(files).where(eq(files.id, fileId)).get(),
+  );
   if (!file || file.aiMetadataEnabled === false) return;
   if (!isRasterImage(file.mimeType)) return;
 
-  const metadata = await generateImageMetadata(
+  // An unusable image fails the attempt like any other AI job error, so the
+  // scheduler can retry it.
+  const metadata = yield* generateImageMetadata(
     apiKey,
     file.url,
     file.mimeType,
     file.filename,
     abortController,
-  );
-  await saveGeneratedFileMetadata(db, file, metadata);
-}
+  ).pipe(Effect.orDie);
+  yield* saveGeneratedFileMetadata(db, file, metadata);
+});
 
-export async function saveGeneratedFileMetadata(
+export const saveGeneratedFileMetadata = Effect.fn("files.saveGeneratedFileMetadata")(function* (
   db: Database,
   file: Pick<typeof files.$inferSelect, "id" | "updatedAt">,
   metadata: { filename: string; alt: string },
 ) {
-  await db
-    .update(files)
-    .set({
-      filename: metadata.filename,
-      alt: metadata.alt,
-      updatedAt: Math.max(Date.now(), file.updatedAt + 1),
-    })
-    // Do not overwrite manual edits or a replaced asset while generation was in flight.
-    .where(
-      and(
-        eq(files.id, file.id),
-        eq(files.updatedAt, file.updatedAt),
-        sql`${files.aiMetadataEnabled} IS NOT 0`,
+  yield* Effect.promise(() =>
+    db
+      .update(files)
+      .set({
+        filename: metadata.filename,
+        alt: metadata.alt,
+        updatedAt: Math.max(Date.now(), file.updatedAt + 1),
+      })
+      // Do not overwrite manual edits or a replaced asset while generation was in flight.
+      .where(
+        and(
+          eq(files.id, file.id),
+          eq(files.updatedAt, file.updatedAt),
+          sql`${files.aiMetadataEnabled} IS NOT 0`,
+        ),
       ),
-    );
-}
+  );
+});
 
 // --- File reference cleanup ---
 
@@ -214,38 +220,46 @@ function containsFileRef(value: JsonValue, fileId: number): boolean {
   return Object.values(value).some((v) => containsFileRef(v as JsonValue, fileId));
 }
 
-export async function removeFileReferences(db: Database, fileId: number) {
+export const removeFileReferences = Effect.fn("files.removeFileReferences")(function* (
+  db: Database,
+  fileId: number,
+) {
   const marker = `"_fileId":${fileId}`;
   const now = Date.now();
 
-  const affectedBlocks = await db
-    .select({ id: blocks.id, content: blocks.content, pageId: blocks.pageId })
-    .from(blocks)
-    .where(sql`INSTR(${blocks.content}, ${marker}) > 0`);
+  const affectedBlocks = yield* Effect.promise(() =>
+    db
+      .select({ id: blocks.id, content: blocks.content, pageId: blocks.pageId })
+      .from(blocks)
+      .where(sql`INSTR(${blocks.content}, ${marker}) > 0`),
+  );
 
-  const affectedItems = await db
-    .select({
-      id: repeatableItems.id,
-      content: repeatableItems.content,
-      blockId: repeatableItems.blockId,
-    })
-    .from(repeatableItems)
-    .where(sql`INSTR(${repeatableItems.content}, ${marker}) > 0`);
+  const affectedItems = yield* Effect.promise(() =>
+    db
+      .select({
+        id: repeatableItems.id,
+        content: repeatableItems.content,
+        blockId: repeatableItems.blockId,
+      })
+      .from(repeatableItems)
+      .where(sql`INSTR(${repeatableItems.content}, ${marker}) > 0`),
+  );
 
   for (const block of affectedBlocks) {
     const cleaned = cleanFileReferences(block.content as JsonValue, fileId);
-    await db
-      .update(blocks)
-      .set({ content: cleaned, updatedAt: now })
-      .where(eq(blocks.id, block.id));
+    yield* Effect.promise(() =>
+      db.update(blocks).set({ content: cleaned, updatedAt: now }).where(eq(blocks.id, block.id)),
+    );
   }
 
   for (const item of affectedItems) {
     const cleaned = cleanFileReferences(item.content as JsonValue, fileId);
-    await db
-      .update(repeatableItems)
-      .set({ content: cleaned, updatedAt: now })
-      .where(eq(repeatableItems.id, item.id));
+    yield* Effect.promise(() =>
+      db
+        .update(repeatableItems)
+        .set({ content: cleaned, updatedAt: now })
+        .where(eq(repeatableItems.id, item.id)),
+    );
   }
 
   const itemBlockIds = affectedItems.map((i) => i.blockId);
@@ -255,10 +269,12 @@ export async function removeFileReferences(db: Database, fileId: number) {
   let itemBlockPageIds: number[] = [];
   if (itemBlockIds.length > 0) {
     const uniqueItemBlockIds = [...new Set(itemBlockIds)];
-    const parentBlocks = await db
-      .select({ id: blocks.id, pageId: blocks.pageId })
-      .from(blocks)
-      .where(inArray(blocks.id, uniqueItemBlockIds));
+    const parentBlocks = yield* Effect.promise(() =>
+      db
+        .select({ id: blocks.id, pageId: blocks.pageId })
+        .from(blocks)
+        .where(inArray(blocks.id, uniqueItemBlockIds)),
+    );
     itemBlockPageIds = parentBlocks.map((b) => b.pageId).filter((id) => id != null);
   }
 
@@ -274,93 +290,115 @@ export async function removeFileReferences(db: Database, fileId: number) {
     blockPageIds: allPageIds,
     itemIds: affectedItems.map((i) => i.id),
   };
-}
+});
 
 // --- Reads ---
 
-export async function listFiles(ctx: ServiceContext, rawInput: z.input<typeof listFilesInput>) {
-  const { projectId } = listFilesInput.parse(rawInput);
-  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  return ctx.db
-    .select()
-    .from(files)
-    .where(and(eq(files.projectId, projectId), eq(files.environmentId, environment.id)));
-}
+export const listFiles = Effect.fn("files.listFiles")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listFilesInput>,
+) {
+  const { projectId } = yield* decodeInput(listFilesInput, rawInput);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  return yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(files)
+      .where(and(eq(files.projectId, projectId), eq(files.environmentId, environment.id))),
+  );
+});
 
-export async function getFile(ctx: ServiceContext, rawInput: z.input<typeof getFileInput>) {
-  const { id } = getFileInput.parse(rawInput);
-  const result = await ctx.db.select().from(files).where(eq(files.id, id)).get();
-  if (!result) throw new ORPCError("NOT_FOUND");
+export const getFile = Effect.fn("files.getFile")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getFileInput>,
+) {
+  const { id } = yield* decodeInput(getFileInput, rawInput);
+  const result = yield* Effect.promise(() =>
+    ctx.db.select().from(files).where(eq(files.id, id)).get(),
+  );
+  if (!result) return yield* new NotFoundError();
   return result;
-}
+});
 
-export async function getFileUsageCount(
+export const getFileUsageCount = Effect.fn("files.getFileUsageCount")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getFileUsageCountInput>,
 ) {
-  const { id } = getFileUsageCountInput.parse(rawInput);
-  const file = await ctx.db.select().from(files).where(eq(files.id, id)).get();
-  if (!file) throw new ORPCError("NOT_FOUND");
+  const { id } = yield* decodeInput(getFileUsageCountInput, rawInput);
+  const file = yield* Effect.promise(() =>
+    ctx.db.select().from(files).where(eq(files.id, id)).get(),
+  );
+  if (!file) return yield* new NotFoundError();
 
   const marker = `"_fileId":${file.id}`;
-  const blockCount = await ctx.db
-    .select({ count: sql<number>`count(*)` })
-    .from(blocks)
-    .where(sql`INSTR(${blocks.content}, ${marker}) > 0`)
-    .get();
-  const itemCount = await ctx.db
-    .select({ count: sql<number>`count(*)` })
-    .from(repeatableItems)
-    .where(sql`INSTR(${repeatableItems.content}, ${marker}) > 0`)
-    .get();
+  const blockCount = yield* Effect.promise(() =>
+    ctx.db
+      .select({ count: sql<number>`count(*)` })
+      .from(blocks)
+      .where(sql`INSTR(${blocks.content}, ${marker}) > 0`)
+      .get(),
+  );
+  const itemCount = yield* Effect.promise(() =>
+    ctx.db
+      .select({ count: sql<number>`count(*)` })
+      .from(repeatableItems)
+      .where(sql`INSTR(${repeatableItems.content}, ${marker}) > 0`)
+      .get(),
+  );
   return { count: (blockCount?.count ?? 0) + (itemCount?.count ?? 0) };
-}
+});
 
 // Authenticated, project/environment-scoped access for agent tools.
-export async function getProjectFile(
+export const getProjectFile = Effect.fn("files.getProjectFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof projectFileInput>,
 ) {
-  const user = assertUser(ctx);
-  const { projectId, id } = projectFileInput.parse(rawInput);
-  const project = await getAuthorizedProject(ctx.db, projectId, user.id);
-  if (!project) throw new ORPCError("NOT_FOUND");
-  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const file = await ctx.db
-    .select()
-    .from(files)
-    .where(
-      and(
-        eq(files.id, id),
-        eq(files.projectId, projectId),
-        eq(files.environmentId, environment.id),
-      ),
-    )
-    .get();
-  if (!file) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { projectId, id } = yield* decodeInput(projectFileInput, rawInput);
+  yield* getAuthorizedProject(ctx.db, projectId, user.id);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  const file = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(files)
+      .where(
+        and(
+          eq(files.id, id),
+          eq(files.projectId, projectId),
+          eq(files.environmentId, environment.id),
+        ),
+      )
+      .get(),
+  );
+  if (!file) return yield* new NotFoundError();
   return file;
-}
+});
 
 // --- Writes ---
 
-export async function updateFile(ctx: ServiceContext, rawInput: z.input<typeof updateFileInput>) {
-  const input = updateFileInput.parse(rawInput);
-  const file = await getProjectFile(ctx, input);
+export const updateFile = Effect.fn("files.updateFile")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof updateFileInput>,
+) {
+  const input = yield* decodeInput(updateFileInput, rawInput);
+  const file = yield* getProjectFile(ctx, input);
   if (input.aiMetadataEnabled && !isRasterImage(file.mimeType)) {
-    throw new ORPCError("BAD_REQUEST", { message: "Automatic metadata requires a raster image." });
+    return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
   }
   const aiMetadataEnabled = input.alt !== undefined ? false : input.aiMetadataEnabled;
-  const result = await ctx.db
-    .update(files)
-    .set({
-      ...(input.alt !== undefined ? { alt: input.alt } : {}),
-      ...(input.filename !== undefined ? { filename: input.filename } : {}),
-      ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
-      updatedAt: Math.max(Date.now(), file.updatedAt + 1),
-    })
-    .where(eq(files.id, file.id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(files)
+      .set({
+        ...(input.alt !== undefined ? { alt: input.alt } : {}),
+        ...(input.filename !== undefined ? { filename: input.filename } : {}),
+        ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
+        updatedAt: Math.max(Date.now(), file.updatedAt + 1),
+      })
+      .where(eq(files.id, file.id))
+      .returning()
+      .get(),
+  );
   if (aiMetadataEnabled) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -373,68 +411,79 @@ export async function updateFile(ctx: ServiceContext, rawInput: z.input<typeof u
   }
   invalidateFile(ctx, input.projectId, [queryKeys.files.list, queryKeys.files.get(file.id)]);
   return result;
-}
+});
 
-export async function setFileAlt(ctx: ServiceContext, rawInput: z.input<typeof setFileAltInput>) {
-  const user = assertUser(ctx);
-  const { id, alt } = setFileAltInput.parse(rawInput);
-  const access = await assertFileAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+export const setFileAlt = Effect.fn("files.setFileAlt")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof setFileAltInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id, alt } = yield* decodeInput(setFileAltInput, rawInput);
+  const access = yield* assertFileAccess(ctx.db, id, user.id);
 
-  const result = await ctx.db
-    .update(files)
-    .set({
-      alt,
-      aiMetadataEnabled: false,
-      updatedAt: Math.max(Date.now(), access.file.updatedAt + 1),
-    })
-    .where(eq(files.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(files)
+      .set({
+        alt,
+        aiMetadataEnabled: false,
+        updatedAt: Math.max(Date.now(), access.file.updatedAt + 1),
+      })
+      .where(eq(files.id, id))
+      .returning()
+      .get(),
+  );
   invalidateFile(ctx, access.file.projectId!, [queryKeys.files.list, queryKeys.files.get(id)]);
   return result;
-}
+});
 
-export async function setFileFilename(
+export const setFileFilename = Effect.fn("files.setFileFilename")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileFilenameInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, filename } = setFileFilenameInput.parse(rawInput);
-  const access = await assertFileAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id, filename } = yield* decodeInput(setFileFilenameInput, rawInput);
+  const access = yield* assertFileAccess(ctx.db, id, user.id);
 
-  const result = await ctx.db
-    .update(files)
-    .set({ filename, updatedAt: Date.now() })
-    .where(eq(files.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(files)
+      .set({ filename, updatedAt: Date.now() })
+      .where(eq(files.id, id))
+      .returning()
+      .get(),
+  );
   invalidateFile(ctx, access.file.projectId!, [queryKeys.files.list, queryKeys.files.get(id)]);
   return result;
-}
+});
 
-export async function deleteFile(ctx: ServiceContext, rawInput: z.input<typeof deleteFileInput>) {
-  const user = assertUser(ctx);
-  const { id } = deleteFileInput.parse(rawInput);
-  const access = await assertFileAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+export const deleteFile = Effect.fn("files.deleteFile")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof deleteFileInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(deleteFileInput, rawInput);
+  const access = yield* assertFileAccess(ctx.db, id, user.id);
 
-  await assertNoCollectionAssetUse(ctx.db, [id]);
-  const { blockIds, blockPageIds, itemIds } = await removeFileReferences(ctx.db, id);
+  yield* assertNoCollectionAssetUse(ctx.db, [id]);
+  const { blockIds, blockPageIds, itemIds } = yield* removeFileReferences(ctx.db, id);
 
   // Other envs may point at the same R2 blob via push/pull replication. Only
   // drop the blob when this row is the last reference.
-  const sibling = await ctx.db
-    .select({ id: files.id })
-    .from(files)
-    .where(and(eq(files.blobId, access.file.blobId), sql`${files.id} != ${id}`))
-    .limit(1)
-    .get();
+  const sibling = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: files.id })
+      .from(files)
+      .where(and(eq(files.blobId, access.file.blobId), sql`${files.id} != ${id}`))
+      .limit(1)
+      .get(),
+  );
   if (!sibling) {
-    await deleteFileBlob(ctx, access.file.blobId);
+    yield* deleteFileBlob(ctx, access.file.blobId);
   }
-  const result = await ctx.db.delete(files).where(eq(files.id, id)).returning().get();
+  const result = yield* Effect.promise(() =>
+    ctx.db.delete(files).where(eq(files.id, id)).returning().get(),
+  );
   invalidateFile(ctx, access.file.projectId!, [
     queryKeys.files.list,
     queryKeys.files.get(id),
@@ -446,33 +495,38 @@ export async function deleteFile(ctx: ServiceContext, rawInput: z.input<typeof d
       : []),
   ]);
   return result;
-}
+});
 
-export async function deleteFiles(ctx: ServiceContext, rawInput: z.input<typeof deleteFilesInput>) {
-  const user = assertUser(ctx);
-  const { ids } = deleteFilesInput.parse(rawInput);
+export const deleteFiles = Effect.fn("files.deleteFiles")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof deleteFilesInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { ids } = yield* decodeInput(deleteFilesInput, rawInput);
   if (ids.length === 0) return [];
 
-  const authorizedFiles = await ctx.db
-    .select({ id: files.id, blobId: files.blobId, projectId: files.projectId })
-    .from(files)
-    .innerJoin(projects, eq(projects.id, files.projectId))
-    .innerJoin(
-      member,
-      and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
-    )
-    .where(inArray(files.id, ids));
+  const authorizedFiles = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: files.id, blobId: files.blobId, projectId: files.projectId })
+      .from(files)
+      .innerJoin(projects, eq(projects.id, files.projectId))
+      .innerJoin(
+        member,
+        and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
+      )
+      .where(inArray(files.id, ids)),
+  );
 
   if (authorizedFiles.length !== ids.length) {
-    throw new ORPCError("FORBIDDEN");
+    return yield* new ForbiddenError();
   }
 
-  await assertNoCollectionAssetUse(ctx.db, ids);
+  yield* assertNoCollectionAssetUse(ctx.db, ids);
   const allBlockIds: number[] = [];
   const allBlockPageIds: number[] = [];
   const allItemIds: number[] = [];
   for (const id of ids) {
-    const { blockIds, blockPageIds, itemIds } = await removeFileReferences(ctx.db, id);
+    const { blockIds, blockPageIds, itemIds } = yield* removeFileReferences(ctx.db, id);
     allBlockIds.push(...blockIds);
     allBlockPageIds.push(...blockPageIds);
     allItemIds.push(...itemIds);
@@ -481,14 +535,19 @@ export async function deleteFiles(ctx: ServiceContext, rawInput: z.input<typeof 
   // Only delete R2 blobs whose last reference is in this batch — other envs
   // may share the same blobId via push/pull replication.
   const blobIds = [...new Set(authorizedFiles.map((f) => f.blobId))];
-  const survivors = await ctx.db
-    .select({ blobId: files.blobId })
-    .from(files)
-    .where(and(inArray(files.blobId, blobIds), notInArray(files.id, ids)));
+  const survivors = yield* Effect.promise(() =>
+    ctx.db
+      .select({ blobId: files.blobId })
+      .from(files)
+      .where(and(inArray(files.blobId, blobIds), notInArray(files.id, ids))),
+  );
   const survivingBlobs = new Set(survivors.map((s) => s.blobId));
   const blobsToDelete = blobIds.filter((b) => !survivingBlobs.has(b));
-  await Promise.all(blobsToDelete.map((b) => deleteFileBlob(ctx, b)));
-  await ctx.db.delete(files).where(inArray(files.id, ids));
+  yield* Effect.forEach(blobsToDelete, (b) => deleteFileBlob(ctx, b), {
+    concurrency: "unbounded",
+    discard: true,
+  });
+  yield* Effect.promise(() => ctx.db.delete(files).where(inArray(files.id, ids)));
 
   const projectId = authorizedFiles[0]!.projectId!;
   const uniqueBlockIds = [...new Set(allBlockIds)];
@@ -505,23 +564,27 @@ export async function deleteFiles(ctx: ServiceContext, rawInput: z.input<typeof 
       : []),
   ]);
   return ids;
-}
+});
 
-export async function replaceFile(ctx: ServiceContext, rawInput: z.input<typeof replaceFileInput>) {
-  const user = assertUser(ctx);
-  const { id, newFileId } = replaceFileInput.parse(rawInput);
-  if (id === newFileId) throw new ORPCError("BAD_REQUEST");
-  const oldAccess = await assertFileAccess(ctx.db, id, user.id);
-  const newAccess = await assertFileAccess(ctx.db, newFileId, user.id);
-  if (!oldAccess || !newAccess) throw new ORPCError("NOT_FOUND");
+export const replaceFile = Effect.fn("files.replaceFile")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof replaceFileInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id, newFileId } = yield* decodeInput(replaceFileInput, rawInput);
+  if (id === newFileId) {
+    return yield* new InvalidInputError({ message: "A file cannot be replaced with itself" });
+  }
+  const oldAccess = yield* assertFileAccess(ctx.db, id, user.id);
+  const newAccess = yield* assertFileAccess(ctx.db, newFileId, user.id);
   if (
     oldAccess.file.projectId !== newAccess.file.projectId ||
     oldAccess.file.environmentId !== newAccess.file.environmentId ||
     oldAccess.file.projectId == null
   ) {
-    throw new ORPCError("FORBIDDEN");
+    return yield* new ForbiddenError();
   }
-  await replaceFileContent(
+  yield* replaceFileContent(
     ctx,
     { id, projectId: oldAccess.file.projectId },
     newAccess.file,
@@ -529,7 +592,7 @@ export async function replaceFile(ctx: ServiceContext, rawInput: z.input<typeof 
     newFileId,
   );
   return { replaced: true };
-}
+});
 
 type FileAsset = Pick<
   typeof files.$inferSelect,
@@ -537,17 +600,17 @@ type FileAsset = Pick<
 >;
 
 /** Replace bytes and explicit metadata together, retaining the referenced file row. */
-export async function replaceFileContent(
+export const replaceFileContent = Effect.fn("files.replaceFileContent")(function* (
   ctx: ServiceContext,
   target: z.input<typeof projectFileInput>,
   asset: FileAsset,
   rawMetadata: z.input<typeof fileMetadataInput>,
   temporaryFileId?: number,
 ) {
-  const metadata = fileMetadataInput.parse(rawMetadata);
-  const oldFile = await getProjectFile(ctx, target);
+  const metadata = yield* decodeInput(fileMetadataInput, rawMetadata);
+  const oldFile = yield* getProjectFile(ctx, target);
   if (metadata.aiMetadataEnabled && !isRasterImage(asset.mimeType)) {
-    throw new ORPCError("BAD_REQUEST", { message: "Automatic metadata requires a raster image." });
+    return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
   }
   const { id, projectId } = target;
   const oldUrl = oldFile.url;
@@ -577,38 +640,44 @@ export async function replaceFileContent(
 
   // Include direct URLs as well as _fileId references in invalidation.
   const marker = `"_fileId":${id}`;
-  const affectedBlocks = await ctx.db
-    .select({ id: blocks.id, pageId: blocks.pageId })
-    .from(blocks)
-    .where(
-      and(
-        scopedBlocks,
-        or(
-          sql`INSTR(${blocks.content}, ${marker}) > 0`,
-          sql`INSTR(${blocks.content}, ${oldUrl}) > 0`,
+  const affectedBlocks = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: blocks.id, pageId: blocks.pageId })
+      .from(blocks)
+      .where(
+        and(
+          scopedBlocks,
+          or(
+            sql`INSTR(${blocks.content}, ${marker}) > 0`,
+            sql`INSTR(${blocks.content}, ${oldUrl}) > 0`,
+          ),
         ),
       ),
-    );
-  const affectedItems = await ctx.db
-    .select({ id: repeatableItems.id, blockId: repeatableItems.blockId })
-    .from(repeatableItems)
-    .where(
-      and(
-        scopedItems,
-        or(
-          sql`INSTR(${repeatableItems.content}, ${marker}) > 0`,
-          sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`,
+  );
+  const affectedItems = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: repeatableItems.id, blockId: repeatableItems.blockId })
+      .from(repeatableItems)
+      .where(
+        and(
+          scopedItems,
+          or(
+            sql`INSTR(${repeatableItems.content}, ${marker}) > 0`,
+            sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`,
+          ),
         ),
       ),
-    );
+  );
 
   const itemBlockIds = [...new Set(affectedItems.map((i) => i.blockId))];
   let itemBlockPageIds: number[] = [];
   if (itemBlockIds.length > 0) {
-    const parentBlocks = await ctx.db
-      .select({ id: blocks.id, pageId: blocks.pageId })
-      .from(blocks)
-      .where(inArray(blocks.id, itemBlockIds));
+    const parentBlocks = yield* Effect.promise(() =>
+      ctx.db
+        .select({ id: blocks.id, pageId: blocks.pageId })
+        .from(blocks)
+        .where(inArray(blocks.id, itemBlockIds)),
+    );
     itemBlockPageIds = parentBlocks.map((b) => b.pageId).filter((id): id is number => id != null);
   }
   const allBlockIds = [...new Set([...affectedBlocks.map((b) => b.id), ...itemBlockIds])];
@@ -622,46 +691,48 @@ export async function replaceFileContent(
   const aiMetadataEnabled = metadata.alt !== undefined ? false : metadata.aiMetadataEnabled;
   // D1 batch is transactional: binary metadata, explicit overrides and URL
   // migrations either commit together or leave the original file untouched.
-  const [updated] = await ctx.db.batch([
-    ctx.db
-      .update(files)
-      .set({
-        blobId: asset.blobId,
-        path: asset.path,
-        url: asset.url,
-        filename: asset.filename,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        optimizedSize: asset.optimizedSize,
-        ...(metadata.alt !== undefined ? { alt: metadata.alt } : {}),
-        ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
-        updatedAt: sql`MAX(${files.updatedAt} + 1, ${now})`,
-      })
-      .where(eq(files.id, id))
-      .returning(),
-    ctx.db
-      .update(blocks)
-      .set({
-        content: sql`REPLACE(CAST(${blocks.content} AS TEXT), ${oldUrl}, ${asset.url})`,
-        updatedAt: now,
-      })
-      .where(and(scopedBlocks, sql`INSTR(${blocks.content}, ${oldUrl}) > 0`)),
-    ctx.db
-      .update(repeatableItems)
-      .set({
-        content: sql`REPLACE(CAST(${repeatableItems.content} AS TEXT), ${oldUrl}, ${asset.url})`,
-        updatedAt: now,
-      })
-      .where(and(scopedItems, sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`)),
-    ...(temporaryFileId === undefined
-      ? []
-      : [ctx.db.delete(files).where(eq(files.id, temporaryFileId))]),
-  ]);
+  const [updated] = yield* Effect.promise(() =>
+    ctx.db.batch([
+      ctx.db
+        .update(files)
+        .set({
+          blobId: asset.blobId,
+          path: asset.path,
+          url: asset.url,
+          filename: asset.filename,
+          mimeType: asset.mimeType,
+          size: asset.size,
+          optimizedSize: asset.optimizedSize,
+          ...(metadata.alt !== undefined ? { alt: metadata.alt } : {}),
+          ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
+          updatedAt: sql`MAX(${files.updatedAt} + 1, ${now})`,
+        })
+        .where(eq(files.id, id))
+        .returning(),
+      ctx.db
+        .update(blocks)
+        .set({
+          content: sql`REPLACE(CAST(${blocks.content} AS TEXT), ${oldUrl}, ${asset.url})`,
+          updatedAt: now,
+        })
+        .where(and(scopedBlocks, sql`INSTR(${blocks.content}, ${oldUrl}) > 0`)),
+      ctx.db
+        .update(repeatableItems)
+        .set({
+          content: sql`REPLACE(CAST(${repeatableItems.content} AS TEXT), ${oldUrl}, ${asset.url})`,
+          updatedAt: now,
+        })
+        .where(and(scopedItems, sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`)),
+      ...(temporaryFileId === undefined
+        ? []
+        : [ctx.db.delete(files).where(eq(files.id, temporaryFileId))]),
+    ]),
+  );
   const result = updated[0];
-  if (!result) throw new ORPCError("NOT_FOUND");
+  if (!result) return yield* new NotFoundError();
 
   // Cleanup is post-commit; never remove a blob still shared by another environment.
-  ctx.waitUntil(deleteUnreferencedFileBlob(ctx, oldFile.blobId));
+  ctx.waitUntil(Effect.runPromise(deleteUnreferencedFileBlob(ctx, oldFile.blobId)));
   if (result.aiMetadataEnabled !== false && isRasterImage(asset.mimeType)) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -685,41 +756,49 @@ export async function replaceFileContent(
       : []),
   ]);
   return result;
-}
+});
 
-export async function deleteUnreferencedFileBlob(ctx: ServiceContext, blobId: string) {
-  const reference = await ctx.db
-    .select({ id: files.id })
-    .from(files)
-    .where(eq(files.blobId, blobId))
-    .limit(1)
-    .get();
-  if (!reference) await deleteFileBlob(ctx, blobId);
-}
+export const deleteUnreferencedFileBlob = Effect.fn("files.deleteUnreferencedFileBlob")(function* (
+  ctx: ServiceContext,
+  blobId: string,
+) {
+  const reference = yield* Effect.promise(() =>
+    ctx.db.select({ id: files.id }).from(files).where(eq(files.blobId, blobId)).limit(1).get(),
+  );
+  if (!reference) yield* deleteFileBlob(ctx, blobId);
+});
 
-async function deleteFileBlob(ctx: ServiceContext, blobId: string) {
-  await Promise.all([
-    ctx.env.FILES_BUCKET.delete(blobId),
-    ctx.env.FILES_BUCKET.delete(optimizedVideoKey(blobId)),
-  ]);
-}
+const deleteFileBlob = Effect.fn("deleteFileBlob")(function* (ctx: ServiceContext, blobId: string) {
+  yield* Effect.promise(() =>
+    Promise.all([
+      ctx.env.FILES_BUCKET.delete(blobId),
+      ctx.env.FILES_BUCKET.delete(optimizedVideoKey(blobId)),
+    ]),
+  );
+});
 
-export async function setFileAiMetadata(
+export const setFileAiMetadata = Effect.fn("files.setFileAiMetadata")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileAiMetadataInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, enabled } = setFileAiMetadataInput.parse(rawInput);
-  const access = await assertFileAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
-  if (enabled && !isRasterImage(access.file.mimeType)) throw new ORPCError("BAD_REQUEST");
+  const user = yield* requireUser(ctx);
+  const { id, enabled } = yield* decodeInput(setFileAiMetadataInput, rawInput);
+  const access = yield* assertFileAccess(ctx.db, id, user.id);
+  if (enabled && !isRasterImage(access.file.mimeType)) {
+    return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
+  }
 
-  const result = await ctx.db
-    .update(files)
-    .set({ aiMetadataEnabled: enabled, updatedAt: Math.max(Date.now(), access.file.updatedAt + 1) })
-    .where(eq(files.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(files)
+      .set({
+        aiMetadataEnabled: enabled,
+        updatedAt: Math.max(Date.now(), access.file.updatedAt + 1),
+      })
+      .where(eq(files.id, id))
+      .returning()
+      .get(),
+  );
   if (enabled) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -732,19 +811,20 @@ export async function setFileAiMetadata(
   }
   invalidateFile(ctx, access.file.projectId!, [queryKeys.files.list, queryKeys.files.get(id)]);
   return result;
-}
+});
 
-export async function generateFileMetadata(
+export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateFileMetadataInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = generateFileMetadataInput.parse(rawInput);
-  const access = await assertFileAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(generateFileMetadataInput, rawInput);
+  const access = yield* assertFileAccess(ctx.db, id, user.id);
 
-  await executeFileMetadata(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
+  yield* executeFileMetadata(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
   invalidateFile(ctx, access.file.projectId!, [queryKeys.files.list, queryKeys.files.get(id)]);
-  const updated = await ctx.db.select().from(files).where(eq(files.id, id)).get();
+  const updated = yield* Effect.promise(() =>
+    ctx.db.select().from(files).where(eq(files.id, id)).get(),
+  );
   return updated;
-}
+});

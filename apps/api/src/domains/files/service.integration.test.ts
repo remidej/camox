@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { blocks, environments, files, layouts, repeatableItems } from "../../schema";
 import type { AppEnv } from "../../types";
 import { callTool } from "../agent/service";
@@ -152,7 +153,7 @@ describe("media persistence", () => {
       String(rendition.length),
     );
     expect((await ctx.env.FILES_BUCKET.head(file.blobId))?.size).toBe(original.length);
-    await deleteFile(ctx, { id: file.id });
+    await runService(deleteFile(ctx, { id: file.id }));
     expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual([]);
   });
 
@@ -179,19 +180,19 @@ describe("media persistence", () => {
     const { upload, ctx, db, project, outsiderUser, scheduleAiJob } = await fixture();
     const record = await (await upload()).json<typeof files.$inferSelect>();
     const target = { projectId: project.id, id: record.id };
-    expect(await updateFile(ctx, { ...target, alt: "Manual" })).toMatchObject({
+    expect(await runService(updateFile(ctx, { ...target, alt: "Manual" }))).toMatchObject({
       alt: "Manual",
       aiMetadataEnabled: false,
     });
     await expect(
-      updateFile(ctx, { ...target, alt: "Conflict", aiMetadataEnabled: true }),
+      runService(updateFile(ctx, { ...target, alt: "Conflict", aiMetadataEnabled: true })),
     ).rejects.toThrow();
-    await expect(updateFile(ctx, target)).rejects.toThrow();
-    expect(await getProjectFile(ctx, target)).toMatchObject({
+    await expect(runService(updateFile(ctx, target))).rejects.toThrow();
+    expect(await runService(getProjectFile(ctx, target))).toMatchObject({
       alt: "Manual",
       aiMetadataEnabled: false,
     });
-    expect(await listFiles(ctx, { projectId: project.id })).toHaveLength(1);
+    expect(await runService(listFiles(ctx, { projectId: project.id }))).toHaveLength(1);
     const dev = { ...ctx, environmentName: `dev:${ctx.user!.email}` };
     await db.insert(environments).values({
       projectId: project.id,
@@ -200,25 +201,31 @@ describe("media persistence", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-    await expect(getProjectFile(dev, target)).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(updateFile(dev, { ...target, alt: "Wrong environment" })).rejects.toMatchObject({
+    await expect(runService(getProjectFile(dev, target))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    expect(await listFiles(dev, { projectId: project.id })).toEqual([]);
     await expect(
-      getProjectFile(createServiceContext(db, outsiderUser), target),
+      runService(updateFile(dev, { ...target, alt: "Wrong environment" })),
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(await runService(listFiles(dev, { projectId: project.id }))).toEqual([]);
+    await expect(
+      runService(getProjectFile(createServiceContext(db, outsiderUser), target)),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     const other = await fixture();
     await expect(
-      getProjectFile(other.ctx, { ...target, projectId: other.project.id }),
+      runService(getProjectFile(other.ctx, { ...target, projectId: other.project.id })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     scheduleAiJob.mockClear();
-    expect(await updateFile(ctx, { ...target, aiMetadataEnabled: true })).toMatchObject({
-      aiMetadataEnabled: true,
-      alt: "Manual",
-    });
+    expect(await runService(updateFile(ctx, { ...target, aiMetadataEnabled: true }))).toMatchObject(
+      {
+        aiMetadataEnabled: true,
+        alt: "Manual",
+      },
+    );
     expect(scheduleAiJob).toHaveBeenCalledOnce();
-    expect(await updateFile(ctx, { ...target, alt: "" })).toMatchObject({
+    expect(await runService(updateFile(ctx, { ...target, alt: "" }))).toMatchObject({
       alt: "",
       aiMetadataEnabled: false,
     });
@@ -228,7 +235,7 @@ describe("media persistence", () => {
     const { upload, ctx, project } = await fixture();
     const file = await (await upload({ alt: "Original" })).json<typeof files.$inferSelect>();
     const invoke = (name: string, args: unknown) =>
-      callTool(ctx, { projectId: project.id, name, arguments: args });
+      runService(callTool(ctx, { projectId: project.id, name, arguments: args }));
     expect(await invoke("listFiles", {})).toMatchObject({ ok: true, result: [{ id: file.id }] });
     expect(await invoke("getFile", { id: file.id })).toMatchObject({
       ok: true,
@@ -346,7 +353,7 @@ describe("media persistence", () => {
     });
     expect(replaced.url).not.toBe(original.url);
     expect(scheduleAiJob).not.toHaveBeenCalled();
-    expect(await listFiles(ctx, { projectId: project.id })).toHaveLength(1);
+    expect(await runService(listFiles(ctx, { projectId: project.id }))).toHaveLength(1);
     expect(await db.select().from(blocks).where(eq(blocks.id, block.id)).get()).toMatchObject({
       content: { image: { _fileId: original.id }, html: `<img src="${replaced.url}">` },
     });
@@ -362,8 +369,10 @@ describe("media persistence", () => {
     const served = await app.request(replaced.url, {}, env);
     expect(new TextDecoder().decode(await served.arrayBuffer())).toBe("new bytes");
     // The prior AI snapshot must not overwrite the replacement's explicit metadata.
-    await saveGeneratedFileMetadata(db, original, { alt: "Stale", filename: "stale" });
-    expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toMatchObject({
+    await runService(saveGeneratedFileMetadata(db, original, { alt: "Stale", filename: "stale" }));
+    expect(
+      await runService(getProjectFile(ctx, { projectId: project.id, id: original.id })),
+    ).toMatchObject({
       alt: "New alt",
       filename: "replacement.webp",
     });
@@ -373,7 +382,7 @@ describe("media persistence", () => {
     const { upload, ctx, project, scheduleAiJob } = await fixture();
     const original = await (await upload({ alt: "Keep this" })).json<typeof files.$inferSelect>();
     const target = { id: original.id, projectId: project.id };
-    await updateFile(ctx, { ...target, aiMetadataEnabled: true });
+    await runService(updateFile(ctx, { ...target, aiMetadataEnabled: true }));
     scheduleAiJob.mockClear();
     const replacement = await (
       await upload({}, "image/webp", "new.webp", original.id)
@@ -452,7 +461,9 @@ describe("media persistence", () => {
     expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual(
       before.objects,
     );
-    expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toEqual(original);
+    expect(
+      await runService(getProjectFile(ctx, { projectId: project.id, id: original.id })),
+    ).toEqual(original);
   });
 
   it("rolls back replacement and metadata on database failure and cleans up the new binary", async () => {
@@ -482,9 +493,9 @@ describe("media persistence", () => {
         (await upload({ alt: "Should roll back" }, "image/webp", "failed.webp", original.id))
           .status,
       ).toBe(500);
-      expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toEqual(
-        original,
-      );
+      expect(
+        await runService(getProjectFile(ctx, { projectId: project.id, id: original.id })),
+      ).toEqual(original);
       expect(await db.select().from(blocks).where(eq(blocks.id, block.id)).get()).toEqual(block);
       expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual(
         before.objects,
@@ -504,21 +515,25 @@ describe("media persistence", () => {
     ).json<typeof files.$inferSelect>();
     const pending: Promise<unknown>[] = [];
     expect(
-      await replaceFile(
-        {
-          ...ctx,
-          waitUntil: (promise) => {
-            pending.push(promise);
+      await runService(
+        replaceFile(
+          {
+            ...ctx,
+            waitUntil: (promise) => {
+              pending.push(promise);
+            },
           },
-        },
-        {
-          id: original.id,
-          newFileId: incoming.id,
-        },
+          {
+            id: original.id,
+            newFileId: incoming.id,
+          },
+        ),
       ),
     ).toEqual({ replaced: true });
     await Promise.all(pending);
-    expect(await getProjectFile(ctx, { projectId: project.id, id: original.id })).toMatchObject({
+    expect(
+      await runService(getProjectFile(ctx, { projectId: project.id, id: original.id })),
+    ).toMatchObject({
       id: original.id,
       blobId: incoming.blobId,
       url: incoming.url,
@@ -534,20 +549,28 @@ describe("media persistence", () => {
   it("does not allow an in-flight AI result to overwrite a manual edit", async () => {
     const { upload, ctx, db, project } = await fixture();
     const record = await (await upload()).json<typeof files.$inferSelect>();
-    await updateFile(ctx, { projectId: project.id, id: record.id, alt: "Keep this" });
+    await runService(updateFile(ctx, { projectId: project.id, id: record.id, alt: "Keep this" }));
     const generated = { filename: "ai-name", alt: "Stale AI description" };
-    await saveGeneratedFileMetadata(db, record, generated);
-    expect(await getProjectFile(ctx, { projectId: project.id, id: record.id })).toMatchObject({
+    await runService(saveGeneratedFileMetadata(db, record, generated));
+    expect(
+      await runService(getProjectFile(ctx, { projectId: project.id, id: record.id })),
+    ).toMatchObject({
       alt: "Keep this",
       filename: "hero.png",
     });
     // Even re-enabling AI must not let a result from the old snapshot win.
-    await updateFile(ctx, { projectId: project.id, id: record.id, aiMetadataEnabled: true });
-    await saveGeneratedFileMetadata(db, record, generated);
-    const current = await getProjectFile(ctx, { projectId: project.id, id: record.id });
+    await runService(
+      updateFile(ctx, { projectId: project.id, id: record.id, aiMetadataEnabled: true }),
+    );
+    await runService(saveGeneratedFileMetadata(db, record, generated));
+    const current = await runService(getProjectFile(ctx, { projectId: project.id, id: record.id }));
     expect(current).toMatchObject({ alt: "Keep this", filename: "hero.png" });
-    await saveGeneratedFileMetadata(db, current, { filename: "fresh", alt: "Fresh result" });
-    expect(await getProjectFile(ctx, { projectId: project.id, id: record.id })).toMatchObject({
+    await runService(
+      saveGeneratedFileMetadata(db, current, { filename: "fresh", alt: "Fresh result" }),
+    );
+    expect(
+      await runService(getProjectFile(ctx, { projectId: project.id, id: record.id })),
+    ).toMatchObject({
       alt: "Fresh result",
       filename: "fresh",
     });

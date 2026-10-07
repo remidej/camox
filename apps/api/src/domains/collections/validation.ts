@@ -1,10 +1,11 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 
+import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { validateText } from "./text-content";
+import { decodeContent, validateText } from "./text-content";
 
 const property = z
   .object({
@@ -120,28 +121,31 @@ const assetInput = z
   .strict();
 
 /** Materialize managed assets once; snapshots never dereference mutable file metadata. */
-async function validateAsset(
+const validateAsset = Effect.fn("collections.validateAsset")(function* (
   ctx: ServiceContext,
   projectId: number,
   environmentId: number,
   field: z.infer<typeof property>,
   value: unknown,
 ) {
-  let asset = assetInput.parse(value);
+  let asset = yield* decodeContent(assetInput, value);
   if (asset._fileId) {
-    const file = await ctx.db
-      .select()
-      .from(files)
-      .where(
-        and(
-          eq(files.id, Number(asset._fileId)),
-          eq(files.projectId, projectId),
-          eq(files.environmentId, environmentId),
-        ),
-      )
-      .get();
+    const fileId = Number(asset._fileId);
+    const file = yield* Effect.promise(() =>
+      ctx.db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.id, fileId),
+            eq(files.projectId, projectId),
+            eq(files.environmentId, environmentId),
+          ),
+        )
+        .get(),
+    );
     if (!file)
-      throw new ORPCError("BAD_REQUEST", {
+      return yield* new InvalidInputError({
         message: "Asset is outside this site/environment or missing",
       });
     asset = {
@@ -154,7 +158,7 @@ async function validateAsset(
     };
   }
   if (field.fieldType.startsWith("Image") && !asset.mimeType.startsWith("image/")) {
-    throw new ORPCError("BAD_REQUEST", { message: "Image requires an image asset" });
+    return yield* new InvalidInputError({ message: "Image requires an image asset" });
   }
   if (
     field.accept?.length &&
@@ -165,36 +169,20 @@ async function validateAsset(
       return asset.mimeType === type;
     })
   ) {
-    throw new ORPCError("BAD_REQUEST", { message: "Asset MIME type is not accepted" });
+    return yield* new InvalidInputError({ message: "Asset MIME type is not accepted" });
   }
   return asset;
-}
+});
 
-export async function validateContent(
+export const validateContent = Effect.fn("collections.validateContent")(function* (
   ctx: ServiceContext,
   definition: { projectId: number; environmentId: number; contentSchema: unknown },
   value: unknown,
-): Promise<Record<string, unknown>> {
-  try {
-    return await validateContentFields(ctx, definition, value);
-  } catch (error) {
-    if (!(error instanceof z.ZodError)) throw error;
-    throw new ORPCError("BAD_REQUEST", {
-      message: `Invalid collection content: ${error.issues.map((issue) => issue.message).join("; ")}`,
-      cause: error,
-    });
-  }
-}
-
-async function validateContentFields(
-  ctx: ServiceContext,
-  definition: { projectId: number; environmentId: number; contentSchema: unknown },
-  value: unknown,
-): Promise<Record<string, unknown>> {
-  const schema = contentSchemaInput.parse(definition.contentSchema);
-  const content = z.record(z.string(), z.unknown()).parse(value);
+) {
+  const schema = yield* decodeContent(contentSchemaInput, definition.contentSchema);
+  const content = yield* decodeContent(z.record(z.string(), z.unknown()), value);
   if (Object.keys(content).some((key) => !Object.hasOwn(schema.properties, key))) {
-    throw new ORPCError("BAD_REQUEST", { message: "Unknown collection content field" });
+    return yield* new InvalidInputError({ message: "Unknown collection content field" });
   }
   const result: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(schema.properties)) {
@@ -202,33 +190,35 @@ async function validateContentFields(
     if (["String", "Embed", "Enum"].includes(field.fieldType)) {
       const authored =
         field.fieldType === "String"
-          ? await validateText(ctx, definition, value)
+          ? yield* validateText(ctx, definition, value)
           : { value, text: value };
       let validator = z.string();
       if (field.minLength !== undefined) validator = validator.min(field.minLength);
       if (field.maxLength !== undefined) validator = validator.max(field.maxLength);
       if (field.pattern) validator = validator.regex(new RegExp(field.pattern));
-      const text = validator.parse(authored.text);
+      const text = yield* decodeContent(validator, authored.text);
       if (field.enum && !field.enum.includes(text))
-        throw new ORPCError("BAD_REQUEST", { message: `${key}: invalid enum value` });
+        return yield* new InvalidInputError({ message: `${key}: invalid enum value` });
       result[key] = authored.value;
       continue;
     }
     if (field.fieldType === "Boolean") {
-      result[key] = z.boolean().parse(value);
+      result[key] = yield* decodeContent(z.boolean(), value);
       continue;
     }
     if (field.fieldType.endsWith("List")) {
-      const values = z
-        .array(z.unknown())
-        .min(field.minItems ?? 0)
-        .max(field.maxItems ?? 100)
-        .parse(value);
-      const item = property.parse(field.items);
-      result[key] = await Promise.all(
-        values.map((value) =>
-          validateAsset(ctx, definition.projectId, definition.environmentId, item, value),
-        ),
+      const values = yield* decodeContent(
+        z
+          .array(z.unknown())
+          .min(field.minItems ?? 0)
+          .max(field.maxItems ?? 100),
+        value,
+      );
+      const item = yield* decodeContent(property, field.items);
+      result[key] = yield* Effect.forEach(
+        values,
+        (value) => validateAsset(ctx, definition.projectId, definition.environmentId, item, value),
+        { concurrency: "unbounded" },
       );
       continue;
     }
@@ -236,7 +226,7 @@ async function validateContentFields(
     result[key] =
       value === null
         ? null
-        : await validateAsset(ctx, definition.projectId, definition.environmentId, field, value);
+        : yield* validateAsset(ctx, definition.projectId, definition.environmentId, field, value);
   }
   return result;
-}
+});

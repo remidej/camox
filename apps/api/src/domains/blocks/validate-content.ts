@@ -1,6 +1,7 @@
 import { Validator, type Schema } from "@cfworker/json-schema";
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 
+import { InvalidInputError } from "../../lib/errors";
 import { sanitizeAssetValue } from "./asset-value";
 
 export type ContentSchema = Schema & { fieldType?: string };
@@ -48,10 +49,14 @@ function isSingleAsset(schema: ContentSchema): boolean {
  * accounts for patch semantics, asset storage and persisted repeater references.
  * Neither the caller's content nor its schema is modified.
  */
-export function validateContent(value: unknown, schema: unknown, options: Options = {}): void {
+export const validateContent = Effect.fn("validateContent")(function* (
+  value: unknown,
+  schema: unknown,
+  options: Options = {},
+) {
   const path = options.path ?? "content";
   if (!isObject(value)) {
-    fail([{ path, message: "Expected an object" }]);
+    return yield* invalid([{ path, message: "Expected an object" }]);
   }
   if (!isObject(schema) && typeof schema !== "boolean") return;
 
@@ -81,17 +86,17 @@ export function validateContent(value: unknown, schema: unknown, options: Option
     (error) =>
       !result.errors.some((other) => other.keywordLocation.startsWith(`${error.keywordLocation}/`)),
   );
-  fail(
+  return yield* invalid(
     errors.map((error) => ({
       path: instancePath(path, error.instanceLocation, value),
       message: error.error,
     })),
   );
-}
+});
 
-function fail(errors: { path: string; message: string }[]): never {
+function invalid(errors: { path: string; message: string }[]) {
   const first = errors[0];
-  throw new ORPCError("BAD_REQUEST", {
+  return new InvalidInputError({
     message: `Invalid value at ${first.path}: ${first.message}`,
     data: { field: first.path, errors },
   });

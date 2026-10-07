@@ -1,7 +1,8 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 
+import { InvalidInputError } from "../../lib/errors";
 import { isLexicalState, lexicalStateToPlainText } from "../../lib/lexical-state";
 import { pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
@@ -28,76 +29,96 @@ const nodeInput = z
   })
   .strict();
 
+/** Collection content shape errors surface as one readable input error. */
+export function decodeContent<S extends z.ZodType>(schema: S, value: unknown) {
+  const result = schema.safeParse(value);
+  if (result.success) return Effect.succeed(result.data as z.output<S>);
+  return Effect.fail(
+    new InvalidInputError({
+      message: `Invalid collection content: ${result.error.issues.map((issue) => issue.message).join("; ")}`,
+    }),
+  );
+}
+
 /** Preserve existing authored text, not HTML and not an unvalidated arbitrary object. */
-export async function validateText(
+export const validateText = Effect.fn("collections.validateText")(function* (
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
   value: unknown,
 ) {
   if (typeof value === "string" && !isLexicalState(value)) return { value, text: value };
-  const state = z
-    .object({ root: z.unknown() })
-    .strict()
-    .parse(typeof value === "string" ? JSON.parse(value) : value);
+  const state = yield* decodeContent(
+    z.object({ root: z.unknown() }).strict(),
+    typeof value === "string" ? JSON.parse(value) : value,
+  );
   let count = 0;
-  async function walk(value: unknown, parent: string | null, depth: number): Promise<void> {
+  const walk = Effect.fn(function* (
+    value: unknown,
+    parent: string | null,
+    depth: number,
+  ): Effect.fn.Return<void, InvalidInputError> {
     if (depth > 32 || ++count > 10000)
-      throw new ORPCError("BAD_REQUEST", { message: "Text state is too large" });
-    const node = nodeInput.parse(value);
+      return yield* new InvalidInputError({ message: "Text state is too large" });
+    const node = yield* decodeContent(nodeInput, value);
     if ((parent === null) !== (node.type === "root"))
-      throw new ORPCError("BAD_REQUEST", { message: "Invalid text root" });
+      return yield* new InvalidInputError({ message: "Invalid text root" });
     if (parent === "root" && !["paragraph", "inline-paragraph"].includes(node.type)) {
-      throw new ORPCError("BAD_REQUEST", { message: "Text root requires paragraphs" });
+      return yield* new InvalidInputError({ message: "Text root requires paragraphs" });
     }
     if (parent && parent !== "root" && !["text", "linebreak", "link"].includes(node.type)) {
-      throw new ORPCError("BAD_REQUEST", { message: "Invalid inline text node" });
+      return yield* new InvalidInputError({ message: "Invalid inline text node" });
     }
     if (parent === "link" && node.type === "link")
-      throw new ORPCError("BAD_REQUEST", { message: "Nested text links are invalid" });
+      return yield* new InvalidInputError({ message: "Nested text links are invalid" });
     if (node.type === "text") {
       if (
         node.text === undefined ||
         node.children ||
         (node.format !== undefined && typeof node.format !== "number")
       ) {
-        throw new ORPCError("BAD_REQUEST", { message: "Malformed text node" });
+        return yield* new InvalidInputError({ message: "Malformed text node" });
       }
       return;
     }
     if (node.type === "linebreak") {
-      if (node.children) throw new ORPCError("BAD_REQUEST", { message: "Malformed linebreak" });
+      if (node.children) return yield* new InvalidInputError({ message: "Malformed linebreak" });
       return;
     }
     if (!node.children)
-      throw new ORPCError("BAD_REQUEST", { message: "Text container requires children" });
+      return yield* new InvalidInputError({ message: "Text container requires children" });
     if (node.type === "link") {
-      const url = z.string().parse(node.url);
+      const url = yield* decodeContent(z.string(), node.url);
       if (url.startsWith("camox:page:")) {
-        const id = z.coerce.number().int().positive().parse(url.slice("camox:page:".length));
-        const page = await ctx.db
-          .select({ id: pages.id })
-          .from(pages)
-          .where(
-            and(
-              eq(pages.id, id),
-              eq(pages.projectId, scope.projectId),
-              eq(pages.environmentId, scope.environmentId),
-            ),
-          )
-          .get();
+        const id = yield* decodeContent(
+          z.coerce.number().int().positive(),
+          url.slice("camox:page:".length),
+        );
+        const page = yield* Effect.promise(() =>
+          ctx.db
+            .select({ id: pages.id })
+            .from(pages)
+            .where(
+              and(
+                eq(pages.id, id),
+                eq(pages.projectId, scope.projectId),
+                eq(pages.environmentId, scope.environmentId),
+              ),
+            )
+            .get(),
+        );
         if (!page)
-          throw new ORPCError("BAD_REQUEST", {
+          return yield* new InvalidInputError({
             message: "Text link is outside this site/environment",
           });
       } else if (
         !/^https?:\/\/[^\s\\\p{Cc}]+$/u.test(url) &&
         !/^\/(?!\/)[^\s\\\p{Cc}]*$/u.test(url)
       ) {
-        throw new ORPCError("BAD_REQUEST", { message: "Unsafe text link" });
+        return yield* new InvalidInputError({ message: "Unsafe text link" });
       }
     }
-    for (const child of node.children) await walk(child, node.type, depth + 1);
-  }
-  await walk(state.root, null, 0);
+    for (const child of node.children) yield* walk(child, node.type, depth + 1);
+  });
+  yield* walk(state.root, null, 0);
   return { value: state, text: lexicalStateToPlainText(state) };
-}
+});

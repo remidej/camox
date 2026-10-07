@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { blocks, environments, layouts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { getLayout, publishLayout, syncLayouts, unpublishLayout } from "../layouts/service";
@@ -34,7 +35,7 @@ async function fixture(suffix: string, synced?: boolean) {
     synced,
     contentSchema: { type: "object", properties: { title: { type: "string" } } },
   };
-  await upsertBlockDefinition(syncCtx, definition);
+  await runService(upsertBlockDefinition(syncCtx, definition));
   const layoutDefinitions = ["default", "other"].map((layoutId) => ({
     layoutId,
     description: "Layout",
@@ -63,12 +64,14 @@ async function fixture(suffix: string, synced?: boolean) {
       },
     ],
   }));
-  await syncLayouts(syncCtx, {
-    projectSlug: base.project.slug,
-    deployToken: base.project.deployToken,
-    autoCreate: false,
-    layouts: layoutDefinitions,
-  });
+  await runService(
+    syncLayouts(syncCtx, {
+      projectSlug: base.project.slug,
+      deployToken: base.project.deployToken,
+      autoCreate: false,
+      layouts: layoutDefinitions,
+    }),
+  );
   const rows = await base.db
     .select()
     .from(layouts)
@@ -90,17 +93,23 @@ async function fixture(suffix: string, synced?: boolean) {
 describe("synced blocks", () => {
   it("defaults to independent data, reconciles when enabled, and detaches when disabled", async () => {
     const { ctx, syncCtx, definition, first, second } = await fixture("sync-toggle");
-    await updateBlockContent(ctx, { id: first.id, content: { title: "Edited" } });
-    expect((await getBlock(ctx, { id: second.id, source: "draft" })).block.content).toMatchObject({
+    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Edited" } }));
+    expect(
+      (await runService(getBlock(ctx, { id: second.id, source: "draft" }))).block.content,
+    ).toMatchObject({
       title: "other",
     });
-    await upsertBlockDefinition(syncCtx, { ...definition, synced: true });
-    expect((await getBlock(ctx, { id: second.id, source: "draft" })).block.content).toMatchObject({
+    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: true }));
+    expect(
+      (await runService(getBlock(ctx, { id: second.id, source: "draft" }))).block.content,
+    ).toMatchObject({
       title: "Edited",
     });
-    await upsertBlockDefinition(syncCtx, { ...definition, synced: false });
-    await updateBlockContent(ctx, { id: second.id, content: { title: "Independent" } });
-    expect((await getBlock(ctx, { id: first.id, source: "draft" })).block.content).toMatchObject({
+    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: false }));
+    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "Independent" } }));
+    expect(
+      (await runService(getBlock(ctx, { id: first.id, source: "draft" }))).block.content,
+    ).toMatchObject({
       title: "Edited",
     });
   });
@@ -108,19 +117,23 @@ describe("synced blocks", () => {
   it("shares nested data and settings bidirectionally without changing placement or item identity", async () => {
     const { db, ctx, first, second } = await fixture("sync-tree", true);
     expect(second.content).toEqual(first.content);
-    const firstBundle = await getBlock(ctx, { id: first.id, source: "draft" });
-    const secondBundle = await getBlock(ctx, { id: second.id, source: "draft" });
+    const firstBundle = await runService(getBlock(ctx, { id: first.id, source: "draft" }));
+    const secondBundle = await runService(getBlock(ctx, { id: second.id, source: "draft" }));
     const firstChild = firstBundle.repeatableItems.find((item) => item.parentItemId !== null)!;
     const secondChild = secondBundle.repeatableItems.find((item) => item.parentItemId !== null)!;
     expect(firstChild.id).not.toBe(secondChild.id);
-    await updateRepeatableItemContent(ctx, {
-      id: secondChild.id,
-      content: { label: "Shared child" },
-    });
-    await updateRepeatableItemSettings(ctx, { id: firstChild.id, settings: { visible: false } });
-    await updateBlockSettings(ctx, { id: second.id, settings: { sticky: false } });
-    await updateBlockContent(ctx, { id: first.id, content: { title: "Shared title" } });
-    const result = await getBlock(ctx, { id: second.id, source: "draft" });
+    await runService(
+      updateRepeatableItemContent(ctx, {
+        id: secondChild.id,
+        content: { label: "Shared child" },
+      }),
+    );
+    await runService(
+      updateRepeatableItemSettings(ctx, { id: firstChild.id, settings: { visible: false } }),
+    );
+    await runService(updateBlockSettings(ctx, { id: second.id, settings: { sticky: false } }));
+    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared title" } }));
+    const result = await runService(getBlock(ctx, { id: second.id, source: "draft" }));
     expect(result.block).toMatchObject({
       layoutId: second.layoutId,
       position: second.position,
@@ -131,22 +144,26 @@ describe("synced blocks", () => {
       content: { label: "Shared child" },
       settings: { visible: false },
     });
-    const added = await createRepeatableItem(ctx, {
-      blockId: second.id,
-      fieldName: "links",
-      content: { label: "New" },
-    });
-    await updateRepeatableItemPosition(ctx, { id: added.id, beforePosition: "a0" });
+    const added = await runService(
+      createRepeatableItem(ctx, {
+        blockId: second.id,
+        fieldName: "links",
+        content: { label: "New" },
+      }),
+    );
+    await runService(updateRepeatableItemPosition(ctx, { id: added.id, beforePosition: "a0" }));
     const copied = (
       await db.select().from(repeatableItems).where(eq(repeatableItems.blockId, first.id))
     ).find((item) => (item.content as { label: string }).label === "New")!;
     expect(copied.position < "a0").toBe(true);
-    await deleteRepeatableItem(ctx, { id: added.id });
+    await runService(deleteRepeatableItem(ctx, { id: added.id }));
     expect(
       await db.select().from(repeatableItems).where(eq(repeatableItems.id, copied.id)),
     ).toEqual([]);
-    await deleteBlock(ctx, { id: first.id });
-    expect((await getBlock(ctx, { id: second.id, source: "draft" })).block.content).toMatchObject({
+    await runService(deleteBlock(ctx, { id: first.id }));
+    expect(
+      (await runService(getBlock(ctx, { id: second.id, source: "draft" }))).block.content,
+    ).toMatchObject({
       title: "Shared title",
     });
   });
@@ -204,19 +221,25 @@ describe("synced blocks", () => {
       })
       .returning()
       .get();
-    await updateBlockContent(ctx, { id: first.id, content: { title: "Existing" } });
-    const created = await createBlock(ctx, {
-      pageId: page.id,
-      type: "navbar",
-      content: { title: "Ignored seed" },
-    });
+    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Existing" } }));
+    const created = await runService(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "navbar",
+        content: { title: "Ignored seed" },
+      }),
+    );
     expect(created.content).toEqual({ title: "Existing" });
-    const duplicate = await duplicateBlock(ctx, { id: created.id });
+    const duplicate = await runService(duplicateBlock(ctx, { id: created.id }));
     expect(
-      (await getBlock(ctx, { id: duplicate.id, source: "draft" })).repeatableItems,
+      (await runService(getBlock(ctx, { id: duplicate.id, source: "draft" }))).repeatableItems,
     ).toHaveLength(2);
-    await updateBlockContent(ctx, { id: duplicate.id, content: { title: "From page" } });
-    expect((await getBlock(ctx, { id: first.id, source: "draft" })).block.content).toMatchObject({
+    await runService(
+      updateBlockContent(ctx, { id: duplicate.id, content: { title: "From page" } }),
+    );
+    expect(
+      (await runService(getBlock(ctx, { id: first.id, source: "draft" }))).block.content,
+    ).toMatchObject({
       title: "From page",
     });
     expect(
@@ -226,27 +249,31 @@ describe("synced blocks", () => {
 
   it("publishes shared data everywhere while keeping unpublished edits private", async () => {
     const { ctx, project, layout, otherLayout, first, second } = await fixture("sync-live", true);
-    await publishLayout(ctx, { id: layout.id });
-    await publishLayout(ctx, { id: otherLayout.id });
-    await updateBlockContent(ctx, { id: second.id, content: { title: "New draft" } });
-    expect((await getBlock(ctx, { id: first.id })).block.content).toMatchObject({
+    await runService(publishLayout(ctx, { id: layout.id }));
+    await runService(publishLayout(ctx, { id: otherLayout.id }));
+    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "New draft" } }));
+    expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
       title: "default",
     });
-    await publishLayout(ctx, { id: otherLayout.id });
-    const live = await getLayout(ctx, { projectSlug: project.slug, layoutId: "default" });
+    await runService(publishLayout(ctx, { id: otherLayout.id }));
+    const live = await runService(
+      getLayout(ctx, { projectSlug: project.slug, layoutId: "default" }),
+    );
     expect(live.blocks[0].content).toMatchObject({ title: "New draft" });
-    expect((await getBlock(ctx, { id: first.id })).block.content).toMatchObject({
+    expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
       title: "New draft",
     });
     expect(live.repeatableItems).toHaveLength(2);
-    await updateBlockContent(ctx, { id: first.id, content: { title: "Still private" } });
-    expect((await getBlock(ctx, { id: second.id })).block.content).toMatchObject({
+    await runService(
+      updateBlockContent(ctx, { id: first.id, content: { title: "Still private" } }),
+    );
+    expect((await runService(getBlock(ctx, { id: second.id }))).block.content).toMatchObject({
       title: "New draft",
     });
     // Removing the publishing placement must not roll back the singleton.
-    await unpublishLayout(ctx, { id: otherLayout.id });
-    await deleteBlock(ctx, { id: second.id });
-    expect((await getBlock(ctx, { id: first.id })).block.content).toMatchObject({
+    await runService(unpublishLayout(ctx, { id: otherLayout.id }));
+    await runService(deleteBlock(ctx, { id: second.id }));
+    expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
       title: "New draft",
     });
   });

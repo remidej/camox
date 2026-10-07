@@ -1,3 +1,11 @@
+import { Data, Effect } from "effect";
+
+/** The image handed to the metadata model could not be fetched or is unusable. */
+export class MetadataImageError extends Data.TaggedError("MetadataImageError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 // Only accept formats supported by the metadata model. The transform normally
 // returns WebP, but local URLs and already-transformed URLs can bypass it.
 function hasImageSignature(bytes: Uint8Array, mimeType: string): boolean {
@@ -12,18 +20,33 @@ function hasImageSignature(bytes: Uint8Array, mimeType: string): boolean {
   return false;
 }
 
-export async function readMetadataImage(response: Response) {
-  if (!response.ok) throw new Error(`Metadata image fetch failed: HTTP ${response.status}`);
+export const readMetadataImage = Effect.fn("files.readMetadataImage")(function* (
+  response: Response,
+) {
+  if (!response.ok) {
+    return yield* new MetadataImageError({
+      message: `Metadata image fetch failed: HTTP ${response.status}`,
+    });
+  }
 
   const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
   if (mimeType !== "image/jpeg" && mimeType !== "image/png" && mimeType !== "image/webp") {
-    throw new Error(`Unsupported metadata image content type: ${mimeType || "missing"}`);
+    return yield* new MetadataImageError({
+      message: `Unsupported metadata image content type: ${mimeType || "missing"}`,
+    });
   }
 
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const buffer = yield* Effect.tryPromise({
+    try: () => response.arrayBuffer(),
+    catch: (cause) =>
+      new MetadataImageError({ message: "Metadata image could not be read", cause }),
+  });
+  const bytes = new Uint8Array(buffer);
   // Reject error pages even when a proxy incorrectly labels them as images.
   // This is a signature check, not a full image decoder.
-  if (!hasImageSignature(bytes, mimeType)) throw new Error("Invalid metadata image signature");
+  if (!hasImageSignature(bytes, mimeType)) {
+    return yield* new MetadataImageError({ message: "Invalid metadata image signature" });
+  }
 
   return { bytes, mimeType };
-}
+});

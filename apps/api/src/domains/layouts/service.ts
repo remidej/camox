@@ -1,11 +1,12 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 
-import { assertLayoutAccess, assertSyncAccess } from "../../authorization";
+import { assertLayoutAccess, assertSyncAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import {
   blockDefinitions,
@@ -50,11 +51,6 @@ export const unpublishLayoutInput = z.object({ id: z.number() });
 // Snapshot shape version written into `layout_checkpoints.schema_version`.
 // One-way ratchet — bump and add a migration when the snapshot shape changes.
 const LAYOUT_SNAPSHOT_SCHEMA_VERSION = 1;
-
-function assertUser(ctx: ServiceContext) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  return ctx.user;
-}
 
 const repeatableItemSeedSchema = z.object({
   tempId: z.string(),
@@ -118,11 +114,11 @@ function deriveLayoutStatus(args: {
   return { status: "published", affectedPagesCount };
 }
 
-async function fetchLayoutStatuses(
+const fetchLayoutStatuses = Effect.fn("layouts.fetchLayoutStatuses")(function* (
   ctx: ServiceContext,
   layoutRows: LayoutRow[],
   environmentId: number,
-): Promise<Map<number, LayoutStatusInfo>> {
+) {
   const result = new Map<number, LayoutStatusInfo>();
   if (layoutRows.length === 0) return result;
   const db = ctx.db;
@@ -132,10 +128,12 @@ async function fetchLayoutStatuses(
     .filter((id): id is number => id != null);
   const checkpointCreatedAt = new Map<number, number>();
   if (checkpointIds.length > 0) {
-    const rows = await db
-      .select({ id: layoutCheckpoints.id, createdAt: layoutCheckpoints.createdAt })
-      .from(layoutCheckpoints)
-      .where(inArray(layoutCheckpoints.id, checkpointIds));
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({ id: layoutCheckpoints.id, createdAt: layoutCheckpoints.createdAt })
+        .from(layoutCheckpoints)
+        .where(inArray(layoutCheckpoints.id, checkpointIds)),
+    );
     for (const row of rows) checkpointCreatedAt.set(row.id, row.createdAt);
   }
 
@@ -143,16 +141,18 @@ async function fetchLayoutStatuses(
   // fetchPageStatuses uses for the cascade tooltip.
   const layoutIds = layoutRows.map((l) => l.id);
   const pageCounts = new Map<number, number>();
-  const rows = await db
-    .select({ layoutId: pages.layoutId, count: sql<number>`count(*)` })
-    .from(pages)
-    .where(and(eq(pages.environmentId, environmentId), inArray(pages.layoutId, layoutIds)))
-    .groupBy(pages.layoutId);
+  const rows = yield* Effect.promise(() =>
+    db
+      .select({ layoutId: pages.layoutId, count: sql<number>`count(*)` })
+      .from(pages)
+      .where(and(eq(pages.environmentId, environmentId), inArray(pages.layoutId, layoutIds)))
+      .groupBy(pages.layoutId),
+  );
   for (const row of rows) {
     if (row.layoutId != null) pageCounts.set(row.layoutId, Number(row.count));
   }
 
-  const references = await referenceChanges(ctx, environmentId);
+  const references = yield* referenceChanges(ctx, environmentId);
   for (const layout of layoutRows) {
     const cpAt =
       layout.livePublishedCheckpointId != null
@@ -170,64 +170,67 @@ async function fetchLayoutStatuses(
   }
 
   return result;
-}
+});
 
 // --- Snapshot ---
 
 // Build a canonical layout snapshot from the current live (draft) rows. Mirrors
 // `buildPageSnapshotFromDraft` — same `_itemId` markers convention (stripped
 // on write, re-injected on read), same blocks + repeatableItems shape.
-export async function buildLayoutSnapshotFromDraft(
-  ctx: ServiceContext,
-  layout: typeof layouts.$inferSelect,
-): Promise<LayoutSnapshot> {
-  const layoutBlocks = await ctx.db.select().from(blocks).where(eq(blocks.layoutId, layout.id));
-  const blockIds = layoutBlocks.map((b) => b.id);
-  const items =
-    blockIds.length > 0
-      ? await ctx.db
-          .select()
-          .from(repeatableItems)
-          .where(inArray(repeatableItems.blockId, blockIds))
-      : [];
+export const buildLayoutSnapshotFromDraft = Effect.fn("layouts.buildLayoutSnapshotFromDraft")(
+  function* (
+    ctx: ServiceContext,
+    layout: typeof layouts.$inferSelect,
+  ): Effect.fn.Return<LayoutSnapshot> {
+    const layoutBlocks = yield* Effect.promise(() =>
+      ctx.db.select().from(blocks).where(eq(blocks.layoutId, layout.id)),
+    );
+    const blockIds = layoutBlocks.map((b) => b.id);
+    const items =
+      blockIds.length > 0
+        ? yield* Effect.promise(() =>
+            ctx.db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
+          )
+        : [];
 
-  return {
-    layout: {
-      id: layout.id,
-      projectId: layout.projectId,
-      environmentId: layout.environmentId,
-      layoutId: layout.layoutId,
-      description: layout.description,
-      createdAt: layout.createdAt,
-      updatedAt: layout.updatedAt,
-    },
-    blocks: layoutBlocks.map((b) => ({
-      id: b.id,
-      pageId: b.pageId,
-      layoutId: b.layoutId,
-      type: b.type,
-      content: b.content,
-      settings: b.settings,
-      placement: b.placement,
-      summary: b.summary,
-      position: b.position,
-      createdAt: b.createdAt,
-      updatedAt: b.updatedAt,
-    })),
-    repeatableItems: items.map((item) => ({
-      id: item.id,
-      blockId: item.blockId,
-      parentItemId: item.parentItemId,
-      fieldName: item.fieldName,
-      content: item.content,
-      settings: item.settings,
-      summary: item.summary,
-      position: item.position,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    })),
-  };
-}
+    return {
+      layout: {
+        id: layout.id,
+        projectId: layout.projectId,
+        environmentId: layout.environmentId,
+        layoutId: layout.layoutId,
+        description: layout.description,
+        createdAt: layout.createdAt,
+        updatedAt: layout.updatedAt,
+      },
+      blocks: layoutBlocks.map((b) => ({
+        id: b.id,
+        pageId: b.pageId,
+        layoutId: b.layoutId,
+        type: b.type,
+        content: b.content,
+        settings: b.settings,
+        placement: b.placement,
+        summary: b.summary,
+        position: b.position,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
+      })),
+      repeatableItems: items.map((item) => ({
+        id: item.id,
+        blockId: item.blockId,
+        parentItemId: item.parentItemId,
+        fieldName: item.fieldName,
+        content: item.content,
+        settings: item.settings,
+        summary: item.summary,
+        position: item.position,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      })),
+    };
+  },
+);
 
 // A layout publish affects every page using that layout — the page list needs
 // to recompute status for all of them, and the per-page `'live'` caches need
@@ -235,7 +238,7 @@ export async function buildLayoutSnapshotFromDraft(
 // out a single broadcast. `pages.getByPath` without a source is a prefix that
 // covers both 'draft' and 'live' slots, which matters: the draft slot also
 // re-derives status from the layout pointer.
-async function invalidateLayoutPublish(
+const invalidateLayoutPublish = Effect.fn("layouts.invalidateLayoutPublish")(function* (
   ctx: ServiceContext,
   args: {
     projectId: number;
@@ -243,22 +246,24 @@ async function invalidateLayoutPublish(
     layoutId: number;
   },
 ) {
-  const dependentPages = await ctx.db
-    .select({ id: pages.id, fullPath: pages.fullPath })
-    .from(pages)
-    .where(and(eq(pages.layoutId, args.layoutId), eq(pages.environmentId, args.environmentId)));
+  const dependentPages = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: pages.id, fullPath: pages.fullPath })
+      .from(pages)
+      .where(and(eq(pages.layoutId, args.layoutId), eq(pages.environmentId, args.environmentId))),
+  );
 
   const pageIds = dependentPages.map((p) => p.id);
   const pageBlockIds =
     pageIds.length > 0
-      ? (
-          await ctx.db.select({ id: blocks.id }).from(blocks).where(inArray(blocks.pageId, pageIds))
-        ).map((b) => b.id)
+      ? (yield* Effect.promise(() =>
+          ctx.db.select({ id: blocks.id }).from(blocks).where(inArray(blocks.pageId, pageIds)),
+        )).map((b) => b.id)
       : [];
 
-  const layoutBlockIds = (
-    await ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.layoutId, args.layoutId))
-  ).map((b) => b.id);
+  const layoutBlockIds = (yield* Effect.promise(() =>
+    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.layoutId, args.layoutId)),
+  )).map((b) => b.id);
 
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
@@ -276,43 +281,55 @@ async function invalidateLayoutPublish(
       ...layoutBlockIds.map((id) => queryKeys.blocks.get(id, "live")),
     ],
   });
-}
+});
 
 // --- Reads ---
 
-export async function listLayouts(ctx: ServiceContext, rawInput: z.input<typeof listLayoutsInput>) {
-  const { projectId } = listLayoutsInput.parse(rawInput);
-  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const rows = await ctx.db
-    .select()
-    .from(layouts)
-    .where(and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id)));
-  const statuses = await fetchLayoutStatuses(ctx, rows, environment.id);
+export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listLayoutsInput>,
+) {
+  const { projectId } = yield* decodeInput(listLayoutsInput, rawInput);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id))),
+  );
+  const statuses = yield* fetchLayoutStatuses(ctx, rows, environment.id);
   return rows.map((layout) => ({
     ...layout,
     ...(statuses.get(layout.id) ?? { status: "draft" as const, affectedPagesCount: 0 }),
   }));
-}
+});
 
 // Standalone layout reads use the same persisted blocks and live checkpoints as curated pages.
-export async function getLayout(ctx: ServiceContext, rawInput: z.input<typeof getLayoutInput>) {
-  const { projectSlug, layoutId, source } = getLayoutInput.parse(rawInput);
-  const user = source === "draft" ? assertUser(ctx) : null;
-  const project = await ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get();
-  if (!project) throw new ORPCError("NOT_FOUND");
-  const environment = await resolveEnvironment(ctx.db, project.id, ctx.environmentName);
-  const layout = await ctx.db
-    .select()
-    .from(layouts)
-    .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
-    .get();
-  if (!layout) throw new ORPCError("NOT_FOUND");
-  if (user) await assertLayoutAccess(ctx.db, layout.id, user.id);
+export const getLayout = Effect.fn("layouts.getLayout")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getLayoutInput>,
+) {
+  const { projectSlug, layoutId, source } = yield* decodeInput(getLayoutInput, rawInput);
+  const user = source === "draft" ? yield* requireUser(ctx) : null;
+  const project = yield* Effect.promise(() =>
+    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
+  );
+  if (!project) return yield* new NotFoundError();
+  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  const layout = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
+      .get(),
+  );
+  if (!layout) return yield* new NotFoundError();
+  if (user) yield* assertLayoutAccess(ctx.db, layout.id, user.id);
 
   const snapshot =
     source === "draft"
-      ? await buildLayoutSnapshotFromDraft(ctx, layout)
-      : await readLayoutSnapshot(ctx, layout);
+      ? yield* buildLayoutSnapshotFromDraft(ctx, layout)
+      : yield* readLayoutSnapshot(ctx, layout);
   const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);
   const items = sortByPosition(snapshot?.repeatableItems ?? []);
   const normalized = layoutBlocks.map((block) =>
@@ -321,7 +338,7 @@ export async function getLayout(ctx: ServiceContext, rawInput: z.input<typeof ge
       items.filter((item) => item.blockId === block.id),
     ),
   );
-  const hydrated = await hydrateReferences(
+  const hydrated = yield* hydrateReferences(
     ctx,
     layout,
     normalized.map(({ block }) => block),
@@ -331,7 +348,7 @@ export async function getLayout(ctx: ServiceContext, rawInput: z.input<typeof ge
   for (const value of [...layoutBlocks, ...items])
     collectFileIds(value.content as Record<string, unknown>, fileIds);
   for (const block of hydrated) collectFileIds(block.references, fileIds);
-  const fileRows = await buildFileMap(ctx.db, fileIds);
+  const fileRows = yield* buildFileMap(ctx.db, fileIds);
   return {
     layout: {
       id: layout.id,
@@ -350,59 +367,64 @@ export async function getLayout(ctx: ServiceContext, rawInput: z.input<typeof ge
     repeatableItems: normalized.flatMap(({ items }) => items),
     files: [...fileRows.values()],
   };
-}
+});
 
 // --- Writes ---
 
-export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof syncLayoutsInput>) {
-  const input = syncLayoutsInput.parse(rawInput);
+export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof syncLayoutsInput>,
+) {
+  const input = yield* decodeInput(syncLayoutsInput, rawInput);
   const { projectSlug, layouts: layoutDefs, autoCreate } = input;
-  const project = await assertSyncAccess(ctx.db, projectSlug, {
+  const project = yield* assertSyncAccess(ctx.db, projectSlug, {
     user: ctx.user,
     environmentName: ctx.environmentName,
     deployToken: input.deployToken,
   });
   const projectId = project.id;
-  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName, {
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName, {
     autoCreate,
   });
   // Validate the complete submission before writing anything. Existing curated
   // pages must be moved explicitly before code can claim their URLs/layouts.
-  const existingPages = await ctx.db
-    .select()
-    .from(pages)
-    .where(eq(pages.environmentId, environment.id));
-  const existingLayouts = await ctx.db
-    .select()
-    .from(layouts)
-    .where(eq(layouts.environmentId, environment.id));
+  const existingPages = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.environmentId, environment.id)),
+  );
+  const existingLayouts = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.environmentId, environment.id)),
+  );
   for (const def of layoutDefs) {
     if (def.kind === "curated") continue;
     const existing = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
     if (existingPages.some((page) => page.layoutId === existing?.id))
-      throw new ORPCError("CONFLICT", {
+      return yield* new ConflictError({
         message: `Layout ${def.layoutId} is still assigned to curated pages`,
       });
     if (def.kind !== "singleton") continue;
-    const path = singletonPath(def.layoutId);
-    if (existingPages.some((page) => normalizePagePath(page.fullPath) === path))
-      throw new ORPCError("CONFLICT", {
+    const path = yield* singletonPath(def.layoutId);
+    for (const page of existingPages) {
+      if ((yield* normalizePagePath(page.fullPath)) !== path) continue;
+      return yield* new ConflictError({
         message: `Singleton URL ${path} conflicts with an existing curated page`,
       });
+    }
   }
 
   const now = Date.now();
   const results = [];
 
-  const definitions = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(
-      and(
-        eq(blockDefinitions.projectId, projectId),
-        eq(blockDefinitions.environmentId, environment.id),
+  const definitions = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, projectId),
+          eq(blockDefinitions.environmentId, environment.id),
+        ),
       ),
-    );
+  );
   const definitionsByType = new Map(
     definitions.map((definition) => [definition.blockId, definition]),
   );
@@ -410,24 +432,28 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
 
   // Preflight the whole submission before updating layouts or removing blocks.
   // Persist the normalized values returned by validation, including defaults.
-  const preparedLayouts = layoutDefs.map((def) => ({
-    ...def,
-    blocks: def.blocks.map((block) => {
-      const definition = definitionsByType.get(block.type);
-      const prepared = prepareBlockContent(
-        block.content,
-        block.settings,
-        block.repeatableItems,
-        definition?.contentSchema,
-        definition?.settingsSchema,
-      );
-      return { ...block, ...prepared, repeatableItems: prepared.seeds };
-    }),
-  }));
+  const preparedLayouts = yield* Effect.forEach(layoutDefs, (def) =>
+    Effect.map(
+      Effect.forEach(def.blocks, (block) => {
+        const definition = definitionsByType.get(block.type);
+        return Effect.map(
+          prepareBlockContent(
+            block.content,
+            block.settings,
+            block.repeatableItems,
+            definition?.contentSchema,
+            definition?.settingsSchema,
+          ),
+          (prepared) => ({ ...block, ...prepared, repeatableItems: prepared.seeds }),
+        );
+      }),
+      (blocks) => ({ ...def, blocks }),
+    ),
+  );
 
   for (const def of preparedLayouts) {
     for (const block of def.blocks) {
-      await validateReferenceValues(
+      yield* validateReferenceValues(
         ctx,
         { projectId, environmentId: environment.id },
         definitionsByType.get(block.type)?.contentSchema,
@@ -437,39 +463,45 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
   }
 
   for (const def of preparedLayouts) {
-    const existingLayout = await ctx.db
-      .select()
-      .from(layouts)
-      .where(
-        and(
-          eq(layouts.projectId, projectId),
-          eq(layouts.environmentId, environment.id),
-          eq(layouts.layoutId, def.layoutId),
-        ),
-      )
-      .get();
+    const existingLayout = yield* Effect.promise(() =>
+      ctx.db
+        .select()
+        .from(layouts)
+        .where(
+          and(
+            eq(layouts.projectId, projectId),
+            eq(layouts.environmentId, environment.id),
+            eq(layouts.layoutId, def.layoutId),
+          ),
+        )
+        .get(),
+    );
 
     const layout = existingLayout
-      ? await ctx.db
-          .update(layouts)
-          .set({ description: def.description, kind: def.kind, updatedAt: now })
-          .where(eq(layouts.id, existingLayout.id))
-          .returning()
-          .get()
-      : await ctx.db
-          .insert(layouts)
-          .values({
-            projectId,
-            environmentId: environment.id,
-            layoutId: def.layoutId,
-            kind: def.kind,
-            description: def.description,
-            contentUpdatedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get();
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .update(layouts)
+            .set({ description: def.description, kind: def.kind, updatedAt: now })
+            .where(eq(layouts.id, existingLayout.id))
+            .returning()
+            .get(),
+        )
+      : yield* Effect.promise(() =>
+          ctx.db
+            .insert(layouts)
+            .values({
+              projectId,
+              environmentId: environment.id,
+              layoutId: def.layoutId,
+              kind: def.kind,
+              description: def.description,
+              contentUpdatedAt: now,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning()
+            .get(),
+        );
 
     const createdBlockTypes: string[] = [];
 
@@ -477,15 +509,17 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
     // them — so every sync must backfill any declared block slot missing from
     // the DB. Never overwrite an existing block: users may have edited its
     // content in the UI.
-    const existingBlocks = await ctx.db
-      .select({
-        id: blocks.id,
-        type: blocks.type,
-        placement: blocks.placement,
-        position: blocks.position,
-      })
-      .from(blocks)
-      .where(eq(blocks.layoutId, layout.id));
+    const existingBlocks = yield* Effect.promise(() =>
+      ctx.db
+        .select({
+          id: blocks.id,
+          type: blocks.type,
+          placement: blocks.placement,
+          position: blocks.position,
+        })
+        .from(blocks)
+        .where(eq(blocks.layoutId, layout.id)),
+    );
 
     const existingByKey = new Map<string, string>();
     for (const b of existingBlocks) {
@@ -517,21 +551,23 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
       const blockDef = slot.def;
       createdBlockTypes.push(blockDef.type);
 
-      const block = await ctx.db
-        .insert(blocks)
-        .values({
-          layoutId: layout.id,
-          type: blockDef.type,
-          content: blockDef.content,
-          settings: blockDef.settings ?? null,
-          placement: blockDef.placement ?? null,
-          position: newPos,
-          summary: "",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get();
+      const block = yield* Effect.promise(() =>
+        ctx.db
+          .insert(blocks)
+          .values({
+            layoutId: layout.id,
+            type: blockDef.type,
+            content: blockDef.content,
+            settings: blockDef.settings ?? null,
+            placement: blockDef.placement ?? null,
+            position: newPos,
+            summary: "",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+          .get(),
+      );
 
       const itemSeeds = blockDef.repeatableItems;
       if (itemSeeds && itemSeeds.length > 0) {
@@ -540,26 +576,28 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
           const parentItemId = seed.parentTempId
             ? (tempIdToRealId.get(seed.parentTempId) ?? null)
             : null;
-          const inserted = await ctx.db
-            .insert(repeatableItems)
-            .values({
-              blockId: block.id,
-              parentItemId,
-              fieldName: seed.fieldName,
-              content: seed.content,
-              settings: seed.settings ?? null,
-              summary: "",
-              position: seed.position,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning()
-            .get();
+          const inserted = yield* Effect.promise(() =>
+            ctx.db
+              .insert(repeatableItems)
+              .values({
+                blockId: block.id,
+                parentItemId,
+                fieldName: seed.fieldName,
+                content: seed.content,
+                settings: seed.settings ?? null,
+                summary: "",
+                position: seed.position,
+                createdAt: now,
+                updatedAt: now,
+              })
+              .returning()
+              .get(),
+          );
           tempIdToRealId.set(seed.tempId, inserted.id);
         }
       }
 
-      await syncBlockData(ctx, block.id, true);
+      yield* syncBlockData(ctx, block.id, true);
       slot.position = newPos;
       lastPos = newPos;
     }
@@ -579,7 +617,9 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
       }
     }
     if (orphanIdsToDelete.length > 0) {
-      await ctx.db.delete(blocks).where(inArray(blocks.id, orphanIdsToDelete));
+      yield* Effect.promise(() =>
+        ctx.db.delete(blocks).where(inArray(blocks.id, orphanIdsToDelete)),
+      );
     }
 
     results.push({
@@ -595,31 +635,34 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
   const orphanLayoutQuery = ctx.db
     .select({ id: layouts.id, layoutId: layouts.layoutId })
     .from(layouts);
-  const orphanLayouts =
+  const orphanLayouts = yield* Effect.promise(() =>
     submittedLayoutIds.length > 0
-      ? await orphanLayoutQuery.where(
+      ? orphanLayoutQuery.where(
           and(
             eq(layouts.projectId, projectId),
             eq(layouts.environmentId, environment.id),
             notInArray(layouts.layoutId, submittedLayoutIds),
           ),
         )
-      : await orphanLayoutQuery.where(
+      : orphanLayoutQuery.where(
           and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id)),
-        );
+        ),
+  );
 
   const deletedLayoutIds: string[] = [];
   const blockedLayoutDeletions: Array<{ layoutId: string; pageCount: number }> = [];
   for (const orphan of orphanLayouts) {
-    const pagesUsing = await ctx.db
-      .select({ id: pages.id })
-      .from(pages)
-      .where(and(eq(pages.layoutId, orphan.id), eq(pages.environmentId, environment.id)));
+    const pagesUsing = yield* Effect.promise(() =>
+      ctx.db
+        .select({ id: pages.id })
+        .from(pages)
+        .where(and(eq(pages.layoutId, orphan.id), eq(pages.environmentId, environment.id))),
+    );
     if (pagesUsing.length > 0) {
       blockedLayoutDeletions.push({ layoutId: orphan.layoutId, pageCount: pagesUsing.length });
       continue;
     }
-    await ctx.db.delete(layouts).where(eq(layouts.id, orphan.id));
+    yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.id, orphan.id)));
     deletedLayoutIds.push(orphan.layoutId);
   }
 
@@ -627,11 +670,13 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
   // layout-scoped `blocks` row references it. Once the last reference is
   // pruned (either via orphan cleanup above or layout deletion), drop the
   // definition too so the DB doesn't accumulate UI-invisible rows.
-  const usedTypes = await ctx.db
-    .selectDistinct({ type: blocks.type })
-    .from(blocks)
-    .innerJoin(layouts, eq(blocks.layoutId, layouts.id))
-    .where(eq(layouts.environmentId, environment.id));
+  const usedTypes = yield* Effect.promise(() =>
+    ctx.db
+      .selectDistinct({ type: blocks.type })
+      .from(blocks)
+      .innerJoin(layouts, eq(blocks.layoutId, layouts.id))
+      .where(eq(layouts.environmentId, environment.id)),
+  );
   const usedTypeSet = new Set(usedTypes.map((r) => r.type));
 
   const deletedDefinitionTypes: string[] = [];
@@ -641,15 +686,17 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
     }
   }
   if (deletedDefinitionTypes.length > 0) {
-    await ctx.db
-      .delete(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, projectId),
-          eq(blockDefinitions.environmentId, environment.id),
-          inArray(blockDefinitions.blockId, deletedDefinitionTypes),
+    yield* Effect.promise(() =>
+      ctx.db
+        .delete(blockDefinitions)
+        .where(
+          and(
+            eq(blockDefinitions.projectId, projectId),
+            eq(blockDefinitions.environmentId, environment.id),
+            inArray(blockDefinitions.blockId, deletedDefinitionTypes),
+          ),
         ),
-      );
+    );
   }
 
   broadcastInvalidation({
@@ -665,40 +712,43 @@ export async function syncLayouts(ctx: ServiceContext, rawInput: z.input<typeof 
     blockedLayoutDeletions,
     deletedDefinitionTypes,
   };
-}
+});
 
 // Promote the current layout draft to public: snapshot the live rows, write a
 // new auto-publish checkpoint, point the layout at it. Mirrors `publishPage`.
 // `pages.publish` also reaches for these primitives when `alsoPublishLayout`
 // is set, so the building blocks are exported.
-export async function publishLayout(
+export const publishLayout = Effect.fn("layouts.publishLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof publishLayoutInput>,
 ) {
-  const user = assertUser(ctx);
-  const input = publishLayoutInput.parse(rawInput);
+  const user = yield* requireUser(ctx);
+  const input = yield* decodeInput(publishLayoutInput, rawInput);
   const { id } = input;
-  const references = await referenceTargets(ctx, input, "layout");
+  const references = yield* referenceTargets(ctx, input, "layout");
   if (input.collections.length || references.targets.length || references.missingRequired.length) {
-    return (await publishWithReferences(ctx, input, "layout")) as typeof layouts.$inferSelect;
+    return (yield* publishWithReferences(ctx, input, "layout")) as typeof layouts.$inferSelect;
   }
-  const access = await assertLayoutAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const access = yield* assertLayoutAccess(ctx.db, id, user.id);
 
-  const layoutRow = await ctx.db.select().from(layouts).where(eq(layouts.id, id)).get();
-  if (!layoutRow) throw new ORPCError("NOT_FOUND");
+  const layoutRow = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
+  );
+  if (!layoutRow) return yield* new NotFoundError();
 
-  await writeLayoutCheckpointAndPoint(ctx, { layout: layoutRow, userId: user.id });
+  yield* writeLayoutCheckpointAndPoint(ctx, { layout: layoutRow, userId: user.id });
 
-  await invalidateLayoutPublish(ctx, {
+  yield* invalidateLayoutPublish(ctx, {
     projectId: access.projectId,
     environmentId: layoutRow.environmentId,
     layoutId: id,
   });
 
-  const updated = await ctx.db.select().from(layouts).where(eq(layouts.id, id)).get();
+  const updated = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
+  );
   return updated;
-}
+});
 
 // The insert+pointer-update pair, factored so `pages.publish` can reuse it in
 // the bundled-publish path. D1 + drizzle has no shared-transaction primitive;
@@ -707,34 +757,40 @@ export async function publishLayout(
 //
 // `userId` is null for production releases, which authenticate with a deploy
 // token rather than a user session; this also matches the migration backfill.
-export async function writeLayoutCheckpointAndPoint(
-  ctx: ServiceContext,
-  args: { layout: typeof layouts.$inferSelect; userId: string | null },
-) {
-  const snapshot = await buildLayoutSnapshotFromDraft(ctx, args.layout);
-  const now = Date.now();
-  const checkpoint = await ctx.db
-    .insert(layoutCheckpoints)
-    .values({
-      layoutId: args.layout.id,
-      kind: "auto-publish",
-      label: null,
-      snapshot: JSON.stringify(snapshot),
-      schemaVersion: LAYOUT_SNAPSHOT_SCHEMA_VERSION,
-      createdAt: now,
-      createdBy: args.userId,
-    })
-    .returning()
-    .get();
+export const writeLayoutCheckpointAndPoint = Effect.fn("layouts.writeLayoutCheckpointAndPoint")(
+  function* (
+    ctx: ServiceContext,
+    args: { layout: typeof layouts.$inferSelect; userId: string | null },
+  ) {
+    const snapshot = yield* buildLayoutSnapshotFromDraft(ctx, args.layout);
+    const now = Date.now();
+    const checkpoint = yield* Effect.promise(() =>
+      ctx.db
+        .insert(layoutCheckpoints)
+        .values({
+          layoutId: args.layout.id,
+          kind: "auto-publish",
+          label: null,
+          snapshot: JSON.stringify(snapshot),
+          schemaVersion: LAYOUT_SNAPSHOT_SCHEMA_VERSION,
+          createdAt: now,
+          createdBy: args.userId,
+        })
+        .returning()
+        .get(),
+    );
 
-  await ctx.db
-    .update(layouts)
-    .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
-    .where(eq(layouts.id, args.layout.id));
+    yield* Effect.promise(() =>
+      ctx.db
+        .update(layouts)
+        .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
+        .where(eq(layouts.id, args.layout.id)),
+    );
 
-  await publishSyncedData(ctx, args.layout.environmentId, snapshot);
-  return { checkpoint, snapshot };
-}
+    yield* publishSyncedData(ctx, args.layout.environmentId, snapshot);
+    return { checkpoint, snapshot };
+  },
+);
 
 // Clear the live pointer. Every page using this layout will fall back to
 // rendering without layout blocks on its public reads — see
@@ -742,38 +798,41 @@ export async function writeLayoutCheckpointAndPoint(
 // composePageView then passes an empty `layoutBlocks` to the renderer.
 // The draft is untouched; the previous auto-publish checkpoint stays in the
 // DB so a future history-sidebar feature can re-point at it.
-export async function unpublishLayout(
+export const unpublishLayout = Effect.fn("layouts.unpublishLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof unpublishLayoutInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = unpublishLayoutInput.parse(rawInput);
-  const access = await assertLayoutAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(unpublishLayoutInput, rawInput);
+  const access = yield* assertLayoutAccess(ctx.db, id, user.id);
 
-  const layoutRow = await ctx.db.select().from(layouts).where(eq(layouts.id, id)).get();
-  if (!layoutRow) throw new ORPCError("NOT_FOUND");
+  const layoutRow = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
+  );
+  if (!layoutRow) return yield* new NotFoundError();
 
   // Surface a clear error rather than silently no-op when the user hits
   // unpublish on a never-published layout — the menu should already be
   // disabled in that case, but a stale UI shouldn't write garbage.
   if (layoutRow.livePublishedCheckpointId == null) {
-    throw new ORPCError("BAD_REQUEST", { message: "Layout is not published." });
+    return yield* new InvalidInputError({ message: "Layout is not published." });
   }
 
   const now = Date.now();
-  const updated = await ctx.db
-    .update(layouts)
-    .set({ livePublishedCheckpointId: null, updatedAt: now })
-    .where(eq(layouts.id, id))
-    .returning()
-    .get();
+  const updated = yield* Effect.promise(() =>
+    ctx.db
+      .update(layouts)
+      .set({ livePublishedCheckpointId: null, updatedAt: now })
+      .where(eq(layouts.id, id))
+      .returning()
+      .get(),
+  );
 
-  await invalidateLayoutPublish(ctx, {
+  yield* invalidateLayoutPublish(ctx, {
     projectId: access.projectId,
     environmentId: layoutRow.environmentId,
     layoutId: id,
   });
 
   return updated;
-}
+});

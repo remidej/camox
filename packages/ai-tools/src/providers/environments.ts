@@ -1,10 +1,12 @@
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import { z } from "zod";
 
 import {
   checkCompatibility,
   replicateEnvironment,
 } from "../../../../apps/api/src/domains/environments/service";
+import { InvalidInputError } from "../../../../apps/api/src/lib/errors";
+import { runService } from "../../../../apps/api/src/lib/run-service";
 import type { ToolContext, ToolDefinition, ToolProvider } from "../types";
 
 const PRODUCTION_ENV = "production";
@@ -21,9 +23,12 @@ const replicateInput = z.object({
  * production — same precondition the studio's EnvironmentMenu enforces via
  * `canReplicate = !isProduction`.
  */
-function resolvePair(ctx: ToolContext, direction: "push" | "pull") {
+const resolvePair = Effect.fn("resolvePair")(function* (
+  ctx: ToolContext,
+  direction: "push" | "pull",
+) {
   if (ctx.environmentName === PRODUCTION_ENV) {
-    throw new ORPCError("BAD_REQUEST", {
+    return yield* new InvalidInputError({
       message:
         "Push/pull operate between your dev environment and production, " +
         "but the current environment is already production.",
@@ -32,7 +37,7 @@ function resolvePair(ctx: ToolContext, direction: "push" | "pull") {
   return direction === "push"
     ? { sourceEnvName: ctx.environmentName, targetEnvName: PRODUCTION_ENV }
     : { sourceEnvName: PRODUCTION_ENV, targetEnvName: ctx.environmentName };
-}
+});
 
 export const environmentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -43,15 +48,20 @@ export const environmentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Each `reasons` array lists the block-definition / layout divergences blocking that direction (empty when compatible).",
     inputSchema: checkInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
-    handler: async () => {
-      const push = resolvePair(ctx, "push");
-      const pull = resolvePair(ctx, "pull");
-      const [pushResult, pullResult] = await Promise.all([
-        checkCompatibility(ctx, { projectId: ctx.projectId, ...push }),
-        checkCompatibility(ctx, { projectId: ctx.projectId, ...pull }),
-      ]);
-      return { push: pushResult, pull: pullResult };
-    },
+    handler: async () =>
+      runService(
+        Effect.gen(function* () {
+          const push = yield* resolvePair(ctx, "push");
+          const pull = yield* resolvePair(ctx, "pull");
+          return yield* Effect.all(
+            {
+              push: checkCompatibility(ctx, { projectId: ctx.projectId, ...push }),
+              pull: checkCompatibility(ctx, { projectId: ctx.projectId, ...pull }),
+            },
+            { concurrency: "unbounded" },
+          );
+        }),
+      ),
   },
   {
     name: "replicateEnvironment",
@@ -64,8 +74,13 @@ export const environmentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const { direction } = replicateInput.parse(input);
-      const pair = resolvePair(ctx, direction);
-      return replicateEnvironment(ctx, { projectId: ctx.projectId, ...pair });
+      return runService(
+        resolvePair(ctx, direction).pipe(
+          Effect.flatMap((pair) =>
+            replicateEnvironment(ctx, { projectId: ctx.projectId, ...pair }),
+          ),
+        ),
+      );
     },
   },
 ];

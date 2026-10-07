@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import {
   blockDefinitions,
   blocks,
@@ -41,26 +42,28 @@ const invalidEmbeds = [
 async function fixture(suffix: string) {
   const base = await createProjectFixture(`embed-${suffix}`);
   const ctx = createServiceContext(base.db, base.memberUser);
-  await upsertBlockDefinition(createServiceContext(base.db, null), {
-    projectSlug: base.project.slug,
-    deployToken: base.project.deployToken,
-    blockId: "video",
-    title: "Video",
-    description: "Embed validation fixture",
-    contentSchema: {
-      type: "object",
-      properties: {
-        embed,
-        unrestricted: { type: "string", fieldType: "Embed" },
-        title: { type: "string" },
-        videos: {
-          type: "array",
-          fieldType: "Repeater",
-          items: { type: "object", properties: videoProperties },
+  await runService(
+    upsertBlockDefinition(createServiceContext(base.db, null), {
+      projectSlug: base.project.slug,
+      deployToken: base.project.deployToken,
+      blockId: "video",
+      title: "Video",
+      description: "Embed validation fixture",
+      contentSchema: {
+        type: "object",
+        properties: {
+          embed,
+          unrestricted: { type: "string", fieldType: "Embed" },
+          title: { type: "string" },
+          videos: {
+            type: "array",
+            fieldType: "Repeater",
+            items: { type: "object", properties: videoProperties },
+          },
         },
       },
-    },
-  });
+    }),
+  );
   const now = 1_700_000_000_000;
   const page = await base.db
     .insert(pages)
@@ -106,13 +109,15 @@ async function expectRejectedWithoutWrites(
 describe("embed content validation", () => {
   it("preflights existing item overrides before repositioning or updating earlier items", async () => {
     const { db, ctx, page } = await fixture("existing-overrides");
-    const block = await createBlock(ctx, {
-      pageId: page.id,
-      type: "video",
-      content: {
-        videos: [{ embed: validEmbed }, { embed: validEmbed, clips: [{ embed: validEmbed }] }],
-      },
-    });
+    const block = await runService(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "video",
+        content: {
+          videos: [{ embed: validEmbed }, { embed: validEmbed, clips: [{ embed: validEmbed }] }],
+        },
+      }),
+    );
     const items = await db
       .select()
       .from(repeatableItems)
@@ -121,37 +126,43 @@ describe("embed content validation", () => {
     const [first, second] = items.filter((item) => item.parentItemId === null);
     const clip = items.find((item) => item.parentItemId === second.id)!;
     await expectRejectedWithoutWrites(db, () =>
-      updateBlockContent(ctx, {
-        id: block.id,
-        content: {
-          videos: [
-            { _itemId: second.id, label: "Changed" },
-            { _itemId: first.id, embed: { url: validEmbed } },
-          ],
-        },
-      }),
+      runService(
+        updateBlockContent(ctx, {
+          id: block.id,
+          content: {
+            videos: [
+              { _itemId: second.id, label: "Changed" },
+              { _itemId: first.id, embed: { url: validEmbed } },
+            ],
+          },
+        }),
+      ),
     );
     await expectRejectedWithoutWrites(db, () =>
+      runService(
+        updateBlockContent(ctx, {
+          id: block.id,
+          content: {
+            videos: [
+              { _itemId: first.id, label: "Changed" },
+              { _itemId: second.id, clips: [{ _itemId: clip.id, embed: 42 }] },
+            ],
+          },
+        }),
+      ),
+    );
+    const changed = "https://video.example/embed/456";
+    await runService(
       updateBlockContent(ctx, {
         id: block.id,
         content: {
           videos: [
-            { _itemId: first.id, label: "Changed" },
-            { _itemId: second.id, clips: [{ _itemId: clip.id, embed: 42 }] },
+            { _itemId: first.id },
+            { _itemId: second.id, clips: [{ _itemId: clip.id, embed: changed }] },
           ],
         },
       }),
     );
-    const changed = "https://video.example/embed/456";
-    await updateBlockContent(ctx, {
-      id: block.id,
-      content: {
-        videos: [
-          { _itemId: first.id },
-          { _itemId: second.id, clips: [{ _itemId: clip.id, embed: changed }] },
-        ],
-      },
-    });
     expect(
       (await db.select().from(repeatableItems).where(eq(repeatableItems.id, clip.id)).get())
         ?.content,
@@ -160,7 +171,9 @@ describe("embed content validation", () => {
 
   it("rejects ambiguous explicit seed graphs before creating any rows", async () => {
     const { db, ctx, page } = await fixture("seed-graphs");
-    const block = await createBlock(ctx, { pageId: page.id, type: "video", content: {} });
+    const block = await runService(
+      createBlock(ctx, { pageId: page.id, type: "video", content: {} }),
+    );
     const parent = {
       tempId: "parent",
       parentTempId: null,
@@ -171,20 +184,24 @@ describe("embed content validation", () => {
     const child = { ...parent, tempId: "child", parentTempId: "parent" };
     for (const seeds of [[parent, parent], [child, parent], [{ ...parent, tempId: "" }]]) {
       await expectRejectedWithoutWrites(db, () =>
-        createRepeatableItem(ctx, {
-          blockId: block.id,
-          fieldName: "videos",
-          content: { embed: validEmbed },
-          nestedItems: seeds,
-        }),
+        runService(
+          createRepeatableItem(ctx, {
+            blockId: block.id,
+            fieldName: "videos",
+            content: { embed: validEmbed },
+            nestedItems: seeds,
+          }),
+        ),
       );
       await expectRejectedWithoutWrites(db, () =>
-        createBlock(ctx, {
-          pageId: page.id,
-          type: "video",
-          content: {},
-          repeatableItems: seeds,
-        }),
+        runService(
+          createBlock(ctx, {
+            pageId: page.id,
+            type: "video",
+            content: {},
+            repeatableItems: seeds,
+          }),
+        ),
       );
     }
   });
@@ -192,15 +209,19 @@ describe("embed content validation", () => {
   it.each(invalidEmbeds)("rejects $name on block create and update", async ({ name, value }) => {
     const { db, ctx, page } = await fixture(`block-${name}`);
     await expectRejectedWithoutWrites(db, () =>
-      createBlock(ctx, { pageId: page.id, type: "video", content: { embed: value } }),
+      runService(createBlock(ctx, { pageId: page.id, type: "video", content: { embed: value } })),
     );
-    const block = await createBlock(ctx, {
-      pageId: page.id,
-      type: "video",
-      content: { embed: validEmbed, title: "Original" },
-    });
+    const block = await runService(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "video",
+        content: { embed: validEmbed, title: "Original" },
+      }),
+    );
     await expectRejectedWithoutWrites(db, () =>
-      updateBlockContent(ctx, { id: block.id, content: { title: "Changed", embed: value } }),
+      runService(
+        updateBlockContent(ctx, { id: block.id, content: { title: "Changed", embed: value } }),
+      ),
     );
   });
 
@@ -216,15 +237,17 @@ describe("embed content validation", () => {
         ],
       };
       await expectRejectedWithoutWrites(db, () =>
-        createBlock(ctx, { pageId: page.id, type: "video", content }),
+        runService(createBlock(ctx, { pageId: page.id, type: "video", content })),
       );
-      const block = await createBlock(ctx, {
-        pageId: page.id,
-        type: "video",
-        content: { title: "Original", videos: [{ embed: validEmbed }] },
-      });
+      const block = await runService(
+        createBlock(ctx, {
+          pageId: page.id,
+          type: "video",
+          content: { title: "Original", videos: [{ embed: validEmbed }] },
+        }),
+      );
       await expectRejectedWithoutWrites(db, () =>
-        updateBlockContent(ctx, { id: block.id, content }),
+        runService(updateBlockContent(ctx, { id: block.id, content })),
       );
     },
   );
@@ -234,34 +257,36 @@ describe("embed content validation", () => {
     async ({ name, value }) => {
       const { db, ctx, page } = await fixture(`block-seeds-${name}`);
       await expectRejectedWithoutWrites(db, () =>
-        createBlock(ctx, {
-          pageId: page.id,
-          type: "video",
-          content: { embed: validEmbed },
-          repeatableItems: [
-            {
-              tempId: "video",
-              parentTempId: null,
-              fieldName: "videos",
-              position: "a0",
-              content: { embed: validEmbed },
-            },
-            {
-              tempId: "first-clip",
-              parentTempId: "video",
-              fieldName: "clips",
-              position: "a0",
-              content: { embed: validEmbed },
-            },
-            {
-              tempId: "invalid-clip",
-              parentTempId: "video",
-              fieldName: "clips",
-              position: "a1",
-              content: { embed: value },
-            },
-          ],
-        }),
+        runService(
+          createBlock(ctx, {
+            pageId: page.id,
+            type: "video",
+            content: { embed: validEmbed },
+            repeatableItems: [
+              {
+                tempId: "video",
+                parentTempId: null,
+                fieldName: "videos",
+                position: "a0",
+                content: { embed: validEmbed },
+              },
+              {
+                tempId: "first-clip",
+                parentTempId: "video",
+                fieldName: "clips",
+                position: "a0",
+                content: { embed: validEmbed },
+              },
+              {
+                tempId: "invalid-clip",
+                parentTempId: "video",
+                fieldName: "clips",
+                position: "a1",
+                content: { embed: value },
+              },
+            ],
+          }),
+        ),
       );
     },
   );
@@ -270,37 +295,47 @@ describe("embed content validation", () => {
     "rejects $name on direct repeater create and update at both depths",
     async ({ name, value }) => {
       const { db, ctx, page } = await fixture(`item-${name}`);
-      const block = await createBlock(ctx, {
-        pageId: page.id,
-        type: "video",
-        content: {},
-      });
-      const video = await createRepeatableItem(ctx, {
-        blockId: block.id,
-        fieldName: "videos",
-        content: { embed: validEmbed },
-      });
+      const block = await runService(
+        createBlock(ctx, {
+          pageId: page.id,
+          type: "video",
+          content: {},
+        }),
+      );
+      const video = await runService(
+        createRepeatableItem(ctx, {
+          blockId: block.id,
+          fieldName: "videos",
+          content: { embed: validEmbed },
+        }),
+      );
       for (const location of [
         { fieldName: "videos", parentItemId: null },
         { fieldName: "clips", parentItemId: video.id },
       ]) {
         await expectRejectedWithoutWrites(db, () =>
+          runService(
+            createRepeatableItem(ctx, {
+              blockId: block.id,
+              ...location,
+              content: { embed: value },
+            }),
+          ),
+        );
+        const item = await runService(
           createRepeatableItem(ctx, {
             blockId: block.id,
             ...location,
-            content: { embed: value },
+            content: { embed: validEmbed, label: "Original" },
           }),
         );
-        const item = await createRepeatableItem(ctx, {
-          blockId: block.id,
-          ...location,
-          content: { embed: validEmbed, label: "Original" },
-        });
         await expectRejectedWithoutWrites(db, () =>
-          updateRepeatableItemContent(ctx, {
-            id: item.id,
-            content: { label: "Changed", embed: value },
-          }),
+          runService(
+            updateRepeatableItemContent(ctx, {
+              id: item.id,
+              content: { label: "Changed", embed: value },
+            }),
+          ),
         );
       }
     },
@@ -310,25 +345,29 @@ describe("embed content validation", () => {
     "rejects $name in inline arrays on direct repeater writes even when arrays are stripped",
     async ({ name, value }) => {
       const { db, ctx, page } = await fixture(`item-inline-${name}`);
-      const block = await createBlock(ctx, {
-        pageId: page.id,
-        type: "video",
-        content: {},
-      });
+      const block = await runService(
+        createBlock(ctx, {
+          pageId: page.id,
+          type: "video",
+          content: {},
+        }),
+      );
       const content = {
         embed: validEmbed,
         clips: [{ embed: validEmbed }, { embed: value }],
       };
       await expectRejectedWithoutWrites(db, () =>
-        createRepeatableItem(ctx, { blockId: block.id, fieldName: "videos", content }),
+        runService(createRepeatableItem(ctx, { blockId: block.id, fieldName: "videos", content })),
       );
-      const item = await createRepeatableItem(ctx, {
-        blockId: block.id,
-        fieldName: "videos",
-        content: { embed: validEmbed },
-      });
+      const item = await runService(
+        createRepeatableItem(ctx, {
+          blockId: block.id,
+          fieldName: "videos",
+          content: { embed: validEmbed },
+        }),
+      );
       await expectRejectedWithoutWrites(db, () =>
-        updateRepeatableItemContent(ctx, { id: item.id, content }),
+        runService(updateRepeatableItemContent(ctx, { id: item.id, content })),
       );
     },
   );
@@ -337,33 +376,37 @@ describe("embed content validation", () => {
     "rejects $name in nested repeater seeds before inserting the parent or earlier siblings",
     async ({ name, value }) => {
       const { db, ctx, page } = await fixture(`item-seeds-${name}`);
-      const block = await createBlock(ctx, {
-        pageId: page.id,
-        type: "video",
-        content: {},
-      });
-      await expectRejectedWithoutWrites(db, () =>
-        createRepeatableItem(ctx, {
-          blockId: block.id,
-          fieldName: "videos",
-          content: { embed: validEmbed },
-          nestedItems: [
-            {
-              tempId: "first",
-              parentTempId: null,
-              fieldName: "clips",
-              position: "a0",
-              content: { embed: validEmbed },
-            },
-            {
-              tempId: "invalid",
-              parentTempId: null,
-              fieldName: "clips",
-              position: "a1",
-              content: { embed: value },
-            },
-          ],
+      const block = await runService(
+        createBlock(ctx, {
+          pageId: page.id,
+          type: "video",
+          content: {},
         }),
+      );
+      await expectRejectedWithoutWrites(db, () =>
+        runService(
+          createRepeatableItem(ctx, {
+            blockId: block.id,
+            fieldName: "videos",
+            content: { embed: validEmbed },
+            nestedItems: [
+              {
+                tempId: "first",
+                parentTempId: null,
+                fieldName: "clips",
+                position: "a0",
+                content: { embed: validEmbed },
+              },
+              {
+                tempId: "invalid",
+                parentTempId: null,
+                fieldName: "clips",
+                position: "a1",
+                content: { embed: value },
+              },
+            ],
+          }),
+        ),
       );
     },
   );
@@ -423,41 +466,53 @@ describe("embed content validation", () => {
       .set({ environmentId: development.id, layoutId: developmentLayout.id })
       .where(eq(pages.id, page.id));
     // Context still selects production; writes must use the owning page's schema.
-    const block = await createBlock(ctx, { pageId: page.id, type: "video", content: {} });
-    const item = await createRepeatableItem(ctx, {
-      blockId: block.id,
-      fieldName: "videos",
-      content: { embed: "https://development.example/embed/123" },
-    });
-    await expectRejectedWithoutWrites(db, () =>
+    const block = await runService(
+      createBlock(ctx, { pageId: page.id, type: "video", content: {} }),
+    );
+    const item = await runService(
       createRepeatableItem(ctx, {
         blockId: block.id,
         fieldName: "videos",
-        content: { embed: validEmbed },
+        content: { embed: "https://development.example/embed/123" },
       }),
     );
     await expectRejectedWithoutWrites(db, () =>
-      updateRepeatableItemContent(ctx, { id: item.id, content: { embed: validEmbed } }),
+      runService(
+        createRepeatableItem(ctx, {
+          blockId: block.id,
+          fieldName: "videos",
+          content: { embed: validEmbed },
+        }),
+      ),
     );
     await expectRejectedWithoutWrites(db, () =>
-      updateBlockContent(ctx, { id: block.id, content: { videos: [{ embed: validEmbed }] } }),
+      runService(updateRepeatableItemContent(ctx, { id: item.id, content: { embed: validEmbed } })),
+    );
+    await expectRejectedWithoutWrites(db, () =>
+      runService(
+        updateBlockContent(ctx, { id: block.id, content: { videos: [{ embed: validEmbed }] } }),
+      ),
     );
   });
 
   it("accepts matching strings and strings on embeds without a pattern", async () => {
     const { db, ctx, page } = await fixture("valid");
-    const block = await createBlock(ctx, {
-      pageId: page.id,
-      type: "video",
-      content: {
-        embed: validEmbed,
-        unrestricted: "<iframe></iframe>",
-        videos: [{ embed: validEmbed, clips: [{ embed: validEmbed }] }],
-      },
-    });
+    const block = await runService(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "video",
+        content: {
+          embed: validEmbed,
+          unrestricted: "<iframe></iframe>",
+          videos: [{ embed: validEmbed, clips: [{ embed: validEmbed }] }],
+        },
+      }),
+    );
     expect(block.content).toMatchObject({ embed: validEmbed, unrestricted: "<iframe></iframe>" });
     const changed = "https://video.example/embed/456";
-    await updateBlockContent(ctx, { id: block.id, content: { embed: changed, unrestricted: "" } });
+    await runService(
+      updateBlockContent(ctx, { id: block.id, content: { embed: changed, unrestricted: "" } }),
+    );
     expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
       embed: changed,
       unrestricted: "",
@@ -469,7 +524,9 @@ describe("embed content validation", () => {
     expect(items).toHaveLength(2);
     for (const item of items) {
       expect(item.content).toEqual({ embed: validEmbed });
-      await updateRepeatableItemContent(ctx, { id: item.id, content: { embed: changed } });
+      await runService(
+        updateRepeatableItemContent(ctx, { id: item.id, content: { embed: changed } }),
+      );
       expect(
         (await db.select().from(repeatableItems).where(eq(repeatableItems.id, item.id)).get())
           ?.content,
@@ -479,11 +536,13 @@ describe("embed content validation", () => {
 
   it("does not revalidate historical invalid embeds on unrelated partial updates", async () => {
     const { db, ctx, page } = await fixture("historical");
-    const block = await createBlock(ctx, {
-      pageId: page.id,
-      type: "video",
-      content: { videos: [{ embed: validEmbed, clips: [{ embed: validEmbed }] }] },
-    });
+    const block = await runService(
+      createBlock(ctx, {
+        pageId: page.id,
+        type: "video",
+        content: { videos: [{ embed: validEmbed, clips: [{ embed: validEmbed }] }] },
+      }),
+    );
     // Simulate rows persisted before embed validation was introduced.
     await db
       .update(blocks)
@@ -499,13 +558,17 @@ describe("embed content validation", () => {
         .set({ content: { embed: "historical invalid URL" } })
         .where(eq(repeatableItems.id, item.id));
     }
-    await updateBlockContent(ctx, { id: block.id, content: { title: "Updated title" } });
+    await runService(
+      updateBlockContent(ctx, { id: block.id, content: { title: "Updated title" } }),
+    );
     expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
       embed: 123,
       title: "Updated title",
     });
     for (const item of items) {
-      await updateRepeatableItemContent(ctx, { id: item.id, content: { label: "Updated label" } });
+      await runService(
+        updateRepeatableItemContent(ctx, { id: item.id, content: { label: "Updated label" } }),
+      );
       expect(
         (await db.select().from(repeatableItems).where(eq(repeatableItems.id, item.id)).get())
           ?.content,

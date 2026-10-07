@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { listBlockDefinitions } from "../../../../apps/api/src/domains/block-definitions/service";
+import { runService } from "../../../../apps/api/src/lib/run-service";
 import { rewriteAssetSchema } from "../lib/rewrite-asset-schema";
 import type { ToolDefinition, ToolProvider } from "../types";
 
@@ -22,7 +23,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     inputSchema: listBlockTypesToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => {
-      const defs = await listBlockDefinitions(ctx, { projectId: ctx.projectId });
+      const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));
       return defs.map((d) => ({
         type: d.blockId,
         title: d.title,
@@ -43,7 +44,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const { types } = describeBlockTypesToolInput.parse(input);
-      const defs = await listBlockDefinitions(ctx, { projectId: ctx.projectId });
+      const defs = await runService(listBlockDefinitions(ctx, { projectId: ctx.projectId }));
       const requested = new Set(types);
       const found = defs
         .filter((d) => requested.has(d.blockId))

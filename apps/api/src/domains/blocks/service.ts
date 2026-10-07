@@ -1,13 +1,13 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { ORPCError } from "@orpc/server";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
 import { z } from "zod";
 
-import { assertBlockAccess, assertPageAccess } from "../../authorization";
+import { assertBlockAccess, assertPageAccess, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import {
@@ -15,6 +15,7 @@ import {
   bumpContentUpdatedAtForBlocks,
 } from "../../lib/bump-content-updated-at";
 import { contentToMarkdown } from "../../lib/content-markdown";
+import { decodeInput, InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
@@ -102,11 +103,6 @@ export const duplicateBlockInput = z.object({ id: z.number() });
 
 // --- Internal helpers ---
 
-function assertUser(ctx: ServiceContext) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  return ctx.user;
-}
-
 function comparePositions(a: string, b: string): number {
   if (a < b) return -1;
   if (a > b) return 1;
@@ -127,12 +123,15 @@ function sortByPosition<T extends { position: string }>(items: T[]): T[] {
  * first sibling so the service can compute a key strictly before it). For
  * create, "first" is encoded as `afterPosition: ""`, so no lookup is needed.
  */
-export async function resolveBlockPosition(
+export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof resolveBlockPositionInput>,
   opts: { mode: "create" | "move" },
-): Promise<{ afterPosition?: string | null; beforePosition?: string | null }> {
-  const input = resolveBlockPositionInput.parse(rawInput);
+): Effect.fn.Return<
+  { afterPosition?: string | null; beforePosition?: string | null },
+  ServiceError
+> {
+  const input = yield* decodeInput(resolveBlockPositionInput, rawInput);
   const passed = [
     input.afterPosition !== undefined ? "afterPosition" : null,
     input.beforePosition !== undefined ? "beforePosition" : null,
@@ -141,7 +140,7 @@ export async function resolveBlockPosition(
     input.position !== undefined ? "position" : null,
   ].filter((x): x is string => x != null);
   if (passed.length > 1) {
-    throw new ORPCError("BAD_REQUEST", {
+    return yield* new InvalidInputError({
       message: `Pass at most one positioning input — got: ${passed.join(", ")}.`,
     });
   }
@@ -150,27 +149,29 @@ export async function resolveBlockPosition(
     return { afterPosition: input.afterPosition, beforePosition: input.beforePosition };
   }
 
-  const lookupSibling = async (id: number) => {
-    const sibling = await ctx.db
-      .select({ position: blocks.position, pageId: blocks.pageId })
-      .from(blocks)
-      .where(eq(blocks.id, id))
-      .get();
-    if (!sibling) throw new ORPCError("NOT_FOUND", { message: `No block with id ${id}.` });
+  const lookupSibling = Effect.fn("lookupSibling")(function* (id: number) {
+    const sibling = yield* Effect.promise(() =>
+      ctx.db
+        .select({ position: blocks.position, pageId: blocks.pageId })
+        .from(blocks)
+        .where(eq(blocks.id, id))
+        .get(),
+    );
+    if (!sibling) return yield* new NotFoundError({ message: `No block with id ${id}.` });
     if (input.pageId != null && sibling.pageId !== input.pageId) {
-      throw new ORPCError("BAD_REQUEST", {
+      return yield* new InvalidInputError({
         message: `Block ${id} is not on page ${input.pageId}.`,
       });
     }
     return sibling;
-  };
+  });
 
   if (input.afterId !== undefined) {
-    const sibling = await lookupSibling(input.afterId);
+    const sibling = yield* lookupSibling(input.afterId);
     return { afterPosition: sibling.position };
   }
   if (input.beforeId !== undefined) {
-    const sibling = await lookupSibling(input.beforeId);
+    const sibling = yield* lookupSibling(input.beforeId);
     return { beforePosition: sibling.position };
   }
 
@@ -178,26 +179,27 @@ export async function resolveBlockPosition(
   if (input.position === "first") {
     if (opts.mode === "create") return { afterPosition: "" };
     let pageId = input.pageId;
-    if (pageId == null && input.blockId != null) {
-      const target = await ctx.db
-        .select({ pageId: blocks.pageId })
-        .from(blocks)
-        .where(eq(blocks.id, input.blockId))
-        .get();
+    const blockId = input.blockId;
+    if (pageId == null && blockId != null) {
+      const target = yield* Effect.promise(() =>
+        ctx.db.select({ pageId: blocks.pageId }).from(blocks).where(eq(blocks.id, blockId)).get(),
+      );
       pageId = target?.pageId ?? undefined;
     }
     if (pageId == null) return {};
-    const first = await ctx.db
-      .select({ position: blocks.position })
-      .from(blocks)
-      .where(eq(blocks.pageId, pageId))
-      .orderBy(blocks.position)
-      .get();
+    const first = yield* Effect.promise(() =>
+      ctx.db
+        .select({ position: blocks.position })
+        .from(blocks)
+        .where(eq(blocks.pageId, pageId))
+        .orderBy(blocks.position)
+        .get(),
+    );
     return { beforePosition: first?.position ?? null };
   }
 
   return {};
-}
+});
 
 /** Find the last index where item.position <= target in a sorted array. */
 function findLastIndexLe<T extends { position: string }>(items: T[], target: string): number {
@@ -235,7 +237,7 @@ function nestChildItems(
   }
 }
 
-async function generateObjectSummary(
+const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
   apiKey: string,
   options: { type: string; markdown: string; previousSummary?: string },
   abortController?: AbortController,
@@ -252,14 +254,15 @@ async function generateObjectSummary(
     `
     : "";
 
-  return await chat({
-    adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
-    stream: false,
-    abortController,
-    messages: [
-      {
-        role: "user",
-        content: outdent`
+  return yield* Effect.promise(() =>
+    chat({
+      adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
+      stream: false,
+      abortController,
+      messages: [
+        {
+          role: "user",
+          content: outdent`
             <instruction>
               Generate a concise summary for a piece of website content.
             </instruction>
@@ -298,13 +301,19 @@ async function generateObjectSummary(
               Return only the summary text, nothing else.
             </format>
           `,
-      },
-    ],
-  });
-}
+        },
+      ],
+    }),
+  );
+});
 
-async function assembleBlockContent(db: Database, blockId: number) {
-  const block = await db.select().from(blocks).where(eq(blocks.id, blockId)).get();
+const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
+  db: Database,
+  blockId: number,
+) {
+  const block = yield* Effect.promise(() =>
+    db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
+  );
   if (!block) return null;
 
   // Get block definition for content schema and field order. Scope by
@@ -312,29 +321,36 @@ async function assembleBlockContent(db: Database, blockId: number) {
   // environments (e.g. mid-migration).
   let projectId: number | null = null;
   let environmentId: number | null = null;
-  if (block.pageId) {
-    const page = await db.select().from(pages).where(eq(pages.id, block.pageId)).get();
+  const { pageId, layoutId } = block;
+  if (pageId) {
+    const page = yield* Effect.promise(() =>
+      db.select().from(pages).where(eq(pages.id, pageId)).get(),
+    );
     projectId = page?.projectId ?? null;
     environmentId = page?.environmentId ?? null;
-  } else if (block.layoutId) {
-    const layout = await db.select().from(layouts).where(eq(layouts.id, block.layoutId)).get();
+  } else if (layoutId) {
+    const layout = yield* Effect.promise(() =>
+      db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
+    );
     projectId = layout?.projectId ?? null;
     environmentId = layout?.environmentId ?? null;
   }
 
   const def =
     projectId && environmentId
-      ? await db
-          .select()
-          .from(blockDefinitions)
-          .where(
-            and(
-              eq(blockDefinitions.projectId, projectId),
-              eq(blockDefinitions.environmentId, environmentId),
-              eq(blockDefinitions.blockId, block.type),
-            ),
-          )
-          .get()
+      ? yield* Effect.promise(() =>
+          db
+            .select()
+            .from(blockDefinitions)
+            .where(
+              and(
+                eq(blockDefinitions.projectId, projectId),
+                eq(blockDefinitions.environmentId, environmentId),
+                eq(blockDefinitions.blockId, block.type),
+              ),
+            )
+            .get(),
+        )
       : null;
 
   const contentSchema = (def?.contentSchema as Record<string, any>) ?? null;
@@ -344,7 +360,9 @@ async function assembleBlockContent(db: Database, blockId: number) {
 
   // Merge repeatable items into content
   const items = sortByPosition(
-    await db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
+    yield* Effect.promise(() =>
+      db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
+    ),
   );
 
   nestChildItems(items);
@@ -370,19 +388,19 @@ async function assembleBlockContent(db: Database, blockId: number) {
   }
 
   return { block, content, contentSchema };
-}
+});
 
 /**
  * Generates and stores a summary for a block.
  * Returns `{ pageId }` if the parent page has AI SEO enabled (caller should cascade).
  */
-export async function executeBlockSummary(
+export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
   db: Database,
   apiKey: string,
   blockId: number,
   abortController?: AbortController,
-): Promise<{ pageId: number } | null> {
-  const assembled = await assembleBlockContent(db, blockId);
+): Effect.fn.Return<{ pageId: number } | null> {
+  const assembled = yield* assembleBlockContent(db, blockId);
   if (!assembled) return null;
 
   const { block, content, contentSchema } = assembled;
@@ -394,24 +412,29 @@ export async function executeBlockSummary(
         })
       : JSON.stringify(content);
 
-  const summary = await generateObjectSummary(
+  const summary = yield* generateObjectSummary(
     apiKey,
     { type: block.type, markdown, previousSummary: block.summary },
     abortController,
   );
 
-  await db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId));
+  yield* Effect.promise(() =>
+    db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId)),
+  );
 
   // Check if we should cascade to page SEO
-  if (summary !== block.summary && block.pageId) {
-    const page = await db.select().from(pages).where(eq(pages.id, block.pageId)).get();
+  const pageId = block.pageId;
+  if (summary !== block.summary && pageId) {
+    const page = yield* Effect.promise(() =>
+      db.select().from(pages).where(eq(pages.id, pageId)).get(),
+    );
     if (page?.aiSeoEnabled !== false) {
-      return { pageId: block.pageId };
+      return { pageId };
     }
   }
 
   return null;
-}
+});
 
 /**
  * Apply a partial content patch to a block, with replace-within-field semantics
@@ -428,13 +451,13 @@ export async function executeBlockSummary(
  * Returns the new merged block.content with all Repeater fields stripped —
  * the items table is the source of truth and `getBlock` re-injects markers on read.
  */
-async function applyContentPatch(
+const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   ctx: ServiceContext,
   block: { id: number; content: unknown },
   patch: Record<string, unknown>,
   contentSchema: unknown,
   now: number,
-): Promise<Record<string, unknown>> {
+): Effect.fn.Return<Record<string, unknown>, ServiceError> {
   const props = (contentSchema as { properties?: Record<string, FieldSchema> } | null)?.properties;
 
   // Start from existing content with all known repeatable fields stripped (items
@@ -446,18 +469,18 @@ async function applyContentPatch(
     }
   }
 
-  let allItems: Awaited<ReturnType<typeof fetchBlockItems>> | null = null;
+  let allItems: Effect.Success<ReturnType<typeof fetchBlockItems>> | null = null;
   // Build the entire mutation plan first: a later bad reference or value must
   // not leave earlier siblings repositioned, inserted, or deleted.
-  const writes: (() => Promise<unknown>)[] = [];
+  const writes: Effect.Effect<unknown>[] = [];
   for (const [key, value] of Object.entries(patch)) {
     const fieldSchema = props?.[key];
     if (fieldSchema?.fieldType !== "Repeater") {
       merged[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
       continue;
     }
-    if (allItems === null) allItems = await fetchBlockItems(ctx, block.id);
-    await applyRepeatableFieldPatch(ctx, {
+    if (allItems === null) allItems = yield* fetchBlockItems(ctx, block.id);
+    yield* applyRepeatableFieldPatch(ctx, {
       blockId: block.id,
       parentItemId: null,
       fieldName: key,
@@ -469,28 +492,33 @@ async function applyContentPatch(
       writes,
     });
   }
-  for (const write of writes) await write();
+  for (const write of writes) yield* write;
   return merged;
-}
+});
 
-async function fetchBlockItems(ctx: ServiceContext, blockId: number) {
-  return await ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId));
-}
+const fetchBlockItems = Effect.fn("fetchBlockItems")(function* (
+  ctx: ServiceContext,
+  blockId: number,
+) {
+  return yield* Effect.promise(() =>
+    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
+  );
+});
 
-async function applyRepeatableFieldPatch(
+const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(function* (
   ctx: ServiceContext,
   args: {
     blockId: number;
     parentItemId: number | null;
     fieldName: string;
     newArray: unknown;
-    allItems: Awaited<ReturnType<typeof fetchBlockItems>>;
+    allItems: Effect.Success<ReturnType<typeof fetchBlockItems>>;
     fieldSchema: FieldSchema;
     rootSchema: unknown;
     now: number;
-    writes: (() => Promise<unknown>)[];
+    writes: Effect.Effect<unknown>[];
   },
-): Promise<void> {
+): Effect.fn.Return<void, ServiceError> {
   const {
     blockId,
     parentItemId,
@@ -505,7 +533,7 @@ async function applyRepeatableFieldPatch(
   const itemSchemaProps = fieldSchema.items?.properties;
   if (newArray == null) return;
   if (!Array.isArray(newArray)) {
-    throw new ORPCError("BAD_REQUEST", {
+    return yield* new InvalidInputError({
       message: `Field "${fieldName}" is repeatable; expected an array`,
       data: { field: fieldName },
     });
@@ -520,7 +548,7 @@ async function applyRepeatableFieldPatch(
   let prevPos: string | null = null;
   for (const element of newArray) {
     if (element == null || typeof element !== "object" || Array.isArray(element)) {
-      throw new ORPCError("BAD_REQUEST", {
+      return yield* new InvalidInputError({
         message: `Field "${fieldName}" element must be an object`,
         data: { field: fieldName },
       });
@@ -532,7 +560,7 @@ async function applyRepeatableFieldPatch(
     prevPos = position;
 
     if (itemId === null && rawItemId !== undefined) {
-      throw new ORPCError("BAD_REQUEST", {
+      return yield* new InvalidInputError({
         message: `Field "${fieldName}" element has invalid _itemId`,
         data: { field: fieldName },
       });
@@ -541,13 +569,13 @@ async function applyRepeatableFieldPatch(
     if (itemId !== null) {
       const existing = existingById.get(itemId);
       if (!existing) {
-        throw new ORPCError("BAD_REQUEST", {
+        return yield* new InvalidInputError({
           message: `Field "${fieldName}" references item ${itemId} but no such item exists at this scope`,
           data: { field: fieldName },
         });
       }
       if (referenced.has(itemId)) {
-        throw new ORPCError("BAD_REQUEST", {
+        return yield* new InvalidInputError({
           message: `Field "${fieldName}" references item ${itemId} more than once`,
           data: { field: fieldName },
         });
@@ -561,7 +589,7 @@ async function applyRepeatableFieldPatch(
         if (k === "_itemId") continue;
         const subSchema = itemSchemaProps?.[k];
         if (subSchema?.fieldType === "Repeater") {
-          await applyRepeatableFieldPatch(ctx, {
+          yield* applyRepeatableFieldPatch(ctx, {
             blockId,
             parentItemId: itemId,
             fieldName: k,
@@ -589,11 +617,13 @@ async function applyRepeatableFieldPatch(
         }
       }
 
-      writes.push(async () =>
-        ctx.db
-          .update(repeatableItems)
-          .set({ content: newContent, position, updatedAt: now })
-          .where(eq(repeatableItems.id, itemId)),
+      writes.push(
+        Effect.promise(() =>
+          ctx.db
+            .update(repeatableItems)
+            .set({ content: newContent, position, updatedAt: now })
+            .where(eq(repeatableItems.id, itemId)),
+        ),
       );
       continue;
     }
@@ -604,7 +634,7 @@ async function applyRepeatableFieldPatch(
       content: itemContent,
       settings: itemSettings,
       seeds: childSeeds,
-    } = prepareBlockContent(
+    } = yield* prepareBlockContent(
       elementObj,
       undefined,
       undefined,
@@ -612,72 +642,82 @@ async function applyRepeatableFieldPatch(
       fieldSchema.itemSettingsSchema,
       { contentSchema: rootSchema, settingsSchema: rootSchema },
     );
-    writes.push(async () => {
-      const inserted = await ctx.db
-        .insert(repeatableItems)
-        .values({
-          blockId,
-          parentItemId,
-          fieldName,
-          content: itemContent,
-          settings: itemSettings,
-          summary: "",
-          position,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get();
-
-      if (childSeeds.length > 0) {
-        const tempIdToRealId = new Map<string, number>();
-        for (const seed of childSeeds) {
-          // parentTempId === null → child of the just-inserted item; otherwise resolve.
-          const seedParent = seed.parentTempId
-            ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
-            : inserted.id;
-          const sub = await ctx.db
+    writes.push(
+      Effect.gen(function* () {
+        const inserted = yield* Effect.promise(() =>
+          ctx.db
             .insert(repeatableItems)
             .values({
               blockId,
-              parentItemId: seedParent,
-              fieldName: seed.fieldName,
-              content: seed.content,
-              settings: seed.settings,
+              parentItemId,
+              fieldName,
+              content: itemContent,
+              settings: itemSettings,
               summary: "",
-              position: seed.position,
+              position,
               createdAt: now,
               updatedAt: now,
             })
             .returning()
-            .get();
-          tempIdToRealId.set(seed.tempId, sub.id);
+            .get(),
+        );
+
+        if (childSeeds.length > 0) {
+          const tempIdToRealId = new Map<string, number>();
+          for (const seed of childSeeds) {
+            // parentTempId === null → child of the just-inserted item; otherwise resolve.
+            const seedParent = seed.parentTempId
+              ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
+              : inserted.id;
+            const sub = yield* Effect.promise(() =>
+              ctx.db
+                .insert(repeatableItems)
+                .values({
+                  blockId,
+                  parentItemId: seedParent,
+                  fieldName: seed.fieldName,
+                  content: seed.content,
+                  settings: seed.settings,
+                  summary: "",
+                  position: seed.position,
+                  createdAt: now,
+                  updatedAt: now,
+                })
+                .returning()
+                .get(),
+            );
+            tempIdToRealId.set(seed.tempId, sub.id);
+          }
         }
-      }
-    });
+      }),
+    );
   }
 
   // Delete unreferenced existing items (cascades to nested children via FK).
   for (const item of scopeItems) {
     if (referenced.has(item.id)) continue;
-    writes.push(async () => ctx.db.delete(repeatableItems).where(eq(repeatableItems.id, item.id)));
+    writes.push(
+      Effect.promise(() => ctx.db.delete(repeatableItems).where(eq(repeatableItems.id, item.id))),
+    );
   }
-}
+});
 
 // --- Reads ---
 
-async function loadBlockBundle(
+const loadBlockBundle = Effect.fn("loadBlockBundle")(function* (
   ctx: ServiceContext,
   blockId: number,
   source: PageSource,
-): Promise<{ block: SnapshotBlock | null; items: SnapshotRepeatableItem[] }> {
+): Effect.fn.Return<{ block: SnapshotBlock | null; items: SnapshotRepeatableItem[] }> {
   if (source === "draft") {
-    const block = (await ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get()) ?? null;
+    const block =
+      (yield* Effect.promise(() =>
+        ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
+      )) ?? null;
     if (!block) return { block: null, items: [] };
-    const items = await ctx.db
-      .select()
-      .from(repeatableItems)
-      .where(eq(repeatableItems.blockId, block.id));
+    const items = yield* Effect.promise(() =>
+      ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
+    );
     // The drizzle row shape is structurally compatible with SnapshotBlock /
     // SnapshotRepeatableItem (same columns, same nullability), so casting
     // through the union return type is safe here.
@@ -686,24 +726,23 @@ async function loadBlockBundle(
 
   // Non-draft: find the parent (page or layout) by the live block row's
   // parent ids, then pull the block + its items out of the parent's snapshot.
-  const liveBlock = await ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get();
+  const liveBlock = yield* Effect.promise(() =>
+    ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
+  );
   if (!liveBlock) return { block: null, items: [] };
 
-  if (liveBlock.pageId != null) {
-    const parentPage = await ctx.db
-      .select()
-      .from(pages)
-      .where(eq(pages.id, liveBlock.pageId))
-      .get();
+  const { pageId, layoutId } = liveBlock;
+  if (pageId != null) {
+    const parentPage = yield* Effect.promise(() =>
+      ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
+    );
     if (!parentPage) return { block: null, items: [] };
     const checkpointId =
       source === "live" ? parentPage.livePublishedCheckpointId : source.checkpointId;
     if (checkpointId == null) return { block: null, items: [] };
-    const checkpoint = await ctx.db
-      .select()
-      .from(pageCheckpoints)
-      .where(eq(pageCheckpoints.id, checkpointId))
-      .get();
+    const checkpoint = yield* Effect.promise(() =>
+      ctx.db.select().from(pageCheckpoints).where(eq(pageCheckpoints.id, checkpointId)).get(),
+    );
     if (!checkpoint) return { block: null, items: [] };
     if (typeof source === "object" && checkpoint.pageId !== parentPage.id) {
       return { block: null, items: [] };
@@ -711,30 +750,26 @@ async function loadBlockBundle(
     const stored = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
     const snapshot =
       source === "live"
-        ? await resolveSyncedLiveData(ctx, parentPage.environmentId, stored)
+        ? yield* resolveSyncedLiveData(ctx, parentPage.environmentId, stored)
         : stored;
     const block = snapshot.blocks.find((b) => b.id === blockId) ?? null;
     if (!block) return { block: null, items: [] };
     return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
   }
-  if (liveBlock.layoutId != null) {
-    const parentLayout = await ctx.db
-      .select()
-      .from(layouts)
-      .where(eq(layouts.id, liveBlock.layoutId))
-      .get();
+  if (layoutId != null) {
+    const parentLayout = yield* Effect.promise(() =>
+      ctx.db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
+    );
     if (!parentLayout) return { block: null, items: [] };
     // See readLayoutSnapshot in pages/service.ts: in phase 1 the layout side
     // always follows its own live pointer regardless of source.
     const checkpointId = parentLayout.livePublishedCheckpointId;
     if (checkpointId == null) return { block: null, items: [] };
-    const checkpoint = await ctx.db
-      .select()
-      .from(layoutCheckpoints)
-      .where(eq(layoutCheckpoints.id, checkpointId))
-      .get();
+    const checkpoint = yield* Effect.promise(() =>
+      ctx.db.select().from(layoutCheckpoints).where(eq(layoutCheckpoints.id, checkpointId)).get(),
+    );
     if (!checkpoint) return { block: null, items: [] };
-    const snapshot = await resolveSyncedLiveData(
+    const snapshot = yield* resolveSyncedLiveData(
       ctx,
       parentLayout.environmentId,
       layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot)),
@@ -744,17 +779,20 @@ async function loadBlockBundle(
     return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
   }
   return { block: null, items: [] };
-}
+});
 
-export async function getBlock(ctx: ServiceContext, rawInput: z.input<typeof getBlockInput>) {
-  const { id, source } = getBlockInput.parse(rawInput);
+export const getBlock = Effect.fn("blocks.getBlock")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getBlockInput>,
+) {
+  const { id, source } = yield* decodeInput(getBlockInput, rawInput);
   // For non-draft reads, locate the block + its items inside the parent
   // page/layout's snapshot rather than the live tables. Mildly wasteful — we
   // parse the whole snapshot to pull one block — but blocks.get against
   // 'live' / { checkpointId } is never the hot path. The edit loop stays on
   // 'draft'.
-  const { block, items: sourcedItems } = await loadBlockBundle(ctx, id, source);
-  if (!block) throw new ORPCError("NOT_FOUND");
+  const { block, items: sourcedItems } = yield* loadBlockBundle(ctx, id, source);
+  if (!block) return yield* new NotFoundError();
   const sorted = sourcedItems.sort((a, b) => comparePositions(a.position, b.position));
 
   // Build a map of parentItemId → grouped children by fieldName
@@ -799,14 +837,12 @@ export async function getBlock(ctx: ServiceContext, rawInput: z.input<typeof get
     (item as any).content = itemContent;
   }
 
-  const hydratedBlock = (
-    await hydrateReferences(
-      ctx,
-      await blockScope(ctx, block),
-      [{ ...block, content }],
-      source === "draft" ? "draft" : "live",
-    )
-  )[0];
+  const hydratedBlock = (yield* hydrateReferences(
+    ctx,
+    yield* blockScope(ctx, block),
+    [{ ...block, content }],
+    source === "draft" ? "draft" : "live",
+  ))[0];
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<number>();
@@ -818,10 +854,12 @@ export async function getBlock(ctx: ServiceContext, rawInput: z.input<typeof get
 
   const fileRows =
     fileIds.size > 0
-      ? await ctx.db
-          .select()
-          .from(files)
-          .where(inArray(files.id, [...fileIds]))
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .select()
+            .from(files)
+            .where(inArray(files.id, [...fileIds])),
+        )
       : [];
 
   return {
@@ -829,29 +867,33 @@ export async function getBlock(ctx: ServiceContext, rawInput: z.input<typeof get
     repeatableItems: sorted,
     files: fileRows,
   };
-}
+});
 
-export async function getPageMarkdown(
+export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageMarkdownInput>,
 ) {
-  const { pageId, source } = getPageMarkdownInput.parse(rawInput);
+  const { pageId, source } = yield* decodeInput(getPageMarkdownInput, rawInput);
 
-  const page = await ctx.db.select().from(pages).where(eq(pages.id, pageId)).get();
-  if (!page) throw new ORPCError("NOT_FOUND");
+  const page = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
+  );
+  if (!page) return yield* new NotFoundError();
 
   // Get block definitions for content schemas and toMarkdown templates. Scope
   // by environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
-  const defs = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(
-      and(
-        eq(blockDefinitions.projectId, page.projectId),
-        eq(blockDefinitions.environmentId, page.environmentId),
+  const defs = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, page.projectId),
+          eq(blockDefinitions.environmentId, page.environmentId),
+        ),
       ),
-    );
+  );
   const schemaByType = new Map<
     string,
     { title: string; properties: Record<string, any>; toMarkdown?: readonly string[] }
@@ -879,39 +921,44 @@ export async function getPageMarkdown(
   let layoutAllItems: RenderableItem[] = [];
 
   if (source === "draft") {
-    const pageBlocks = await ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId));
+    const pageBlocks = yield* Effect.promise(() =>
+      ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId)),
+    );
     sorted = pageBlocks.sort((a, b) => comparePositions(a.position, b.position));
     const blockIds = sorted.map((b) => b.id);
     allItems =
       blockIds.length > 0
         ? sortByPosition(
-            await ctx.db
-              .select()
-              .from(repeatableItems)
-              .where(inArray(repeatableItems.blockId, blockIds)),
+            yield* Effect.promise(() =>
+              ctx.db
+                .select()
+                .from(repeatableItems)
+                .where(inArray(repeatableItems.blockId, blockIds)),
+            ),
           )
         : [];
     if (page.layoutId) {
-      const layoutBlocks = await ctx.db
-        .select()
-        .from(blocks)
-        .where(eq(blocks.layoutId, page.layoutId));
+      const layoutBlocks = yield* Effect.promise(() =>
+        ctx.db.select().from(blocks).where(eq(blocks.layoutId, page.layoutId)),
+      );
       sortedLayout = layoutBlocks.sort((a, b) => comparePositions(a.position, b.position));
       const layoutBlockIds = sortedLayout.map((b) => b.id);
       layoutAllItems =
         layoutBlockIds.length > 0
           ? sortByPosition(
-              await ctx.db
-                .select()
-                .from(repeatableItems)
-                .where(inArray(repeatableItems.blockId, layoutBlockIds)),
+              yield* Effect.promise(() =>
+                ctx.db
+                  .select()
+                  .from(repeatableItems)
+                  .where(inArray(repeatableItems.blockId, layoutBlockIds)),
+              ),
             )
           : [];
     }
   } else {
-    const pageSnapshot = await readPageSnapshot(ctx, page, source);
+    const pageSnapshot = yield* readPageSnapshot(ctx, page, source);
     if (!pageSnapshot) {
-      throw new ORPCError("BAD_REQUEST", {
+      return yield* new InvalidInputError({
         message:
           "Page has not been published. Run `camox pages publish` first, or omit --live to read the draft.",
       });
@@ -922,9 +969,11 @@ export async function getPageMarkdown(
     // when reading a non-draft page (see readLayoutSnapshot). If the layout
     // is unpublished, treat it as empty rather than failing the page read.
     if (page.layoutId) {
-      const layout = await ctx.db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get();
+      const layout = yield* Effect.promise(() =>
+        ctx.db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
+      );
       if (layout) {
-        const layoutSnapshot = await readLayoutSnapshot(ctx, layout);
+        const layoutSnapshot = yield* readLayoutSnapshot(ctx, layout);
         sortedLayout = layoutSnapshot ? sortByPosition(layoutSnapshot.blocks) : [];
         layoutAllItems = layoutSnapshot ? sortByPosition(layoutSnapshot.repeatableItems) : [];
       }
@@ -951,7 +1000,7 @@ export async function getPageMarkdown(
     }
   }
 
-  const hydrated = await hydrateReferences(
+  const hydrated = yield* hydrateReferences(
     ctx,
     page,
     [...sorted, ...sortedLayout],
@@ -966,7 +1015,7 @@ export async function getPageMarkdown(
   for (const list of [...itemsByBlock.values(), ...layoutItemsByBlock.values()]) {
     for (const item of list) collectFileIds(item.content as Record<string, unknown>, fileIds);
   }
-  const fileMap = await buildFileMap(ctx.db, fileIds);
+  const fileMap = yield* buildFileMap(ctx.db, fileIds);
 
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const renderBlock = (block: RenderableBlock, items: RenderableItem[]) => {
@@ -1011,30 +1060,35 @@ export async function getPageMarkdown(
     Boolean,
   );
   return { markdown: parts.join("\n\n"), blocks: blockMarkdowns };
-}
+});
 
-export async function getBlocksUsageCounts(
+export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlocksUsageCountsInput>,
 ) {
-  const { projectId } = getBlocksUsageCountsInput.parse(rawInput);
-  const environment = await resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  return await ctx.db
-    .select({
-      type: blocks.type,
-      count: sql<number>`count(*)`,
-    })
-    .from(blocks)
-    .leftJoin(pages, eq(blocks.pageId, pages.id))
-    .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-    .where(or(eq(pages.environmentId, environment.id), eq(layouts.environmentId, environment.id)))
-    .groupBy(blocks.type);
-}
+  const { projectId } = yield* decodeInput(getBlocksUsageCountsInput, rawInput);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  return yield* Effect.promise(() =>
+    ctx.db
+      .select({
+        type: blocks.type,
+        count: sql<number>`count(*)`,
+      })
+      .from(blocks)
+      .leftJoin(pages, eq(blocks.pageId, pages.id))
+      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
+      .where(or(eq(pages.environmentId, environment.id), eq(layouts.environmentId, environment.id)))
+      .groupBy(blocks.type),
+  );
+});
 
 // --- Writes ---
 
-export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof createBlockInput>) {
-  const user = assertUser(ctx);
+export const createBlock = Effect.fn("blocks.createBlock")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof createBlockInput>,
+) {
+  const user = yield* requireUser(ctx);
   const {
     pageId,
     type,
@@ -1043,9 +1097,8 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     afterPosition,
     beforePosition,
     repeatableItems: itemSeeds,
-  } = createBlockInput.parse(rawInput);
-  const access = await assertPageAccess(ctx.db, pageId, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  } = yield* decodeInput(createBlockInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, pageId, user.id);
 
   const now = Date.now();
 
@@ -1053,18 +1106,20 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
   // arrays into seeds, so the agent (and any caller) can produce a flat shape.
   // Scope by environmentId — the same blockId can exist with different shapes
   // across environments (e.g. mid-migration).
-  const def = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(
-      and(
-        eq(blockDefinitions.projectId, access.page.projectId),
-        eq(blockDefinitions.environmentId, access.page.environmentId),
-        eq(blockDefinitions.blockId, type),
-      ),
-    )
-    .get();
-  const prepared = prepareBlockContent(
+  const def = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, access.page.projectId),
+          eq(blockDefinitions.environmentId, access.page.environmentId),
+          eq(blockDefinitions.blockId, type),
+        ),
+      )
+      .get(),
+  );
+  const prepared = yield* prepareBlockContent(
     content,
     settings,
     itemSeeds,
@@ -1072,15 +1127,15 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     def?.settingsSchema,
   );
   const allSeeds = prepared.seeds;
-  await validateReferenceValues(ctx, access.page, def?.contentSchema, prepared.content);
+  yield* validateReferenceValues(ctx, access.page, def?.contentSchema, prepared.content);
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(
-    await ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId)),
+    yield* Effect.promise(() => ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId))),
   );
 
   if (afterPosition != null && beforePosition != null) {
-    throw new ORPCError("BAD_REQUEST", {
+    return yield* new InvalidInputError({
       message: "Pass at most one of afterPosition or beforePosition.",
     });
   }
@@ -1110,20 +1165,22 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
       nextBlock?.position ?? null,
     );
   }
-  const result = await ctx.db
-    .insert(blocks)
-    .values({
-      pageId,
-      type,
-      content: prepared.content,
-      settings: prepared.settings,
-      position,
-      summary: "",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .insert(blocks)
+      .values({
+        pageId,
+        type,
+        content: prepared.content,
+        settings: prepared.settings,
+        position,
+        summary: "",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get(),
+  );
 
   // Insert repeatable item seeds in topological order (parents before children)
   if (allSeeds.length > 0) {
@@ -1133,27 +1190,29 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
       const parentItemId = seed.parentTempId
         ? (tempIdToRealId.get(seed.parentTempId) ?? null)
         : null;
-      const inserted = await ctx.db
-        .insert(repeatableItems)
-        .values({
-          blockId: result.id,
-          parentItemId,
-          fieldName: seed.fieldName,
-          content: seed.content,
-          settings: seed.settings,
-          summary: "",
-          position: seed.position,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get();
+      const inserted = yield* Effect.promise(() =>
+        ctx.db
+          .insert(repeatableItems)
+          .values({
+            blockId: result.id,
+            parentItemId,
+            fieldName: seed.fieldName,
+            content: seed.content,
+            settings: seed.settings,
+            summary: "",
+            position: seed.position,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+          .get(),
+      );
       tempIdToRealId.set(seed.tempId, inserted.id);
     }
   }
 
-  await syncBlockData(ctx, result.id, true);
-  await bumpContentUpdatedAt(ctx.db, { pageId });
+  yield* syncBlockData(ctx, result.id, true);
+  yield* bumpContentUpdatedAt(ctx.db, { pageId });
 
   ctx.waitUntil(
     scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1179,61 +1238,63 @@ export async function createBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     ],
   });
 
-  return (await ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get())!;
-}
+  return (yield* Effect.promise(() =>
+    ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get(),
+  ))!;
+});
 
 /** CLI/AI edits may submit both fields; reject either invalid patch before writing either. */
-export async function editBlock(
+export const editBlock = Effect.fn("blocks.editBlock")(function* (
   ctx: ServiceContext,
   input: { id: number; content?: unknown; settings?: unknown },
 ) {
-  const user = assertUser(ctx);
-  const access = await assertBlockAccess(ctx.db, input.id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const access = yield* assertBlockAccess(ctx.db, input.id, user.id);
   if (input.content === undefined && input.settings === undefined) {
-    throw new ORPCError("BAD_REQUEST", { message: "Provide content or settings" });
+    return yield* new InvalidInputError({ message: "Provide content or settings" });
   }
   if (input.settings !== undefined) {
-    const schemas = await loadBlockSchemas(ctx.db, access.projectId, input.id);
-    validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
+    const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id);
+    yield* validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
   }
   let result: unknown;
   if (input.content !== undefined) {
-    result = await updateBlockContent(ctx, { id: input.id, content: input.content });
+    result = yield* updateBlockContent(ctx, { id: input.id, content: input.content });
   }
   if (input.settings !== undefined) {
-    result = await updateBlockSettings(ctx, { id: input.id, settings: input.settings });
+    result = yield* updateBlockSettings(ctx, { id: input.id, settings: input.settings });
   }
   return result;
-}
+});
 
-export async function updateBlockContent(
+export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockContentInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, content } = updateBlockContentInput.parse(rawInput);
-  const access = await assertBlockAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id, content } = yield* decodeInput(updateBlockContentInput, rawInput);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id);
 
   const now = Date.now();
 
-  const contentSchema = await loadBlockContentSchema(ctx.db, access.projectId, id);
+  const contentSchema = yield* loadBlockContentSchema(ctx.db, access.projectId, id);
 
-  const patch = prepareContentPatch(content, contentSchema);
-  validateContent(patch, contentSchema, { allowItemReferences: true });
-  await validateReferenceValues(ctx, await blockScope(ctx, access.block), contentSchema, patch);
-  const merged = await applyContentPatch(ctx, access.block, patch, contentSchema, now);
+  const patch = yield* prepareContentPatch(content, contentSchema);
+  yield* validateContent(patch, contentSchema, { allowItemReferences: true });
+  yield* validateReferenceValues(ctx, yield* blockScope(ctx, access.block), contentSchema, patch);
+  const merged = yield* applyContentPatch(ctx, access.block, patch, contentSchema, now);
 
-  const result = await ctx.db
-    .update(blocks)
-    .set({ content: merged, updatedAt: now })
-    .where(eq(blocks.id, id))
-    .returning()
-    .get();
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(blocks)
+      .set({ content: merged, updatedAt: now })
+      .where(eq(blocks.id, id))
+      .returning()
+      .get(),
+  );
 
-  await syncBlockData(ctx, id);
-  await bumpContentUpdatedAt(ctx.db, access.block);
+  yield* syncBlockData(ctx, id);
+  yield* bumpContentUpdatedAt(ctx.db, access.block);
 
   ctx.waitUntil(
     scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1260,31 +1321,32 @@ export async function updateBlockContent(
   });
 
   return result;
-}
+});
 
-export async function updateBlockSettings(
+export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockSettingsInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, settings } = updateBlockSettingsInput.parse(rawInput);
-  const access = await assertBlockAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id, settings } = yield* decodeInput(updateBlockSettingsInput, rawInput);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id);
 
-  const schemas = await loadBlockSchemas(ctx.db, access.projectId, id);
-  validateContent(settings, schemas?.settingsSchema, { path: "settings" });
+  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id);
+  yield* validateContent(settings, schemas?.settingsSchema, { path: "settings" });
   const merged = {
     ...(access.block.settings as Record<string, unknown> | null),
     ...(settings as Record<string, unknown>),
   };
-  const result = await ctx.db
-    .update(blocks)
-    .set({ settings: merged, updatedAt: Date.now() })
-    .where(eq(blocks.id, id))
-    .returning()
-    .get();
-  await syncBlockData(ctx, id);
-  await bumpContentUpdatedAt(ctx.db, access.block);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(blocks)
+      .set({ settings: merged, updatedAt: Date.now() })
+      .where(eq(blocks.id, id))
+      .returning()
+      .get(),
+  );
+  yield* syncBlockData(ctx, id);
+  yield* bumpContentUpdatedAt(ctx.db, access.block);
   // Granular invalidation: only refetch this block, not the entire page.
   // Draft source only — the live snapshot doesn't change on edits.
   broadcastInvalidation({
@@ -1301,16 +1363,18 @@ export async function updateBlockSettings(
     ],
   });
   return result;
-}
+});
 
-export async function updateBlockPosition(
+export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockPositionInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, afterPosition, beforePosition } = updateBlockPositionInput.parse(rawInput);
-  const access = await assertBlockAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id, afterPosition, beforePosition } = yield* decodeInput(
+    updateBlockPositionInput,
+    rawInput,
+  );
+  const access = yield* assertBlockAccess(ctx.db, id, user.id);
 
   // Query siblings (excluding the block being moved) to compute a correct position
   const block = access.block;
@@ -1318,9 +1382,9 @@ export async function updateBlockPosition(
   const parentId = block.pageId ?? block.layoutId;
   const siblings = parentId
     ? sortByPosition(
-        (await ctx.db.select().from(blocks).where(eq(parentColumn, parentId))).filter(
-          (b) => b.id !== id,
-        ),
+        (yield* Effect.promise(() =>
+          ctx.db.select().from(blocks).where(eq(parentColumn, parentId)),
+        )).filter((b) => b.id !== id),
       )
     : [];
 
@@ -1340,13 +1404,15 @@ export async function updateBlockPosition(
     position = generateKeyBetween(siblings[afterIdx]?.position ?? null, nextPos);
   }
 
-  const result = await ctx.db
-    .update(blocks)
-    .set({ position, updatedAt: Date.now() })
-    .where(eq(blocks.id, id))
-    .returning()
-    .get();
-  await bumpContentUpdatedAt(ctx.db, access.block);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(blocks)
+      .set({ position, updatedAt: Date.now() })
+      .where(eq(blocks.id, id))
+      .returning()
+      .get(),
+  );
+  yield* bumpContentUpdatedAt(ctx.db, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1361,16 +1427,20 @@ export async function updateBlockPosition(
     ],
   });
   return result;
-}
+});
 
-export async function deleteBlock(ctx: ServiceContext, rawInput: z.input<typeof deleteBlockInput>) {
-  const user = assertUser(ctx);
-  const { id } = deleteBlockInput.parse(rawInput);
-  const access = await assertBlockAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof deleteBlockInput>,
+) {
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(deleteBlockInput, rawInput);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id);
 
-  const result = await ctx.db.delete(blocks).where(eq(blocks.id, id)).returning().get();
-  await bumpContentUpdatedAt(ctx.db, access.block);
+  const result = yield* Effect.promise(() =>
+    ctx.db.delete(blocks).where(eq(blocks.id, id)).returning().get(),
+  );
+  yield* bumpContentUpdatedAt(ctx.db, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1386,34 +1456,38 @@ export async function deleteBlock(ctx: ServiceContext, rawInput: z.input<typeof 
     ],
   });
   return result;
-}
+});
 
-export async function deleteBlocks(
+export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlocksInput>,
 ) {
-  const user = assertUser(ctx);
-  const { blockIds } = deleteBlocksInput.parse(rawInput);
+  const user = yield* requireUser(ctx);
+  const { blockIds } = yield* decodeInput(deleteBlocksInput, rawInput);
   if (blockIds.length === 0) return [];
 
   // Verify all blocks belong to an org the user is a member of
-  const authorizedBlocks = await ctx.db
-    .select({ id: blocks.id, projectId: projects.id })
-    .from(blocks)
-    .leftJoin(pages, eq(blocks.pageId, pages.id))
-    .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-    .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
-    .innerJoin(
-      member,
-      and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
-    )
-    .where(inArray(blocks.id, blockIds));
+  const authorizedBlocks = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: blocks.id, projectId: projects.id })
+      .from(blocks)
+      .leftJoin(pages, eq(blocks.pageId, pages.id))
+      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
+      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
+      .innerJoin(
+        member,
+        and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
+      )
+      .where(inArray(blocks.id, blockIds)),
+  );
   if (authorizedBlocks.length !== blockIds.length) {
-    throw new ORPCError("NOT_FOUND");
+    return yield* new NotFoundError();
   }
   // Bump first — once the rows are gone, we can't recover their parents.
-  await bumpContentUpdatedAtForBlocks(ctx.db, blockIds);
-  const result = await ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)).returning();
+  yield* bumpContentUpdatedAtForBlocks(ctx.db, blockIds);
+  const result = yield* Effect.promise(() =>
+    ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)).returning(),
+  );
   const projectId = authorizedBlocks[0]?.projectId;
   if (projectId) {
     broadcastInvalidation({
@@ -1428,18 +1502,17 @@ export async function deleteBlocks(
     });
   }
   return result;
-}
+});
 
-export async function generateBlockSummary(
+export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateBlockSummaryInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = generateBlockSummaryInput.parse(rawInput);
-  const access = await assertBlockAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id);
 
-  const seoStale = await executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
+  const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
   if (seoStale) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1463,18 +1536,19 @@ export async function generateBlockSummary(
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  const updated = await ctx.db.select().from(blocks).where(eq(blocks.id, id)).get();
+  const updated = yield* Effect.promise(() =>
+    ctx.db.select().from(blocks).where(eq(blocks.id, id)).get(),
+  );
   return updated;
-}
+});
 
-export async function duplicateBlock(
+export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof duplicateBlockInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = duplicateBlockInput.parse(rawInput);
-  const access = await assertBlockAccess(ctx.db, id, user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(duplicateBlockInput, rawInput);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id);
   const original = access.block;
 
   const now = Date.now();
@@ -1483,30 +1557,34 @@ export async function duplicateBlock(
   const parentId = original.pageId ?? original.layoutId;
   const parentColumn = original.pageId ? blocks.pageId : blocks.layoutId;
   const siblings = parentId
-    ? sortByPosition(await ctx.db.select().from(blocks).where(eq(parentColumn, parentId)))
+    ? sortByPosition(
+        yield* Effect.promise(() => ctx.db.select().from(blocks).where(eq(parentColumn, parentId))),
+      )
     : [];
   const originalIndex = siblings.findIndex((b) => b.id === id);
   const nextBlock = originalIndex >= 0 ? siblings[originalIndex + 1] : undefined;
   const position = generateKeyBetween(original.position, nextBlock?.position ?? null);
 
-  const result = await ctx.db
-    .insert(blocks)
-    .values({
-      pageId: original.pageId,
-      layoutId: original.layoutId,
-      type: original.type,
-      content: original.content,
-      settings: original.settings,
-      placement: original.placement,
-      summary: original.summary,
-      position,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
-  await syncBlockData(ctx, result.id, true);
-  await bumpContentUpdatedAt(ctx.db, original);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .insert(blocks)
+      .values({
+        pageId: original.pageId,
+        layoutId: original.layoutId,
+        type: original.type,
+        content: original.content,
+        settings: original.settings,
+        placement: original.placement,
+        summary: original.summary,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get(),
+  );
+  yield* syncBlockData(ctx, result.id, true);
+  yield* bumpContentUpdatedAt(ctx.db, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1521,4 +1599,4 @@ export async function duplicateBlock(
     ],
   });
   return result;
-}
+});

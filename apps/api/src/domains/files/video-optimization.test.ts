@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import { mp4Metadata, optimizeVideo } from "./video-optimization";
@@ -51,7 +52,7 @@ describe("video optimization", () => {
       input,
     } as unknown as MediaBinding;
     const file = mp4(12);
-    expect(await optimizeVideo(file, "1/file", bucket, media)).toEqual({
+    expect(await Effect.runPromise(optimizeVideo(file, "1/file", bucket, media))).toEqual({
       key: "1/file.optimized.mp4",
       size: rendition.size,
     });
@@ -59,16 +60,20 @@ describe("video optimization", () => {
       httpMetadata: { contentType: "video/mp4" },
     });
     expect(transform).toHaveBeenCalledWith({ width: 1280, height: 720, fit: "scale-down" });
-    expect(await optimizeVideo(mp4(61), "1/long", bucket, media)).toBeNull();
+    expect(await Effect.runPromise(optimizeVideo(mp4(61), "1/long", bucket, media))).toBeNull();
     expect(input).toHaveBeenCalledTimes(1);
 
     response.mockResolvedValueOnce(new Response(new Uint8Array(file.size)));
-    expect(await optimizeVideo(mp4(12, 3024, 1888), "1/not-smaller", bucket, media)).toBeNull();
+    expect(
+      await Effect.runPromise(optimizeVideo(mp4(12, 3024, 1888), "1/not-smaller", bucket, media)),
+    ).toBeNull();
     expect(transform).toHaveBeenLastCalledWith({ width: 2000, height: 1888, fit: "scale-down" });
     expect(put).toHaveBeenCalledTimes(1);
 
     response.mockResolvedValueOnce(new Response(mp4(12, 640, 360, 100_000)));
-    expect(await optimizeVideo(file, "1/low-resolution", bucket, media)).toBeNull();
+    expect(
+      await Effect.runPromise(optimizeVideo(file, "1/low-resolution", bucket, media)),
+    ).toBeNull();
     expect(put).toHaveBeenCalledTimes(1);
   });
 });

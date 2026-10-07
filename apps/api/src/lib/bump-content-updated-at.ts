@@ -1,4 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
+import { Effect } from "effect";
 
 import type { Database } from "../db";
 import { blocks, layouts, pages } from "../schema";
@@ -9,38 +10,53 @@ import { blocks, layouts, pages } from "../schema";
  * publish status is a cheap timestamp compare instead of a row scan. One
  * extra UPDATE per mutation on the hot edit path.
  */
-export async function bumpContentUpdatedAt(
+export const bumpContentUpdatedAt = Effect.fn("bumpContentUpdatedAt")(function* (
   db: Database,
   parent: { pageId?: number | null; layoutId?: number | null },
 ) {
   const now = Date.now();
-  if (parent.pageId != null) {
-    await db.update(pages).set({ contentUpdatedAt: now }).where(eq(pages.id, parent.pageId));
+  const { pageId, layoutId } = parent;
+  if (pageId != null) {
+    yield* Effect.promise(() =>
+      db.update(pages).set({ contentUpdatedAt: now }).where(eq(pages.id, pageId)),
+    );
     return;
   }
-  if (parent.layoutId != null) {
-    await db.update(layouts).set({ contentUpdatedAt: now }).where(eq(layouts.id, parent.layoutId));
+  if (layoutId != null) {
+    yield* Effect.promise(() =>
+      db.update(layouts).set({ contentUpdatedAt: now }).where(eq(layouts.id, layoutId)),
+    );
   }
-}
+});
 
 /** Looks up a single block's parent and bumps it. */
-export async function bumpContentUpdatedAtForBlock(db: Database, blockId: number) {
-  const row = await db
-    .select({ pageId: blocks.pageId, layoutId: blocks.layoutId })
-    .from(blocks)
-    .where(eq(blocks.id, blockId))
-    .get();
+export const bumpContentUpdatedAtForBlock = Effect.fn("bumpContentUpdatedAtForBlock")(function* (
+  db: Database,
+  blockId: number,
+) {
+  const row = yield* Effect.promise(() =>
+    db
+      .select({ pageId: blocks.pageId, layoutId: blocks.layoutId })
+      .from(blocks)
+      .where(eq(blocks.id, blockId))
+      .get(),
+  );
   if (!row) return;
-  await bumpContentUpdatedAt(db, row);
-}
+  yield* bumpContentUpdatedAt(db, row);
+});
 
 /** Variant for batch mutations — looks up parents for several block ids. */
-export async function bumpContentUpdatedAtForBlocks(db: Database, blockIds: number[]) {
+export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForBlocks")(function* (
+  db: Database,
+  blockIds: number[],
+) {
   if (blockIds.length === 0) return;
-  const rows = await db
-    .select({ pageId: blocks.pageId, layoutId: blocks.layoutId })
-    .from(blocks)
-    .where(inArray(blocks.id, blockIds));
+  const rows = yield* Effect.promise(() =>
+    db
+      .select({ pageId: blocks.pageId, layoutId: blocks.layoutId })
+      .from(blocks)
+      .where(inArray(blocks.id, blockIds)),
+  );
   const pageIds = new Set<number>();
   const layoutIds = new Set<number>();
   for (const row of rows) {
@@ -49,15 +65,19 @@ export async function bumpContentUpdatedAtForBlocks(db: Database, blockIds: numb
   }
   const now = Date.now();
   if (pageIds.size > 0) {
-    await db
-      .update(pages)
-      .set({ contentUpdatedAt: now })
-      .where(inArray(pages.id, [...pageIds]));
+    yield* Effect.promise(() =>
+      db
+        .update(pages)
+        .set({ contentUpdatedAt: now })
+        .where(inArray(pages.id, [...pageIds])),
+    );
   }
   if (layoutIds.size > 0) {
-    await db
-      .update(layouts)
-      .set({ contentUpdatedAt: now })
-      .where(inArray(layouts.id, [...layoutIds]));
+    yield* Effect.promise(() =>
+      db
+        .update(layouts)
+        .set({ contentUpdatedAt: now })
+        .where(inArray(layouts.id, [...layoutIds])),
+    );
   }
-}
+});

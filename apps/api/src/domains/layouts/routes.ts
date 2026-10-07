@@ -1,3 +1,4 @@
+import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
 import { referenceTargets, referenceTargetsInput } from "../collections/reference-publication";
 import * as service from "./service";
@@ -6,25 +7,25 @@ import * as service from "./service";
 
 const get = pub
   .input(service.getLayoutInput)
-  .handler(({ context, input }) => service.getLayout(context, input));
+  .handler(({ context, input }) => runService(service.getLayout(context, input)));
 
 const list = pub
   .input(service.listLayoutsInput)
-  .handler(({ context, input }) => service.listLayouts(context, input));
+  .handler(({ context, input }) => runService(service.listLayouts(context, input)));
 
 const sync = pub
   .input(service.syncLayoutsInput)
-  .handler(({ context, input }) => service.syncLayouts(context, input));
+  .handler(({ context, input }) => runService(service.syncLayouts(context, input)));
 
 // Protected procedures
 
 const publish = authed
   .input(service.publishLayoutInput)
-  .handler(({ context, input }) => service.publishLayout(context, input));
+  .handler(({ context, input }) => runService(service.publishLayout(context, input)));
 
 const unpublish = authed
   .input(service.unpublishLayoutInput)
-  .handler(({ context, input }) => service.unpublishLayout(context, input));
+  .handler(({ context, input }) => runService(service.unpublishLayout(context, input)));
 
 export const layoutProcedures = {
   get,
@@ -34,5 +35,5 @@ export const layoutProcedures = {
   unpublish,
   referenceTargets: authed
     .input(referenceTargetsInput)
-    .handler(({ context, input }) => referenceTargets(context, input, "layout")),
+    .handler(({ context, input }) => runService(referenceTargets(context, input, "layout"))),
 };

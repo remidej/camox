@@ -1,5 +1,5 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 
 import {
@@ -7,7 +7,9 @@ import {
   getLayoutInput,
   listLayouts,
 } from "../../../../apps/api/src/domains/layouts/service";
+import { NotFoundError } from "../../../../apps/api/src/lib/errors";
 import { resolveEnvironment } from "../../../../apps/api/src/lib/resolve-environment";
+import { runService } from "../../../../apps/api/src/lib/run-service";
 import { layouts, projects } from "../../../../apps/api/src/schema";
 import type { ToolDefinition, ToolProvider } from "../types";
 
@@ -25,7 +27,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Call getLayout with a layout's numeric id to discover its block instance ids, types, placement, and content.",
     inputSchema: listLayoutsToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
-    handler: () => listLayouts(ctx, { projectId: ctx.projectId }),
+    handler: async () => runService(listLayouts(ctx, { projectId: ctx.projectId })),
   },
   {
     name: "getLayout",
@@ -38,22 +40,28 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const { id, source } = getLayoutToolInput.parse(input);
-      const environment = await resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
-      // Translate the tool's scoped row id to the SDK service's code identifier.
-      const target = await ctx.db
-        .select({ projectSlug: projects.slug, layoutId: layouts.layoutId })
-        .from(layouts)
-        .innerJoin(projects, eq(layouts.projectId, projects.id))
-        .where(
-          and(
-            eq(layouts.id, id),
-            eq(layouts.projectId, ctx.projectId),
-            eq(layouts.environmentId, environment.id),
-          ),
-        )
-        .get();
-      if (!target) throw new ORPCError("NOT_FOUND");
-      return getLayout(ctx, { ...target, source });
+      return runService(
+        Effect.gen(function* () {
+          const environment = yield* resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
+          // Translate the tool's scoped row id to the SDK service's code identifier.
+          const target = yield* Effect.promise(() =>
+            ctx.db
+              .select({ projectSlug: projects.slug, layoutId: layouts.layoutId })
+              .from(layouts)
+              .innerJoin(projects, eq(layouts.projectId, projects.id))
+              .where(
+                and(
+                  eq(layouts.id, id),
+                  eq(layouts.projectId, ctx.projectId),
+                  eq(layouts.environmentId, environment.id),
+                ),
+              )
+              .get(),
+          );
+          if (!target) return yield* new NotFoundError();
+          return yield* getLayout(ctx, { ...target, source });
+        }),
+      );
     },
   },
 ];

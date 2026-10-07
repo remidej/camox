@@ -5,12 +5,13 @@ import {
   type CommentTarget,
 } from "@camox/api-contract";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertPageAccess } from "../../authorization";
+import { assertPageAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { stableStringify } from "../../lib/stable-stringify";
 import {
   blockDefinitions,
@@ -33,18 +34,15 @@ export const setCommentResolvedInput = listCommentsInput.extend({
   resolved: z.boolean(),
 });
 
-async function authorize(ctx: ServiceContext, pageId: number) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  const access = await assertPageAccess(ctx.db, pageId, ctx.user.id);
-  if (!access) throw new ORPCError("NOT_FOUND");
-  const environment = await ctx.db
-    .select()
-    .from(environments)
-    .where(eq(environments.id, access.page.environmentId))
-    .get();
-  if (environment?.name !== ctx.environmentName) throw new ORPCError("NOT_FOUND");
+const authorize = Effect.fn("authorize")(function* (ctx: ServiceContext, pageId: number) {
+  const currentUser = yield* requireUser(ctx);
+  const access = yield* assertPageAccess(ctx.db, pageId, currentUser.id);
+  const environment = yield* Effect.promise(() =>
+    ctx.db.select().from(environments).where(eq(environments.id, access.page.environmentId)).get(),
+  );
+  if (environment?.name !== ctx.environmentName) return yield* new NotFoundError();
   return access;
-}
+});
 
 function selectComments(ctx: ServiceContext) {
   return ctx.db
@@ -64,40 +62,44 @@ function selectComments(ctx: ServiceContext) {
     .innerJoin(user, eq(comments.authorId, user.id));
 }
 
-export async function listComments(
+export const listComments = Effect.fn("comments.listComments")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listCommentsInput>,
 ) {
-  const { pageId } = listCommentsInput.parse(rawInput);
-  const { page } = await authorize(ctx, pageId);
-  const rows = await selectComments(ctx)
-    .where(eq(comments.pageId, pageId))
-    .orderBy(asc(comments.createdAt), asc(comments.id));
-  const targets = await loadTargets(ctx, page);
-  return rows.map((row) => serializeComment(targets, row));
-}
+  const { pageId } = yield* decodeInput(listCommentsInput, rawInput);
+  const { page } = yield* authorize(ctx, pageId);
+  const rows = yield* Effect.promise(() =>
+    selectComments(ctx)
+      .where(eq(comments.pageId, pageId))
+      .orderBy(asc(comments.createdAt), asc(comments.id)),
+  );
+  const targets = yield* loadTargets(ctx, page);
+  return yield* Effect.forEach(rows, (row) => serializeComment(targets, row));
+});
 
-export async function setCommentResolved(
+export const setCommentResolved = Effect.fn("comments.setCommentResolved")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setCommentResolvedInput>,
 ) {
-  const { pageId, id, resolved } = setCommentResolvedInput.parse(rawInput);
-  const access = await authorize(ctx, pageId);
+  const { pageId, id, resolved } = yield* decodeInput(setCommentResolvedInput, rawInput);
+  const access = yield* authorize(ctx, pageId);
   const scope = and(eq(comments.id, id), eq(comments.pageId, pageId));
-  const updated = await ctx.db.update(comments).set({ resolved }).where(scope).returning().get();
-  if (!updated) throw new ORPCError("NOT_FOUND");
+  const updated = yield* Effect.promise(() =>
+    ctx.db.update(comments).set({ resolved }).where(scope).returning().get(),
+  );
+  if (!updated) return yield* new NotFoundError();
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [queryKeys.comments.list(pageId)],
   });
-  const result = await selectComments(ctx).where(scope).get();
-  if (!result) throw new ORPCError("NOT_FOUND");
-  return serializeComment(await loadTargets(ctx, access.page), result);
-}
+  const result = yield* Effect.promise(() => selectComments(ctx).where(scope).get());
+  if (!result) return yield* new NotFoundError();
+  return yield* serializeComment(yield* loadTargets(ctx, access.page), result);
+});
 
-function serializeComment(
+const serializeComment = Effect.fn("serializeComment")(function* (
   targets: TargetLookups,
   row: Awaited<ReturnType<typeof selectComments>>[number],
 ) {
@@ -108,23 +110,22 @@ function serializeComment(
   )
     target = null;
   if (target) {
-    try {
-      validateTarget(targets, target);
-    } catch (error) {
-      if (!(error instanceof ORPCError) || error.code !== "BAD_REQUEST") throw error;
-      target = null;
-    }
+    const validTarget = target;
+    target = yield* validateTarget(targets, validTarget).pipe(
+      Effect.as(validTarget),
+      Effect.catchTag("InvalidInputError", () => Effect.succeed(null)),
+    );
   }
   return commentSchema.parse({ ...row, target });
-}
+});
 
 type FieldSchema = { properties?: Record<string, FieldSchema>; items?: FieldSchema };
 
 // Load the whole page/layout scope, including unreferenced ancestor items. Using a
 // subquery keeps both query count and bind parameters independent of feedback count.
-async function loadTargets(
+const loadTargets = Effect.fn("loadTargets")(function* (
   ctx: ServiceContext,
-  page: Awaited<ReturnType<typeof authorize>>["page"],
+  page: Effect.Success<ReturnType<typeof authorize>>["page"],
 ) {
   const scope = or(
     eq(blocks.pageId, page.id),
@@ -132,35 +133,45 @@ async function loadTargets(
       ? undefined
       : and(isNull(blocks.pageId), eq(blocks.layoutId, page.layoutId)),
   );
-  const pageBlocks = await ctx.db.select().from(blocks).where(scope);
-  const items = await ctx.db
-    .select()
-    .from(repeatableItems)
-    .where(
-      inArray(repeatableItems.blockId, ctx.db.select({ id: blocks.id }).from(blocks).where(scope)),
-    );
-  const definitions = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(eq(blockDefinitions.environmentId, page.environmentId));
+  const pageBlocks = yield* Effect.promise(() => ctx.db.select().from(blocks).where(scope));
+  const items = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(repeatableItems)
+      .where(
+        inArray(
+          repeatableItems.blockId,
+          ctx.db.select({ id: blocks.id }).from(blocks).where(scope),
+        ),
+      ),
+  );
+  const definitions = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(eq(blockDefinitions.environmentId, page.environmentId)),
+  );
   return {
     blocks: new Map(pageBlocks.map((block) => [block.id, block])),
     items: new Map(items.map((item) => [item.id, item])),
     definitions: new Map(definitions.map((definition) => [definition.blockId, definition])),
   };
-}
+});
 
-type TargetLookups = Awaited<ReturnType<typeof loadTargets>>;
+type TargetLookups = Effect.Success<ReturnType<typeof loadTargets>>;
 
-function validateTarget(targets: TargetLookups, target: CommentTarget) {
+const validateTarget = Effect.fn("validateTarget")(function* (
+  targets: TargetLookups,
+  target: CommentTarget,
+) {
   if (target.kind === "page") return;
   const block = targets.blocks.get(target.blockId);
   if (!block) {
-    throw new ORPCError("BAD_REQUEST", { message: "Block does not belong to this page" });
+    return yield* new InvalidInputError({ message: "Block does not belong to this page" });
   }
   const item = "itemId" in target ? targets.items.get(target.itemId) : undefined;
   if ("itemId" in target && (!item || item.blockId !== block.id)) {
-    throw new ORPCError("BAD_REQUEST", { message: "Item does not belong to this block" });
+    return yield* new InvalidInputError({ message: "Item does not belong to this block" });
   }
   if (!("fieldName" in target)) return;
   const definition = targets.definitions.get(block.type);
@@ -170,51 +181,57 @@ function validateTarget(targets: TargetLookups, target: CommentTarget) {
   const seen = new Set<number>();
   while (ancestor) {
     if (seen.has(ancestor.id) || ancestor.blockId !== block.id) {
-      throw new ORPCError("BAD_REQUEST", { message: "Invalid item ancestry" });
+      return yield* new InvalidInputError({ message: "Invalid item ancestry" });
     }
     seen.add(ancestor.id);
     path.unshift(ancestor.fieldName);
     if (ancestor.parentItemId === null) break;
     ancestor = targets.items.get(ancestor.parentItemId);
-    if (!ancestor) throw new ORPCError("BAD_REQUEST", { message: "Invalid item ancestry" });
+    if (!ancestor) return yield* new InvalidInputError({ message: "Invalid item ancestry" });
   }
   for (const field of path) schema = schema?.properties?.[field]?.items;
   if (!schema?.properties || !Object.hasOwn(schema.properties, target.fieldName)) {
-    throw new ORPCError("BAD_REQUEST", { message: "Field does not exist on this object" });
+    return yield* new InvalidInputError({ message: "Field does not exist on this object" });
   }
-}
+});
 
-export async function createComment(
+export const createComment = Effect.fn("comments.createComment")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createCommentInput>,
 ) {
-  const input = createCommentInput.parse(rawInput);
-  const access = await authorize(ctx, input.pageId);
-  const existing = await ctx.db.select().from(comments).where(eq(comments.id, input.id)).get();
+  const input = yield* decodeInput(createCommentInput, rawInput);
+  const access = yield* authorize(ctx, input.pageId);
+  const existing = yield* Effect.promise(() =>
+    ctx.db.select().from(comments).where(eq(comments.id, input.id)).get(),
+  );
   let targets: TargetLookups | undefined;
   if (!existing) {
-    targets = await loadTargets(ctx, access.page);
-    validateTarget(targets, input.target);
+    targets = yield* loadTargets(ctx, access.page);
+    yield* validateTarget(targets, input.target);
   }
   const inserted = existing
     ? undefined
-    : await ctx.db
-        .insert(comments)
-        .values({
-          ...input,
-          environmentId: access.page.environmentId,
-          blockId: "blockId" in input.target ? input.target.blockId : null,
-          itemId: "itemId" in input.target ? input.target.itemId : null,
-          authorId: ctx.user!.id,
-          createdAt: Date.now(),
-        })
-        .onConflictDoNothing({ target: comments.id })
-        .returning()
-        .get();
+    : yield* Effect.promise(() =>
+        ctx.db
+          .insert(comments)
+          .values({
+            ...input,
+            environmentId: access.page.environmentId,
+            blockId: "blockId" in input.target ? input.target.blockId : null,
+            itemId: "itemId" in input.target ? input.target.itemId : null,
+            authorId: ctx.user!.id,
+            createdAt: Date.now(),
+          })
+          .onConflictDoNothing({ target: comments.id })
+          .returning()
+          .get(),
+      );
   const row =
     existing ??
     inserted ??
-    (await ctx.db.select().from(comments).where(eq(comments.id, input.id)).get());
+    (yield* Effect.promise(() =>
+      ctx.db.select().from(comments).where(eq(comments.id, input.id)).get(),
+    ));
   if (
     !row ||
     row.authorId !== ctx.user!.id ||
@@ -222,7 +239,9 @@ export async function createComment(
     row.message !== input.message ||
     stableStringify(row.target) !== stableStringify(input.target)
   ) {
-    throw new ORPCError("CONFLICT", { message: "Comment ID already used for a different request" });
+    return yield* new ConflictError({
+      message: "Comment ID already used for a different request",
+    });
   }
   if (inserted) {
     broadcastInvalidation({
@@ -232,8 +251,10 @@ export async function createComment(
       targets: [queryKeys.comments.list(input.pageId)],
     });
   }
-  const result = await selectComments(ctx).where(eq(comments.id, input.id)).get();
-  if (!result) throw new ORPCError("INTERNAL_SERVER_ERROR");
-  targets ??= await loadTargets(ctx, access.page);
-  return serializeComment(targets, result);
-}
+  const result = yield* Effect.promise(() =>
+    selectComments(ctx).where(eq(comments.id, input.id)).get(),
+  );
+  if (!result) return yield* Effect.die(new Error(`Comment ${input.id} vanished after insert`));
+  targets ??= yield* loadTargets(ctx, access.page);
+  return yield* serializeComment(targets, result);
+});

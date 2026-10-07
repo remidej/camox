@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { collection as articles } from "../../../../playground/src/collections/articles";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { markdownToLexicalState, plainTextToLexicalState } from "../../lib/lexical-state";
+import { runService } from "../../lib/run-service";
 import { environments, files, layouts } from "../../schema";
 import { checkCompatibility, replicateEnvironment } from "../environments/service";
 import { deleteFile, deleteFiles } from "../files/service";
@@ -55,12 +56,14 @@ async function fixture(suffix: string) {
   const publicCtx = createServiceContext(base.db, null);
   const scope = { projectSlug: base.project.slug, collectionId: "articles" };
   const sync = (definitions = [definition]) =>
-    syncCollectionDefinitions(publicCtx, {
-      projectSlug: base.project.slug,
-      deployToken: "test-deploy-token",
-      autoCreate: false,
-      definitions,
-    });
+    runService(
+      syncCollectionDefinitions(publicCtx, {
+        projectSlug: base.project.slug,
+        deployToken: "test-deploy-token",
+        autoCreate: false,
+        definitions,
+      }),
+    );
   await sync();
   return { ...base, ctx, publicCtx, scope, sync };
 }
@@ -79,42 +82,46 @@ function withAddedFields(properties: typeof definition.contentSchema.properties)
 describe("additive collection schema sync", () => {
   it("adds a logo to an edited published draft without changing live or historical content", async () => {
     const f = await fixture("sync-logo");
-    const created = await createRecord(f.ctx, { ...f.scope, content: article });
+    const created = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const read = { ...f.scope, id: created.id };
-    const published = await publishRecord(f.ctx, {
-      ...read,
-      expectedVersion: created.version,
-    });
+    const published = await runService(
+      publishRecord(f.ctx, {
+        ...read,
+        expectedVersion: created.version,
+      }),
+    );
     const draft = {
       ...article,
       title: "Private title",
       body: plainTextToLexicalState("Private body"),
     };
-    const edited = await editRecord(f.ctx, {
-      ...read,
-      expectedVersion: published.record.version,
-      content: draft,
-    });
+    const edited = await runService(
+      editRecord(f.ctx, {
+        ...read,
+        expectedVersion: published.record.version,
+        content: draft,
+      }),
+    );
     const revisionsBefore = await f.db
       .select()
       .from(collectionRevisions)
       .where(eq(collectionRevisions.recordId, created.id));
-    const liveBefore = await readRecord(f.publicCtx, read);
+    const liveBefore = await runService(readRecord(f.publicCtx, read));
     const expanded = withAddedFields({
       logo: { type: "object", fieldType: "Image", default: article.cover },
     });
     await f.sync([expanded]);
-    const backfilled = await getCollectionRecord(f.ctx, read);
+    const backfilled = await runService(getCollectionRecord(f.ctx, read));
     expect(backfilled).toEqual({
       ...edited,
       draft: { ...draft, logo: null },
       version: edited.version + 1,
       updatedAt: backfilled.updatedAt,
     });
-    expect(await getCollectionDefinition(f.ctx, f.scope)).toMatchObject({
+    expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toMatchObject({
       contentSchema: expanded.contentSchema,
     });
-    expect(await readRecord(f.publicCtx, read)).toEqual(liveBefore);
+    expect(await runService(readRecord(f.publicCtx, read))).toEqual(liveBefore);
     expect(
       await f.db
         .select()
@@ -122,27 +129,35 @@ describe("additive collection schema sync", () => {
         .where(eq(collectionRevisions.recordId, created.id)),
     ).toEqual(revisionsBefore);
     await f.sync([expanded]);
-    expect(await getCollectionRecord(f.ctx, read)).toEqual(backfilled);
+    expect(await runService(getCollectionRecord(f.ctx, read))).toEqual(backfilled);
     await expect(
+      runService(
+        editRecord(f.ctx, {
+          ...read,
+          expectedVersion: edited.version,
+          content: { ...draft, logo: article.cover },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const linked = await runService(
       editRecord(f.ctx, {
         ...read,
-        expectedVersion: edited.version,
+        expectedVersion: backfilled.version,
         content: { ...draft, logo: article.cover },
       }),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-    const linked = await editRecord(f.ctx, {
-      ...read,
-      expectedVersion: backfilled.version,
-      content: { ...draft, logo: article.cover },
-    });
-    const republished = await publishRecord(f.ctx, {
-      ...read,
-      expectedVersion: linked.version,
-    });
+    );
+    const republished = await runService(
+      publishRecord(f.ctx, {
+        ...read,
+        expectedVersion: linked.version,
+      }),
+    );
     expect(republished.revision.content).toEqual({ ...draft, logo: article.cover });
-    expect(await readRecord(f.publicCtx, read)).toEqual(republished.revision);
+    expect(await runService(readRecord(f.publicCtx, read))).toEqual(republished.revision);
     expect(
-      await readRecord(f.ctx, { ...read, source: { revisionId: published.revision.id } }),
+      await runService(
+        readRecord(f.ctx, { ...read, source: { revisionId: published.revision.id } }),
+      ),
     ).toEqual(published.revision);
   });
 
@@ -150,7 +165,7 @@ describe("additive collection schema sync", () => {
     const f = await fixture("sync-defaults");
     const records = await Promise.all(
       ["First", "Second"].map((title) =>
-        createRecord(f.ctx, { ...f.scope, content: { ...article, title } }),
+        runService(createRecord(f.ctx, { ...f.scope, content: { ...article, title } })),
       ),
     );
     const expanded = withAddedFields({
@@ -199,17 +214,19 @@ describe("additive collection schema sync", () => {
     await f.sync([expanded]);
     for (const record of records) {
       const read = { ...f.scope, id: record.id };
-      const backfilled = await getCollectionRecord(f.ctx, read);
+      const backfilled = await runService(getCollectionRecord(f.ctx, read));
       expect(backfilled.draft).toEqual({ ...record.draft, ...defaults });
       expect(backfilled.version).toBe(record.version + 1);
-      await publishRecord(f.ctx, { ...read, expectedVersion: backfilled.version });
+      await runService(publishRecord(f.ctx, { ...read, expectedVersion: backfilled.version }));
     }
     const beforeRepeat = await Promise.all(
-      records.map(({ id }) => getCollectionRecord(f.ctx, { ...f.scope, id })),
+      records.map(({ id }) => runService(getCollectionRecord(f.ctx, { ...f.scope, id }))),
     );
     await f.sync([expanded]);
     expect(
-      await Promise.all(records.map(({ id }) => getCollectionRecord(f.ctx, { ...f.scope, id }))),
+      await Promise.all(
+        records.map(({ id }) => runService(getCollectionRecord(f.ctx, { ...f.scope, id }))),
+      ),
     ).toEqual(beforeRepeat);
   });
 
@@ -229,13 +246,15 @@ describe("additive collection schema sync", () => {
     "rejects additions without a valid initial value: %j",
     async (field) => {
       const f = await fixture(`sync-invalid-default-${crypto.randomUUID()}`);
-      const record = await createRecord(f.ctx, { ...f.scope, content: article });
-      const before = await getCollectionDefinition(f.ctx, f.scope);
+      const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+      const before = await runService(getCollectionDefinition(f.ctx, f.scope));
       await expect(
         f.sync([withAddedFields({ safe: { type: "string", fieldType: "String" }, unsafe: field })]),
       ).rejects.toMatchObject({ code: "CONFLICT" });
-      expect(await getCollectionDefinition(f.ctx, f.scope)).toEqual(before);
-      expect(await getCollectionRecord(f.ctx, { ...f.scope, id: record.id })).toEqual(record);
+      expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toEqual(before);
+      expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: record.id }))).toEqual(
+        record,
+      );
     },
   );
 
@@ -243,31 +262,41 @@ describe("additive collection schema sync", () => {
     "%s fills new fields from a pre-addition revision without rewriting history or live publication",
     async (operation) => {
       const f = await fixture(`sync-${operation}`);
-      const created = await createRecord(f.ctx, { ...f.scope, content: article });
+      const created = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
       const read = { ...f.scope, id: created.id };
-      const published = await publishRecord(f.ctx, { ...read, expectedVersion: created.version });
+      const published = await runService(
+        publishRecord(f.ctx, { ...read, expectedVersion: created.version }),
+      );
       await f.sync([
         withAddedFields({
           logo: { type: "object", fieldType: "Image", default: article.cover },
           subtitle: { type: "string", fieldType: "String", default: "Initial subtitle" },
         }),
       ]);
-      const backfilled = await getCollectionRecord(f.ctx, read);
-      const edited = await editRecord(f.ctx, {
-        ...read,
-        expectedVersion: backfilled.version,
-        content: { ...article, title: "Private edit", logo: article.cover, subtitle: "Edited" },
-      });
+      const backfilled = await runService(getCollectionRecord(f.ctx, read));
+      const edited = await runService(
+        editRecord(f.ctx, {
+          ...read,
+          expectedVersion: backfilled.version,
+          content: { ...article, title: "Private edit", logo: article.cover, subtitle: "Edited" },
+        }),
+      );
       const input = { ...read, expectedVersion: edited.version };
       const restored =
         operation === "restore"
-          ? (await restoreRecord(f.ctx, { ...input, revisionId: published.revision.id })).record
-          : await discardRecord(f.ctx, input);
+          ? (
+              await runService(
+                restoreRecord(f.ctx, { ...input, revisionId: published.revision.id }),
+              )
+            ).record
+          : await runService(discardRecord(f.ctx, input));
       expect(restored.draft).toEqual({ ...article, logo: null, subtitle: "Initial subtitle" });
       expect(restored.version).toBe(edited.version + 1);
-      expect(await readRecord(f.publicCtx, read)).toEqual(published.revision);
+      expect(await runService(readRecord(f.publicCtx, read))).toEqual(published.revision);
       expect(
-        await readRecord(f.ctx, { ...read, source: { revisionId: published.revision.id } }),
+        await runService(
+          readRecord(f.ctx, { ...read, source: { revisionId: published.revision.id } }),
+        ),
       ).toEqual(published.revision);
       expect(
         await f.db
@@ -285,9 +314,9 @@ describe("additive collection schema sync", () => {
       const f = await fixture(`sync-rollback-${operation}`);
       const other = { ...definition, collectionId: "other", title: "Other" };
       await f.sync([definition, other]);
-      const first = await createRecord(f.ctx, { ...f.scope, content: article });
+      const first = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
       const otherScope = { ...f.scope, collectionId: other.collectionId };
-      const second = await createRecord(f.ctx, { ...otherScope, content: article });
+      const second = await runService(createRecord(f.ctx, { ...otherScope, content: article }));
       const properties = { ...other.contentSchema.properties };
       if (operation === "remove") delete properties.excerpt;
       if (operation === "change")
@@ -317,8 +346,12 @@ describe("additive collection schema sync", () => {
           .from(collectionDefinitions)
           .where(eq(collectionDefinitions.projectId, f.project.id)),
       ).toEqual(definitionsBefore);
-      expect(await getCollectionRecord(f.ctx, { ...f.scope, id: first.id })).toEqual(first);
-      expect(await getCollectionRecord(f.ctx, { ...otherScope, id: second.id })).toEqual(second);
+      expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: first.id }))).toEqual(
+        first,
+      );
+      expect(
+        await runService(getCollectionRecord(f.ctx, { ...otherScope, id: second.id })),
+      ).toEqual(second);
       await expect(
         f.db
           .update(collectionDefinitions)
@@ -332,70 +365,86 @@ describe("additive collection schema sync", () => {
 describe("authenticated collection browsing", () => {
   it("stores empty and unlinked assets as null without materializing preview defaults", async () => {
     const f = await fixture("empty-assets");
-    const created = await createRecord(f.ctx, { ...f.scope, content: { ...article, cover: null } });
+    const created = await runService(
+      createRecord(f.ctx, { ...f.scope, content: { ...article, cover: null } }),
+    );
     expect(created.draft.cover).toBeNull();
     expect(
-      (await getCollectionRecord(f.ctx, { ...f.scope, id: created.id })).draft.cover,
+      (await runService(getCollectionRecord(f.ctx, { ...f.scope, id: created.id }))).draft.cover,
     ).toBeNull();
-    const linked = await editRecord(f.ctx, {
-      ...f.scope,
-      id: created.id,
-      expectedVersion: created.version,
-      content: article,
-    });
-    const unlinked = await editRecord(f.ctx, {
-      ...f.scope,
-      id: created.id,
-      expectedVersion: linked.version,
-      content: { ...article, cover: null },
-    });
+    const linked = await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: created.id,
+        expectedVersion: created.version,
+        content: article,
+      }),
+    );
+    const unlinked = await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: created.id,
+        expectedVersion: linked.version,
+        content: { ...article, cover: null },
+      }),
+    );
     expect(unlinked.draft.cover).toBeNull();
-    const published = await publishRecord(f.ctx, {
-      ...f.scope,
-      id: created.id,
-      expectedVersion: unlinked.version,
-    });
+    const published = await runService(
+      publishRecord(f.ctx, {
+        ...f.scope,
+        id: created.id,
+        expectedVersion: unlinked.version,
+      }),
+    );
     expect(published.revision.content.cover).toBeNull();
   });
   it("loads editable drafts within their authorized collection and rejects stale saves", async () => {
     const f = await fixture("authoring");
-    const created = await createRecord(f.ctx, { ...f.scope, content: article });
+    const created = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = { ...f.scope, id: created.id };
-    expect(await getCollectionRecord(f.ctx, input)).toEqual(created);
-    await expect(getCollectionRecord(f.publicCtx, input)).rejects.toMatchObject({
+    expect(await runService(getCollectionRecord(f.ctx, input))).toEqual(created);
+    await expect(runService(getCollectionRecord(f.publicCtx, input))).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
     await expect(
-      getCollectionRecord(createServiceContext(f.db, f.outsiderUser), input),
+      runService(getCollectionRecord(createServiceContext(f.db, f.outsiderUser), input)),
     ).rejects.toThrow();
     await expect(
-      getCollectionRecord(f.ctx, { ...input, collectionId: "other" }),
+      runService(getCollectionRecord(f.ctx, { ...input, collectionId: "other" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      getCollectionRecord(f.ctx, { ...input, id: crypto.randomUUID() }),
+      runService(getCollectionRecord(f.ctx, { ...input, id: crypto.randomUUID() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    const edited = await editRecord(f.ctx, {
-      ...input,
-      expectedVersion: created.version,
-      content: { ...article, title: "Updated title" },
-    });
+    const edited = await runService(
+      editRecord(f.ctx, {
+        ...input,
+        expectedVersion: created.version,
+        content: { ...article, title: "Updated title" },
+      }),
+    );
     expect(edited.version).toBe(created.version + 1);
-    expect((await getCollectionRecord(f.ctx, input)).draft.title).toBe("Updated title");
-    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+    expect((await runService(getCollectionRecord(f.ctx, input))).draft.title).toBe("Updated title");
+    expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
       { id: created.id, version: edited.version, label: "Updated title", status: "draft" },
     ]);
     await expect(
-      editRecord(f.ctx, { ...input, expectedVersion: created.version, content: article }),
+      runService(
+        editRecord(f.ctx, { ...input, expectedVersion: created.version, content: article }),
+      ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(createRecord(f.ctx, { ...f.scope, content: {} })).rejects.toMatchObject({
+    await expect(
+      runService(createRecord(f.ctx, { ...f.scope, content: {} })),
+    ).rejects.toMatchObject({
       code: "BAD_REQUEST",
     });
     await f.sync([]);
-    await expect(getCollectionRecord(f.ctx, input)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runService(getCollectionRecord(f.ctx, input))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
   it("returns the active definition's stored TypeBox schema and metadata only in its environment", async () => {
     const f = await fixture("browse-get");
-    expect(await getCollectionDefinition(f.ctx, f.scope)).toEqual({
+    expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toEqual({
       collectionId: definition.collectionId,
       title: definition.title,
       description: definition.description,
@@ -404,41 +453,47 @@ describe("authenticated collection browsing", () => {
     });
 
     const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
-    await syncCollectionDefinitions(devCtx, {
-      projectSlug: f.project.slug,
-      autoCreate: true,
-      definitions: [],
-    });
-    await expect(getCollectionDefinition(devCtx, f.scope)).rejects.toMatchObject({
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: true,
+        definitions: [],
+      }),
+    );
+    await expect(runService(getCollectionDefinition(devCtx, f.scope))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    await syncCollectionDefinitions(devCtx, {
-      projectSlug: f.project.slug,
-      autoCreate: false,
-      definitions: [{ ...definition, title: "Development articles" }],
-    });
-    expect(await getCollectionDefinition(devCtx, f.scope)).toMatchObject({
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: false,
+        definitions: [{ ...definition, title: "Development articles" }],
+      }),
+    );
+    expect(await runService(getCollectionDefinition(devCtx, f.scope))).toMatchObject({
       title: "Development articles",
       contentSchema: definition.contentSchema,
     });
-    expect(await getCollectionDefinition(f.ctx, f.scope)).toMatchObject({
+    expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toMatchObject({
       title: definition.title,
     });
-    await syncCollectionDefinitions(devCtx, {
-      projectSlug: f.project.slug,
-      autoCreate: false,
-      definitions: [],
-    });
-    await expect(getCollectionDefinition(devCtx, f.scope)).rejects.toMatchObject({
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: false,
+        definitions: [],
+      }),
+    );
+    await expect(runService(getCollectionDefinition(devCtx, f.scope))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     await expect(
-      getCollectionDefinition({ ...f.ctx, environmentName: "missing" }, f.scope),
+      runService(getCollectionDefinition({ ...f.ctx, environmentName: "missing" }, f.scope)),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      getCollectionDefinition(f.ctx, { ...f.scope, collectionId: "missing" }),
+      runService(getCollectionDefinition(f.ctx, { ...f.scope, collectionId: "missing" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(await getCollectionDefinition(f.ctx, f.scope)).toMatchObject({
+    expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toMatchObject({
       title: definition.title,
     });
   });
@@ -454,23 +509,27 @@ describe("authenticated collection browsing", () => {
       description,
       label,
     });
-    expect(await listCollectionDefinitions(f.ctx, input)).toEqual([
+    expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([
       metadata(newer),
       metadata(definition),
     ]);
     const other = await fixture("browse-other");
-    expect(await listCollectionDefinitions(other.ctx, { projectSlug: other.project.slug })).toEqual(
-      [metadata(definition)],
-    );
+    expect(
+      await runService(listCollectionDefinitions(other.ctx, { projectSlug: other.project.slug })),
+    ).toEqual([metadata(definition)]);
     const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
-    await syncCollectionDefinitions(devCtx, { ...input, autoCreate: true, definitions: [] });
-    expect(await listCollectionDefinitions(devCtx, input)).toEqual([]);
+    await runService(
+      syncCollectionDefinitions(devCtx, { ...input, autoCreate: true, definitions: [] }),
+    );
+    expect(await runService(listCollectionDefinitions(devCtx, input))).toEqual([]);
     await f.sync([definition]);
-    expect(await listCollectionDefinitions(f.ctx, input)).toEqual([metadata(definition)]);
+    expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([
+      metadata(definition),
+    ]);
     await f.sync([]);
-    expect(await listCollectionDefinitions(f.ctx, input)).toEqual([]);
+    expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([]);
     await expect(
-      listCollectionDefinitions({ ...f.ctx, environmentName: "missing" }, input),
+      runService(listCollectionDefinitions({ ...f.ctx, environmentName: "missing" }, input)),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
@@ -479,54 +538,64 @@ describe("authenticated collection browsing", () => {
     for (const ctx of [f.publicCtx, createServiceContext(f.db, f.outsiderUser)]) {
       const code = ctx.user ? "FORBIDDEN" : "UNAUTHORIZED";
       await expect(
-        listCollectionDefinitions(ctx, { projectSlug: f.project.slug }),
+        runService(listCollectionDefinitions(ctx, { projectSlug: f.project.slug })),
       ).rejects.toMatchObject({ code });
-      await expect(getCollectionDefinition(ctx, f.scope)).rejects.toMatchObject({ code });
-      await expect(listCollectionRecords(ctx, f.scope)).rejects.toMatchObject({ code });
+      await expect(runService(getCollectionDefinition(ctx, f.scope))).rejects.toMatchObject({
+        code,
+      });
+      await expect(runService(listCollectionRecords(ctx, f.scope))).rejects.toMatchObject({ code });
     }
     await expect(
-      listCollectionDefinitions(f.ctx, { projectSlug: "missing" }),
+      runService(listCollectionDefinitions(f.ctx, { projectSlug: "missing" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      listCollectionRecords(f.ctx, { ...f.scope, collectionId: "missing" }),
+      runService(listCollectionRecords(f.ctx, { ...f.scope, collectionId: "missing" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("returns real current drafts and plain text labels, isolated by collection and environment", async () => {
     const f = await fixture("browse-records");
-    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([]);
-    let record = await createRecord(f.ctx, { ...f.scope, content: article });
+    expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([]);
+    let record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     record = (
-      await publishRecord(f.ctx, { ...f.scope, id: record.id, expectedVersion: record.version })
+      await runService(
+        publishRecord(f.ctx, { ...f.scope, id: record.id, expectedVersion: record.version }),
+      )
     ).record;
     const content = { ...article, title: plainTextToLexicalState("Private draft") };
-    await editRecord(f.ctx, {
-      ...f.scope,
-      id: record.id,
-      expectedVersion: record.version,
-      content,
-    });
-    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: record.id,
+        expectedVersion: record.version,
+        content,
+      }),
+    );
+    expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
       { id: record.id, version: record.version + 1, label: "Private draft", status: "modified" },
     ]);
-    const unpublished = await createRecord(f.ctx, { ...f.scope, content: article });
-    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+    const unpublished = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
       { id: unpublished.id, version: unpublished.version, label: "Hello", status: "draft" },
       { id: record.id, version: record.version + 1, label: "Private draft", status: "modified" },
     ]);
     await f.sync([definition, { ...definition, collectionId: "other" }]);
-    expect(await listCollectionRecords(f.ctx, { ...f.scope, collectionId: "other" })).toEqual([]);
+    expect(
+      await runService(listCollectionRecords(f.ctx, { ...f.scope, collectionId: "other" })),
+    ).toEqual([]);
     const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
-    await syncCollectionDefinitions(devCtx, {
-      projectSlug: f.project.slug,
-      autoCreate: true,
-      definitions: [definition],
-    });
-    expect(await listCollectionRecords(devCtx, f.scope)).toEqual([]);
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: true,
+        definitions: [definition],
+      }),
+    );
+    expect(await runService(listCollectionRecords(devCtx, f.scope))).toEqual([]);
     const other = await fixture("browse-records-other");
-    expect(await listCollectionRecords(other.ctx, other.scope)).toEqual([]);
+    expect(await runService(listCollectionRecords(other.ctx, other.scope))).toEqual([]);
     await f.sync([]);
-    await expect(listCollectionRecords(f.ctx, f.scope)).rejects.toMatchObject({
+    await expect(runService(listCollectionRecords(f.ctx, f.scope))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });
@@ -552,47 +621,66 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       })
       .returning()
       .get();
-    const created = await createRecord(f.ctx, {
-      ...f.scope,
-      content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
-    });
-    const published = await publishRecord(f.ctx, {
-      ...f.scope,
-      id: created.id,
-      expectedVersion: created.version,
-    });
+    const created = await runService(
+      createRecord(f.ctx, {
+        ...f.scope,
+        content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
+      }),
+    );
+    const published = await runService(
+      publishRecord(f.ctx, {
+        ...f.scope,
+        id: created.id,
+        expectedVersion: created.version,
+      }),
+    );
     const input = { ...f.scope, id: created.id, expectedVersion: published.record.version };
-    await expect(deleteRecord(f.publicCtx, input)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    await expect(deleteRecord(createServiceContext(f.db, f.outsiderUser), input)).rejects.toThrow();
+    await expect(runService(deleteRecord(f.publicCtx, input))).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(
+      runService(deleteRecord(createServiceContext(f.db, f.outsiderUser), input)),
+    ).rejects.toThrow();
     await f.sync([definition, { ...definition, collectionId: "other" }]);
-    await expect(deleteRecord(f.ctx, { ...input, collectionId: "other" })).rejects.toMatchObject({
+    await expect(
+      runService(deleteRecord(f.ctx, { ...input, collectionId: "other" })),
+    ).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     await expect(
-      deleteRecord(f.ctx, { ...input, expectedVersion: created.version }),
+      runService(deleteRecord(f.ctx, { ...input, expectedVersion: created.version })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(
-      (await getCollectionRecord(f.ctx, { ...f.scope, id: created.id })).publishedRevisionId,
+      (await runService(getCollectionRecord(f.ctx, { ...f.scope, id: created.id })))
+        .publishedRevisionId,
     ).toBe(published.revision.id);
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: created.id })).not.toBeNull();
-    const other = await createRecord(f.ctx, { ...f.scope, content: article });
-    await deleteRecord(f.ctx, input);
-    await expect(getCollectionRecord(f.ctx, { ...f.scope, id: created.id })).rejects.toMatchObject({
+    expect(
+      await runService(readRecord(f.publicCtx, { ...f.scope, id: created.id })),
+    ).not.toBeNull();
+    const other = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
+    await runService(deleteRecord(f.ctx, input));
+    await expect(
+      runService(getCollectionRecord(f.ctx, { ...f.scope, id: created.id })),
+    ).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: created.id })).toBeNull();
+    expect(await runService(readRecord(f.publicCtx, { ...f.scope, id: created.id }))).toBeNull();
     expect(
       await f.db
         .select()
         .from(collectionRevisions)
         .where(eq(collectionRevisions.recordId, created.id)),
     ).toEqual([]);
-    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([
+    expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
       { id: other.id, version: other.version, label: "Hello", status: "draft" },
     ]);
-    await expect(deleteRecord(f.ctx, input)).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await deleteRecord(f.ctx, { ...f.scope, id: other.id, expectedVersion: other.version });
-    expect(await listCollectionRecords(f.ctx, f.scope)).toEqual([]);
+    await expect(runService(deleteRecord(f.ctx, input))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await runService(
+      deleteRecord(f.ctx, { ...f.scope, id: other.id, expectedVersion: other.version }),
+    );
+    expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([]);
     expect(await f.db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
   });
   it("validates the supported scalar/asset-list fields and rejects unsupported definitions", async () => {
@@ -641,7 +729,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       gallery: [article.cover],
       documents: [pdf],
     };
-    const record = await createRecord(f.ctx, { ...f.scope, content });
+    const record = await runService(createRecord(f.ctx, { ...f.scope, content }));
     expect(record.draft).toEqual(content);
     for (const invalid of [
       { ...content, enabled: "true" },
@@ -651,7 +739,9 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       { ...content, gallery: [pdf] },
       { ...content, documents: [article.cover] },
     ])
-      await expect(createRecord(f.ctx, { ...f.scope, content: invalid })).rejects.toThrow();
+      await expect(
+        runService(createRecord(f.ctx, { ...f.scope, content: invalid })),
+      ).rejects.toThrow();
     for (const fieldType of ["Repeater", "Link", "Icon", "Reference", "ReferenceList"]) {
       const malformed = {
         ...definition,
@@ -670,15 +760,15 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
 
   it("allows only one of two concurrent edits against the same draft version", async () => {
     const f = await fixture("concurrent");
-    const record = await createRecord(f.ctx, { ...f.scope, content: article });
+    const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = { ...f.scope, id: record.id, expectedVersion: record.version };
     const results = await Promise.allSettled([
-      editRecord(f.ctx, { ...input, content: { ...article, title: "One" } }),
-      editRecord(f.ctx, { ...input, content: { ...article, title: "Two" } }),
+      runService(editRecord(f.ctx, { ...input, content: { ...article, title: "One" } })),
+      runService(editRecord(f.ctx, { ...input, content: { ...article, title: "Two" } })),
     ]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: record.id })).toBeNull();
+    expect(await runService(readRecord(f.publicCtx, { ...f.scope, id: record.id }))).toBeNull();
   });
 
   it("preserves existing authored String text and rejects malformed editor states", async () => {
@@ -689,24 +779,28 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       excerpt: JSON.stringify(plainTextToLexicalState("Rich excerpt")),
       body: markdownToLexicalState("Hello **world** and [a link](https://example.com)."),
     };
-    const record = await createRecord(f.ctx, { ...f.scope, content });
+    const record = await runService(createRecord(f.ctx, { ...f.scope, content }));
     expect(record.draft).toMatchObject({
       title: content.title,
       body: content.body,
       excerpt: plainTextToLexicalState("Rich excerpt"),
     });
-    const first = await publishRecord(f.ctx, {
-      ...f.scope,
-      id: record.id,
-      expectedVersion: record.version,
-    });
-    await editRecord(f.ctx, {
-      ...f.scope,
-      id: record.id,
-      expectedVersion: first.record.version,
-      content: { ...article, body: plainTextToLexicalState("Private rich draft") },
-    });
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: record.id })).toMatchObject({
+    const first = await runService(
+      publishRecord(f.ctx, {
+        ...f.scope,
+        id: record.id,
+        expectedVersion: record.version,
+      }),
+    );
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: record.id,
+        expectedVersion: first.record.version,
+        content: { ...article, body: plainTextToLexicalState("Private rich draft") },
+      }),
+    );
+    expect(await runService(readRecord(f.publicCtx, { ...f.scope, id: record.id }))).toMatchObject({
       content: { body: content.body },
     });
     for (const bad of [
@@ -730,7 +824,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       },
       { ...article, body: markdownToLexicalState("[Cross site](camox:page:999999)") },
     ])
-      await expect(createRecord(f.ctx, { ...f.scope, content: bad })).rejects.toThrow();
+      await expect(runService(createRecord(f.ctx, { ...f.scope, content: bad }))).rejects.toThrow();
   });
 
   it("does not block existing replication/deletion workflows for empty definitions", async () => {
@@ -759,15 +853,17 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       sourceEnvName: "production",
       targetEnvName: "target",
     };
-    expect(await checkCompatibility(f.ctx, replication)).toMatchObject({ compatible: true });
-    await replicateEnvironment(f.ctx, replication);
+    expect(await runService(checkCompatibility(f.ctx, replication))).toMatchObject({
+      compatible: true,
+    });
+    await runService(replicateEnvironment(f.ctx, replication));
     expect(
       await f.db
         .select()
         .from(collectionDefinitions)
         .where(eq(collectionDefinitions.projectId, f.project.id)),
     ).toHaveLength(1);
-    await deleteProject(f.ctx, { id: f.project.id });
+    await runService(deleteProject(f.ctx, { id: f.project.id }));
     expect(
       await f.db
         .select()
@@ -778,55 +874,65 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
 
   it("creates, edits, publishes, restores only the draft, and reads exact historical snapshots", async () => {
     const f = await fixture("lifecycle");
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: crypto.randomUUID() })).toBeNull();
-    let record = await createRecord(f.ctx, { ...f.scope, content: article });
+    expect(
+      await runService(readRecord(f.publicCtx, { ...f.scope, id: crypto.randomUUID() })),
+    ).toBeNull();
+    let record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = () => ({ ...f.scope, id: record.id, expectedVersion: record.version });
     const read = { ...f.scope, id: record.id };
-    expect(await readRecord(f.publicCtx, read)).toBeNull();
-    const first = await publishRecord(f.ctx, input());
+    expect(await runService(readRecord(f.publicCtx, read))).toBeNull();
+    const first = await runService(publishRecord(f.ctx, input()));
     record = first.record;
-    const secondRecord = await createRecord(f.ctx, {
-      ...f.scope,
-      content: { ...article, title: "Other record" },
-    });
-    record = await editRecord(f.ctx, {
-      ...input(),
-      content: { ...article, title: "Private edit", body: "Secret draft" },
-    });
-    expect(await readRecord(f.publicCtx, read)).toMatchObject({
+    const secondRecord = await runService(
+      createRecord(f.ctx, {
+        ...f.scope,
+        content: { ...article, title: "Other record" },
+      }),
+    );
+    record = await runService(
+      editRecord(f.ctx, {
+        ...input(),
+        content: { ...article, title: "Private edit", body: "Secret draft" },
+      }),
+    );
+    expect(await runService(readRecord(f.publicCtx, read))).toMatchObject({
       id: first.revision.id,
       content: article,
     });
-    expect(JSON.stringify(await readRecord(f.publicCtx, read))).not.toContain("Secret draft");
-    expect(await readRecord(f.publicCtx, { ...read, id: secondRecord.id })).toBeNull();
-    const manual = await checkpointRecord(f.ctx, input());
+    expect(JSON.stringify(await runService(readRecord(f.publicCtx, read)))).not.toContain(
+      "Secret draft",
+    );
+    expect(await runService(readRecord(f.publicCtx, { ...read, id: secondRecord.id }))).toBeNull();
+    const manual = await runService(checkpointRecord(f.ctx, input()));
     record = manual.record;
-    const second = await publishRecord(f.ctx, input());
+    const second = await runService(publishRecord(f.ctx, input()));
     record = second.record;
     expect(
-      await readRecord(f.ctx, { ...read, source: { revisionId: first.revision.id } }),
+      await runService(readRecord(f.ctx, { ...read, source: { revisionId: first.revision.id } })),
     ).toMatchObject({ content: article });
-    const restored = await restoreRecord(f.ctx, { ...input(), revisionId: first.revision.id });
+    const restored = await runService(
+      restoreRecord(f.ctx, { ...input(), revisionId: first.revision.id }),
+    );
     record = restored.record;
     expect(record.draft).toEqual(article);
     expect(restored.displaced.content.title).toBe("Private edit");
-    expect(await readRecord(f.publicCtx, read)).toMatchObject({
+    expect(await runService(readRecord(f.publicCtx, read))).toMatchObject({
       id: second.revision.id,
       content: { title: "Private edit" },
     });
     expect(
-      await readRecord(f.ctx, { ...read, source: { revisionId: manual.revision.id } }),
+      await runService(readRecord(f.ctx, { ...read, source: { revisionId: manual.revision.id } })),
     ).toMatchObject({ content: { title: "Private edit" } });
     expect(
-      await readRecord(f.ctx, { ...read, id: secondRecord.id, source: "draft" }),
+      await runService(readRecord(f.ctx, { ...read, id: secondRecord.id, source: "draft" })),
     ).toMatchObject({ draft: { title: "Other record" } });
-    record = (await publishRecord(f.ctx, input())).record;
-    expect(await readRecord(f.publicCtx, read)).toMatchObject({ content: article });
-    record = await unpublishRecord(f.ctx, input());
-    expect(await readRecord(f.publicCtx, read)).toBeNull();
+    record = (await runService(publishRecord(f.ctx, input()))).record;
+    expect(await runService(readRecord(f.publicCtx, read))).toMatchObject({ content: article });
+    record = await runService(unpublishRecord(f.ctx, input()));
+    expect(await runService(readRecord(f.publicCtx, read))).toBeNull();
     expect(record.draft).toEqual(article);
     expect(
-      await readRecord(f.ctx, { ...read, source: { revisionId: first.revision.id } }),
+      await runService(readRecord(f.ctx, { ...read, source: { revisionId: first.revision.id } })),
     ).toMatchObject({ content: article });
     await expect(
       f.db
@@ -838,68 +944,80 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
 
   it("enforces auth, site, collection, environment and revision ownership on every operation", async () => {
     const f = await fixture("isolation");
-    const record = await createRecord(f.ctx, { ...f.scope, content: article });
+    const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = { ...f.scope, id: record.id, expectedVersion: record.version };
     const read = { ...f.scope, id: record.id };
     const outsider = createServiceContext(f.db, f.outsiderUser);
     for (const ctx of [f.publicCtx, outsider]) {
-      await expect(createRecord(ctx, { ...f.scope, content: article })).rejects.toThrow();
-      await expect(editRecord(ctx, { ...input, content: article })).rejects.toThrow();
-      await expect(publishRecord(ctx, input)).rejects.toThrow();
-      await expect(checkpointRecord(ctx, input)).rejects.toThrow();
-      await expect(unpublishRecord(ctx, input)).rejects.toThrow();
-      await expect(discardRecord(ctx, input)).rejects.toThrow();
       await expect(
-        restoreRecord(ctx, { ...input, revisionId: crypto.randomUUID() }),
+        runService(createRecord(ctx, { ...f.scope, content: article })),
       ).rejects.toThrow();
-      await expect(readRecord(ctx, { ...read, source: "draft" })).rejects.toThrow();
+      await expect(runService(editRecord(ctx, { ...input, content: article }))).rejects.toThrow();
+      await expect(runService(publishRecord(ctx, input))).rejects.toThrow();
+      await expect(runService(checkpointRecord(ctx, input))).rejects.toThrow();
+      await expect(runService(unpublishRecord(ctx, input))).rejects.toThrow();
+      await expect(runService(discardRecord(ctx, input))).rejects.toThrow();
       await expect(
-        readRecord(ctx, { ...read, source: { revisionId: crypto.randomUUID() } }),
+        runService(restoreRecord(ctx, { ...input, revisionId: crypto.randomUUID() })),
+      ).rejects.toThrow();
+      await expect(runService(readRecord(ctx, { ...read, source: "draft" }))).rejects.toThrow();
+      await expect(
+        runService(readRecord(ctx, { ...read, source: { revisionId: crypto.randomUUID() } })),
       ).rejects.toThrow();
     }
-    const published = await publishRecord(f.ctx, input);
-    const other = await createRecord(f.ctx, { ...f.scope, content: article });
+    const published = await runService(publishRecord(f.ctx, input));
+    const other = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     expect(
-      await readRecord(f.ctx, {
-        ...read,
-        id: other.id,
-        source: { revisionId: published.revision.id },
-      }),
+      await runService(
+        readRecord(f.ctx, {
+          ...read,
+          id: other.id,
+          source: { revisionId: published.revision.id },
+        }),
+      ),
     ).toBeNull();
     await expect(
-      restoreRecord(f.ctx, { ...input, id: other.id, revisionId: published.revision.id }),
+      runService(
+        restoreRecord(f.ctx, { ...input, id: other.id, revisionId: published.revision.id }),
+      ),
     ).rejects.toThrow();
     const anotherSite = await fixture("another-site");
     expect(
-      await readRecord(anotherSite.publicCtx, { ...anotherSite.scope, id: record.id }),
+      await runService(readRecord(anotherSite.publicCtx, { ...anotherSite.scope, id: record.id })),
     ).toBeNull();
     await expect(
-      editRecord(anotherSite.ctx, { ...input, ...anotherSite.scope, content: article }),
+      runService(editRecord(anotherSite.ctx, { ...input, ...anotherSite.scope, content: article })),
     ).rejects.toThrow();
     await expect(
-      discardRecord(anotherSite.ctx, {
-        ...input,
-        ...anotherSite.scope,
-        expectedVersion: published.record.version,
-      }),
+      runService(
+        discardRecord(anotherSite.ctx, {
+          ...input,
+          ...anotherSite.scope,
+          expectedVersion: published.record.version,
+        }),
+      ),
     ).rejects.toThrow();
     const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
-    await syncCollectionDefinitions(devCtx, {
-      projectSlug: f.project.slug,
-      autoCreate: true,
-      definitions: [definition],
-    });
-    expect(await readRecord(devCtx, { ...read, source: "draft" })).toBeNull();
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: true,
+        definitions: [definition],
+      }),
+    );
+    expect(await runService(readRecord(devCtx, { ...read, source: "draft" }))).toBeNull();
     await expect(
-      publishRecord(devCtx, { ...input, expectedVersion: published.record.version }),
+      runService(publishRecord(devCtx, { ...input, expectedVersion: published.record.version })),
     ).rejects.toThrow();
     await expect(
-      discardRecord(devCtx, { ...input, expectedVersion: published.record.version }),
+      runService(discardRecord(devCtx, { ...input, expectedVersion: published.record.version })),
     ).rejects.toThrow();
     await f.sync([definition, { ...definition, collectionId: "customers" }]);
-    expect(await readRecord(f.publicCtx, { ...read, collectionId: "customers" })).toBeNull();
+    expect(
+      await runService(readRecord(f.publicCtx, { ...read, collectionId: "customers" })),
+    ).toBeNull();
     await expect(
-      editRecord(f.ctx, { ...input, collectionId: "customers", content: article }),
+      runService(editRecord(f.ctx, { ...input, collectionId: "customers", content: article })),
     ).rejects.toThrow();
   });
 
@@ -913,7 +1031,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       { ...article, cover: { ...article.cover, url: "javascript:alert(1)" } },
       { ...article, cover: { ...article.cover, mimeType: "application/pdf" } },
     ]) {
-      await expect(createRecord(f.ctx, { ...f.scope, content })).rejects.toThrow();
+      await expect(runService(createRecord(f.ctx, { ...f.scope, content }))).rejects.toThrow();
     }
     const file = await f.db
       .insert(files)
@@ -932,23 +1050,31 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       })
       .returning()
       .get();
-    const record = await createRecord(f.ctx, {
-      ...f.scope,
-      content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
-    });
+    const record = await runService(
+      createRecord(f.ctx, {
+        ...f.scope,
+        content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
+      }),
+    );
     expect(record.draft.cover).toMatchObject({ url: file.url, filename: file.filename });
     const input = { ...f.scope, id: record.id, expectedVersion: record.version };
-    const live = await publishRecord(f.ctx, input);
+    const live = await runService(publishRecord(f.ctx, input));
     await f.db.update(files).set({ alt: "changed metadata" }).where(eq(files.id, file.id));
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: record.id })).toMatchObject({
+    expect(await runService(readRecord(f.publicCtx, { ...f.scope, id: record.id }))).toMatchObject({
       content: { cover: { alt: "Cover" } },
     });
-    await expect(deleteFile(f.ctx, { id: file.id })).rejects.toMatchObject({ status: 409 });
-    await expect(deleteFiles(f.ctx, { ids: [file.id] })).rejects.toMatchObject({ status: 409 });
-    await expect(editRecord(f.ctx, { ...input, content: article })).rejects.toMatchObject({
+    await expect(runService(deleteFile(f.ctx, { id: file.id }))).rejects.toMatchObject({
       status: 409,
     });
-    await expect(publishRecord(f.ctx, input)).rejects.toMatchObject({ status: 409 });
+    await expect(runService(deleteFiles(f.ctx, { ids: [file.id] }))).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(
+      runService(editRecord(f.ctx, { ...input, content: article })),
+    ).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(runService(publishRecord(f.ctx, input))).rejects.toMatchObject({ status: 409 });
     const devEnvironment = await f.db
       .insert(environments)
       .values({
@@ -962,35 +1088,41 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       .get();
     await f.db.update(files).set({ environmentId: devEnvironment.id }).where(eq(files.id, file.id));
     await expect(
-      editRecord(f.ctx, {
-        ...input,
-        expectedVersion: live.record.version,
-        content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
-      }),
+      runService(
+        editRecord(f.ctx, {
+          ...input,
+          expectedVersion: live.record.version,
+          content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
+        }),
+      ),
     ).rejects.toThrow();
   });
 
   it("syncs reversibly, rejects schema changes with records, and authorizes sync", async () => {
     const f = await fixture("sync");
     await expect(
-      syncCollectionDefinitions(f.publicCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: false,
-        definitions: [definition],
-      }),
+      runService(
+        syncCollectionDefinitions(f.publicCtx, {
+          projectSlug: f.project.slug,
+          autoCreate: false,
+          definitions: [definition],
+        }),
+      ),
     ).rejects.toThrow();
     await expect(
-      syncCollectionDefinitions(f.ctx, {
-        projectSlug: f.project.slug,
-        autoCreate: false,
-        definitions: [definition],
-      }),
+      runService(
+        syncCollectionDefinitions(f.ctx, {
+          projectSlug: f.project.slug,
+          autoCreate: false,
+          definitions: [definition],
+        }),
+      ),
     ).rejects.toThrow();
     await expect(f.sync([{ ...definition, label: "cover" }])).rejects.toThrow();
     await expect(f.sync([definition, definition])).rejects.toThrow();
-    const record = await createRecord(f.ctx, { ...f.scope, content: article });
+    const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = { ...f.scope, id: record.id, expectedVersion: record.version };
-    const live = await publishRecord(f.ctx, input);
+    const live = await runService(publishRecord(f.ctx, input));
     await expect(
       f.sync([
         {
@@ -1007,15 +1139,19 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
     ).rejects.toMatchObject({ status: 409 });
     await f.sync([{ ...definition, title: "Renamed articles", label: "slug" }]);
     await f.sync([]);
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: record.id })).toBeNull();
-    expect(await readRecord(f.ctx, { ...f.scope, id: record.id, source: "draft" })).toMatchObject({
+    expect(await runService(readRecord(f.publicCtx, { ...f.scope, id: record.id }))).toBeNull();
+    expect(
+      await runService(readRecord(f.ctx, { ...f.scope, id: record.id, source: "draft" })),
+    ).toMatchObject({
       draft: article,
     });
     await expect(
-      editRecord(f.ctx, { ...input, expectedVersion: live.record.version, content: article }),
+      runService(
+        editRecord(f.ctx, { ...input, expectedVersion: live.record.version, content: article }),
+      ),
     ).rejects.toThrow();
     await f.sync();
-    expect(await readRecord(f.publicCtx, { ...f.scope, id: record.id })).toMatchObject({
+    expect(await runService(readRecord(f.publicCtx, { ...f.scope, id: record.id }))).toMatchObject({
       id: live.revision.id,
       content: article,
     });
@@ -1025,7 +1161,9 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
         .from(collectionDefinitions)
         .where(eq(collectionDefinitions.projectId, f.project.id)),
     ).toHaveLength(1);
-    await expect(deleteProject(f.ctx, { id: f.project.id })).rejects.toMatchObject({ status: 409 });
+    await expect(runService(deleteProject(f.ctx, { id: f.project.id }))).rejects.toMatchObject({
+      status: 409,
+    });
     await f.db.insert(environments).values({
       projectId: f.project.id,
       name: "target",
@@ -1038,11 +1176,11 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
       sourceEnvName: "production",
       targetEnvName: "target",
     };
-    expect(await checkCompatibility(f.ctx, replication)).toMatchObject({
+    expect(await runService(checkCompatibility(f.ctx, replication))).toMatchObject({
       compatible: false,
       reasons: expect.arrayContaining([{ kind: "collections-replication-unsupported" }]),
     });
-    await expect(replicateEnvironment(f.ctx, replication)).rejects.toMatchObject({
+    await expect(runService(replicateEnvironment(f.ctx, replication))).rejects.toMatchObject({
       code: "FAILED_PRECONDITION",
     });
   });

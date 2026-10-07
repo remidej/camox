@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import {
   blockDefinitions,
   blocks,
@@ -101,7 +102,7 @@ async function fixture() {
     .get();
   const ctx = createServiceContext(base.db, base.memberUser);
   const create = (target: CommentTarget, message = "Feedback") =>
-    createComment(ctx, { id: crypto.randomUUID(), pageId: page.id, message, target });
+    runService(createComment(ctx, { id: crypto.randomUUID(), pageId: page.id, message, target }));
   return { ...base, ctx, page, block, item, nested, create };
 }
 
@@ -112,19 +113,25 @@ describe("comments", () => {
     expect(comment.resolved).toBe(false);
     const input = { pageId: f.page.id, id: comment.id, resolved: true };
     vi.mocked(broadcastInvalidation).mockClear();
-    expect(await setCommentResolved(f.ctx, input)).toEqual({ ...comment, resolved: true });
+    expect(await runService(setCommentResolved(f.ctx, input))).toEqual({
+      ...comment,
+      resolved: true,
+    });
     expect(broadcastInvalidation).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: f.project.id,
         targets: [["camox", "comments", "list", f.page.id]],
       }),
     );
-    expect(await listComments(f.ctx, { pageId: f.page.id })).toEqual([
+    expect(await runService(listComments(f.ctx, { pageId: f.page.id }))).toEqual([
       { ...comment, resolved: true },
     ]);
-    expect(await setCommentResolved(f.ctx, input)).toEqual({ ...comment, resolved: true });
+    expect(await runService(setCommentResolved(f.ctx, input))).toEqual({
+      ...comment,
+      resolved: true,
+    });
     await f.db.delete(blocks).where(eq(blocks.id, f.block.id));
-    expect(await setCommentResolved(f.ctx, { ...input, resolved: false })).toEqual({
+    expect(await runService(setCommentResolved(f.ctx, { ...input, resolved: false }))).toEqual({
       ...comment,
       target: null,
     });
@@ -143,20 +150,20 @@ describe("comments", () => {
       [{ ...f.ctx, user: f.outsiderUser }, "FORBIDDEN"],
       [{ ...f.ctx, environmentName: "other" }, "NOT_FOUND"],
     ] as const) {
-      await expect(setCommentResolved(ctx, input)).rejects.toMatchObject({ code });
+      await expect(runService(setCommentResolved(ctx, input))).rejects.toMatchObject({ code });
     }
     const sibling = await f.db
       .insert(pages)
       .values({ ...f.page, id: undefined, pathSegment: "sibling", fullPath: "/sibling" })
       .returning()
       .get();
-    await expect(setCommentResolved(f.ctx, { ...input, pageId: sibling.id })).rejects.toMatchObject(
-      {
-        code: "NOT_FOUND",
-      },
-    );
     await expect(
-      setCommentResolved(f.ctx, { ...input, id: crypto.randomUUID() }),
+      runService(setCommentResolved(f.ctx, { ...input, pageId: sibling.id })),
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      runService(setCommentResolved(f.ctx, { ...input, id: crypto.randomUUID() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     for (const invalid of [
       { ...input, id: "invalid" },
@@ -165,10 +172,10 @@ describe("comments", () => {
       { pageId: input.pageId, id: input.id },
       { ...input, authorId: f.memberUser.id },
     ]) {
-      await expect(setCommentResolved(f.ctx, invalid as never)).rejects.toThrow();
+      await expect(runService(setCommentResolved(f.ctx, invalid as never))).rejects.toThrow();
     }
     expect(broadcastInvalidation).not.toHaveBeenCalled();
-    expect(await listComments(f.ctx, { pageId: f.page.id })).toEqual([comment]);
+    expect(await runService(listComments(f.ctx, { pageId: f.page.id }))).toEqual([comment]);
   });
 
   it("lists repeated nested targets with a fixed query budget", async () => {
@@ -186,7 +193,7 @@ describe("comments", () => {
     await f.create(targets[0]!);
     const prepare = vi.spyOn(f.ctx.env.DB, "prepare");
     try {
-      expect(await listComments(f.ctx, { pageId: f.page.id })).toHaveLength(1);
+      expect(await runService(listComments(f.ctx, { pageId: f.page.id }))).toHaveLength(1);
       const singleCount = prepare.mock.calls.length;
       expect(singleCount).toBeLessThanOrEqual(7);
       for (let index = 0; index < 63; index++) {
@@ -204,7 +211,7 @@ describe("comments", () => {
         });
       }
       prepare.mockClear();
-      const result = await listComments(f.ctx, { pageId: f.page.id });
+      const result = await runService(listComments(f.ctx, { pageId: f.page.id }));
       expect(result).toHaveLength(64);
       expect(result.every((comment) => comment.target !== null)).toBe(true);
       expect(prepare).toHaveBeenCalledTimes(singleCount);
@@ -242,7 +249,10 @@ describe("comments", () => {
       target: { kind: "block" as const, blockId: layoutBlock.id },
     };
     vi.mocked(broadcastInvalidation).mockClear();
-    const results = await Promise.all([createComment(f.ctx, input), createComment(f.ctx, input)]);
+    const results = await Promise.all([
+      runService(createComment(f.ctx, input)),
+      runService(createComment(f.ctx, input)),
+    ]);
     expect(results[0]).toEqual(results[1]);
     expect(broadcastInvalidation).toHaveBeenCalledTimes(1);
     expect(broadcastInvalidation).toHaveBeenCalledWith(
@@ -250,17 +260,22 @@ describe("comments", () => {
         targets: [["camox", "comments", "list", f.page.id]],
       }),
     );
-    expect(await listComments(f.ctx, { pageId: sibling.id })).toEqual([]);
+    expect(await runService(listComments(f.ctx, { pageId: sibling.id }))).toEqual([]);
     await expect(
-      createComment(f.ctx, {
-        ...input,
-        id: crypto.randomUUID(),
-        pageId: sibling.id,
-        target: { kind: "block", blockId: f.block.id },
-      }),
+      runService(
+        createComment(f.ctx, {
+          ...input,
+          id: crypto.randomUUID(),
+          pageId: sibling.id,
+          target: { kind: "block", blockId: f.block.id },
+        }),
+      ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await f.db.delete(blocks).where(eq(blocks.id, layoutBlock.id));
-    expect(await createComment(f.ctx, input)).toMatchObject({ id: input.id, target: null });
+    expect(await runService(createComment(f.ctx, input))).toMatchObject({
+      id: input.id,
+      target: null,
+    });
   });
 
   it("creates all typed targets, supplies provenance, and retries idempotently", async () => {
@@ -275,7 +290,7 @@ describe("comments", () => {
     ];
     for (const target of targets) {
       const input = { id: crypto.randomUUID(), pageId: f.page.id, message: " Feedback ", target };
-      const first = await createComment(f.ctx, input);
+      const first = await runService(createComment(f.ctx, input));
       expect(first).toMatchObject({
         message: "Feedback",
         resolved: false,
@@ -284,12 +299,16 @@ describe("comments", () => {
         environmentId: f.environment.id,
         createdAt: expect.any(Number),
       });
-      expect(await createComment(f.ctx, input)).toEqual(first);
-      await expect(createComment(f.ctx, { ...input, message: "Changed" })).rejects.toMatchObject({
+      expect(await runService(createComment(f.ctx, input))).toEqual(first);
+      await expect(
+        runService(createComment(f.ctx, { ...input, message: "Changed" })),
+      ).rejects.toMatchObject({
         code: "CONFLICT",
       });
     }
-    expect(await listComments(f.ctx, { pageId: f.page.id })).toHaveLength(targets.length);
+    expect(await runService(listComments(f.ctx, { pageId: f.page.id }))).toHaveLength(
+      targets.length,
+    );
   });
 
   it("rejects anonymous/nonmember/wrong-environment access and malformed/foreign targets", async () => {
@@ -306,8 +325,10 @@ describe("comments", () => {
       [{ ...f.ctx, user: f.outsiderUser }, "FORBIDDEN"],
       [{ ...f.ctx, environmentName: "other" }, "NOT_FOUND"],
     ] as const) {
-      await expect(createComment(ctx, input)).rejects.toMatchObject({ code });
-      await expect(listComments(ctx, { pageId: f.page.id })).rejects.toMatchObject({ code });
+      await expect(runService(createComment(ctx, input))).rejects.toMatchObject({ code });
+      await expect(runService(listComments(ctx, { pageId: f.page.id }))).rejects.toMatchObject({
+        code,
+      });
     }
     for (const target of [
       { kind: "block", blockId: other.block.id },
@@ -318,13 +339,13 @@ describe("comments", () => {
     ] satisfies CommentTarget[]) {
       await expect(f.create(target)).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
-    await expect(createComment(f.ctx, { ...input, id: "invalid" })).rejects.toThrow();
-    await expect(createComment(f.ctx, { ...input, message: " " })).rejects.toThrow();
+    await expect(runService(createComment(f.ctx, { ...input, id: "invalid" }))).rejects.toThrow();
+    await expect(runService(createComment(f.ctx, { ...input, message: " " }))).rejects.toThrow();
     await expect(
-      createComment(f.ctx, { ...input, target: { kind: "page", x: 1 } } as never),
+      runService(createComment(f.ctx, { ...input, target: { kind: "page", x: 1 } } as never)),
     ).rejects.toThrow();
     await expect(
-      createComment(f.ctx, { ...input, authorId: f.outsiderUser.id } as never),
+      runService(createComment(f.ctx, { ...input, authorId: f.outsiderUser.id } as never)),
     ).rejects.toThrow();
   });
 
@@ -333,15 +354,19 @@ describe("comments", () => {
     await f.create({ kind: "item", blockId: f.block.id, itemId: f.item.id });
     await f.db.delete(repeatableItems).where(eq(repeatableItems.id, f.item.id));
     await f.db.insert(repeatableItems).values({ ...f.item });
-    expect(await listComments(f.ctx, { pageId: f.page.id })).toMatchObject([{ target: null }]);
+    expect(await runService(listComments(f.ctx, { pageId: f.page.id }))).toMatchObject([
+      { target: null },
+    ]);
     await f.create({ kind: "block-field", blockId: f.block.id, fieldName: "title" });
     await f.db
       .update(blockDefinitions)
       .set({ contentSchema: { properties: {} } })
       .where(eq(blockDefinitions.environmentId, f.environment.id));
-    expect((await listComments(f.ctx, { pageId: f.page.id })).every((c) => c.target === null)).toBe(
-      true,
-    );
+    expect(
+      (await runService(listComments(f.ctx, { pageId: f.page.id }))).every(
+        (c) => c.target === null,
+      ),
+    ).toBe(true);
   });
 
   it("replaces destination comments, remaps nested targets, preserves provenance and unavailable feedback", async () => {
@@ -385,14 +410,16 @@ describe("comments", () => {
       })
       .returning()
       .get();
-    const old = await createComment(
-      { ...f.ctx, environmentName: destination.name },
-      {
-        id: crypto.randomUUID(),
-        pageId: page.id,
-        message: "Old destination",
-        target: { kind: "page" },
-      },
+    const old = await runService(
+      createComment(
+        { ...f.ctx, environmentName: destination.name },
+        {
+          id: crypto.randomUUID(),
+          pageId: page.id,
+          message: "Old destination",
+          target: { kind: "page" },
+        },
+      ),
     );
     const original = await f.create({
       kind: "item-field",
@@ -401,7 +428,9 @@ describe("comments", () => {
       fieldName: "text",
     });
     const unavailable = await f.create({ kind: "block", blockId: f.block.id });
-    await setCommentResolved(f.ctx, { pageId: f.page.id, id: original.id, resolved: true });
+    await runService(
+      setCommentResolved(f.ctx, { pageId: f.page.id, id: original.id, resolved: true }),
+    );
     // Delete a separate target without removing the nested target.
     const deleted = await f.db
       .insert(blocks)
@@ -410,11 +439,13 @@ describe("comments", () => {
       .get();
     await f.create({ kind: "block", blockId: deleted.id });
     await f.db.delete(blocks).where(eq(blocks.id, deleted.id));
-    const result = await replicateEnvironment(f.ctx, {
-      projectId: f.project.id,
-      sourceEnvName: "production",
-      targetEnvName: destination.name,
-    });
+    const result = await runService(
+      replicateEnvironment(f.ctx, {
+        projectId: f.project.id,
+        sourceEnvName: "production",
+        targetEnvName: destination.name,
+      }),
+    );
     expect(result.copied.comments).toBe(3);
     expect(await f.db.select().from(comments).where(eq(comments.id, old.id))).toEqual([]);
     const copied = await f.db

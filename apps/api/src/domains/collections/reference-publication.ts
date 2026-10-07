@@ -1,9 +1,10 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq, sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertLayoutAccess, assertPageAccess } from "../../authorization";
+import { assertLayoutAccess, assertPageAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { ConflictError, decodeInput, InvalidInputError } from "../../lib/errors";
 import { stableStringify } from "../../lib/stable-stringify";
 import {
   blockDefinitions,
@@ -22,25 +23,27 @@ import { collectionDefinitions, collectionRecords, collectionRevisions } from ".
 import { validateContent } from "./validation";
 export { referenceTargetsInput } from "./reference-publication-input";
 
-async function publicationScope(
+const publicationScope = Effect.fn("collections.publicationScope")(function* (
   ctx: ServiceContext,
   input: z.infer<typeof referenceTargetsInput>,
   kind: "page" | "layout",
 ) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  const pageAccess = kind === "page" ? await assertPageAccess(ctx.db, input.id, ctx.user.id) : null;
+  const user = yield* requireUser(ctx);
+  const pageAccess = kind === "page" ? yield* assertPageAccess(ctx.db, input.id, user.id) : null;
   const layoutAccess =
-    kind === "layout" ? await assertLayoutAccess(ctx.db, input.id, ctx.user.id) : null;
-  if (!pageAccess && !layoutAccess) throw new ORPCError("NOT_FOUND");
+    kind === "layout" ? yield* assertLayoutAccess(ctx.db, input.id, user.id) : null;
   const page = pageAccess?.page;
+  const layoutId = page?.layoutId;
   const layout =
     layoutAccess?.layout ??
-    (input.alsoPublishLayout && page?.layoutId
-      ? await ctx.db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get()
+    (input.alsoPublishLayout && layoutId
+      ? yield* Effect.promise(() =>
+          ctx.db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
+        )
       : undefined);
   const owner = page ?? layout!;
-  const pageSnapshot = page ? await buildPageSnapshotFromDraft(ctx, page) : undefined;
-  const layoutSnapshot = layout ? await buildLayoutSnapshotFromDraft(ctx, layout) : undefined;
+  const pageSnapshot = page ? yield* buildPageSnapshotFromDraft(ctx, page) : undefined;
+  const layoutSnapshot = layout ? yield* buildLayoutSnapshotFromDraft(ctx, layout) : undefined;
   return {
     page,
     layout,
@@ -49,7 +52,7 @@ async function publicationScope(
     layoutSnapshot,
     blocks: [...(pageSnapshot?.blocks ?? []), ...(layoutSnapshot?.blocks ?? [])],
   };
-}
+});
 
 type Target = {
   id: string;
@@ -61,24 +64,29 @@ type Target = {
   hasPublishedRevision: boolean;
 };
 
-async function plan(ctx: ServiceContext, scope: Awaited<ReturnType<typeof publicationScope>>) {
-  const definitions = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(
-      and(
-        eq(blockDefinitions.projectId, scope.owner.projectId),
-        eq(blockDefinitions.environmentId, scope.owner.environmentId),
+const plan = Effect.fn("collections.plan")(function* (
+  ctx: ServiceContext,
+  scope: Effect.Success<ReturnType<typeof publicationScope>>,
+) {
+  const definitions = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, scope.owner.projectId),
+          eq(blockDefinitions.environmentId, scope.owner.environmentId),
+        ),
       ),
-    );
+  );
   const targets = new Map<string, Target>();
   const missingRequired: string[] = [];
   for (const block of scope.blocks) {
     const schema = definitions.find(
       (definition) => definition.blockId === block.type,
     )?.contentSchema;
-    const draft = await resolveReferences(ctx, scope.owner, schema, block.content, "draft");
-    const live = await resolveReferences(ctx, scope.owner, schema, block.content, "live");
+    const draft = yield* resolveReferences(ctx, scope.owner, schema, block.content, "draft");
+    const live = yield* resolveReferences(ctx, scope.owner, schema, block.content, "live");
     for (const [field, reference] of referenceFields(schema)) {
       const record = draft[field];
       if (!record) {
@@ -102,48 +110,49 @@ async function plan(ctx: ServiceContext, scope: Awaited<ReturnType<typeof public
     }
   }
   return { targets: [...targets.values()], missingRequired };
-}
+});
 
-export async function referenceTargets(
+export const referenceTargets = Effect.fn("collections.referenceTargets")(function* (
   ctx: ServiceContext,
-  input: z.input<typeof referenceTargetsInput>,
+  rawInput: z.input<typeof referenceTargetsInput>,
   kind: "page" | "layout",
 ) {
-  return plan(ctx, await publicationScope(ctx, referenceTargetsInput.parse(input), kind));
-}
+  const input = yield* decodeInput(referenceTargetsInput, rawInput);
+  return yield* plan(ctx, yield* publicationScope(ctx, input, kind));
+});
 
 /**
  * Immutable snapshots may be orphaned on conflict. All visible pointers (including
  * independently shared blocks) move in one D1 batch, never as a sequence of publications.
  */
-export async function publishWithReferences(
+export const publishWithReferences = Effect.fn("collections.publishWithReferences")(function* (
   ctx: ServiceContext,
   input: z.infer<typeof referenceTargetsInput> & {
     collections: z.infer<typeof collectionSelection>;
   },
   kind: "page" | "layout",
 ) {
-  const scope = await publicationScope(ctx, input, kind);
-  const review = await plan(ctx, scope);
+  const scope = yield* publicationScope(ctx, input, kind);
+  const review = yield* plan(ctx, scope);
   if (review.missingRequired.length)
-    throw new ORPCError("CONFLICT", {
+    return yield* new ConflictError({
       message: `Select required references before publishing: ${review.missingRequired.join(", ")}`,
     });
   const selected = new Map(input.collections.map((selection) => [selection.id, selection]));
   if (selected.size !== input.collections.length)
-    throw new ORPCError("BAD_REQUEST", { message: "Duplicate publication targets" });
+    return yield* new InvalidInputError({ message: "Duplicate publication targets" });
   for (const selection of selected.values()) {
     const target = review.targets.find(
       (target) => target.id === selection.id && target.collectionId === selection.collectionId,
     );
     if (!target || target.expectedVersion !== selection.expectedVersion)
-      throw new ORPCError("CONFLICT", {
+      return yield* new ConflictError({
         message: "Reference publication plan changed; review again",
       });
   }
   for (const target of review.targets) {
     if (target.required && !target.hasPublishedRevision && !selected.has(target.id)) {
-      throw new ORPCError("CONFLICT", {
+      return yield* new ConflictError({
         message: `Required item "${target.label}" must be included in publication`,
       });
     }
@@ -167,34 +176,40 @@ export async function publishWithReferences(
     );
   }
   for (const selection of selected.values()) {
-    const record = await ctx.db
-      .select()
-      .from(collectionRecords)
-      .where(eq(collectionRecords.id, selection.id))
-      .get();
+    const record = yield* Effect.promise(() =>
+      ctx.db.select().from(collectionRecords).where(eq(collectionRecords.id, selection.id)).get(),
+    );
+    const definitionId = record?.definitionId;
     const definition =
-      record &&
-      (await ctx.db
-        .select()
-        .from(collectionDefinitions)
-        .where(eq(collectionDefinitions.id, record.definitionId))
-        .get());
+      definitionId === undefined
+        ? undefined
+        : yield* Effect.promise(() =>
+            ctx.db
+              .select()
+              .from(collectionDefinitions)
+              .where(eq(collectionDefinitions.id, definitionId))
+              .get(),
+          );
     if (!record || !definition || record.version !== selection.expectedVersion)
-      throw new ORPCError("CONFLICT");
-    await validateContent(ctx, definition, record.draft);
-    const revision = await ctx.db
-      .insert(collectionRevisions)
-      .values({
-        id: crypto.randomUUID(),
-        recordId: record.id,
-        content: record.draft,
-        definition,
-        kind: "auto-publish",
-        createdBy: ctx.user!.id,
-        createdAt: now,
-      })
-      .returning()
-      .get();
+      return yield* new ConflictError({
+        message: "Reference publication plan changed; review again",
+      });
+    yield* validateContent(ctx, definition, record.draft);
+    const revision = yield* Effect.promise(() =>
+      ctx.db
+        .insert(collectionRevisions)
+        .values({
+          id: crypto.randomUUID(),
+          recordId: record.id,
+          content: record.draft,
+          definition,
+          kind: "auto-publish",
+          createdBy: ctx.user!.id,
+          createdAt: now,
+        })
+        .returning()
+        .get(),
+    );
     // A failed optimistic check must abort the batch, not silently skip one pointer.
     statements.push(
       ctx.db
@@ -207,46 +222,51 @@ export async function publishWithReferences(
         .where(eq(collectionRecords.id, record.id)),
     );
   }
-  if (scope.page && scope.pageSnapshot) {
-    const checkpoint = await ctx.db
-      .insert(pageCheckpoints)
-      .values({
-        pageId: scope.page.id,
-        kind: "auto-publish",
-        label: null,
-        snapshot: JSON.stringify(scope.pageSnapshot),
-        schemaVersion: 1,
-        createdAt: now,
-        createdBy: ctx.user!.id,
-      })
-      .returning()
-      .get();
+  const { page, layout } = scope;
+  if (page && scope.pageSnapshot) {
+    const checkpoint = yield* Effect.promise(() =>
+      ctx.db
+        .insert(pageCheckpoints)
+        .values({
+          pageId: page.id,
+          kind: "auto-publish",
+          label: null,
+          snapshot: JSON.stringify(scope.pageSnapshot),
+          schemaVersion: 1,
+          createdAt: now,
+          createdBy: ctx.user!.id,
+        })
+        .returning()
+        .get(),
+    );
     ownerPointers.push(
       ctx.db
         .update(pages)
         .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
-        .where(eq(pages.id, scope.page.id)),
+        .where(eq(pages.id, page.id)),
     );
   }
-  if (scope.layout && scope.layoutSnapshot) {
-    const checkpoint = await ctx.db
-      .insert(layoutCheckpoints)
-      .values({
-        layoutId: scope.layout.id,
-        kind: "auto-publish",
-        label: null,
-        snapshot: JSON.stringify(scope.layoutSnapshot),
-        schemaVersion: 1,
-        createdAt: now,
-        createdBy: ctx.user!.id,
-      })
-      .returning()
-      .get();
+  if (layout && scope.layoutSnapshot) {
+    const checkpoint = yield* Effect.promise(() =>
+      ctx.db
+        .insert(layoutCheckpoints)
+        .values({
+          layoutId: layout.id,
+          kind: "auto-publish",
+          label: null,
+          snapshot: JSON.stringify(scope.layoutSnapshot),
+          schemaVersion: 1,
+          createdAt: now,
+          createdBy: ctx.user!.id,
+        })
+        .returning()
+        .get(),
+    );
     ownerPointers.push(
       ctx.db
         .update(layouts)
         .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
-        .where(eq(layouts.id, scope.layout.id)),
+        .where(eq(layouts.id, layout.id)),
     );
   }
   const seen = new Set<string>();
@@ -276,15 +296,14 @@ export async function publishWithReferences(
   // Effective live dependencies overlay shared data. Repair shared pointers before
   // owner pointers so their guards never inspect the displaced shared revision.
   statements.push(...ownerPointers);
-  try {
-    if (!statements.length) throw new ORPCError("BAD_REQUEST");
-    await ctx.db.batch([statements[0], ...statements.slice(1)]);
-  } catch (cause) {
-    throw new ORPCError("CONFLICT", {
-      message: "Publication changed or failed; reload before retrying",
-      cause,
-    });
-  }
+  const publicationFailed = new ConflictError({
+    message: "Publication changed or failed; reload before retrying",
+  });
+  if (!statements.length) return yield* publicationFailed;
+  yield* Effect.tryPromise({
+    try: () => ctx.db.batch([statements[0], ...statements.slice(1)]),
+    catch: () => publicationFailed,
+  });
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -296,7 +315,12 @@ export async function publishWithReferences(
       ["camox", "collections"],
     ],
   });
-  return kind === "page"
-    ? ctx.db.select().from(pages).where(eq(pages.id, input.id)).get()
-    : ctx.db.select().from(layouts).where(eq(layouts.id, input.id)).get();
-}
+  if (kind === "page") {
+    return yield* Effect.promise(() =>
+      ctx.db.select().from(pages).where(eq(pages.id, input.id)).get(),
+    );
+  }
+  return yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.id, input.id)).get(),
+  );
+});

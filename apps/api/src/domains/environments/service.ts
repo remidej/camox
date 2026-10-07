@@ -1,11 +1,12 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, or } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 
-import { getAuthorizedProject } from "../../authorization";
+import { getAuthorizedProject, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { decodeInput, IncompatibleEnvironmentsError, InvalidInputError } from "../../lib/errors";
 import { type JsonValue, remapFileReferences } from "../../lib/remap-file-references";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
@@ -41,8 +42,8 @@ export const replicateEnvironmentInput = z.object({
 
 // --- Compatibility reasons ---
 //
-// Returned (and re-emitted via the FAILED_PRECONDITION error payload) so the
-// studio can render a clear "Cannot push because…" message per offending key.
+// Returned (and re-emitted via `IncompatibleEnvironmentsError`) so the studio
+// can render a clear "Cannot push because…" message per offending key.
 
 export type CompatibilityReason =
   | { kind: "collections-replication-unsupported" }
@@ -57,11 +58,6 @@ export type CompatibilityReason =
   | { kind: "layout-missing-in-target"; layoutId: string }
   | { kind: "layout-kind-mismatch"; layoutId: string };
 
-function assertUser(ctx: ServiceContext) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  return ctx.user;
-}
-
 /**
  * Walks block definitions and layouts in both envs and emits a reason for
  * every divergence. An empty result means push/pull is safe.
@@ -74,30 +70,33 @@ function assertUser(ctx: ServiceContext) {
  * Layouts: the set of text-keyed `layoutId`s must match exactly. Layouts have
  * no content schema of their own, but their kinds must also match.
  */
-async function collectCompatibilityReasons(
+const collectCompatibilityReasons = Effect.fn("collectCompatibilityReasons")(function* (
   db: Database,
   sourceEnvId: number,
   targetEnvId: number,
-): Promise<CompatibilityReason[]> {
+) {
   const reasons: CompatibilityReason[] = [];
 
-  const collection = await db
-    .select({ id: collectionRecords.id })
-    .from(collectionRecords)
-    .innerJoin(collectionDefinitions, eq(collectionRecords.definitionId, collectionDefinitions.id))
-    .where(inArray(collectionDefinitions.environmentId, [sourceEnvId, targetEnvId]))
-    .get();
+  const collection = yield* Effect.promise(() =>
+    db
+      .select({ id: collectionRecords.id })
+      .from(collectionRecords)
+      .innerJoin(
+        collectionDefinitions,
+        eq(collectionRecords.definitionId, collectionDefinitions.id),
+      )
+      .where(inArray(collectionDefinitions.environmentId, [sourceEnvId, targetEnvId]))
+      .get(),
+  );
   if (collection) reasons.push({ kind: "collections-replication-unsupported" });
 
   // --- Block definitions ---
-  const sourceDefs = await db
-    .select()
-    .from(blockDefinitions)
-    .where(eq(blockDefinitions.environmentId, sourceEnvId));
-  const targetDefs = await db
-    .select()
-    .from(blockDefinitions)
-    .where(eq(blockDefinitions.environmentId, targetEnvId));
+  const sourceDefs = yield* Effect.promise(() =>
+    db.select().from(blockDefinitions).where(eq(blockDefinitions.environmentId, sourceEnvId)),
+  );
+  const targetDefs = yield* Effect.promise(() =>
+    db.select().from(blockDefinitions).where(eq(blockDefinitions.environmentId, targetEnvId)),
+  );
 
   const sourceByKey = new Map(sourceDefs.map((def) => [def.blockId, def]));
   const targetByKey = new Map(targetDefs.map((def) => [def.blockId, def]));
@@ -130,14 +129,18 @@ async function collectCompatibilityReasons(
   }
 
   // --- Layouts ---
-  const sourceLayoutRows = await db
-    .select({ layoutId: layouts.layoutId, kind: layouts.kind })
-    .from(layouts)
-    .where(eq(layouts.environmentId, sourceEnvId));
-  const targetLayoutRows = await db
-    .select({ layoutId: layouts.layoutId, kind: layouts.kind })
-    .from(layouts)
-    .where(eq(layouts.environmentId, targetEnvId));
+  const sourceLayoutRows = yield* Effect.promise(() =>
+    db
+      .select({ layoutId: layouts.layoutId, kind: layouts.kind })
+      .from(layouts)
+      .where(eq(layouts.environmentId, sourceEnvId)),
+  );
+  const targetLayoutRows = yield* Effect.promise(() =>
+    db
+      .select({ layoutId: layouts.layoutId, kind: layouts.kind })
+      .from(layouts)
+      .where(eq(layouts.environmentId, targetEnvId)),
+  );
 
   const sourceLayoutKeys = new Set(sourceLayoutRows.map((row) => row.layoutId));
   const targetLayoutKeys = new Set(targetLayoutRows.map((row) => row.layoutId));
@@ -159,32 +162,34 @@ async function collectCompatibilityReasons(
   }
 
   return reasons;
-}
+});
 
 // --- checkCompatibility ---
 
-export async function checkCompatibility(
+export const checkCompatibility = Effect.fn("environments.checkCompatibility")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof checkCompatibilityInput>,
 ) {
-  const user = assertUser(ctx);
-  const { projectId, sourceEnvName, targetEnvName } = checkCompatibilityInput.parse(rawInput);
+  const user = yield* requireUser(ctx);
+  const { projectId, sourceEnvName, targetEnvName } = yield* decodeInput(
+    checkCompatibilityInput,
+    rawInput,
+  );
 
   if (sourceEnvName === targetEnvName) {
-    throw new ORPCError("BAD_REQUEST", {
+    return yield* new InvalidInputError({
       message: "Source and target environments must differ",
     });
   }
 
-  const project = await getAuthorizedProject(ctx.db, projectId, user.id);
-  if (!project) throw new ORPCError("NOT_FOUND");
+  yield* getAuthorizedProject(ctx.db, projectId, user.id);
 
-  const source = await resolveEnvironment(ctx.db, projectId, sourceEnvName);
-  const target = await resolveEnvironment(ctx.db, projectId, targetEnvName);
+  const source = yield* resolveEnvironment(ctx.db, projectId, sourceEnvName);
+  const target = yield* resolveEnvironment(ctx.db, projectId, targetEnvName);
 
-  const reasons = await collectCompatibilityReasons(ctx.db, source.id, target.id);
+  const reasons = yield* collectCompatibilityReasons(ctx.db, source.id, target.id);
   return { compatible: reasons.length === 0, reasons };
-}
+});
 
 // --- Insertion-order helpers ---
 
@@ -285,52 +290,52 @@ function remapCheckpointContent(value: unknown, filesMap: IdMap, pagesMap: IdMap
 
 // --- replicateEnvironment ---
 
-export async function replicateEnvironment(
+export const replicateEnvironment = Effect.fn("environments.replicateEnvironment")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof replicateEnvironmentInput>,
 ) {
-  const user = assertUser(ctx);
-  const { projectId, sourceEnvName, targetEnvName } = replicateEnvironmentInput.parse(rawInput);
+  const user = yield* requireUser(ctx);
+  const { projectId, sourceEnvName, targetEnvName } = yield* decodeInput(
+    replicateEnvironmentInput,
+    rawInput,
+  );
 
   if (sourceEnvName === targetEnvName) {
-    throw new ORPCError("BAD_REQUEST", {
+    return yield* new InvalidInputError({
       message: "Source and target environments must differ",
     });
   }
 
   // Phase 0 — authorize & resolve --------------------------------------------
-  const project = await getAuthorizedProject(ctx.db, projectId, user.id);
-  if (!project) throw new ORPCError("NOT_FOUND");
+  yield* getAuthorizedProject(ctx.db, projectId, user.id);
 
-  const source = await resolveEnvironment(ctx.db, projectId, sourceEnvName);
-  const target = await resolveEnvironment(ctx.db, projectId, targetEnvName);
+  const source = yield* resolveEnvironment(ctx.db, projectId, sourceEnvName);
+  const target = yield* resolveEnvironment(ctx.db, projectId, targetEnvName);
 
   // Phase 1 — compatibility check --------------------------------------------
-  const reasons = await collectCompatibilityReasons(ctx.db, source.id, target.id);
+  const reasons = yield* collectCompatibilityReasons(ctx.db, source.id, target.id);
   if (reasons.length > 0) {
-    throw new ORPCError("FAILED_PRECONDITION", {
-      message: "Environments are incompatible — see data.reasons.",
-      data: { reasons },
-    });
+    return yield* new IncompatibleEnvironmentsError({ reasons });
   }
 
   // Phase 2 — snapshot the source environment --------------------------------
   // Read every env-scoped row, plus blocks/items via parent FKs. Empty source
   // is allowed and yields an empty snapshot (target ends up wiped).
-  const sourceLayouts = await ctx.db
-    .select()
-    .from(layouts)
-    .where(eq(layouts.environmentId, source.id));
-  const sourceBlockDefs = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(eq(blockDefinitions.environmentId, source.id));
-  const sourceFiles = await ctx.db.select().from(files).where(eq(files.environmentId, source.id));
-  const sourcePages = await ctx.db.select().from(pages).where(eq(pages.environmentId, source.id));
-  const sourceComments = await ctx.db
-    .select()
-    .from(comments)
-    .where(eq(comments.environmentId, source.id));
+  const sourceLayouts = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.environmentId, source.id)),
+  );
+  const sourceBlockDefs = yield* Effect.promise(() =>
+    ctx.db.select().from(blockDefinitions).where(eq(blockDefinitions.environmentId, source.id)),
+  );
+  const sourceFiles = yield* Effect.promise(() =>
+    ctx.db.select().from(files).where(eq(files.environmentId, source.id)),
+  );
+  const sourcePages = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.environmentId, source.id)),
+  );
+  const sourceComments = yield* Effect.promise(() =>
+    ctx.db.select().from(comments).where(eq(comments.environmentId, source.id)),
+  );
 
   const sourcePageIds = sourcePages.map((p) => p.id);
   const sourceLayoutPkIds = sourceLayouts.map((l) => l.id);
@@ -339,42 +344,51 @@ export async function replicateEnvironment(
   // both parent sets are empty — `inArray(col, [])` would generate `IN ()`.
   let sourceBlocks: (typeof blocks.$inferSelect)[] = [];
   if (sourcePageIds.length > 0 && sourceLayoutPkIds.length > 0) {
-    sourceBlocks = await ctx.db
-      .select()
-      .from(blocks)
-      .where(
-        or(inArray(blocks.pageId, sourcePageIds), inArray(blocks.layoutId, sourceLayoutPkIds)),
-      );
+    sourceBlocks = yield* Effect.promise(() =>
+      ctx.db
+        .select()
+        .from(blocks)
+        .where(
+          or(inArray(blocks.pageId, sourcePageIds), inArray(blocks.layoutId, sourceLayoutPkIds)),
+        ),
+    );
   } else if (sourcePageIds.length > 0) {
-    sourceBlocks = await ctx.db.select().from(blocks).where(inArray(blocks.pageId, sourcePageIds));
+    sourceBlocks = yield* Effect.promise(() =>
+      ctx.db.select().from(blocks).where(inArray(blocks.pageId, sourcePageIds)),
+    );
   } else if (sourceLayoutPkIds.length > 0) {
-    sourceBlocks = await ctx.db
-      .select()
-      .from(blocks)
-      .where(inArray(blocks.layoutId, sourceLayoutPkIds));
+    sourceBlocks = yield* Effect.promise(() =>
+      ctx.db.select().from(blocks).where(inArray(blocks.layoutId, sourceLayoutPkIds)),
+    );
   }
 
   const sourceBlockIds = sourceBlocks.map((b) => b.id);
   const sourceItems: (typeof repeatableItems.$inferSelect)[] =
     sourceBlockIds.length > 0
-      ? await ctx.db
-          .select()
-          .from(repeatableItems)
-          .where(inArray(repeatableItems.blockId, sourceBlockIds))
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .select()
+            .from(repeatableItems)
+            .where(inArray(repeatableItems.blockId, sourceBlockIds)),
+        )
       : [];
   const sourcePageCheckpoints =
     sourcePageIds.length > 0
-      ? await ctx.db
-          .select()
-          .from(pageCheckpoints)
-          .where(inArray(pageCheckpoints.pageId, sourcePageIds))
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .select()
+            .from(pageCheckpoints)
+            .where(inArray(pageCheckpoints.pageId, sourcePageIds)),
+        )
       : [];
   const sourceLayoutCheckpoints =
     sourceLayoutPkIds.length > 0
-      ? await ctx.db
-          .select()
-          .from(layoutCheckpoints)
-          .where(inArray(layoutCheckpoints.layoutId, sourceLayoutPkIds))
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .select()
+            .from(layoutCheckpoints)
+            .where(inArray(layoutCheckpoints.layoutId, sourceLayoutPkIds)),
+        )
       : [];
 
   const takenAt = Date.now();
@@ -394,45 +408,54 @@ export async function replicateEnvironment(
     layoutCheckpoints: sourceLayoutCheckpoints,
   };
   const snapshotKey = `${projectId}/env-snapshots/${target.name}/${takenAt}.json`;
-  await ctx.env.FILES_BUCKET.put(snapshotKey, JSON.stringify(snapshot), {
-    httpMetadata: { contentType: "application/json" },
-  });
+  yield* Effect.promise(() =>
+    ctx.env.FILES_BUCKET.put(snapshotKey, JSON.stringify(snapshot), {
+      httpMetadata: { contentType: "application/json" },
+    }),
+  );
 
   // Phase 3 — wipe the target environment ------------------------------------
   // Order matters: pages must go before layouts (pages.layout_id has no
   // ON DELETE CASCADE), and the files DELETE bypasses the per-row service so
   // R2 blobs are preserved for re-insertion below.
-  const targetPages = await ctx.db.select().from(pages).where(eq(pages.environmentId, target.id));
-  const targetLayouts = await ctx.db
-    .select()
-    .from(layouts)
-    .where(eq(layouts.environmentId, target.id));
+  const targetPages = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.environmentId, target.id)),
+  );
+  const targetLayouts = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.environmentId, target.id)),
+  );
   const targetPageIds = targetPages.map((p) => p.id);
   const targetLayoutIds = targetLayouts.map((l) => l.id);
-  await ctx.db.delete(comments).where(eq(comments.environmentId, target.id));
+  yield* Effect.promise(() => ctx.db.delete(comments).where(eq(comments.environmentId, target.id)));
   if (targetPageIds.length > 0) {
-    await ctx.db.delete(pageCheckpoints).where(inArray(pageCheckpoints.pageId, targetPageIds));
+    yield* Effect.promise(() =>
+      ctx.db.delete(pageCheckpoints).where(inArray(pageCheckpoints.pageId, targetPageIds)),
+    );
   }
   if (targetLayoutIds.length > 0) {
-    await ctx.db
-      .delete(layoutCheckpoints)
-      .where(inArray(layoutCheckpoints.layoutId, targetLayoutIds));
+    yield* Effect.promise(() =>
+      ctx.db.delete(layoutCheckpoints).where(inArray(layoutCheckpoints.layoutId, targetLayoutIds)),
+    );
   }
-  await ctx.db.delete(pages).where(eq(pages.environmentId, target.id));
-  await ctx.db.delete(layouts).where(eq(layouts.environmentId, target.id));
-  await ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.environmentId, target.id));
-  await ctx.db.delete(files).where(eq(files.environmentId, target.id));
+  yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.environmentId, target.id)));
+  yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.environmentId, target.id)));
+  yield* Effect.promise(() =>
+    ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.environmentId, target.id)),
+  );
+  yield* Effect.promise(() => ctx.db.delete(files).where(eq(files.environmentId, target.id)));
 
   // Phase 4 — re-insert into target, with ID remapping -----------------------
 
   const layoutsMap = new Map<number, number>();
   for (const row of sourceLayouts) {
     const { id, environmentId: _envId, livePublishedCheckpointId: _liveCk, ...rest } = row;
-    const inserted = await ctx.db
-      .insert(layouts)
-      .values({ ...rest, environmentId: target.id, livePublishedCheckpointId: null })
-      .returning()
-      .get();
+    const inserted = yield* Effect.promise(() =>
+      ctx.db
+        .insert(layouts)
+        .values({ ...rest, environmentId: target.id, livePublishedCheckpointId: null })
+        .returning()
+        .get(),
+    );
     layoutsMap.set(id, inserted.id);
   }
 
@@ -440,7 +463,9 @@ export async function replicateEnvironment(
   // nothing to remap after insert.
   for (const row of sourceBlockDefs) {
     const { id: _id, environmentId: _envId, ...rest } = row;
-    await ctx.db.insert(blockDefinitions).values({ ...rest, environmentId: target.id });
+    yield* Effect.promise(() =>
+      ctx.db.insert(blockDefinitions).values({ ...rest, environmentId: target.id }),
+    );
   }
 
   // Files: `blobId`, `path`, `url`, etc. are copied verbatim. Multiple rows
@@ -449,11 +474,13 @@ export async function replicateEnvironment(
   const filesMap = new Map<number, number>();
   for (const row of sourceFiles) {
     const { id, environmentId: _envId, ...rest } = row;
-    const inserted = await ctx.db
-      .insert(files)
-      .values({ ...rest, environmentId: target.id })
-      .returning()
-      .get();
+    const inserted = yield* Effect.promise(() =>
+      ctx.db
+        .insert(files)
+        .values({ ...rest, environmentId: target.id })
+        .returning()
+        .get(),
+    );
     filesMap.set(id, inserted.id);
   }
 
@@ -469,22 +496,24 @@ export async function replicateEnvironment(
     } = row;
     const newLayoutId = layoutsMap.get(layoutId);
     if (newLayoutId === undefined) {
-      throw new ORPCError("INTERNAL_SERVER_ERROR", {
-        message: `Page ${id} references missing layout ${layoutId} during replication.`,
-      });
+      return yield* Effect.die(
+        new Error(`Page ${id} references missing layout ${layoutId} during replication.`),
+      );
     }
     const newParentPageId = parentPageId !== null ? (pagesMap.get(parentPageId) ?? null) : null;
-    const inserted = await ctx.db
-      .insert(pages)
-      .values({
-        ...rest,
-        environmentId: target.id,
-        parentPageId: newParentPageId,
-        layoutId: newLayoutId,
-        livePublishedCheckpointId: null,
-      })
-      .returning()
-      .get();
+    const inserted = yield* Effect.promise(() =>
+      ctx.db
+        .insert(pages)
+        .values({
+          ...rest,
+          environmentId: target.id,
+          parentPageId: newParentPageId,
+          layoutId: newLayoutId,
+          livePublishedCheckpointId: null,
+        })
+        .returning()
+        .get(),
+    );
     pagesMap.set(id, inserted.id);
   }
 
@@ -498,17 +527,19 @@ export async function replicateEnvironment(
       settings !== null && settings !== undefined
         ? remapContentReferences(settings, filesMap, pagesMap)
         : settings;
-    const inserted = await ctx.db
-      .insert(blocks)
-      .values({
-        ...rest,
-        pageId: newPageId,
-        layoutId: newLayoutId,
-        content: newContent,
-        settings: newSettings,
-      })
-      .returning()
-      .get();
+    const inserted = yield* Effect.promise(() =>
+      ctx.db
+        .insert(blocks)
+        .values({
+          ...rest,
+          pageId: newPageId,
+          layoutId: newLayoutId,
+          content: newContent,
+          settings: newSettings,
+        })
+        .returning()
+        .get(),
+    );
     blocksMap.set(id, inserted.id);
   }
 
@@ -517,9 +548,9 @@ export async function replicateEnvironment(
     const { id, blockId, parentItemId, content, settings, ...rest } = row;
     const newBlockId = blocksMap.get(blockId);
     if (newBlockId === undefined) {
-      throw new ORPCError("INTERNAL_SERVER_ERROR", {
-        message: `Repeatable item ${id} references missing block ${blockId} during replication.`,
-      });
+      return yield* Effect.die(
+        new Error(`Repeatable item ${id} references missing block ${blockId} during replication.`),
+      );
     }
     const newParentItemId = parentItemId !== null ? (itemsMap.get(parentItemId) ?? null) : null;
     const newContent = remapContentReferences(content, filesMap, pagesMap);
@@ -527,17 +558,19 @@ export async function replicateEnvironment(
       settings !== null && settings !== undefined
         ? remapContentReferences(settings, filesMap, pagesMap)
         : settings;
-    const inserted = await ctx.db
-      .insert(repeatableItems)
-      .values({
-        ...rest,
-        blockId: newBlockId,
-        parentItemId: newParentItemId,
-        content: newContent,
-        settings: newSettings,
-      })
-      .returning()
-      .get();
+    const inserted = yield* Effect.promise(() =>
+      ctx.db
+        .insert(repeatableItems)
+        .values({
+          ...rest,
+          blockId: newBlockId,
+          parentItemId: newParentItemId,
+          content: newContent,
+          settings: newSettings,
+        })
+        .returning()
+        .get(),
+    );
     itemsMap.set(id, inserted.id);
   }
 
@@ -547,9 +580,7 @@ export async function replicateEnvironment(
     const blockId = row.blockId === null ? null : blocksMap.get(row.blockId);
     const itemId = row.itemId === null ? null : itemsMap.get(row.itemId);
     if (pageId === undefined) {
-      throw new ORPCError("INTERNAL_SERVER_ERROR", {
-        message: "Comment target could not be remapped",
-      });
+      return yield* Effect.die(new Error("Comment target could not be remapped"));
     }
     const available =
       row.target &&
@@ -562,15 +593,17 @@ export async function replicateEnvironment(
           ...("itemId" in row.target! ? { itemId: itemId! } : {}),
         }
       : null;
-    await ctx.db.insert(comments).values({
-      ...row,
-      id: crypto.randomUUID(),
-      environmentId: target.id,
-      pageId,
-      blockId: blockId ?? null,
-      itemId: itemId ?? null,
-      target: remappedTarget,
-    });
+    yield* Effect.promise(() =>
+      ctx.db.insert(comments).values({
+        ...row,
+        id: crypto.randomUUID(),
+        environmentId: target.id,
+        pageId,
+        blockId: blockId ?? null,
+        itemId: itemId ?? null,
+        target: remappedTarget,
+      }),
+    );
   }
 
   // Shared published values can outlive their original placement. Remap them
@@ -579,34 +612,36 @@ export async function replicateEnvironment(
     const shared = definition.syncedPublishedData;
     if (!shared) continue;
     const remapData = (value: unknown) => remapCheckpointContent(value, filesMap, pagesMap);
-    await ctx.db
-      .update(blockDefinitions)
-      .set({
-        syncedPublishedData: {
-          block: {
-            ...shared.block,
-            id: blocksMap.get(shared.block.id) ?? shared.block.id,
-            pageId: remapMaybeNullableId(shared.block.pageId, pagesMap),
-            layoutId: remapMaybeNullableId(shared.block.layoutId, layoutsMap),
-            content: remapData(shared.block.content),
-            settings: remapData(shared.block.settings),
+    yield* Effect.promise(() =>
+      ctx.db
+        .update(blockDefinitions)
+        .set({
+          syncedPublishedData: {
+            block: {
+              ...shared.block,
+              id: blocksMap.get(shared.block.id) ?? shared.block.id,
+              pageId: remapMaybeNullableId(shared.block.pageId, pagesMap),
+              layoutId: remapMaybeNullableId(shared.block.layoutId, layoutsMap),
+              content: remapData(shared.block.content),
+              settings: remapData(shared.block.settings),
+            },
+            items: shared.items.map((item) => ({
+              ...item,
+              id: itemsMap.get(item.id) ?? item.id,
+              blockId: blocksMap.get(item.blockId) ?? item.blockId,
+              parentItemId: remapNullableId(item.parentItemId, itemsMap),
+              content: remapData(item.content),
+              settings: remapData(item.settings),
+            })),
           },
-          items: shared.items.map((item) => ({
-            ...item,
-            id: itemsMap.get(item.id) ?? item.id,
-            blockId: blocksMap.get(item.blockId) ?? item.blockId,
-            parentItemId: remapNullableId(item.parentItemId, itemsMap),
-            content: remapData(item.content),
-            settings: remapData(item.settings),
-          })),
-        },
-      })
-      .where(
-        and(
-          eq(blockDefinitions.environmentId, target.id),
-          eq(blockDefinitions.blockId, definition.blockId),
+        })
+        .where(
+          and(
+            eq(blockDefinitions.environmentId, target.id),
+            eq(blockDefinitions.blockId, definition.blockId),
+          ),
         ),
-      );
+    );
   }
 
   const layoutCheckpointsMap = new Map<number, number>();
@@ -647,11 +682,13 @@ export async function replicateEnvironment(
       })),
     };
 
-    const inserted = await ctx.db
-      .insert(layoutCheckpoints)
-      .values({ ...rest, layoutId: newLayoutId, snapshot: JSON.stringify(remappedSnapshot) })
-      .returning()
-      .get();
+    const inserted = yield* Effect.promise(() =>
+      ctx.db
+        .insert(layoutCheckpoints)
+        .values({ ...rest, layoutId: newLayoutId, snapshot: JSON.stringify(remappedSnapshot) })
+        .returning()
+        .get(),
+    );
     layoutCheckpointsMap.set(id, inserted.id);
   }
 
@@ -695,11 +732,13 @@ export async function replicateEnvironment(
       })),
     };
 
-    const inserted = await ctx.db
-      .insert(pageCheckpoints)
-      .values({ ...rest, pageId: newPageId, snapshot: JSON.stringify(remappedSnapshot) })
-      .returning()
-      .get();
+    const inserted = yield* Effect.promise(() =>
+      ctx.db
+        .insert(pageCheckpoints)
+        .values({ ...rest, pageId: newPageId, snapshot: JSON.stringify(remappedSnapshot) })
+        .returning()
+        .get(),
+    );
     pageCheckpointsMap.set(id, inserted.id);
   }
 
@@ -708,10 +747,12 @@ export async function replicateEnvironment(
     const newLayoutId = layoutsMap.get(sourceLayout.id);
     const newCheckpointId = layoutCheckpointsMap.get(sourceLayout.livePublishedCheckpointId);
     if (newLayoutId === undefined || newCheckpointId === undefined) continue;
-    await ctx.db
-      .update(layouts)
-      .set({ livePublishedCheckpointId: newCheckpointId })
-      .where(eq(layouts.id, newLayoutId));
+    yield* Effect.promise(() =>
+      ctx.db
+        .update(layouts)
+        .set({ livePublishedCheckpointId: newCheckpointId })
+        .where(eq(layouts.id, newLayoutId)),
+    );
   }
 
   for (const sourcePage of sourcePages) {
@@ -719,10 +760,12 @@ export async function replicateEnvironment(
     const newPageId = pagesMap.get(sourcePage.id);
     const newCheckpointId = pageCheckpointsMap.get(sourcePage.livePublishedCheckpointId);
     if (newPageId === undefined || newCheckpointId === undefined) continue;
-    await ctx.db
-      .update(pages)
-      .set({ livePublishedCheckpointId: newCheckpointId })
-      .where(eq(pages.id, newPageId));
+    yield* Effect.promise(() =>
+      ctx.db
+        .update(pages)
+        .set({ livePublishedCheckpointId: newCheckpointId })
+        .where(eq(pages.id, newPageId)),
+    );
   }
 
   // Phase 5 — broadcast invalidation -----------------------------------------
@@ -760,4 +803,4 @@ export async function replicateEnvironment(
     },
     snapshotKey,
   };
-}
+});

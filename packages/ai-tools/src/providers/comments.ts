@@ -1,5 +1,5 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
+import { Effect } from "effect";
 
 import {
   listComments,
@@ -7,17 +7,24 @@ import {
   setCommentResolved,
   setCommentResolvedInput,
 } from "../../../../apps/api/src/domains/comments/service";
+import { NotFoundError } from "../../../../apps/api/src/lib/errors";
+import { runService } from "../../../../apps/api/src/lib/run-service";
 import { pages } from "../../../../apps/api/src/schema";
 import type { ToolDefinition, ToolProvider } from "../types";
 
-async function assertProjectPage(ctx: Parameters<ToolProvider>[0], pageId: number) {
-  const page = await ctx.db
-    .select({ id: pages.id })
-    .from(pages)
-    .where(and(eq(pages.id, pageId), eq(pages.projectId, ctx.projectId)))
-    .get();
-  if (!page) throw new ORPCError("NOT_FOUND");
-}
+const assertProjectPage = Effect.fn("assertProjectPage")(function* (
+  ctx: Parameters<ToolProvider>[0],
+  pageId: number,
+) {
+  const page = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.id, pageId), eq(pages.projectId, ctx.projectId)))
+      .get(),
+  );
+  if (!page) return yield* new NotFoundError();
+});
 
 const resolveInput = setCommentResolvedInput.omit({ resolved: true });
 
@@ -30,8 +37,9 @@ export const commentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = listCommentsInput.parse(input);
-      await assertProjectPage(ctx, parsed.pageId);
-      return listComments(ctx, parsed);
+      return runService(
+        assertProjectPage(ctx, parsed.pageId).pipe(Effect.andThen(listComments(ctx, parsed))),
+      );
     },
   },
   {
@@ -41,8 +49,11 @@ export const commentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = resolveInput.parse(input);
-      await assertProjectPage(ctx, parsed.pageId);
-      return setCommentResolved(ctx, { ...parsed, resolved: true });
+      return runService(
+        assertProjectPage(ctx, parsed.pageId).pipe(
+          Effect.andThen(setCommentResolved(ctx, { ...parsed, resolved: true })),
+        ),
+      );
     },
   },
 ];

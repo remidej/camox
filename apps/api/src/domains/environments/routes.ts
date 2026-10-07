@@ -1,3 +1,4 @@
+import { runService } from "../../lib/run-service";
 import { authed } from "../../orpc";
 import * as service from "./service";
 
@@ -5,11 +6,11 @@ import * as service from "./service";
 
 const checkCompatibility = authed
   .input(service.checkCompatibilityInput)
-  .handler(({ context, input }) => service.checkCompatibility(context, input));
+  .handler(({ context, input }) => runService(service.checkCompatibility(context, input)));
 
 const replicate = authed
   .input(service.replicateEnvironmentInput)
-  .handler(({ context, input }) => service.replicateEnvironment(context, input));
+  .handler(({ context, input }) => runService(service.replicateEnvironment(context, input)));
 
 export const environmentProcedures = {
   checkCompatibility,

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { z } from "zod";
 
 import { pageSourceSchema } from "../../../../apps/api/src/domains/_shared/page-source";
@@ -12,6 +13,7 @@ import {
   updateBlockPosition,
   updateBlockPositionInput,
 } from "../../../../apps/api/src/domains/blocks/service";
+import { runService } from "../../../../apps/api/src/lib/run-service";
 import type { ToolDefinition, ToolProvider } from "../types";
 
 const positionAliasSchema = z.enum(["first", "last"]).optional();
@@ -56,9 +58,9 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Defaults to reading the draft; pass `source: 'live'` to read the published snapshot.",
     inputSchema: getBlockToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => {
+    handler: async (input) => {
       const parsed = getBlockToolInput.parse(input);
-      return getBlock(ctx, { id: parsed.id, source: parsed.source ?? "draft" });
+      return runService(getBlock(ctx, { id: parsed.id, source: parsed.source ?? "draft" }));
     },
   },
   {
@@ -72,7 +74,11 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     handler: async (input) => {
       const parsed = getBlocksToolInput.parse(input);
       const source = parsed.source ?? "draft";
-      return Promise.all(parsed.ids.map((id) => getBlock(ctx, { id, source })));
+      return runService(
+        Effect.forEach(parsed.ids, (id) => getBlock(ctx, { id, source }), {
+          concurrency: "unbounded",
+        }),
+      );
     },
   },
   {
@@ -85,26 +91,30 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = createBlockToolInput.parse(input);
-      const resolved = await resolveBlockPosition(
-        ctx,
-        {
-          pageId: parsed.pageId,
-          afterPosition: parsed.afterPosition,
-          beforePosition: parsed.beforePosition,
-          afterId: parsed.afterId,
-          beforeId: parsed.beforeId,
-          position: parsed.position,
-        },
-        { mode: "create" },
+      return runService(
+        Effect.gen(function* () {
+          const resolved = yield* resolveBlockPosition(
+            ctx,
+            {
+              pageId: parsed.pageId,
+              afterPosition: parsed.afterPosition,
+              beforePosition: parsed.beforePosition,
+              afterId: parsed.afterId,
+              beforeId: parsed.beforeId,
+              position: parsed.position,
+            },
+            { mode: "create" },
+          );
+          return yield* createBlock(ctx, {
+            pageId: parsed.pageId,
+            type: parsed.type,
+            content: parsed.content,
+            settings: parsed.settings,
+            afterPosition: resolved.afterPosition,
+            beforePosition: resolved.beforePosition,
+          });
+        }),
       );
-      return createBlock(ctx, {
-        pageId: parsed.pageId,
-        type: parsed.type,
-        content: parsed.content,
-        settings: parsed.settings,
-        afterPosition: resolved.afterPosition,
-        beforePosition: resolved.beforePosition,
-      });
     },
   },
   {
@@ -115,7 +125,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Repeater arrays replace the field and must satisfy its minItems/maxItems; preserve existing items with _itemId.",
     inputSchema: editBlockToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => editBlock(ctx, editBlockToolInput.parse(input)),
+    handler: async (input) => runService(editBlock(ctx, editBlockToolInput.parse(input))),
   },
   {
     name: "moveBlock",
@@ -125,23 +135,27 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = moveBlockToolInput.parse(input);
-      const resolved = await resolveBlockPosition(
-        ctx,
-        {
-          blockId: parsed.id,
-          afterPosition: parsed.afterPosition,
-          beforePosition: parsed.beforePosition,
-          afterId: parsed.afterId,
-          beforeId: parsed.beforeId,
-          position: parsed.position,
-        },
-        { mode: "move" },
+      return runService(
+        Effect.gen(function* () {
+          const resolved = yield* resolveBlockPosition(
+            ctx,
+            {
+              blockId: parsed.id,
+              afterPosition: parsed.afterPosition,
+              beforePosition: parsed.beforePosition,
+              afterId: parsed.afterId,
+              beforeId: parsed.beforeId,
+              position: parsed.position,
+            },
+            { mode: "move" },
+          );
+          return yield* updateBlockPosition(ctx, {
+            id: parsed.id,
+            afterPosition: resolved.afterPosition,
+            beforePosition: resolved.beforePosition,
+          });
+        }),
       );
-      return updateBlockPosition(ctx, {
-        id: parsed.id,
-        afterPosition: resolved.afterPosition,
-        beforePosition: resolved.beforePosition,
-      });
     },
   },
   {
@@ -149,6 +163,6 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description: "Delete a block by id.",
     inputSchema: deleteBlockInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => deleteBlock(ctx, deleteBlockInput.parse(input)),
+    handler: async (input) => runService(deleteBlock(ctx, deleteBlockInput.parse(input))),
   },
 ];

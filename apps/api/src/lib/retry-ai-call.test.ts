@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { retryAiCall } from "./retry-ai-call";
@@ -16,11 +17,15 @@ describe("retryAiCall", () => {
 
   it("retries transient failures and resolves with the eventual result", async () => {
     let attempts = 0;
-    const result = retryAiCall("test", async () => {
-      attempts++;
-      if (attempts < 3) throw new Error("OpenRouter 503");
-      return "summary";
-    });
+    const result = Effect.runPromise(
+      retryAiCall("test", () =>
+        Effect.promise(async () => {
+          attempts++;
+          if (attempts < 3) throw new Error("OpenRouter 503");
+          return "summary";
+        }),
+      ),
+    );
 
     await vi.advanceTimersByTimeAsync(30_000);
 
@@ -30,10 +35,14 @@ describe("retryAiCall", () => {
 
   it("rejects after two retries", async () => {
     let attempts = 0;
-    const result = retryAiCall("test", async () => {
-      attempts++;
-      throw new Error("OpenRouter 503");
-    });
+    const result = Effect.runPromise(
+      retryAiCall("test", () =>
+        Effect.promise(async () => {
+          attempts++;
+          throw new Error("OpenRouter 503");
+        }),
+      ),
+    );
     const settled = result.catch((error: unknown) => error);
 
     await vi.advanceTimersByTimeAsync(30_000);
@@ -44,10 +53,12 @@ describe("retryAiCall", () => {
 
   it("aborts a hung attempt when it times out", async () => {
     const signals: AbortSignal[] = [];
-    const result = retryAiCall("test", (abortController) => {
-      signals.push(abortController.signal);
-      return new Promise<never>(() => {});
-    });
+    const result = Effect.runPromise(
+      retryAiCall("test", (abortController) => {
+        signals.push(abortController.signal);
+        return Effect.never;
+      }),
+    );
     const settled = result.catch((error: unknown) => error);
 
     await vi.advanceTimersByTimeAsync(5 * 60_000);

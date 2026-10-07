@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { environments, pages } from "../../schema";
 import { callTool } from "../agent/service";
 import { executePageSeo } from "./ai";
@@ -43,7 +44,7 @@ describe("page SEO updates", () => {
   it("resolves tool paths and rejects IDs outside the selected project or environment", async () => {
     const { db, ctx, page, project } = await fixture();
     const update = (arguments_: Record<string, unknown>, projectId = project.id, context = ctx) =>
-      callTool(context, { projectId, name: "updatePage", arguments: arguments_ });
+      runService(callTool(context, { projectId, name: "updatePage", arguments: arguments_ }));
     expect(await update({ path: "/about", metaTitle: "By path" })).toMatchObject({
       ok: true,
       result: { id: page.id, metaTitle: "By path", aiSeoEnabled: false },
@@ -78,31 +79,33 @@ describe("page SEO updates", () => {
         environmentName: devName,
       }),
     ).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
-    expect(await getPage(ctx, { id: page.id })).toMatchObject({
+    expect(await runService(getPage(ctx, { id: page.id }))).toMatchObject({
       metaTitle: "By path",
       metaDescription: "By ID",
     });
   });
   it("updates manual metadata atomically, preserves omitted fields and leaves live metadata unchanged", async () => {
     const { ctx, page } = await fixture();
-    await publishPage(ctx, { id: page.id });
-    const updated = await updatePage(ctx, { id: page.id, metaTitle: "Manual" });
+    await runService(publishPage(ctx, { id: page.id }));
+    const updated = await runService(updatePage(ctx, { id: page.id, metaTitle: "Manual" }));
     expect(updated).toMatchObject({
       metaTitle: "Manual",
       metaDescription: "Original description",
       aiSeoEnabled: false,
     });
-    expect(await getPage(ctx, { id: page.id, source: "live" })).toMatchObject({
+    expect(await runService(getPage(ctx, { id: page.id, source: "live" }))).toMatchObject({
       metaTitle: "Original",
       aiSeoEnabled: true,
     });
-    expect(await updatePage(ctx, { id: page.id, metaDescription: "" })).toMatchObject({
+    expect(await runService(updatePage(ctx, { id: page.id, metaDescription: "" }))).toMatchObject({
       metaTitle: "Manual",
       metaDescription: "",
       aiSeoEnabled: false,
     });
     expect(
-      await updatePage(ctx, { id: page.id, metaTitle: "Both", metaDescription: "Together" }),
+      await runService(
+        updatePage(ctx, { id: page.id, metaTitle: "Both", metaDescription: "Together" }),
+      ),
     ).toMatchObject({ metaTitle: "Both", metaDescription: "Together", aiSeoEnabled: false });
     expect(scheduleAiJob).not.toHaveBeenCalled();
   });
@@ -111,12 +114,12 @@ describe("page SEO updates", () => {
     const { ctx, page } = await fixture();
     const waitUntil = vi.fn();
     ctx.waitUntil = waitUntil;
-    expect(await updatePage(ctx, { id: page.id, aiSeoEnabled: false })).toMatchObject({
+    expect(await runService(updatePage(ctx, { id: page.id, aiSeoEnabled: false }))).toMatchObject({
       aiSeoEnabled: false,
       metaTitle: "Original",
     });
     expect(scheduleAiJob).not.toHaveBeenCalled();
-    expect(await updatePage(ctx, { id: page.id, aiSeoEnabled: true })).toMatchObject({
+    expect(await runService(updatePage(ctx, { id: page.id, aiSeoEnabled: true }))).toMatchObject({
       aiSeoEnabled: true,
       metaTitle: "Original",
     });
@@ -137,10 +140,12 @@ describe("page SEO updates", () => {
       { id: page.id, metaTitle: "", aiSeoEnabled: true },
       { id: page.id, metaDescription: "Manual", aiSeoEnabled: true },
     ]) {
-      await expect(updatePage(ctx, input)).rejects.toThrow();
+      await expect(runService(updatePage(ctx, input))).rejects.toThrow();
     }
     await expect(
-      updatePage(createServiceContext(db, outsiderUser), { id: page.id, metaTitle: "Forbidden" }),
+      runService(
+        updatePage(createServiceContext(db, outsiderUser), { id: page.id, metaTitle: "Forbidden" }),
+      ),
     ).rejects.toThrow();
     expect(await db.select().from(pages).where(eq(pages.id, page.id)).get()).toEqual(page);
   });
@@ -149,7 +154,7 @@ describe("page SEO updates", () => {
     const { db, page } = await fixture();
     await db.update(pages).set({ aiSeoEnabled }).where(eq(pages.id, page.id));
     chat.mockResolvedValue({ metaTitle: "Generated", metaDescription: "Generated description" });
-    await executePageSeo(db, "test-key", page.id);
+    await runService(executePageSeo(db, "test-key", page.id));
     expect(await db.select().from(pages).where(eq(pages.id, page.id)).get()).toMatchObject({
       metaTitle: "Generated",
     });
@@ -160,9 +165,12 @@ describe("page SEO updates", () => {
     async (change) => {
       const { db, ctx, page } = await fixture();
       chat.mockImplementationOnce(async () => {
-        if (change === "manual") await updatePage(ctx, { id: page.id, metaTitle: "Manual" });
-        if (change === "disable") await updatePage(ctx, { id: page.id, aiSeoEnabled: false });
-        if (change === "revision") await updatePage(ctx, { id: page.id, nickname: "Renamed" });
+        if (change === "manual")
+          await runService(updatePage(ctx, { id: page.id, metaTitle: "Manual" }));
+        if (change === "disable")
+          await runService(updatePage(ctx, { id: page.id, aiSeoEnabled: false }));
+        if (change === "revision")
+          await runService(updatePage(ctx, { id: page.id, nickname: "Renamed" }));
         if (change === "content")
           await db
             .update(pages)
@@ -170,7 +178,7 @@ describe("page SEO updates", () => {
             .where(eq(pages.id, page.id));
         return { metaTitle: "Stale generated title", metaDescription: "Stale description" };
       });
-      await executePageSeo(db, "test-key", page.id);
+      await runService(executePageSeo(db, "test-key", page.id));
       expect(chat).toHaveBeenCalledOnce();
       expect(await db.select().from(pages).where(eq(pages.id, page.id)).get()).toMatchObject({
         metaTitle: change === "manual" ? "Manual" : "Original",

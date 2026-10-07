@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { normalizeBlockContent } from "./normalize-content";
@@ -22,12 +23,14 @@ describe("normalizeBlockContent", () => {
       },
     };
 
-    const result = normalizeBlockContent(
-      {
-        hero: { _fileId: "42", url: "https://untrusted.example/image.png" },
-        sections: [{ title: "Section", cards: [{ title: "Card" }] }],
-      },
-      schema,
+    const result = Effect.runSync(
+      normalizeBlockContent(
+        {
+          hero: { _fileId: "42", url: "https://untrusted.example/image.png" },
+          sections: [{ title: "Section", cards: [{ title: "Card" }] }],
+        },
+        schema,
+      ),
     );
 
     expect(result.content).toEqual({ hero: { _fileId: 42 } });
@@ -46,13 +49,15 @@ describe("normalizeBlockContent", () => {
 
   it("rejects references to existing repeatable items during creation", () => {
     expect(() =>
-      normalizeBlockContent(
-        { sections: [{ _itemId: 12 }] },
-        {
-          properties: {
-            sections: { fieldType: "Repeater", items: { properties: {} } },
+      Effect.runSync(
+        normalizeBlockContent(
+          { sections: [{ _itemId: 12 }] },
+          {
+            properties: {
+              sections: { fieldType: "Repeater", items: { properties: {} } },
+            },
           },
-        },
+        ),
       ),
     ).toThrow(/_itemId/);
   });

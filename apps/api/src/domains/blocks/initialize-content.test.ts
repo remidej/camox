@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { initializeBlockContent } from "./initialize-content";
@@ -29,7 +30,9 @@ const schema = {
 };
 
 const initialize = (content: unknown, seedRepeaters = true) =>
-  normalizeBlockContent(initializeBlockContent(content, schema, seedRepeaters), schema);
+  Effect.runSync(
+    normalizeBlockContent(initializeBlockContent(content, schema, seedRepeaters), schema),
+  );
 
 describe("block creation defaults", () => {
   it.each([{}, undefined])("initializes omitted fields and nested repeater rows: %j", (content) => {

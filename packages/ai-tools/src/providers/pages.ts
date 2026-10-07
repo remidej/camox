@@ -1,4 +1,4 @@
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import { z } from "zod";
 
 import { pageSourceSchema } from "../../../../apps/api/src/domains/_shared/page-source";
@@ -22,7 +22,9 @@ import {
   updatePage,
   updatePageInput,
 } from "../../../../apps/api/src/domains/pages/service";
+import { NotFoundError } from "../../../../apps/api/src/lib/errors";
 import { resolveEnvironment } from "../../../../apps/api/src/lib/resolve-environment";
+import { runService } from "../../../../apps/api/src/lib/run-service";
 import type { ToolDefinition, ToolProvider } from "../types";
 
 const listPagesToolInput = z.object({});
@@ -61,20 +63,21 @@ const publishPageToolInput = pageMutationTargetInput.and(
   }),
 );
 
-async function resolvePageTargetId(
+const resolvePageTargetId = Effect.fn("resolvePageTargetId")(function* (
   ctx: Parameters<ToolProvider>[0],
   target: z.infer<typeof pageMutationTargetInput>,
-): Promise<number> {
+) {
   if (target.id != null) return target.id;
-  if (target.path == null) throw new Error("Pass exactly one of `id` or `path`.");
+  if (target.path == null)
+    return yield* Effect.die(new Error("Pass exactly one of `id` or `path`."));
 
-  const page = await getPage(ctx, {
+  const page = yield* getPage(ctx, {
     projectId: ctx.projectId,
     path: target.path,
     source: "draft",
   });
   return page.id;
-}
+});
 
 export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -82,7 +85,7 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description: "List all pages in the current project.",
     inputSchema: listPagesToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
-    handler: () => listPages(ctx, { projectId: ctx.projectId }),
+    handler: async () => runService(listPages(ctx, { projectId: ctx.projectId })),
   },
   {
     name: "getPage",
@@ -94,12 +97,18 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     handler: async (input) => {
       const parsed = getPageToolInput.parse(input);
       const source = parsed.source ?? "draft";
-      const page =
-        "id" in parsed
-          ? await getPage(ctx, { id: parsed.id, source })
-          : await getPage(ctx, { projectId: ctx.projectId, path: parsed.path, source });
-      const { blocks } = await getPageMarkdown(ctx, { pageId: page.id, source });
-      return { page, blocks };
+      return runService(
+        Effect.gen(function* () {
+          const page = yield* getPage(
+            ctx,
+            "id" in parsed
+              ? { id: parsed.id, source }
+              : { projectId: ctx.projectId, path: parsed.path, source },
+          );
+          const { blocks } = yield* getPageMarkdown(ctx, { pageId: page.id, source });
+          return { page, blocks };
+        }),
+      );
     },
   },
   {
@@ -109,9 +118,9 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "`nickname` is the short internal Studio name for the page. The page starts empty; create blocks explicitly after creating it.",
     inputSchema: createPageToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => {
+    handler: async (input) => {
       const data = createPageToolInput.parse(input);
-      return createPage(ctx, { ...data, projectId: ctx.projectId });
+      return runService(createPage(ctx, { ...data, projectId: ctx.projectId }));
     },
   },
   {
@@ -122,13 +131,17 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = updatePageToolInput.parse(input);
-      const id = await resolvePageTargetId(ctx, parsed);
-      const page = await getPage(ctx, { id, source: "draft" });
-      const environment = await resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
-      if (page.projectId !== ctx.projectId || page.environmentId !== environment.id) {
-        throw new ORPCError("NOT_FOUND");
-      }
-      return updatePage(ctx, { ...parsed, id });
+      return runService(
+        Effect.gen(function* () {
+          const id = yield* resolvePageTargetId(ctx, parsed);
+          const page = yield* getPage(ctx, { id, source: "draft" });
+          const environment = yield* resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
+          if (page.projectId !== ctx.projectId || page.environmentId !== environment.id) {
+            return yield* new NotFoundError();
+          }
+          return yield* updatePage(ctx, { ...parsed, id });
+        }),
+      );
     },
   },
   {
@@ -136,28 +149,29 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description: "Change a page's layout. Use listLayouts to discover layout ids.",
     inputSchema: setPageLayoutInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => setPageLayout(ctx, setPageLayoutInput.parse(input)),
+    handler: async (input) => runService(setPageLayout(ctx, setPageLayoutInput.parse(input))),
   },
   {
     name: "setPageMetaTitle",
     description: "Set a page's SEO meta title.",
     inputSchema: setPageMetaTitleInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => setPageMetaTitle(ctx, setPageMetaTitleInput.parse(input)),
+    handler: async (input) => runService(setPageMetaTitle(ctx, setPageMetaTitleInput.parse(input))),
   },
   {
     name: "setPageMetaDescription",
     description: "Set a page's SEO meta description.",
     inputSchema: setPageMetaDescriptionInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: (input) => setPageMetaDescription(ctx, setPageMetaDescriptionInput.parse(input)),
+    handler: async (input) =>
+      runService(setPageMetaDescription(ctx, setPageMetaDescriptionInput.parse(input))),
   },
   {
     name: "deletePage",
     description: "Delete a page by id. The blocks on the page are deleted as well.",
     inputSchema: deletePageInput,
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
-    handler: (input) => deletePage(ctx, deletePageInput.parse(input)),
+    handler: async (input) => runService(deletePage(ctx, deletePageInput.parse(input))),
   },
   {
     name: "publishPage",
@@ -168,8 +182,13 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = publishPageToolInput.parse(input);
-      const id = await resolvePageTargetId(ctx, parsed);
-      return publishPage(ctx, { id, alsoPublishLayout: parsed.alsoPublishLayout });
+      return runService(
+        resolvePageTargetId(ctx, parsed).pipe(
+          Effect.flatMap((id) =>
+            publishPage(ctx, { id, alsoPublishLayout: parsed.alsoPublishLayout }),
+          ),
+        ),
+      );
     },
   },
   {
@@ -181,8 +200,9 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = pageMutationTargetInput.parse(input);
-      const id = await resolvePageTargetId(ctx, parsed);
-      return unpublishPage(ctx, { id });
+      return runService(
+        resolvePageTargetId(ctx, parsed).pipe(Effect.flatMap((id) => unpublishPage(ctx, { id }))),
+      );
     },
   },
   {
@@ -194,8 +214,11 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = pageMutationTargetInput.parse(input);
-      const id = await resolvePageTargetId(ctx, parsed);
-      return discardPageChanges(ctx, { id });
+      return runService(
+        resolvePageTargetId(ctx, parsed).pipe(
+          Effect.flatMap((id) => discardPageChanges(ctx, { id })),
+        ),
+      );
     },
   },
 ];

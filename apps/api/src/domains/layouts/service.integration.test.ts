@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { blocks, environments, files, layouts, pages, repeatableItems } from "../../schema";
 import { callTool } from "../agent/service";
 import { getLayout, publishLayout, unpublishLayout } from "./service";
@@ -82,12 +83,14 @@ describe("standalone shared layout reads", () => {
     const input = { projectSlug: project.slug, layoutId: layout.layoutId };
     const publicCtx = createServiceContext(db, null);
     const readTool = (source?: "draft" | "live") =>
-      callTool(ctx, {
-        projectId: project.id,
-        name: "getLayout",
-        arguments: { id: layout.id, ...(source ? { source } : {}) },
-      });
-    expect((await getLayout(publicCtx, input)).blocks).toEqual([]);
+      runService(
+        callTool(ctx, {
+          projectId: project.id,
+          name: "getLayout",
+          arguments: { id: layout.id, ...(source ? { source } : {}) },
+        }),
+      );
+    expect((await runService(getLayout(publicCtx, input))).blocks).toEqual([]);
     expect(await readTool("live")).toMatchObject({
       ok: true,
       result: {
@@ -97,14 +100,14 @@ describe("standalone shared layout reads", () => {
         files: [],
       },
     });
-    await publishLayout(ctx, { id: layout.id });
+    await runService(publishLayout(ctx, { id: layout.id }));
     await db
       .update(blocks)
       .set({ content: { title: "Draft navigation" } })
       .where(eq(blocks.id, navbar.id));
 
-    const live = await getLayout(publicCtx, input);
-    const draft = await getLayout(ctx, { ...input, source: "draft" });
+    const live = await runService(getLayout(publicCtx, input));
+    const draft = await runService(getLayout(ctx, { ...input, source: "draft" }));
     expect(await readTool()).toEqual({ ok: true, result: draft });
     expect(await readTool("draft")).toEqual({ ok: true, result: draft });
     expect(await readTool("live")).toEqual({ ok: true, result: live });
@@ -132,10 +135,12 @@ describe("standalone shared layout reads", () => {
     expect(live.files.map((file) => file.id)).toEqual([file.id]);
     expect(await db.select().from(pages)).toEqual([]);
 
-    await unpublishLayout(ctx, { id: layout.id });
-    expect((await getLayout(publicCtx, input)).blocks).toEqual([]);
+    await runService(unpublishLayout(ctx, { id: layout.id }));
+    expect((await runService(getLayout(publicCtx, input))).blocks).toEqual([]);
     expect(await readTool("live")).toMatchObject({ ok: true, result: { blocks: [] } });
-    expect((await getLayout(ctx, { ...input, source: "draft" })).blocks).toHaveLength(2);
+    expect((await runService(getLayout(ctx, { ...input, source: "draft" }))).blocks).toHaveLength(
+      2,
+    );
   });
 
   it("scopes numeric tool IDs to the selected project and environment for both sources", async () => {
@@ -167,9 +172,11 @@ describe("standalone shared layout reads", () => {
       .returning()
       .get();
     const read = (id: unknown, source: string, environmentName = ctx.environmentName) =>
-      callTool(
-        { ...ctx, environmentName },
-        { projectId: project.id, name: "getLayout", arguments: { id, source } },
+      runService(
+        callTool(
+          { ...ctx, environmentName },
+          { projectId: project.id, name: "getLayout", arguments: { id, source } },
+        ),
       );
     for (const source of ["draft", "live"]) {
       for (const id of [999999, other.layout.id, devLayout.id]) {
@@ -205,20 +212,30 @@ describe("standalone shared layout reads", () => {
       layoutId: layout.layoutId,
       source: "draft" as const,
     };
-    await expect(getLayout(createServiceContext(db, null), input)).rejects.toMatchObject({
+    await expect(
+      runService(getLayout(createServiceContext(db, null), input)),
+    ).rejects.toMatchObject({
       status: 401,
     });
-    await expect(getLayout(createServiceContext(db, outsiderUser), input)).rejects.toMatchObject({
+    await expect(
+      runService(getLayout(createServiceContext(db, outsiderUser), input)),
+    ).rejects.toMatchObject({
       status: 403,
     });
     const ctx = createServiceContext(db, memberUser);
-    await expect(getLayout(ctx, { ...input, layoutId: "missing" })).rejects.toMatchObject({
+    await expect(
+      runService(getLayout(ctx, { ...input, layoutId: "missing" })),
+    ).rejects.toMatchObject({
       status: 404,
     });
-    await expect(getLayout({ ...ctx, environmentName: "missing" }, input)).rejects.toMatchObject({
+    await expect(
+      runService(getLayout({ ...ctx, environmentName: "missing" }, input)),
+    ).rejects.toMatchObject({
       status: 404,
     });
-    await expect(getLayout(ctx, { ...input, projectSlug: "missing" })).rejects.toMatchObject({
+    await expect(
+      runService(getLayout(ctx, { ...input, projectSlug: "missing" })),
+    ).rejects.toMatchObject({
       status: 404,
     });
   });

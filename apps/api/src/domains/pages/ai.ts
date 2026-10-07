@@ -1,6 +1,7 @@
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
 
@@ -41,7 +42,7 @@ function stripNonSeoFields(obj: Record<string, unknown>): Record<string, unknown
   return result;
 }
 
-async function generatePageSeoFromAi(
+const generatePageSeoFromAi = Effect.fn("generatePageSeoFromAi")(function* (
   apiKey: string,
   options: {
     fullPath: string;
@@ -67,17 +68,18 @@ async function generatePageSeoFromAi(
     `
       : "";
 
-  return await chat({
-    adapter: createOpenRouterText("google/gemini-3-flash-preview", apiKey),
-    abortController,
-    outputSchema: z.object({
-      metaTitle: z.string(),
-      metaDescription: z.string(),
-    }),
-    messages: [
-      {
-        role: "user",
-        content: outdent`
+  return yield* Effect.promise(() =>
+    chat({
+      adapter: createOpenRouterText("google/gemini-3-flash-preview", apiKey),
+      abortController,
+      outputSchema: z.object({
+        metaTitle: z.string(),
+        metaDescription: z.string(),
+      }),
+      messages: [
+        {
+          role: "user",
+          content: outdent`
           <instruction>
             Generate SEO metadata for a web page.
           </instruction>
@@ -95,27 +97,31 @@ async function generatePageSeoFromAi(
           </page>
           ${stabilityBlock}
         `,
-      },
-    ],
-  });
-}
+        },
+      ],
+    }),
+  );
+});
 
-export async function executePageSeo(
+export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   db: Database,
   apiKey: string,
   pageId: number,
   abortController?: AbortController,
 ) {
-  const page = await db.select().from(pages).where(eq(pages.id, pageId)).get();
+  const page = yield* Effect.promise(() =>
+    db.select().from(pages).where(eq(pages.id, pageId)).get(),
+  );
   if (!page || page.aiSeoEnabled === false) return;
 
-  const pageBlocks = await db.select().from(blocks).where(eq(blocks.pageId, pageId));
+  const pageBlocks = yield* Effect.promise(() =>
+    db.select().from(blocks).where(eq(blocks.pageId, pageId)),
+  );
   const sorted = pageBlocks.sort((a, b) => comparePositions(a.position, b.position));
 
-  const defs = await db
-    .select()
-    .from(blockDefinitions)
-    .where(eq(blockDefinitions.projectId, page.projectId));
+  const defs = yield* Effect.promise(() =>
+    db.select().from(blockDefinitions).where(eq(blockDefinitions.projectId, page.projectId)),
+  );
   const contentSchemaByType = new Map<string, any>();
   const fieldOrderByType = new Map<string, string[]>();
   for (const def of defs) {
@@ -130,7 +136,9 @@ export async function executePageSeo(
   const allItems =
     blockIds.length > 0
       ? sortByPosition(
-          await db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
+          yield* Effect.promise(() =>
+            db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
+          ),
         )
       : [];
 
@@ -166,7 +174,7 @@ export async function executePageSeo(
     };
   });
 
-  const seo = await generatePageSeoFromAi(
+  const seo = yield* generatePageSeoFromAi(
     apiKey,
     {
       fullPath: page.fullPath,
@@ -177,26 +185,28 @@ export async function executePageSeo(
     abortController,
   );
 
-  await db
-    .update(pages)
-    .set({
-      metaTitle: seo.metaTitle,
-      metaDescription: seo.metaDescription,
-      updatedAt: Date.now(),
-    })
-    // Generation can outlive a manual edit or a content change. NULL means
-    // automatic SEO is enabled by default, just as in the initial check.
-    .where(
-      and(
-        eq(pages.id, pageId),
-        sql`${pages.aiSeoEnabled} is not false`,
-        eq(pages.updatedAt, page.updatedAt),
-        eq(pages.contentUpdatedAt, page.contentUpdatedAt),
-        sql`${pages.metaTitle} is ${page.metaTitle}`,
-        sql`${pages.metaDescription} is ${page.metaDescription}`,
+  yield* Effect.promise(() =>
+    db
+      .update(pages)
+      .set({
+        metaTitle: seo.metaTitle,
+        metaDescription: seo.metaDescription,
+        updatedAt: Date.now(),
+      })
+      // Generation can outlive a manual edit or a content change. NULL means
+      // automatic SEO is enabled by default, just as in the initial check.
+      .where(
+        and(
+          eq(pages.id, pageId),
+          sql`${pages.aiSeoEnabled} is not false`,
+          eq(pages.updatedAt, page.updatedAt),
+          eq(pages.contentUpdatedAt, page.contentUpdatedAt),
+          sql`${pages.metaTitle} is ${page.metaTitle}`,
+          sql`${pages.metaDescription} is ${page.metaDescription}`,
+        ),
       ),
-    );
-}
+  );
+});
 
 // --- Content Assembly Helpers ---
 
@@ -262,11 +272,16 @@ export function nestChildItems(
   }
 }
 
-export async function buildFileMap(db: Database, fileIds: Set<number>) {
-  if (fileIds.size === 0) return new Map();
-  const rows = await db
-    .select()
-    .from(files)
-    .where(inArray(files.id, [...fileIds]));
+export const buildFileMap = Effect.fn("pages.buildFileMap")(function* (
+  db: Database,
+  fileIds: Set<number>,
+) {
+  if (fileIds.size === 0) return new Map<number, typeof files.$inferSelect>();
+  const rows = yield* Effect.promise(() =>
+    db
+      .select()
+      .from(files)
+      .where(inArray(files.id, [...fileIds])),
+  );
   return new Map(rows.map((f) => [f.id, f]));
-}
+});

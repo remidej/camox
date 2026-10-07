@@ -1,6 +1,7 @@
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 
+import { InvalidInputError } from "../../lib/errors";
 import { normalizeFieldValue } from "./asset-value";
 import { validateContent } from "./validate-content";
 
@@ -31,36 +32,42 @@ export type FieldSchema = {
 };
 
 /** Explicit seeds carry their parent relationships separately from their content. */
-export function validateItemSeeds(
+export const validateItemSeeds = Effect.fn("validateItemSeeds")(function* (
   seeds: BlockItemSeed[],
   rootProperties: SchemaProps | undefined,
   path = "repeatableItems",
   rootSchema: unknown = { properties: rootProperties },
-): void {
+) {
   // Persistence inserts in array order. Reject ambiguous ancestry rather than
   // validating against a different schema from the one the inserted row uses.
   const schemas = new Map<string, SchemaProps | undefined>();
   for (const [index, seed] of seeds.entries()) {
-    if (!seed.tempId) badRequest("Repeater seed tempId must not be empty", path);
-    if (schemas.has(seed.tempId)) badRequest("Duplicate repeater seed tempId", path);
+    if (!seed.tempId) return yield* badRequest("Repeater seed tempId must not be empty", path);
+    if (schemas.has(seed.tempId)) return yield* badRequest("Duplicate repeater seed tempId", path);
     if (seed.parentTempId !== null && !schemas.has(seed.parentTempId)) {
-      badRequest("Repeater seed parent must precede its child", path);
+      return yield* badRequest("Repeater seed parent must precede its child", path);
     }
     const parentProperties =
       seed.parentTempId === null ? rootProperties : schemas.get(seed.parentTempId);
     const fieldSchema = parentProperties?.[seed.fieldName];
     if (fieldSchema && fieldSchema.fieldType !== "Repeater") {
-      badRequest(`Field "${seed.fieldName}" is not a repeater`, `${path}[${index}].fieldName`);
+      return yield* badRequest(
+        `Field "${seed.fieldName}" is not a repeater`,
+        `${path}[${index}].fieldName`,
+      );
     }
     const schema = fieldSchema?.items;
     const properties = schema?.properties;
     schemas.set(seed.tempId, properties);
-    validateContent(seed.content, schema, { path: `${path}[${index}].content`, rootSchema });
+    yield* validateContent(seed.content, schema, {
+      path: `${path}[${index}].content`,
+      rootSchema,
+    });
   }
-}
+});
 
-function badRequest(message: string, field: string): never {
-  throw new ORPCError("BAD_REQUEST", { message, data: { field } });
+function badRequest(message: string, field: string) {
+  return new InvalidInputError({ message, data: { field } });
 }
 
 /**
@@ -74,24 +81,24 @@ function badRequest(message: string, field: string): never {
  * existing seed-insertion loop in createBlock can resolve `parentTempId` via
  * `tempIdToRealId`.
  */
-export function normalizeBlockContent(
+export const normalizeBlockContent = Effect.fn("normalizeBlockContent")(function* (
   rawContent: unknown,
   contentSchema: unknown,
   rootSchema: unknown = contentSchema,
-): { content: Record<string, unknown>; seeds: BlockItemSeed[] } {
+) {
   const schemaProps = (contentSchema as { properties?: SchemaProps } | null)?.properties;
-  validateContent(rawContent, contentSchema, { rootSchema });
+  yield* validateContent(rawContent, contentSchema, { rootSchema });
   const ctx = { counter: { v: 0 }, seeds: [] as BlockItemSeed[] };
-  const content = walk(rawContent, schemaProps, null, ctx);
+  const content = yield* walk(rawContent, schemaProps, null, ctx);
   return { content, seeds: ctx.seeds };
-}
+});
 
-function walk(
+const walk = Effect.fn("walk")(function* (
   rawContent: unknown,
   schemaProps: SchemaProps | undefined,
   parentTempId: string | null,
   ctx: { counter: { v: number }; seeds: BlockItemSeed[] },
-): Record<string, unknown> {
+): Effect.fn.Return<Record<string, unknown>, InvalidInputError> {
   if (rawContent == null || typeof rawContent !== "object" || Array.isArray(rawContent)) {
     return {};
   }
@@ -101,16 +108,16 @@ function walk(
     if (fieldSchema?.fieldType === "Repeater") {
       if (value == null) continue;
       if (!Array.isArray(value)) {
-        badRequest(`Field "${key}" is repeatable; expected an array`, key);
+        return yield* badRequest(`Field "${key}" is repeatable; expected an array`, key);
       }
       const itemSchemaProps = fieldSchema.items?.properties;
       let prevPos: string | null = null;
       for (const element of value) {
         if (element == null || typeof element !== "object" || Array.isArray(element)) {
-          badRequest(`Field "${key}" element must be an object`, key);
+          return yield* badRequest(`Field "${key}" element must be an object`, key);
         }
         if ("_itemId" in (element as object)) {
-          badRequest(
+          return yield* badRequest(
             `Field "${key}" contains an _itemId marker; cannot reference existing items during create`,
             key,
           );
@@ -126,7 +133,7 @@ function walk(
           position,
         };
         ctx.seeds.push(seed);
-        seed.content = walk(element, itemSchemaProps, tempId, ctx);
+        seed.content = yield* walk(element, itemSchemaProps, tempId, ctx);
         prevPos = position;
       }
       continue;
@@ -134,7 +141,7 @@ function walk(
     out[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
   }
   return out;
-}
+});
 
 /**
  * Slim variant of `walk` for repeatable-item content writes. Item content
@@ -142,14 +149,14 @@ function walk(
  * here belong to grandchild rows that already exist independently — drop
  * them silently rather than re-seeding. Image/File leaks are sanitized.
  */
-export function sanitizeItemContent(
+export const sanitizeItemContent = Effect.fn("sanitizeItemContent")(function* (
   rawContent: unknown,
   itemSchemaProps: SchemaProps | undefined,
   rootSchema: unknown = { properties: itemSchemaProps },
-): Record<string, unknown> {
-  validateContent(rawContent, { properties: itemSchemaProps }, { rootSchema });
+) {
+  yield* validateContent(rawContent, { properties: itemSchemaProps }, { rootSchema });
   if (rawContent == null || typeof rawContent !== "object" || Array.isArray(rawContent)) {
-    return {};
+    return {} as Record<string, unknown>;
   }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawContent as Record<string, unknown>)) {
@@ -158,4 +165,4 @@ export function sanitizeItemContent(
     out[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
   }
   return out;
-}
+});

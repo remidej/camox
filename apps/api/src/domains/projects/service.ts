@@ -1,9 +1,15 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, or } from "drizzle-orm";
+import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 
-import { assertOrgMembership, assertSyncAccess, getAuthorizedProject } from "../../authorization";
+import {
+  assertOrgMembership,
+  assertSyncAccess,
+  getAuthorizedProject,
+  requireUser,
+} from "../../authorization";
+import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
@@ -72,190 +78,198 @@ export const initializeProjectContentInput = z.object({
   ),
 });
 
-function assertUser(ctx: ServiceContext) {
-  if (!ctx.user) throw new ORPCError("UNAUTHORIZED");
-  return ctx.user;
-}
-
 // --- Reads ---
 
-export async function listProjects(
+export const listProjects = Effect.fn("projects.listProjects")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listProjectsInput>,
 ) {
-  const user = assertUser(ctx);
-  const { organizationId } = listProjectsInput.parse(rawInput);
-  await assertOrgMembership(ctx.db, user.id, organizationId);
-  return ctx.db.select().from(projects).where(eq(projects.organizationId, organizationId));
-}
+  const user = yield* requireUser(ctx);
+  const { organizationId } = yield* decodeInput(listProjectsInput, rawInput);
+  yield* assertOrgMembership(ctx.db, user.id, organizationId);
+  return yield* Effect.promise(() =>
+    ctx.db.select().from(projects).where(eq(projects.organizationId, organizationId)),
+  );
+});
 
-export async function getFirstProject(
+export const getFirstProject = Effect.fn("projects.getFirstProject")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getFirstProjectInput>,
 ) {
-  const user = assertUser(ctx);
-  const { organizationId } = getFirstProjectInput.parse(rawInput);
-  await assertOrgMembership(ctx.db, user.id, organizationId);
-  const result = await ctx.db
-    .select()
-    .from(projects)
-    .where(eq(projects.organizationId, organizationId))
-    .limit(1)
-    .get();
-  if (!result) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { organizationId } = yield* decodeInput(getFirstProjectInput, rawInput);
+  yield* assertOrgMembership(ctx.db, user.id, organizationId);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(projects)
+      .where(eq(projects.organizationId, organizationId))
+      .limit(1)
+      .get(),
+  );
+  if (!result) return yield* new NotFoundError();
   return result;
-}
+});
 
-export async function getProjectBySlug(
+export const getProjectBySlug = Effect.fn("projects.getProjectBySlug")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getProjectBySlugInput>,
 ) {
-  const user = assertUser(ctx);
-  const { slug } = getProjectBySlugInput.parse(rawInput);
-  const result = await ctx.db
-    .select({
-      project: projects,
-      organizationSlug: organizationTable.slug,
-    })
-    .from(projects)
-    .innerJoin(organizationTable, eq(organizationTable.id, projects.organizationId))
-    .where(eq(projects.slug, slug))
-    .get();
-  if (!result) throw new ORPCError("NOT_FOUND");
-  await assertOrgMembership(ctx.db, user.id, result.project.organizationId);
+  const user = yield* requireUser(ctx);
+  const { slug } = yield* decodeInput(getProjectBySlugInput, rawInput);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .select({
+        project: projects,
+        organizationSlug: organizationTable.slug,
+      })
+      .from(projects)
+      .innerJoin(organizationTable, eq(organizationTable.id, projects.organizationId))
+      .where(eq(projects.slug, slug))
+      .get(),
+  );
+  if (!result) return yield* new NotFoundError();
+  yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
   return { ...result.project, organizationSlug: result.organizationSlug };
-}
+});
 
-export async function getProject(ctx: ServiceContext, rawInput: z.input<typeof getProjectInput>) {
-  const user = assertUser(ctx);
-  const { id } = getProjectInput.parse(rawInput);
-  const result = await ctx.db
-    .select({
-      project: projects,
-      organizationSlug: organizationTable.slug,
-    })
-    .from(projects)
-    .innerJoin(organizationTable, eq(organizationTable.id, projects.organizationId))
-    .where(eq(projects.id, id))
-    .get();
-  if (!result) throw new ORPCError("NOT_FOUND");
-  await assertOrgMembership(ctx.db, user.id, result.project.organizationId);
-  return { ...result.project, organizationSlug: result.organizationSlug };
-}
-
-export async function checkProjectSlugAvailability(
+export const getProject = Effect.fn("projects.getProject")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof checkProjectSlugAvailabilityInput>,
+  rawInput: z.input<typeof getProjectInput>,
 ) {
-  assertUser(ctx);
-  const { slug } = checkProjectSlugAvailabilityInput.parse(rawInput);
-  const existing = await ctx.db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.slug, slug))
-    .get();
-  return { available: !existing };
-}
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(getProjectInput, rawInput);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .select({
+        project: projects,
+        organizationSlug: organizationTable.slug,
+      })
+      .from(projects)
+      .innerJoin(organizationTable, eq(organizationTable.id, projects.organizationId))
+      .where(eq(projects.id, id))
+      .get(),
+  );
+  if (!result) return yield* new NotFoundError();
+  yield* assertOrgMembership(ctx.db, user.id, result.project.organizationId);
+  return { ...result.project, organizationSlug: result.organizationSlug };
+});
+
+export const checkProjectSlugAvailability = Effect.fn("projects.checkProjectSlugAvailability")(
+  function* (ctx: ServiceContext, rawInput: z.input<typeof checkProjectSlugAvailabilityInput>) {
+    yield* requireUser(ctx);
+    const { slug } = yield* decodeInput(checkProjectSlugAvailabilityInput, rawInput);
+    const existing = yield* Effect.promise(() =>
+      ctx.db.select({ id: projects.id }).from(projects).where(eq(projects.slug, slug)).get(),
+    );
+    return { available: !existing };
+  },
+);
 
 // --- Writes ---
 
-export async function createProject(
+export const createProject = Effect.fn("projects.createProject")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createProjectInput>,
 ) {
-  const user = assertUser(ctx);
-  const input = createProjectInput.parse(rawInput);
-  await assertOrgMembership(ctx.db, user.id, input.organizationId);
+  const user = yield* requireUser(ctx);
+  const input = yield* decodeInput(createProjectInput, rawInput);
+  yield* assertOrgMembership(ctx.db, user.id, input.organizationId);
 
   // Race condition guard: check slug uniqueness at insert time
-  const existing = await ctx.db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.slug, input.slug))
-    .get();
+  const existing = yield* Effect.promise(() =>
+    ctx.db.select({ id: projects.id }).from(projects).where(eq(projects.slug, input.slug)).get(),
+  );
   if (existing) {
-    throw new ORPCError("CONFLICT", { message: "Slug is already taken" });
+    return yield* new ConflictError({ message: "Slug is already taken" });
   }
 
   const deployToken = crypto.randomUUID();
   const now = Date.now();
 
-  const result = await ctx.db
-    .insert(projects)
-    .values({
-      name: input.name,
-      slug: input.slug,
-      deployToken,
-      organizationId: input.organizationId,
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .insert(projects)
+      .values({
+        name: input.name,
+        slug: input.slug,
+        deployToken,
+        organizationId: input.organizationId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get(),
+  );
+
+  yield* Effect.promise(() =>
+    ctx.db.insert(environments).values({
+      projectId: result.id,
+      name: "production",
+      type: "production",
       createdAt: now,
       updatedAt: now,
-    })
-    .returning()
-    .get();
-
-  await ctx.db.insert(environments).values({
-    projectId: result.id,
-    name: "production",
-    type: "production",
-    createdAt: now,
-    updatedAt: now,
-  });
+    }),
+  );
 
   return result;
-}
+});
 
-export async function updateProject(
+export const updateProject = Effect.fn("projects.updateProject")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateProjectInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id, ...body } = updateProjectInput.parse(rawInput);
-  const project = await getAuthorizedProject(ctx.db, id, user.id);
-  if (!project) throw new ORPCError("NOT_FOUND");
-  const result = await ctx.db
-    .update(projects)
-    .set({ ...body, updatedAt: Date.now() })
-    .where(eq(projects.id, id))
-    .returning()
-    .get();
+  const user = yield* requireUser(ctx);
+  const { id, ...body } = yield* decodeInput(updateProjectInput, rawInput);
+  yield* getAuthorizedProject(ctx.db, id, user.id);
+  const result = yield* Effect.promise(() =>
+    ctx.db
+      .update(projects)
+      .set({ ...body, updatedAt: Date.now() })
+      .where(eq(projects.id, id))
+      .returning()
+      .get(),
+  );
   return result;
-}
+});
 
-export async function deleteProject(
+export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteProjectInput>,
 ) {
-  const user = assertUser(ctx);
-  const { id } = deleteProjectInput.parse(rawInput);
-  const project = await getAuthorizedProject(ctx.db, id, user.id);
-  if (!project) throw new ORPCError("NOT_FOUND");
+  const user = yield* requireUser(ctx);
+  const { id } = yield* decodeInput(deleteProjectInput, rawInput);
+  const project = yield* getAuthorizedProject(ctx.db, id, user.id);
 
   const projectId = project.id;
 
-  const collection = await ctx.db
-    .select({ id: collectionRecords.id })
-    .from(collectionRecords)
-    .innerJoin(collectionDefinitions, eq(collectionRecords.definitionId, collectionDefinitions.id))
-    .where(eq(collectionDefinitions.projectId, projectId))
-    .get();
+  const collection = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: collectionRecords.id })
+      .from(collectionRecords)
+      .innerJoin(
+        collectionDefinitions,
+        eq(collectionRecords.definitionId, collectionDefinitions.id),
+      )
+      .where(eq(collectionDefinitions.projectId, projectId))
+      .get(),
+  );
   if (collection) {
-    throw new ORPCError("CONFLICT", {
+    return yield* new ConflictError({
       message:
         "Deleting projects with collection history is not supported yet; no content was changed.",
     });
   }
 
   // Collect IDs needed for cascade deletion
-  const pageRows = await ctx.db
-    .select({ id: pages.id })
-    .from(pages)
-    .where(eq(pages.projectId, projectId));
+  const pageRows = yield* Effect.promise(() =>
+    ctx.db.select({ id: pages.id }).from(pages).where(eq(pages.projectId, projectId)),
+  );
   const pageIds = pageRows.map((r) => r.id);
 
-  const layoutRows = await ctx.db
-    .select({ id: layouts.id })
-    .from(layouts)
-    .where(eq(layouts.projectId, projectId));
+  const layoutRows = yield* Effect.promise(() =>
+    ctx.db.select({ id: layouts.id }).from(layouts).where(eq(layouts.projectId, projectId)),
+  );
   const layoutIds = layoutRows.map((r) => r.id);
 
   const blockConditions = [
@@ -264,26 +278,32 @@ export async function deleteProject(
   ];
   const blockRows =
     blockConditions.length > 0
-      ? await ctx.db
-          .select({ id: blocks.id })
-          .from(blocks)
-          .where(or(...blockConditions))
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .select({ id: blocks.id })
+            .from(blocks)
+            .where(or(...blockConditions)),
+        )
       : [];
   const blockIds = blockRows.map((r) => r.id);
 
   const repeatableItemRows =
     blockIds.length > 0
-      ? await ctx.db
-          .select({ id: repeatableItems.id })
-          .from(repeatableItems)
-          .where(inArray(repeatableItems.blockId, blockIds))
+      ? yield* Effect.promise(() =>
+          ctx.db
+            .select({ id: repeatableItems.id })
+            .from(repeatableItems)
+            .where(inArray(repeatableItems.blockId, blockIds)),
+        )
       : [];
   const repeatableItemIds = repeatableItemRows.map((r) => r.id);
 
-  const fileRows = await ctx.db
-    .select({ id: files.id, blobId: files.blobId })
-    .from(files)
-    .where(eq(files.projectId, projectId));
+  const fileRows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: files.id, blobId: files.blobId })
+      .from(files)
+      .where(eq(files.projectId, projectId)),
+  );
   const fileIds = fileRows.map((r) => r.id);
 
   // Delete AI jobs for all collected entities
@@ -334,61 +354,70 @@ export async function deleteProject(
       : []),
   ];
   if (aiJobConditions.length > 0) {
-    await ctx.db.delete(aiJobs).where(or(...aiJobConditions));
+    yield* Effect.promise(() => ctx.db.delete(aiJobs).where(or(...aiJobConditions)));
   }
 
   // Delete in FK-safe order
   if (repeatableItemIds.length > 0) {
-    await ctx.db.delete(repeatableItems).where(inArray(repeatableItems.id, repeatableItemIds));
+    yield* Effect.promise(() =>
+      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.id, repeatableItemIds)),
+    );
   }
   if (blockIds.length > 0) {
-    await ctx.db.delete(blocks).where(inArray(blocks.id, blockIds));
+    yield* Effect.promise(() => ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)));
   }
-  await ctx.db.delete(pages).where(eq(pages.projectId, projectId));
+  yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.projectId, projectId)));
 
   // Delete files from R2 and database
   if (fileRows.length > 0) {
-    await Promise.all(
-      fileRows.flatMap((f) => [
-        ctx.env.FILES_BUCKET.delete(f.blobId),
-        ctx.env.FILES_BUCKET.delete(optimizedVideoKey(f.blobId)),
-      ]),
+    yield* Effect.promise(() =>
+      Promise.all(
+        fileRows.flatMap((f) => [
+          ctx.env.FILES_BUCKET.delete(f.blobId),
+          ctx.env.FILES_BUCKET.delete(optimizedVideoKey(f.blobId)),
+        ]),
+      ),
     );
-    await ctx.db.delete(files).where(eq(files.projectId, projectId));
+    yield* Effect.promise(() => ctx.db.delete(files).where(eq(files.projectId, projectId)));
   }
 
   // Delete project favicon from R2 (no DB row to clean up — favicons are R2-only)
-  await ctx.env.FILES_BUCKET.delete(`favicons/${projectId}`);
+  yield* Effect.promise(() => ctx.env.FILES_BUCKET.delete(`favicons/${projectId}`));
 
-  await ctx.db.delete(layouts).where(eq(layouts.projectId, projectId));
-  await ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.projectId, projectId));
-  await ctx.db.delete(collectionDefinitions).where(eq(collectionDefinitions.projectId, projectId));
-  await ctx.db.delete(environments).where(eq(environments.projectId, projectId));
+  yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.projectId, projectId)));
+  yield* Effect.promise(() =>
+    ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.projectId, projectId)),
+  );
+  yield* Effect.promise(() =>
+    ctx.db.delete(collectionDefinitions).where(eq(collectionDefinitions.projectId, projectId)),
+  );
+  yield* Effect.promise(() =>
+    ctx.db.delete(environments).where(eq(environments.projectId, projectId)),
+  );
 
-  const result = await ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get();
+  const result = yield* Effect.promise(() =>
+    ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
+  );
   return result;
-}
+});
 
-export async function initializeProjectContent(
+export const initializeProjectContent = Effect.fn("projects.initializeProjectContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof initializeProjectContentInput>,
 ) {
-  const input = initializeProjectContentInput.parse(rawInput);
-  const project = await assertSyncAccess(ctx.db, input.projectSlug, {
+  const input = yield* decodeInput(initializeProjectContentInput, rawInput);
+  const project = yield* assertSyncAccess(ctx.db, input.projectSlug, {
     user: ctx.user,
     environmentName: ctx.environmentName,
     deployToken: input.deployToken,
   });
 
-  const environment = await resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
 
   // Check if environment already has pages — if so, skip (idempotent)
-  const existingPage = await ctx.db
-    .select()
-    .from(pages)
-    .where(eq(pages.environmentId, environment.id))
-    .limit(1)
-    .get();
+  const existingPage = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.environmentId, environment.id)).limit(1).get(),
+  );
   if (existingPage) {
     return { created: false };
   }
@@ -396,78 +425,86 @@ export async function initializeProjectContent(
   const now = Date.now();
 
   // Find the specified layout
-  const layout = await ctx.db
-    .select()
-    .from(layouts)
-    .where(
-      and(
-        eq(layouts.projectId, project.id),
-        eq(layouts.environmentId, environment.id),
-        eq(layouts.layoutId, input.layoutId),
-      ),
-    )
-    .get();
+  const layout = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(
+        and(
+          eq(layouts.projectId, project.id),
+          eq(layouts.environmentId, environment.id),
+          eq(layouts.layoutId, input.layoutId),
+        ),
+      )
+      .get(),
+  );
   if (!layout || layout.kind !== "curated") {
     return { created: false };
   }
 
-  const definitions = await ctx.db
-    .select()
-    .from(blockDefinitions)
-    .where(
-      and(
-        eq(blockDefinitions.projectId, project.id),
-        eq(blockDefinitions.environmentId, environment.id),
+  const definitions = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, project.id),
+          eq(blockDefinitions.environmentId, environment.id),
+        ),
       ),
-    );
+  );
   const definitionsByType = new Map(
     definitions.map((definition) => [definition.blockId, definition]),
   );
   // Reject an invalid later block before creating the homepage or any earlier
   // block, and use the same normalized/defaulted values for persistence.
-  const preparedBlocks = input.blocks.map((block) => {
+  const preparedBlocks = yield* Effect.forEach(input.blocks, (block) => {
     const definition = definitionsByType.get(block.type);
-    const prepared = prepareBlockContent(
-      block.content,
-      block.settings,
-      block.repeatableItems,
-      definition?.contentSchema,
-      definition?.settingsSchema,
+    return Effect.map(
+      prepareBlockContent(
+        block.content,
+        block.settings,
+        block.repeatableItems,
+        definition?.contentSchema,
+        definition?.settingsSchema,
+      ),
+      (prepared) => ({ ...block, ...prepared, repeatableItems: prepared.seeds }),
     );
-    return { ...block, ...prepared, repeatableItems: prepared.seeds };
   });
 
   for (const block of preparedBlocks) {
     const scope = { projectId: project.id, environmentId: environment.id };
     const schema = definitionsByType.get(block.type)?.contentSchema;
-    await validateReferenceValues(ctx, scope, schema, block.content);
-    const live = await resolveReferences(ctx, scope, schema, block.content, "live");
+    yield* validateReferenceValues(ctx, scope, schema, block.content);
+    const live = yield* resolveReferences(ctx, scope, schema, block.content, "live");
     if (referenceFields(schema).some(([name, field]) => field.required === true && !live[name])) {
-      throw new ORPCError("BAD_REQUEST", {
+      return yield* new InvalidInputError({
         message: "Bootstrap requires published required references",
       });
     }
   }
 
   // Create homepage
-  const homepage = await ctx.db
-    .insert(pages)
-    .values({
-      projectId: project.id,
-      environmentId: environment.id,
-      pathSegment: "",
-      fullPath: "/",
-      layoutId: layout.id,
-      nickname: "Home",
-      metaTitle: "Untitled page",
-      metaDescription:
-        "Title and description will be generated by AI as you edit the page's content.",
-      contentUpdatedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
+  const homepage = yield* Effect.promise(() =>
+    ctx.db
+      .insert(pages)
+      .values({
+        projectId: project.id,
+        environmentId: environment.id,
+        pathSegment: "",
+        fullPath: "/",
+        layoutId: layout.id,
+        nickname: "Home",
+        metaTitle: "Untitled page",
+        metaDescription:
+          "Title and description will be generated by AI as you edit the page's content.",
+        contentUpdatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get(),
+  );
 
   // Create blocks on the homepage
   let prevPosition: string | null = null;
@@ -477,20 +514,22 @@ export async function initializeProjectContent(
     const position = generateKeyBetween(prevPosition, null);
     prevPosition = position;
 
-    const block = await ctx.db
-      .insert(blocks)
-      .values({
-        pageId: homepage.id,
-        type: blockDef.type,
-        content: blockDef.content,
-        settings: blockDef.settings ?? null,
-        position,
-        summary: "",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
+    const block = yield* Effect.promise(() =>
+      ctx.db
+        .insert(blocks)
+        .values({
+          pageId: homepage.id,
+          type: blockDef.type,
+          content: blockDef.content,
+          settings: blockDef.settings ?? null,
+          position,
+          summary: "",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get(),
+    );
 
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -508,21 +547,23 @@ export async function initializeProjectContent(
         const parentItemId = seed.parentTempId
           ? (tempIdToRealId.get(seed.parentTempId) ?? null)
           : null;
-        const inserted = await ctx.db
-          .insert(repeatableItems)
-          .values({
-            blockId: block.id,
-            parentItemId,
-            fieldName: seed.fieldName,
-            content: seed.content,
-            settings: seed.settings ?? null,
-            summary: "",
-            position: seed.position,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get();
+        const inserted = yield* Effect.promise(() =>
+          ctx.db
+            .insert(repeatableItems)
+            .values({
+              blockId: block.id,
+              parentItemId,
+              fieldName: seed.fieldName,
+              content: seed.content,
+              settings: seed.settings ?? null,
+              summary: "",
+              position: seed.position,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning()
+            .get(),
+        );
         tempIdToRealId.set(seed.tempId, inserted.id);
         ctx.waitUntil(
           scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -535,7 +576,7 @@ export async function initializeProjectContent(
       }
     }
 
-    await syncBlockData(ctx, block.id, true);
+    yield* syncBlockData(ctx, block.id, true);
     blockCount++;
   }
 
@@ -547,9 +588,9 @@ export async function initializeProjectContent(
   //
   const syncUserId = ctx.user?.id ?? null;
   if (layout.livePublishedCheckpointId == null) {
-    await writeLayoutCheckpointAndPoint(ctx, { layout, userId: syncUserId });
+    yield* writeLayoutCheckpointAndPoint(ctx, { layout, userId: syncUserId });
   }
-  await writePageCheckpointAndPoint(ctx, { page: homepage, userId: syncUserId });
+  yield* writePageCheckpointAndPoint(ctx, { page: homepage, userId: syncUserId });
 
   return { created: true, pageId: homepage.id, blockCount };
-}
+});
