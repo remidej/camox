@@ -103,11 +103,16 @@ ordered list of distinct Customers items, shared with the testimonial's company.
 `logoGrid.ReferenceList` renders its child once per linked customer with the same
 typed scope as `testimonial.Reference`. The list's order belongs to the logo grid.
 
-Until the sidebar can edit lists, set one through the block edit tools (for example
-an agent's `editBlock`) with an array of customer IDs.
+Edit the list in the sidebar: the logo grid's Customers row shows how many are
+linked and opens the list view. Drag cards to reorder, use the X to unlink (the
+customer itself is kept), and pick or create customers below the cards to append
+them. Clicking a card opens the shared customer's fields. Agents can also set the
+list through the block edit tools with an array of customer IDs.
 
-1. Add a logo grid to a draft page and link two customers, one of which the
-   testimonial also uses. An empty list renders nothing.
+1. Add a logo grid to a draft page. In edit mode the empty list shows an "Add
+   Customers" placeholder that opens the list view with the picker focused; the
+   live site renders nothing. Link two customers, one of which the testimonial
+   also uses. Customers never published are flagged on their card.
 2. Publish the page. The review lists the shared customer once. A customer that was
    never published doesn't block publishing; the live grid skips it and keeps the
    order of the others.
