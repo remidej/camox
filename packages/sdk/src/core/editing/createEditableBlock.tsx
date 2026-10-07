@@ -24,6 +24,7 @@ import {
   type SelectionEvent,
 } from "../../features/preview/previewSelection";
 import { previewStore, selectIsCommentMode } from "../../features/preview/previewStore";
+import { referencePickerFocus } from "../../features/preview/referencePickerFocus";
 import { useNormalizedData, isItemMarker, resolveAssetValue } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
 import { useFieldSelection } from "../hooks/useFieldSelection.ts";
@@ -2119,8 +2120,18 @@ export function createEditableBlock<
         </RepeatableItemContext.Provider>
       </ReferenceContext.Provider>
     ) : (
-      <button type="button" onClick={select}>
-        Select {schema.title ?? fieldName} in the sidebar
+      <button
+        type="button"
+        data-camox-reference-placeholder=""
+        className="camox-reference-placeholder"
+        onClick={(event) => {
+          select(event);
+          // Commenting targets the field; only editing links a record.
+          if (selectIsCommentMode(previewStore.getSnapshot())) return;
+          referencePickerFocus.send({ type: "request", fieldId: occurrenceId });
+        }}
+      >
+        Select {schema.title ?? fieldName}
       </button>
     );
     if (!editable) return rendered;

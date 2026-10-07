@@ -245,6 +245,7 @@ const ItemFieldsEditor = ({
               <ReferenceFieldEditor
                 key={field.name}
                 collectionId={field.collectionId}
+                fieldId={fieldId}
                 value={data[field.name]}
                 required={field.required}
                 record={references?.[field.name] ?? null}

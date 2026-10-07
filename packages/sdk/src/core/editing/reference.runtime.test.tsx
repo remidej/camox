@@ -3,7 +3,9 @@ import { registerHooks } from "node:module";
 import { test } from "node:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Window } from "happy-dom";
 import * as React from "react";
+import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { initApiClient } from "../../lib/api-client";
@@ -73,6 +75,7 @@ registerHooks({
   },
 });
 const { createEditableBlock } = await import("./createEditableBlock");
+const { referencePickerFocus } = await import("../../features/preview/referencePickerFocus");
 
 void test("editable reference occurrences write one source and retain placement selection and purple identity", async () => {
   const customers = createCollection({
@@ -163,9 +166,80 @@ void test("editable reference occurrences write one source and retain placement 
   );
   editors.length = 0;
   const unset = render(null);
-  assert.match(unset, /Select Customers in the sidebar/);
+  assert.match(unset, /data-camox-reference-placeholder/);
   assert.doesNotMatch(unset, /data-camox-collection-record-id|<h2/);
   assert.equal(editors.length, 0);
   assert.equal(requests.length, 1);
   client.clear();
+});
+
+void test("an unset reference placeholder names the collection and selects the reference field to link a record", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: { name: Type.String({ default: "" }) },
+  });
+  const block = createEditableBlock({
+    id: "unset-reference",
+    title: "",
+    description: "",
+    content: { customer: Type.Reference(customers) },
+    toMarkdown: () => [],
+    component: () => (
+      <block.Reference name="customer">{(customer) => <h2>{customer.label}</h2>}</block.Reference>
+    ),
+  });
+  const placement = (mode: "site" | "peek") => (
+    <QueryClientProvider client={new QueryClient()}>
+      <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
+        <block._internal.Component
+          mode={mode}
+          blockData={{
+            _id: 3,
+            type: "unset-reference",
+            position: "a0",
+            content: { customer: null },
+          }}
+        />
+      </NormalizedDataProvider>
+    </QueryClientProvider>
+  );
+
+  const live = renderToStaticMarkup(placement("peek"));
+  assert.match(live, /data-camox-viewport-block="3"[^>]*><\/div>$/, "live rendering stays empty");
+
+  const window = new Window();
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(placement("site")));
+    const placeholder = host.querySelector<HTMLElement>("[data-camox-reference-placeholder]");
+    assert.ok(placeholder, "editable unset references render a placeholder");
+    assert.equal(placeholder.textContent?.trim(), "Select Customers");
+    assert.equal(referencePickerFocus.getSnapshot().context.fieldId, null);
+    await act(async () => placeholder.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "block-field",
+      blockId: 3,
+      fieldName: "customer",
+      fieldType: "Reference",
+    });
+    assert.equal(
+      referencePickerFocus.getSnapshot().context.fieldId,
+      "3__customer",
+      "the sidebar is asked to focus the record picker for this placement",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    await window.happyDOM.close();
+  }
 });
