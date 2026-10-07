@@ -733,7 +733,14 @@ export function createEditableBlock<
   type FileRenderProps = {
     href: string;
     download: string;
-  };
+  } & EditableFileLinkProps;
+  /** Present only while a file is selectable in the editor; spread onto the file link with the rest. */
+  type EditableFileLinkProps = Partial<
+    Pick<
+      React.AnchorHTMLAttributes<HTMLAnchorElement>,
+      "onClick" | "onClickCapture" | "onMouseEnter" | "onMouseLeave"
+    >
+  > & { [attribute: `data-camox-${string}`]: string | boolean | undefined };
 
   type EmbedRenderProps = {
     src: string;
@@ -1447,33 +1454,28 @@ export function createEditableBlock<
       setIsHovered(isHoveredFromSidebar);
     }, [isHoveredFromSidebar]);
 
-    const renderedFile = children(
-      { href: fieldValue.url, download: fieldValue.filename } satisfies FileRenderProps,
-      fieldValue,
-    );
-    if (!selectable) return <>{renderedFile}</>;
-
-    return (
-      <div
-        data-camox-field-id={fieldId}
-        data-camox-field-type="file"
-        {...overlayState}
-        data-camox-overlay-mode={assetOverlayMode(reference)}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        onClickCapture={(event) =>
-          reference.selectRecordField(
-            overlayFieldName,
-            isInlineArrayItem ? "FileList" : "File",
-            event,
-          )
+    const linkProps: FileRenderProps = { href: fieldValue.url, download: fieldValue.filename };
+    // The selectable file is the site's own link: no wrapper element changes its layout.
+    const editableLinkProps: EditableFileLinkProps | null = selectable
+      ? {
+          "data-camox-field-id": fieldId,
+          "data-camox-field-type": "file",
+          ...overlayState,
+          "data-camox-overlay-mode": assetOverlayMode(reference),
+          onMouseEnter: () => setIsHovered(true),
+          onMouseLeave: () => setIsHovered(false),
+          onClickCapture: (event) =>
+            reference.selectRecordField(
+              overlayFieldName,
+              isInlineArrayItem ? "FileList" : "File",
+              event,
+            ),
+          // Selecting a file in the editor must not follow its download link.
+          onClick: (event) => event.preventDefault(),
         }
-        // Selecting a file in the editor must not follow its download link.
-        onClick={(event) => event.preventDefault()}
-      >
-        {renderedFile}
-      </div>
-    );
+      : null;
+
+    return <>{children({ ...linkProps, ...editableLinkProps }, fieldValue)}</>;
   };
 
   // Sentinel key used by ImageList/FileList to surface the iterated asset value to

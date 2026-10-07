@@ -508,14 +508,18 @@ void test("record images and files select their record field for that placement 
     assert.ok(focused(field(1, "gallery")));
     assert.ok(!focused(field(2, "gallery")));
 
-    const brochure = inField(1, "brochure", "a");
-    assert.ok(brochure, "the record file renders inside its own field");
+    const brochure = field(1, "brochure");
+    assert.equal(brochure?.tagName, "A", "the site's file link itself is the field, unwrapped");
+    assert.equal(brochure.parentElement?.tagName, "SECTION");
     const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
     await act(async () => brochure.dispatchEvent(click as unknown as Event));
     assert.ok(click.defaultPrevented, "selecting a file does not download it");
     assert.deepEqual(selections.at(-1), recordField(1, "brochure", "File"));
 
-    await act(async () => inField(2, "attachments", "a")!.click());
+    assert.ok(focused(brochure));
+    assert.ok(!focused(field(2, "brochure")));
+
+    await act(async () => field(2, "attachments")!.click());
     assert.deepEqual(selections.at(-1), recordField(2, "attachments", "FileList"));
     assert.equal(requests.length, writesBefore, "selecting record assets never writes");
   } finally {
