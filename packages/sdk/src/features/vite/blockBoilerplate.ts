@@ -27,15 +27,15 @@ function getBlockBoilerplate(filename: string): string {
   const pascalName = kebabToPascal(name);
   const title = kebabToTitle(name);
 
-  return `import { Type, createBlock } from "camox/createBlock";
+  return `import { createBlock } from "camox/createBlock";
 
 const ${camelName} = createBlock({
   id: "${name}",
   title: "${title}",
   description: "Describe when the AI should use this block.",
-  content: {
-    title: Type.String({ default: "Title" }),
-  },
+  content: (field) => ({
+    title: field.string({ default: "Title" }),
+  }),
   component: ${pascalName}Component,
   toMarkdown: (c) => [c.title]
 });

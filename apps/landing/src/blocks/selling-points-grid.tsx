@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { BlockContainer } from "@/components/BlockContainer";
 import { Pill } from "@/components/Pill";
@@ -8,37 +8,37 @@ const sellingPointsGrid = createBlock({
   title: "Selling Points Grid",
   description:
     "Use this block to promote a list of aspects, benefits, or features of a product or service in a compact grid. The section opens with a pill label and a large headline, then lists selling points in a grid where each has a short title and a supporting description. Good fit for feature roundups, value propositions, or 'why choose us' sections. Works best with a multiple of 3 items so rows are complete.",
-  content: {
-    pill: Type.String({
+  content: (field) => ({
+    pill: field.string({
       default: "Why us",
       title: "Pill label",
     }),
-    title: Type.String({
+    title: field.string({
       default: "Why choose us.",
       title: "Title",
     }),
-    items: Type.Repeater({
-      content: {
-        icons: Type.ImageList({
+    items: field.repeater({
+      content: (field) => ({
+        icons: field.imageList({
           title: "Icons",
           defaultItems: 1,
         }),
-        title: Type.String({
+        title: field.string({
           default: "Fast by default",
           title: "Title",
         }),
-        description: Type.String({
+        description: field.string({
           default:
             "Built on modern primitives so every page loads instantly and stays responsive under load.",
           title: "Description",
         }),
-      },
+      }),
       minItems: 3,
       maxItems: Infinity,
       title: "Selling points",
       toMarkdown: (c) => [`### ${c.title}`, c.description],
     }),
-  },
+  }),
   component: SellingPointsGridComponent,
   toMarkdown: (c) => [c.pill, `## ${c.title}`, c.items],
 });

@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { pokemonName, typeColor } from "../components/pokemon";
 
@@ -29,14 +29,14 @@ const pokedex = createBlock({
   layoutOnly: true,
   description:
     "The singleton Pokédex page introduction and type directory. The heading and introduction are editable; the type links follow the derived Pokémon routes.",
-  content: {
-    title: Type.String({ title: "Title", default: "Explore the Pokédex" }),
-    description: Type.String({
+  content: (field) => ({
+    title: field.string({ title: "Title", default: "Explore the Pokédex" }),
+    description: field.string({
       title: "Description",
       default:
         "Every type tells a different story. Pick a collection, discover its Pokémon, and find your next favorite.",
     }),
-  },
+  }),
   component: PokedexComponent,
   toMarkdown: (c) => [
     `## ${c.title}`,

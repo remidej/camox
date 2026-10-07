@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { collection as customers } from "../collections/customers";
 
@@ -7,16 +7,16 @@ const testimonial = createBlock({
   title: "Testimonial",
   description:
     "Display customer testimonials or user reviews. Ideal for building trust and social proof. Place after product features or before call-to-action sections. The quote should be a genuine customer statement, and include attribution with the author name, their title, and company. Best used when you have compelling customer feedback to share.",
-  content: {
-    quote: Type.String({
+  content: (field) => ({
+    quote: field.string({
       default:
         "This platform has transformed how we build and manage our website. The developer experience is exceptional.",
       title: "Quote",
     }),
-    author: Type.String({ default: "Sarah Chen", title: "Author" }),
-    title: Type.String({ default: "Senior Developer", title: "Title" }),
-    company: Type.Reference(customers, { title: "Company" }),
-  },
+    author: field.string({ default: "Sarah Chen", title: "Author" }),
+    title: field.string({ default: "Senior Developer", title: "Title" }),
+    company: field.reference(customers, { title: "Company" }),
+  }),
   component: TestimonialComponent,
   toMarkdown: (c) => [`> ${c.quote}`, `— ${c.author}, ${c.title}, ${c.company.company}`],
 });

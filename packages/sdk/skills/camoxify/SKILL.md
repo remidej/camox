@@ -37,15 +37,15 @@ Apply reference-specific content **only to instances through the CLI**, never by
 
 ## Model repetition, not a fixed screenshot
 
-Use `Type.Repeater` for every repeated content structure: lists, rows, columns, tables, carousels, navigation items, and cards. Never use `field1`, `field2`, etc., or hardcoded content arrays. Nest repeaters for structures such as footer columns containing links or table rows containing cells.
+Use `field.repeater` for every repeated content structure: lists, rows, columns, tables, carousels, navigation items, and cards. Never use `field1`, `field2`, etc., or hardcoded content arrays. Nest repeaters for structures such as footer columns containing links or table rows containing cells.
 
 Choose bounds from real constraints, not the number of items visible in the reference. Many sibling fields are a code smell: look for repeated groups or separate sections. Model enough flexibility to add, remove, reorder, and rewrite content without code changes; don't expose every CSS value as a field.
 
 ## Use settings for constrained choices
 
-Before adding a `content` field, ask whether the editor is writing free-form content or choosing from known options. For configuration choices such as alignment, theme, size, or variant, use `settings` with `Type.Enum`. For on/off choices such as showing a background or enabling autoplay, use `settings` with `Type.Boolean`.
+Before adding a `content` field, ask whether the editor is writing free-form content or choosing from known options. For configuration choices such as alignment, theme, size, or variant, use `settings` with `setting.enum`. For on/off choices such as showing a background or enabling autoplay, use `settings` with `setting.boolean`.
 
-Do not model these choices as `content` fields using `Type.String`, even if rendering code could interpret strings such as `"left"`, `"dark"`, or `"true"`. Editors should choose a valid option or toggle a setting, not type a magic string. Reserve `content`'s `Type.String` for genuinely free-form text, such as headings and descriptions. Enum defaults must match an option key.
+Do not model these choices as `content` fields using `field.string`, even if rendering code could interpret strings such as `"left"`, `"dark"`, or `"true"`. Editors should choose a valid option or toggle a setting, not type a magic string. Reserve `content`'s `field.string` for genuinely free-form text, such as headings and descriptions. Enum defaults must match an option key.
 
 ## Keep formatted text in one field
 

@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 
 const footer = createBlock({
@@ -7,21 +7,21 @@ const footer = createBlock({
   layoutOnly: true,
   synced: true,
   description: "A footer at the bottom of a page with a site name and navigation links.",
-  content: {
-    title: Type.String({ default: "{{projectName}}" }),
-    links: Type.Repeater({
-      content: {
-        link: Type.Link({
+  content: (field) => ({
+    title: field.string({ default: "{{projectName}}" }),
+    links: field.repeater({
+      content: (field) => ({
+        link: field.link({
           default: { text: "Footer link", href: "#", newTab: false },
           title: "Link",
         }),
-      },
+      }),
       minItems: 2,
       maxItems: 12,
       title: "Links",
       toMarkdown: (c) => [c.link],
     }),
-  },
+  }),
   component: FooterComponent,
   toMarkdown: (c) => [c.title, c.links],
 });

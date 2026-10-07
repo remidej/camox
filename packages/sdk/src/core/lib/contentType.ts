@@ -5,10 +5,10 @@ import {
   type TUnsafe,
   type TArray,
   type TObject,
+  type TBoolean,
 } from "@sinclair/typebox";
 
 import type { Collection } from "../createCollection";
-import type { FieldType } from "./fieldTypes.tsx";
 import type { IconId, IconValue } from "./iconTypes";
 
 export declare const ReferenceContentBrand: unique symbol;
@@ -238,10 +238,6 @@ export type FileValue = {
 } & { readonly __brand: "FileValue" };
 
 /* -------------------------------------------------------------------------------------------------
- * Typebox wrapper used for content schemas
- * -----------------------------------------------------------------------------------------------*/
-
-/* -------------------------------------------------------------------------------------------------
  * Image / File / ImageList / FileList type builders
  * -----------------------------------------------------------------------------------------------*/
 
@@ -317,201 +313,277 @@ function _fileList(options: {
   });
 }
 
-/**
- * Type builders for createBlock content schemas.
- * All fields must have default values.
- */
-export const Type = {
-  /** Store only the selected record identity; content is resolved independently. */
-  Reference: <T extends Record<string, TSchema>>(
-    collection: Collection<T>,
-    options: { title?: string; required?: boolean } = {},
-  ): ReferenceSchema<T> =>
-    TypeBoxType.Unsafe<string | null>({
-      anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
-      fieldType: "Reference",
-      collectionId: collection._internal.id,
-      required: options.required ?? false,
-      title: options.title ?? collection._internal.title,
-      default: null,
-      // Used by the typed child scope, not a copy of a record's content.
-      referenceSchema: collection._internal.contentSchema,
-      labelField: collection._internal.label,
-    }) as ReferenceSchema<T>,
-  Icon: (options: { default: IconId; title?: string }) => {
-    const ids = typeof __CAMOX_ICON_IDS__ === "undefined" ? [] : __CAMOX_ICON_IDS__;
-    if (!ids.includes(options.default))
-      throw new Error(
-        `Invalid icon default "${String(options.default)}". Configure icons in camox() first.`,
-      );
-    return TypeBoxType.Unsafe<IconValue>({
-      type: "string",
-      fieldType: "Icon",
-      enum: [...ids],
-      default: options.default,
-      title: options.title,
-    });
-  },
-  /**
-   * Creates a string field with a required default value.
-   *
-   * @example
-   * Type.String({ default: 'Hello' })
-   * Type.String({ default: 'Hello', maxLength: 100, title: 'Title' })
-   */
-  String: (options: {
-    default: string;
-    title?: string;
-    maxLength?: number;
-    minLength?: number;
-    pattern?: string;
-  }) => {
-    return TypeBoxType.Unsafe<string>({
-      type: "string",
-      ...options,
-      default: options.default,
-      fieldType: "String" as const,
-    }) as TUnsafe<string> & { fieldType: "String" };
-  },
+/* -------------------------------------------------------------------------------------------------
+ * Field builders
+ * Each definition context receives only the field kinds it accepts, so a misplaced field is a
+ * missing property on the builder rather than a schema mismatch.
+ * -----------------------------------------------------------------------------------------------*/
 
+export type StringField = TUnsafe<string> & { fieldType: "String" };
+export type LinkField = TUnsafe<LinkValue>;
+export type ImageField = TUnsafe<ImageValue>;
+export type ImageListField = TArray<TUnsafe<ImageValue>>;
+export type FileField = TUnsafe<FileValue>;
+export type FileListField = TArray<TUnsafe<FileValue>>;
+export type EmbedField = TUnsafe<EmbedURL>;
+export type IconField = TUnsafe<IconValue>;
+export type RepeaterField<
+  T extends Record<string, TSchema>,
+  S extends Record<string, TSchema>,
+> = TArray<TObject<T>> & WithItemSettings<S>;
+export type EnumSetting<O extends Record<string, string>> = TUnsafe<keyof O & string> & {
+  fieldType: "Enum";
+};
+export type BooleanSetting = TBoolean & { fieldType: "Boolean" };
+
+type StringOptions = {
+  title?: string;
+  maxLength?: number;
+  minLength?: number;
+  pattern?: string;
+};
+
+/**
+ * Builds the fields of a block or repeatable item's content.
+ * `enum` and `boolean` are not content: declare them in `settings` instead.
+ */
+export interface ContentFieldBuilder {
   /**
-   * Creates a repeatable array of object items.
-   * The default array is auto-generated based on minItems.
-   *
-   * Items may also declare per-item `settings` (Enum/Boolean only) — not
-   * inline-editable; they appear in the sidebar when the item is selected,
-   * similar to block-level settings.
+   * An inline-editable text field.
    *
    * @example
-   * Type.Repeater({
-   *   content: {
-   *     title: Type.String({ default: 'Item' }),
-   *     description: Type.String({ default: 'Description' }),
-   *   },
-   *   settings: {
-   *     highlighted: Type.Boolean({ default: false, title: 'Highlighted' }),
-   *   },
-   *   minItems: 1,
-   *   maxItems: 10,
-   *   title: 'Items',
-   *   toMarkdown: (c) => [`### ${c.title}`, c.description],
+   * field.string({ default: "Hello", maxLength: 100, title: "Title" })
+   */
+  string: (options: StringOptions & { default: string }) => StringField;
+  /**
+   * A link with text, a target (external URL or internal page) and a new-tab flag.
+   *
+   * @example
+   * field.link({ default: { text: "Learn more", href: "/", newTab: false }, title: "CTA" })
+   */
+  link: (options: {
+    default: { text: string; href: string; newTab: boolean };
+    title?: string;
+  }) => LinkField;
+  /**
+   * An image asset.
+   *
+   * @example
+   * field.image({ title: "Hero" })
+   */
+  image: (options?: { title?: string }) => ImageField;
+  /**
+   * A list of image assets.
+   *
+   * @example
+   * field.imageList({ title: "Gallery", defaultItems: 3 })
+   */
+  imageList: (options?: { title?: string; defaultItems?: number }) => ImageListField;
+  /**
+   * A file asset.
+   *
+   * @example
+   * field.file({ accept: ["application/pdf"], title: "Datasheet" })
+   */
+  file: (options: { accept: string[]; title?: string }) => FileField;
+  /**
+   * A list of file assets.
+   *
+   * @example
+   * field.fileList({ accept: ["application/pdf"], title: "Attachments" })
+   */
+  fileList: (options: { accept: string[]; title?: string; defaultItems?: number }) => FileListField;
+  /**
+   * A URL that must match `pattern`, rendered as an embed.
+   *
+   * @example
+   * field.embed({
+   *   pattern: "https:\\/\\/(www\\.)?youtube\\.com\\/watch\\?v=.+",
+   *   default: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+   *   title: "YouTube URL",
    * })
    */
-  Repeater: <
+  embed: (options: { pattern: string; default: string; title?: string }) => EmbedField;
+  /**
+   * An icon from the set configured in `camox()`.
+   *
+   * @example
+   * field.icon({ default: "lucide:star", title: "Icon" })
+   */
+  icon: (options: { default: IconId; title?: string }) => IconField;
+  /**
+   * Selects a record of `collection` by identity; its content is resolved independently.
+   *
+   * @example
+   * field.reference(customers, { title: "Customer" })
+   */
+  reference: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options?: { title?: string; required?: boolean },
+  ) => ReferenceSchema<T>;
+  /**
+   * Repeatable items, each with its own content and optional settings. Repeaters may nest.
+   * Item settings are edited in the sidebar when the item is selected.
+   *
+   * @example
+   * field.repeater({
+   *   content: (field) => ({
+   *     title: field.string({ default: "Item" }),
+   *     description: field.string({ default: "Description" }),
+   *   }),
+   *   settings: (setting) => ({
+   *     highlighted: setting.boolean({ default: false, title: "Highlighted" }),
+   *   }),
+   *   minItems: 1,
+   *   maxItems: 10,
+   *   title: "Items",
+   *   toMarkdown: (c, s) => [`### ${c.title}`, s.highlighted(c.description)],
+   * })
+   */
+  repeater: <
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,
   >(options: {
-    content: T;
-    settings?: S;
+    content: (field: ContentFieldBuilder) => T;
+    settings?: (setting: SettingBuilder) => S;
     minItems: number;
     maxItems: number;
     title?: string;
     toMarkdown: ToMarkdownBuilder<T, S>;
-  }) => {
-    if (options.minItems < 1) {
-      throw new Error("Repeater requires minItems to be at least 1");
-    }
+  }) => RepeaterField<T, S>;
+}
 
-    const objectSchema = TypeBoxType.Object(options.content);
-
-    // Extract defaults manually since Value.Create doesn't support Unsafe types (used by Type.Enum, Type.Embed, Type.Link)
-    const defaultItem: Record<string, unknown> = {};
-    for (const [key, prop] of Object.entries(objectSchema.properties)) {
-      if ("default" in prop) {
-        defaultItem[key] = (prop as { default: unknown }).default;
-      }
-    }
-    const defaultArray = Array(options.minItems)
-      .fill(null)
-      .map(() => ({ ...defaultItem }));
-
-    const settingsTypeboxSchema = options.settings ? TypeBoxType.Object(options.settings) : null;
-
-    const itemSettingsSchema = settingsTypeboxSchema
-      ? {
-          type: "object" as const,
-          properties: settingsTypeboxSchema.properties,
-          required: Object.keys(options.settings!),
-        }
-      : undefined;
-
-    const defaultItemSettings: Record<string, unknown> = {};
-    if (settingsTypeboxSchema) {
-      for (const [key, prop] of Object.entries(settingsTypeboxSchema.properties)) {
-        if ("default" in prop) {
-          defaultItemSettings[key] = (prop as { default: unknown }).default;
-        }
-      }
-    }
-
-    return TypeBoxType.Array(objectSchema, {
-      minItems: options.minItems,
-      maxItems: options.maxItems,
-      default: defaultArray,
-      title: options.title,
-      fieldType: "Repeater" as const,
-      toMarkdown: resolveToMarkdown<T, S>(
-        options.toMarkdown,
-        options.settings,
-        "item",
-        options.content,
-      ),
-      itemSettingsSchema,
-      defaultItemSettings: settingsTypeboxSchema ? defaultItemSettings : undefined,
-    }) as TArray<TObject<T>> & WithItemSettings<S>;
-  },
-
+/**
+ * Builds the settings of a block or repeatable item: presentation options edited in the
+ * sidebar, never inline. Only `enum` and `boolean` are settings.
+ */
+export interface SettingBuilder {
   /**
-   * Creates an enum field with a set of predefined options.
+   * One of a fixed set of options; keys are stored, values are editor labels.
    *
    * @example
-   * Type.Enum({
-   *   default: 'left',
-   *   options: { left: 'Left', center: 'Center', right: 'Right' },
-   *   title: 'Alignment'
-   * })
+   * setting.enum({ default: "left", options: { left: "Left", right: "Right" }, title: "Alignment" })
    */
-  Enum: <const O extends Record<string, string>>(options: {
+  enum: <const O extends Record<string, string>>(options: {
     default: keyof O & string;
     options: O;
     title?: string;
-  }) => {
-    const enumValues = Object.keys(options.options);
-    return TypeBoxType.Unsafe<keyof O & string>({
+  }) => EnumSetting<O>;
+  /**
+   * A toggle.
+   *
+   * @example
+   * setting.boolean({ default: false, title: "Show background" })
+   */
+  boolean: (options: { default: boolean; title?: string }) => BooleanSetting;
+}
+
+/**
+ * Builds the fields of a collection record. Records are created through an authoring form, so
+ * `string` needs no default. Collections have no settings: `enum` and `boolean` are content here.
+ */
+export interface CollectionFieldBuilder extends Pick<
+  ContentFieldBuilder,
+  "image" | "imageList" | "file" | "fileList" | "embed"
+> {
+  /**
+   * A text field.
+   *
+   * @example
+   * field.string({ minLength: 1, title: "Name" })
+   */
+  string: (options?: StringOptions & { default?: string }) => StringField;
+  /**
+   * One of a fixed set of options; keys are stored, values are editor labels.
+   *
+   * @example
+   * field.enum({ default: "draft", options: { draft: "Draft", final: "Final" } })
+   */
+  enum: SettingBuilder["enum"];
+  /**
+   * A toggle.
+   *
+   * @example
+   * field.boolean({ default: false, title: "Featured" })
+   */
+  boolean: SettingBuilder["boolean"];
+}
+
+const settingKinds = new Set<string>(["Enum", "Boolean"]);
+
+/** Builders are typed per context; this guards callers that bypass the types. */
+export function assertFieldKinds(
+  shape: Record<string, TSchema>,
+  context: "content" | "settings",
+  owner: string,
+) {
+  for (const [key, field] of Object.entries(shape)) {
+    const isSetting = settingKinds.has(field.fieldType);
+    if (context === "settings" && !isSetting) {
+      throw new Error(`${owner} setting "${key}" must be an enum or a boolean`);
+    }
+    if (context === "content" && isSetting) {
+      throw new Error(`${owner} field "${key}": ${field.fieldType} is a setting, not content`);
+    }
+  }
+}
+
+function collectSchemaDefaults(properties: Record<string, TSchema>) {
+  const defaults: Record<string, unknown> = {};
+  for (const [key, prop] of Object.entries(properties)) {
+    if ("default" in prop) defaults[key] = prop.default;
+  }
+  return defaults;
+}
+
+const enumSetting: SettingBuilder["enum"] = (options) =>
+  TypeBoxType.Unsafe({
+    type: "string",
+    enum: Object.keys(options.options),
+    default: options.default,
+    title: options.title,
+    enumLabels: options.options,
+    fieldType: "Enum" as const,
+  }) as EnumSetting<typeof options.options>;
+
+const booleanSetting: SettingBuilder["boolean"] = (options) =>
+  TypeBoxType.Boolean({
+    default: options.default,
+    title: options.title,
+    fieldType: "Boolean" as const,
+  }) as BooleanSetting;
+
+export const settingBuilder: SettingBuilder = {
+  enum: enumSetting,
+  boolean: booleanSetting,
+};
+
+export const contentFieldBuilder: ContentFieldBuilder = {
+  string: (options) =>
+    TypeBoxType.Unsafe<string>({
       type: "string",
-      enum: enumValues,
-      default: options.default,
+      ...options,
+      fieldType: "String" as const,
+    }) as StringField,
+  link: (options) =>
+    TypeBoxType.Unsafe<LinkValue>({
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["external", "page"] },
+        text: { type: "string" },
+        href: { type: "string" },
+        pageId: { type: "string" },
+        newTab: { type: "boolean" },
+      },
+      default: { ...options.default, type: "external" },
       title: options.title,
-      enumLabels: options.options,
-      fieldType: "Enum" as const,
-    });
-  },
-
-  /**
-   * Creates a boolean toggle field.
-   *
-   * @example
-   * Type.Boolean({ default: false, title: 'Show background' })
-   */
-  Boolean: (options: { default: boolean; title?: string }) => {
-    return TypeBoxType.Boolean({
-      default: options.default,
-      title: options.title,
-      fieldType: "Boolean" as const,
-    });
-  },
-
-  /**
-   * Creates an embed field for URLs matching a specific pattern.
-   *
-   * @example
-   * Type.Embed({
-   *   pattern: 'https:\\/\\/(www\\.)?youtube\\.com\\/watch\\?v=.+',
-   *   default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-   *   title: 'YouTube URL'
-   * })
-   */
-  Embed: (options: { pattern: string; default: string; title?: string }) => {
+      fieldType: "Link" as const,
+    }),
+  image: (options = {}) => _imageSingle(options),
+  imageList: (options = {}) => _imageList(options),
+  file: (options) => _fileSingle(options),
+  fileList: (options) => _fileList(options),
+  embed: (options) => {
     if (!new RegExp(options.pattern).test(options.default)) {
       throw new Error(
         `Embed default value "${options.default}" does not match pattern "${options.pattern}"`,
@@ -525,60 +597,116 @@ export const Type = {
       fieldType: "Embed" as const,
     });
   },
-
-  /**
-   * Creates a link field with text, href/pageId, and newTab properties.
-   * Supports both external URLs and internal page links.
-   *
-   * @example
-   * Type.Link({ default: { text: 'Learn more', href: '/', newTab: false }, title: 'CTA' })
-   */
-  Link: (options: { default: { text: string; href: string; newTab: boolean }; title?: string }) => {
-    return TypeBoxType.Unsafe<LinkValue>({
-      type: "object",
-      properties: {
-        type: { type: "string", enum: ["external", "page"] },
-        text: { type: "string" },
-        href: { type: "string" },
-        pageId: { type: "string" },
-        newTab: { type: "boolean" },
-      },
-      default: { ...options.default, type: "external" },
+  icon: (options) => {
+    const ids = typeof __CAMOX_ICON_IDS__ === "undefined" ? [] : __CAMOX_ICON_IDS__;
+    if (!ids.includes(options.default))
+      throw new Error(
+        `Invalid icon default "${String(options.default)}". Configure icons in camox() first.`,
+      );
+    return TypeBoxType.Unsafe<IconValue>({
+      type: "string",
+      fieldType: "Icon",
+      enum: [...ids],
+      default: options.default,
       title: options.title,
-      fieldType: "Link" as const,
     });
   },
+  reference: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options: { title?: string; required?: boolean } = {},
+  ) =>
+    TypeBoxType.Unsafe<string | null>({
+      anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+      fieldType: "Reference",
+      collectionId: collection._internal.id,
+      required: options.required ?? false,
+      title: options.title ?? collection._internal.title,
+      default: null,
+      // Used by the typed child scope, not a copy of a record's content.
+      referenceSchema: collection._internal.contentSchema,
+      labelField: collection._internal.label,
+    }) as ReferenceSchema<T>,
+  repeater: <
+    T extends Record<string, TSchema>,
+    S extends Record<string, TSchema> = Record<string, never>,
+  >(options: {
+    content: (field: ContentFieldBuilder) => T;
+    settings?: (setting: SettingBuilder) => S;
+    minItems: number;
+    maxItems: number;
+    title?: string;
+    toMarkdown: ToMarkdownBuilder<T, S>;
+  }) => {
+    if (options.minItems < 1) {
+      throw new Error("Repeater requires minItems to be at least 1");
+    }
 
-  /**
-   * Creates an image asset field.
-   *
-   * @example
-   * Type.Image({ title: 'Hero' })
-   */
-  Image: (options: { title?: string } = {}) => _imageSingle(options),
+    const content = options.content(contentFieldBuilder);
+    const settings = options.settings?.(settingBuilder);
+    const owner = `Repeater${options.title ? ` "${options.title}"` : ""}`;
+    assertFieldKinds(content, "content", owner);
+    if (settings) assertFieldKinds(settings, "settings", owner);
 
-  /**
-   * Creates a file asset field.
-   *
-   * @example
-   * Type.File({ accept: ['application/pdf'], title: 'Datasheet' })
-   */
-  File: (options: { accept: string[]; title?: string }) => _fileSingle(options),
+    const objectSchema = TypeBoxType.Object(content);
+    // Value.Create doesn't support Unsafe types, so defaults are read off each field.
+    const defaultItem = collectSchemaDefaults(objectSchema.properties);
+    const defaultArray = Array(options.minItems)
+      .fill(null)
+      .map(() => ({ ...defaultItem }));
 
-  /**
-   * Creates an array of image assets.
-   *
-   * @example
-   * Type.ImageList({ title: 'Gallery', defaultItems: 3 })
-   */
-  ImageList: (options: { title?: string; defaultItems?: number } = {}) => _imageList(options),
+    const settingsObjectSchema = settings ? TypeBoxType.Object(settings) : null;
+    const itemSettingsSchema = settingsObjectSchema
+      ? {
+          type: "object" as const,
+          properties: settingsObjectSchema.properties,
+          required: Object.keys(settingsObjectSchema.properties),
+        }
+      : undefined;
 
-  /**
-   * Creates an array of file assets.
-   *
-   * @example
-   * Type.FileList({ accept: ['application/pdf'], title: 'Attachments' })
-   */
-  FileList: (options: { accept: string[]; title?: string; defaultItems?: number }) =>
-    _fileList(options),
-} satisfies Record<FieldType, unknown>;
+    return TypeBoxType.Array(objectSchema, {
+      minItems: options.minItems,
+      maxItems: options.maxItems,
+      default: defaultArray,
+      title: options.title,
+      fieldType: "Repeater" as const,
+      toMarkdown: resolveToMarkdown<T, S>(options.toMarkdown, settings, "item", content),
+      itemSettingsSchema,
+      defaultItemSettings: settingsObjectSchema
+        ? collectSchemaDefaults(settingsObjectSchema.properties)
+        : undefined,
+    }) as RepeaterField<T, S>;
+  },
+};
+
+export const collectionFieldBuilder: CollectionFieldBuilder = {
+  string: (options = {}) =>
+    TypeBoxType.Unsafe<string>({
+      type: "string",
+      ...options,
+      fieldType: "String" as const,
+    }) as StringField,
+  enum: enumSetting,
+  boolean: booleanSetting,
+  image: contentFieldBuilder.image,
+  imageList: contentFieldBuilder.imageList,
+  file: contentFieldBuilder.file,
+  fileList: contentFieldBuilder.fileList,
+  embed: contentFieldBuilder.embed,
+};
+
+/** Runs a block's builders so the rest of its definition works with plain schemas. */
+export function resolveBlockFields<
+  TContent extends Record<string, TSchema>,
+  TSettings extends Record<string, TSchema>,
+>(options: {
+  id: string;
+  content: (field: ContentFieldBuilder) => TContent;
+  settings?: (setting: SettingBuilder) => TSettings;
+}): { content: TContent; settings: TSettings | undefined } {
+  const content = options.content(contentFieldBuilder);
+  const settings = options.settings?.(settingBuilder);
+  const owner = `Block "${options.id}"`;
+  assertFieldKinds(content, "content", owner);
+  if (settings) assertFieldKinds(settings, "settings", owner);
+  return { content, settings };
+}

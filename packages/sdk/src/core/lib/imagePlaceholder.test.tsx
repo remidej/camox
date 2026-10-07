@@ -4,11 +4,11 @@ import { test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { createBlock, Type } from "../createBlock";
-import { isImagePlaceholder, type ImageValue } from "./contentType";
+import { createBlock } from "../createBlock";
+import { contentFieldBuilder, isImagePlaceholder, type ImageValue } from "./contentType";
 import { renderImagePlaceholder } from "./imagePlaceholder";
 
-const placeholder = Type.Image().default as ImageValue;
+const placeholder = contentFieldBuilder.image().default as ImageValue;
 
 void test("landscape layers use opaque gradients with unique references per placeholder", () => {
   const html = renderToStaticMarkup(
@@ -29,8 +29,8 @@ void test("landscape layers use opaque gradients with unique references per plac
 
 void test("placeholder labels use field titles and inherit the site's font", () => {
   for (const [value, title] of [
-    [Type.Image({ title: "Hero illustration" }).default, "Hero illustration"],
-    [Type.ImageList({ title: "Gallery" }).items.default, "Gallery"],
+    [contentFieldBuilder.image({ title: "Hero illustration" }).default, "Hero illustration"],
+    [contentFieldBuilder.imageList({ title: "Gallery" }).items.default, "Gallery"],
     [placeholder, "image"],
   ] as const) {
     const html = renderToStaticMarkup(renderImagePlaceholder(value, <img alt="" />));
@@ -40,7 +40,7 @@ void test("placeholder labels use field titles and inherit the site's font", () 
     assert.match(html, /background:currentColor/);
     assert.match(html, /user-select:none/);
   }
-  const special = Type.Image({ title: "<Cover> & art" }).default;
+  const special = contentFieldBuilder.image({ title: "<Cover> & art" }).default;
   const html = renderToStaticMarkup(renderImagePlaceholder(special, <img alt="" />));
   assert.match(html, /&lt;Cover&gt; &amp; art<\/span>/);
 });
@@ -52,13 +52,13 @@ void test("only explicit local defaults are placeholders, never URL lookalikes o
   assert.equal(renderImagePlaceholder(authored, image), image);
   assert.equal(renderImagePlaceholder({ ...placeholder, _fileId: "uploaded" }, image), image);
   assert.equal(isImagePlaceholder(authored), false);
-  assert.equal(isImagePlaceholder(Type.ImageList().items.default), true);
+  assert.equal(isImagePlaceholder(contentFieldBuilder.imageList().items.default), true);
 });
 
 void test("marker survives local copies but is absent from serialized content schemas", () => {
   assert.equal(isImagePlaceholder({ ...placeholder }), true);
   assert.equal(isImagePlaceholder(structuredClone(placeholder)), false);
-  const schema = Type.Image();
+  const schema = contentFieldBuilder.image();
   assert.deepEqual(Object.keys(schema.default), ["url", "alt", "filename", "mimeType"]);
   assert.deepEqual(Object.keys(schema.properties), ["url", "alt", "filename", "mimeType"]);
 });
@@ -168,16 +168,19 @@ void test("normal runtime renders image, list and repeatable defaults with uncha
     id: "placeholder-test",
     title: "Placeholder",
     description: "",
-    content: {
-      hero: Type.Image(),
-      gallery: Type.ImageList({ defaultItems: 2 }),
-      items: Type.Repeater({
-        content: { image: Type.Image(), gallery: Type.ImageList({ defaultItems: 2 }) },
+    content: (field) => ({
+      hero: field.image(),
+      gallery: field.imageList({ defaultItems: 2 }),
+      items: field.repeater({
+        content: (field) => ({
+          image: field.image(),
+          gallery: field.imageList({ defaultItems: 2 }),
+        }),
         minItems: 1,
         maxItems: 2,
         toMarkdown: () => [],
       }),
-    },
+    }),
     toMarkdown: () => [],
     component: () => (
       <>
@@ -214,7 +217,7 @@ void test("normal runtime preserves authored images and custom callback URL fall
     id: "authored-test",
     title: "Authored",
     description: "",
-    content: { real: Type.Image(), wrapped: Type.Image() },
+    content: (field) => ({ real: field.image(), wrapped: field.image() }),
     toMarkdown: () => [],
     component: () => (
       <>

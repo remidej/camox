@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Play, SkipForward } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -10,41 +10,41 @@ const youtubeDemo = createBlock({
   title: "YouTube Demo",
   description:
     "Use this block to embed a YouTube video with a title above it and a row of clickable chapters underneath. Each chapter has a title, short description, and timestamp; clicking a chapter seeks the embedded player to that moment. Good fit for product demo videos, walkthroughs, or tutorials where visitors should be able to jump straight to a specific section without leaving the page.",
-  content: {
-    title: Type.String({
+  content: (field) => ({
+    title: field.string({
       default: "Watch the demo",
       title: "Title",
     }),
-    embed: Type.Embed({
+    embed: field.embed({
       pattern: "https:\\/\\/(www\\.)?(youtube\\.com|youtu\\.be)\\/.+",
       default: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       title: "YouTube URL",
     }),
-    facade: Type.Image({
+    facade: field.image({
       title: "Facade",
     }),
-    chapters: Type.Repeater({
-      content: {
-        timestamp: Type.String({
+    chapters: field.repeater({
+      content: (field) => ({
+        timestamp: field.string({
           default: "0:00",
           title: "Timestamp (mm:ss or hh:mm:ss)",
           pattern: "^\\d{1,2}(:\\d{2}){1,2}$",
         }),
-        title: Type.String({
+        title: field.string({
           default: "Getting started",
           title: "Chapter title",
         }),
-        description: Type.String({
+        description: field.string({
           default: "A quick overview of the basics in under a minute.",
           title: "Chapter description",
         }),
-      },
+      }),
       minItems: 1,
       maxItems: Infinity,
       title: "Chapters",
       toMarkdown: (c) => [`**${c.timestamp}** — ${c.title}: ${c.description}`],
     }),
-  },
+  }),
   component: YoutubeDemoComponent,
   toMarkdown: (c) => [`# ${c.title}`, c.embed, c.chapters],
 });

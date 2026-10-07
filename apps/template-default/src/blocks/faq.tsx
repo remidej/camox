@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import {
   Accordion,
@@ -12,25 +12,25 @@ const faq = createBlock({
   title: "FAQ",
   description:
     "Use this block to answer common questions about the product, pricing, or company. Place it near the bottom of a page to address objections before a conversion section.",
-  content: {
-    items: Type.Repeater({
-      content: {
-        question: Type.String({
+  content: (field) => ({
+    items: field.repeater({
+      content: (field) => ({
+        question: field.string({
           default: "How do I make this website my own?",
           title: "Question",
         }),
-        answer: Type.String({
+        answer: field.string({
           default:
             "Tell your coding agent what you're building, who it's for, and the style you want. Your agent has access to the Camox skill and will use it to create your own blocks, update your content, and manage your pages.",
           title: "Answer",
         }),
-      },
+      }),
       minItems: 3,
       maxItems: Infinity,
       title: "Questions",
       toMarkdown: (c) => [`Q: ${c.question}`, `A: ${c.answer}`],
     }),
-  },
+  }),
   component: FaqComponent,
   toMarkdown: (c) => [c.items],
 });

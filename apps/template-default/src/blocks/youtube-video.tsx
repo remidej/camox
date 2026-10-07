@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { cn } from "@/lib/utils";
 
@@ -7,20 +7,20 @@ const youtubeVideo = createBlock({
   title: "YouTube Video",
   description:
     "Embeds a YouTube video. Use this block to display a single YouTube video on a page. Don't try to guess the URL, use a web search tool to find a specific video URL instead.",
-  content: {
-    url: Type.Embed({
+  content: (field) => ({
+    url: field.embed({
       pattern:
         "https:\\/\\/(www\\.)?(youtube\\.com\\/(watch\\?v=|embed\\/|shorts\\/)|youtu\\.be\\/).+",
       default: "https://www.youtube.com/watch?v=-W_nFlIAWFM",
       title: "YouTube URL",
     }),
-  },
-  settings: {
-    fullWidth: Type.Boolean({
+  }),
+  settings: (setting) => ({
+    fullWidth: setting.boolean({
       default: false,
       title: "Full Width",
     }),
-    theme: Type.Enum({
+    theme: setting.enum({
       options: {
         light: "Light",
         dark: "Dark",
@@ -28,31 +28,31 @@ const youtubeVideo = createBlock({
       default: "light",
       title: "Theme",
     }),
-    autoplay: Type.Boolean({
+    autoplay: setting.boolean({
       default: false,
       title: "Autoplay",
     }),
-    mute: Type.Boolean({
+    mute: setting.boolean({
       default: false,
       title: "Mute",
     }),
-    controls: Type.Boolean({
+    controls: setting.boolean({
       default: true,
       title: "Controls",
     }),
-    showCaptions: Type.Boolean({
+    showCaptions: setting.boolean({
       default: false,
       title: "Show Captions",
     }),
-    rel: Type.Boolean({
+    rel: setting.boolean({
       default: false,
       title: "Related Videos",
     }),
-    fullscreen: Type.Boolean({
+    fullscreen: setting.boolean({
       default: true,
       title: "Fullscreen",
     }),
-  },
+  }),
   component: YouTubeVideoComponent,
   toMarkdown: (c) => [c.url],
 });
