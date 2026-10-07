@@ -3,8 +3,9 @@ import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
-import { pageMutations, pageQueries, projectQueries } from "../../lib/queries";
+import { layoutQueries, pageMutations, pageQueries, projectQueries } from "../../lib/queries";
 import { useLocation, useNavigate } from "../navigation/navigation";
+import { PageStatusBadge } from "../preview/components/PageStatusBadge";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
@@ -150,14 +151,21 @@ function CanvasPagePreview({
   );
 }
 
+type CanvasPageStatus = Pick<
+  React.ComponentProps<typeof PageStatusBadge>,
+  "status" | "modifiedReason"
+>;
+
 function CanvasWorkspace({
   pages,
+  statuses,
   selectedPage,
   runtimeBasePath,
   viewport,
   onActivate,
 }: {
   pages: CanvasPage[];
+  statuses: Map<string, CanvasPageStatus>;
   selectedPage: CanvasPage | undefined;
   runtimeBasePath: string;
   viewport: CanvasViewport;
@@ -314,6 +322,11 @@ function CanvasWorkspace({
             onRename={
               page.pageId != null ? (nickname) => renamePage(page.pageId!, nickname) : undefined
             }
+            status={
+              statuses.has(page.key) ? (
+                <PageStatusBadge size="sm" {...statuses.get(page.key)!} />
+              ) : null
+            }
             comments={
               page.pageId != null && pathname ? (
                 <CanvasPageCommentIndicators
@@ -390,7 +403,23 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     ...pageQueries.list(project.data?.id ?? 0),
     enabled: !!project.data,
   });
+  const layouts = useQuery({
+    ...layoutQueries.list(project.data?.id ?? 0),
+    enabled: !!project.data,
+  });
   const canvasPages = pages.data ? getCanvasPages(pages.data, app.getLayouts()) : [];
+  const pageById = new Map(pages.data?.map((page) => [page.id, page]));
+  const layoutStatusById = new Map(layouts.data?.map((layout) => [layout.layoutId, layout.status]));
+  const statuses = new Map<string, CanvasPageStatus>();
+  for (const page of canvasPages) {
+    const record = page.pageId != null ? pageById.get(page.pageId) : undefined;
+    if (record) {
+      statuses.set(page.key, { status: record.status, modifiedReason: record.modifiedReason });
+      continue;
+    }
+    const status = page.layoutId && layoutStatusById.get(page.layoutId);
+    if (status) statuses.set(page.key, { status });
+  }
   const selectedPage = selectedCanvasPage(canvasPages, app.getLayouts(), location.pathname);
   usePreparationFailure(
     (!project.isFetching ? project.error : null) ?? (!pages.isFetching ? pages.error : null),
@@ -441,6 +470,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       <CanvasWorkspace
         key={project.data.id}
         pages={canvasPages}
+        statuses={statuses}
         selectedPage={selectedPage}
         runtimeBasePath={runtimeBasePath}
         viewport={viewport}

@@ -1,4 +1,5 @@
 # Shared local environment files (never put secret values here).
+.claude/settings.local.json
 apps/api/.env.local
 apps/dashboard/.env.development.local
 apps/dashboard/.env.production

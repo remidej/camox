@@ -20,7 +20,8 @@ registerHooks({
     if (specifier.endsWith("/queries"))
       source = `export const projectQueries = {getBySlug: () => ({queryKey: ["project"]})};
         export const pageMutations = {update: () => ({})};
-        export const pageQueries = {list: () => ({queryKey: ["pages"]})};`;
+        export const pageQueries = {list: () => ({queryKey: ["pages"]})};
+        export const layoutQueries = {list: () => ({queryKey: ["layouts"]})};`;
     if (specifier.endsWith("/navigation"))
       source = `export const useLocation = () => globalThis.CanvasLocation;
         export const useNavigate = () => globalThis.CanvasNavigate;`;
@@ -114,7 +115,9 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
                 { id: 2, nickname: "Contact", fullPath: "/contact" },
                 ...(includeNewPage ? [{ id: 3, nickname: "New", fullPath: "/new" }] : []),
               ]
-            : { pathname };
+            : key === "layouts"
+              ? []
+              : { pathname };
       return {
         data,
         error,
