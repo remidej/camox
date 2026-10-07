@@ -22,6 +22,7 @@ import { useQuery } from "@tanstack/react-query";
 import { GripVertical, ListOrdered, X } from "lucide-react";
 import * as React from "react";
 
+import { referenceListIds } from "@/core/lib/reference";
 import { useCollectionItemModal } from "@/features/content/CollectionItemModalContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
@@ -34,12 +35,6 @@ import { DrillRow } from "./DrillRow";
 import type { PublicationStatus } from "./PageStatusBadge";
 import { RecordCard, recordThumbnail, type RecordThumbnail } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
-
-/** Record ids stored by a reference list; anything else reads as an empty list. */
-export function referenceListIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((id): id is string => typeof id === "string" && id !== "");
-}
 
 const sameIds = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((id, index) => id === b[index]);
@@ -147,7 +142,7 @@ export function ReferenceListFieldEditor({
   fieldId,
   value,
   maxItems,
-  records: placed = [],
+  records: hydratedRecords = [],
   onChange,
   onOpenRecord,
   recordHover,
@@ -264,7 +259,7 @@ export function ReferenceListFieldEditor({
             <ul className="flex flex-col gap-2">
               {ids.map((id) => {
                 const summary = records.data?.find((option) => option.id === id);
-                const hydrated = placed.find((record) => record.id === id);
+                const hydrated = hydratedRecords.find((record) => record.id === id);
                 return (
                   <SortableRecordCard
                     key={id}

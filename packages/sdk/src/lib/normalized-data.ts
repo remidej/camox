@@ -51,6 +51,11 @@ export function referenceList(references: NormalizedReferences | undefined, fiel
   return Array.isArray(value) ? value : [];
 }
 
+/** The records a reference or reference list field places, in order. */
+export function placedRecords(references: NormalizedReferences | undefined, fieldName: string) {
+  return [references?.[fieldName] ?? []].flat();
+}
+
 /* -------------------------------------------------------------------------------------------------
  * Context for block rendering (inside iframe)
  * Provides file/item lookup maps so createBlock components can resolve markers.

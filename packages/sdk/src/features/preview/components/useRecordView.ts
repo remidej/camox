@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
+import { referenceListIds } from "@/core/lib/reference";
 import { useProjectSlug } from "@/lib/auth";
+import { placedRecords, type NormalizedCollectionRecord } from "@/lib/normalized-data";
 import { type BlockBundle, collectionQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
@@ -26,23 +28,28 @@ export type SelectionCrumb = {
 };
 
 type RecordSelection = Extract<Selection, { type: "record" | "record-field" }>;
-type PlacedRecord = Exclude<
-  NonNullable<NonNullable<BlockBundle["block"]["references"]>[string]>,
-  unknown[]
->;
 type Collection = NonNullable<ReturnType<ReturnType<typeof useCamoxApp>["getCollectionById"]>>;
 
 export type RecordView = {
   selection: RecordSelection;
-  record: PlacedRecord;
+  record: NormalizedCollectionRecord;
   collection: Collection;
   status?: PublicationStatus;
 };
 
 /**
+ * Whether a reference field's stored value still links the record: the id a reference stores,
+ * or any id a reference list contains.
+ */
+function linksRecord(fieldType: string | undefined, stored: unknown, recordId: string) {
+  if (fieldType === "ReferenceList") return referenceListIds(stored).includes(recordId);
+  return stored === recordId;
+}
+
+/**
  * Resolves a record or record-field selection into the record it shows, while the block's
  * reference field still links that record, or the reference list still contains it. A stale
- * selection (the record was unlinked or replaced) shows, and then selects, the reference field
+ * selection (the field no longer links the record) shows, and then selects, the reference field
  * view instead.
  */
 export function useRecordView({
@@ -68,20 +75,21 @@ export function useRecordView({
     : undefined;
   const collectionId = referenceField?.collectionId;
   const collection = collectionId ? camoxApp.getCollectionById(collectionId) : undefined;
-  const placed = referenceFieldName ? block?.references?.[referenceFieldName] : undefined;
-  const stored = recordSelection
-    ? (block?.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName]
-    : undefined;
-  // A single reference places the record it stores; a list places each record it contains.
-  const placedRecord = Array.isArray(placed)
-    ? Array.isArray(stored) && stored.includes(recordSelection?.recordId)
-      ? placed.find((record) => record.id === recordSelection?.recordId)
-      : undefined
-    : stored === recordSelection?.recordId
-      ? (placed ?? undefined)
-      : undefined;
   const isStale =
-    recordSelection != null && block != null && placedRecord?.id !== recordSelection.recordId;
+    recordSelection != null &&
+    block != null &&
+    !linksRecord(
+      referenceField?.fieldType,
+      (block.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName],
+      recordSelection.recordId,
+    );
+  // A record the field just linked shows once the block's hydrated records include it.
+  const placedRecord =
+    recordSelection && !isStale
+      ? placedRecords(block?.references, recordSelection.fieldName).find(
+          (record) => record.id === recordSelection.recordId,
+        )
+      : undefined;
   const referenceFieldType =
     referenceField?.fieldType === "ReferenceList" ? "ReferenceList" : "Reference";
 

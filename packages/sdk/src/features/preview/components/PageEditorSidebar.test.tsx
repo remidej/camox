@@ -884,6 +884,39 @@ void test("a selection on a record no longer in the list falls back to the refer
   );
 });
 
+void test("a selected record still in the list but not yet loaded keeps its selection", async (t) => {
+  const selection = {
+    type: "record",
+    blockId: BLOCK_ID,
+    fieldName: "logos",
+    recordId: INITECH,
+  } as const;
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX] });
+  // The list links the record before the block's hydrated records include it.
+  await act(async () => {
+    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+      ...bundle,
+      block: { ...bundle.block, content: { ...bundle.block.content, logos: [GLOBEX, INITECH] } },
+    }));
+    sidebar.previewStore.send({ type: "selectTarget", ...owner, selection });
+  });
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), selection, "the selection is not bounced to the list");
+
+  await act(async () => {
+    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+      ...bundle,
+      block: {
+        ...bundle.block,
+        references: { ...bundle.block.references, logos: listedRecords.slice(1) },
+      },
+    }));
+  });
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), selection);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos", "Initech"]);
+});
+
 void test("reordering a list keeps the selected record", async (t) => {
   const selection = {
     type: "record",
