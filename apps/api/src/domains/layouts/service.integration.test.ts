@@ -8,7 +8,7 @@ import { callTool } from "../agent/service";
 import { getLayout, publishLayout, unpublishLayout } from "./service";
 
 describe("standalone shared layout reads", () => {
-  it("loads ordered shared blocks, nested items and files without creating a page", async () => {
+  it("loads ordered layout blocks, nested items and files without creating a page", async () => {
     const { db, environment, layout, memberUser, project } =
       await createProjectFixture("layout-view");
     const ctx = createServiceContext(db, memberUser);
@@ -34,7 +34,7 @@ describe("standalone shared layout reads", () => {
       .values({
         layoutId: layout.id,
         type: "footer",
-        placement: "after",
+        slot: "after",
         content: { title: "Footer" },
         position: "a1",
         createdAt: now,
@@ -47,7 +47,7 @@ describe("standalone shared layout reads", () => {
       .values({
         layoutId: layout.id,
         type: "navbar",
-        placement: "before",
+        slot: "before",
         content: { title: "Published navigation" },
         position: "a0",
         createdAt: now,
@@ -115,10 +115,10 @@ describe("standalone shared layout reads", () => {
       {
         id: navbar.id,
         type: "navbar",
-        placement: "before",
+        slot: "before",
         content: { title: "Draft navigation" },
       },
-      { id: footer.id, type: "footer", placement: "after", content: { title: "Footer" } },
+      { id: footer.id, type: "footer", slot: "after", content: { title: "Footer" } },
     ]);
     expect(live.layout.beforeBlockIds).toEqual([navbar.id]);
     expect(live.layout.afterBlockIds).toEqual([footer.id]);

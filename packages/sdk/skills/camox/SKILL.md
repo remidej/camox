@@ -11,7 +11,7 @@ Read only the references needed for the current task. Do not preload every refer
 
 - Create a block or change its schema or field rendering API in `src/blocks/`:
   [Block Definitions](references/block-definitions.md).
-- Create or change a curated layout (a reusable shell for editor-created pages), including shared navbar/footer placement:
+- Create or change a curated layout (a reusable shell for editor-created pages), including navbar/footer layout slots:
   [Layout Definitions](references/layout-definitions.md).
 - Create or change a singleton page (a code-owned fixed URL) or derived route (a code-owned data-driven route) in `src/layouts/`:
   [Routed layouts](references/routed-layouts.md).
@@ -32,7 +32,7 @@ For specialized changes to an existing block, read the specialist reference dire
 
 For any CLI operation, first read [CLI common guidance](references/cli-common.md), then only the relevant command reference:
 
-- Pages, metadata, layout assignments, Block instances, content, ordering, or publishing:
+- Pages, metadata, layout assignments, Blocks, content, ordering, or publishing:
   [CLI Content](references/cli-content.md).
 - List comments on a Page or resolve a comment by its ID:
   [CLI Content — Comments](references/cli-content.md#comments).

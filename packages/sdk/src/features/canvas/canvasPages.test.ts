@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { CANVAS_DEVICES, getCanvasPages, validateCanvasPageInput } from "./canvasPages";
 
-void test("canvas contains curated pages, singleton pages, and one frame per template", () => {
+void test("canvas contains curated pages, singleton pages, and one frame per derived layout", () => {
   const pages = getCanvasPages(
     [{ id: 7, nickname: "Home", fullPath: "/" }],
     [
@@ -21,17 +21,17 @@ void test("canvas contains curated pages, singleton pages, and one frame per tem
       layoutId: "about",
     },
     {
-      key: "template:articles.$slug",
+      key: "derived:articles.$slug",
       title: "Article",
       pathname: null,
-      templateId: "articles.$slug",
+      derivedLayoutId: "articles.$slug",
       pattern: "/articles/:slug",
       layoutId: "articles.$slug",
     },
   ]);
 });
 
-void test("fixed derived routes can preview without choosing an instance", () => {
+void test("fixed derived routes can preview without choosing a page path", () => {
   const pages = getCanvasPages(
     [],
     [{ _internal: { id: "articles", kind: "derived", title: "Articles" } }],
@@ -46,7 +46,7 @@ void test("device presets are fixed dimensions independent of the Studio viewpor
   assert.ok(Object.values(CANVAS_DEVICES).every((device) => device.height > 0));
 });
 
-void test("template frames reject curated routes that shadow the template pattern", () => {
+void test("derived layout frames reject curated routes that shadow the route pattern", () => {
   const input = {
     pathname: "/articles/foo",
     previewDocument: "<html></html>",
@@ -55,7 +55,7 @@ void test("template frames reject curated routes that shadow the template patter
   assert.doesNotThrow(() => validateCanvasPageInput(input, "/articles/foo"));
   assert.throws(
     () => validateCanvasPageInput(input, "/articles/foo", "articles.$slug"),
-    /does not render the selected template/,
+    /does not render the selected derived layout/,
   );
   assert.doesNotThrow(() =>
     validateCanvasPageInput(

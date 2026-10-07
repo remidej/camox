@@ -5,7 +5,7 @@ import type { Layout } from "../../core/createLayout";
 import { getCanvasPages } from "./canvasPages";
 import { selectedCanvasPage } from "./canvasSelection";
 
-void test("selection resolves concrete pages before templates and supports instance deep links", () => {
+void test("selection resolves concrete pages before derived layouts and supports page path deep links", () => {
   const layouts = [
     { _internal: { id: "about", kind: "singleton", title: "About" } },
     { _internal: { id: "articles.$slug", kind: "derived", title: "Article" } },
@@ -21,6 +21,6 @@ void test("selection resolves concrete pages before templates and supports insta
   assert.equal(select("/")?.key, "page:7");
   assert.equal(select("/about")?.key, "singleton:about");
   assert.equal(select("/articles/special")?.key, "page:8");
-  assert.equal(select("/articles/hello%20world")?.key, "template:articles.$slug");
+  assert.equal(select("/articles/hello%20world")?.key, "derived:articles.$slug");
   assert.equal(select("/missing"), undefined);
 });

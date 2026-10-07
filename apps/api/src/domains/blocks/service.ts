@@ -880,7 +880,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   );
   if (!page) return yield* new NotFoundError();
 
-  // Get block definitions for content schemas and toMarkdown templates. Scope
+  // Get block definitions for content schemas and Markdown representations. Scope
   // by environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
   const defs = yield* Effect.promise(() =>
@@ -1043,7 +1043,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     const schema = schemaByType.get(block.type);
     if (!schema?.toMarkdown) continue;
     const md = renderBlock(block, layoutItemsByBlock.get(block.id) ?? []);
-    if (block.placement === "before") beforeParts.push(md);
+    if (block.slot === "before") beforeParts.push(md);
     else afterParts.push(md);
   }
   const beforeMarkdown = beforeParts.join("\n\n");
@@ -1574,7 +1574,7 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
         type: original.type,
         content: original.content,
         settings: original.settings,
-        placement: original.placement,
+        slot: original.slot,
         summary: original.summary,
         position,
         createdAt: now,

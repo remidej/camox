@@ -594,7 +594,7 @@ function createViewBlock(options: EditableOptions) {
             type: options.id,
             content,
             settings: settingsDefaults,
-            placement: null,
+            slot: null,
             summary: "",
             position: "",
             createdAt: 0,

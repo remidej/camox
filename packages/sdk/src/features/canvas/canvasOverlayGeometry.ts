@@ -16,7 +16,7 @@ export type CanvasOverlayTarget = {
 };
 
 const targetSelector =
-  "[data-camox-field-id], [data-camox-block-id], [data-camox-repeater-item-id]";
+  "[data-camox-field-id], [data-camox-block-id], [data-camox-repeatable-item-id]";
 
 // These attributes describe editor state, never site content or layout.
 const stateAttributes = new Set([

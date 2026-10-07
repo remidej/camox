@@ -49,16 +49,16 @@ export { myLayout as layout };
 | `id`             | yes      | Unique kebab-case identifier matching the filename without extension.             |
 | `title`          | yes      | CMS display name.                                                                 |
 | `description`    | yes      | Guidance for users and agents on which pages suit this layout.                    |
-| `blocks`         | yes      | `before`, `after`, and optional `initial` arrays; see placement rules below.      |
+| `blocks`         | yes      | `before`, `after`, and optional `initial` arrays; see layout slot rules below.    |
 | `component`      | yes      | Named function component receiving `{ children }`.                                |
 | `buildMetaTitle` | yes      | `({ pageMetaTitle, projectName, pageFullPath }) => string` for the browser title. |
 | `buildOgImage`   | no       | `({ title, description, projectName }) => JSX` for a sharing image.               |
 
-## Block Placement — `before`, `after`, and `initial`
+## Layout Slots — `before`, `after`, and `initial`
 
 - `before` and `after` require blocks with `layoutOnly: true`. Either array may be empty.
 - Render groups with `<myLayout.BeforeBlocks />` and `<myLayout.AfterBlocks />`, not individual blocks. Array order controls rendering order; edit the config to add or reorder blocks.
-- For identical navbar/footer content across layouts, also set `synced: true`. `layoutOnly` restricts placement; it does not enable syncing. See [Synced blocks](block-definitions.md#synced-blocks-synced-optional) for publishing and existing-instance behavior.
+- For identical navbar/footer content across layouts, also set `synced: true`. `layoutOnly` restricts a block to layout slots; it does not enable syncing. See [Synced blocks](block-definitions.md#synced-blocks-synced-optional) for publishing and existing-placement behavior.
 
 ## Initial Blocks — `blocks.initial` (optional)
 

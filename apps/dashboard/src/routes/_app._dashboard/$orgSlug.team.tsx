@@ -1,17 +1,8 @@
-import { OrganizationMembersCard } from "@daveyplate/better-auth-ui";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// Studio builds from older SDK versions still link here.
 export const Route = createFileRoute("/_app/_dashboard/$orgSlug/team")({
-  component: TeamPage,
-  head: () => ({
-    meta: [{ title: "Members – Camox Dashboard" }],
-  }),
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/$orgSlug/members", params });
+  },
 });
-
-function TeamPage() {
-  return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-      <OrganizationMembersCard />
-    </div>
-  );
-}

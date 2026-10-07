@@ -35,11 +35,11 @@ void test("measures line fragments, boxes, SVG icons and empty targets in iframe
     <div data-camox-block-id="block" data-camox-overlay-mode="synced">
       <span data-camox-field-id="title">Title</span>
       <svg data-camox-field-id="icon" data-camox-field-type="icon"></svg>
-      <div data-camox-repeater-item-id="empty"></div>
+      <div data-camox-repeatable-item-id="empty"></div>
     </div>`;
   const elements = Array.from(
     page.document.querySelectorAll(
-      "[data-camox-block-id], [data-camox-field-id], [data-camox-repeater-item-id]",
+      "[data-camox-block-id], [data-camox-field-id], [data-camox-repeatable-item-id]",
     ),
   );
   for (const element of elements) {

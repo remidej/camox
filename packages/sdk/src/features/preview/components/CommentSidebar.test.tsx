@@ -281,7 +281,7 @@ void test("canvas indicators open object comments and a persistent composer besi
       await React.act(async () => previewCommentsStore.send({ type: "clearSelection" }));
       const element = dom.window.document.createElement("div");
       element.setAttribute("data-camox-block-id", "7");
-      if ("itemId" in target) element.setAttribute("data-camox-repeater-item-id", "12");
+      if ("itemId" in target) element.setAttribute("data-camox-repeatable-item-id", "12");
       if ("fieldName" in target) {
         element.setAttribute(
           "data-camox-field-id",

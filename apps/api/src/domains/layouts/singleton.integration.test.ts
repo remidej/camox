@@ -139,7 +139,7 @@ describe("singleton page ownership", () => {
       definitions[0],
       {
         ...definitions[1],
-        blocks: [{ type: "intro", placement: "before" as const, content: { title: "Published" } }],
+        blocks: [{ type: "intro", slot: "before" as const, content: { title: "Published" } }],
       },
     ]);
     const singleton = result.layouts.find((item) => item.layout.kind === "singleton")!.layout;

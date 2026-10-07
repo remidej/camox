@@ -55,8 +55,8 @@ function OrgLayout() {
 
   if (projectSlug) return <Outlet />;
 
-  const isTeam = matchRoute({
-    to: "/$orgSlug/team",
+  const isMembers = matchRoute({
+    to: "/$orgSlug/members",
     params: { orgSlug },
   });
   const isSettings = matchRoute({
@@ -66,7 +66,7 @@ function OrgLayout() {
 
   let activeTab = "projects";
   if (isSettings) activeTab = "settings";
-  else if (isTeam) activeTab = "members";
+  else if (isMembers) activeTab = "members";
 
   return (
     <div className="flex flex-col items-stretch gap-6 py-6">
@@ -83,7 +83,7 @@ function OrgLayout() {
             <TabsTrigger
               value="members"
               nativeButton={false}
-              render={<Link to="/$orgSlug/team" params={{ orgSlug }} />}
+              render={<Link to="/$orgSlug/members" params={{ orgSlug }} />}
             >
               Members
             </TabsTrigger>

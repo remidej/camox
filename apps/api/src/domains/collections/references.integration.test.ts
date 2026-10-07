@@ -357,7 +357,7 @@ describe("single collection references", () => {
     }
     await f.db
       .update(blocks)
-      .set({ pageId: null, layoutId: f.layout.id, placement: "before" })
+      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
       .where(eq(blocks.id, f.block.id));
     await runService(publishLayout(f.ctx, { id: f.layout.id }));
     for (const source of ["draft", "live"] as const) {
@@ -568,7 +568,7 @@ describe("single collection references", () => {
     const f = await fixture(true);
     await f.db
       .update(blocks)
-      .set({ pageId: null, layoutId: f.layout.id, placement: "before" })
+      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
       .where(eq(blocks.id, f.block.id));
     expect(
       (await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"))).targets,

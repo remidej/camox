@@ -14,7 +14,7 @@ const layouts = [
   { _internal: { kind: "curated" as const, id: "marketing", title: "Marketing" } },
 ];
 
-void test("destination lists include concrete singletons, never layout templates or derived families", () => {
+void test("destination lists include concrete singletons, never derived layouts or their pages", () => {
   const destinations = getPageDestinations(
     [{ id: 1, nickname: "About", fullPath: "/about" }],
     layouts,

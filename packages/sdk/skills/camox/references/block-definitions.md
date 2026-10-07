@@ -37,30 +37,30 @@ For DOM listeners, scrolling, scripts, or widgets, read [DOM integrations](dom-i
 
 ## The `createBlock` options
 
-| Option        | Required | Description                                                                                   |
-| ------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                         |
-| `title`       | yes      | CMS display name.                                                                             |
-| `description` | yes      | Agent guidance on placement, expected content, and tone.                                      |
-| `content`     | yes      | Field names mapped to `Type.*` schemas for editable content.                                  |
-| `settings`    | no       | Settings-panel fields; only `Type.Enum` and `Type.Boolean`.                                   |
-| `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.         |
-| `synced`      | no       | Defaults to false. Shares content/settings across instances within an environment; see below. |
-| `component`   | yes      | Named React function component.                                                               |
-| `toMarkdown`  | yes      | `(c, s) => [...]` markdown builder; see below.                                                |
+| Option        | Required | Description                                                                                    |
+| ------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                          |
+| `title`       | yes      | CMS display name.                                                                              |
+| `description` | yes      | Agent guidance on placement, expected content, and tone.                                       |
+| `content`     | yes      | Field names mapped to `Type.*` schemas for editable content.                                   |
+| `settings`    | no       | Settings-panel fields; only `Type.Enum` and `Type.Boolean`.                                    |
+| `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.          |
+| `synced`      | no       | Defaults to false. Shares content/settings across placements within an environment; see below. |
+| `component`   | yes      | Named React function component.                                                                |
+| `toMarkdown`  | yes      | `(c, s) => [...]` markdown builder; see below.                                                 |
 
 ## Synced blocks (`synced`, optional)
 
-`synced: true` shares content and settings, including nested repeater items and their settings, across every instance of the block **type** within one environment. Dev and production remain independent. Synced blocks have purple editor highlights.
+`synced: true` shares content and settings, including nested repeatable items and their settings, across every placement of the block **definition** within one environment. Dev and production remain independent. Synced blocks have purple editor highlights.
 
 For shared navbar/footer data across layouts, use `layoutOnly: true, synced: true`. These flags are independent: synced blocks can also be ordinary page-content blocks.
 
-- Editing any instance updates the shared draft everywhere. New instances reuse existing data rather than resetting to defaults.
-- Position, placement, and deletion remain per instance; deleting one placement leaves the others.
-- Publishing a page or layout containing the block publishes shared data for all live instances. Unpublished drafts do not leak into live.
-- Enabling syncing on an existing type applies the oldest instance's data to all instances. Disabling it leaves independently editable copies.
+- Editing any placement updates the shared draft everywhere. New placements reuse existing data rather than resetting to defaults.
+- Position, layout slot, and deletion remain per placement; deleting one placement leaves the others.
+- Publishing a page or layout containing the block publishes shared data for all live placements. Unpublished drafts do not leak into live.
+- Enabling syncing on an existing type applies the oldest placement's data to all placements. Disabling it leaves independently editable copies.
 
-## Markdown Template (`toMarkdown`)
+## Markdown Representation (`toMarkdown`)
 
 Required on blocks and repeaters. Receives typed proxies `c` (content) and `s` (settings); returns entries joined with `\n\n` for AI summaries and SEO. Lines whose referenced fields are all empty, or whose condition is false, are omitted.
 

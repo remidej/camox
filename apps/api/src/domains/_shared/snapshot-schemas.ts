@@ -29,7 +29,7 @@ export const snapshotBlockSchema = z.object({
   type: z.string(),
   content: z.unknown(),
   settings: z.unknown().nullable(),
-  placement: z.enum(["before", "after"]).nullable(),
+  slot: z.enum(["before", "after"]).nullable(),
   summary: z.string(),
   position: z.string(),
   createdAt: z.number(),

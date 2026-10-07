@@ -118,7 +118,7 @@ void test("canvas URL selection targets page or layout info without inheriting s
   try {
     for (const [url, editor, pageId, layoutId] of [
       ["/", "PageInfoSidebar", "7", null],
-      // A concrete page wins over a matching derived template.
+      // A concrete page wins over a matching derived layout.
       ["/articles/special", "PageInfoSidebar", "83", null],
       ["/about", "DerivedPageInfoSidebar", null, "about"],
       ["/articles/hello%20world", "DerivedPageInfoSidebar", null, "articles.$slug"],

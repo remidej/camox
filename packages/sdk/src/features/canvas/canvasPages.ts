@@ -7,7 +7,7 @@ export interface CanvasPage {
   key: string;
   title: string;
   pathname: string | null;
-  templateId?: string;
+  derivedLayoutId?: string;
   pattern?: string;
   pageId?: number;
   layoutId?: string;
@@ -19,7 +19,7 @@ export const CANVAS_DEVICES = {
   mobile: { label: "Mobile", width: 390, height: 844 },
 } as const;
 
-/** Concrete pages plus one frame per derived template, never every generated URL. */
+/** Concrete pages plus one frame per derived layout, never every generated URL. */
 export function getCanvasPages(
   pages: Parameters<typeof getPageDestinations>[0],
   layouts: DestinationLayouts,
@@ -30,21 +30,21 @@ export function getCanvasPages(
     pathname: page.fullPath,
     ...(page.kind === "curated" ? { pageId: page.pageId } : { layoutId: page.layoutId }),
   }));
-  const templates = layouts
+  const derivedLayouts = layouts
     .filter((layout) => layout._internal.kind === "derived")
     .map(({ _internal: layout }) => {
       const segments = layout.id.split(".");
       const pattern = `/${segments.map((part) => (part.startsWith("$") ? `:${part.slice(1)}` : encodeURIComponent(part))).join("/")}`;
       return {
-        key: `template:${layout.id}`,
+        key: `derived:${layout.id}`,
         title: layout.title,
         pathname: segments.some((part) => part.startsWith("$")) ? null : pattern,
-        templateId: layout.id,
+        derivedLayoutId: layout.id,
         pattern,
         layoutId: layout.id,
       };
     });
-  return [...concrete, ...templates];
+  return [...concrete, ...derivedLayouts];
 }
 
 export function validateCanvasPageInput(
@@ -52,7 +52,7 @@ export function validateCanvasPageInput(
     derived?: { layoutId: string };
   },
   pathname: string,
-  templateId?: string,
+  derivedLayoutId?: string,
 ) {
   if (
     input.pathname !== pathname ||
@@ -62,7 +62,7 @@ export function validateCanvasPageInput(
   )
     throw new Error("The server did not return a page preview.");
   // Curated routes take precedence over derived routes on the server. Matching
-  // the URL pattern alone does not prove this is an instance of the template.
-  if (templateId && input.derived?.layoutId !== templateId)
-    throw new Error(`This path does not render the selected template (${templateId}).`);
+  // the URL pattern alone does not prove this is a page of the derived layout.
+  if (derivedLayoutId && input.derived?.layoutId !== derivedLayoutId)
+    throw new Error(`This path does not render the selected derived layout (${derivedLayoutId}).`);
 }

@@ -214,7 +214,7 @@ function createLayoutDefinition<
         content: bundle.content,
         settings: bundle.settings,
         repeatableItems: bundle.repeatableItems,
-        placement: "before" as const,
+        slot: "before" as const,
       };
     }),
     ...afterBlocks.map((block) => {
@@ -224,7 +224,7 @@ function createLayoutDefinition<
         content: bundle.content,
         settings: bundle.settings,
         repeatableItems: bundle.repeatableItems,
-        placement: "after" as const,
+        slot: "after" as const,
       };
     }),
   ];

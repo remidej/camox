@@ -275,7 +275,7 @@ describe("validateContent", () => {
     (image) => Effect.runSync(validateContent({ image }, schema)),
   );
 
-  it("requires fresh repeater items, but not asset render placeholders", () => {
+  it("requires fresh repeatable items, but not asset render placeholders", () => {
     Effect.runSync(validateContent({ items: [{ title: "Hello" }] }, schema));
     expect(() => Effect.runSync(validateContent({ items: [{}] }, schema))).toThrow();
     expect(() => Effect.runSync(validateContent({ items: [null] }, schema))).toThrow();

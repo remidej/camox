@@ -71,13 +71,20 @@ export const syncLayoutsInput = z.object({
       kind: z.enum(["curated", "derived", "singleton"]).default("curated"),
       description: z.string(),
       blocks: z.array(
-        z.object({
-          type: z.string(),
-          content: z.unknown(),
-          settings: z.unknown().optional(),
-          placement: z.enum(["before", "after"]).optional(),
-          repeatableItems: z.array(repeatableItemSeedSchema).optional(),
-        }),
+        z.preprocess(
+          // SDKs before 0.45 send the layout slot as `placement`.
+          (block) =>
+            block && typeof block === "object" && "placement" in block && !("slot" in block)
+              ? { ...block, slot: block.placement }
+              : block,
+          z.object({
+            type: z.string(),
+            content: z.unknown(),
+            settings: z.unknown().optional(),
+            slot: z.enum(["before", "after"]).optional(),
+            repeatableItems: z.array(repeatableItemSeedSchema).optional(),
+          }),
+        ),
       ),
     }),
   ),
@@ -210,7 +217,7 @@ export const buildLayoutSnapshotFromDraft = Effect.fn("layouts.buildLayoutSnapsh
         type: b.type,
         content: b.content,
         settings: b.settings,
-        placement: b.placement,
+        slot: b.slot,
         summary: b.summary,
         position: b.position,
         createdAt: b.createdAt,
@@ -236,7 +243,7 @@ export const buildLayoutSnapshotFromDraft = Effect.fn("layouts.buildLayoutSnapsh
 // to recompute status for all of them, and the per-page `'live'` caches need
 // to refresh. We enumerate the affected pages and their blocks once, then fan
 // out a single broadcast. `pages.getByPath` without a source is a prefix that
-// covers both 'draft' and 'live' slots, which matters: the draft slot also
+// covers both 'draft' and 'live' sources, which matters: the draft source also
 // re-derives status from the layout pointer.
 const invalidateLayoutPublish = Effect.fn("layouts.invalidateLayoutPublish")(function* (
   ctx: ServiceContext,
@@ -357,10 +364,10 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
       updatedAt: layout.updatedAt,
       livePublishedCheckpointId: layout.livePublishedCheckpointId,
       beforeBlockIds: layoutBlocks
-        .filter((block) => block.placement === "before")
+        .filter((block) => block.slot === "before")
         .map((block) => block.id),
       afterBlockIds: layoutBlocks
-        .filter((block) => block.placement === "after")
+        .filter((block) => block.slot === "after")
         .map((block) => block.id),
     },
     blocks: hydrated,
@@ -506,7 +513,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     const createdBlockTypes: string[] = [];
 
     // Before/after blocks can only be declared in code — the UI can't create
-    // them — so every sync must backfill any declared block slot missing from
+    // them — so every sync must backfill any declared layout block missing from
     // the DB. Never overwrite an existing block: users may have edited its
     // content in the UI.
     const existingBlocks = yield* Effect.promise(() =>
@@ -514,7 +521,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         .select({
           id: blocks.id,
           type: blocks.type,
-          placement: blocks.placement,
+          slot: blocks.slot,
           position: blocks.position,
         })
         .from(blocks)
@@ -523,32 +530,32 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
 
     const existingByKey = new Map<string, string>();
     for (const b of existingBlocks) {
-      existingByKey.set(`${b.type}:${b.placement ?? ""}`, b.position);
+      existingByKey.set(`${b.type}:${b.slot ?? ""}`, b.position);
     }
 
-    const slots = def.blocks.map((blockDef) => ({
+    const declared = def.blocks.map((blockDef) => ({
       def: blockDef,
-      position: existingByKey.get(`${blockDef.type}:${blockDef.placement ?? ""}`) ?? null,
+      position: existingByKey.get(`${blockDef.type}:${blockDef.slot ?? ""}`) ?? null,
     }));
 
     let lastPos: string | null = null;
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i];
-      if (slot.position !== null) {
-        lastPos = slot.position;
+    for (let i = 0; i < declared.length; i++) {
+      const entry = declared[i];
+      if (entry.position !== null) {
+        lastPos = entry.position;
         continue;
       }
 
       let nextPos: string | null = null;
-      for (let j = i + 1; j < slots.length; j++) {
-        if (slots[j].position !== null) {
-          nextPos = slots[j].position;
+      for (let j = i + 1; j < declared.length; j++) {
+        if (declared[j].position !== null) {
+          nextPos = declared[j].position;
           break;
         }
       }
 
       const newPos = generateKeyBetween(lastPos, nextPos);
-      const blockDef = slot.def;
+      const blockDef = entry.def;
       createdBlockTypes.push(blockDef.type);
 
       const block = yield* Effect.promise(() =>
@@ -559,7 +566,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
             type: blockDef.type,
             content: blockDef.content,
             settings: blockDef.settings ?? null,
-            placement: blockDef.placement ?? null,
+            slot: blockDef.slot ?? null,
             position: newPos,
             summary: "",
             createdAt: now,
@@ -598,16 +605,16 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       }
 
       yield* syncBlockData(ctx, block.id, true);
-      slot.position = newPos;
+      entry.position = newPos;
       lastPos = newPos;
     }
 
-    const declaredKeys = new Set(def.blocks.map((bd) => `${bd.type}:${bd.placement ?? ""}`));
+    const declaredKeys = new Set(def.blocks.map((bd) => `${bd.type}:${bd.slot ?? ""}`));
     const removedBlockTypes: string[] = [];
     const skippedOrphanTypes: string[] = [];
     const orphanIdsToDelete: number[] = [];
     for (const existing of existingBlocks) {
-      const key = `${existing.type}:${existing.placement ?? ""}`;
+      const key = `${existing.type}:${existing.slot ?? ""}`;
       if (declaredKeys.has(key)) continue;
       if (layoutOnlyTypes.has(existing.type)) {
         orphanIdsToDelete.push(existing.id);

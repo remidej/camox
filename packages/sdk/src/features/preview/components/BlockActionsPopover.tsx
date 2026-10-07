@@ -43,7 +43,7 @@ interface BlockActionsPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isLayoutBlock?: boolean;
-  layoutPlacement?: "before" | "after";
+  layoutSlot?: "before" | "after";
 }
 
 const BlockActionsPopover = ({
@@ -53,7 +53,7 @@ const BlockActionsPopover = ({
   onOpenChange,
   align = "start",
   isLayoutBlock,
-  layoutPlacement,
+  layoutSlot,
 }: BlockActionsPopoverProps) => {
   const [blockToDelete, setBlockToDelete] = React.useState<NormalizedBlock | null>(null);
 
@@ -152,7 +152,7 @@ const BlockActionsPopover = ({
             <Command>
               <CommandInput placeholder="Search actions..." />
               <CommandList className="max-h-[350px]">
-                {isLayoutBlock && layoutPlacement === "before" && (
+                {isLayoutBlock && layoutSlot === "before" && (
                   <>
                     <CommandGroup>
                       <CommandItem
@@ -172,7 +172,7 @@ const BlockActionsPopover = ({
                     </CommandGroup>
                   </>
                 )}
-                {isLayoutBlock && layoutPlacement === "after" && (
+                {isLayoutBlock && layoutSlot === "after" && (
                   <>
                     <CommandGroup>
                       <CommandItem

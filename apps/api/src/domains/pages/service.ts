@@ -463,7 +463,7 @@ export const buildPageSnapshotFromDraft = Effect.fn("pages.buildPageSnapshotFrom
       type: b.type,
       content: b.content,
       settings: b.settings,
-      placement: b.placement,
+      slot: b.slot,
       summary: b.summary,
       position: b.position,
       createdAt: b.createdAt,
@@ -511,8 +511,8 @@ function composePageView(args: {
   const itemsWithMarkers = normalizedBlocks.flatMap(({ items }) => items);
 
   const blockIds = pageBlocks.map((b) => b.id);
-  const beforeBlockIds = layoutBlocks.filter((b) => b.placement === "before").map((b) => b.id);
-  const afterBlockIds = layoutBlocks.filter((b) => b.placement === "after").map((b) => b.id);
+  const beforeBlockIds = layoutBlocks.filter((b) => b.slot === "before").map((b) => b.id);
+  const afterBlockIds = layoutBlocks.filter((b) => b.slot === "after").map((b) => b.id);
 
   return {
     page: { ...page, blockIds },
@@ -686,7 +686,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
     : null;
 
   let pageBlockOrder: { id: number; position: string }[];
-  let layoutBlockOrder: { id: number; position: string; placement: "before" | "after" | null }[];
+  let layoutBlockOrder: { id: number; position: string; slot: "before" | "after" | null }[];
 
   if (source === "draft") {
     pageBlockOrder = sortByPosition(
@@ -701,7 +701,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
       ? sortByPosition(
           yield* Effect.promise(() =>
             db
-              .select({ id: blocks.id, position: blocks.position, placement: blocks.placement })
+              .select({ id: blocks.id, position: blocks.position, slot: blocks.slot })
               .from(blocks)
               .where(eq(blocks.layoutId, layout.id)),
           ),
@@ -716,7 +716,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
       layoutBlockOrder = (layoutSnapshot?.blocks ?? []).map((b) => ({
         id: b.id,
         position: b.position,
-        placement: b.placement,
+        slot: b.slot,
       }));
     } else {
       layoutBlockOrder = [];
@@ -737,8 +737,8 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
           contentUpdatedAt: layout.contentUpdatedAt,
           livePublishedCheckpointId: layout.livePublishedCheckpointId,
           updatedAt: layout.updatedAt,
-          beforeBlockIds: layoutBlockOrder.filter((b) => b.placement === "before").map((b) => b.id),
-          afterBlockIds: layoutBlockOrder.filter((b) => b.placement === "after").map((b) => b.id),
+          beforeBlockIds: layoutBlockOrder.filter((b) => b.slot === "before").map((b) => b.id),
+          afterBlockIds: layoutBlockOrder.filter((b) => b.slot === "after").map((b) => b.id),
         }
       : null,
   };
@@ -1320,7 +1320,7 @@ export const discardPageChanges = Effect.fn("pages.discardPageChanges")(function
         type: block.type,
         content: block.content,
         settings: block.settings,
-        placement: block.placement,
+        slot: block.slot,
         summary: block.summary,
         position: block.position,
         createdAt: block.createdAt,

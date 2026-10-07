@@ -822,7 +822,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
           root: { type: "root", version: 1, children: [{ type: "unsupported", version: 1 }] },
         },
       },
-      { ...article, body: markdownToLexicalState("[Cross site](camox:page:999999)") },
+      { ...article, body: markdownToLexicalState("[Cross project](camox:page:999999)") },
     ])
       await expect(runService(createRecord(f.ctx, { ...f.scope, content: bad }))).rejects.toThrow();
   });
@@ -942,7 +942,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
     ).rejects.toThrow();
   });
 
-  it("enforces auth, site, collection, environment and revision ownership on every operation", async () => {
+  it("enforces auth, project, collection, environment and revision ownership on every operation", async () => {
     const f = await fixture("isolation");
     const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = { ...f.scope, id: record.id, expectedVersion: record.version };
@@ -981,18 +981,22 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
         restoreRecord(f.ctx, { ...input, id: other.id, revisionId: published.revision.id }),
       ),
     ).rejects.toThrow();
-    const anotherSite = await fixture("another-site");
+    const anotherProject = await fixture("another-project");
     expect(
-      await runService(readRecord(anotherSite.publicCtx, { ...anotherSite.scope, id: record.id })),
+      await runService(
+        readRecord(anotherProject.publicCtx, { ...anotherProject.scope, id: record.id }),
+      ),
     ).toBeNull();
     await expect(
-      runService(editRecord(anotherSite.ctx, { ...input, ...anotherSite.scope, content: article })),
+      runService(
+        editRecord(anotherProject.ctx, { ...input, ...anotherProject.scope, content: article }),
+      ),
     ).rejects.toThrow();
     await expect(
       runService(
-        discardRecord(anotherSite.ctx, {
+        discardRecord(anotherProject.ctx, {
           ...input,
-          ...anotherSite.scope,
+          ...anotherProject.scope,
           expectedVersion: published.record.version,
         }),
       ),

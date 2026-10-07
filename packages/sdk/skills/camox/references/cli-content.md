@@ -2,7 +2,7 @@
 
 Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and draft-first rules.
 
-Use these commands for Pages, metadata, Layout assignments, Block instances and their Content, draft review, and publishing. To change Block schemas or rendering, read [Block Definitions](block-definitions.md); to create or change Layout Definitions, follow the code-definition routing in [the Camox skill](../SKILL.md).
+Use these commands for Pages, metadata, Layout assignments, Blocks and their Content, draft review, and publishing. To change Block schemas or rendering, read [Block Definitions](block-definitions.md); to create or change Layout Definitions, follow the code-definition routing in [the Camox skill](../SKILL.md).
 
 ## Pages
 
@@ -59,7 +59,7 @@ Look up the Page before creating or moving Blocks so you have its `id`, current 
 ### Find shared navigation and footer Blocks
 
 `pages get` returns page-owned Blocks, not the Layout's shared shell. Inspect
-the Layout to discover navigation, footer, and other layout-owned instance IDs:
+the Layout to discover navigation, footer, and other layout-owned block IDs:
 
 ```sh
 {{CAMOX_CMD}} layouts list
@@ -70,7 +70,7 @@ the Layout to discover navigation, footer, and other layout-owned instance IDs:
 
 Use the numeric `id` from `layouts list` (or the Page's numeric `layoutId`)
 for `layouts get --id`, not the code-defined string `layoutId`. The response
-includes `blocks` with instance `id`, `type`, `placement`, and Content, plus
+includes `blocks` with `id`, `type`, `slot`, and Content, plus
 `layout.beforeBlockIds` and `layout.afterBlockIds`. Pass a Block's `id` to
 `blocks get` and `blocks edit`; do not use the Layout ID or Block type.
 Inspect the Block's schema and current Content before editing, and preserve

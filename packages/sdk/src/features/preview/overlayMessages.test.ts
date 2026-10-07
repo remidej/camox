@@ -18,9 +18,9 @@ const cases: {
     target: { blockId: "1" },
   },
   {
-    name: "repeater item",
+    name: "repeatable item",
     selection: { type: "item", blockId: 1, itemId: 2 },
-    type: "CAMOX_HOVER_REPEATER_ITEM",
+    type: "CAMOX_HOVER_REPEATABLE_ITEM",
     target: { blockId: "1", itemId: "2" },
   },
   {

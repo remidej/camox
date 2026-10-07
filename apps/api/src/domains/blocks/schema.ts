@@ -12,7 +12,7 @@ export const blocks = sqliteTable(
     type: text().notNull(),
     content: text({ mode: "json" }).notNull(),
     settings: text({ mode: "json" }),
-    placement: text().$type<"before" | "after">(),
+    slot: text().$type<"before" | "after">(),
     summary: text().notNull().default(""),
     position: text().notNull(),
     createdAt: int("created_at").notNull(),

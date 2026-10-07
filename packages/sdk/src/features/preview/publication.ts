@@ -153,8 +153,8 @@ export function buildPublicationPlan(target: PublicationTarget): PublicationPlan
       label: `${reason.layoutHandle} layout blocks`,
       impact:
         others === 0
-          ? "Updates shared blocks on this page. Affects no other pages."
-          : `Updates shared blocks on this page and ${others} other ${others === 1 ? "page" : "pages"}.`,
+          ? "Updates layout blocks on this page. Affects no other pages."
+          : `Updates layout blocks on this page and ${others} other ${others === 1 ? "page" : "pages"}.`,
       optional: true,
     });
   }

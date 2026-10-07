@@ -17,21 +17,23 @@ type Props = {
   onChange: (pathname: string) => void;
 };
 
-export function TemplateInstanceInput(props: Props) {
-  // A newly selected instance starts a fresh draft, including externally selected paths.
-  return <InstanceForm key={JSON.stringify([props.page.templateId, props.pathname])} {...props} />;
+export function DerivedPagePathInput(props: Props) {
+  // A newly selected page path starts a fresh draft, including externally selected paths.
+  return (
+    <PagePathForm key={JSON.stringify([props.page.derivedLayoutId, props.pathname])} {...props} />
+  );
 }
 
-function InstanceForm({ page, pathname, onChange }: Props) {
+function PagePathForm({ page, pathname, onChange }: Props) {
   const app = useCamoxApp();
   const [values, setValues] = React.useState<Record<string, string>>(() => {
     if (!pathname || /[?#]/.test(pathname)) return {};
     const match = matchDerivedLayout(app.getLayouts(), pathname);
-    return match && match.layout._internal.id === page.templateId ? match.params : {};
+    return match && match.layout._internal.id === page.derivedLayoutId ? match.params : {};
   });
   const [invalid, setInvalid] = React.useState(false);
   const errorId = React.useId();
-  const segments = routeSegments(page.templateId ?? "");
+  const segments = routeSegments(page.derivedLayoutId ?? "");
   const params = [
     ...new Set(
       segments.filter((segment) => segment.startsWith("$")).map((segment) => segment.slice(1)),
@@ -48,14 +50,14 @@ function InstanceForm({ page, pathname, onChange }: Props) {
     return value && !value.includes("/") && value !== "." && value !== "..";
   });
   const matches =
-    Boolean(page.templateId) &&
+    Boolean(page.derivedLayoutId) &&
     validParams &&
     !/[?#]/.test(path) &&
-    matchDerivedLayout(app.getLayouts(), path)?.layout._internal.id === page.templateId;
+    matchDerivedLayout(app.getLayouts(), path)?.layout._internal.id === page.derivedLayoutId;
 
   return (
     <form
-      aria-label={`Instance path for ${page.title}`}
+      aria-label={`Page path for ${page.title}`}
       className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
       noValidate
       onSubmit={(event) => {
@@ -111,7 +113,7 @@ function InstanceForm({ page, pathname, onChange }: Props) {
       </Button>
       {invalid && (
         <span id={errorId} role="alert" className="text-destructive basis-full text-xs">
-          Enter values matching {page.pattern ?? page.templateId}.
+          Enter values matching {page.pattern ?? page.derivedLayoutId}.
         </span>
       )}
     </form>

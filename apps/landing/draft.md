@@ -14,7 +14,7 @@ npm create camox@latest
 
 Camox does not replace your coding agent. It gives your agent the structure and tools needed to keep a website consistent, editable, and manageable as it grows.
 
-- **The site stays consistent as it grows.** Shared blocks keep structure and design from drifting as your agent creates more pages.
+- **The site stays consistent as it grows.** Synced blocks keep structure and design from drifting as your agent creates more pages.
 - **Content stays out of the codebase.** Edit copy and assets directly in production—no code, commits, or redeploys.
 - **Drafts look like the real page.** Edit on the page, see every change in context, and publish when it is ready.
 - **Your agent can manage the whole site.** It can inspect and create blocks, manage pages and content, and publish changes through the CLI and included skills.

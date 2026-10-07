@@ -108,7 +108,7 @@ export const validateText = Effect.fn("collections.validateText")(function* (
         );
         if (!page)
           return yield* new InvalidInputError({
-            message: "Text link is outside this site/environment",
+            message: "Text link is outside this project/environment",
           });
       } else if (
         !/^https?:\/\/[^\s\\\p{Cc}]+$/u.test(url) &&

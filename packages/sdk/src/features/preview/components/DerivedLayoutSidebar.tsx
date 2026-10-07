@@ -66,7 +66,7 @@ export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructur
           <AlertTitle>{singleton ? "Code-owned page" : "Shared layout blocks"}</AlertTitle>
           <AlertDescription>
             {singleton
-              ? "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other instances."
+              ? "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other placements."
               : "Changes apply to every page using this layout. The generated page content is managed outside the studio."}
           </AlertDescription>
         </Alert>

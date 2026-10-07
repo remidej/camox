@@ -97,7 +97,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
             ? "Unpublished successfully"
             : "Discarded draft changes",
       );
-      // Publication may affect other pages and shared blocks. Do not rely only
+      // Publication may affect other pages and layout blocks. Do not rely only
       // on the realtime broadcast to refresh the initiating client's view.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.layouts.all }),

@@ -10,7 +10,7 @@ void test("one deepest highlight per state, including remote candidates and remo
   const document = window.document;
   document.body.innerHTML = `
     <div id="block" data-camox-block-id="1" data-camox-hovered data-camox-focused>
-      <div id="item" data-camox-repeater-item-id="2" data-camox-hovered>
+      <div id="item" data-camox-repeatable-item-id="2" data-camox-hovered>
         <span id="field" data-camox-field-id="title" data-camox-hovered data-camox-focused></span>
       </div>
     </div>`;
@@ -32,7 +32,7 @@ void test("one deepest highlight per state, including remote candidates and remo
       .getElementById("block")!
       .insertAdjacentHTML(
         "beforeend",
-        '<div id="remote" data-camox-repeater-item-id="3" data-camox-hovered></div>',
+        '<div id="remote" data-camox-repeatable-item-id="3" data-camox-hovered></div>',
       );
     await window.happyDOM.whenAsyncComplete();
     assert.deepEqual(highlighted("hovered"), ["item"]);

@@ -24,7 +24,7 @@ const paragraphGrid = createBlock({
           title: "Problem prevented",
         }),
         description: Type.String({
-          default: "Shared blocks keep your site consistent as it grows.",
+          default: "Synced blocks keep your site consistent as it grows.",
           title: "How it works",
         }),
       },

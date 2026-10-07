@@ -121,7 +121,7 @@ export const ProjectMenu = () => {
             render={
               <a
                 href={
-                  authCtx ? `${authCtx.authenticationUrl}/${project.organizationSlug}/team` : "#"
+                  authCtx ? `${authCtx.authenticationUrl}/${project.organizationSlug}/members` : "#"
                 }
                 target="_blank"
                 rel="noopener noreferrer"

@@ -8,7 +8,7 @@ import { PAGE_NICKNAME_MAX_LENGTH } from "../preview/components/PageNicknameFiel
 import { selectPreviewTarget } from "../preview/previewSelection";
 import { previewStore, selectIsCommentMode } from "../preview/previewStore";
 import type { CanvasPage } from "./canvasPages";
-import { TemplateInstanceInput } from "./TemplateInstanceInput";
+import { DerivedPagePathInput } from "./DerivedPagePathInput";
 
 export function CanvasPageHeader({
   page,
@@ -122,7 +122,7 @@ export function CanvasPageHeader({
   );
   const headerClassName =
     "text-foreground flex h-10 w-full min-w-0 flex-col items-start justify-center gap-1 text-left";
-  if (!page.templateId)
+  if (!page.derivedLayoutId)
     return (
       <h2 className={headerClassName}>
         <span data-canvas-path className={pathClassName} title={path}>
@@ -137,7 +137,7 @@ export function CanvasPageHeader({
       <h2 className={headerClassName}>
         <PopoverTrigger
           data-canvas-path
-          aria-label={`Edit instance path for ${page.title}`}
+          aria-label={`Edit page path for ${page.title}`}
           className={`${pathClassName} ${focusClassName}`}
           title={path}
         >
@@ -147,7 +147,7 @@ export function CanvasPageHeader({
       </h2>
       <PopoverContent className="w-96 max-w-[calc(100vw-2rem)]" align="start">
         <PopoverTitle>Preview {page.title}</PopoverTitle>
-        <TemplateInstanceInput
+        <DerivedPagePathInput
           page={page}
           pathname={pathname}
           onChange={(path) => {

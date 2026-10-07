@@ -56,7 +56,7 @@ function commentTargetKey(target: CommentTarget): string {
 
 function commentTargetLabel(target: CommentTarget) {
   if ("fieldName" in target) return target.fieldName;
-  if (target.kind === "item") return "repeater item";
+  if (target.kind === "item") return "repeatable item";
   return target.kind;
 }
 
@@ -94,7 +94,7 @@ function overlayTargetKeys(element: Element) {
   if (fieldId) keys.push(`field:${fieldId}`);
   const blockId = element.getAttribute("data-camox-block-id");
   if (blockId) keys.push(`block:${blockId}`);
-  const itemId = element.getAttribute("data-camox-repeater-item-id");
+  const itemId = element.getAttribute("data-camox-repeatable-item-id");
   const ownerId = element.closest("[data-camox-block-id]")?.getAttribute("data-camox-block-id");
   if (itemId && ownerId) keys.push(`item:${ownerId}:${itemId}`);
   return keys;
