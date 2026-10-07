@@ -345,10 +345,17 @@ export const Type = {
   /**
    * Store an ordered list of distinct record identities; records resolve independently.
    * An empty list is always valid, so there is no `required` or `minItems`.
+   * `toMarkdown` renders each linked record (one list item per record, in stored order);
+   * the block's own `toMarkdown` includes the whole list through its token.
    */
   ReferenceList: <T extends Record<string, TSchema>>(
     collection: Collection<T>,
-    options: { title?: string; description?: string; maxItems?: number } = {},
+    options: {
+      title?: string;
+      description?: string;
+      maxItems?: number;
+      toMarkdown?: ToMarkdownBuilder<T>;
+    } = {},
   ): ReferenceListSchema<T> =>
     TypeBoxType.Unsafe<string[]>({
       type: "array",
@@ -358,6 +365,16 @@ export const Type = {
       title: options.title ?? collection._internal.title,
       ...(options.description === undefined ? {} : { description: options.description }),
       ...(options.maxItems === undefined ? {} : { maxItems: options.maxItems }),
+      ...(options.toMarkdown === undefined
+        ? {}
+        : {
+            toMarkdown: resolveToMarkdown<T>(
+              options.toMarkdown,
+              undefined,
+              "item",
+              collection._internal.contentSchema.properties as T,
+            ),
+          }),
       default: [],
       // Used by the typed child scope, not a copy of a record's content.
       referenceSchema: collection._internal.contentSchema,

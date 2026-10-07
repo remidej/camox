@@ -100,3 +100,25 @@ const invalidRepeater = <block.Repeater name="customers">{() => null}</block.Rep
 // @ts-expect-error There is no minItems or required for reference lists.
 void Type.ReferenceList(customers, { minItems: 1 });
 void [invalidList, invalidListText, invalidSingle, invalidListField, invalidRepeater];
+
+const logoGrid = createBlock({
+  id: "logo-grid",
+  title: "Logo grid",
+  description: "",
+  content: {
+    customers: Type.ReferenceList(customers, {
+      toMarkdown: (c) => {
+        // @ts-expect-error Unknown collection field.
+        void c.missing;
+        return [c.name, c.logo];
+      },
+    }),
+  },
+  component: () => null,
+  toMarkdown: (c) => {
+    // @ts-expect-error The list is included whole, not through one record's fields.
+    void c.customers.name;
+    return [c.customers];
+  },
+});
+void logoGrid;
