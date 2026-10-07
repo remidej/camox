@@ -376,3 +376,146 @@ void test("clicks inside a placed record select its record field or the record f
     await window.happyDOM.close();
   }
 });
+
+void test("record images and files select their record field for that placement only", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: {
+      name: Type.String({ default: "" }),
+      logo: Type.Image({ title: "Logo" }),
+      gallery: Type.ImageList({ title: "Gallery" }),
+      brochure: Type.File({ accept: ["application/pdf"], title: "Brochure" }),
+      attachments: Type.FileList({ accept: ["application/pdf"], title: "Attachments" }),
+    },
+  });
+  const asset = (name: string, mimeType: string, fileId: string) => ({
+    url: `https://cdn.test/${name}`,
+    alt: "",
+    filename: name,
+    mimeType,
+    _fileId: fileId,
+  });
+  const record: ReferenceRecord = {
+    id: "acme",
+    collectionId: "customers",
+    label: "Acme",
+    content: {
+      name: "Acme Inc.",
+      logo: asset("logo.png", "image/png", "1"),
+      gallery: [asset("team.png", "image/png", "2")],
+      brochure: asset("brochure.pdf", "application/pdf", "3"),
+      attachments: [asset("terms.pdf", "application/pdf", "4")],
+    },
+    version: 1,
+  };
+  const block = createEditableBlock({
+    id: "record-assets",
+    title: "",
+    description: "",
+    content: { logo: Type.Image({ title: "Logo" }), customer: Type.Reference(customers) },
+    toMarkdown: () => [],
+    component: () => (
+      <block.Reference name="customer">
+        {(customer) => (
+          <section>
+            <customer.Image name="logo">{(props) => <img {...props} />}</customer.Image>
+            <customer.ImageList name="gallery">{(props) => <img {...props} />}</customer.ImageList>
+            <customer.File name="brochure">
+              {(props, file) => <a {...props}>{file.filename}</a>}
+            </customer.File>
+            <customer.FileList name="attachments">
+              {(props, file) => <a {...props}>{file.filename}</a>}
+            </customer.FileList>
+          </section>
+        )}
+      </block.Reference>
+    ),
+  });
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const writesBefore = requests.length;
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: owner.pageId });
+  const field = (blockId: number, name: string) =>
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__${name}"]`);
+  const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
+  const inField = (blockId: number, name: string, selector: string) =>
+    field(blockId, name)?.querySelector<HTMLElement>(selector);
+  const recordField = (blockId: number, recordFieldName: string, recordFieldType: string) => ({
+    type: "record-field",
+    blockId,
+    fieldName: "customer",
+    recordId: "acme",
+    recordFieldName,
+    recordFieldType,
+  });
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <PreviewEditingOwnerContext value={owner}>
+            <NormalizedDataProvider
+              files={[]}
+              repeatableItems={[]}
+              blocks={[{ references: { customer: record } }]}
+            >
+              {[1, 2].map((blockId) => (
+                <block._internal.Component
+                  key={blockId}
+                  mode="site"
+                  blockData={{
+                    _id: blockId,
+                    type: "record-assets",
+                    position: `a${blockId}`,
+                    content: {
+                      logo: asset("block.png", "image/png", "5") as never,
+                      customer: "acme",
+                    },
+                  }}
+                />
+              ))}
+            </NormalizedDataProvider>
+          </PreviewEditingOwnerContext>
+        </QueryClientProvider>,
+      ),
+    );
+
+    const logo = inField(2, "logo", "img");
+    assert.ok(logo, "the record image renders inside its own field");
+    assert.match(logo.getAttribute("src") ?? "", /logo\.png/);
+    await act(async () => logo.click());
+    assert.deepEqual(selections.at(-1), recordField(2, "logo", "Image"));
+    assert.ok(focused(field(2, "logo")), "the clicked placement's record image is selected");
+    assert.ok(!focused(field(1, "logo")), "another placement of the same record is not");
+    assert.ok(!focused(host.querySelector('[data-camox-field-id="2__logo"]')));
+
+    await act(async () => inField(1, "gallery", "img")!.click());
+    assert.deepEqual(selections.at(-1), recordField(1, "gallery", "ImageList"));
+    assert.ok(focused(field(1, "gallery")));
+    assert.ok(!focused(field(2, "gallery")));
+
+    const brochure = inField(1, "brochure", "a");
+    assert.ok(brochure, "the record file renders inside its own field");
+    const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
+    await act(async () => brochure.dispatchEvent(click as unknown as Event));
+    assert.ok(click.defaultPrevented, "selecting a file does not download it");
+    assert.deepEqual(selections.at(-1), recordField(1, "brochure", "File"));
+
+    await act(async () => inField(2, "attachments", "a")!.click());
+    assert.deepEqual(selections.at(-1), recordField(2, "attachments", "FileList"));
+    assert.equal(requests.length, writesBefore, "selecting record assets never writes");
+  } finally {
+    await act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    await window.happyDOM.close();
+  }
+});

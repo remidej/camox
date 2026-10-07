@@ -1262,6 +1262,21 @@ export function createEditableBlock<
     return <>{children(linkProps, linkData)}</>;
   };
 
+  /** Overlay ID of an asset field; record fields are scoped to their placement. */
+  const assetFieldId = (
+    blockId: number,
+    reference: React.ContextType<typeof ReferenceContext>,
+    fieldName: string,
+    itemId: number | undefined,
+  ) => {
+    if (reference) return `${reference.occurrenceId}__${fieldName}`;
+    return itemId != null ? `${blockId}__${itemId}__${fieldName}` : `${blockId}__${fieldName}`;
+  };
+  const assetOverlayMode = (reference: React.ContextType<typeof ReferenceContext>) => {
+    if (reference) return "reference";
+    return options.synced ? "synced" : undefined;
+  };
+
   const Image = <K extends keyof ImageFields>({
     name,
     children,
@@ -1297,15 +1312,24 @@ export function createEditableBlock<
       ? repeaterContext.containerItemId
       : repeaterContext?.itemId;
 
-    const fieldId =
-      overlayItemId != null
-        ? `${blockId}__${overlayItemId}__${overlayFieldName}`
-        : `${blockId}__${overlayFieldName}`;
+    // Inside a placed record, the image is a record field of that placement.
+    const reference = React.use(ReferenceContext);
+    const fieldId = assetFieldId(blockId, reference, overlayFieldName, overlayItemId);
 
     const [isHovered, setIsHovered] = React.useState(false);
 
     // Derive selected state from selection
-    const isFocused = useFieldSelection(blockId, overlayFieldName, "Image", overlayItemId);
+    const isBlockFieldSelected = useFieldSelection(
+      blockId,
+      overlayFieldName,
+      "Image",
+      overlayItemId,
+    );
+    const isRecordFieldSelected = useRecordSelection(
+      reference?.placement ?? null,
+      overlayFieldName,
+    );
+    const isFocused = reference ? isRecordFieldSelected : isBlockFieldSelected;
     const overlayState = useOverlayState(isHovered, isFocused);
 
     // Keep sidebar hover via postMessage (transient state)
@@ -1323,6 +1347,14 @@ export function createEditableBlock<
 
     const handleClick = (event: React.MouseEvent<HTMLElement>) => {
       if (!isContentEditable) return;
+      if (reference) {
+        reference.selectRecordField(
+          overlayFieldName,
+          isInlineArrayItem ? "ImageList" : "Image",
+          event,
+        );
+        return;
+      }
       selectTarget(
         overlayItemId != null
           ? {
@@ -1358,7 +1390,7 @@ export function createEditableBlock<
         data-camox-field-id={fieldId}
         data-camox-field-type="image"
         {...overlayState}
-        data-camox-overlay-mode={options.synced ? "synced" : undefined}
+        data-camox-overlay-mode={assetOverlayMode(reference)}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClickCapture={handleClick}
@@ -1380,8 +1412,11 @@ export function createEditableBlock<
       throw new Error("File must be used within a Block Component");
     }
 
-    const { content } = blockContext;
+    const { blockId, content, mode } = blockContext;
+    const isContentEditable = useIsEditable(mode);
+    const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeatableItemContext);
+    const reference = React.use(ReferenceContext);
     const { filesMap } = useNormalizedData();
     const rawSource = repeaterContext ? repeaterContext.itemContent[name] : content[name];
     // Resolve _fileId markers to full file objects
@@ -1391,13 +1426,52 @@ export function createEditableBlock<
       : contentDefaults[String(name)];
     const fieldValue = rawValue ?? (defaultValue as FileValue);
 
+    // Only record files are selectable: they have no other way into their record field view.
+    const isInlineArrayItem = repeaterContext != null && repeaterContext.itemId == null;
+    const overlayFieldName = isInlineArrayItem ? repeaterContext.arrayFieldName : String(name);
+    const fieldId = assetFieldId(blockId, reference, overlayFieldName, undefined);
+    const selectable = reference != null && isContentEditable;
+    const [isHovered, setIsHovered] = React.useState(false);
+    const isFocused = useRecordSelection(reference?.placement ?? null, overlayFieldName);
+    const overlayState = useOverlayState(isHovered, isFocused);
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      selectable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+
+    React.useEffect(() => {
+      setIsHovered(isHoveredFromSidebar);
+    }, [isHoveredFromSidebar]);
+
+    const renderedFile = children(
+      { href: fieldValue.url, download: fieldValue.filename } satisfies FileRenderProps,
+      fieldValue,
+    );
+    if (!selectable) return <>{renderedFile}</>;
+
     return (
-      <>
-        {children(
-          { href: fieldValue.url, download: fieldValue.filename } satisfies FileRenderProps,
-          fieldValue,
-        )}
-      </>
+      <div
+        data-camox-field-id={fieldId}
+        data-camox-field-type="file"
+        {...overlayState}
+        data-camox-overlay-mode={assetOverlayMode(reference)}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClickCapture={(event) =>
+          reference.selectRecordField(
+            overlayFieldName,
+            isInlineArrayItem ? "FileList" : "File",
+            event,
+          )
+        }
+        // Selecting a file in the editor must not follow its download link.
+        onClick={(event) => event.preventDefault()}
+      >
+        {renderedFile}
+      </div>
     );
   };
 
@@ -2016,18 +2090,21 @@ export function createEditableBlock<
     return ctx.settings[name];
   };
 
-  // Asset/URL changes use the existing record modal. Reuse their renderers,
-  // but never expose a block-field mutation or picker for a source field.
+  // Record assets select their record field (edited in the sidebar record field view);
+  // they never expose a block-field mutation or picker. Embeds stay view-only.
   const ReferencePrimitive = ({
     primitive: Primitive,
+    viewOnly = false,
     ...props
   }: {
     primitive: React.ComponentType<any>;
+    viewOnly?: boolean;
     name: string;
     children: any;
   }) => {
     const block = React.use(Context)!;
     if ((block.content as Record<string, unknown>)[props.name] == null) return null;
+    if (!viewOnly) return <Primitive {...props} />;
     return (
       <Context.Provider value={{ ...block, mode: "peek" }}>
         <Primitive {...props} />
@@ -2036,7 +2113,9 @@ export function createEditableBlock<
   };
   const ReferenceImage = (props: any) => <ReferencePrimitive primitive={Image} {...props} />;
   const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
-  const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
+  const ReferenceEmbed = (props: any) => (
+    <ReferencePrimitive primitive={Embed} viewOnly {...props} />
+  );
   const ReferenceImageList = (props: any) => (
     <ReferencePrimitive primitive={ImageList} {...props} />
   );

@@ -5,6 +5,7 @@ import * as React from "react";
 import { referenceWritesFor } from "@/core/editing/referenceWrites";
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import type { ReferenceRecord } from "@/core/lib/reference";
+import { serializeAssetField } from "@/features/content/collection-form";
 import { useProjectSlug } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
@@ -27,8 +28,8 @@ export type FieldWriteTarget =
 /** Saves one field of the write target. Awaitable for reference fields only. */
 export type FieldWriter = (fieldName: string, value: unknown) => void | Promise<void>;
 
-const isReferenceField = (schema: unknown, fieldName: string) =>
-  (schema as any)?.properties?.[fieldName]?.fieldType === "Reference";
+const fieldTypeOf = (schema: unknown, fieldName: string): unknown =>
+  (schema as any)?.properties?.[fieldName]?.fieldType;
 
 /**
  * Returns the single field-change handler shared by every sidebar field editor
@@ -36,7 +37,8 @@ const isReferenceField = (schema: unknown, fieldName: string) =>
  * source. Reference changes return a promise (rejecting outside the draft
  * source) so callers like the create-record modal can wait for the link.
  * Record edits go through the per-record queue shared with inline preview
- * edits, as full content with the expected version.
+ * edits, as full content with the expected version; their assets are sent as
+ * collection asset snapshots rather than block file markers.
  */
 export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown): FieldWriter {
   const queryClient = useQueryClient();
@@ -52,16 +54,21 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         if (!requireDraft()) return;
         const { record } = target;
         void referenceWritesFor(queryClient)
-          .save(record, fieldName, value, async (input) => {
-            const saved = await editRecord.mutateAsync({ ...input, projectSlug });
-            queryClient.setQueryData(
-              collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
-              saved,
-            );
-            // Shared source changes must refresh every placement, not only this block.
-            void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
-            return saved;
-          })
+          .save(
+            record,
+            fieldName,
+            serializeAssetField(fieldTypeOf(schema, fieldName), value),
+            async (input) => {
+              const saved = await editRecord.mutateAsync({ ...input, projectSlug });
+              queryClient.setQueryData(
+                collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
+                saved,
+              );
+              // Shared source changes must refresh every placement, not only this block.
+              void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
+              return saved;
+            },
+          )
           .catch((cause: unknown) => {
             toast.error(cause instanceof Error ? cause.message : "Could not save item");
           });
@@ -72,7 +79,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       const mutation = target?.kind === "item" ? updateItemContent : updateBlockContent;
       const id = target?.kind === "item" ? target.itemId : target?.blockId;
 
-      if (isReferenceField(schema, fieldName)) {
+      if (fieldTypeOf(schema, fieldName) === "Reference") {
         return (async () => {
           if (id == null || !requireDraft())
             throw new Error("Switch to draft to change this reference.");

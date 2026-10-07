@@ -11,6 +11,7 @@ import * as React from "react";
 
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { fieldTypesDictionary, type FieldType } from "@/core/lib/fieldTypes";
+import { editorAssetField } from "@/features/content/collection-form";
 import { useProjectSlug } from "@/lib/auth";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
 import {
@@ -327,7 +328,15 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   // Resolve _fileId markers in data for asset field editors (recursive for inline arrays)
   const currentData = React.useMemo(() => {
     // Record assets are already resolved snapshots, not block file markers.
-    if (recordContent) return recordContent;
+    if (recordContent) {
+      const properties = (recordSchema as any)?.properties ?? {};
+      return Object.fromEntries(
+        Object.entries(recordContent).map(([key, value]) => [
+          key,
+          editorAssetField(properties[key]?.fieldType, value),
+        ]),
+      );
+    }
     const resolveFile = (marker: { _fileId: number }) => {
       const file = filesMap.get(marker._fileId);
       return file
@@ -360,7 +369,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
       resolved[key] = resolveValue(value);
     }
     return resolved;
-  }, [recordContent, rawCurrentData, filesMap]);
+  }, [recordContent, recordSchema, rawCurrentData, filesMap]);
 
   // Detect terminal field view
   const fieldInfo = selectedField
@@ -381,9 +390,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const isViewingFile = fieldInfo?.fieldType === "File" || fieldInfo?.fieldType === "FileList";
   const fileFieldName = isViewingFile ? fieldInfo.fieldName : null;
 
-  // Record asset field views arrive with record asset editing (#128).
-  const isViewingRecordAsset = recordView != null && (isViewingImage || isViewingFile);
-  const isViewingAsset = !recordView && (isViewingImage || isViewingFile);
+  const isViewingAsset = isViewingImage || isViewingFile;
   const assetFieldName = imageFieldName ?? fileFieldName;
   const assetType: "Image" | "File" = isViewingImage ? "Image" : "File";
 
@@ -392,6 +399,10 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     const prop = (currentSchema as any)?.properties?.[assetFieldName];
     return prop?.fieldType === "ImageList" || prop?.fieldType === "FileList";
   }, [isViewingAsset, assetFieldName, currentSchema]);
+  // Record asset views match the collection form, which restricts uploads to the field's accept list.
+  const assetProperty =
+    recordView && assetFieldName ? (currentSchema as any)?.properties?.[assetFieldName] : undefined;
+  const assetAccept: string[] | undefined = assetProperty?.items?.accept ?? assetProperty?.accept;
 
   // Scope field DOM ids with useId so label-input pairs and imperative focus
   // lookups don't collide if this sheet is ever rendered more than once.
@@ -859,6 +870,8 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   assetType={assetType}
                   currentData={currentData}
                   onFieldChange={writeField}
+                  resolveLocally={recordView != null}
+                  accept={assetAccept}
                 />
               )}
               {isViewingAsset && assetFieldName && !isMultipleAsset && (
@@ -867,6 +880,8 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   assetType={assetType}
                   currentData={currentData}
                   onFieldChange={writeField}
+                  resolveLocally={recordView != null}
+                  accept={assetAccept}
                 />
               )}
               {!isViewingAsset && isViewingLink && linkFieldName && (
@@ -888,33 +903,30 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   />
                 </div>
               )}
-              {!isViewingAsset &&
-                !isViewingRecordAsset &&
-                !isViewingLink &&
-                (currentItemId == null || currentItem) && (
-                  <ItemFieldsEditor
-                    key={`${block.id}-${recordView ? `record-${recordView.record.id}` : (currentItemId ?? "block")}-${fieldInfo?.fieldName ?? "fields"}`}
-                    selectedFieldName={fieldInfo?.fieldName}
-                    schema={currentSchema}
-                    data={currentData}
-                    blockId={block.id}
-                    itemId={currentItemId ?? undefined}
-                    onFieldChange={writeField}
-                    postToIframe={postToIframe}
-                    filesMap={filesMap}
-                    itemsMap={itemsMap}
-                    references={currentItemId == null && !recordView ? block.references : undefined}
-                    placement={
-                      recordView
-                        ? {
-                            fieldName: recordView.selection.fieldName,
-                            recordId: recordView.record.id,
-                          }
-                        : undefined
-                    }
-                    fieldIdPrefix={fieldIdPrefix}
-                  />
-                )}
+              {!isViewingAsset && !isViewingLink && (currentItemId == null || currentItem) && (
+                <ItemFieldsEditor
+                  key={`${block.id}-${recordView ? `record-${recordView.record.id}` : (currentItemId ?? "block")}-${fieldInfo?.fieldName ?? "fields"}`}
+                  selectedFieldName={fieldInfo?.fieldName}
+                  schema={currentSchema}
+                  data={currentData}
+                  blockId={block.id}
+                  itemId={currentItemId ?? undefined}
+                  onFieldChange={writeField}
+                  postToIframe={postToIframe}
+                  filesMap={filesMap}
+                  itemsMap={itemsMap}
+                  references={currentItemId == null && !recordView ? block.references : undefined}
+                  placement={
+                    recordView
+                      ? {
+                          fieldName: recordView.selection.fieldName,
+                          recordId: recordView.record.id,
+                        }
+                      : undefined
+                  }
+                  fieldIdPrefix={fieldIdPrefix}
+                />
+              )}
               {!recordView && !fieldInfo && (currentItemId == null || currentItem) && (
                 <AttachedComments
                   pageId={pageId}
