@@ -1,5 +1,5 @@
 import { Button } from "@camox/ui/button";
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -13,23 +13,23 @@ const navbar = createBlock({
   synced: true,
   description:
     "A navigation bar at the top of the page with a logo image on the left, navigation links in the middle, and a dashboard button on the right.",
-  content: {
-    logo: Type.Image({
+  content: (field) => ({
+    logo: field.image({
       title: "Logo",
     }),
-    links: Type.Repeater({
-      content: {
-        link: Type.Link({
+    links: field.repeater({
+      content: (field) => ({
+        link: field.link({
           default: { text: "Link", href: "#", newTab: false },
           title: "Link",
         }),
-      },
+      }),
       minItems: 1,
       maxItems: 6,
       title: "Links",
       toMarkdown: (c) => [c.link],
     }),
-  },
+  }),
   component: NavbarComponent,
   toMarkdown: (c) => [c.logo, c.links],
 });

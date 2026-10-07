@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { collection as customers } from "../collections/customers";
 
@@ -7,14 +7,14 @@ const logoGrid = createBlock({
   title: "Logo grid",
   description:
     "Display the logos of customers or partners in a grid, as social proof. Place it near a hero, testimonials or a call to action. The heading introduces who the logos belong to, and each logo comes from a shared Customers item so it stays consistent everywhere it appears.",
-  content: {
-    title: Type.String({ default: "Trusted by teams everywhere", title: "Title" }),
-    customers: Type.ReferenceList(customers, {
+  content: (field) => ({
+    title: field.string({ default: "Trusted by teams everywhere", title: "Title" }),
+    customers: field.referenceList(customers, {
       title: "Customers",
       maxItems: 12,
       toMarkdown: (c) => [`${c.logo} ${c.company}`],
     }),
-  },
+  }),
   component: LogoGridComponent,
   toMarkdown: (c) => [`## ${c.title}`, c.customers],
 });

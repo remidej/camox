@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { PokemonArtwork, pokemonName, pokemonNumber } from "../components/pokemon";
 
@@ -8,28 +8,28 @@ const pokedex = createBlock({
   title: "Pokémon of the week",
   description:
     "Spotlight three editor-picked Pokémon with names and artwork loaded from PokéAPI and links to their field-guide pages. Set each repeatable item's Pokémon name in the editor sidebar (for example, gengar or mr-mime); names are not inline-editable on the cards.",
-  content: {
-    title: Type.String({ title: "Title", default: "Pokémon of the week" }),
-    description: Type.String({
+  content: (field) => ({
+    title: field.string({ title: "Title", default: "Pokémon of the week" }),
+    description: field.string({
       title: "Description",
       default:
         "Three favorites, picked just for you. Meet this week’s stars and discover their stories.",
     }),
-    pokemon: Type.Repeater({
+    pokemon: field.repeater({
       title: "Pokémon",
-      content: {
-        name: Type.String({
+      content: (field) => ({
+        name: field.string({
           title: "Pokémon name",
           default: "pikachu",
           minLength: 1,
           maxLength: 100,
         }),
-      },
+      }),
       minItems: 3,
       maxItems: 3,
       toMarkdown: (c) => [`- ${c.name}`],
     }),
-  },
+  }),
   component: PokedexComponent,
   toMarkdown: (c) => [
     `## ${c.title}`,

@@ -9,15 +9,15 @@ When asked to add a section, also place an instance after dev-server discovery u
 Use one `.tsx` file per block in `src/blocks/`, a named `block` export (not default), a named function component, and Tailwind styling.
 
 ```tsx
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 const myBlock = createBlock({
   id: "my-block",
   title: "My Block",
   description: "A page introduction with an editable heading.",
-  content: {
-    title: Type.String({ default: "Welcome" }),
-  },
+  content: (field) => ({
+    title: field.string({ default: "Welcome" }),
+  }),
   component: MyBlockComponent,
   toMarkdown: (c) => [`# ${c.title}`],
 });
@@ -42,8 +42,8 @@ For DOM listeners, scrolling, scripts, or widgets, read [DOM integrations](dom-i
 | `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                          |
 | `title`       | yes      | CMS display name.                                                                              |
 | `description` | yes      | Agent guidance on placement, expected content, and tone.                                       |
-| `content`     | yes      | Field names mapped to `Type.*` schemas for editable content.                                   |
-| `settings`    | no       | Settings-panel fields; only `Type.Enum` and `Type.Boolean`.                                    |
+| `content`     | yes      | `(field) => ({ ... })`: field names mapped to `field.*` builders for editable content.         |
+| `settings`    | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`.   |
 | `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.          |
 | `synced`      | no       | Defaults to false. Shares content/settings across placements within an environment; see below. |
 | `component`   | yes      | Named React function component.                                                                |
@@ -101,14 +101,14 @@ Only Boolean/Enum settings support these conditionals. A repeater's `s` refers t
 
 ## Content Field Types
 
-Import `Type` from `"camox/createBlock"`. Supply defaults for scalar fields; images/files get automatic placeholders, lists use `defaultItems`, and repeaters use their item schemas and bounds.
+`content` and a repeater's `content` receive a `field` builder; `settings` receive a `setting` builder. Each builder only offers what its context accepts: `field` has no `enum` or `boolean`, and `setting` has nothing else. Supply defaults for scalar fields; images/files get automatic placeholders, lists use `defaultItems`, and repeaters use their item schemas and bounds.
 
-### Type.String
+### field.string
 
 Inline-editable text supporting formatting and links while remaining a string. See [Field styling](field-styling.md) for formatting syntax and appearance customization.
 
 ```tsx
-Type.String({
+field.string({
   default: "Hello world",
   title: "Heading", // Optional label
   maxLength: 280, // Optional
@@ -117,7 +117,7 @@ Type.String({
 });
 ```
 
-### Type.Icon
+### field.icon
 
 Choose one Iconify collection in Vite config:
 
@@ -129,7 +129,7 @@ Declare a non-nullable icon with a required, prefixed default, then render inlin
 
 ```tsx
 // In content:
-icon: Type.Icon({ default: "lucide:zap", title: "Icon" })
+icon: field.icon({ default: "lucide:zap", title: "Icon" })
 
 // In the component (also supported as <item.Icon> inside repeaters):
 <block.Icon name="icon" className="size-6 text-primary" />
@@ -144,25 +144,27 @@ Camox resolves selected SVGs from that same versioned snapshot and serves them t
 
 Collection licenses still apply. SVG responses retain author/license attribution. Include any copyright notices, license text, or attribution required by your chosen collection in your site's distributed notices; Iconify does not relicense the icons. Changing collections or migrating existing icon values is not supported in v1.
 
-### Type.Boolean and Type.Enum
+### setting.boolean and setting.enum
 
-Use in `settings` for configuration or `content` for editable values. Enum defaults must match an option key.
+Settings only: configuration choices are never block or repeater content. Enum defaults must match an option key.
 
 ```tsx
-Type.Boolean({ default: false, title: "Show background" });
-Type.Enum({
+settings: (setting) => ({
+  showBackground: setting.boolean({ default: false, title: "Show background" }),
+  alignment: setting.enum({
   default: "left",
-  options: { left: "Left", center: "Center", right: "Right" },
-  title: "Alignment",
-});
+    options: { left: "Left", center: "Center", right: "Right" },
+    title: "Alignment",
+  }),
+}),
 ```
 
-### Type.Link
+### field.link
 
 Text, destination, and new-tab toggle. Curated page links store page IDs; singleton links store fixed URLs using the existing `type: "external"` representation, which also supports site-relative URLs: `{ type: "external", href: "/pokedex", text: "Pokédex", newTab: false }`. Both page kinds appear in Studio's destination picker. Inline `[Pokédex](/pokedex)` links stay in the current tab.
 
 ```tsx
-Type.Link({
+field.link({
   default: { text: "Learn more", href: "/", newTab: false },
   title: "CTA",
 });
@@ -173,38 +175,41 @@ Type.Link({
 Files support MIME filtering. Render each type with its matching helper; asset lists are **not** repeaters.
 
 ```tsx
-Type.Image({ title: "Cover photo" });
-Type.ImageList({ defaultItems: 6, title: "Gallery images" });
-Type.File({ accept: ["application/pdf"], title: "PDF Document" });
-Type.FileList({ accept: ["application/pdf"], defaultItems: 0, title: "Documents" });
+field.image({ title: "Cover photo" });
+field.imageList({ defaultItems: 6, title: "Gallery images" });
+field.file({ accept: ["application/pdf"], title: "PDF Document" });
+field.fileList({ accept: ["application/pdf"], defaultItems: 0, title: "Documents" });
 ```
 
-### Type.Embed
+### field.embed
 
 A URL validated against a regex. A nonmatching default throws at definition time.
 
 ```tsx
-Type.Embed({
+field.embed({
   pattern: "https:\\/\\/(www\\.)?(youtube\\.com|youtu\\.be)\\/.+",
   default: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   title: "YouTube URL",
 });
 ```
 
-### Type.Repeater
+### field.repeater
 
 Structured items with their own content, optional settings, and required `toMarkdown`. `minItems` must be at least 1; repeaters cannot be empty. Nest repeaters in an item's `content` when needed.
 
 ```tsx
-Type.Repeater({
-  content: {
-    name: Type.String({ default: "Feature" }),
-    description: Type.String({ default: "Description" }),
-  },
+field.repeater({
+  content: (field) => ({
+    name: field.string({ default: "Feature" }),
+    description: field.string({ default: "Description" }),
+  }),
+  settings: (setting) => ({
+    highlighted: setting.boolean({ default: false, title: "Highlighted" }),
+  }),
   minItems: 1,
   maxItems: 10,
   title: "Features",
-  toMarkdown: (c) => [`### ${c.name}`, c.description],
+  toMarkdown: (c, s) => [`### ${c.name}`, s.highlighted(c.description)],
 });
 ```
 
@@ -219,7 +224,7 @@ Field renderers receive `(props, data)`:
 
 ### Strings — `block.Field`
 
-`name` must select a `Type.String` field. `props.children` contains Camox's rendered inline markup.
+`name` must select a `field.string` field. `props.children` contains Camox's rendered inline markup.
 
 ```tsx
 <myBlock.Field name="title">{(props) => <h1 {...props} />}</myBlock.Field>

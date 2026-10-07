@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { BlockContainer } from "@/components/BlockContainer";
 import { TerminalCard } from "@/components/TerminalCard";
@@ -8,16 +8,16 @@ const terminalCommand = createBlock({
   title: "Terminal Command",
   description:
     "Use this block as a primary call to action that displays a shell command users should copy and paste into their terminal. Place it prominently on landing or documentation pages (e.g. install, quickstart, getting started). Keep the command concise and on a single line. The block renders the command large with a centered label above it and a one-click copy-to-clipboard button.",
-  content: {
-    label: Type.String({
+  content: (field) => ({
+    label: field.string({
       default: "Get started in seconds",
       title: "Label",
     }),
-    command: Type.String({
+    command: field.string({
       default: "npx create-camox@latest my-site",
       title: "Command",
     }),
-  },
+  }),
   component: TerminalCommandComponent,
   toMarkdown: (c) => [c.label, `\`\`\`bash\n${c.command}\n\`\`\``],
 });

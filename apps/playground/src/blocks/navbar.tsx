@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { getElementContext } from "camox/dom";
 import { Link } from "camox/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -13,8 +13,8 @@ const navbar = createBlock({
   synced: true,
   description:
     "A navigation bar at the top of a page with a brand name, navigation links, a call-to-action link.",
-  content: {
-    title: Type.Link({
+  content: (field) => ({
+    title: field.link({
       title: "Site name",
       default: {
         href: "/",
@@ -22,9 +22,9 @@ const navbar = createBlock({
         newTab: false,
       },
     }),
-    links: Type.Repeater({
-      content: {
-        link: Type.Link({
+    links: field.repeater({
+      content: (field) => ({
+        link: field.link({
           default: {
             text: "Link",
             href: "#",
@@ -32,23 +32,23 @@ const navbar = createBlock({
           },
           title: "Link",
         }),
-      },
+      }),
       minItems: 1,
       maxItems: 6,
       title: "Links",
       toMarkdown: (c) => [c.link],
     }),
-    cta: Type.Link({
+    cta: field.link({
       default: { text: "Get Started", href: "#", newTab: false },
       title: "CTA",
     }),
-  },
-  settings: {
-    floating: Type.Boolean({
+  }),
+  settings: (setting) => ({
+    floating: setting.boolean({
       default: true,
       title: "Floating on scroll",
     }),
-  },
+  }),
   component: NavbarComponent,
   toMarkdown: (c) => [c.title, c.links, c.cta],
 });

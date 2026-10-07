@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { BlockContainer } from "@/components/BlockContainer";
 import { Pill } from "@/components/Pill";
@@ -8,26 +8,26 @@ const largeVideo = createBlock({
   title: "Large Video",
   description:
     "Use this block to showcase a container-wide video with a small pill label above it. Good fit for product demos, walkthroughs, or any section where a single video should take center stage.",
-  content: {
-    pill: Type.String({
+  content: (field) => ({
+    pill: field.string({
       default: "Watch the demo",
       title: "Pill label",
     }),
-    video: Type.File({
+    video: field.file({
       accept: ["video/mp4", "video/webm", "video/quicktime"],
       title: "Video",
     }),
-  },
-  settings: {
-    autoplay: Type.Boolean({
+  }),
+  settings: (setting) => ({
+    autoplay: setting.boolean({
       default: false,
       title: "Autoplay",
     }),
-    hideControls: Type.Boolean({
+    hideControls: setting.boolean({
       default: false,
       title: "Hide controls",
     }),
-  },
+  }),
   component: LargeVideoComponent,
   toMarkdown: (c) => [c.pill, c.video],
 });

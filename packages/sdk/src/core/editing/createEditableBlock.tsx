@@ -38,8 +38,10 @@ import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
 import { useOverlayState } from "../hooks/useOverlayState";
 import {
-  Type,
+  resolveBlockFields,
   resolveToMarkdown,
+  type ContentFieldBuilder,
+  type SettingBuilder,
   type EmbedURL,
   type LinkValue,
   type ImageValue,
@@ -69,7 +71,7 @@ import {
 } from "../lib/reference";
 import { referenceWritesFor } from "./referenceWrites";
 
-export { Type };
+export type { ContentFieldBuilder, SettingBuilder } from "../lib/contentType.ts";
 export type {
   InlineStyle,
   InlineTextStyles,
@@ -128,33 +130,31 @@ interface CreateBlockOptions<
    */
   description: string;
   /**
-   * Schema defining the structure of the block's editable content.
-   * All fields must have default values.
-   * Use Type.String() and Type.Repeater() to define the schema.
+   * The block's editable content, built from `field`. Every field needs a default.
    *
    * @example
-   * content: {
-   *   title: Type.String({ default: 'Hello' }),
-   *   items: Type.Repeater({
-   *     content: { name: Type.String({ default: 'Item' }) },
+   * content: (field) => ({
+   *   title: field.string({ default: "Hello" }),
+   *   items: field.repeater({
+   *     content: (field) => ({ name: field.string({ default: "Item" }) }),
    *     minItems: 1,
    *     maxItems: 10,
    *     toMarkdown: (c) => [c.name],
-   *   })
-   * }
+   *   }),
+   * })
    */
-  content: TSchemaShape;
+  content: (field: ContentFieldBuilder) => TSchemaShape;
   /**
-   * Optional schema defining block-level settings (e.g. layout variant, toggles).
-   * Settings are not inline-editable; they use Type.Enum() and Type.Boolean().
+   * Optional presentation options (e.g. layout variant, toggles), built from `setting`.
+   * Settings are edited in the sidebar, never inline.
    *
    * @example
-   * settings: {
-   *   alignment: Type.Enum({ default: 'left', options: { left: 'Left', center: 'Center' } }),
-   *   showBackground: Type.Boolean({ default: true })
-   * }
+   * settings: (setting) => ({
+   *   alignment: setting.enum({ default: "left", options: { left: "Left", center: "Center" } }),
+   *   showBackground: setting.boolean({ default: true }),
+   * })
    */
-  settings?: TSettingsShape;
+  settings?: (setting: SettingBuilder) => TSettingsShape;
   /**
    * When true, this block can only be used inside layouts and won't appear in the block picker
    * or be available for AI page generation.
@@ -370,8 +370,9 @@ export function createEditableBlock<
   TSettingsShape extends Record<string, TSchema> = Record<string, never>,
   TLayoutOnly extends boolean = false,
 >(options: CreateBlockOptions<TSchemaShape, TSettingsShape, TLayoutOnly>) {
+  const fields = resolveBlockFields(options);
   // Build TypeBox schema for runtime validation and default value creation
-  const typeboxSchema = TypeBoxType.Object(options.content);
+  const typeboxSchema = TypeBoxType.Object(fields.content);
 
   // Build a richer JSON Schema object
   const contentSchema = {
@@ -379,27 +380,27 @@ export function createEditableBlock<
     title: options.title,
     description: options.description,
     properties: typeboxSchema.properties,
-    required: Object.keys(options.content),
+    required: Object.keys(fields.content),
     toMarkdown: resolveToMarkdown<TSchemaShape, TSettingsShape>(
       options.toMarkdown,
-      options.settings,
+      fields.settings,
       "block",
-      options.content,
+      fields.content,
     ),
   };
 
   // Build settings schema (if provided)
-  const settingsTypeboxSchema = options.settings ? TypeBoxType.Object(options.settings) : null;
+  const settingsTypeboxSchema = fields.settings ? TypeBoxType.Object(fields.settings) : null;
 
   const settingsSchema = settingsTypeboxSchema
     ? {
         type: "object" as const,
         properties: settingsTypeboxSchema.properties,
-        required: Object.keys(options.settings!),
+        required: Object.keys(fields.settings!),
       }
     : undefined;
 
-  // Extract defaults manually since Value.Create doesn't support Unsafe types (used by Type.Enum and Type.Embed)
+  // Extract defaults manually since Value.Create doesn't support Unsafe types (used by enum and embed fields)
   const contentDefaults: Record<string, unknown> = {};
   const contentDefaultsForStorage: Record<string, unknown> = {};
   for (const [key, prop] of Object.entries(typeboxSchema.properties)) {
@@ -555,7 +556,7 @@ export function createEditableBlock<
       : never]: TContent[K];
   };
 
-  // Top-level Type.ImageList() fields
+  // Top-level field.imageList() fields
   type ImageListFields = {
     [K in keyof TContent as TContent[K] extends Array<infer U>
       ? ImageValue extends U
@@ -566,7 +567,7 @@ export function createEditableBlock<
       : never]: TContent[K];
   };
 
-  // Top-level Type.FileList() fields
+  // Top-level field.fileList() fields
   type FileListFields = {
     [K in keyof TContent as TContent[K] extends Array<infer U>
       ? FileValue extends U
@@ -577,9 +578,9 @@ export function createEditableBlock<
       : never]: TContent[K];
   };
 
-  // Only allow array fields from Type.Repeater (excludes asset list arrays —
+  // Only allow array fields from field.repeater() (excludes asset list arrays —
   // those are handled by ImageList/FileList and intentionally rejected here so
-  // <block.Repeater name="gallery"> on a Type.ImageList() is a TS error).
+  // <block.Repeater name="gallery"> on a field.imageList() is a TS error).
   type RepeatableFields = {
     [K in keyof TContent as TContent[K] extends Array<infer U>
       ? ImageValue extends U
@@ -638,7 +639,7 @@ export function createEditableBlock<
       : never]: RepeatableItemType<K>[F];
   };
 
-  // Extract Type.ImageList() fields nested inside a Repeater
+  // Extract field.imageList() fields nested inside a Repeater
   type ItemImageListFields<K extends keyof RepeatableFields> = {
     [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
       ? ImageValue extends U
@@ -649,7 +650,7 @@ export function createEditableBlock<
       : never]: RepeatableItemType<K>[F];
   };
 
-  // Extract Type.FileList() fields nested inside a Repeater
+  // Extract field.fileList() fields nested inside a Repeater
   type ItemFileListFields<K extends keyof RepeatableFields> = {
     [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
       ? FileValue extends U
@@ -660,7 +661,7 @@ export function createEditableBlock<
       : never]: RepeatableItemType<K>[F];
   };
 
-  // Extract nested Type.Repeater array fields (excludes asset list arrays)
+  // Extract nested field.repeater() array fields (excludes asset list arrays)
   type ItemRepeatableFields<K extends keyof RepeatableFields> = {
     [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
       ? ImageValue extends U
@@ -671,7 +672,7 @@ export function createEditableBlock<
       : never]: RepeatableItemType<K>[F];
   };
 
-  // Extract the per-item settings shape recorded by Type.Repeater
+  // Extract the per-item settings shape recorded by field.repeater()
   // via the `WithItemSettings` phantom brand.
   type ItemSettingsStatic<K extends keyof RepeatableFields> = TSchemaShape[K] extends {
     readonly [ItemSettingsBrand]?: infer S;
@@ -1512,7 +1513,7 @@ export function createEditableBlock<
       : (blockContext.sourceSchema ?? typeboxSchema.properties)[fieldName];
     const ft = fieldSchema?.fieldType as "ImageList" | "FileList" | undefined;
     if (ft !== "ImageList" && ft !== "FileList") {
-      throw new Error(`"${fieldName}" is not a Type.ImageList or Type.FileList field`);
+      throw new Error(`"${fieldName}" is not an imageList or fileList field`);
     }
 
     const source = parentRepeaterContext

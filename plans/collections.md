@@ -83,7 +83,7 @@ without copying page/block trees or sharing their restoration behavior.
 
 ## Slice 4 decision: single references
 
-- A top-level block `Type.Reference(collection, { required?: boolean })` stores
+- A top-level block `field.reference(collection, { required?: boolean })` stores
   only a UUID or null. Resolution is separate from authored block content and
   always scopes the record by project, environment, and collection. References
   in settings, repeaters, and collection schemas remain outside this slice.
@@ -138,7 +138,7 @@ Recorded from #132. Only manual lists in top-level block content are in this hal
 of slice 5; references in repeaters, settings, and collection schemas, relation
 depth and cycles, and query-backed lists (slice 6) remain open.
 
-- `Type.ReferenceList(collection, { title?, description?, maxItems?, toMarkdown? })`
+- `field.referenceList(collection, { title?, description?, maxItems?, toMarkdown? })`
   carries field type `ReferenceList`, the collection id, and the collection's content
   schema. It stores an ordered array of distinct record UUIDs and defaults to `[]`.
   There is no `required` or `minItems`: an empty list is always valid. Entries have
@@ -242,19 +242,19 @@ Deleting a placement or removing a reference must not delete the collection reco
 Reuse the existing `content` schema vocabulary rather than introducing a second schema language.
 
 ```tsx
-import { createCollection, Type } from "camox/createCollection";
+import { createCollection } from "camox/createCollection";
 
 export const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "Customers featured in testimonials and case studies.",
 
-  content: {
-    name: Type.String({ default: "New customer" }),
-    logo: Type.Image(),
-    quote: Type.String({ default: "" }),
-    spokesperson: Type.String({ default: "" }),
-  },
+  content: (field) => ({
+    name: field.string({ default: "New customer" }),
+    logo: field.image(),
+    quote: field.string(),
+    spokesperson: field.string(),
+  }),
 
   label: "name",
 });
@@ -291,13 +291,13 @@ const testimonial = createBlock({
   title: "Testimonial",
   description: "A quote from a selected customer.",
 
-  content: {
-    customer: Type.Reference(customers),
-  },
+  content: (field) => ({
+    customer: field.reference(customers),
+  }),
 
-  settings: {
-    showLogo: Type.Boolean({ default: true }),
-  },
+  settings: (setting) => ({
+    showLogo: setting.boolean({ default: true }),
+  }),
 
   component: Testimonial,
 
@@ -332,12 +332,12 @@ Use `ReferenceList`, matching `ImageList`, on both the schema and rendering side
 
 ```tsx
 // Inside a block definition:
-content: {
-  customers: Type.ReferenceList(customers, {
+content: (field) => ({
+  customers: field.referenceList(customers, {
     maxItems: 24,
     toMarkdown: (customer) => [customer.name],
   }),
-},
+}),
 
 toMarkdown: (c) => [
   "## Our customers",
@@ -358,8 +358,8 @@ Editors can select, remove, and reorder references. Ordering belongs to the list
 The same field and rendering component support developer-defined queries:
 
 ```tsx
-content: {
-  articles: Type.ReferenceList(articles, {
+content: (field) => ({
+  articles: field.referenceList(articles, {
     query: {
       orderBy: { title: "asc" },
       limit: 3,
@@ -369,7 +369,7 @@ content: {
       article.excerpt,
     ],
   }),
-},
+}),
 ```
 
 - Query keys and supported operators must be typed against the collection.
@@ -383,7 +383,7 @@ This is the declarative integration for list/index/recent-content use cases; no 
 
 ### References inside collections and repeaters
 
-The same `Type.Reference` and `Type.ReferenceList` types work in collection schemas, for example an article referencing an author. They also work in repeater content for local placement settings.
+The same `field.reference` and `field.referenceList` builders work in collection schemas, for example an article referencing an author. They also work in repeater content for local placement settings.
 
 There is no second relationship API. Resolution must be bounded and must not recursively expand cyclic relationships without a limit. Detailed expansion/depth policy remains an implementation decision.
 

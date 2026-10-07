@@ -5,7 +5,8 @@ import { iconCollectionIds, resolveIconSvg, scopeIconSvgIds } from "@camox/api-c
 import { QueryClient, QueryClientProvider, dehydrate, hydrate } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 
-import { Type, createBlock } from "../createBlock";
+import { createBlock } from "../createBlock";
+import { contentFieldBuilder } from "./contentType";
 import { IconSvg, iconQuery, prefetchIcons } from "./icons";
 
 const collection = {
@@ -28,17 +29,17 @@ void test("catalog IDs and SVGs include transformed aliases", () => {
 void test("icon fields require a configured, namespaced default", () => {
   Object.assign(globalThis, { __CAMOX_ICON_IDS__: ["test:arrow", "test:reverse"] });
   try {
-    const schema = Type.Icon({ default: "test:arrow" as never });
+    const schema = contentFieldBuilder.icon({ default: "test:arrow" as never });
     assert.equal(schema.fieldType, "Icon");
     assert.equal(schema.type, "string");
     assert.deepEqual(schema.enum, ["test:arrow", "test:reverse"]);
     for (const value of [undefined, null, "arrow", "other:arrow", "test:missing"]) {
-      assert.throws(() => Type.Icon({ default: value as never }));
+      assert.throws(() => contentFieldBuilder.icon({ default: value as never }));
     }
   } finally {
     Reflect.deleteProperty(globalThis, "__CAMOX_ICON_IDS__");
   }
-  assert.throws(() => Type.Icon({ default: "test:arrow" as never }));
+  assert.throws(() => contentFieldBuilder.icon({ default: "test:arrow" as never }));
 });
 
 void test("SVG IDs are deterministic and references are scoped", () => {
@@ -87,20 +88,20 @@ void test("SSR prefetch resolves selected IDs, not the catalog, and survives hyd
     assert.equal(requests.length, 1);
 
     Object.assign(globalThis, { __CAMOX_ICON_IDS__: ["test:arrow"] });
-    const icon = Type.Icon({ default: "test:arrow" as never });
+    const icon = contentFieldBuilder.icon({ default: "test:arrow" as never });
     const block = createBlock({
       id: "icons",
       title: "Icons",
       description: "",
-      content: {
+      content: (field) => ({
         icon,
-        items: Type.Repeater({
-          content: { icon },
+        items: field.repeater({
+          content: () => ({ icon }),
           minItems: 1,
           maxItems: 2,
           toMarkdown: (c) => [c.icon],
         }),
-      },
+      }),
       toMarkdown: (c) => [c.icon],
       component: () => (
         <>

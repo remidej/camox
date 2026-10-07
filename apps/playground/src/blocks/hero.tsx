@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Link } from "camox/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -9,26 +9,26 @@ const hero = createBlock({
   title: "Hero",
   description:
     "Use this block as the main landing section at the top of a page. It should capture attention immediately with a clear value proposition. Typically the first block on a homepage or landing page. The title should be compelling and concise, the description should expand on the value proposition (max 280 characters), and the primary button should link to the main call-to-action.",
-  content: {
-    title: Type.String({
+  content: (field) => ({
+    title: field.string({
       default: "Websites you'll love to maintain",
       title: "Title",
     }),
-    description: Type.String({
+    description: field.string({
       default: "Meet Camox, the web toolkit designed for developers, LLMs and content editors.",
       maxLength: 280,
       title: "Description",
     }),
-    illustration: Type.Image({
+    illustration: field.image({
       title: "Illustration",
     }),
-    cta: Type.Link({
+    cta: field.link({
       default: { text: "Start building", href: "/", newTab: false },
       title: "CTA",
     }),
-  },
-  settings: {
-    theme: Type.Enum({
+  }),
+  settings: (setting) => ({
+    theme: setting.enum({
       options: {
         light: "Light",
         dark: "Dark",
@@ -36,11 +36,11 @@ const hero = createBlock({
       default: "dark",
       title: "Theme",
     }),
-    compact: Type.Boolean({
+    compact: setting.boolean({
       default: false,
       title: "Compact",
     }),
-  },
+  }),
   component: HeroComponent,
   toMarkdown: (c) => [`# ${c.title}`, c.description, c.illustration, c.cta],
 });

@@ -57,11 +57,15 @@ The typed shape of the authored content a block, repeatable item, or collection 
 _Avoid_: Fields, model, props
 
 **Settings Schema**:
-The typed shape of a block's presentation options, kept separate from its content.
+The typed shape of a block or repeatable item's presentation options, kept separate from its content.
 _Avoid_: Options, config, props
 
+**Setting**:
+One named entry in a settings schema: a boolean or an enum, edited outside the rendered content.
+_Avoid_: Option, toggle, variant
+
 **Field**:
-One named entry in a content schema, of a kind such as string, image, link, icon, embed, repeater, or reference.
+One named entry in a content schema, of a kind such as string, image, link, icon, embed, repeater, or reference. Booleans and enums are settings on blocks and repeatable items, but fields on collection records.
 _Avoid_: Property, attribute
 
 **Layout**:

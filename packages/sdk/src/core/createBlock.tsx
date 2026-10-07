@@ -9,7 +9,7 @@ import { isItemMarker, resolveAssetValue, useNormalizedData } from "../lib/norma
 import { type Page, viewPageQueries, viewProjectQueries } from "../lib/view-queries";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import {
-  Type,
+  resolveBlockFields,
   resolveToMarkdown,
   type FileValue,
   type ImageValue,
@@ -26,9 +26,10 @@ import {
 import { markdownToReactNodes } from "./lib/lexicalReact";
 import { resolveReference, resolveReferenceList, type ReferenceRecord } from "./lib/reference";
 
-export { Type };
 export type {
   BlockComponentProps,
+  ContentFieldBuilder,
+  SettingBuilder,
   PeekItem,
   RepeatableItemSeed,
 } from "./editing/createEditableBlock";
@@ -175,8 +176,9 @@ function buildPeekItems(
 }
 
 function createViewBlock(options: EditableOptions) {
-  const typeboxSchema = TypeBoxType.Object(options.content);
-  const settingsTypeboxSchema = options.settings ? TypeBoxType.Object(options.settings) : null;
+  const fields = resolveBlockFields(options);
+  const typeboxSchema = TypeBoxType.Object(fields.content);
+  const settingsTypeboxSchema = fields.settings ? TypeBoxType.Object(fields.settings) : null;
   const contentDefaults = collectDefaults(typeboxSchema.properties);
   const settingsDefaults = settingsTypeboxSchema
     ? collectDefaults(settingsTypeboxSchema.properties)
@@ -401,7 +403,7 @@ function createViewBlock(options: EditableOptions) {
       : (block.sourceSchema ?? typeboxSchema.properties)[fieldName];
     const fieldType = schema?.fieldType;
     if (fieldType !== "ImageList" && fieldType !== "FileList") {
-      throw new Error(`"${fieldName}" is not a Type.ImageList or Type.FileList field`);
+      throw new Error(`"${fieldName}" is not an imageList or fileList field`);
     }
     const source = parent ? parent.itemContent[fieldName] : block.content[fieldName];
     let values = Array.isArray(source) ? source : [];
@@ -549,19 +551,19 @@ function createViewBlock(options: EditableOptions) {
     title: options.title,
     description: options.description,
     properties: typeboxSchema.properties,
-    required: Object.keys(options.content),
+    required: Object.keys(fields.content),
     toMarkdown: resolveToMarkdown(
       options.toMarkdown as any,
-      options.settings,
+      fields.settings,
       "block",
-      options.content,
+      fields.content,
     ),
   };
   const settingsSchema = settingsTypeboxSchema
     ? {
         type: "object" as const,
         properties: settingsTypeboxSchema.properties,
-        required: Object.keys(options.settings ?? {}),
+        required: Object.keys(fields.settings ?? {}),
       }
     : undefined;
 

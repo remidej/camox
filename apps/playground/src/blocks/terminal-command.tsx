@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Check, Copy } from "lucide-react";
 import * as React from "react";
 
@@ -9,16 +9,16 @@ const terminalCommand = createBlock({
   title: "Terminal Command",
   description:
     "Use this block to display a terminal command that users can easily copy. Perfect for setup instructions, installation commands, or any CLI commands intended for developers.",
-  content: {
-    label: Type.String({
+  content: (field) => ({
+    label: field.string({
       default: "Create a new Camox website in your terminal:",
       title: "Label",
     }),
-    command: Type.String({
+    command: field.string({
       default: "npm create camox",
       title: "Command",
     }),
-  },
+  }),
   component: CopyTerminalCommandComponent,
   toMarkdown: (c) => [c.label, `\`${c.command}\``],
 });

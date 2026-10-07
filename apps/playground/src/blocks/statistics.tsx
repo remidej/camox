@@ -1,43 +1,43 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 const statistics = createBlock({
   id: "statistics",
   title: "Statistics",
   description:
     'Use this block to showcase key metrics, achievements, or performance indicators. Ideal for displaying platform statistics, product metrics, company milestones, or any quantifiable data. Place this block in sections where you want to build credibility or highlight important numbers. Each statistic should have a number (can include units like "M+", "%", "ms") and a descriptive label.',
-  content: {
-    title: Type.String({
+  content: (field) => ({
+    title: field.string({
       default: "Platform performance",
       maxLength: 30,
       title: "Title",
     }),
-    subtitle: Type.String({
+    subtitle: field.string({
       default: "Built for modern web development",
       title: "Subtitle",
     }),
-    description: Type.String({
+    description: field.string({
       default:
         "Camox empowers developers to build and deploy websites with unprecedented speed and flexibility. Our platform handles millions of page views and serves content globally with enterprise-grade reliability.",
       title: "Description",
     }),
-    statistics: Type.Repeater({
-      content: {
-        icon: Type.Icon({
+    statistics: field.repeater({
+      content: (field) => ({
+        icon: field.icon({
           title: "Icon",
           default: "lucide:zap",
         }),
-        number: Type.String({
+        number: field.string({
           default: "100M+",
           maxLength: 7,
           title: "Number",
         }),
-        label: Type.String({
+        label: field.string({
           default: "pages served monthly across all projects.",
           title: "Label",
         }),
-      },
-      settings: {
-        color: Type.Enum({
+      }),
+      settings: (setting) => ({
+        color: setting.enum({
           default: "teal",
           options: {
             teal: "Teal",
@@ -47,13 +47,13 @@ const statistics = createBlock({
           },
           title: "Color",
         }),
-      },
+      }),
       minItems: 4,
       maxItems: 8,
       title: "Statistics",
       toMarkdown: (c, s) => [s.color("teal", `**${c.number}** — ${c.label}`)],
     }),
-  },
+  }),
   component: StatisticsComponent,
   toMarkdown: (c) => [`## ${c.subtitle}`, c.description, c.statistics],
 });

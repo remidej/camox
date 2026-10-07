@@ -1,13 +1,13 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 const banner = createBlock({
   id: "banner",
   title: "Banner",
   description: "Describe when the AI should use this block.",
   layoutOnly: true,
-  content: {
-    title: Type.String({ default: "Title" }),
-  },
+  content: (field) => ({
+    title: field.string({ default: "Title" }),
+  }),
   component: BannerComponent,
   toMarkdown: (c) => [c.title],
 });

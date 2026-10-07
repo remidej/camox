@@ -1,5 +1,5 @@
 import { PulsingBorder } from "@paper-design/shaders-react";
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { useEffect, useRef, useState } from "react";
 
 import { blockSideBorder } from "@/components/BlockContainer";
@@ -11,21 +11,21 @@ const hero = createBlock({
   title: "Hero",
   description:
     "Use this block as the main landing section at the top of a page. It should capture attention immediately with a clear value proposition.",
-  content: {
-    title: Type.String({
+  content: (field) => ({
+    title: field.string({
       default: "Welcome to Camox",
       title: "Title",
     }),
-    description: Type.String({
+    description: field.string({
       default: "Build something amazing with Camox.",
       maxLength: 280,
       title: "Description",
     }),
-    command: Type.String({
+    command: field.string({
       default: "npx create-camox@latest my-site",
       title: "Command",
     }),
-  },
+  }),
   component: HeroComponent,
   toMarkdown: (c) => [`# ${c.title}`, c.description, `\`\`\`bash\n${c.command}\n\`\`\``],
 });

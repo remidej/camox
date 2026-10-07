@@ -1,30 +1,31 @@
-import { createBlock, Type } from "./createBlock";
+import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
+import { contentFieldBuilder } from "./lib/contentType";
 
 const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "",
   label: "name",
-  content: {
-    name: Type.String({ default: "" }),
-    logo: Type.Image(),
-    file: Type.File({ accept: ["application/pdf"] }),
-    video: Type.Embed({ pattern: ".*", default: "" }),
-    enabled: Type.Boolean({ default: false }),
-    category: Type.Enum({ options: { a: "A" }, default: "a" }),
-    images: Type.ImageList(),
-  },
+  content: (field) => ({
+    name: field.string({ default: "" }),
+    logo: field.image(),
+    file: field.file({ accept: ["application/pdf"] }),
+    video: field.embed({ pattern: ".*", default: "" }),
+    enabled: field.boolean({ default: false }),
+    category: field.enum({ options: { a: "A" }, default: "a" }),
+    images: field.imageList(),
+  }),
 });
 const block = createBlock({
   id: "testimonial",
   title: "Testimonial",
   description: "",
-  content: {
-    customer: Type.Reference(customers),
-    customers: Type.ReferenceList(customers, { maxItems: 6 }),
-    heading: Type.String({ default: "" }),
-  },
+  content: (field) => ({
+    customer: field.reference(customers),
+    customers: field.referenceList(customers, { maxItems: 6 }),
+    heading: field.string({ default: "" }),
+  }),
   component: () => null,
   toMarkdown: (c) => {
     // @ts-expect-error Unknown source field.
@@ -98,22 +99,22 @@ const invalidListField = <block.Field name="customers">{() => null}</block.Field
 // @ts-expect-error A reference list is not a repeater.
 const invalidRepeater = <block.Repeater name="customers">{() => null}</block.Repeater>;
 // @ts-expect-error There is no minItems or required for reference lists.
-void Type.ReferenceList(customers, { minItems: 1 });
+void contentFieldBuilder.referenceList(customers, { minItems: 1 });
 void [invalidList, invalidListText, invalidSingle, invalidListField, invalidRepeater];
 
 const logoGrid = createBlock({
   id: "logo-grid",
   title: "Logo grid",
   description: "",
-  content: {
-    customers: Type.ReferenceList(customers, {
+  content: (field) => ({
+    customers: field.referenceList(customers, {
       toMarkdown: (c) => {
         // @ts-expect-error Unknown collection field.
         void c.missing;
         return [c.name, c.logo];
       },
     }),
-  },
+  }),
   component: () => null,
   toMarkdown: (c) => {
     // @ts-expect-error The list is included whole, not through one record's fields.

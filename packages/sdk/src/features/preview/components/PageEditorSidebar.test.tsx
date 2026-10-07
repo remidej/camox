@@ -157,8 +157,8 @@ async function renderSidebar(
   const { previewStore } = await import("../previewStore");
   const { CamoxAppProvider } = await import("../../provider/components/CamoxAppContext");
   const { createApp } = await import("../../../core/createApp");
-  const { createBlock, Type } = await import("../../../core/createBlock");
-  const { createCollection, Type: CollectionType } = await import("../../../core/createCollection");
+  const { createBlock } = await import("../../../core/createBlock");
+  const { createCollection } = await import("../../../core/createCollection");
   const { CollectionItemModalProvider, useCollectionItemModal } =
     await import("../../content/CollectionItemModalContext");
   const { ContentCollectionItemModal } = await import("../../content/ContentCollection");
@@ -167,13 +167,13 @@ async function renderSidebar(
     id: "customers",
     title: "Customers",
     description: "Sidebar record fixture",
-    content: {
-      name: CollectionType.String({ title: "Name" }),
-      quote: CollectionType.String({ title: "Quote" }),
-      featured: CollectionType.Boolean({ default: false, title: "Featured" }),
-      logo: CollectionType.Image({ title: "Logo" }),
-      gallery: CollectionType.ImageList({ title: "Gallery" }),
-    },
+    content: (field) => ({
+      name: field.string({ title: "Name" }),
+      quote: field.string({ title: "Quote" }),
+      featured: field.boolean({ default: false, title: "Featured" }),
+      logo: field.image({ title: "Logo" }),
+      gallery: field.imageList({ title: "Gallery" }),
+    }),
     label: "name",
   });
 
@@ -181,19 +181,22 @@ async function renderSidebar(
     id: "testimonial",
     title: "Testimonial",
     description: "Sidebar write fixture",
-    content: {
-      quote: Type.String({ default: "" }),
-      logo: Type.Image({ title: "Logo" }),
-      company: Type.Reference(customers, { title: "Company", required: true }),
-      logos: Type.ReferenceList(customers, { title: "Logos", maxItems: 3 }),
-      people: Type.Repeater({
+    content: (field): Record<string, TSchema> => ({
+      quote: field.string({ default: "" }),
+      logo: field.image({ title: "Logo" }),
+      company: field.reference(customers, { title: "Company", required: true }),
+      logos: field.referenceList(customers, { title: "Logos", maxItems: 3 }),
+      people: field.repeater({
         title: "People",
-        content: { name: Type.String({ default: "" }), photo: Type.Image({ title: "Photo" }) },
+        content: (field) => ({
+          name: field.string({ default: "" }),
+          photo: field.image({ title: "Photo" }),
+        }),
         minItems: 1,
         maxItems: 5,
         toMarkdown: () => [],
       }),
-    } as Record<string, TSchema>,
+    }),
     component: () => null,
     toMarkdown: () => [],
   });

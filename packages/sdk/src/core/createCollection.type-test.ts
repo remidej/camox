@@ -1,15 +1,16 @@
 import { createApp } from "./createApp";
-import { createCollection, Type, type Collection } from "./createCollection";
+import { createCollection, type Collection } from "./createCollection";
+import { collectionFieldBuilder } from "./lib/contentType";
 
 const content = {
-  title: Type.String({ default: "" }),
-  subtitle: Type.String({ default: "" }),
-  image: Type.Image(),
-  enabled: Type.Boolean({ default: false }),
-  category: Type.Enum({ options: { one: "One" }, default: "one" }),
-  embed: Type.Embed({ pattern: ".*", default: "" }),
+  title: collectionFieldBuilder.string({ default: "" }),
+  subtitle: collectionFieldBuilder.string({ default: "" }),
+  image: collectionFieldBuilder.image(),
+  enabled: collectionFieldBuilder.boolean({ default: false }),
+  category: collectionFieldBuilder.enum({ options: { one: "One" }, default: "one" }),
+  embed: collectionFieldBuilder.embed({ pattern: ".*", default: "" }),
 };
-const options = { id: "articles", title: "Articles", description: "", content };
+const options = { id: "articles", title: "Articles", description: "", content: () => content };
 const collection = createCollection({ ...options, label: "title" });
 createApp({ blocks: [], collections: [collection] });
 createCollection({ ...options, label: "subtitle" });

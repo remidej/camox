@@ -10,9 +10,10 @@ import { recordPlacementId } from "../features/preview/overlayMessages";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
 import { NormalizedDataProvider, type NormalizedFile } from "../lib/normalized-data";
-import { createBlock, Type } from "./createBlock";
+import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
 import { ReferenceWrites } from "./editing/referenceWrites";
+import { contentFieldBuilder } from "./lib/contentType";
 import { resolveReference, type ReferenceRecord } from "./lib/reference";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
@@ -22,13 +23,13 @@ const customers = createCollection({
   title: "Customers",
   description: "",
   label: "name",
-  content: {
-    name: Type.String({ default: "Never fabricate" }),
-    logo: Type.Image(),
-    images: Type.ImageList(),
-    download: Type.File({ accept: ["application/pdf"] }),
-    downloads: Type.FileList({ accept: ["application/pdf"] }),
-  },
+  content: (field) => ({
+    name: field.string({ default: "Never fabricate" }),
+    logo: field.image(),
+    images: field.imageList(),
+    download: field.file({ accept: ["application/pdf"] }),
+    downloads: field.fileList({ accept: ["application/pdf"] }),
+  }),
 });
 const id = "c0f2b5f1-ffb8-4aa1-a052-42a27caa8555";
 const record: ReferenceRecord = {
@@ -40,18 +41,18 @@ const record: ReferenceRecord = {
 };
 
 void test("reference schema stores nullable identity, defaults unset and emits per-use Markdown", () => {
-  const field = Type.Reference(customers, { required: true });
-  assert.equal(field.fieldType, "Reference");
-  assert.equal(field.collectionId, "customers");
-  assert.equal(field.default, null);
-  assert.equal(field.required, true);
-  assert.deepEqual(field.anyOf, [{ type: "string", format: "uuid" }, { type: "null" }]);
+  const reference = contentFieldBuilder.reference(customers, { required: true });
+  assert.equal(reference.fieldType, "Reference");
+  assert.equal(reference.collectionId, "customers");
+  assert.equal(reference.default, null);
+  assert.equal(reference.required, true);
+  assert.deepEqual(reference.anyOf, [{ type: "string", format: "uuid" }, { type: "null" }]);
   const block = createBlock({
     id: "reference",
     title: "",
     description: "",
-    content: { customer: field },
-    settings: { show: Type.Boolean({ default: true }) },
+    content: () => ({ customer: reference }),
+    settings: (setting) => ({ show: setting.boolean({ default: true }) }),
     component: () => null,
     toMarkdown: (c, s) => [s.show(`Quote: ${c.customer.name}`), c.customer.name],
   });
@@ -69,7 +70,7 @@ void test("public scopes render source fields and labels, never fabricate missin
     id: "reference",
     title: "",
     description: "",
-    content: { customer: Type.Reference(customers) },
+    content: (field) => ({ customer: field.reference(customers) }),
     toMarkdown: (c) => [c.customer.name],
     component: () => (
       <block.Reference name="customer">
@@ -163,7 +164,7 @@ void test("public scopes render source fields and labels, never fabricate missin
 });
 
 void test("reference list schema stores ordered identities, defaults empty and only caps the length", () => {
-  const field = Type.ReferenceList(customers, { maxItems: 6 });
+  const field = contentFieldBuilder.referenceList(customers, { maxItems: 6 });
   assert.equal(field.fieldType, "ReferenceList");
   assert.equal(field.collectionId, "customers");
   assert.equal(field.referenceSchema, customers._internal.contentSchema);
@@ -176,7 +177,7 @@ void test("reference list schema stores ordered identities, defaults empty and o
     id: "logo-grid",
     title: "",
     description: "",
-    content: { customers: Type.ReferenceList(customers) },
+    content: (field) => ({ customers: field.referenceList(customers) }),
     component: () => null,
     toMarkdown: () => [],
   });
@@ -189,18 +190,18 @@ void test("reference lists emit per-use record Markdown and are included by thei
     id: "logo-grid",
     title: "",
     description: "",
-    content: {
-      customers: Type.ReferenceList(customers, {
+    content: (field) => ({
+      customers: field.referenceList(customers, {
         toMarkdown: (c) => [`Logo of ${c.name}`, c.logo],
       }),
-    },
+    }),
     component: () => null,
     toMarkdown: (c) => ["Trusted by:", c.customers],
   });
   const schema = block._internal.contentSchema;
   assert.deepEqual(schema.properties.customers.toMarkdown, ["Logo of {{name}}", "{{logo}}"]);
   assert.deepEqual(schema.toMarkdown, ["Trusted by:", "{{customers}}"]);
-  assert.equal("toMarkdown" in Type.ReferenceList(customers), false);
+  assert.equal("toMarkdown" in contentFieldBuilder.referenceList(customers), false);
 });
 
 void test("reference lists render each resolved record in stored order and nothing when empty", () => {
@@ -214,7 +215,7 @@ void test("reference lists render each resolved record in stored order and nothi
     id: "logo-grid",
     title: "",
     description: "",
-    content: { customers: Type.ReferenceList(customers) },
+    content: (field) => ({ customers: field.referenceList(customers) }),
     toMarkdown: () => [],
     component: () => (
       <ul>

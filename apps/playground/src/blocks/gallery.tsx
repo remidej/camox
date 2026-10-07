@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { cn } from "@/lib/utils";
 
@@ -7,18 +7,18 @@ const gallery = createBlock({
   title: "Gallery",
   description:
     "A grid of images. Use this block to showcase a collection of visuals such as product screenshots, team photos, or portfolio pieces. Works well as a standalone section or between text-heavy blocks to break up the page.",
-  content: {
-    title: Type.String({
+  content: (field) => ({
+    title: field.string({
       default: "Gallery",
       title: "Title",
     }),
-    images: Type.ImageList({
+    images: field.imageList({
       defaultItems: 6,
       title: "Images",
     }),
-  },
-  settings: {
-    columns: Type.Enum({
+  }),
+  settings: (setting) => ({
+    columns: setting.enum({
       options: {
         "2": "2 columns",
         "3": "3 columns",
@@ -27,7 +27,7 @@ const gallery = createBlock({
       default: "3",
       title: "Columns",
     }),
-  },
+  }),
   component: GalleryComponent,
   toMarkdown: (c) => [`## ${c.title}`, c.images],
 });

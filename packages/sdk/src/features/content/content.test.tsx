@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Type } from "@/core/createCollection";
+import { contentFieldBuilder } from "@/core/lib/contentType";
 import { NavigationProvider, useLocation } from "@/features/navigation/navigation";
 import {
   collectionContentPath,
@@ -315,7 +315,7 @@ void test("the new item route builds editable fields and media editors from the 
           enumLabels: { news: "News", guide: "Guide" },
         },
         featured: { fieldType: "Boolean", default: false },
-        cover: Type.Image({ title: "Cover" }),
+        cover: contentFieldBuilder.image({ title: "Cover" }),
         attachment: { fieldType: "File", accept: ["application/pdf"] },
         gallery: { fieldType: "ImageList" },
         documents: { fieldType: "FileList" },
@@ -450,8 +450,8 @@ void test("collection item controls open the shared create and edit modal", asyn
 });
 
 void test("asset preview defaults never enter collection form data", () => {
-  const image = Type.Image({ title: "Cover" });
-  const file = Type.File({ accept: ["application/pdf"] });
+  const image = contentFieldBuilder.image({ title: "Cover" });
+  const file = contentFieldBuilder.file({ accept: ["application/pdf"] });
   const fields = collectionFormFields(
     {
       properties: {
