@@ -9,10 +9,14 @@ const logoGrid = createBlock({
     "Display the logos of customers or partners in a grid, as social proof. Place it near a hero, testimonials or a call to action. The heading introduces who the logos belong to, and each logo comes from a shared Customers item so it stays consistent everywhere it appears.",
   content: {
     title: Type.String({ default: "Trusted by teams everywhere", title: "Title" }),
-    customers: Type.ReferenceList(customers, { title: "Customers", maxItems: 12 }),
+    customers: Type.ReferenceList(customers, {
+      title: "Customers",
+      maxItems: 12,
+      toMarkdown: (c) => [`${c.logo} ${c.company}`],
+    }),
   },
   component: LogoGridComponent,
-  toMarkdown: (c) => [`## ${c.title}`],
+  toMarkdown: (c) => [`## ${c.title}`, c.customers],
 });
 
 function LogoGridComponent() {

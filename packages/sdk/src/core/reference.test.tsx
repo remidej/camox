@@ -183,6 +183,25 @@ void test("reference list schema stores ordered identities, defaults empty and o
   assert.deepEqual(block._internal.getInitialBundle().content, { customers: [] });
 });
 
+void test("reference lists emit per-use record Markdown and are included by their token", () => {
+  const block = createBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: {
+      customers: Type.ReferenceList(customers, {
+        toMarkdown: (c) => [`Logo of ${c.name}`, c.logo],
+      }),
+    },
+    component: () => null,
+    toMarkdown: (c) => ["Trusted by:", c.customers],
+  });
+  const schema = block._internal.contentSchema;
+  assert.deepEqual(schema.properties.customers.toMarkdown, ["Logo of {{name}}", "{{logo}}"]);
+  assert.deepEqual(schema.toMarkdown, ["Trusted by:", "{{customers}}"]);
+  assert.equal("toMarkdown" in Type.ReferenceList(customers), false);
+});
+
 void test("reference lists render each resolved record in stored order and nothing when empty", () => {
   const second: ReferenceRecord = {
     id: "5a1f0c0e-5d8c-4c55-8f2e-0d3f0b6f4a11",

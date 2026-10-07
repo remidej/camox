@@ -668,10 +668,10 @@ async function listFixture() {
     description: "",
     contentSchema: {
       type: "object",
-      properties: { customers: referenceList(3) },
+      properties: { customers: { ...referenceList(3), toMarkdown: ["Logo of {{name}}"] } },
       required: ["customers"],
       additionalProperties: false,
-      toMarkdown: [],
+      toMarkdown: ["Trusted by:", "{{customers}}"],
     },
     createdAt: 1,
     updatedAt: 1,
@@ -685,7 +685,9 @@ async function listFixture() {
     ((references?.customers ?? []) as { id: string }[]).map((record) => record.id);
   const listIds = async (ctx: typeof f.ctx, source: "draft" | "live") =>
     ids((await runService(getBlock(ctx, { id: list.id, source }))).block.references);
-  return { ...f, alpha: f.record, beta, gamma, list, setList, ids, listIds };
+  const listMarkdown = async (ctx: typeof f.ctx, source: "draft" | "live") =>
+    (await runService(getPageMarkdown(ctx, { pageId: f.page.id, source }))).markdown;
+  return { ...f, alpha: f.record, beta, gamma, list, setList, ids, listIds, listMarkdown };
 }
 
 describe("reference lists", () => {
@@ -812,6 +814,23 @@ describe("reference lists", () => {
     expect(historyList?.content.customers).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
     expect(f.ids(historyList?.references)).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
     expect(await f.listIds(f.ctx, "draft")).toEqual([]);
+  });
+
+  it("renders each linked record's Markdown in order, draft or live, and nothing when empty", async () => {
+    const f = await listFixture();
+    expect(await f.listMarkdown(f.ctx, "draft")).toMatch(/<!-- Logo grid -->\nTrusted by:$/);
+
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.alpha.id, expectedVersion: 1 }));
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.gamma.id, expectedVersion: 1 }));
+    await f.setList([f.gamma.id, f.beta.id, f.alpha.id]);
+    expect(await f.listMarkdown(f.ctx, "draft")).toContain(
+      "<!-- Logo grid -->\nTrusted by:\n\n- Logo of Gamma\n- Logo of Beta\n- Logo of Original",
+    );
+
+    await runService(publishPage(f.ctx, { id: f.page.id }));
+    expect(await f.listMarkdown(f.publicCtx, "live")).toContain(
+      "<!-- Logo grid -->\nTrusted by:\n\n- Logo of Gamma\n- Logo of Original",
+    );
   });
 
   it("refuses deleting a record linked from a draft or live list but allows unpublishing it", async () => {
