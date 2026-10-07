@@ -5,7 +5,12 @@
       "name": "Prepare worktree",
       "command": "bash scripts/copy-linked-files.sh && bash scripts/prepare.sh",
       "runOnWorktreeCreate": true,
-      "async": false
+      "async": true
+    },
+    {
+      "name": "Dev",
+      "command": "pnpm dev --open",
+      "icon": "play"
     }
   ]
 }
