@@ -265,6 +265,12 @@ async function renderSidebar(
       return Response.json({ json: client.getQueryData(blockQueries.get(BLOCK_ID).queryKey) });
     }
     if (procedure === "collectionDefinitions/listRecords") return Response.json({ json: records });
+    if (procedure === "collectionDefinitions/getRecord") {
+      const record = listedRecords.find(({ id }) => id === (json as { id: string }).id);
+      return Response.json({
+        json: record && { id: record.id, version: record.version, draft: record.content },
+      });
+    }
     writes.push({ procedure, input: json });
     if (procedure === "collectionDefinitions/createRecord") {
       const content = (json as { content: Record<string, unknown> }).content;
@@ -351,6 +357,13 @@ async function renderSidebar(
     crumbs,
     modalOpened: () => modal.target != null,
     selection: () => previewStore.getSnapshot().context.editingContext?.selection ?? null,
+    /** The labels and names of the records the preview renders for the logo list. */
+    previewLogos: () =>
+      (
+        client.getQueryData(blockQueries.get(BLOCK_ID).queryKey) as {
+          block: { references: { logos: { label: string; content: { name: string } }[] } };
+        }
+      ).block.references.logos.map((record) => `${record.label}: ${record.content.name}`),
     /** Whether a button with this accessible name is on screen (dialogs included). */
     hasButton: (name: string) => button(name) != null,
     text: () => host.textContent ?? "",
@@ -993,6 +1006,17 @@ void test("the picker offers only unlinked records and appends the chosen one", 
     },
   ]);
   assert.deepEqual(sidebar.selection(), logosField, "the view stays on the list");
+  assert.deepEqual(sidebar.previewLogos(), ["Globex: Globex", "Initech: Initech"]);
+});
+
+void test("the first record picked into an empty list shows in the preview", async (t) => {
+  const sidebar = await renderSidebar(t, logosField);
+  await sidebar.openPicker();
+  await sidebar.pick("Acme");
+  assert.deepEqual(sidebar.writes, [
+    { procedure: "blocks/updateContent", input: { id: BLOCK_ID, content: { logos: [ACME] } } },
+  ]);
+  assert.deepEqual(sidebar.previewLogos(), ["Acme: Acme"]);
 });
 
 void test("the picker explains when every record is already linked", async (t) => {
@@ -1047,6 +1071,7 @@ void test("Create item prefills the label, appends the saved record, and cancel 
   );
   assert.equal(sidebar.modalOpened(), false);
   assert.deepEqual(sidebar.selection(), logosField, "the view stays on the list");
+  assert.deepEqual(sidebar.previewLogos(), ["Acme: Acme", "Hooli: Hooli"]);
 });
 
 /** Lays the list's cards out vertically, which happy-dom doesn't do, so drags can measure them. */
