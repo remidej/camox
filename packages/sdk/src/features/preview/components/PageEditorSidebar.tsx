@@ -760,6 +760,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   postToIframe={postToIframe}
                   filesMap={filesMap}
                   itemsMap={itemsMap}
+                  references={currentItemId == null ? block.references : undefined}
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}

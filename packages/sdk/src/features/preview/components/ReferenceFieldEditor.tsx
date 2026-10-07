@@ -1,27 +1,50 @@
-import { Combobox } from "@base-ui/react/combobox";
 import { Button } from "@camox/ui/button";
-import { Input } from "@camox/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Link2, Plus, X } from "lucide-react";
+import { Link2, X } from "lucide-react";
 import * as React from "react";
 
 import { useCollectionItemModal } from "@/features/content/CollectionItemModalContext";
+import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
+import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
 import { collectionQueries } from "@/lib/queries";
 
 import type { OverlayMessage } from "../overlayMessages";
 import { DrillRow } from "./DrillRow";
+import { RecordCard, recordThumbnail, type RecordStatus } from "./RecordCard";
+import { RecordCombobox } from "./RecordCombobox";
 
-/** This view owns the relationship only. Source content stays in the item modal. */
+function referenceHint({
+  linked,
+  required,
+  status,
+}: {
+  linked: boolean;
+  required: boolean;
+  status?: RecordStatus;
+}) {
+  if (!linked) return required ? "Required" : null;
+  // Only a record that was never published is missing from the live site.
+  if (status !== "draft") return null;
+  if (required) return "Blocks publishing until this record is included";
+  return "Won't appear on the live site until published";
+}
+
+/** This view owns the reference only. Record content is edited elsewhere. */
 export function ReferenceFieldEditor({
   collectionId,
   value,
+  required = false,
+  record = null,
   onChange,
   drill,
 }: {
   collectionId: string;
   value: unknown;
+  required?: boolean;
+  /** The hydrated record from the block bundle, used for the card thumbnail. */
+  record?: NormalizedCollectionRecord | null;
   onChange: (id: string | null) => void | Promise<void>;
   drill?: {
     label: string;
@@ -31,6 +54,8 @@ export function ReferenceFieldEditor({
   };
 }) {
   const projectSlug = useProjectSlug();
+  const collection = useCamoxApp().getCollectionById(collectionId);
+  const collectionTitle = collection?._internal.title ?? collectionId;
   const modal = useCollectionItemModal();
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -57,6 +82,8 @@ export function ReferenceFieldEditor({
     });
   };
 
+  const hint = referenceHint({ linked: selectedId !== null, required, status: selected?.status });
+
   if (drill) {
     return (
       <DrillRow
@@ -73,93 +100,61 @@ export function ReferenceFieldEditor({
   return (
     <fieldset disabled={saving} className="space-y-3">
       {selectedId && (
-        <div className="text-foreground hover:bg-accent/75 flex max-w-full items-center gap-2 rounded-lg border-2 p-1">
-          <button
-            type="button"
-            aria-label={`Edit ${selectedLabel}`}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm p-2 text-left text-sm"
-            onClick={() => modal.open({ collectionId, itemId: selectedId })}
-          >
-            <Link2 aria-hidden className="text-muted-foreground size-4 shrink-0" />
-            <span className="truncate">{selectedLabel}</span>
-          </button>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Unlink"
-                  className="text-muted-foreground hover:text-foreground shrink-0"
-                  onClick={() => change(null)}
-                />
-              }
-            >
-              <X aria-hidden className="size-4" />
-            </TooltipTrigger>
-            <TooltipContent>Unlink</TooltipContent>
-          </Tooltip>
-        </div>
+        <RecordCard
+          label={selectedLabel}
+          collectionTitle={collectionTitle}
+          status={selected?.status}
+          thumbnail={
+            record?.id === selectedId
+              ? recordThumbnail(collection?._internal.contentSchema, record.content)
+              : null
+          }
+          onOpen={() => modal.open({ collectionId, itemId: selectedId })}
+          actions={
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Unlink"
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    onClick={() => change(null)}
+                  />
+                }
+              >
+                <X aria-hidden className="size-4" />
+              </TooltipTrigger>
+              <TooltipContent>Unlink</TooltipContent>
+            </Tooltip>
+          }
+        />
       )}
       {!selectedId && (
-        <Combobox.Root
-          items={records.data ?? []}
-          value={selected ?? null}
-          itemToStringLabel={(record) => record.label}
-          itemToStringValue={(record) => record.id}
-          isItemEqualToValue={(record, current) => record.id === current.id}
-          onValueChange={(record) => {
-            if (record && record.id !== selectedId) change(record.id);
-          }}
+        <RecordCombobox
+          records={records.data ?? []}
+          collectionTitle={collectionTitle}
+          onSelect={(option) => change(option.id)}
           disabled={saving || records.isPending || records.isError}
-        >
-          <Combobox.Trigger
-            render={<Button type="button" variant="outline" className="w-full justify-between" />}
-          >
-            Select item
-            <ChevronsUpDown aria-hidden className="text-muted-foreground size-4" />
-          </Combobox.Trigger>
-          <Combobox.Portal>
-            <Combobox.Positioner sideOffset={4} align="start" className="isolate z-50">
-              <Combobox.Popup className="bg-popover text-popover-foreground ring-foreground/10 flex max-h-(--available-height) w-(--anchor-width) min-w-48 flex-col rounded-md p-1 shadow-md ring-1">
-                <Combobox.Input
-                  render={<Input className="mb-1" />}
-                  aria-label="Search items"
-                  placeholder="Search items…"
-                />
-                <Combobox.Empty className="text-muted-foreground text-sm">
-                  <div className="p-2">No items found.</div>
-                </Combobox.Empty>
-                <Combobox.List className="max-h-64 min-h-0 overflow-y-auto">
-                  {(record) => (
-                    <Combobox.Item
-                      key={record.id}
-                      value={record}
-                      className="data-highlighted:bg-accent data-highlighted:text-accent-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{record.label}</span>
-                      <Combobox.ItemIndicator>
-                        <Check aria-hidden className="size-4" />
-                      </Combobox.ItemIndicator>
-                    </Combobox.Item>
-                  )}
-                </Combobox.List>
-              </Combobox.Popup>
-            </Combobox.Positioner>
-          </Combobox.Portal>
-        </Combobox.Root>
+          footerAction={{
+            label: "Create item",
+            onSelect: (search) =>
+              modal.open({
+                collectionId,
+                initialContent:
+                  collection && search.trim()
+                    ? { [collection._internal.label]: search }
+                    : undefined,
+                onSaved: (created) => save(created.id),
+              }),
+          }}
+        />
       )}
-      {!selectedId && (
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full"
-          onClick={() => modal.open({ collectionId, onSaved: (record) => save(record.id) })}
-        >
-          <Plus aria-hidden className="size-3.5" />
-          Create item
-        </Button>
+      {hint && (
+        <p data-reference-hint className="text-muted-foreground text-xs">
+          {hint}
+        </p>
       )}
       {records.isPending && <p role="status">Loading items…</p>}
       {records.isError && (
