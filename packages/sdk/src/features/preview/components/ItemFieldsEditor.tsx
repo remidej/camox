@@ -23,6 +23,7 @@ import {
   isFileMarker,
   isItemMarker,
   resolveFileMarker,
+  type NormalizedCollectionRecord,
   type NormalizedFile,
   type NormalizedItem,
 } from "@/lib/normalized-data";
@@ -48,6 +49,7 @@ export interface SchemaField {
   minItems?: number;
   maxItems?: number;
   collectionId?: string;
+  required?: boolean;
 }
 
 export const formatFieldName = (fieldName: string): string => {
@@ -73,6 +75,7 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       minItems: prop.minItems as number | undefined,
       maxItems: prop.maxItems as number | undefined,
       collectionId: prop.collectionId as string | undefined,
+      required: prop.required === true,
     };
   });
 };
@@ -93,6 +96,8 @@ interface ItemFieldsEditorProps {
   /** Lookup maps for resolving _fileId and _itemId markers */
   filesMap: Map<number, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
+  /** Hydrated records linked by this block's reference fields, keyed by field name. */
+  references?: Record<string, NormalizedCollectionRecord | null>;
   /** Prefix used to scope DOM ids for each field so label-input pairs and
    * imperative focus lookups don't collide across sheet instances. */
   fieldIdPrefix: string;
@@ -108,6 +113,7 @@ const ItemFieldsEditor = ({
   postToIframe,
   filesMap,
   itemsMap,
+  references,
   fieldIdPrefix,
 }: ItemFieldsEditorProps) => {
   const owner = React.useContext(PreviewEditingOwnerContext);
@@ -240,6 +246,8 @@ const ItemFieldsEditor = ({
                 key={field.name}
                 collectionId={field.collectionId}
                 value={data[field.name]}
+                required={field.required}
+                record={references?.[field.name] ?? null}
                 onChange={(value) => onFieldChange(field.name, value)}
                 drill={
                   selectedFieldName

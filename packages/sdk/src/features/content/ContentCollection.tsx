@@ -156,6 +156,7 @@ function CollectionItemForm({
   projectSlug,
   collectionId,
   record,
+  initialContent,
   onSaved,
 }: {
   contentSchema: unknown;
@@ -163,6 +164,7 @@ function CollectionItemForm({
   projectSlug: string;
   collectionId: string;
   record?: CollectionRecord;
+  initialContent?: Record<string, unknown>;
   onSaved: (record: CollectionRecord) => void | Promise<void>;
 }) {
   const fields = collectionFormFields(contentSchema, label);
@@ -174,7 +176,9 @@ function CollectionItemForm({
   const edit = useMutation(collectionMutations.edit());
   const [submitting, setSubmitting] = useState(false);
   const saving = submitting || create.isPending || edit.isPending;
-  const [defaultValues] = useState(() => collectionFormDefaults(fields, savedRecord?.draft));
+  const [defaultValues] = useState(() =>
+    collectionFormDefaults(fields, savedRecord?.draft ?? initialContent),
+  );
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
@@ -331,11 +335,14 @@ function CollectionItemForm({
 export const ContentCollectionItemEditor = ({
   collectionId,
   itemId,
+  initialContent,
   onSaved,
   projectSlug,
 }: {
   collectionId: string;
   itemId?: string;
+  /** Prefills a new item's form; ignored when editing. */
+  initialContent?: Record<string, unknown>;
   onSaved: (record: CollectionRecord) => void | Promise<void>;
   projectSlug: string;
 }) => {
@@ -380,6 +387,7 @@ export const ContentCollectionItemEditor = ({
           projectSlug={projectSlug}
           collectionId={collectionId}
           record={itemId ? recordQuery.data : undefined}
+          initialContent={itemId ? undefined : initialContent}
           onSaved={onSaved}
         />
       )}
@@ -406,6 +414,7 @@ export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: strin
               projectSlug={projectSlug}
               collectionId={target.collectionId}
               itemId={target.itemId}
+              initialContent={target.initialContent}
               onSaved={(record) => complete(target, record)}
             />
           )}
