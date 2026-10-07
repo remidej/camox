@@ -1,6 +1,8 @@
 import { useSelector } from "@xstate/store-react";
 import { createContext, useCallback, useContext } from "react";
 
+import type { FieldType } from "@/core/lib/fieldTypes";
+
 import {
   previewCommentsStore,
   revealCommentTarget,
@@ -44,7 +46,18 @@ function commentTarget(selection: Selection | null): CommentTarget {
         itemId: selection.itemId,
         fieldName: selection.fieldName,
       };
+    // Comments on records are out of scope; anchor them to the placing reference field.
+    case "record":
+    case "record-field":
+      return { kind: "block-field", blockId: selection.blockId, fieldName: selection.fieldName };
   }
+}
+
+function selectionFieldType(selection: Selection | null): FieldType | undefined {
+  if (!selection) return undefined;
+  if (selection.type === "record" || selection.type === "record-field") return "Reference";
+  if ("fieldType" in selection) return selection.fieldType;
+  return undefined;
 }
 
 /** Both editing and commenting use the target already known by the editable component. */
@@ -80,11 +93,7 @@ export function selectPreviewTarget(
     popover: true,
     anchor: event.currentTarget,
   });
-  revealCommentTarget(
-    pageId,
-    target,
-    selection && "fieldType" in selection ? selection.fieldType : undefined,
-  );
+  revealCommentTarget(pageId, target, selectionFieldType(selection));
 }
 
 export function usePreviewSelection() {

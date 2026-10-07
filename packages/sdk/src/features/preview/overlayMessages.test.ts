@@ -53,6 +53,25 @@ const cases: {
     type: "CAMOX_HOVER_REPEATER",
     target: { blockId: "1", fieldName: "children" },
   },
+  {
+    name: "record",
+    selection: { type: "record", blockId: 1, fieldName: "company", recordId: "acme" },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "1__company" },
+  },
+  {
+    name: "record field",
+    selection: {
+      type: "record-field",
+      blockId: 1,
+      fieldName: "company",
+      recordId: "acme",
+      recordFieldName: "quote",
+      recordFieldType: "String",
+    },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "1__company__quote" },
+  },
 ];
 
 for (const { name, selection, type, target } of cases) {
