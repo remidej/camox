@@ -130,6 +130,10 @@ _Avoid_: Title, display name
 A field that selects a collection record by identity instead of copying its content.
 _Avoid_: Relation, link, foreign key
 
+**Reference List**:
+A field that selects an ordered list of distinct collection records by identity. The order belongs to the placement, not the records.
+_Avoid_: Relation list, multi-reference, collection field
+
 **Placement**:
 Where a block or reference occurs; placements keep their own identity and order even when their content is shared.
 _Avoid_: Usage, instance, occurrence
