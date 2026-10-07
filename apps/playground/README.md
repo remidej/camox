@@ -106,7 +106,10 @@ typed scope as `testimonial.Reference`. The list's order belongs to the logo gri
 Edit the list in the sidebar: the logo grid's Customers row shows how many are
 linked and opens the list view. Drag cards to reorder, use the X to unlink (the
 customer itself is kept), and pick or create customers below the cards to append
-them. Clicking a card opens the shared customer's fields. Agents can also set the
+them. Clicking a card opens the shared customer's fields. In the preview, click a
+customer in the grid to select it, its logo to select that field, or its company
+name to edit it inline: the edit changes
+the shared customer, so the testimonial updates too. Agents can also set the
 list through the block edit tools with an array of customer IDs.
 
 1. Add a logo grid to a draft page. In edit mode the empty list shows an "Add

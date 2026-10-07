@@ -166,6 +166,12 @@ depth and cycles, and query-backed lists (slice 6) remain open.
   array. Record and record field views are unchanged; selection shapes are reused
   (uniqueness makes them unambiguous) and placement ids include the record id.
   A selection whose record left the list falls back to the reference field view.
+- In the preview each listed record is a placement like a single reference's record:
+  clicking a record field selects `record-field`, clicking elsewhere in the record
+  selects `record`, and inline edits write the shared record. Overlay ids are
+  `block__field__record` for a placement and `block__field__record__recordField` for its
+  fields, for single references too, so hover and focus messages derive from the
+  selection alone and only the targeted entry is outlined.
   In edit mode an empty list shows a dashed "Add {collection}" placeholder.
 - The list's per-use `toMarkdown` runs per resolved record, like repeater items, and
   the block includes it through its content token; live Markdown omits unpublished
