@@ -11,6 +11,7 @@ import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
 import { collectionQueries } from "@/lib/queries";
 
 import type { OverlayMessage } from "../overlayMessages";
+import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
 import { RecordCard, recordThumbnail, type RecordStatus } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
@@ -34,6 +35,7 @@ function referenceHint({
 /** This view owns the reference only. Record content is edited elsewhere. */
 export function ReferenceFieldEditor({
   collectionId,
+  fieldId,
   value,
   required = false,
   record = null,
@@ -41,6 +43,8 @@ export function ReferenceFieldEditor({
   drill,
 }: {
   collectionId: string;
+  /** Overlay field ID of this placement; the preview placeholder requests focus by it. */
+  fieldId?: string;
   value: unknown;
   required?: boolean;
   /** The hydrated record from the block bundle, used for the card thumbnail. */
@@ -63,6 +67,9 @@ export function ReferenceFieldEditor({
   const selectedId = typeof value === "string" && value ? value : null;
   const selected = records.data?.find((record) => record.id === value);
   const selectedLabel = selected?.label ?? (value ? "Unavailable item" : "No item attached");
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const focusRequested = useReferencePickerFocusRequested(drill ? undefined : fieldId);
+  const pickerReady = !selectedId && records.isSuccess && !saving;
 
   const save = async (id: string | null) => {
     setSaving(true);
@@ -81,6 +88,12 @@ export function ReferenceFieldEditor({
       // The reference view displays the failure; event handlers do not reject.
     });
   };
+
+  React.useEffect(() => {
+    if (!focusRequested || !fieldId || !pickerReady) return;
+    referencePickerFocus.send({ type: "consume", fieldId });
+    setPickerOpen(true);
+  }, [focusRequested, fieldId, pickerReady]);
 
   const hint = referenceHint({ linked: selectedId !== null, required, status: selected?.status });
 
@@ -137,6 +150,8 @@ export function ReferenceFieldEditor({
           collectionTitle={collectionTitle}
           onSelect={(option) => change(option.id)}
           disabled={saving || records.isPending || records.isError}
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
           footerAction={{
             label: "Create item",
             onSelect: (search) =>

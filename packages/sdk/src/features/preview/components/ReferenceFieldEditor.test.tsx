@@ -18,6 +18,8 @@ import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
 import { collectionQueries } from "@/lib/queries";
 
+import { referencePickerFocus } from "../referencePickerFocus";
+
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("http://localhost:8788", "development");
 
@@ -70,6 +72,7 @@ async function renderReference(
     records?: RecordSummary[];
     record?: NormalizedCollectionRecord | null;
     modal?: React.ReactNode;
+    fieldId?: string;
   } = {},
 ) {
   const window = new Window();
@@ -117,6 +120,7 @@ async function renderReference(
     return (
       <ReferenceFieldEditor
         collectionId="customers"
+        fieldId={options.fieldId}
         required={options.required}
         record={options.record ?? null}
         value={value}
@@ -404,6 +408,35 @@ void test("a failed link keeps the create modal open and reports the error", asy
     assert.equal(view.modal.target, target, "the modal stays open to retry");
     assert.match(view.host.querySelector('[role="alert"]')?.textContent ?? "", /Link failed/);
     assert.deepEqual(view.changes, []);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+void test("selecting an unset reference from the preview placeholder focuses its record picker", async () => {
+  referencePickerFocus.send({ type: "request", fieldId: "3__customer" });
+  const other = await renderReference({ fieldId: "4__customer" });
+  try {
+    assert.ok(
+      !document.querySelector('input[aria-label="Search items"]'),
+      "other placements stay closed",
+    );
+  } finally {
+    await other.cleanup();
+  }
+
+  const view = await renderReference({ fieldId: "3__customer" });
+  try {
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Search items"]');
+    assert.ok(input, "the picker opens");
+    assert.ok(document.activeElement === input, "the search input has focus");
+    assert.equal(
+      referencePickerFocus.getSnapshot().context.fieldId,
+      null,
+      "the request is consumed",
+    );
+    await view.search("gra");
+    assert.deepEqual(view.options(), ["GraceDraft"]);
   } finally {
     await view.cleanup();
   }
