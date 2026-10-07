@@ -238,6 +238,7 @@ function nestChildItems(
 async function generateObjectSummary(
   apiKey: string,
   options: { type: string; markdown: string; previousSummary?: string },
+  abortController?: AbortController,
 ) {
   const stabilityBlock = options.previousSummary
     ? outdent`
@@ -254,6 +255,7 @@ async function generateObjectSummary(
   return await chat({
     adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
     stream: false,
+    abortController,
     messages: [
       {
         role: "user",
@@ -378,6 +380,7 @@ export async function executeBlockSummary(
   db: Database,
   apiKey: string,
   blockId: number,
+  abortController?: AbortController,
 ): Promise<{ pageId: number } | null> {
   const assembled = await assembleBlockContent(db, blockId);
   if (!assembled) return null;
@@ -391,11 +394,11 @@ export async function executeBlockSummary(
         })
       : JSON.stringify(content);
 
-  const summary = await generateObjectSummary(apiKey, {
-    type: block.type,
-    markdown,
-    previousSummary: block.summary,
-  });
+  const summary = await generateObjectSummary(
+    apiKey,
+    { type: block.type, markdown, previousSummary: block.summary },
+    abortController,
+  );
 
   await db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId));
 

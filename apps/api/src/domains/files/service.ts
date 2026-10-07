@@ -92,6 +92,7 @@ async function generateImageMetadata(
   imageUrl: string,
   imageMimeType: string,
   currentFilename: string,
+  abortController?: AbortController,
 ) {
   // Gemini 2.5 Flash Lite processes images in 768×768 tiles — larger sizes are
   // downsampled by the model and just inflate tokens. Bound BOTH dimensions so
@@ -105,7 +106,7 @@ async function generateImageMetadata(
     mimeType: imageMimeType,
   });
   // Fetch image server-side — the AI provider can't reach localhost URLs in development
-  const response = await fetch(optimizedUrl);
+  const response = await fetch(optimizedUrl, { signal: abortController?.signal });
   const { bytes, mimeType } = await readMetadataImage(response);
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
@@ -113,6 +114,7 @@ async function generateImageMetadata(
 
   return await chat({
     adapter: createOpenRouterText("google/gemini-2.5-flash-lite", apiKey),
+    abortController,
     outputSchema: z.object({
       filename: z.string(),
       alt: z.string(),
@@ -139,12 +141,23 @@ async function generateImageMetadata(
   });
 }
 
-export async function executeFileMetadata(db: Database, apiKey: string, fileId: number) {
+export async function executeFileMetadata(
+  db: Database,
+  apiKey: string,
+  fileId: number,
+  abortController?: AbortController,
+) {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file || file.aiMetadataEnabled === false) return;
   if (!isRasterImage(file.mimeType)) return;
 
-  const metadata = await generateImageMetadata(apiKey, file.url, file.mimeType, file.filename);
+  const metadata = await generateImageMetadata(
+    apiKey,
+    file.url,
+    file.mimeType,
+    file.filename,
+    abortController,
+  );
   await saveGeneratedFileMetadata(db, file, metadata);
 }
 

@@ -195,6 +195,7 @@ function findLastIndexLe<T extends { position: string }>(items: T[], target: str
 async function generateObjectSummary(
   apiKey: string,
   options: { type: string; markdown: string; previousSummary?: string },
+  abortController?: AbortController,
 ) {
   const stabilityBlock = options.previousSummary
     ? outdent`
@@ -211,6 +212,7 @@ async function generateObjectSummary(
   return await chat({
     adapter: createOpenRouterText("openai/gpt-oss-20b", apiKey),
     stream: false,
+    abortController,
     messages: [
       {
         role: "user",
@@ -266,6 +268,7 @@ export async function executeRepeatableItemSummary(
   db: Database,
   apiKey: string,
   itemId: number,
+  abortController?: AbortController,
 ): Promise<{ blockId: number } | null> {
   const item = await db.select().from(repeatableItems).where(eq(repeatableItems.id, itemId)).get();
   if (!item) return null;
@@ -273,11 +276,11 @@ export async function executeRepeatableItemSummary(
   const block = await db.select().from(blocks).where(eq(blocks.id, item.blockId)).get();
   if (!block) return null;
 
-  const summary = await generateObjectSummary(apiKey, {
-    type: block.type,
-    markdown: JSON.stringify(item.content),
-    previousSummary: item.summary,
-  });
+  const summary = await generateObjectSummary(
+    apiKey,
+    { type: block.type, markdown: JSON.stringify(item.content), previousSummary: item.summary },
+    abortController,
+  );
 
   await db
     .update(repeatableItems)

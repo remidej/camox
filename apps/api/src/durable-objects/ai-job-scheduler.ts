@@ -8,6 +8,7 @@ import { executeFileMetadata } from "../domains/files/service";
 import { executePageSeo } from "../domains/pages/ai";
 import { executeRepeatableItemSummary } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
+import { retryAiCall } from "../lib/retry-ai-call";
 import { blocks, files, layouts, pages, projects, repeatableItems } from "../schema";
 import type { Bindings } from "../types";
 
@@ -18,13 +19,18 @@ type JobParams = {
   delayMs: number;
 };
 
+type StoredJob = JobParams & {
+  /** Distinguishes a re-scheduled job from the one an in-flight alarm is running. */
+  id: string;
+};
+
 export class AiJobScheduler extends DurableObject<Bindings> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/schedule") {
       const params: JobParams = await request.json();
-      await this.ctx.storage.put("job", params);
+      await this.ctx.storage.put("job", { ...params, id: crypto.randomUUID() } satisfies StoredJob);
       await this.ctx.storage.setAlarm(Date.now() + params.delayMs);
       return new Response(JSON.stringify({ scheduled: true }), {
         status: 202,
@@ -36,18 +42,31 @@ export class AiJobScheduler extends DurableObject<Bindings> {
   }
 
   async alarm(): Promise<void> {
-    const params = await this.ctx.storage.get<JobParams>("job");
-    if (!params) return;
+    const job = await this.ctx.storage.get<StoredJob>("job");
+    if (!job) return;
 
-    await this.ctx.storage.delete("job");
+    // Only clear the job once it succeeded. If it throws, the job stays stored
+    // and Cloudflare retries the alarm with backoff.
+    await this.runJob(job);
 
+    // A newer job may have been scheduled while this one ran — keep it.
+    const current = await this.ctx.storage.get<StoredJob>("job");
+    if (current?.id === job.id) {
+      await this.ctx.storage.delete("job");
+    }
+  }
+
+  private async runJob(job: StoredJob): Promise<void> {
     const db = createDb(this.env.DB);
     const apiKey = this.env.OPEN_ROUTER_API_KEY;
 
-    const { entityTable, entityId, type } = params;
+    const { entityTable, entityId, type } = job;
+    const label = `${entityTable}:${entityId}:${type}`;
 
     if (entityTable === "blocks" && type === "summary") {
-      const seoStale = await executeBlockSummary(db, apiKey, entityId);
+      const seoStale = await retryAiCall(label, (abortController) =>
+        executeBlockSummary(db, apiKey, entityId, abortController),
+      );
       if (seoStale) {
         // Cascade: schedule page SEO regeneration
         const { scheduleAiJob } = await import("../lib/schedule-ai-job");
@@ -72,7 +91,9 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         });
       }
     } else if (entityTable === "repeatableItems" && type === "summary") {
-      const cascade = await executeRepeatableItemSummary(db, apiKey, entityId);
+      const cascade = await retryAiCall(label, (abortController) =>
+        executeRepeatableItemSummary(db, apiKey, entityId, abortController),
+      );
       if (cascade) {
         // Cascade: schedule parent block summary regeneration
         const { scheduleAiJob } = await import("../lib/schedule-ai-job");
@@ -104,7 +125,9 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         }
       }
     } else if (entityTable === "files" && type === "fileMetadata") {
-      await executeFileMetadata(db, apiKey, entityId);
+      await retryAiCall(label, (abortController) =>
+        executeFileMetadata(db, apiKey, entityId, abortController),
+      );
 
       const file = await db.select().from(files).where(eq(files.id, entityId)).get();
       if (file?.projectId) {
@@ -116,7 +139,9 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         });
       }
     } else if (entityTable === "pages" && type === "seo") {
-      await executePageSeo(db, apiKey, entityId);
+      await retryAiCall(label, (abortController) =>
+        executePageSeo(db, apiKey, entityId, abortController),
+      );
 
       const page = await db.select().from(pages).where(eq(pages.id, entityId)).get();
       if (page) {

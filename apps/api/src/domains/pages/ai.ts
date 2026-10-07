@@ -49,6 +49,7 @@ async function generatePageSeoFromAi(
     previousMetaTitle?: string | null;
     previousMetaDescription?: string | null;
   },
+  abortController?: AbortController,
 ) {
   const stabilityBlock =
     options.previousMetaTitle || options.previousMetaDescription
@@ -68,6 +69,7 @@ async function generatePageSeoFromAi(
 
   return await chat({
     adapter: createOpenRouterText("google/gemini-3-flash-preview", apiKey),
+    abortController,
     outputSchema: z.object({
       metaTitle: z.string(),
       metaDescription: z.string(),
@@ -98,7 +100,12 @@ async function generatePageSeoFromAi(
   });
 }
 
-export async function executePageSeo(db: Database, apiKey: string, pageId: number) {
+export async function executePageSeo(
+  db: Database,
+  apiKey: string,
+  pageId: number,
+  abortController?: AbortController,
+) {
   const page = await db.select().from(pages).where(eq(pages.id, pageId)).get();
   if (!page || page.aiSeoEnabled === false) return;
 
@@ -159,12 +166,16 @@ export async function executePageSeo(db: Database, apiKey: string, pageId: numbe
     };
   });
 
-  const seo = await generatePageSeoFromAi(apiKey, {
-    fullPath: page.fullPath,
-    blocks: markdownBlocks,
-    previousMetaTitle: page.metaTitle,
-    previousMetaDescription: page.metaDescription,
-  });
+  const seo = await generatePageSeoFromAi(
+    apiKey,
+    {
+      fullPath: page.fullPath,
+      blocks: markdownBlocks,
+      previousMetaTitle: page.metaTitle,
+      previousMetaDescription: page.metaDescription,
+    },
+    abortController,
+  );
 
   await db
     .update(pages)
