@@ -38,6 +38,7 @@ export function ReferenceFieldEditor({
   required = false,
   record = null,
   onChange,
+  onOpenRecord,
   drill,
 }: {
   collectionId: string;
@@ -46,6 +47,8 @@ export function ReferenceFieldEditor({
   /** The hydrated record from the block bundle, used for the card thumbnail. */
   record?: NormalizedCollectionRecord | null;
   onChange: (id: string | null) => void | Promise<void>;
+  /** Opens the linked record's view, where its fields are edited. */
+  onOpenRecord?: (id: string) => void;
   drill?: {
     label: string;
     fieldId: string;
@@ -61,8 +64,9 @@ export function ReferenceFieldEditor({
   const [error, setError] = React.useState<string | null>(null);
   const records = useQuery(collectionQueries.records(projectSlug, collectionId));
   const selectedId = typeof value === "string" && value ? value : null;
-  const selected = records.data?.find((record) => record.id === value);
-  const selectedLabel = selected?.label ?? (value ? "Unavailable item" : "No item attached");
+  const selected = records.data?.find((option) => option.id === value);
+  const hydrated = record?.id === selectedId ? record : null;
+  const selectedLabel = selected?.label ?? hydrated?.label ?? "Unavailable item";
 
   const save = async (id: string | null) => {
     setSaving(true);
@@ -88,7 +92,8 @@ export function ReferenceFieldEditor({
     return (
       <DrillRow
         label={drill.label}
-        preview={selectedLabel}
+        preview={selectedId ? selectedLabel : `No ${collectionTitle} linked`}
+        hint={selectedId || !required ? undefined : "Required"}
         Icon={Link2}
         onClick={drill.onClick}
         hover={{ variant: "field", fieldId: drill.fieldId }}
@@ -105,11 +110,9 @@ export function ReferenceFieldEditor({
           collectionTitle={collectionTitle}
           status={selected?.status}
           thumbnail={
-            record?.id === selectedId
-              ? recordThumbnail(collection?._internal.contentSchema, record.content)
-              : null
+            hydrated ? recordThumbnail(collection?._internal.contentSchema, hydrated.content) : null
           }
-          onOpen={() => modal.open({ collectionId, itemId: selectedId })}
+          onOpen={onOpenRecord ? () => onOpenRecord(selectedId) : undefined}
           actions={
             <Tooltip>
               <TooltipTrigger

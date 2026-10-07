@@ -10,6 +10,8 @@ type DrillRowHover =
 interface DrillRowProps {
   label: string;
   preview: string;
+  /** Short status shown next to the label, e.g. "Required". */
+  hint?: string;
   Icon: React.ComponentType<{ className?: string }>;
   onClick: () => void;
   hover: DrillRowHover;
@@ -17,7 +19,15 @@ interface DrillRowProps {
 }
 
 /** Label and drill-down button with hover that cannot outlive its sidebar row. */
-export const DrillRow = ({ label, preview, Icon, onClick, hover, postToIframe }: DrillRowProps) => {
+export const DrillRow = ({
+  label,
+  preview,
+  hint,
+  Icon,
+  onClick,
+  hover,
+  postToIframe,
+}: DrillRowProps) => {
   const [isHovered, setIsHovered] = React.useState(false);
   const fieldId = hover.variant === "field" ? hover.fieldId : undefined;
   const blockId = hover.variant === "repeater" ? String(hover.blockId) : undefined;
@@ -42,7 +52,10 @@ export const DrillRow = ({ label, preview, Icon, onClick, hover, postToIframe }:
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <Label>{label}</Label>
+      <div className="flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        {hint && <span className="text-muted-foreground text-xs">{hint}</span>}
+      </div>
       <button
         type="button"
         className="hover:bg-accent/75 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors"
