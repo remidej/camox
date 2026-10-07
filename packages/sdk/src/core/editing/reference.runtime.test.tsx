@@ -8,6 +8,7 @@ import * as React from "react";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { previewStore, type Selection } from "../../features/preview/previewStore";
 import { initApiClient } from "../../lib/api-client";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import { createCollection } from "../createCollection";
@@ -19,13 +20,17 @@ import type { ReferenceRecord } from "../lib/reference";
 // (Lexical itself has dedicated DOM editing tests).
 const editors: Array<{ onChange: (value: string) => void; externalState: unknown }> = [];
 const selections: unknown[] = [];
+const owner = { kind: "page", pageId: 1 } as const;
 const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
 let source: ReferenceRecord;
 Object.assign(globalThis, {
   React,
   __CAMOX_TELEMETRY_DISABLED__: true,
   captureReferenceEditor: (props: (typeof editors)[number]) => editors.push(props),
-  captureReferenceSelection: (selection: unknown) => selections.push(selection),
+  captureReferenceSelection: (selection: Selection) => {
+    selections.push(selection);
+    previewStore.send({ type: "selectTarget", ...owner, selection });
+  },
   editReferenceRecord: async (input: (typeof requests)[number]) => {
     requests.push(input);
     assert.equal(input.expectedVersion, source.version);
@@ -41,10 +46,9 @@ registerHooks({
     const modules: Record<string, string> = {
       "@/lib/auth": "export const useProjectSlug = () => 'test'",
       "@/features/navigation/navigation": "export const useLocation = () => '/'",
-      "../../features/preview/components/Frame": "export const useFrame = () => ({window:null})",
+      "../../features/preview/components/Frame":
+        "export const useFrame = () => ({window: globalThis.window ?? null})",
       "../hooks/useIsEditable.ts": "export const useIsEditable = mode => mode === 'site'",
-      "../hooks/useFieldSelection.ts": "export const useFieldSelection = () => false",
-      "../hooks/useOverlayMessage.ts": "export const useOverlayMessage = () => false",
       "../../features/preview/previewSelection": `
         export const usePreviewSelection = () => globalThis.captureReferenceSelection;
         export const usePreviewTargetSelection = () => null;
@@ -75,6 +79,7 @@ registerHooks({
   },
 });
 const { createEditableBlock } = await import("./createEditableBlock");
+const { PreviewEditingOwnerContext } = await import("../../features/preview/previewSelection");
 const { referencePickerFocus } = await import("../../features/preview/referencePickerFocus");
 
 void test("editable reference occurrences write one source and retain placement selection and purple identity", async () => {
@@ -146,10 +151,12 @@ void test("editable reference occurrences write one source and retain placement 
   assert.match(html, /data-camox-reference-label="Source label"/);
   clickHandlers[0]?.();
   assert.deepEqual(selections.at(-1), {
-    type: "block-field",
+    type: "record-field",
     blockId: 1,
     fieldName: "customer",
-    fieldType: "Reference",
+    recordId: "source-id",
+    recordFieldName: "name",
+    recordFieldType: "String",
   });
   editors[0].onChange("After");
   // Mutation execution is async; no timers or network are involved.
@@ -240,6 +247,132 @@ void test("an unset reference placeholder names the collection and selects the r
     );
   } finally {
     await act(async () => root.unmount());
+    await window.happyDOM.close();
+  }
+});
+
+void test("clicks inside a placed record select its record field or the record for that placement only", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: { name: Type.String({ default: "" }) },
+  });
+  const record: ReferenceRecord = {
+    id: "acme",
+    collectionId: "customers",
+    label: "Acme",
+    content: { name: "Acme Inc." },
+    version: 1,
+  };
+  const block = createEditableBlock({
+    id: "placements",
+    title: "",
+    description: "",
+    content: { name: Type.String({ default: "" }), customer: Type.Reference(customers) },
+    toMarkdown: () => [],
+    component: () => (
+      <block.Reference name="customer">
+        {(customer) => (
+          <section>
+            <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
+            <p>Since 1999</p>
+          </section>
+        )}
+      </block.Reference>
+    ),
+  });
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: owner.pageId });
+  const placement = (blockId: number) =>
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer"]`)!;
+  const recordField = (blockId: number) =>
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__name"]`)!;
+  const focused = (element: Element) => element.hasAttribute("data-camox-focused");
+  const hovered = (element: Element) => element.hasAttribute("data-camox-hovered");
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <PreviewEditingOwnerContext value={owner}>
+            <NormalizedDataProvider
+              files={[]}
+              repeatableItems={[]}
+              blocks={[{ references: { customer: record } }]}
+            >
+              {[1, 2].map((blockId) => (
+                <block._internal.Component
+                  key={blockId}
+                  mode="site"
+                  blockData={{
+                    _id: blockId,
+                    type: "placements",
+                    position: `a${blockId}`,
+                    content: { name: "Block name", customer: "acme" },
+                  }}
+                />
+              ))}
+            </NormalizedDataProvider>
+          </PreviewEditingOwnerContext>
+        </QueryClientProvider>,
+      ),
+    );
+
+    await act(async () => recordField(2).click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record-field",
+      blockId: 2,
+      fieldName: "customer",
+      recordId: "acme",
+      recordFieldName: "name",
+      recordFieldType: "String",
+    });
+    assert.ok(focused(recordField(2)), "the clicked placement's record field is selected");
+    assert.ok(!focused(recordField(1)), "another placement of the same record is not");
+
+    await act(async () => host.querySelectorAll("p")[0].click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record",
+      blockId: 1,
+      fieldName: "customer",
+      recordId: "acme",
+    });
+    assert.ok(focused(placement(1)), "the clicked placement's record is selected");
+    assert.ok(!focused(placement(2)));
+    assert.ok(!focused(recordField(1)) && !focused(recordField(2)));
+
+    // A block field sharing the record field's name must not light up the record field.
+    await act(async () =>
+      previewStore.send({
+        type: "selectTarget",
+        ...owner,
+        selection: { type: "block-field", blockId: 1, fieldName: "name", fieldType: "String" },
+      }),
+    );
+    assert.ok(!focused(recordField(1)));
+
+    // Sidebar hover of a record field row targets the selected placement's field ID.
+    await act(async () => {
+      window.dispatchEvent(
+        new window.MessageEvent("message", {
+          data: { type: "CAMOX_HOVER_FIELD", fieldId: "2__customer__name" },
+        }),
+      );
+    });
+    assert.ok(hovered(recordField(2)));
+    assert.ok(!hovered(recordField(1)));
+  } finally {
+    await act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
     await window.happyDOM.close();
   }
 });
