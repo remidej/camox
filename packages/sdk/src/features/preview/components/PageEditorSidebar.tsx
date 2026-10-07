@@ -871,6 +871,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   currentData={currentData}
                   onFieldChange={writeField}
                   resolveLocally={recordView != null}
+                  offerDelete={recordView == null}
                   accept={assetAccept}
                 />
               )}
@@ -881,6 +882,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   currentData={currentData}
                   onFieldChange={writeField}
                   resolveLocally={recordView != null}
+                  offerDelete={recordView == null}
                   accept={assetAccept}
                 />
               )}

@@ -85,9 +85,12 @@ const SingleAssetFieldEditor = ({
   currentData,
   onFieldChange,
   resolveLocally = false,
+  offerDelete = true,
   accept,
 }: {
   resolveLocally?: boolean;
+  /** Unlinking never offers to delete the file (see `UnlinkAssetButton`). */
+  offerDelete?: boolean;
   accept?: string[];
   fieldName: string;
   assetType: "Image" | "File";
@@ -177,6 +180,7 @@ const SingleAssetFieldEditor = ({
             <UnlinkAssetButton
               fileId={asset._fileId != null ? Number(asset._fileId) : undefined}
               persisted={!resolveLocally}
+              offerDelete={offerDelete}
               onUnlink={() => {
                 onFieldChange(fieldName, null);
               }}

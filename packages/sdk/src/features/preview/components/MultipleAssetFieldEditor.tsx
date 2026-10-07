@@ -55,6 +55,7 @@ interface SortableAssetItemProps {
   onRemove: (fileId: number) => void;
   onAssetOpen: (asset: ResolvedAsset) => void;
   persisted: boolean;
+  offerDelete: boolean;
 }
 
 const SortableAssetItem = ({
@@ -63,6 +64,7 @@ const SortableAssetItem = ({
   onRemove,
   onAssetOpen,
   persisted,
+  offerDelete,
 }: SortableAssetItemProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: String(asset._fileId),
@@ -126,6 +128,7 @@ const SortableAssetItem = ({
         <UnlinkAssetButton
           fileId={asset._fileId}
           persisted={persisted}
+          offerDelete={offerDelete}
           onUnlink={() => onRemove(asset._fileId)}
           className="hidden group-focus-within:flex group-hover:flex"
         />
@@ -140,6 +143,8 @@ const SortableAssetItem = ({
 
 interface MultipleAssetFieldEditorProps {
   resolveLocally?: boolean;
+  /** Unlinking never offers to delete the file (see `UnlinkAssetButton`). */
+  offerDelete?: boolean;
   accept?: string[];
   fieldName: string;
   assetType: "Image" | "File";
@@ -154,6 +159,7 @@ const MultipleAssetFieldEditor = ({
   onFieldChange,
   resolveLocally = false,
   accept,
+  offerDelete = true,
 }: MultipleAssetFieldEditorProps) => {
   const isImage = assetType === "Image";
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -245,6 +251,7 @@ const MultipleAssetFieldEditor = ({
                     onRemove={handleRemove}
                     onAssetOpen={setLightboxAsset}
                     persisted={!resolveLocally}
+                    offerDelete={offerDelete}
                   />
                 ))}
               </ul>
