@@ -21,6 +21,8 @@ import { collectionSelection, referenceTargetsInput } from "./reference-publicat
 import {
   referenceFields,
   referenceListFields,
+  resolvedReference,
+  resolvedReferenceList,
   resolveReferences,
   type ResolvedReference,
 } from "./references";
@@ -114,21 +116,17 @@ const plan = Effect.fn("collections.plan")(function* (
     const draft = yield* resolveReferences(ctx, scope.owner, schema, block.content, "draft");
     const live = yield* resolveReferences(ctx, scope.owner, schema, block.content, "live");
     for (const [field, reference] of referenceFields(schema)) {
-      const record = draft[field] as ResolvedReference | null;
+      const record = resolvedReference(draft, field);
       if (!record) {
         if (reference.required === true) missingRequired.push(`${block.id}.${field}`);
         continue;
       }
-      addTarget(
-        record,
-        (live[field] as ResolvedReference | null) ?? undefined,
-        reference.required === true,
-      );
+      addTarget(record, resolvedReference(live, field) ?? undefined, reference.required === true);
     }
     // List entries are never required: unpublished ones are skipped live.
     for (const [field] of referenceListFields(schema)) {
-      const published = live[field] as ResolvedReference[];
-      for (const record of draft[field] as ResolvedReference[]) {
+      const published = resolvedReferenceList(live, field);
+      for (const record of resolvedReferenceList(draft, field)) {
         addTarget(
           record,
           published.find((candidate) => candidate.id === record.id),

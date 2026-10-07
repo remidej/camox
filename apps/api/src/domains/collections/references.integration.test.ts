@@ -777,6 +777,15 @@ describe("reference lists", () => {
         message: expect.stringContaining("customers"),
       });
     }
+    for (const [invalid, message] of [
+      [[f.alpha.id, f.alpha.id], "customers: reference list links the same record more than once"],
+      [
+        [f.alpha.id, f.beta.id, f.gamma.id, otherProject.record.id],
+        "customers: reference list links more than 3 records",
+      ],
+    ] as const) {
+      await expect(f.setList(invalid)).rejects.toMatchObject({ message });
+    }
     expect(await f.listIds(f.ctx, "draft")).toEqual([f.gamma.id, f.alpha.id]);
   });
 

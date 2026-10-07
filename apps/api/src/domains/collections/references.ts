@@ -40,10 +40,22 @@ export function referenceListFields(schema: unknown): [string, Field][] {
   return fieldsOfType(schema, "ReferenceList");
 }
 
-/** The ids a reference list value links, in stored order; anything else links nothing. */
+/** The record ids a reference list value links, in stored order; anything else links none. */
 export function referenceListIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((id): id is string => typeof id === "string");
+  return value.filter((id): id is string => typeof id === "string" && id !== "");
+}
+
+/** A reference field's resolved record; reference lists never resolve to one record. */
+export function resolvedReference(references: ResolvedReferences | undefined, field: string) {
+  const value = references?.[field];
+  return value && !Array.isArray(value) ? value : null;
+}
+
+/** A reference list field's resolved records, in list order; references resolve to none. */
+export function resolvedReferenceList(references: ResolvedReferences | undefined, field: string) {
+  const value = references?.[field];
+  return Array.isArray(value) ? value : [];
 }
 
 /** Only top-level references and reference lists are supported; fail closed for other shapes. */
@@ -242,12 +254,12 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
   for (const [name, field] of referenceListFields(schema)) {
     const value = values?.[name];
     if (value === undefined) continue;
-    if (!Array.isArray(value)) return yield* invalidList(name, "must be an array of item ids");
+    if (!Array.isArray(value)) return yield* invalidList(name, "must be an array of record ids");
     if (new Set(value).size !== value.length) {
-      return yield* invalidList(name, "links the same item more than once");
+      return yield* invalidList(name, "links the same record more than once");
     }
     if (typeof field.maxItems === "number" && value.length > field.maxItems) {
-      return yield* invalidList(name, `links more than ${field.maxItems} items`);
+      return yield* invalidList(name, `links more than ${field.maxItems} records`);
     }
     for (const id of value) {
       if (!(yield* recordInScope(ctx, scope, field, id))) return yield* missingReference(name);

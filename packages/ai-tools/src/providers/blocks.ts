@@ -19,7 +19,7 @@ import type { ToolDefinition, ToolProvider } from "../types";
 const positionAliasSchema = z.enum(["first", "last"]).optional();
 
 const REFERENCE_VALUES =
-  "Reference fields store one collection item id (or null). Reference list fields store an ordered array of distinct item ids from the field's collection, at most its maxItems; the array replaces the whole list. Find ids with listCollectionRecords.";
+  "Reference fields store one collection record id (or null). Reference list fields store an ordered array of distinct record ids from the field's collection, at most its maxItems; the array replaces the whole list. Find ids with listCollectionRecords.";
 
 const createBlockToolInput = createBlockInput.omit({ repeatableItems: true }).extend({
   afterId: z.number().optional(),
