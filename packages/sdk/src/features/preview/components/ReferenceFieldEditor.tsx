@@ -13,7 +13,8 @@ import { collectionQueries } from "@/lib/queries";
 import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
-import { RecordCard, recordThumbnail, type RecordStatus } from "./RecordCard";
+import type { PublicationStatus } from "./PageStatusBadge";
+import { RecordCard, recordThumbnail } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
 
 function referenceHint({
@@ -23,7 +24,7 @@ function referenceHint({
 }: {
   linked: boolean;
   required: boolean;
-  status?: RecordStatus;
+  status?: PublicationStatus;
 }) {
   if (!linked) return required ? "Required" : null;
   // Only a record that was never published is missing from the live site.
@@ -106,7 +107,8 @@ export function ReferenceFieldEditor({
       <DrillRow
         label={drill.label}
         preview={selectedId ? selectedLabel : `No ${collectionTitle} linked`}
-        hint={selectedId || !required ? undefined : "Required"}
+        // The field list only flags a missing required record, not publication state.
+        hint={referenceHint({ linked: selectedId !== null, required }) ?? undefined}
         Icon={Link2}
         onClick={drill.onClick}
         hover={{ variant: "field", fieldId: drill.fieldId }}

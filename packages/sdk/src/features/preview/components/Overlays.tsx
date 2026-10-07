@@ -4,7 +4,7 @@ import * as React from "react";
 import { usePageBlocks } from "@/lib/normalized-data";
 
 import { usePreviewedPage } from "../CamoxPreview";
-import { isOverlayMessage, type OverlayMessage } from "../overlayMessages";
+import { isOverlayMessage, overlayFieldId, type OverlayMessage } from "../overlayMessages";
 import {
   previewStore,
   selectIsEditMode,
@@ -77,14 +77,16 @@ function stringFieldId(selection: Selection | null): string | null {
   const { blockId } = selection;
   switch (selection.type) {
     case "block-field":
-      return selection.fieldType === "String" ? `${blockId}__${selection.fieldName}` : null;
+      return selection.fieldType === "String" ? overlayFieldId(blockId, selection.fieldName) : null;
     case "item-field":
       return selection.fieldType === "String"
-        ? `${blockId}__${selection.itemId}__${selection.fieldName}`
+        ? overlayFieldId(blockId, selection.fieldName, { itemId: selection.itemId })
         : null;
     case "record-field":
       return selection.recordFieldType === "String"
-        ? `${blockId}__${selection.fieldName}__${selection.recordFieldName}`
+        ? overlayFieldId(blockId, selection.recordFieldName, {
+            referenceFieldName: selection.fieldName,
+          })
         : null;
     default:
       return null;

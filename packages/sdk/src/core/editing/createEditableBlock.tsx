@@ -18,20 +18,22 @@ import {
 } from "@/lib/queries";
 
 import { useFrame } from "../../features/preview/components/Frame";
+import { overlayFieldId } from "../../features/preview/overlayMessages";
 import {
   usePreviewSelection,
   usePreviewTargetSelection,
   type SelectionEvent,
 } from "../../features/preview/previewSelection";
-import { previewStore, selectIsCommentMode } from "../../features/preview/previewStore";
+import {
+  previewStore,
+  selectIsCommentMode,
+  type RecordPlacement,
+} from "../../features/preview/previewStore";
 import { referencePickerFocus } from "../../features/preview/referencePickerFocus";
+import { useOptionalCamoxApp } from "../../features/provider/components/CamoxAppContext";
 import { useNormalizedData, isItemMarker, resolveAssetValue } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
-import {
-  useFieldSelection,
-  useRecordSelection,
-  type RecordPlacement,
-} from "../hooks/useFieldSelection.ts";
+import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
 import { useOverlayState } from "../hooks/useOverlayState";
@@ -478,35 +480,34 @@ export function createEditableBlock<
 
   const Context = React.createContext<BlockContextValue | null>(null);
   const RepeatableItemContext = React.createContext<RepeatableItemContextValue | null>(null);
-  const ReferenceContext = React.createContext<{
-    occurrenceId: string;
+  type ReferenceContextValue = {
     placement: RecordPlacement;
     selectRecordField: (
       recordFieldName: string,
       recordFieldType: FieldType,
-      event?: React.MouseEvent<HTMLElement>,
+      event?: SelectionEvent,
     ) => void;
     update: (field: string, value: string) => void;
-  } | null>(null);
+  };
+  const ReferenceContext = React.createContext<ReferenceContextValue | null>(null);
 
   // Context to track if the parent repeater container is being hovered from sidebar
   const RepeaterHoverContext = React.createContext<string | null>(null);
 
   /**
-   * Build a field ID that matches the sidebar's `getFieldId` format.
-   * Root fields:          blockId__fieldName
-   * Repeatable item fields: blockId__itemId__fieldName
+   * The field ID shared with the sidebar (see `overlayFieldId`). Inside a placed record,
+   * the field is a record field of that placement.
    */
   const getOverlayFieldId = (
     blockId: number,
-    repeaterContext: RepeatableItemContextValue | null,
     fieldName: string,
-  ): string => {
-    if (repeaterContext?.itemId != null) {
-      return `${blockId}__${repeaterContext.itemId}__${fieldName}`;
-    }
-    return `${blockId}__${fieldName}`;
-  };
+    scope: { itemId?: number | null; reference?: ReferenceContextValue | null } = {},
+  ): string =>
+    scope.reference
+      ? overlayFieldId(blockId, fieldName, {
+          referenceFieldName: scope.reference.placement.fieldName,
+        })
+      : overlayFieldId(blockId, fieldName, { itemId: scope.itemId });
 
   // Only allow string fields - not objects, arrays, or embed URLs
   type StringFields = {
@@ -732,7 +733,14 @@ export function createEditableBlock<
   type FileRenderProps = {
     href: string;
     download: string;
-  };
+  } & EditableFileLinkProps;
+  /** Present only while a file is selectable in the editor; spread onto the file link with the rest. */
+  type EditableFileLinkProps = Partial<
+    Pick<
+      React.AnchorHTMLAttributes<HTMLAnchorElement>,
+      "onClick" | "onClickCapture" | "onMouseEnter" | "onMouseLeave"
+    >
+  > & { [attribute: `data-camox-${string}`]: string | boolean | undefined };
 
   type EmbedRenderProps = {
     src: string;
@@ -783,9 +791,10 @@ export function createEditableBlock<
 
     // Generate unique field ID for overlay tracking
     const reference = React.use(ReferenceContext);
-    const fieldId = reference
-      ? `${reference.occurrenceId}__${String(name)}`
-      : getOverlayFieldId(blockId, repeaterContext, String(name));
+    const fieldId = getOverlayFieldId(blockId, String(name), {
+      itemId: repeaterContext?.itemId,
+      reference,
+    });
 
     // Get field value based on context
     const fieldValue = (repeaterContext ? repeaterContext.itemContent[name] : content[name]) as
@@ -949,7 +958,7 @@ export function createEditableBlock<
     const editable = useIsEditable(block.mode);
     const fieldName = String(name);
     const value = (item ? item.itemContent[name] : block.content[name]) as string;
-    const fieldId = getOverlayFieldId(block.blockId, item, fieldName);
+    const fieldId = getOverlayFieldId(block.blockId, fieldName, { itemId: item?.itemId });
     const { window: iframeWindow } = useFrame();
     const [isHovered, setIsHovered] = React.useState(false);
     const isFocused = useFieldSelection(block.blockId, fieldName, "Icon", item?.itemId);
@@ -1019,15 +1028,25 @@ export function createEditableBlock<
       ? (repeaterContext.itemContent[name] as string)
       : (content[name] as string);
 
-    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
+    // Inside a placed record, the embed is a record field of that placement.
+    const reference = React.use(ReferenceContext);
+    const fieldId = getOverlayFieldId(blockId, String(name), {
+      itemId: repeaterContext?.itemId,
+      reference,
+    });
 
     const [isHovered, setIsHovered] = React.useState(false);
-    const overlayState = useOverlayState(isHovered);
+    const isRecordFieldSelected = useRecordSelection(reference?.placement ?? null, String(name));
+    const overlayState = useOverlayState(isHovered, reference != null && isRecordFieldSelected);
     const embedRef = React.useRef<HTMLDivElement>(null);
     const itemId = repeaterContext?.itemId;
     const selectField = React.useCallback(
       (event?: SelectionEvent) => {
         if (!isContentEditable) return;
+        if (reference) {
+          reference.selectRecordField(String(name), "Embed", event);
+          return;
+        }
         selectTarget(
           itemId != null
             ? { type: "item-field", blockId, itemId, fieldName: String(name), fieldType: "Embed" }
@@ -1035,7 +1054,7 @@ export function createEditableBlock<
           event,
         );
       },
-      [isContentEditable, blockId, itemId, name, selectTarget],
+      [isContentEditable, reference, blockId, itemId, name, selectTarget],
     );
 
     React.useEffect(() => {
@@ -1083,7 +1102,7 @@ export function createEditableBlock<
         data-camox-field-id={isContentEditable ? fieldId : undefined}
         data-camox-field-type={isContentEditable ? "embed" : undefined}
         {...(isContentEditable ? overlayState : {})}
-        data-camox-overlay-mode={options.synced ? "synced" : undefined}
+        data-camox-overlay-mode={assetOverlayMode(reference)}
         onMouseEnter={isContentEditable ? () => setIsHovered(true) : undefined}
         onMouseLeave={isContentEditable ? () => setIsHovered(false) : undefined}
       >
@@ -1129,7 +1148,7 @@ export function createEditableBlock<
     const currentPathname = useLocation({ select: (l) => l.pathname });
     const resolvedHref = resolveLinkHref(fieldValue, pages as Page[] | undefined, currentPathname);
 
-    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
+    const fieldId = getOverlayFieldId(blockId, String(name), { itemId: repeaterContext?.itemId });
 
     const [isEditing, setIsEditing] = React.useState(false);
     const [displayText, setDisplayText] = React.useState(fieldValue.text);
@@ -1262,17 +1281,7 @@ export function createEditableBlock<
     return <>{children(linkProps, linkData)}</>;
   };
 
-  /** Overlay ID of an asset field; record fields are scoped to their placement. */
-  const assetFieldId = (
-    blockId: number,
-    reference: React.ContextType<typeof ReferenceContext>,
-    fieldName: string,
-    itemId: number | undefined,
-  ) => {
-    if (reference) return `${reference.occurrenceId}__${fieldName}`;
-    return itemId != null ? `${blockId}__${itemId}__${fieldName}` : `${blockId}__${fieldName}`;
-  };
-  const assetOverlayMode = (reference: React.ContextType<typeof ReferenceContext>) => {
+  const assetOverlayMode = (reference: ReferenceContextValue | null) => {
     if (reference) return "reference";
     return options.synced ? "synced" : undefined;
   };
@@ -1314,7 +1323,10 @@ export function createEditableBlock<
 
     // Inside a placed record, the image is a record field of that placement.
     const reference = React.use(ReferenceContext);
-    const fieldId = assetFieldId(blockId, reference, overlayFieldName, overlayItemId);
+    const fieldId = getOverlayFieldId(blockId, overlayFieldName, {
+      itemId: overlayItemId,
+      reference,
+    });
 
     const [isHovered, setIsHovered] = React.useState(false);
 
@@ -1429,7 +1441,7 @@ export function createEditableBlock<
     // Only record files are selectable: they have no other way into their record field view.
     const isInlineArrayItem = repeaterContext != null && repeaterContext.itemId == null;
     const overlayFieldName = isInlineArrayItem ? repeaterContext.arrayFieldName : String(name);
-    const fieldId = assetFieldId(blockId, reference, overlayFieldName, undefined);
+    const fieldId = getOverlayFieldId(blockId, overlayFieldName, { reference });
     const selectable = reference != null && isContentEditable;
     const [isHovered, setIsHovered] = React.useState(false);
     const isFocused = useRecordSelection(reference?.placement ?? null, overlayFieldName);
@@ -1446,33 +1458,28 @@ export function createEditableBlock<
       setIsHovered(isHoveredFromSidebar);
     }, [isHoveredFromSidebar]);
 
-    const renderedFile = children(
-      { href: fieldValue.url, download: fieldValue.filename } satisfies FileRenderProps,
-      fieldValue,
-    );
-    if (!selectable) return <>{renderedFile}</>;
-
-    return (
-      <div
-        data-camox-field-id={fieldId}
-        data-camox-field-type="file"
-        {...overlayState}
-        data-camox-overlay-mode={assetOverlayMode(reference)}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        onClickCapture={(event) =>
-          reference.selectRecordField(
-            overlayFieldName,
-            isInlineArrayItem ? "FileList" : "File",
-            event,
-          )
+    const linkProps: FileRenderProps = { href: fieldValue.url, download: fieldValue.filename };
+    // The selectable file is the site's own link: no wrapper element changes its layout.
+    const editableLinkProps: EditableFileLinkProps | null = selectable
+      ? {
+          "data-camox-field-id": fieldId,
+          "data-camox-field-type": "file",
+          ...overlayState,
+          "data-camox-overlay-mode": assetOverlayMode(reference),
+          onMouseEnter: () => setIsHovered(true),
+          onMouseLeave: () => setIsHovered(false),
+          onClickCapture: (event) =>
+            reference.selectRecordField(
+              overlayFieldName,
+              isInlineArrayItem ? "FileList" : "File",
+              event,
+            ),
+          // Selecting a file in the editor must not follow its download link.
+          onClick: (event) => event.preventDefault(),
         }
-        // Selecting a file in the editor must not follow its download link.
-        onClick={(event) => event.preventDefault()}
-      >
-        {renderedFile}
-      </div>
-    );
+      : null;
+
+    return <>{children({ ...linkProps, ...editableLinkProps }, fieldValue)}</>;
   };
 
   // Sentinel key used by ImageList/FileList to surface the iterated asset value to
@@ -2090,32 +2097,23 @@ export function createEditableBlock<
     return ctx.settings[name];
   };
 
-  // Record assets select their record field (edited in the sidebar record field view);
-  // they never expose a block-field mutation or picker. Embeds stay view-only.
+  // Record assets and embeds select their record field (edited in the sidebar record field
+  // view); they never expose a block-field mutation or picker.
   const ReferencePrimitive = ({
     primitive: Primitive,
-    viewOnly = false,
     ...props
   }: {
     primitive: React.ComponentType<any>;
-    viewOnly?: boolean;
     name: string;
     children: any;
   }) => {
     const block = React.use(Context)!;
     if ((block.content as Record<string, unknown>)[props.name] == null) return null;
-    if (!viewOnly) return <Primitive {...props} />;
-    return (
-      <Context.Provider value={{ ...block, mode: "peek" }}>
-        <Primitive {...props} />
-      </Context.Provider>
-    );
+    return <Primitive {...props} />;
   };
   const ReferenceImage = (props: any) => <ReferencePrimitive primitive={Image} {...props} />;
   const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
-  const ReferenceEmbed = (props: any) => (
-    <ReferencePrimitive primitive={Embed} viewOnly {...props} />
-  );
+  const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
   const ReferenceImageList = (props: any) => (
     <ReferencePrimitive primitive={ImageList} {...props} />
   );
@@ -2130,6 +2128,7 @@ export function createEditableBlock<
   }): React.ReactNode => {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
+    const camoxApp = useOptionalCamoxApp();
     const selectTarget = usePreviewSelection();
     const projectSlug = useProjectSlug();
     const queryClient = useQueryClient();
@@ -2140,6 +2139,10 @@ export function createEditableBlock<
     const editable = useIsEditable(block.mode);
     const fieldName = String(name);
     const schema = typeboxSchema.properties[fieldName];
+    const collectionTitle =
+      camoxApp?.getCollectionById(schema.collectionId)?._internal.title ??
+      schema.title ??
+      fieldName;
     const record = resolveReference(
       (block.content as Record<string, unknown>)[fieldName],
       schema.collectionId,
@@ -2180,7 +2183,7 @@ export function createEditableBlock<
     const selectRecordField = (
       recordFieldName: string,
       recordFieldType: FieldType,
-      event?: React.MouseEvent<HTMLElement>,
+      event?: SelectionEvent,
     ) => {
       if (!editable || !placement) return;
       selectTarget({ type: "record-field", ...placement, recordFieldName, recordFieldType }, event);
@@ -2206,7 +2209,7 @@ export function createEditableBlock<
     if (!record && !editable) return null;
     const rendered =
       record && placement ? (
-        <ReferenceContext.Provider value={{ occurrenceId, placement, selectRecordField, update }}>
+        <ReferenceContext.Provider value={{ placement, selectRecordField, update }}>
           <RepeatableItemContext.Provider value={null}>
             <Context.Provider
               value={{
@@ -2240,7 +2243,7 @@ export function createEditableBlock<
             referencePickerFocus.send({ type: "request", fieldId: occurrenceId });
           }}
         >
-          Select {schema.title ?? fieldName}
+          Select {collectionTitle}
         </button>
       );
     if (!editable) return rendered;

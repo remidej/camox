@@ -9,8 +9,10 @@ import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { previewStore, type Selection } from "../../features/preview/previewStore";
+import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
+import type { CamoxApp } from "../createApp";
 import { createCollection } from "../createCollection";
 import { Type } from "../lib/contentType";
 import type { ReferenceRecord } from "../lib/reference";
@@ -192,26 +194,30 @@ void test("an unset reference placeholder names the collection and selects the r
     id: "unset-reference",
     title: "",
     description: "",
-    content: { customer: Type.Reference(customers) },
+    // The field title is not the collection's: the placeholder names the collection.
+    content: { customer: Type.Reference(customers, { title: "Company" }) },
     toMarkdown: () => [],
     component: () => (
       <block.Reference name="customer">{(customer) => <h2>{customer.label}</h2>}</block.Reference>
     ),
   });
+  const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
-    <QueryClientProvider client={new QueryClient()}>
-      <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
-        <block._internal.Component
-          mode={mode}
-          blockData={{
-            _id: 3,
-            type: "unset-reference",
-            position: "a0",
-            content: { customer: null },
-          }}
-        />
-      </NormalizedDataProvider>
-    </QueryClientProvider>
+    <CamoxAppProvider app={app as unknown as CamoxApp}>
+      <QueryClientProvider client={new QueryClient()}>
+        <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
+          <block._internal.Component
+            mode={mode}
+            blockData={{
+              _id: 3,
+              type: "unset-reference",
+              position: "a0",
+              content: { customer: null },
+            }}
+          />
+        </NormalizedDataProvider>
+      </QueryClientProvider>
+    </CamoxAppProvider>
   );
 
   const live = renderToStaticMarkup(placement("peek"));
@@ -502,16 +508,113 @@ void test("record images and files select their record field for that placement 
     assert.ok(focused(field(1, "gallery")));
     assert.ok(!focused(field(2, "gallery")));
 
-    const brochure = inField(1, "brochure", "a");
-    assert.ok(brochure, "the record file renders inside its own field");
+    const brochure = field(1, "brochure");
+    assert.equal(brochure?.tagName, "A", "the site's file link itself is the field, unwrapped");
+    assert.equal(brochure.parentElement?.tagName, "SECTION");
     const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
     await act(async () => brochure.dispatchEvent(click as unknown as Event));
     assert.ok(click.defaultPrevented, "selecting a file does not download it");
     assert.deepEqual(selections.at(-1), recordField(1, "brochure", "File"));
 
-    await act(async () => inField(2, "attachments", "a")!.click());
+    assert.ok(focused(brochure));
+    assert.ok(!focused(field(2, "brochure")));
+
+    await act(async () => field(2, "attachments")!.click());
     assert.deepEqual(selections.at(-1), recordField(2, "attachments", "FileList"));
     assert.equal(requests.length, writesBefore, "selecting record assets never writes");
+  } finally {
+    await act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    await window.happyDOM.close();
+  }
+});
+
+void test("record embeds select their record field for that placement only", async () => {
+  const embed = { pattern: "^https://video\\.test/", default: "https://video.test/intro" };
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: { name: Type.String({ default: "" }), video: Type.Embed(embed) },
+  });
+  const record: ReferenceRecord = {
+    id: "acme",
+    collectionId: "customers",
+    label: "Acme",
+    content: { name: "Acme Inc.", video: "https://video.test/acme" },
+    version: 1,
+  };
+  const block = createEditableBlock({
+    id: "record-embed",
+    title: "",
+    description: "",
+    content: { video: Type.Embed(embed), customer: Type.Reference(customers) },
+    toMarkdown: () => [],
+    component: () => (
+      <block.Reference name="customer">
+        {(customer) => (
+          <section>
+            <customer.Embed name="video">{(props) => <span>{props.src}</span>}</customer.Embed>
+          </section>
+        )}
+      </block.Reference>
+    ),
+  });
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: owner.pageId });
+  const video = (blockId: number) =>
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__video"]`);
+  const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <PreviewEditingOwnerContext value={owner}>
+            <NormalizedDataProvider
+              files={[]}
+              repeatableItems={[]}
+              blocks={[{ references: { customer: record } }]}
+            >
+              {[1, 2].map((blockId) => (
+                <block._internal.Component
+                  key={blockId}
+                  mode="site"
+                  blockData={{
+                    _id: blockId,
+                    type: "record-embed",
+                    position: `a${blockId}`,
+                    content: { video: "https://video.test/block" as never, customer: "acme" },
+                  }}
+                />
+              ))}
+            </NormalizedDataProvider>
+          </PreviewEditingOwnerContext>
+        </QueryClientProvider>,
+      ),
+    );
+
+    const player = video(2)?.querySelector("span");
+    assert.equal(player?.textContent, "https://video.test/acme");
+    await act(async () => player!.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record-field",
+      blockId: 2,
+      fieldName: "customer",
+      recordId: "acme",
+      recordFieldName: "video",
+      recordFieldType: "Embed",
+    });
+    assert.ok(focused(video(2)), "the clicked placement's record embed is selected");
+    assert.ok(!focused(video(1)), "another placement of the same record is not");
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });

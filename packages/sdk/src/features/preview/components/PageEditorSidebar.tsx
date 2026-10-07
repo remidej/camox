@@ -10,17 +10,10 @@ import { CirclePlus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
-import { fieldTypesDictionary, type FieldType } from "@/core/lib/fieldTypes";
+import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
 import { editorAssetField } from "@/features/content/collection-form";
-import { useProjectSlug } from "@/lib/auth";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
-import {
-  blockMutations,
-  blockQueries,
-  collectionQueries,
-  fileQueries,
-  repeatableItemMutations,
-} from "@/lib/queries";
+import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
@@ -37,13 +30,15 @@ import {
 } from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
 import { AttachedComments } from "./AttachedComments";
-import { type FieldWriteTarget, useFieldWriter } from "./fieldWriteTarget";
+import { contentFieldSchema } from "./contentFieldSchema";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
 import { MultipleAssetFieldEditor } from "./MultipleAssetFieldEditor";
 import { PageStatusBadge } from "./PageStatusBadge";
 import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
+import { type FieldWriteTarget, useFieldWriter } from "./useFieldWriter";
+import { useRecordView, type SelectionCrumb } from "./useRecordView";
 import { type RepeatableArraySchema, useRepeatableItemActions } from "./useRepeatableItemActions";
 
 /* -------------------------------------------------------------------------------------------------
@@ -153,7 +148,6 @@ const PageEditorSidebar = () => {
 const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const pageId = owner.kind === "page" ? owner.pageId : undefined;
   const camoxApp = useCamoxApp();
-  const projectSlug = useProjectSlug();
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
   const requireDraft = useRequireDraftSource();
@@ -215,52 +209,11 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const blockDef = block ? camoxApp.getBlockById(block.type) : null;
 
   // A placed collection record is edited only while the reference still links it.
-  const recordSelection =
-    selection?.type === "record" || selection?.type === "record-field" ? selection : null;
-  const referenceFieldName = recordSelection?.fieldName;
-  const referenceCollectionId = referenceFieldName
-    ? ((blockDef?._internal.contentSchema as any)?.properties?.[referenceFieldName]
-        ?.collectionId as string | undefined)
-    : undefined;
-  const recordCollection = referenceCollectionId
-    ? camoxApp.getCollectionById(referenceCollectionId)
-    : undefined;
-  const placedRecord = referenceFieldName ? block?.references?.[referenceFieldName] : undefined;
-  const isStaleRecordSelection =
-    recordSelection != null &&
-    block != null &&
-    ((block.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName] !==
-      recordSelection.recordId ||
-      placedRecord?.id !== recordSelection.recordId);
-  const recordView =
-    recordSelection && !isStaleRecordSelection && placedRecord && recordCollection
-      ? { selection: recordSelection, record: placedRecord, collection: recordCollection }
-      : null;
-  const recordBlockId = recordSelection?.blockId;
-  const referenceFieldSelection = React.useMemo<Selection | null>(
-    () =>
-      recordBlockId != null && referenceFieldName
-        ? {
-            type: "block-field",
-            blockId: recordBlockId,
-            fieldName: referenceFieldName,
-            fieldType: "Reference",
-          }
-        : null,
-    [recordBlockId, referenceFieldName],
-  );
-  // An unlinked or replaced record falls back to the reference field view.
-  const viewSelection = isStaleRecordSelection ? referenceFieldSelection : selection;
-  React.useEffect(() => {
-    if (!isStaleRecordSelection || !referenceFieldSelection) return;
-    previewStore.send({ type: "selectTarget", ...owner, selection: referenceFieldSelection });
-  }, [isStaleRecordSelection, referenceFieldSelection, owner]);
-
-  const placedRecordId = recordView?.record.id;
-  const { data: recordStatus } = useQuery({
-    ...collectionQueries.records(projectSlug, referenceCollectionId ?? ""),
-    enabled: placedRecordId != null,
-    select: (records) => records.find((record) => record.id === placedRecordId)?.status,
+  const { recordView, viewSelection, recordCrumbs } = useRecordView({
+    owner,
+    selection,
+    block,
+    contentSchema: blockDef?._internal.contentSchema,
   });
 
   const selectedField =
@@ -329,11 +282,10 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const currentData = React.useMemo(() => {
     // Record assets are already resolved snapshots, not block file markers.
     if (recordContent) {
-      const properties = (recordSchema as any)?.properties ?? {};
       return Object.fromEntries(
         Object.entries(recordContent).map(([key, value]) => [
           key,
-          editorAssetField(properties[key]?.fieldType, value),
+          editorAssetField(contentFieldSchema(recordSchema, key)?.fieldType, value),
         ]),
       );
     }
@@ -376,9 +328,8 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     ? {
         ...selectedField,
         fieldType:
-          ((currentSchema as any)?.properties?.[selectedField.fieldName]?.fieldType as
-            | FieldType
-            | undefined) ?? selectedField.fieldType,
+          contentFieldSchema(currentSchema, selectedField.fieldName)?.fieldType ??
+          selectedField.fieldType,
       }
     : null;
   const isViewingLink = fieldInfo?.fieldType === "Link";
@@ -396,13 +347,13 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   const isMultipleAsset = React.useMemo(() => {
     if (!isViewingAsset || !assetFieldName) return false;
-    const prop = (currentSchema as any)?.properties?.[assetFieldName];
+    const prop = contentFieldSchema(currentSchema, assetFieldName);
     return prop?.fieldType === "ImageList" || prop?.fieldType === "FileList";
   }, [isViewingAsset, assetFieldName, currentSchema]);
   // Record asset views match the collection form, which restricts uploads to the field's accept list.
   const assetProperty =
-    recordView && assetFieldName ? (currentSchema as any)?.properties?.[assetFieldName] : undefined;
-  const assetAccept: string[] | undefined = assetProperty?.items?.accept ?? assetProperty?.accept;
+    recordView && assetFieldName ? contentFieldSchema(currentSchema, assetFieldName) : undefined;
+  const assetAccept = assetProperty?.items?.accept ?? assetProperty?.accept;
 
   // Scope field DOM ids with useId so label-input pairs and imperative focus
   // lookups don't collide if this sheet is ever rendered more than once.
@@ -433,14 +384,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   }
 
   const fieldHasOwnView = fieldInfo ? fieldTypesDictionary[fieldInfo.fieldType].hasOwnView : false;
-  const navigationItems: {
-    key: string;
-    label: string;
-    isCurrent: boolean;
-    onClick?: () => void;
-    hoverTarget?: Selection | null;
-    className?: string;
-  }[] = [
+  const navigationItems: SelectionCrumb[] = [
     {
       key: "page",
       hoverTarget: null,
@@ -506,53 +450,13 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
           }),
       },
     ]),
-    ...(recordView
-      ? [
-          {
-            key: "reference-field",
-            label:
-              (blockDef._internal.contentSchema as any)?.properties?.[
-                recordView.selection.fieldName
-              ]?.title ?? formatFieldName(recordView.selection.fieldName),
-            isCurrent: false,
-            hoverTarget: referenceFieldSelection,
-            onClick: () =>
-              previewStore.send({
-                type: "selectTarget",
-                ...owner,
-                selection: referenceFieldSelection,
-              }),
-          },
-          {
-            key: "record",
-            label: recordView.record.label,
-            isCurrent: !fieldHasOwnView,
-            className: "text-purple-700 dark:text-purple-400",
-            hoverTarget: {
-              type: "record" as const,
-              blockId: block.id,
-              fieldName: recordView.selection.fieldName,
-              recordId: recordView.record.id,
-            },
-            onClick: fieldHasOwnView
-              ? () =>
-                  previewStore.send({
-                    type: "selectRecord",
-                    ...owner,
-                    blockId: block.id,
-                    fieldName: recordView.selection.fieldName,
-                    recordId: recordView.record.id,
-                  })
-              : undefined,
-          },
-        ]
-      : []),
+    ...recordCrumbs(fieldHasOwnView),
     ...(fieldHasOwnView && fieldInfo
       ? [
           {
             key: `field-${fieldInfo.fieldName}`,
             label:
-              (currentSchema as any)?.properties?.[fieldInfo.fieldName]?.title ??
+              contentFieldSchema(currentSchema, fieldInfo.fieldName)?.title ??
               formatFieldName(fieldInfo.fieldName),
             isCurrent: true,
             onClick: undefined,
@@ -704,7 +608,9 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                       <p className="text-sm font-medium text-purple-700 dark:text-purple-400">
                         Shared · {recordView.collection._internal.title}
                       </p>
-                      {recordStatus && <PageStatusBadge status={recordStatus} size="sm" />}
+                      {recordView.status && (
+                        <PageStatusBadge status={recordView.status} size="sm" />
+                      )}
                     </div>
                     <p className="text-muted-foreground text-xs">
                       Edits apply everywhere this record is used.
@@ -871,6 +777,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   currentData={currentData}
                   onFieldChange={writeField}
                   resolveLocally={recordView != null}
+                  offerDelete={recordView == null}
                   accept={assetAccept}
                 />
               )}
@@ -881,6 +788,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   currentData={currentData}
                   onFieldChange={writeField}
                   resolveLocally={recordView != null}
+                  offerDelete={recordView == null}
                   accept={assetAccept}
                 />
               )}
@@ -919,6 +827,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   placement={
                     recordView
                       ? {
+                          blockId: block.id,
                           fieldName: recordView.selection.fieldName,
                           recordId: recordView.record.id,
                         }

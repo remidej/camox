@@ -110,7 +110,7 @@ const acme = {
 async function renderSidebar(
   t: TestContext,
   selection: Selection,
-  options: { company?: string | null } = {},
+  options: { company?: string | null; fileUsage?: number } = {},
 ) {
   const window = new Window({ url: "http://localhost/" });
   Object.assign(globalThis, {
@@ -213,9 +213,11 @@ async function renderSidebar(
   } as never);
   client.setQueryData(fileQueries.get(FILE_ID).queryKey, file as never);
   client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: 1 } as never);
-  // Every file is used elsewhere, so unlinking never offers to delete it.
+  // By default every file is used elsewhere, so unlinking never offers to delete it.
   for (const id of [FILE_ID, 8, 9]) {
-    client.setQueryData(fileQueries.getUsageCount(id).queryKey, { count: 3 } as never);
+    client.setQueryData(fileQueries.getUsageCount(id).queryKey, {
+      count: options.fileUsage ?? 3,
+    } as never);
   }
   const records = [{ id: ACME, label: "Acme", status: "published", version: 3 }];
   client.setQueryData(collectionQueries.records("site", "customers").queryKey, records as never);
@@ -306,6 +308,8 @@ async function renderSidebar(
     crumbs,
     modalOpened: () => modal.target != null,
     selection: () => previewStore.getSnapshot().context.editingContext?.selection ?? null,
+    /** Whether a button with this accessible name is on screen (dialogs included). */
+    hasButton: (name: string) => button(name) != null,
     text: () => host.textContent ?? "",
     /** Clicks a button by accessible name and lets the selection re-render. */
     async click(name: string) {
@@ -608,4 +612,36 @@ void test("record asset edits are not sent while viewing the live site", async (
   await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
   await sidebar.unlinkAsset();
   assert.deepEqual(sidebar.writes, []);
+});
+
+void test("unlinking a block asset used nowhere else offers to delete the file", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "block-field", blockId: BLOCK_ID, fieldName: "logo", fieldType: "Image" },
+    { fileUsage: 1 },
+  );
+  await sidebar.unlinkAsset();
+  assert.ok(sidebar.hasButton("Delete file"), "the unlink dialog offers to delete the file");
+  assert.deepEqual(sidebar.writes, []);
+});
+
+// File usage counts ignore records, so a record's file would always look unused.
+void test("unlinking a record image never offers to delete the file", async (t) => {
+  const sidebar = await renderSidebar(t, recordField("logo", "Image"), { fileUsage: 0 });
+  await sidebar.unlinkAsset();
+  assert.ok(!sidebar.hasButton("Delete file"));
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input.content]),
+    [["collectionDefinitions/editRecord", { ...acmeContent, logo: null }]],
+  );
+});
+
+void test("unlinking a record image list entry never offers to delete the file", async (t) => {
+  const sidebar = await renderSidebar(t, recordField("gallery", "ImageList"), { fileUsage: 0 });
+  await sidebar.unlinkAsset();
+  assert.ok(!sidebar.hasButton("Delete file"));
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input.content]),
+    [["collectionDefinitions/editRecord", { ...acmeContent, gallery: [] }]],
+  );
 });

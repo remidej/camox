@@ -15,6 +15,8 @@ import {
   repeatableItemMutations,
 } from "@/lib/queries";
 
+import { contentFieldSchema } from "./contentFieldSchema";
+
 /**
  * Where the page editor sidebar saves field edits: the content that owns the
  * fields currently shown (a block, a repeater item inside it, or the
@@ -28,8 +30,8 @@ export type FieldWriteTarget =
 /** Saves one field of the write target. Awaitable for reference fields only. */
 export type FieldWriter = (fieldName: string, value: unknown) => void | Promise<void>;
 
-const fieldTypeOf = (schema: unknown, fieldName: string): unknown =>
-  (schema as any)?.properties?.[fieldName]?.fieldType;
+const fieldTypeOf = (schema: unknown, fieldName: string) =>
+  contentFieldSchema(schema, fieldName)?.fieldType;
 
 /**
  * Returns the single field-change handler shared by every sidebar field editor

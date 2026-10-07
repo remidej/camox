@@ -14,6 +14,11 @@ export const CamoxAppProvider = ({
   return <CamoxAppContext.Provider value={app}>{children}</CamoxAppContext.Provider>;
 };
 
+/** The app, when rendered under a provider (published sites may render blocks without one). */
+export function useOptionalCamoxApp() {
+  return React.use(CamoxAppContext);
+}
+
 export function useCamoxApp() {
   const context = React.use(CamoxAppContext);
 
