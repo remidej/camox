@@ -18,6 +18,9 @@ import type { ToolDefinition, ToolProvider } from "../types";
 
 const positionAliasSchema = z.enum(["first", "last"]).optional();
 
+const REFERENCE_VALUES =
+  "Reference fields store one collection item id (or null). Reference list fields store an ordered array of distinct item ids from the field's collection, at most its maxItems; the array replaces the whole list. Find ids with listCollectionRecords.";
+
 const createBlockToolInput = createBlockInput.omit({ repeatableItems: true }).extend({
   afterId: z.number().optional(),
   beforeId: z.number().optional(),
@@ -86,6 +89,8 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description:
       "Create a block on a page. `type` must be one of the block-definition ids returned by listBlockTypes. " +
       "`content` and `settings` are validated server-side against that block type's JSON Schema; on a validation failure you'll receive a structured error to retry from. " +
+      REFERENCE_VALUES +
+      " " +
       "Positioning (pass at most one): `position: 'first' | 'last'`, `afterId: <block id>`, `beforeId: <block id>`, or the lower-level `afterPosition` / `beforePosition` (fractional-index strings). Omit all to append at the end.",
     inputSchema: createBlockToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
@@ -122,7 +127,8 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description:
       "Update a block's `content` and/or `settings`. Provide at least one. Both are merged into the existing values, so partial patches are fine. " +
       "Submitted fields are validated against the owning environment's JSON Schemas before writes; errors include field paths. " +
-      "Repeater arrays replace the field and must satisfy its minItems/maxItems; preserve existing items with _itemId.",
+      "Repeater arrays replace the field and must satisfy its minItems/maxItems; preserve existing items with _itemId. " +
+      REFERENCE_VALUES,
     inputSchema: editBlockToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => runService(editBlock(ctx, editBlockToolInput.parse(input))),

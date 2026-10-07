@@ -18,7 +18,12 @@ import type { ServiceContext } from "../_shared/service-context";
 import { buildLayoutSnapshotFromDraft } from "../layouts/service";
 import { buildPageSnapshotFromDraft } from "../pages/service";
 import { collectionSelection, referenceTargetsInput } from "./reference-publication-input";
-import { referenceFields, resolveReferences } from "./references";
+import {
+  referenceFields,
+  referenceListFields,
+  resolveReferences,
+  type ResolvedReference,
+} from "./references";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
 import { validateContent } from "./validation";
 export { referenceTargetsInput } from "./reference-publication-input";
@@ -81,6 +86,27 @@ const plan = Effect.fn("collections.plan")(function* (
   );
   const targets = new Map<string, Target>();
   const missingRequired: string[] = [];
+  // Each record is one target however many placements link it; required wins.
+  const addTarget = (
+    record: ResolvedReference,
+    live: ResolvedReference | undefined,
+    required: boolean,
+  ) => {
+    const previous = targets.get(record.id);
+    targets.set(record.id, {
+      id: record.id,
+      collectionId: record.collectionId,
+      label: record.label,
+      expectedVersion: record.version!,
+      required: previous?.required === true || required,
+      hasPublishedRevision: !!live,
+      status: !live
+        ? "draft"
+        : stableStringify(record.content) === stableStringify(live.content)
+          ? "published"
+          : "modified",
+    });
+  };
   for (const block of scope.blocks) {
     const schema = definitions.find(
       (definition) => definition.blockId === block.type,
@@ -88,25 +114,27 @@ const plan = Effect.fn("collections.plan")(function* (
     const draft = yield* resolveReferences(ctx, scope.owner, schema, block.content, "draft");
     const live = yield* resolveReferences(ctx, scope.owner, schema, block.content, "live");
     for (const [field, reference] of referenceFields(schema)) {
-      const record = draft[field];
+      const record = draft[field] as ResolvedReference | null;
       if (!record) {
         if (reference.required === true) missingRequired.push(`${block.id}.${field}`);
         continue;
       }
-      const previous = targets.get(record.id);
-      targets.set(record.id, {
-        id: record.id,
-        collectionId: record.collectionId,
-        label: record.label,
-        expectedVersion: record.version!,
-        required: previous?.required === true || reference.required === true,
-        hasPublishedRevision: !!live[field],
-        status: !live[field]
-          ? "draft"
-          : stableStringify(record.content) === stableStringify(live[field]!.content)
-            ? "published"
-            : "modified",
-      });
+      addTarget(
+        record,
+        (live[field] as ResolvedReference | null) ?? undefined,
+        reference.required === true,
+      );
+    }
+    // List entries are never required: unpublished ones are skipped live.
+    for (const [field] of referenceListFields(schema)) {
+      const published = live[field] as ResolvedReference[];
+      for (const record of draft[field] as ResolvedReference[]) {
+        addTarget(
+          record,
+          published.find((candidate) => candidate.id === record.id),
+          false,
+        );
+      }
     }
   }
   return { targets: [...targets.values()], missingRequired };

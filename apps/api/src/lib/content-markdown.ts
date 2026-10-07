@@ -1,4 +1,4 @@
-import type { ResolvedReference } from "../domains/collections/references";
+import type { ResolvedReferences } from "../domains/collections/references";
 import { transformImageUrl } from "./image-transform";
 import { lexicalStateToPlainText } from "./lexical-state";
 
@@ -8,7 +8,7 @@ type SettingsContext = {
   settings?: Record<string, unknown> | null;
   itemSettings?: Record<string, unknown> | null;
   files?: Map<number, ResolvedFile> | null;
-  references?: Record<string, ResolvedReference | null>;
+  references?: ResolvedReferences;
 };
 
 export function contentToMarkdown(
@@ -83,7 +83,7 @@ function resolveLine(
     if (!field) return resolveField(schemaProperties[root], content[root], ctx);
     if (nested.length) return undefined;
     const reference = ctx.references?.[root];
-    if (!reference) return undefined;
+    if (!reference || Array.isArray(reference)) return undefined;
     const properties = (reference.contentSchema as { properties?: Record<string, unknown> })
       ?.properties;
     return resolveField(properties?.[field], reference.content[field], ctx);
