@@ -113,6 +113,7 @@ async function renderReference(
     contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
   });
   const changes: (string | null)[] = [];
+  const opened: string[] = [];
   const control = { reject: false };
   let modal!: ReturnType<typeof useCollectionItemModal>;
   function Editor() {
@@ -124,6 +125,7 @@ async function renderReference(
         required={options.required}
         record={options.record ?? null}
         value={value}
+        onOpenRecord={(id) => opened.push(id)}
         onChange={(id) => {
           if (control.reject) return Promise.reject(new Error("Link failed"));
           changes.push(id);
@@ -201,6 +203,7 @@ async function renderReference(
     host,
     client,
     changes,
+    opened,
     control,
     get modal() {
       return modal;
@@ -232,7 +235,8 @@ void test("a linked record shows a card with its thumbnail, label, publication b
     assert.match(thumbnail.getAttribute("src") ?? "", /ada-logo\.png/);
     assert.ok(!view.host.querySelector('[role="combobox"]'), "no picker while linked");
     await view.click("Open Ada");
-    assert.equal(view.modal.target?.itemId, ADA, "the card still opens the edit modal");
+    assert.deepEqual(view.opened, [ADA], "the card opens the record view");
+    assert.ok(!view.modal.target, "not the edit modal");
     assert.deepEqual(view.changes, []);
   } finally {
     await view.cleanup();

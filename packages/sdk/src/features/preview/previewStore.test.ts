@@ -666,3 +666,52 @@ void test("preview modes have only valid edit/source combinations across every t
     }
   }
 });
+
+void test("record field selections are owner-scoped and step up through the record and reference field", async () => {
+  const { previewStore: store, selectionForOwner } = await import("./previewStore");
+  let snapshot = store.getInitialSnapshot();
+  [snapshot] = store.transition(snapshot, {
+    type: "selectRecordField",
+    kind: "layout",
+    layoutId: 5,
+    blockId: 7,
+    fieldName: "company",
+    recordId: "acme",
+    recordFieldName: "quote",
+    recordFieldType: "String",
+  });
+  assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: 5 }), null);
+  assert.deepEqual(selectionForOwner(snapshot.context, { kind: "layout", layoutId: 5 }), {
+    type: "record-field",
+    blockId: 7,
+    fieldName: "company",
+    recordId: "acme",
+    recordFieldName: "quote",
+    recordFieldType: "String",
+  });
+  const path: Array<Selection | null | undefined> = [];
+  for (let step = 0; step < 3; step++) {
+    [snapshot] = store.transition(snapshot, { type: "selectParent" });
+    path.push(snapshot.context.editingContext?.selection);
+  }
+  assert.deepEqual(path, [
+    { type: "record", blockId: 7, fieldName: "company", recordId: "acme" },
+    { type: "block-field", blockId: 7, fieldName: "company", fieldType: "Reference" },
+    { type: "block", blockId: 7 },
+  ]);
+  assert.equal(snapshot.context.editingContext?.kind, "layout");
+
+  [snapshot] = store.transition(snapshot, {
+    type: "selectRecord",
+    kind: "page",
+    pageId: 3,
+    blockId: 8,
+    fieldName: "company",
+    recordId: "globex",
+  });
+  assert.deepEqual(snapshot.context.editingContext, {
+    kind: "page",
+    pageId: 3,
+    selection: { type: "record", blockId: 8, fieldName: "company", recordId: "globex" },
+  });
+});

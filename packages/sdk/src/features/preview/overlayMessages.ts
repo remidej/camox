@@ -60,6 +60,14 @@ export function selectionHoverMessage(
       itemId: String(selection.itemId),
     };
   }
+  if (selection.type === "record") {
+    const fieldId = `${blockId}__${selection.fieldName}`;
+    return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
+  }
+  if (selection.type === "record-field") {
+    const fieldId = `${blockId}__${selection.fieldName}__${selection.recordFieldName}`;
+    return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
+  }
   if (selection.fieldType === "Repeater") {
     return {
       type: hovered ? "CAMOX_HOVER_REPEATER" : "CAMOX_HOVER_REPEATER_END",
