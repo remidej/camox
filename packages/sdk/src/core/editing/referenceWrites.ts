@@ -9,7 +9,7 @@ type Write = (input: {
 }) => Promise<SavedRecord>;
 
 /**
- * One queue per source and client. Two occurrences editing a shared record must
+ * One queue per source and client. Two placements editing a shared record must
  * not race each other or replace fields from a stale full-content snapshot.
  * Only our own successful save advances the reviewed version while queued.
  */

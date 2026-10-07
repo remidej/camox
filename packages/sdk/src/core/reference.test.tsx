@@ -6,13 +6,14 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { NavigationProvider } from "../features/navigation/navigation";
+import { recordPlacementId } from "../features/preview/overlayMessages";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
 import { NormalizedDataProvider, type NormalizedFile } from "../lib/normalized-data";
 import { createBlock, Type } from "./createBlock";
 import { createCollection } from "./createCollection";
 import { ReferenceWrites } from "./editing/referenceWrites";
-import { referenceOccurrenceId, resolveReference, type ReferenceRecord } from "./lib/reference";
+import { resolveReference, type ReferenceRecord } from "./lib/reference";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("https://api.example.test");
@@ -267,16 +268,20 @@ void test("reference lists render each resolved record in stored order and nothi
   assert.match(render([id], [{ ...record, collectionId: "other" }]), /<ul><\/ul>/);
 });
 
-void test("occurrence identity is separate from source identity and resolution validates collection", () => {
-  assert.notEqual(referenceOccurrenceId(1, "customer"), referenceOccurrenceId(2, "customer"));
-  assert.notEqual(referenceOccurrenceId(1, "customer"), referenceOccurrenceId(1, "other"));
+void test("placement identity is separate from source identity and resolution validates collection", () => {
+  const placement = { blockId: 1, fieldName: "customer", recordId: id };
+  assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: 2 }));
+  assert.notEqual(
+    recordPlacementId(placement),
+    recordPlacementId({ ...placement, fieldName: "o" }),
+  );
   const records = new Map([[id, record]]);
   assert.equal(resolveReference(id, "customers", records), record);
   assert.equal(resolveReference(id, "other", records), null);
   assert.equal(resolveReference(null, "customers", records), null);
 });
 
-void test("two occurrences serialize shared source edits without clobbering another field", async () => {
+void test("two placements serialize shared source edits without clobbering another field", async () => {
   const writer = new ReferenceWrites();
   const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
   const save = async (input: (typeof requests)[number]) => {

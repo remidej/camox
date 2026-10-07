@@ -60,11 +60,6 @@ export type ReferenceListKeys<T extends Record<string, TSchema>> = {
 export type ReferenceContent<T extends TSchema> =
   T extends ReferenceSchema<infer C> ? C : T extends ReferenceListSchema<infer C> ? C : never;
 
-/** A source identity is never used as an occurrence identity. */
-export function referenceOccurrenceId(blockId: number, fieldName: string) {
-  return `${blockId}__${fieldName}`;
-}
-
 export type ReferenceRecord = {
   id: string;
   collectionId: string;
@@ -83,14 +78,19 @@ export function resolveReference(
   return record?.collectionId === collectionId ? record : null;
 }
 
+/** The record ids a reference list value links, in stored order; anything else links none. */
+export function referenceListIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === "string" && id !== "");
+}
+
 /** The records a reference list links, in stored order; unresolved ids are skipped. */
 export function resolveReferenceList(
   value: unknown,
   collectionId: string,
   records: ReadonlyMap<string, ReferenceRecord>,
 ): ReferenceRecord[] {
-  if (!Array.isArray(value)) return [];
-  return value
+  return referenceListIds(value)
     .map((id) => resolveReference(id, collectionId, records))
     .filter((record) => record !== null);
 }

@@ -84,7 +84,7 @@ const { createEditableBlock } = await import("./createEditableBlock");
 const { PreviewEditingOwnerContext } = await import("../../features/preview/previewSelection");
 const { referencePickerFocus } = await import("../../features/preview/referencePickerFocus");
 
-void test("editable reference occurrences write one source and retain placement selection and purple identity", async () => {
+void test("editable reference placements write one source and retain placement selection and purple identity", async () => {
   const customers = createCollection({
     id: "customers",
     title: "Customers",
@@ -748,6 +748,17 @@ void test("an empty reference list shows an add placeholder in edit mode that fo
     const placeholder = host.querySelector<HTMLElement>("[data-camox-reference-placeholder]");
     assert.ok(placeholder, "editable empty lists render a placeholder");
     assert.equal(placeholder.textContent?.trim(), "Add Customers");
+    // Sidebar hover of the list's field row highlights the placeholder.
+    await act(async () => {
+      window.dispatchEvent(
+        new window.MessageEvent("message", {
+          data: { type: "CAMOX_HOVER_FIELD", fieldId: "5__logos" },
+        }),
+      );
+    });
+    assert.ok(
+      host.querySelector('[data-camox-field-id="5__logos"]')?.hasAttribute("data-camox-hovered"),
+    );
     await act(async () => placeholder.click());
     assert.deepEqual(selections.at(-1), {
       type: "block-field",
@@ -895,6 +906,14 @@ void test("clicks inside a listed record select its record field or the record f
     await hover("1__logos__acme__name");
     assert.ok(hovered(recordField(1, "acme")));
     assert.ok(!hovered(recordField(1, "beta")) && !hovered(recordField(2, "acme")));
+    await hover("1__logos__acme__name", false);
+
+    // Sidebar hover of the list's field row highlights every entry of that list only.
+    await hover("2__logos");
+    assert.ok(hovered(entry(2, "acme")) && hovered(entry(2, "beta")));
+    assert.ok(!hovered(entry(1, "acme")) && !hovered(entry(1, "beta")));
+    await hover("2__logos", false);
+    assert.ok(!hovered(entry(2, "acme")) && !hovered(entry(2, "beta")));
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });

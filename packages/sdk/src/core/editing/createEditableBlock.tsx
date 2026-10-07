@@ -61,7 +61,6 @@ import { markdownToReactNodes, type InlineTextStyles } from "../lib/lexicalReact
 import {
   resolveReference,
   resolveReferenceList,
-  referenceOccurrenceId,
   type ReferenceContent,
   type ReferenceKeys,
   type ReferenceListKeys,
@@ -2234,6 +2233,82 @@ export function createEditableBlock<
     </ReferenceContext.Provider>
   );
 
+  /** Names the collection a reference field links, for its placeholder. */
+  const useCollectionTitle = (fieldName: string) => {
+    const camoxApp = useOptionalCamoxApp();
+    const schema = typeboxSchema.properties[fieldName];
+    return (
+      camoxApp?.getCollectionById(schema.collectionId)?._internal.title ?? schema.title ?? fieldName
+    );
+  };
+
+  /**
+   * Shown in edit mode while a reference links nothing: selects the reference field and asks
+   * the sidebar to open its record picker.
+   */
+  const ReferencePlaceholder = ({
+    block,
+    fieldName,
+    fieldType,
+    children,
+    ...props
+  }: Omit<React.ComponentProps<"button">, "onClick" | "type"> & {
+    block: BlockContextValue;
+    fieldName: string;
+    fieldType: "Reference" | "ReferenceList";
+  }) => {
+    const selectTarget = usePreviewSelection();
+    return (
+      <button
+        type="button"
+        data-camox-reference-placeholder=""
+        className="camox-reference-placeholder"
+        {...props}
+        onClick={(event) => {
+          selectTarget(
+            { type: "block-field", blockId: block.blockId, fieldName, fieldType },
+            event,
+          );
+          // Commenting targets the field; only editing links records.
+          if (selectIsCommentMode(previewStore.getSnapshot())) return;
+          referencePickerFocus.send({
+            type: "request",
+            fieldId: overlayFieldId(block.blockId, fieldName),
+          });
+        }}
+      >
+        {children}
+      </button>
+    );
+  };
+
+  /** The edit-mode wrapper of a placed record: its overlay target, and its inline write error. */
+  const PlacedRecordWrapper = ({
+    fieldId,
+    record,
+    placedRecord,
+    overlay,
+    children,
+  }: {
+    fieldId: string;
+    record: ReferenceRecord | null;
+    placedRecord: ReturnType<typeof usePlacedRecord>;
+    overlay: ReturnType<typeof useOverlayState>;
+    children: React.ReactNode;
+  }) => (
+    <div
+      data-camox-field-id={fieldId}
+      data-camox-collection-record-id={record?.id}
+      data-camox-reference-label={record?.label}
+      data-camox-overlay-mode="reference"
+      {...overlay}
+      {...placedRecord.wrapperProps}
+    >
+      {children}
+      {placedRecord.error && <p role="alert">Could not save item. {placedRecord.error}</p>}
+    </div>
+  );
+
   const Reference = <K extends ReferenceKeys<TSchemaShape>>({
     name,
     children,
@@ -2243,87 +2318,56 @@ export function createEditableBlock<
   }): React.ReactNode => {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
-    const camoxApp = useOptionalCamoxApp();
-    const selectTarget = usePreviewSelection();
     const { window: iframeWindow } = useFrame();
     if (!block) throw new Error("Reference must be used within a Block Component");
     const fieldName = String(name);
-    const schema = typeboxSchema.properties[fieldName];
-    const collectionTitle =
-      camoxApp?.getCollectionById(schema.collectionId)?._internal.title ??
-      schema.title ??
-      fieldName;
+    const collectionTitle = useCollectionTitle(fieldName);
     const record = resolveReference(
       (block.content as Record<string, unknown>)[fieldName],
-      schema.collectionId,
+      typeboxSchema.properties[fieldName].collectionId,
       recordsMap,
     );
-    const placed = usePlacedRecord(block, fieldName, record);
-    const { editable } = placed;
-    const occurrenceId = referenceOccurrenceId(block.blockId, fieldName);
+    const placedRecord = usePlacedRecord(block, fieldName, record);
+    const { editable } = placedRecord;
+    const fieldId = overlayFieldId(block.blockId, fieldName);
     const referenceSelected = useFieldSelection(block.blockId, fieldName, "Reference");
     const fieldHovered = useOverlayMessage(
       iframeWindow,
       editable,
       "CAMOX_HOVER_FIELD",
       "CAMOX_HOVER_FIELD_END",
-      { fieldId: occurrenceId },
+      { fieldId },
     );
     const overlay = useOverlayState(
-      placed.hovered || fieldHovered,
-      referenceSelected || placed.selected,
+      placedRecord.hovered || fieldHovered,
+      referenceSelected || placedRecord.selected,
     );
-    const selectReferenceField = (event?: React.MouseEvent<HTMLElement>) => {
-      if (!editable) return;
-      selectTarget(
-        {
-          type: "block-field",
-          blockId: block.blockId,
-          fieldName,
-          fieldType: "Reference",
-        },
-        event,
-      );
-    };
     if (!record && !editable) return null;
     const rendered =
-      record && placed.reference ? (
+      record && placedRecord.reference ? (
         <RecordScope
           block={block}
           fieldName={fieldName}
           record={record}
-          reference={placed.reference}
+          reference={placedRecord.reference}
         >
           {children}
         </RecordScope>
       ) : (
-        <button
-          type="button"
-          data-camox-reference-placeholder=""
-          className="camox-reference-placeholder"
-          onClick={(event) => {
-            selectReferenceField(event);
-            // Commenting targets the field; only editing links a record.
-            if (selectIsCommentMode(previewStore.getSnapshot())) return;
-            referencePickerFocus.send({ type: "request", fieldId: occurrenceId });
-          }}
-        >
+        <ReferencePlaceholder block={block} fieldName={fieldName} fieldType="Reference">
           Select {collectionTitle}
-        </button>
+        </ReferencePlaceholder>
       );
     if (!editable) return rendered;
     return (
-      <div
-        data-camox-field-id={occurrenceId}
-        data-camox-collection-record-id={record?.id}
-        data-camox-reference-label={record?.label}
-        data-camox-overlay-mode="reference"
-        {...overlay}
-        {...placed.wrapperProps}
+      <PlacedRecordWrapper
+        fieldId={fieldId}
+        record={record}
+        placedRecord={placedRecord}
+        overlay={overlay}
       >
         {rendered}
-        {placed.error && <p role="alert">Could not save item. {placed.error}</p>}
-      </div>
+      </PlacedRecordWrapper>
     );
   };
 
@@ -2332,34 +2376,39 @@ export function createEditableBlock<
     block,
     fieldName,
     record,
+    listHovered,
     children,
   }: {
     block: BlockContextValue;
     fieldName: string;
     record: ReferenceRecord;
+    /** Whether the sidebar hovers the whole list, which outlines every entry. */
+    listHovered: boolean;
     children: (scope: ReferenceScope<any>) => React.ReactNode;
   }) => {
-    const placed = usePlacedRecord(block, fieldName, record);
-    const overlay = useOverlayState(placed.hovered, placed.selected);
-    if (!placed.reference) return null;
+    const placedRecord = usePlacedRecord(block, fieldName, record);
+    const overlay = useOverlayState(placedRecord.hovered || listHovered, placedRecord.selected);
+    if (!placedRecord.reference) return null;
     const rendered = (
-      <RecordScope block={block} fieldName={fieldName} record={record} reference={placed.reference}>
+      <RecordScope
+        block={block}
+        fieldName={fieldName}
+        record={record}
+        reference={placedRecord.reference}
+      >
         {children}
       </RecordScope>
     );
-    if (!placed.editable) return rendered;
+    if (!placedRecord.editable) return rendered;
     return (
-      <div
-        data-camox-field-id={recordPlacementId(placed.reference.placement)}
-        data-camox-collection-record-id={record.id}
-        data-camox-reference-label={record.label}
-        data-camox-overlay-mode="reference"
-        {...overlay}
-        {...placed.wrapperProps}
+      <PlacedRecordWrapper
+        fieldId={recordPlacementId(placedRecord.reference.placement)}
+        record={record}
+        placedRecord={placedRecord}
+        overlay={overlay}
       >
         {rendered}
-        {placed.error && <p role="alert">Could not save item. {placed.error}</p>}
-      </div>
+      </PlacedRecordWrapper>
     );
   };
 
@@ -2373,53 +2422,50 @@ export function createEditableBlock<
   }): React.ReactNode => {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
-    const camoxApp = useOptionalCamoxApp();
-    const selectTarget = usePreviewSelection();
+    const { window: iframeWindow } = useFrame();
     if (!block) throw new Error("ReferenceList must be used within a Block Component");
     const editable = useIsEditable(block.mode);
     const fieldName = String(name);
-    const schema = typeboxSchema.properties[fieldName];
+    const collectionTitle = useCollectionTitle(fieldName);
+    const fieldId = overlayFieldId(block.blockId, fieldName);
+    // The sidebar's field row hovers the list as a whole.
+    const listHovered = useOverlayMessage(
+      iframeWindow,
+      editable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+    const placeholderOverlay = useOverlayState(listHovered);
     const records = resolveReferenceList(
       (block.content as Record<string, unknown>)[fieldName],
-      schema.collectionId,
+      typeboxSchema.properties[fieldName].collectionId,
       recordsMap,
     );
     if (records.length === 0) {
       if (!editable) return null;
-      const collectionTitle =
-        camoxApp?.getCollectionById(schema.collectionId)?._internal.title ??
-        schema.title ??
-        fieldName;
       return (
-        <button
-          type="button"
-          data-camox-reference-placeholder=""
-          className="camox-reference-placeholder"
-          onClick={(event) => {
-            selectTarget(
-              {
-                type: "block-field",
-                blockId: block.blockId,
-                fieldName,
-                fieldType: "ReferenceList",
-              },
-              event,
-            );
-            // Commenting targets the field; only editing links records.
-            if (selectIsCommentMode(previewStore.getSnapshot())) return;
-            referencePickerFocus.send({
-              type: "request",
-              fieldId: referenceOccurrenceId(block.blockId, fieldName),
-            });
-          }}
+        <ReferencePlaceholder
+          block={block}
+          fieldName={fieldName}
+          fieldType="ReferenceList"
+          data-camox-field-id={fieldId}
+          data-camox-overlay-mode="reference"
+          {...placeholderOverlay}
         >
           Add {collectionTitle}
-        </button>
+        </ReferencePlaceholder>
       );
     }
     // Keyed by record, so reordering the list keeps each entry's state.
     return records.map((record) => (
-      <ListedRecord key={record.id} block={block} fieldName={fieldName} record={record}>
+      <ListedRecord
+        key={record.id}
+        block={block}
+        fieldName={fieldName}
+        record={record}
+        listHovered={listHovered}
+      >
         {children as (scope: ReferenceScope<any>) => React.ReactNode}
       </ListedRecord>
     ));
