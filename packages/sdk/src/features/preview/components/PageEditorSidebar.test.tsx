@@ -745,7 +745,7 @@ void test("the block field list summarizes a reference list by its count", async
     { type: "block", blockId: BLOCK_ID },
     { logos: [ACME, GLOBEX] },
   );
-  assert.match(sidebar.text(), /Logos\s*2 Customers linked/);
+  assert.match(sidebar.text(), /Logos\s*2 linked/);
 });
 
 void test("an empty reference list says which collection it expects in the field list", async (t) => {

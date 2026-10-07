@@ -210,9 +210,7 @@ export function ReferenceListFieldEditor({
       <DrillRow
         label={drill.label}
         preview={
-          storedIds.length > 0
-            ? `${storedIds.length} ${collectionTitle} linked`
-            : `No ${collectionTitle} linked`
+          storedIds.length > 0 ? `${storedIds.length} linked` : `No ${collectionTitle} linked`
         }
         Icon={ListOrdered}
         onClick={drill.onClick}
