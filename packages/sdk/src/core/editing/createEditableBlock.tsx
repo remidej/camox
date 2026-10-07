@@ -27,7 +27,11 @@ import { previewStore, selectIsCommentMode } from "../../features/preview/previe
 import { referencePickerFocus } from "../../features/preview/referencePickerFocus";
 import { useNormalizedData, isItemMarker, resolveAssetValue } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
-import { useFieldSelection } from "../hooks/useFieldSelection.ts";
+import {
+  useFieldSelection,
+  useRecordSelection,
+  type RecordPlacement,
+} from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
 import { useOverlayState } from "../hooks/useOverlayState";
@@ -41,6 +45,7 @@ import {
   type ToMarkdownBuilder,
   type ItemSettingsBrand,
 } from "../lib/contentType.ts";
+import type { FieldType } from "../lib/fieldTypes.tsx";
 import { IconSvg, type IconProps } from "../lib/icons";
 import type { IconValue } from "../lib/iconTypes";
 import { renderImagePlaceholder } from "../lib/imagePlaceholder";
@@ -475,7 +480,12 @@ export function createEditableBlock<
   const RepeatableItemContext = React.createContext<RepeatableItemContextValue | null>(null);
   const ReferenceContext = React.createContext<{
     occurrenceId: string;
-    select: (event?: React.MouseEvent<HTMLElement>) => void;
+    placement: RecordPlacement;
+    selectRecordField: (
+      recordFieldName: string,
+      recordFieldType: FieldType,
+      event?: React.MouseEvent<HTMLElement>,
+    ) => void;
     update: (field: string, value: string) => void;
   } | null>(null);
 
@@ -787,12 +797,14 @@ export function createEditableBlock<
     const [isEditorFocused, setIsEditorFocused] = React.useState(false);
 
     // Derive selected state from selection
-    const isSelectedFromSelection = useFieldSelection(
+    const isBlockFieldSelected = useFieldSelection(
       blockId,
       String(name),
       "String",
       repeaterContext?.itemId,
     );
+    const isRecordFieldSelected = useRecordSelection(reference?.placement ?? null, String(name));
+    const isSelectedFromSelection = reference ? isRecordFieldSelected : isBlockFieldSelected;
 
     const isFocused = isEditorFocused || isSelectedFromSelection;
     const overlayState = useOverlayState(isHovered, isFocused);
@@ -839,7 +851,7 @@ export function createEditableBlock<
 
     const selectField = (event?: React.MouseEvent<HTMLElement>) => {
       if (reference) {
-        reference.select(event);
+        reference.selectRecordField(String(name), "String", event);
         return;
       }
       selectTarget(
@@ -2055,7 +2067,9 @@ export function createEditableBlock<
       recordsMap,
     );
     const occurrenceId = referenceOccurrenceId(block.blockId, fieldName);
-    const selected = useFieldSelection(block.blockId, fieldName, "Reference");
+    const placement = record ? { blockId: block.blockId, fieldName, recordId: record.id } : null;
+    const referenceSelected = useFieldSelection(block.blockId, fieldName, "Reference");
+    const recordSelected = useRecordSelection(placement);
     const { window: iframeWindow } = useFrame();
     const sidebarHovered = useOverlayMessage(
       iframeWindow,
@@ -2064,8 +2078,8 @@ export function createEditableBlock<
       "CAMOX_HOVER_FIELD_END",
       { fieldId: occurrenceId },
     );
-    const overlay = useOverlayState(hovered || sidebarHovered, selected);
-    const select = (event?: React.MouseEvent<HTMLElement>) => {
+    const overlay = useOverlayState(hovered || sidebarHovered, referenceSelected || recordSelected);
+    const selectReferenceField = (event?: React.MouseEvent<HTMLElement>) => {
       if (!editable) return;
       selectTarget(
         {
@@ -2076,6 +2090,21 @@ export function createEditableBlock<
         },
         event,
       );
+    };
+    // Record fields select themselves; any other click inside the placement selects the record.
+    const selectRecord = (event: React.MouseEvent<HTMLElement>) => {
+      if (!editable || !placement) return;
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-camox-field-id]") !== event.currentTarget) return;
+      selectTarget({ type: "record", ...placement }, event);
+    };
+    const selectRecordField = (
+      recordFieldName: string,
+      recordFieldType: FieldType,
+      event?: React.MouseEvent<HTMLElement>,
+    ) => {
+      if (!editable || !placement) return;
+      selectTarget({ type: "record-field", ...placement, recordFieldName, recordFieldType }, event);
     };
     const update = (field: string, value: string) => {
       if (!record || !editable) return;
@@ -2096,44 +2125,45 @@ export function createEditableBlock<
         });
     };
     if (!record && !editable) return null;
-    const rendered = record ? (
-      <ReferenceContext.Provider value={{ occurrenceId, select, update }}>
-        <RepeatableItemContext.Provider value={null}>
-          <Context.Provider
-            value={{
-              ...block,
-              content: record.content as TContent,
-              sourceSchema: schema.referenceSchema.properties,
-            }}
-          >
-            {children({
-              id: record.id,
-              label: record.label,
-              Field,
-              Image: ReferenceImage,
-              File: ReferenceFile,
-              Embed: ReferenceEmbed,
-              ImageList: ReferenceImageList,
-              FileList: ReferenceFileList,
-            } as unknown as ReferenceScope<ReferenceContent<TSchemaShape[K]>>)}
-          </Context.Provider>
-        </RepeatableItemContext.Provider>
-      </ReferenceContext.Provider>
-    ) : (
-      <button
-        type="button"
-        data-camox-reference-placeholder=""
-        className="camox-reference-placeholder"
-        onClick={(event) => {
-          select(event);
-          // Commenting targets the field; only editing links a record.
-          if (selectIsCommentMode(previewStore.getSnapshot())) return;
-          referencePickerFocus.send({ type: "request", fieldId: occurrenceId });
-        }}
-      >
-        Select {schema.title ?? fieldName}
-      </button>
-    );
+    const rendered =
+      record && placement ? (
+        <ReferenceContext.Provider value={{ occurrenceId, placement, selectRecordField, update }}>
+          <RepeatableItemContext.Provider value={null}>
+            <Context.Provider
+              value={{
+                ...block,
+                content: record.content as TContent,
+                sourceSchema: schema.referenceSchema.properties,
+              }}
+            >
+              {children({
+                id: record.id,
+                label: record.label,
+                Field,
+                Image: ReferenceImage,
+                File: ReferenceFile,
+                Embed: ReferenceEmbed,
+                ImageList: ReferenceImageList,
+                FileList: ReferenceFileList,
+              } as unknown as ReferenceScope<ReferenceContent<TSchemaShape[K]>>)}
+            </Context.Provider>
+          </RepeatableItemContext.Provider>
+        </ReferenceContext.Provider>
+      ) : (
+        <button
+          type="button"
+          data-camox-reference-placeholder=""
+          className="camox-reference-placeholder"
+          onClick={(event) => {
+            selectReferenceField(event);
+            // Commenting targets the field; only editing links a record.
+            if (selectIsCommentMode(previewStore.getSnapshot())) return;
+            referencePickerFocus.send({ type: "request", fieldId: occurrenceId });
+          }}
+        >
+          Select {schema.title ?? fieldName}
+        </button>
+      );
     if (!editable) return rendered;
     return (
       <div
@@ -2142,7 +2172,7 @@ export function createEditableBlock<
         data-camox-reference-label={record?.label}
         data-camox-overlay-mode="reference"
         {...overlay}
-        onClickCapture={select}
+        onClickCapture={selectRecord}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >

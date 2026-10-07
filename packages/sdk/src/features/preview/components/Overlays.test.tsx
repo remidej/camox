@@ -118,3 +118,47 @@ void test("only the active page resolves add requests, including layout boundari
     }
   }
 });
+
+void test("selecting a record text field focuses it in the selected placement", async () => {
+  const dom = new Window();
+  const globals = { React, window: dom, document: dom.document, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const { createRoot } = await import("react-dom/client");
+  const { Overlays } = await import("./Overlays");
+  const { previewStore } = await import("../previewStore");
+  const root = createRoot(document.createElement("div"));
+  const messages: unknown[] = [];
+  const iframe = {
+    contentWindow: { postMessage: (message: unknown) => messages.push(message) },
+  } as unknown as HTMLIFrameElement;
+  const owner = { kind: "page", pageId: 1 } as const;
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: 1 });
+  try {
+    await React.act(async () => root.render(<Overlays owner={owner} iframeElement={iframe} />));
+    await React.act(async () =>
+      previewStore.send({
+        type: "selectRecordField",
+        ...owner,
+        blockId: 2,
+        fieldName: "customer",
+        recordId: "acme",
+        recordFieldName: "quote",
+        recordFieldType: "String",
+      }),
+    );
+    assert.deepEqual(messages.at(-1), { type: "CAMOX_FOCUS_FIELD", fieldId: "2__customer__quote" });
+  } finally {
+    await React.act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
