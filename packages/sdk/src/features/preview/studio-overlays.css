@@ -51,6 +51,38 @@ html[data-camox-edit-mode] iframe {
   --camox-overlay-color-selected: #c084fc;
 }
 
+/* ---- Unset reference placeholder (editable preview only) ---- */
+
+.camox-reference-placeholder {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 4rem;
+  padding: 1rem 1.5rem;
+  border: 2px dashed var(--camox-overlay-color-hover);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--camox-overlay-color-selected) 8%, transparent);
+  color: var(--camox-overlay-color-selected);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+}
+
+.camox-reference-placeholder:hover,
+.camox-reference-placeholder:focus-visible {
+  border-color: var(--camox-overlay-color-selected);
+  background: color-mix(in srgb, var(--camox-overlay-color-selected) 14%, transparent);
+}
+
 /* ---- Block error boundary ---- */
 
 .camox-block-error {

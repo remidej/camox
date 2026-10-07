@@ -20,6 +20,8 @@ export function RecordCombobox({
   footerAction,
   disabled,
   triggerLabel = "Select item",
+  open: controlledOpen,
+  onOpenChange,
 }: {
   records: readonly RecordOption[];
   collectionTitle: string;
@@ -27,8 +29,16 @@ export function RecordCombobox({
   footerAction?: { label: string; onSelect: (search: string) => void };
   disabled?: boolean;
   triggerLabel?: string;
+  /** Control the popup, e.g. to open it when the preview asks to link a record. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
   const [search, setSearch] = React.useState("");
   const emptyMessage =
     records.length === 0 ? `${collectionTitle} has no items yet.` : "No items found.";
