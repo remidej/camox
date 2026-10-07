@@ -29,6 +29,7 @@ import {
 } from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
 import { AttachedComments } from "./AttachedComments";
+import { type FieldWriteTarget, useFieldWriter } from "./fieldWriteTarget";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
@@ -143,9 +144,7 @@ const PageEditorSidebar = () => {
 const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const pageId = owner.kind === "page" ? owner.pageId : undefined;
   const camoxApp = useCamoxApp();
-  const updateContent = useMutation(blockMutations.updateContent());
   const updateSettings = useMutation(blockMutations.updateSettings());
-  const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
   const requireDraft = useRequireDraftSource();
 
@@ -326,38 +325,13 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   // lookups don't collide if this sheet is ever rendered more than once.
   const fieldIdPrefix = React.useId();
 
-  const handleBlockFieldChange = React.useCallback(
-    (fieldName: string, value: unknown) => {
-      // Relationship changes need completion/error feedback, particularly when
-      // a modal creates a record and must wait for its attachment before closing.
-      if ((currentSchema as any)?.properties?.[fieldName]?.fieldType === "Reference") {
-        return (async () => {
-          if (!block || !requireDraft())
-            throw new Error("Switch to draft to change this reference.");
-          await updateContent.mutateAsync({ id: block.id, content: { [fieldName]: value } });
-        })();
-      }
-      if (!block) return;
-      if (!requireDraft()) return;
-      updateContent.mutate({ id: block.id, content: { [fieldName]: value } });
-    },
-    [block, currentSchema, updateContent, requireDraft],
-  );
-
-  const handleItemFieldChange = React.useCallback(
-    (fieldName: string, value: unknown) => {
-      if (currentItemId == null) return;
-      if (!requireDraft()) return;
-      updateRepeatableContent.mutate({
-        id: currentItemId,
-        content: { [fieldName]: value },
-      });
-    },
-    [currentItemId, updateRepeatableContent, requireDraft],
-  );
-
-  const activeFieldChangeHandler =
-    currentItemId != null ? handleItemFieldChange : handleBlockFieldChange;
+  const blockIdForWrites = block?.id;
+  const writeTarget = React.useMemo<FieldWriteTarget | null>(() => {
+    if (blockIdForWrites == null) return null;
+    if (currentItemId == null) return { kind: "block", blockId: blockIdForWrites };
+    return { kind: "item", blockId: blockIdForWrites, itemId: currentItemId };
+  }, [blockIdForWrites, currentItemId]);
+  const writeField = useFieldWriter(writeTarget, currentSchema);
 
   // Build selection path display from the ancestor chain
   const ancestorChain = React.useMemo(
@@ -744,7 +718,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   fieldName={assetFieldName}
                   assetType={assetType}
                   currentData={currentData}
-                  onFieldChange={activeFieldChangeHandler}
+                  onFieldChange={writeField}
                 />
               )}
               {isViewingAsset && assetFieldName && !isMultipleAsset && (
@@ -752,7 +726,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   fieldName={assetFieldName}
                   assetType={assetType}
                   currentData={currentData}
-                  onFieldChange={activeFieldChangeHandler}
+                  onFieldChange={writeField}
                 />
               )}
               {!isViewingAsset && isViewingLink && linkFieldName && (
@@ -769,7 +743,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                       } as Record<string, unknown>)
                     }
                     onSave={(fieldName, value) => {
-                      activeFieldChangeHandler(fieldName, value);
+                      void writeField(fieldName, value);
                     }}
                   />
                 </div>
@@ -782,7 +756,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   data={currentData}
                   blockId={block.id}
                   itemId={currentItemId ?? undefined}
-                  onFieldChange={activeFieldChangeHandler}
+                  onFieldChange={writeField}
                   postToIframe={postToIframe}
                   filesMap={filesMap}
                   itemsMap={itemsMap}
