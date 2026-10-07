@@ -10,7 +10,8 @@ import { CirclePlus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
-import { fieldTypesDictionary, type FieldType } from "@/core/lib/fieldTypes";
+import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
+import { editorAssetField } from "@/features/content/collection-form";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
 import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -29,11 +30,15 @@ import {
 } from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
 import { AttachedComments } from "./AttachedComments";
+import { contentFieldSchema } from "./contentFieldSchema";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
 import { MultipleAssetFieldEditor } from "./MultipleAssetFieldEditor";
+import { PageStatusBadge } from "./PageStatusBadge";
 import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
+import { type FieldWriteTarget, useFieldWriter } from "./useFieldWriter";
+import { useRecordView, type SelectionCrumb } from "./useRecordView";
 import { type RepeatableArraySchema, useRepeatableItemActions } from "./useRepeatableItemActions";
 
 /* -------------------------------------------------------------------------------------------------
@@ -143,9 +148,7 @@ const PageEditorSidebar = () => {
 const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const pageId = owner.kind === "page" ? owner.pageId : undefined;
   const camoxApp = useCamoxApp();
-  const updateContent = useMutation(blockMutations.updateContent());
   const updateSettings = useMutation(blockMutations.updateSettings());
-  const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
   const requireDraft = useRequireDraftSource();
 
@@ -173,7 +176,6 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   const blockId = selectionBlockId(selection);
   const currentItemId = selectionItemId(selection);
-  const selectedField = selectionField(selection);
 
   // Look up the actual block data from individual block cache (granular caching)
   const { data: blockBundle } = useQuery({
@@ -206,6 +208,22 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   // Get block definition
   const blockDef = block ? camoxApp.getBlockById(block.type) : null;
 
+  // A placed collection record is edited only while the reference still links it.
+  const { recordView, viewSelection, recordCrumbs } = useRecordView({
+    owner,
+    selection,
+    block,
+    contentSchema: blockDef?._internal.contentSchema,
+  });
+
+  const selectedField =
+    recordView?.selection.type === "record-field"
+      ? {
+          fieldName: recordView.selection.recordFieldName,
+          fieldType: recordView.selection.recordFieldType,
+        }
+      : selectionField(viewSelection);
+
   const settingsFields = React.useMemo(() => {
     return blockDef ? getSettingsFields(blockDef._internal.settingsSchema) : [];
   }, [blockDef]);
@@ -220,11 +238,13 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   }, [itemArraySchema]);
 
   // Compute schema and data based on selection
+  const recordSchema = recordView?.collection._internal.contentSchema;
   const currentSchema = React.useMemo(() => {
+    if (recordSchema) return recordSchema;
     if (!blockDef) return null;
     if (currentItemId == null) return blockDef._internal.contentSchema;
     return getSchemaForItem(blockDef._internal.contentSchema, currentItemId, itemsMap);
-  }, [blockDef, currentItemId, itemsMap]);
+  }, [recordSchema, blockDef, currentItemId, itemsMap]);
 
   const currentItem = currentItemId != null ? itemsMap.get(currentItemId) : null;
   const isItemLoading = currentItemId != null && !currentItem;
@@ -253,12 +273,22 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     siblingCount,
   });
 
+  const recordContent = recordView?.record.content;
   const rawCurrentData: Record<string, unknown> = currentItem
     ? (currentItem.content as Record<string, unknown>)
     : (block?.content ?? {});
 
   // Resolve _fileId markers in data for asset field editors (recursive for inline arrays)
   const currentData = React.useMemo(() => {
+    // Record assets are already resolved snapshots, not block file markers.
+    if (recordContent) {
+      return Object.fromEntries(
+        Object.entries(recordContent).map(([key, value]) => [
+          key,
+          editorAssetField(contentFieldSchema(recordSchema, key)?.fieldType, value),
+        ]),
+      );
+    }
     const resolveFile = (marker: { _fileId: number }) => {
       const file = filesMap.get(marker._fileId);
       return file
@@ -291,16 +321,15 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
       resolved[key] = resolveValue(value);
     }
     return resolved;
-  }, [rawCurrentData, filesMap]);
+  }, [recordContent, recordSchema, rawCurrentData, filesMap]);
 
   // Detect terminal field view
   const fieldInfo = selectedField
     ? {
         ...selectedField,
         fieldType:
-          ((currentSchema as any)?.properties?.[selectedField.fieldName]?.fieldType as
-            | FieldType
-            | undefined) ?? selectedField.fieldType,
+          contentFieldSchema(currentSchema, selectedField.fieldName)?.fieldType ??
+          selectedField.fieldType,
       }
     : null;
   const isViewingLink = fieldInfo?.fieldType === "Link";
@@ -318,46 +347,27 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   const isMultipleAsset = React.useMemo(() => {
     if (!isViewingAsset || !assetFieldName) return false;
-    const prop = (currentSchema as any)?.properties?.[assetFieldName];
+    const prop = contentFieldSchema(currentSchema, assetFieldName);
     return prop?.fieldType === "ImageList" || prop?.fieldType === "FileList";
   }, [isViewingAsset, assetFieldName, currentSchema]);
+  // Record asset views match the collection form, which restricts uploads to the field's accept list.
+  const assetProperty =
+    recordView && assetFieldName ? contentFieldSchema(currentSchema, assetFieldName) : undefined;
+  const assetAccept = assetProperty?.items?.accept ?? assetProperty?.accept;
 
   // Scope field DOM ids with useId so label-input pairs and imperative focus
   // lookups don't collide if this sheet is ever rendered more than once.
   const fieldIdPrefix = React.useId();
 
-  const handleBlockFieldChange = React.useCallback(
-    (fieldName: string, value: unknown) => {
-      // Relationship changes need completion/error feedback, particularly when
-      // a modal creates a record and must wait for its attachment before closing.
-      if ((currentSchema as any)?.properties?.[fieldName]?.fieldType === "Reference") {
-        return (async () => {
-          if (!block || !requireDraft())
-            throw new Error("Switch to draft to change this reference.");
-          await updateContent.mutateAsync({ id: block.id, content: { [fieldName]: value } });
-        })();
-      }
-      if (!block) return;
-      if (!requireDraft()) return;
-      updateContent.mutate({ id: block.id, content: { [fieldName]: value } });
-    },
-    [block, currentSchema, updateContent, requireDraft],
-  );
-
-  const handleItemFieldChange = React.useCallback(
-    (fieldName: string, value: unknown) => {
-      if (currentItemId == null) return;
-      if (!requireDraft()) return;
-      updateRepeatableContent.mutate({
-        id: currentItemId,
-        content: { [fieldName]: value },
-      });
-    },
-    [currentItemId, updateRepeatableContent, requireDraft],
-  );
-
-  const activeFieldChangeHandler =
-    currentItemId != null ? handleItemFieldChange : handleBlockFieldChange;
+  const blockIdForWrites = block?.id;
+  const recordForWrites = recordView?.record;
+  const writeTarget = React.useMemo<FieldWriteTarget | null>(() => {
+    if (recordForWrites) return { kind: "record", record: recordForWrites };
+    if (blockIdForWrites == null) return null;
+    if (currentItemId == null) return { kind: "block", blockId: blockIdForWrites };
+    return { kind: "item", blockId: blockIdForWrites, itemId: currentItemId };
+  }, [recordForWrites, blockIdForWrites, currentItemId]);
+  const writeField = useFieldWriter(writeTarget, currentSchema);
 
   // Build selection path display from the ancestor chain
   const ancestorChain = React.useMemo(
@@ -374,13 +384,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   }
 
   const fieldHasOwnView = fieldInfo ? fieldTypesDictionary[fieldInfo.fieldType].hasOwnView : false;
-  const navigationItems: {
-    key: string;
-    label: string;
-    isCurrent: boolean;
-    onClick?: () => void;
-    hoverTarget?: Selection | null;
-  }[] = [
+  const navigationItems: SelectionCrumb[] = [
     {
       key: "page",
       hoverTarget: null,
@@ -391,7 +395,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     {
       key: "block",
       label: blockDef._internal.title,
-      isCurrent: ancestorChain.length === 0 && !fieldHasOwnView,
+      isCurrent: ancestorChain.length === 0 && !fieldHasOwnView && !recordView,
       onClick: () => previewStore.send({ type: "setFocusedBlock", ...owner, blockId: block.id }),
       hoverTarget: { type: "block", blockId: block.id },
     },
@@ -446,12 +450,13 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
           }),
       },
     ]),
+    ...recordCrumbs(fieldHasOwnView),
     ...(fieldHasOwnView && fieldInfo
       ? [
           {
             key: `field-${fieldInfo.fieldName}`,
             label:
-              (currentSchema as any)?.properties?.[fieldInfo.fieldName]?.title ??
+              contentFieldSchema(currentSchema, fieldInfo.fieldName)?.title ??
               formatFieldName(fieldInfo.fieldName),
             isCurrent: true,
             onClick: undefined,
@@ -522,13 +527,19 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                       className={cn(
                         "hover:text-foreground flex h-7 min-w-0 cursor-pointer items-center truncate text-left transition-colors",
                         item.isCurrent && "text-foreground font-medium",
+                        item.className,
                       )}
                       onClick={item.onClick}
                     >
                       {item.label}
                     </button>
                   ) : (
-                    <span className="text-foreground block h-7 min-w-0 truncate leading-7 font-medium">
+                    <span
+                      className={cn(
+                        "text-foreground block h-7 min-w-0 truncate leading-7 font-medium",
+                        item.className,
+                      )}
+                    >
                       {item.label}
                     </span>
                   )}
@@ -590,79 +601,99 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   </SidebarSectionContent>
                 </SidebarSection>
               )}
-              {currentItemId == null && !fieldHasOwnView && settingsFields.length > 0 && (
-                <SidebarSection divider="bottom" aria-label="Block settings">
-                  <SidebarSectionHeader>Settings</SidebarSectionHeader>
-                  <SidebarSectionContent>
-                    {settingsFields.map((field) => {
-                      const label = field.label ?? formatFieldName(field.name);
-                      const settingsValues = (block.settings ?? {}) as Record<string, unknown>;
-
-                      if (field.fieldType === "Enum") {
-                        const value =
-                          (settingsValues[field.name] as string | undefined) ??
-                          (blockDef._internal.settingsSchema?.properties?.[field.name] as any)
-                            ?.default ??
-                          "";
-
-                        return (
-                          <div key={field.name} className="space-y-2">
-                            <Label htmlFor={`setting-${field.name}`}>{label}</Label>
-                            <Select
-                              value={value}
-                              onValueChange={(newValue) => {
-                                if (!requireDraft()) return;
-                                updateSettings.mutate({
-                                  id: block.id,
-                                  settings: { [field.name]: newValue },
-                                });
-                              }}
-                            >
-                              <SelectTrigger id={`setting-${field.name}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {field.enumValues?.map((enumValue) => (
-                                  <SelectItem key={enumValue} value={enumValue}>
-                                    {field.enumLabels?.[enumValue] ?? enumValue}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        );
-                      }
-
-                      if (field.fieldType === "Boolean") {
-                        const checked =
-                          (settingsValues[field.name] as boolean | undefined) ??
-                          (blockDef._internal.settingsSchema?.properties?.[field.name] as any)
-                            ?.default ??
-                          false;
-
-                        return (
-                          <div key={field.name} className="flex items-center justify-between">
-                            <Label htmlFor={`setting-${field.name}`}>{label}</Label>
-                            <Switch
-                              id={`setting-${field.name}`}
-                              checked={checked}
-                              onCheckedChange={(newValue) => {
-                                if (!requireDraft()) return;
-                                updateSettings.mutate({
-                                  id: block.id,
-                                  settings: { [field.name]: newValue },
-                                });
-                              }}
-                            />
-                          </div>
-                        );
-                      }
-
-                      return null;
-                    })}
-                  </SidebarSectionContent>
+              {recordView && !fieldHasOwnView && (
+                <SidebarSection divider="bottom" aria-label="Shared record">
+                  <div data-shared-record className="space-y-1 px-2 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-purple-700 dark:text-purple-400">
+                        Shared · {recordView.collection._internal.title}
+                      </p>
+                      {recordView.status && (
+                        <PageStatusBadge status={recordView.status} size="sm" />
+                      )}
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      Edits apply everywhere this record is used.
+                    </p>
+                  </div>
                 </SidebarSection>
               )}
+              {currentItemId == null &&
+                !recordView &&
+                !fieldHasOwnView &&
+                settingsFields.length > 0 && (
+                  <SidebarSection divider="bottom" aria-label="Block settings">
+                    <SidebarSectionHeader>Settings</SidebarSectionHeader>
+                    <SidebarSectionContent>
+                      {settingsFields.map((field) => {
+                        const label = field.label ?? formatFieldName(field.name);
+                        const settingsValues = (block.settings ?? {}) as Record<string, unknown>;
+
+                        if (field.fieldType === "Enum") {
+                          const value =
+                            (settingsValues[field.name] as string | undefined) ??
+                            (blockDef._internal.settingsSchema?.properties?.[field.name] as any)
+                              ?.default ??
+                            "";
+
+                          return (
+                            <div key={field.name} className="space-y-2">
+                              <Label htmlFor={`setting-${field.name}`}>{label}</Label>
+                              <Select
+                                value={value}
+                                onValueChange={(newValue) => {
+                                  if (!requireDraft()) return;
+                                  updateSettings.mutate({
+                                    id: block.id,
+                                    settings: { [field.name]: newValue },
+                                  });
+                                }}
+                              >
+                                <SelectTrigger id={`setting-${field.name}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {field.enumValues?.map((enumValue) => (
+                                    <SelectItem key={enumValue} value={enumValue}>
+                                      {field.enumLabels?.[enumValue] ?? enumValue}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          );
+                        }
+
+                        if (field.fieldType === "Boolean") {
+                          const checked =
+                            (settingsValues[field.name] as boolean | undefined) ??
+                            (blockDef._internal.settingsSchema?.properties?.[field.name] as any)
+                              ?.default ??
+                            false;
+
+                          return (
+                            <div key={field.name} className="flex items-center justify-between">
+                              <Label htmlFor={`setting-${field.name}`}>{label}</Label>
+                              <Switch
+                                id={`setting-${field.name}`}
+                                checked={checked}
+                                onCheckedChange={(newValue) => {
+                                  if (!requireDraft()) return;
+                                  updateSettings.mutate({
+                                    id: block.id,
+                                    settings: { [field.name]: newValue },
+                                  });
+                                }}
+                              />
+                            </div>
+                          );
+                        }
+
+                        return null;
+                      })}
+                    </SidebarSectionContent>
+                  </SidebarSection>
+                )}
               {currentItemId != null && !fieldHasOwnView && itemSettingsFields.length > 0 && (
                 <SidebarSection divider="bottom" aria-label="Item settings">
                   <SidebarSectionHeader>Settings</SidebarSectionHeader>
@@ -744,7 +775,10 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   fieldName={assetFieldName}
                   assetType={assetType}
                   currentData={currentData}
-                  onFieldChange={activeFieldChangeHandler}
+                  onFieldChange={writeField}
+                  resolveLocally={recordView != null}
+                  offerDelete={recordView == null}
+                  accept={assetAccept}
                 />
               )}
               {isViewingAsset && assetFieldName && !isMultipleAsset && (
@@ -752,7 +786,10 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   fieldName={assetFieldName}
                   assetType={assetType}
                   currentData={currentData}
-                  onFieldChange={activeFieldChangeHandler}
+                  onFieldChange={writeField}
+                  resolveLocally={recordView != null}
+                  offerDelete={recordView == null}
+                  accept={assetAccept}
                 />
               )}
               {!isViewingAsset && isViewingLink && linkFieldName && (
@@ -769,34 +806,44 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                       } as Record<string, unknown>)
                     }
                     onSave={(fieldName, value) => {
-                      activeFieldChangeHandler(fieldName, value);
+                      void writeField(fieldName, value);
                     }}
                   />
                 </div>
               )}
               {!isViewingAsset && !isViewingLink && (currentItemId == null || currentItem) && (
                 <ItemFieldsEditor
-                  key={`${block.id}-${currentItemId ?? "block"}-${fieldInfo?.fieldName ?? "fields"}`}
+                  key={`${block.id}-${recordView ? `record-${recordView.record.id}` : (currentItemId ?? "block")}-${fieldInfo?.fieldName ?? "fields"}`}
                   selectedFieldName={fieldInfo?.fieldName}
                   schema={currentSchema}
                   data={currentData}
                   blockId={block.id}
                   itemId={currentItemId ?? undefined}
-                  onFieldChange={activeFieldChangeHandler}
+                  onFieldChange={writeField}
                   postToIframe={postToIframe}
                   filesMap={filesMap}
                   itemsMap={itemsMap}
+                  references={currentItemId == null && !recordView ? block.references : undefined}
+                  placement={
+                    recordView
+                      ? {
+                          blockId: block.id,
+                          fieldName: recordView.selection.fieldName,
+                          recordId: recordView.record.id,
+                        }
+                      : undefined
+                  }
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}
-              {!fieldInfo && (currentItemId == null || currentItem) && (
+              {!recordView && !fieldInfo && (currentItemId == null || currentItem) && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}
                   itemId={currentItemId ?? undefined}
                 />
               )}
-              {fieldInfo && (
+              {!recordView && fieldInfo && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}

@@ -4,12 +4,13 @@ import * as React from "react";
 import { usePageBlocks } from "@/lib/normalized-data";
 
 import { usePreviewedPage } from "../CamoxPreview";
-import { isOverlayMessage, type OverlayMessage } from "../overlayMessages";
+import { isOverlayMessage, overlayFieldId, type OverlayMessage } from "../overlayMessages";
 import {
   previewStore,
   selectIsEditMode,
   selectionForOwner,
   type EditingOwner,
+  type Selection,
 } from "../previewStore";
 
 interface OverlaysProps {
@@ -70,24 +71,35 @@ function CuratedAddBlockListener({ iframeElement }: { iframeElement: HTMLIFrameE
   return null;
 }
 
+/** The iframe field ID of a selected String field; only those are focused in the iframe. */
+function stringFieldId(selection: Selection | null): string | null {
+  if (!selection) return null;
+  const { blockId } = selection;
+  switch (selection.type) {
+    case "block-field":
+      return selection.fieldType === "String" ? overlayFieldId(blockId, selection.fieldName) : null;
+    case "item-field":
+      return selection.fieldType === "String"
+        ? overlayFieldId(blockId, selection.fieldName, { itemId: selection.itemId })
+        : null;
+    case "record-field":
+      return selection.recordFieldType === "String"
+        ? overlayFieldId(blockId, selection.recordFieldName, {
+            referenceFieldName: selection.fieldName,
+          })
+        : null;
+    default:
+      return null;
+  }
+}
+
 export const Overlays = ({ iframeElement, canAddBlocks = false, owner }: OverlaysProps) => {
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
 
   // Send focus command to iframe when selection changes externally
   React.useEffect(() => {
-    if (!selection) return;
-
-    // Only focus String fields in the iframe
-    if (selection.type !== "block-field" && selection.type !== "item-field") return;
-    if (selection.fieldType !== "String") return;
-
-    // Build the field ID
-    const blockId = selection.blockId;
-    const fieldName = selection.fieldName;
-    const fieldId =
-      selection.type === "item-field"
-        ? `${blockId}__${selection.itemId}__${fieldName}`
-        : `${blockId}__${fieldName}`;
+    const fieldId = stringFieldId(selection);
+    if (!fieldId) return;
 
     // Send focus command to iframe
     const message: OverlayMessage = {

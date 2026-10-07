@@ -21,6 +21,8 @@ interface UnlinkAssetButtonProps {
   onUnlink: () => void;
   className?: string;
   persisted?: boolean;
+  /** False when usage counts cannot see this reference (record content), so deleting is never safe. */
+  offerDelete?: boolean;
 }
 
 const UnlinkAssetButton = ({
@@ -28,16 +30,17 @@ const UnlinkAssetButton = ({
   onUnlink,
   className,
   persisted = true,
+  offerDelete = true,
 }: UnlinkAssetButtonProps) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const deleteFile = useMutation(fileMutations.delete());
   const { data: usageCount } = useQuery({
     ...fileQueries.getUsageCount(fileId!),
-    enabled: !!fileId,
+    enabled: !!fileId && offerDelete,
   });
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!fileId || usageCount === undefined || usageCount > (persisted ? 1 : 0)) {
+    if (!offerDelete || !fileId || usageCount === undefined || usageCount > (persisted ? 1 : 0)) {
       onUnlink();
       return;
     }

@@ -3,6 +3,8 @@ import * as React from "react";
 export interface CollectionItemModalTarget {
   collectionId: string;
   itemId?: string;
+  /** Prefilled content for a new item, e.g. the label typed into a reference picker. */
+  initialContent?: Record<string, unknown>;
   /** Called after saving, so a reference picker can attach the newly created item. */
   onSaved?: (item: { id: string }) => void | Promise<void>;
 }

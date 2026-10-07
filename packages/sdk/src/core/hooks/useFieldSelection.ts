@@ -2,7 +2,11 @@ import { useSelector } from "@xstate/store-react";
 import { useContext } from "react";
 
 import { PreviewEditingOwnerContext } from "../../features/preview/previewSelection";
-import { previewStore, selectionForOwner } from "../../features/preview/previewStore";
+import {
+  previewStore,
+  selectionForOwner,
+  type RecordPlacement,
+} from "../../features/preview/previewStore";
 import type { FieldType } from "../lib/fieldTypes.tsx";
 
 /**
@@ -37,5 +41,26 @@ export function useFieldSelection(
     }
 
     return false;
+  });
+}
+
+/**
+ * Returns whether the placed record, or one of its record fields when `recordFieldName` is
+ * given, is selected. Matches only this placement, so other placements of the same record
+ * stay unselected.
+ */
+export function useRecordSelection(
+  placement: RecordPlacement | null,
+  recordFieldName?: string,
+): boolean {
+  const owner = useContext(PreviewEditingOwnerContext);
+  return useSelector(previewStore, (state) => {
+    const sel = selectionForOwner(state.context, owner);
+    if (!placement || !sel) return false;
+    if (sel.type !== "record" && sel.type !== "record-field") return false;
+    if (sel.blockId !== placement.blockId || sel.fieldName !== placement.fieldName) return false;
+    if (sel.recordId !== placement.recordId) return false;
+    if (recordFieldName === undefined) return sel.type === "record";
+    return sel.type === "record-field" && sel.recordFieldName === recordFieldName;
   });
 }

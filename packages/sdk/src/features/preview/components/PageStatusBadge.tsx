@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
  * variants into a tooltip that explains _why_ the page is modified.
  * -----------------------------------------------------------------------------------------------*/
 
-type PageStatus = "draft" | "published" | "modified";
+/** Publication state shared by pages and collection records. */
+export type PublicationStatus = "draft" | "published" | "modified";
 
 type ModifiedReason =
   | { reason: "self" }
@@ -24,7 +25,7 @@ type Size = React.ComponentProps<typeof Badge>["size"];
 
 // Tinted pattern, mirroring Badge's `destructive` variant
 // (`bg-destructive/10 text-destructive`) for a subtler look than solid fills.
-const statusStyles: Record<PageStatus, { className: string; label: string }> = {
+const statusStyles: Record<PublicationStatus, { className: string; label: string }> = {
   draft: {
     className: "bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400",
     label: "Draft",
@@ -40,7 +41,7 @@ const statusStyles: Record<PageStatus, { className: string; label: string }> = {
 };
 
 type PageStatusBadgeProps = {
-  status: PageStatus;
+  status: PublicationStatus;
   /** Optional — only the `'layout'` / `'both'` shapes surface the tooltip. */
   modifiedReason?: ModifiedReason;
   size?: Size;

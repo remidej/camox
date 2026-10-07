@@ -1,28 +1,59 @@
-import { Combobox } from "@base-ui/react/combobox";
 import { Button } from "@camox/ui/button";
-import { Input } from "@camox/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Link2, Plus, X } from "lucide-react";
+import { Link2, X } from "lucide-react";
 import * as React from "react";
 
 import { useCollectionItemModal } from "@/features/content/CollectionItemModalContext";
+import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
+import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
 import { collectionQueries } from "@/lib/queries";
 
 import type { OverlayMessage } from "../overlayMessages";
+import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
+import type { PublicationStatus } from "./PageStatusBadge";
+import { RecordCard, recordThumbnail } from "./RecordCard";
+import { RecordCombobox } from "./RecordCombobox";
 
-/** This view owns the relationship only. Source content stays in the item modal. */
+function referenceHint({
+  linked,
+  required,
+  status,
+}: {
+  linked: boolean;
+  required: boolean;
+  status?: PublicationStatus;
+}) {
+  if (!linked) return required ? "Required" : null;
+  // Only a record that was never published is missing from the live site.
+  if (status !== "draft") return null;
+  if (required) return "Blocks publishing until this record is included";
+  return "Won't appear on the live site until published";
+}
+
+/** This view owns the reference only. Record content is edited elsewhere. */
 export function ReferenceFieldEditor({
   collectionId,
+  fieldId,
   value,
+  required = false,
+  record = null,
   onChange,
+  onOpenRecord,
   drill,
 }: {
   collectionId: string;
+  /** Overlay field ID of this placement; the preview placeholder requests focus by it. */
+  fieldId?: string;
   value: unknown;
+  required?: boolean;
+  /** The hydrated record from the block bundle, used for the card thumbnail. */
+  record?: NormalizedCollectionRecord | null;
   onChange: (id: string | null) => void | Promise<void>;
+  /** Opens the linked record's view, where its fields are edited. */
+  onOpenRecord?: (id: string) => void;
   drill?: {
     label: string;
     fieldId: string;
@@ -31,13 +62,19 @@ export function ReferenceFieldEditor({
   };
 }) {
   const projectSlug = useProjectSlug();
+  const collection = useCamoxApp().getCollectionById(collectionId);
+  const collectionTitle = collection?._internal.title ?? collectionId;
   const modal = useCollectionItemModal();
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const records = useQuery(collectionQueries.records(projectSlug, collectionId));
   const selectedId = typeof value === "string" && value ? value : null;
-  const selected = records.data?.find((record) => record.id === value);
-  const selectedLabel = selected?.label ?? (value ? "Unavailable item" : "No item attached");
+  const selected = records.data?.find((option) => option.id === value);
+  const hydrated = record?.id === selectedId ? record : null;
+  const selectedLabel = selected?.label ?? hydrated?.label ?? "Unavailable item";
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const focusRequested = useReferencePickerFocusRequested(drill ? undefined : fieldId);
+  const pickerReady = !selectedId && records.isSuccess && !saving;
 
   const save = async (id: string | null) => {
     setSaving(true);
@@ -57,11 +94,21 @@ export function ReferenceFieldEditor({
     });
   };
 
+  React.useEffect(() => {
+    if (!focusRequested || !fieldId || !pickerReady) return;
+    referencePickerFocus.send({ type: "consume", fieldId });
+    setPickerOpen(true);
+  }, [focusRequested, fieldId, pickerReady]);
+
+  const hint = referenceHint({ linked: selectedId !== null, required, status: selected?.status });
+
   if (drill) {
     return (
       <DrillRow
         label={drill.label}
-        preview={selectedLabel}
+        preview={selectedId ? selectedLabel : `No ${collectionTitle} linked`}
+        // The field list only flags a missing required record, not publication state.
+        hint={referenceHint({ linked: selectedId !== null, required }) ?? undefined}
         Icon={Link2}
         onClick={drill.onClick}
         hover={{ variant: "field", fieldId: drill.fieldId }}
@@ -73,93 +120,61 @@ export function ReferenceFieldEditor({
   return (
     <fieldset disabled={saving} className="space-y-3">
       {selectedId && (
-        <div className="text-foreground hover:bg-accent/75 flex max-w-full items-center gap-2 rounded-lg border-2 p-1">
-          <button
-            type="button"
-            aria-label={`Edit ${selectedLabel}`}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm p-2 text-left text-sm"
-            onClick={() => modal.open({ collectionId, itemId: selectedId })}
-          >
-            <Link2 aria-hidden className="text-muted-foreground size-4 shrink-0" />
-            <span className="truncate">{selectedLabel}</span>
-          </button>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Unlink"
-                  className="text-muted-foreground hover:text-foreground shrink-0"
-                  onClick={() => change(null)}
-                />
-              }
-            >
-              <X aria-hidden className="size-4" />
-            </TooltipTrigger>
-            <TooltipContent>Unlink</TooltipContent>
-          </Tooltip>
-        </div>
+        <RecordCard
+          label={selectedLabel}
+          collectionTitle={collectionTitle}
+          status={selected?.status}
+          thumbnail={
+            hydrated ? recordThumbnail(collection?._internal.contentSchema, hydrated.content) : null
+          }
+          onOpen={onOpenRecord ? () => onOpenRecord(selectedId) : undefined}
+          actions={
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Unlink"
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    onClick={() => change(null)}
+                  />
+                }
+              >
+                <X aria-hidden className="size-4" />
+              </TooltipTrigger>
+              <TooltipContent>Unlink</TooltipContent>
+            </Tooltip>
+          }
+        />
       )}
       {!selectedId && (
-        <Combobox.Root
-          items={records.data ?? []}
-          value={selected ?? null}
-          itemToStringLabel={(record) => record.label}
-          itemToStringValue={(record) => record.id}
-          isItemEqualToValue={(record, current) => record.id === current.id}
-          onValueChange={(record) => {
-            if (record && record.id !== selectedId) change(record.id);
-          }}
+        <RecordCombobox
+          records={records.data ?? []}
+          collectionTitle={collectionTitle}
+          onSelect={(option) => change(option.id)}
           disabled={saving || records.isPending || records.isError}
-        >
-          <Combobox.Trigger
-            render={<Button type="button" variant="outline" className="w-full justify-between" />}
-          >
-            Select item
-            <ChevronsUpDown aria-hidden className="text-muted-foreground size-4" />
-          </Combobox.Trigger>
-          <Combobox.Portal>
-            <Combobox.Positioner sideOffset={4} align="start" className="isolate z-50">
-              <Combobox.Popup className="bg-popover text-popover-foreground ring-foreground/10 flex max-h-(--available-height) w-(--anchor-width) min-w-48 flex-col rounded-md p-1 shadow-md ring-1">
-                <Combobox.Input
-                  render={<Input className="mb-1" />}
-                  aria-label="Search items"
-                  placeholder="Search items…"
-                />
-                <Combobox.Empty className="text-muted-foreground text-sm">
-                  <div className="p-2">No items found.</div>
-                </Combobox.Empty>
-                <Combobox.List className="max-h-64 min-h-0 overflow-y-auto">
-                  {(record) => (
-                    <Combobox.Item
-                      key={record.id}
-                      value={record}
-                      className="data-highlighted:bg-accent data-highlighted:text-accent-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{record.label}</span>
-                      <Combobox.ItemIndicator>
-                        <Check aria-hidden className="size-4" />
-                      </Combobox.ItemIndicator>
-                    </Combobox.Item>
-                  )}
-                </Combobox.List>
-              </Combobox.Popup>
-            </Combobox.Positioner>
-          </Combobox.Portal>
-        </Combobox.Root>
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          footerAction={{
+            label: "Create item",
+            onSelect: (search) =>
+              modal.open({
+                collectionId,
+                initialContent:
+                  collection && search.trim()
+                    ? { [collection._internal.label]: search }
+                    : undefined,
+                onSaved: (created) => save(created.id),
+              }),
+          }}
+        />
       )}
-      {!selectedId && (
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full"
-          onClick={() => modal.open({ collectionId, onSaved: (record) => save(record.id) })}
-        >
-          <Plus aria-hidden className="size-3.5" />
-          Create item
-        </Button>
+      {hint && (
+        <p data-reference-hint className="text-muted-foreground text-xs">
+          {hint}
+        </p>
       )}
       {records.isPending && <p role="status">Loading items…</p>}
       {records.isError && (

@@ -20,16 +20,16 @@ import { SidebarLexicalEditor } from "@/core/components/lexical/SidebarLexicalEd
 import type { FieldType } from "@/core/lib/fieldTypes";
 import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import {
-  isFileMarker,
   isItemMarker,
-  resolveFileMarker,
+  resolveAssetValue,
+  type NormalizedCollectionRecord,
   type NormalizedFile,
   type NormalizedItem,
 } from "@/lib/normalized-data";
 
-import type { OverlayMessage } from "../overlayMessages";
+import { overlayFieldId, type OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import { previewStore } from "../previewStore";
+import { previewStore, type RecordPlacement } from "../previewStore";
 import { DrillRow } from "./DrillRow";
 import { IconFieldEditor } from "./IconFieldEditor";
 import { ReferenceFieldEditor } from "./ReferenceFieldEditor";
@@ -48,6 +48,7 @@ export interface SchemaField {
   minItems?: number;
   maxItems?: number;
   collectionId?: string;
+  required?: boolean;
 }
 
 export const formatFieldName = (fieldName: string): string => {
@@ -73,6 +74,7 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       minItems: prop.minItems as number | undefined,
       maxItems: prop.maxItems as number | undefined,
       collectionId: prop.collectionId as string | undefined,
+      required: prop.required === true,
     };
   });
 };
@@ -93,6 +95,10 @@ interface ItemFieldsEditorProps {
   /** Lookup maps for resolving _fileId and _itemId markers */
   filesMap: Map<number, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
+  /** Hydrated records linked by this block's reference fields, keyed by field name. */
+  references?: Record<string, NormalizedCollectionRecord | null>;
+  /** When editing a placed collection record's fields: where the block places it. */
+  placement?: RecordPlacement;
   /** Prefix used to scope DOM ids for each field so label-input pairs and
    * imperative focus lookups don't collide across sheet instances. */
   fieldIdPrefix: string;
@@ -108,6 +114,8 @@ const ItemFieldsEditor = ({
   postToIframe,
   filesMap,
   itemsMap,
+  references,
+  placement,
   fieldIdPrefix,
 }: ItemFieldsEditorProps) => {
   const owner = React.useContext(PreviewEditingOwnerContext);
@@ -122,11 +130,8 @@ const ItemFieldsEditor = ({
   const timerRef = React.useRef<number | null>(null);
   const focusedFieldIdRef = React.useRef<string | null>(null);
 
-  // Build field ID matching the iframe's getOverlayFieldId format
-  const getFieldId = (fieldName: string) => {
-    if (itemId != null) return `${blockId}__${itemId}__${fieldName}`;
-    return `${blockId}__${fieldName}`;
-  };
+  const getFieldId = (fieldName: string) =>
+    overlayFieldId(blockId, fieldName, { itemId, referenceFieldName: placement?.fieldName });
 
   const getFieldElementId = (fieldName: string) => `${fieldIdPrefix}-${fieldName}`;
 
@@ -178,11 +183,19 @@ const ItemFieldsEditor = ({
     }, 500);
   };
 
-  const handleFieldFocus = (fieldName: string, fieldType: FieldType) => {
+  /** Select a field of whatever owns the shown fields (block, repeater item or placed record). */
+  const selectField = (fieldName: string, fieldType: FieldType) => {
     if (owner === null) return;
-    const fieldId = getFieldId(fieldName);
-    focusedFieldIdRef.current = fieldId;
-    postToIframe({ type: "CAMOX_FOCUS_FIELD", fieldId });
+    if (placement) {
+      previewStore.send({
+        type: "selectRecordField",
+        ...owner,
+        ...placement,
+        recordFieldName: fieldName,
+        recordFieldType: fieldType,
+      });
+      return;
+    }
     if (itemId != null) {
       previewStore.send({
         type: "selectItemField",
@@ -192,9 +205,17 @@ const ItemFieldsEditor = ({
         fieldName,
         fieldType,
       });
-    } else {
-      previewStore.send({ type: "selectBlockField", ...owner, blockId, fieldName, fieldType });
+      return;
     }
+    previewStore.send({ type: "selectBlockField", ...owner, blockId, fieldName, fieldType });
+  };
+
+  const handleFieldFocus = (fieldName: string, fieldType: FieldType) => {
+    if (owner === null) return;
+    const fieldId = getFieldId(fieldName);
+    focusedFieldIdRef.current = fieldId;
+    postToIframe({ type: "CAMOX_FOCUS_FIELD", fieldId });
+    selectField(fieldName, fieldType);
   };
 
   const handleFieldBlur = (fieldName: string) => {
@@ -204,27 +225,9 @@ const ItemFieldsEditor = ({
     // Keep the field screen open when focus moves into its comments.
   };
 
-  /** Dispatch the correct drill-into event depending on whether we're at block or item level. */
-  const drillIntoField = (fieldName: string, fieldType: FieldType) => {
+  const openRecord = (fieldName: string, recordId: string) => {
     if (owner === null) return;
-    if (itemId != null) {
-      previewStore.send({
-        type: "selectItemField",
-        ...owner,
-        blockId,
-        itemId,
-        fieldName,
-        fieldType,
-      });
-    } else {
-      previewStore.send({
-        type: "selectBlockField",
-        ...owner,
-        blockId,
-        fieldName,
-        fieldType,
-      });
-    }
+    previewStore.send({ type: "selectRecord", ...owner, blockId, fieldName, recordId });
   };
 
   return (
@@ -239,15 +242,19 @@ const ItemFieldsEditor = ({
               <ReferenceFieldEditor
                 key={field.name}
                 collectionId={field.collectionId}
+                fieldId={fieldId}
                 value={data[field.name]}
+                required={field.required}
+                record={references?.[field.name] ?? null}
                 onChange={(value) => onFieldChange(field.name, value)}
+                onOpenRecord={(recordId) => openRecord(field.name, recordId)}
                 drill={
                   selectedFieldName
                     ? undefined
                     : {
                         label,
                         fieldId,
-                        onClick: () => drillIntoField(field.name, field.fieldType),
+                        onClick: () => selectField(field.name, field.fieldType),
                         postToIframe,
                       }
                 }
@@ -288,7 +295,7 @@ const ItemFieldsEditor = ({
                           ? ToggleLeft
                           : ListFilter
                 }
-                onClick={() => drillIntoField(field.name, field.fieldType)}
+                onClick={() => selectField(field.name, field.fieldType)}
                 hover={
                   field.fieldType === "Repeater"
                     ? { variant: "repeater", blockId, fieldName: field.name }
@@ -423,7 +430,7 @@ const ItemFieldsEditor = ({
                 label={label}
                 preview={preview}
                 Icon={Link2Icon}
-                onClick={() => drillIntoField(field.name, "Link")}
+                onClick={() => selectField(field.name, "Link")}
                 hover={{ variant: "field", fieldId }}
                 postToIframe={postToIframe}
               />
@@ -452,7 +459,7 @@ const ItemFieldsEditor = ({
                 label={label}
                 preview={preview}
                 Icon={isImage ? ImagesIcon : FileIcon}
-                onClick={() => drillIntoField(field.name, isImage ? "Image" : "File")}
+                onClick={() => selectField(field.name, isImage ? "Image" : "File")}
                 hover={{ variant: "repeater", blockId, fieldName: field.name }}
                 postToIframe={postToIframe}
               />
@@ -460,10 +467,10 @@ const ItemFieldsEditor = ({
           }
 
           if (field.fieldType === "Image") {
-            const rawImage = data[field.name];
-            const imageValue = isFileMarker(rawImage)
-              ? resolveFileMarker(rawImage, filesMap)
-              : (rawImage as { filename?: string } | undefined);
+            // Record assets are snapshots with a URL; block assets are file markers.
+            const imageValue = resolveAssetValue(data[field.name], filesMap) as
+              | { filename?: string }
+              | undefined;
             const preview = imageValue?.filename || "No image";
 
             return (
@@ -472,7 +479,7 @@ const ItemFieldsEditor = ({
                 label={label}
                 preview={preview}
                 Icon={ImageIcon}
-                onClick={() => drillIntoField(field.name, "Image")}
+                onClick={() => selectField(field.name, "Image")}
                 hover={{ variant: "field", fieldId }}
                 postToIframe={postToIframe}
               />
@@ -480,10 +487,9 @@ const ItemFieldsEditor = ({
           }
 
           if (field.fieldType === "File") {
-            const rawFile = data[field.name];
-            const fileValue = isFileMarker(rawFile)
-              ? resolveFileMarker(rawFile, filesMap)
-              : (rawFile as { filename?: string } | undefined);
+            const fileValue = resolveAssetValue(data[field.name], filesMap) as
+              | { filename?: string }
+              | undefined;
             const preview = fileValue?.filename || "No file";
 
             return (
@@ -492,7 +498,7 @@ const ItemFieldsEditor = ({
                 label={label}
                 preview={preview}
                 Icon={FileIcon}
-                onClick={() => drillIntoField(field.name, "File")}
+                onClick={() => selectField(field.name, "File")}
                 hover={{ variant: "field", fieldId }}
                 postToIframe={postToIframe}
               />

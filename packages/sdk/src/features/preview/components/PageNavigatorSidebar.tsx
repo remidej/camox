@@ -2,6 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from "@camox/ui/alert";
 import { PanelContent, PanelHeader } from "@camox/ui/panel";
 
 import { PagePicker } from "./PagePicker";
+import type { PublicationStatus } from "./PageStatusBadge";
 import { PageTree } from "./PageTree";
 import { PublicationRow } from "./PublicationRow";
 
@@ -11,7 +12,7 @@ export type PreviewedPage = {
   pathSegment: string;
   fullPath: string;
   livePublishedCheckpointId: number | null;
-  status: "draft" | "published" | "modified";
+  status: PublicationStatus;
   modifiedReason:
     | { reason: "self" }
     | { reason: "layout"; layoutId: number; layoutHandle: string; affectedPagesCount: number }

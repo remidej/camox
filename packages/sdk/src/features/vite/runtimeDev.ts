@@ -75,6 +75,8 @@ function resolveCamoxSourceImport(id: string): string | undefined {
 function generateVirtualCamoxApp(): string {
   return `import { createApp } from "camox/createApp";
 
+const rootCollectionModules = import.meta.glob("/src/collections/*.{ts,tsx}", { eager: true });
+const legacyCollectionModules = import.meta.glob("/src/camox/collections/*.{ts,tsx}", { eager: true });
 const rootBlockModules = import.meta.glob("/src/blocks/*.{ts,tsx}", { eager: true });
 const legacyBlockModules = import.meta.glob("/src/camox/blocks/*.{ts,tsx}", { eager: true });
 const rootLayoutModules = import.meta.glob("/src/layouts/*.{ts,tsx}", { eager: true });
@@ -86,8 +88,14 @@ const blocks = [...Object.values(rootBlockModules), ...Object.values(legacyBlock
 const layouts = [...Object.values(rootLayoutModules), ...Object.values(legacyLayoutModules)]
   .map((mod) => mod.Layout ?? mod.layout)
   .filter(Boolean);
+const collections = [
+  ...Object.values(rootCollectionModules),
+  ...Object.values(legacyCollectionModules),
+]
+  .map((mod) => mod.collection)
+  .filter(Boolean);
 
-export const camoxApp = createApp({ blocks, layouts });
+export const camoxApp = createApp({ blocks, layouts, collections });
 `;
 }
 

@@ -20,7 +20,21 @@ export type Selection =
       itemId: number;
       fieldName: string;
       fieldType: FieldType;
-    };
+    }
+  | ({ type: "record" } & RecordPlacement)
+  | ({
+      type: "record-field";
+      recordFieldName: string;
+      recordFieldType: FieldType;
+    } & RecordPlacement);
+
+/** A collection record placed by a block's reference field (one occurrence of the record). */
+export type RecordPlacement = {
+  blockId: number;
+  /** The block's reference field that places the record. */
+  fieldName: string;
+  recordId: string;
+};
 
 /** Derived routes have no page row, but their persisted layout remains editable. */
 export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: number };
@@ -242,10 +256,62 @@ export const previewStore = createStore({
         fieldType: event.fieldType,
       }),
     }),
+    selectRecord: (context, event: EditingOwner & RecordPlacement) => ({
+      ...context,
+      editingContext: targetContext(event, {
+        type: "record" as const,
+        blockId: event.blockId,
+        fieldName: event.fieldName,
+        recordId: event.recordId,
+      }),
+    }),
+    selectRecordField: (
+      context,
+      event: EditingOwner &
+        RecordPlacement & { recordFieldName: string; recordFieldType: FieldType },
+    ) => ({
+      ...context,
+      editingContext: targetContext(event, {
+        type: "record-field" as const,
+        blockId: event.blockId,
+        fieldName: event.fieldName,
+        recordId: event.recordId,
+        recordFieldName: event.recordFieldName,
+        recordFieldType: event.recordFieldType,
+      }),
+    }),
     selectParent: (context) => {
       const editingContext = context.editingContext;
       const sel = editingContext?.selection;
       if (!sel) return context;
+      if (sel.type === "record-field") {
+        return {
+          ...context,
+          editingContext: {
+            ...editingContext,
+            selection: {
+              type: "record" as const,
+              blockId: sel.blockId,
+              fieldName: sel.fieldName,
+              recordId: sel.recordId,
+            },
+          },
+        };
+      }
+      if (sel.type === "record") {
+        return {
+          ...context,
+          editingContext: {
+            ...editingContext,
+            selection: {
+              type: "block-field" as const,
+              blockId: sel.blockId,
+              fieldName: sel.fieldName,
+              fieldType: "Reference" as const,
+            },
+          },
+        };
+      }
       if (sel.type === "block-field") {
         return {
           ...context,
