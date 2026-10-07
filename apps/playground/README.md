@@ -95,3 +95,21 @@ dependency is rejected; optional unpublished references render empty.
 Existing demo testimonials may still contain the old plain-text company value.
 Attach a Customers item in each Company view to replace that legacy value;
 there is no implicit conversion from text into shared records.
+
+## Shared customer logos (slice 5, reference lists)
+
+The logo grid's `customers` is `Type.ReferenceList(customers, { maxItems: 12 })`: an
+ordered list of distinct Customers items, shared with the testimonial's company.
+`logoGrid.ReferenceList` renders its child once per linked customer with the same
+typed scope as `testimonial.Reference`. The list's order belongs to the logo grid.
+
+Until the sidebar can edit lists, set one through the block edit tools (for example
+an agent's `editBlock`) with an array of customer IDs.
+
+1. Add a logo grid to a draft page and link two customers, one of which the
+   testimonial also uses. An empty list renders nothing.
+2. Publish the page. The review lists the shared customer once. A customer that was
+   never published doesn't block publishing; the live grid skips it and keeps the
+   order of the others.
+3. Unpublishing a customer linked only from the grid is allowed, and the live grid
+   skips it. Deleting a customer that any draft or live grid links is rejected.

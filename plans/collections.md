@@ -132,6 +132,46 @@ without copying page/block trees or sharing their restoration behavior.
   plain-text company values are not converted into records automatically; the
   editor explicitly attaches a Customers item.
 
+## Slice 5 decision: manual reference lists
+
+Recorded from #132. Only manual lists in top-level block content are in this half
+of slice 5; references in repeaters, settings, and collection schemas, relation
+depth and cycles, and query-backed lists (slice 6) remain open.
+
+- `Type.ReferenceList(collection, { title?, description?, maxItems?, toMarkdown? })`
+  carries field type `ReferenceList`, the collection id, and the collection's content
+  schema. It stores an ordered array of distinct record UUIDs and defaults to `[]`.
+  There is no `required` or `minItems`: an empty list is always valid. Entries have
+  no settings; per-placement presentation belongs in a repeater item.
+- Schema validation accepts lists at the top level of block content only. Value
+  validation (shared services, so agent tools get the same errors) rejects ids outside
+  the field's collection, project, or environment, duplicates, and lists over
+  `maxItems`, with field-named errors.
+- Draft resolution returns every linked record in stored order; live resolution
+  returns only records with a published revision, in stored order. Missing records
+  are skipped. Checkpoints store the ordered ids, never pinned revisions, so history
+  and live views resolve them against current published records.
+- The dependency index expands list values into one non-required use per linked
+  record (migration `0030_reference_lists` redefines the view; triggers stay).
+  Deleting a record any draft or live list links is refused; unpublishing it is
+  allowed; page, layout, and synced-block publication is never blocked by list
+  entries; placement writes linking a missing record are refused.
+- Linked records join the deduplicated publication review (changed records default
+  on) and are never "missing required".
+- `block.ReferenceList` renders its child once per resolved record with the same
+  typed record scope as `block.Reference`, and renders nothing for an empty list.
+- Editors manage a list in the reference field view: sortable record cards with
+  **Unlink**, a never-published hint, and a combobox that appends (hiding linked
+  records, hidden at `maxItems`, **Create item** appends). Writes send the whole
+  array. Record and record field views are unchanged; selection shapes are reused
+  (uniqueness makes them unambiguous) and placement ids include the record id.
+  A selection whose record left the list falls back to the reference field view.
+  In edit mode an empty list shows a dashed "Add {collection}" placeholder.
+- The list's per-use `toMarkdown` runs per resolved record, like repeater items, and
+  the block includes it through its content token; live Markdown omits unpublished
+  records.
+- The playground logo grid links customers shared with the testimonial.
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.
