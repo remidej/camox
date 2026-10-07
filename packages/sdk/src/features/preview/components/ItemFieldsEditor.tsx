@@ -22,7 +22,8 @@ import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import {
   isItemMarker,
   resolveAssetValue,
-  type NormalizedCollectionRecord,
+  singleReference,
+  type NormalizedReferences,
   type NormalizedFile,
   type NormalizedItem,
 } from "@/lib/normalized-data";
@@ -96,7 +97,7 @@ interface ItemFieldsEditorProps {
   filesMap: Map<number, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
   /** Hydrated records linked by this block's reference fields, keyed by field name. */
-  references?: Record<string, NormalizedCollectionRecord | null>;
+  references?: NormalizedReferences;
   /** When editing a placed collection record's fields: where the block places it. */
   placement?: RecordPlacement;
   /** Prefix used to scope DOM ids for each field so label-input pairs and
@@ -245,7 +246,7 @@ const ItemFieldsEditor = ({
                 fieldId={fieldId}
                 value={data[field.name]}
                 required={field.required}
-                record={references?.[field.name] ?? null}
+                record={singleReference(references, field.name)}
                 onChange={(value) => onFieldChange(field.name, value)}
                 onOpenRecord={(recordId) => openRecord(field.name, recordId)}
                 drill={

@@ -60,9 +60,11 @@ import {
 import { markdownToReactNodes, type InlineTextStyles } from "../lib/lexicalReact";
 import {
   resolveReference,
+  resolveReferenceList,
   referenceOccurrenceId,
   type ReferenceContent,
   type ReferenceKeys,
+  type ReferenceListKeys,
   type ReferenceScope,
 } from "../lib/reference";
 import { referenceWritesFor } from "./referenceWrites";
@@ -586,7 +588,10 @@ export function createEditableBlock<
         ? never
         : FileValue extends U
           ? never
-          : K
+          : // Reference lists store record ids, not items.
+            U extends string
+            ? never
+            : K
       : never]: TContent[K];
   };
 
@@ -2264,6 +2269,52 @@ export function createEditableBlock<
     );
   };
 
+  // Listed records render in place, but are not selectable or inline-editable yet:
+  // their primitives render as on the live site (`peek` is never editable).
+  const ReferenceList = <K extends ReferenceListKeys<TSchemaShape>>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
+  }): React.ReactNode => {
+    const block = React.use(Context);
+    const { recordsMap } = useNormalizedData();
+    if (!block) throw new Error("ReferenceList must be used within a Block Component");
+    const fieldName = String(name);
+    const schema = typeboxSchema.properties[fieldName];
+    const records = resolveReferenceList(
+      (block.content as Record<string, unknown>)[fieldName],
+      schema.collectionId,
+      recordsMap,
+    );
+    return records.map((record) => (
+      <ReferenceContext.Provider key={record.id} value={null}>
+        <RepeatableItemContext.Provider value={null}>
+          <Context.Provider
+            value={{
+              ...block,
+              mode: "peek",
+              content: record.content as TContent,
+              sourceSchema: schema.referenceSchema.properties,
+            }}
+          >
+            {children({
+              id: record.id,
+              label: record.label,
+              Field,
+              Image: ReferenceImage,
+              File: ReferenceFile,
+              Embed: ReferenceEmbed,
+              ImageList: ReferenceImageList,
+              FileList: ReferenceFileList,
+            } as unknown as ReferenceScope<ReferenceContent<TSchemaShape[K]>>)}
+          </Context.Provider>
+        </RepeatableItemContext.Provider>
+      </ReferenceContext.Provider>
+    ));
+  };
+
   /**
    * Wraps block content that renders outside the block's visual bounds (fixed navbars, modals, portals, etc.).
    * Provides the same hover and selection overlays as the main BlockComponent.
@@ -2357,6 +2408,7 @@ export function createEditableBlock<
     FileList,
     Repeater,
     Reference,
+    ReferenceList,
     useSetting,
     _internal: {
       /**

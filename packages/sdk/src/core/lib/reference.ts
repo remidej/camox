@@ -1,7 +1,13 @@
 import type { Static, TSchema } from "@sinclair/typebox";
 import type * as React from "react";
 
-import type { EmbedURL, FileValue, ImageValue, ReferenceSchema } from "./contentType";
+import type {
+  EmbedURL,
+  FileValue,
+  ImageValue,
+  ReferenceListSchema,
+  ReferenceSchema,
+} from "./contentType";
 import type { InlineTextStyles } from "./lexicalReact";
 
 type Keys<T extends Record<string, TSchema>, V> = {
@@ -47,7 +53,12 @@ export type ReferenceKeys<T extends Record<string, TSchema>> = {
   [K in keyof T & string]: T[K] extends ReferenceSchema<any> ? K : never;
 }[keyof T & string];
 
-export type ReferenceContent<T extends TSchema> = T extends ReferenceSchema<infer C> ? C : never;
+export type ReferenceListKeys<T extends Record<string, TSchema>> = {
+  [K in keyof T & string]: T[K] extends ReferenceListSchema<any> ? K : never;
+}[keyof T & string];
+
+export type ReferenceContent<T extends TSchema> =
+  T extends ReferenceSchema<infer C> ? C : T extends ReferenceListSchema<infer C> ? C : never;
 
 /** A source identity is never used as an occurrence identity. */
 export function referenceOccurrenceId(blockId: number, fieldName: string) {
@@ -70,4 +81,16 @@ export function resolveReference(
   if (typeof value !== "string") return null;
   const record = records.get(value);
   return record?.collectionId === collectionId ? record : null;
+}
+
+/** The records a reference list links, in stored order; unresolved ids are skipped. */
+export function resolveReferenceList(
+  value: unknown,
+  collectionId: string,
+  records: ReadonlyMap<string, ReferenceRecord>,
+): ReferenceRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((id) => resolveReference(id, collectionId, records))
+    .filter((record) => record !== null);
 }

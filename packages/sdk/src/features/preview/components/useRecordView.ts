@@ -26,7 +26,10 @@ export type SelectionCrumb = {
 };
 
 type RecordSelection = Extract<Selection, { type: "record" | "record-field" }>;
-type PlacedRecord = NonNullable<NonNullable<BlockBundle["block"]["references"]>[string]>;
+type PlacedRecord = Exclude<
+  NonNullable<NonNullable<BlockBundle["block"]["references"]>[string]>,
+  unknown[]
+>;
 type Collection = NonNullable<ReturnType<ReturnType<typeof useCamoxApp>["getCollectionById"]>>;
 
 export type RecordView = {
@@ -64,7 +67,9 @@ export function useRecordView({
     : undefined;
   const collectionId = referenceField?.collectionId;
   const collection = collectionId ? camoxApp.getCollectionById(collectionId) : undefined;
-  const placedRecord = referenceFieldName ? block?.references?.[referenceFieldName] : undefined;
+  const placed = referenceFieldName ? block?.references?.[referenceFieldName] : undefined;
+  // Reference list placements are not selectable yet; only single references resolve here.
+  const placedRecord = placed && !Array.isArray(placed) ? placed : undefined;
   const isStale =
     recordSelection != null &&
     block != null &&

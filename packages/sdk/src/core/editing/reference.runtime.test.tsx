@@ -622,3 +622,67 @@ void test("record embeds select their record field for that placement only", asy
     await window.happyDOM.close();
   }
 });
+
+void test("editable reference lists render their linked records in stored order and nothing when empty", () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: { name: Type.String({ default: "" }) },
+  });
+  const records: ReferenceRecord[] = ["Acme", "Beta"].map((name) => ({
+    id: `${name.toLowerCase()}-id`,
+    collectionId: "customers",
+    label: `${name} label`,
+    content: { name },
+    version: 1,
+  }));
+  const block = createEditableBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: { customers: Type.ReferenceList(customers) },
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="customers">
+          {(customer) => (
+            <li aria-label={customer.label}>
+              <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
+            </li>
+          )}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+  const render = (customerIds: string[]) =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <NormalizedDataProvider
+          files={[]}
+          repeatableItems={[]}
+          blocks={[{ references: { customers: records } }]}
+        >
+          <block._internal.Component
+            mode="site"
+            blockData={{
+              _id: 4,
+              type: "logo-grid",
+              position: "a0",
+              content: { customers: customerIds },
+            }}
+          />
+        </NormalizedDataProvider>
+      </QueryClientProvider>,
+    );
+  const writesBefore = requests.length;
+  const html = render(["beta-id", "missing-id", "acme-id"]);
+  assert.deepEqual(
+    [...html.matchAll(/<li aria-label="([^"]+)">/g)].map((match) => match[1]),
+    ["Beta label", "Acme label"],
+  );
+  assert.match(html, /Beta.*Acme/s);
+  assert.doesNotMatch(render([]), /<li/);
+  assert.equal(requests.length, writesBefore);
+});

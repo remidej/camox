@@ -161,6 +161,93 @@ void test("public scopes render source fields and labels, never fabricate missin
   }
 });
 
+void test("reference list schema stores ordered identities, defaults empty and only caps the length", () => {
+  const field = Type.ReferenceList(customers, { maxItems: 6 });
+  assert.equal(field.fieldType, "ReferenceList");
+  assert.equal(field.collectionId, "customers");
+  assert.equal(field.referenceSchema, customers._internal.contentSchema);
+  assert.deepEqual(field.default, []);
+  assert.equal(field.maxItems, 6);
+  assert.equal(field.title, "Customers");
+  assert.equal("required" in field, false);
+  assert.equal("minItems" in field, false);
+  const block = createBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: { customers: Type.ReferenceList(customers) },
+    component: () => null,
+    toMarkdown: () => [],
+  });
+  assert.deepEqual(block._internal.getInitialContent(), { customers: [] });
+  assert.deepEqual(block._internal.getInitialBundle().content, { customers: [] });
+});
+
+void test("reference lists render each resolved record in stored order and nothing when empty", () => {
+  const second: ReferenceRecord = {
+    id: "5a1f0c0e-5d8c-4c55-8f2e-0d3f0b6f4a11",
+    collectionId: "customers",
+    label: "Beta label",
+    content: { name: "Beta" },
+  };
+  const block = createBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: { customers: Type.ReferenceList(customers) },
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="customers">
+          {(customer) => (
+            <li aria-label={customer.label} data-id={customer.id}>
+              <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
+            </li>
+          )}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+  const render = (value: unknown, references: ReferenceRecord[]) =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthContext.Provider
+          value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+        >
+          <NavigationProvider>
+            <NormalizedDataProvider
+              files={[]}
+              repeatableItems={[]}
+              blocks={[{ references: { customers: references } }]}
+            >
+              <block._internal.Component
+                mode="site"
+                blockData={{
+                  _id: 1,
+                  type: "logo-grid",
+                  position: "a0",
+                  content: { customers: value as string[] },
+                }}
+              />
+            </NormalizedDataProvider>
+          </NavigationProvider>
+        </AuthContext.Provider>
+      </QueryClientProvider>,
+    );
+  const missing = "9b0c6d55-1d2e-4f57-9a43-3c1b4c1f8f00";
+  const html = render([second.id, missing, id], [record, second]);
+  assert.match(
+    html,
+    new RegExp(
+      `<ul><li aria-label="Beta label" data-id="${second.id}"><b><span>Beta</span></b></li>` +
+        `<li aria-label="Source label" data-id="${id}"><b><span>Acme</span></b></li></ul>`,
+    ),
+  );
+  assert.match(render([], [record]), /<ul><\/ul>/);
+  assert.match(render(undefined, []), /<ul><\/ul>/);
+  assert.match(render([id], [{ ...record, collectionId: "other" }]), /<ul><\/ul>/);
+});
+
 void test("occurrence identity is separate from source identity and resolution validates collection", () => {
   assert.notEqual(referenceOccurrenceId(1, "customer"), referenceOccurrenceId(2, "customer"));
   assert.notEqual(referenceOccurrenceId(1, "customer"), referenceOccurrenceId(1, "other"));

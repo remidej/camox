@@ -16,6 +16,10 @@ export type ReferenceSchema<T extends Record<string, TSchema>> = TUnsafe<string 
   readonly [ReferenceContentBrand]: T;
   fieldType: "Reference";
 };
+export type ReferenceListSchema<T extends Record<string, TSchema>> = TUnsafe<string[]> & {
+  readonly [ReferenceContentBrand]: T;
+  fieldType: "ReferenceList";
+};
 
 declare const __CAMOX_ICON_IDS__: readonly string[];
 
@@ -338,6 +342,27 @@ export const Type = {
       referenceSchema: collection._internal.contentSchema,
       labelField: collection._internal.label,
     }) as ReferenceSchema<T>,
+  /**
+   * Store an ordered list of distinct record identities; records resolve independently.
+   * An empty list is always valid, so there is no `required` or `minItems`.
+   */
+  ReferenceList: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options: { title?: string; description?: string; maxItems?: number } = {},
+  ): ReferenceListSchema<T> =>
+    TypeBoxType.Unsafe<string[]>({
+      type: "array",
+      items: { type: "string", format: "uuid" },
+      fieldType: "ReferenceList",
+      collectionId: collection._internal.id,
+      title: options.title ?? collection._internal.title,
+      ...(options.description === undefined ? {} : { description: options.description }),
+      ...(options.maxItems === undefined ? {} : { maxItems: options.maxItems }),
+      default: [],
+      // Used by the typed child scope, not a copy of a record's content.
+      referenceSchema: collection._internal.contentSchema,
+      labelField: collection._internal.label,
+    }) as ReferenceListSchema<T>,
   Icon: (options: { default: IconId; title?: string }) => {
     const ids = typeof __CAMOX_ICON_IDS__ === "undefined" ? [] : __CAMOX_ICON_IDS__;
     if (!ids.includes(options.default))
