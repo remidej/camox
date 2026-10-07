@@ -22,7 +22,7 @@ const list = command(
     json: jsonFlag,
   }),
   {
-    description: message`List layout metadata. Use layouts get --id ID with a returned numeric id to discover its block instances.`,
+    description: message`List layout metadata. Use layouts get --id ID with a returned numeric id to discover its blocks.`,
   },
 );
 
@@ -38,7 +38,7 @@ const get = command(
     json: jsonFlag,
   }),
   {
-    description: message`Inspect a layout and its block instances, including shared navigation and footer IDs for blocks get and blocks edit. Use the numeric id from layouts list, not the code-defined layoutId. Reads the draft by default; --live reads the published snapshot. --production selects the environment, not the published state.`,
+    description: message`Inspect a layout and its blocks, including shared navigation and footer IDs for blocks get and blocks edit. Use the numeric id from layouts list, not the code-defined layoutId. Reads the draft by default; --live reads the published snapshot. --production selects the environment, not the published state.`,
   },
 );
 

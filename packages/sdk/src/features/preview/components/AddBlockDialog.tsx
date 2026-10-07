@@ -108,7 +108,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
         type: variables.type,
         content: variables.content as Record<string, unknown>,
         settings: (variables.settings as Record<string, unknown>) ?? null,
-        placement: null,
+        slot: null,
         summary: "",
         position,
         createdAt: now,

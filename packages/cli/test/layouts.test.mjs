@@ -15,8 +15,8 @@ const calls = [];
 const bundle = {
   layout: { id: 39, layoutId: "default", beforeBlockIds: [99], afterBlockIds: [100] },
   blocks: [
-    { id: 99, type: "navigation", placement: "before", content: {} },
-    { id: 100, type: "footer", placement: "after", content: {} },
+    { id: 99, type: "navigation", slot: "before", content: {} },
+    { id: 100, type: "footer", slot: "after", content: {} },
   ],
   repeatableItems: [],
   files: [],

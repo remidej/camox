@@ -1,6 +1,6 @@
 # Camox CLI common guidance
 
-Use the Camox CLI for CRUD operations on Pages, Block instances, Layout assignments, metadata, drafts, and published content. Use the code references instead when changing Block Definitions or Layout Definitions in `src/blocks/` or `src/layouts/`.
+Use the Camox CLI for CRUD operations on Pages, Blocks, Layout assignments, metadata, drafts, and published content. Use the code references instead when changing Block Definitions or Layout Definitions in `src/blocks/` or `src/layouts/`.
 
 If a change should be visible without a code deployment, it is usually a CLI content operation. Some requests require both code and CLI work: define the new type first, wait for the dev server to discover it, then create or assign its content through the CLI.
 

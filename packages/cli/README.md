@@ -74,7 +74,7 @@ See `camox pages update --help` for options and examples.
 
 ## Shared navigation and footer content
 
-`pages get` shows page-owned blocks. To find layout-owned block instances:
+`pages get` shows page-owned blocks. To find layout-owned blocks:
 
 ```sh
 camox layouts list
@@ -85,7 +85,7 @@ camox blocks edit --id 99 --content '{"title": "Updated title"}'
 
 Use the numeric layout `id` from `layouts list` (or the page's numeric
 `layoutId`), not the code-defined string `layoutId`. `layouts get` returns
-`blocks` with instance IDs, types, placement, and content, along with ordered
+`blocks` with IDs, types, layout slot, and content, along with ordered
 `layout.beforeBlockIds` and `layout.afterBlockIds`. Use a returned block `id`
 with `blocks get` and `blocks edit`, inspecting its schema and current content
 before editing.

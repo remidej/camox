@@ -216,7 +216,7 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
 
 function missingReference(name: string) {
   return new InvalidInputError({
-    message: `${name}: reference is missing or outside this collection/site/environment`,
+    message: `${name}: reference is missing or outside this collection/project/environment`,
   });
 }
 

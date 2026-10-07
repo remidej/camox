@@ -122,8 +122,7 @@ export const referenceTargets = Effect.fn("collections.referenceTargets")(functi
 });
 
 /**
- * Immutable snapshots may be orphaned on conflict. All visible pointers (including
- * independently shared blocks) move in one D1 batch, never as a sequence of publications.
+ * Immutable snapshots may be orphaned on conflict. All visible pointers (including * independently published synced blocks) move in one D1 batch, never as a sequence of publications.
  */
 export const publishWithReferences = Effect.fn("collections.publishWithReferences")(function* (
   ctx: ServiceContext,

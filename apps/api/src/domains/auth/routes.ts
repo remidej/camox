@@ -141,7 +141,7 @@ export function createAuth(
       user: {
         create: {
           after: async (user) => {
-            const orgName = `${user.name}'s team`;
+            const orgName = `${user.name}'s organization`;
             const slug = generateSlug(orgName);
             await auth.api.createOrganization({
               body: {

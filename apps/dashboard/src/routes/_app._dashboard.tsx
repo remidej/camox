@@ -144,7 +144,7 @@ function CreateOrganizationDialog({
         <DialogHeader>
           <DialogTitle>Create organization</DialogTitle>
           <DialogDescription>
-            Add a new organization to collaborate with your team.
+            Add a new organization to collaborate with other members.
           </DialogDescription>
         </DialogHeader>
         <form

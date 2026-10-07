@@ -564,7 +564,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     });
 
     const item = doc.createElement("div");
-    item.setAttribute("data-camox-repeater-item-id", "12");
+    item.setAttribute("data-camox-repeatable-item-id", "12");
     block.append(item);
     item.addEventListener("click", (event) => {
       selectPreviewTarget(

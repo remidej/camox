@@ -82,7 +82,7 @@ class CanvasPageBoundary extends React.Component<
 function CanvasPagePreview({
   pathname,
   runtimeBasePath,
-  templateId,
+  derivedLayoutId,
   pageId,
   viewport,
   selected,
@@ -91,7 +91,7 @@ function CanvasPagePreview({
 }: {
   pathname: string;
   runtimeBasePath: string;
-  templateId?: string;
+  derivedLayoutId?: string;
   pageId?: number;
   viewport: CanvasViewport;
   selected: boolean;
@@ -100,7 +100,7 @@ function CanvasPagePreview({
 }) {
   const projectSlug = useProjectSlug();
   const { data, error, isPending, isFetching, refetch } = useQuery({
-    queryKey: ["camox", "canvas", projectSlug, runtimeBasePath, pathname, templateId ?? null],
+    queryKey: ["camox", "canvas", projectSlug, runtimeBasePath, pathname, derivedLayoutId ?? null],
     queryFn: async ({ signal }) => {
       const url = new URL(runtimePath("/_camox/data", runtimeBasePath), window.location.origin);
       url.searchParams.set("path", pathname);
@@ -111,7 +111,7 @@ function CanvasPagePreview({
       });
       if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
       const input = (await response.json()) as PageRenderInput;
-      validateCanvasPageInput(input, pathname, templateId);
+      validateCanvasPageInput(input, pathname, derivedLayoutId);
       return input;
     },
     retry: false,
@@ -190,7 +190,7 @@ function CanvasWorkspace({
     runtimeBasePath,
   ]);
   const selectedIndex = pages.findIndex((page) => page.key === selectedPage?.key);
-  // Keep other template previews visible; selection itself is always read from the URL.
+  // Keep other derived layout previews visible; selection itself is always read from the URL.
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
   );
@@ -278,7 +278,7 @@ function CanvasWorkspace({
                       hovered={hoveredPageKey === page.key}
                       pathname={pathname}
                       runtimeBasePath={runtimeBasePath}
-                      templateId={page.templateId}
+                      derivedLayoutId={page.derivedLayoutId}
                       pageId={page.pageId}
                       viewport={viewport}
                       selected={page.key === selectedPage?.key}
@@ -288,9 +288,7 @@ function CanvasWorkspace({
                       }}
                     />
                   ) : (
-                    <CanvasMessage>
-                      Choose an instance path above to preview this template.
-                    </CanvasMessage>
+                    <CanvasMessage>Choose a page path above to preview this layout.</CanvasMessage>
                   )}
                 </CanvasPageBoundary>
               </div>

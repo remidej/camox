@@ -19,7 +19,7 @@ export const blockTypesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "(`type`, `title`, `description`, `layoutOnly`, `synced`) for discovery — call `describeBlockTypes` " +
       "to fetch the JSON Schemas needed to construct arguments for createBlock / editBlock. " +
       "Block types whose `layoutOnly` is true can only appear inside layouts and are not valid for createBlock on a page. " +
-      "Editing a `synced` block changes its data across all instances in this environment.",
+      "Editing a `synced` block changes its data across all its placements in this environment.",
     inputSchema: listBlockTypesToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () => {

@@ -42,7 +42,7 @@ async function fixture(suffix: string, synced?: boolean) {
     blocks: [
       {
         type: "navbar",
-        placement: "before" as const,
+        slot: "before" as const,
         content: { title: layoutId },
         settings: { sticky: true },
         repeatableItems: [
@@ -168,7 +168,7 @@ describe("synced blocks", () => {
     });
   });
 
-  it("reuses data for new page instances and duplicates, without crossing environments", async () => {
+  it("reuses data for new page placements and duplicates, without crossing environments", async () => {
     const { db, ctx, project, environment, layout, first } = await fixture("sync-scope", true);
     const now = Date.now();
     const page = await db

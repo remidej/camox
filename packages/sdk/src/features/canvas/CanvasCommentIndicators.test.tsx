@@ -90,16 +90,16 @@ void test("maps unresolved field comments to exact visible field geometry", asyn
   await window.happyDOM.close();
 });
 
-void test("maps blocks and nested repeater items to their own visible top-right anchors", async () => {
+void test("maps blocks and nested repeatable items to their own visible top-right anchors", async () => {
   const window = new Window();
   const document = window.document as unknown as Document;
   const block = field(document, "", 10, 20);
   block.element.setAttribute("data-camox-block-id", "12");
   const item = field(document, "", 30, 100);
-  item.element.setAttribute("data-camox-repeater-item-id", "34");
+  item.element.setAttribute("data-camox-repeatable-item-id", "34");
   block.element.appendChild(item.element);
   const nested = field(document, "", 40, 200);
-  nested.element.setAttribute("data-camox-repeater-item-id", "35");
+  nested.element.setAttribute("data-camox-repeatable-item-id", "35");
   item.element.appendChild(nested.element);
   const hidden = { ...block, visible: false };
   const comments = [
@@ -341,8 +341,9 @@ void test("renders a rounded clickable comment inset from its field's top-right 
       const anchor = field(window.document as unknown as Document, "", 20, 40);
       anchor.synced = true;
       anchor.element.setAttribute("data-camox-block-id", "12");
-      if (target.kind === "item") anchor.element.setAttribute("data-camox-repeater-item-id", "34");
-      const label = target.kind === "item" ? "repeater item" : target.kind;
+      if (target.kind === "item")
+        anchor.element.setAttribute("data-camox-repeatable-item-id", "34");
+      const label = target.kind === "item" ? "repeatable item" : target.kind;
       for (const count of [1, 2]) {
         await React.act(async () => {
           root.render(

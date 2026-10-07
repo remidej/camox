@@ -145,8 +145,8 @@ void test("canvas names report selection without changing preview state or editi
       await act(async () => previewStore.send({ type: "setCommentMode", enabled: false }));
       assert.equal(name.style.cursor, "");
       await act(async () => previewStore.send({ type: "exitEditMode" }));
-      if (page.templateId)
-        assert.ok(mount.querySelector('button[aria-label="Edit instance path for Article"]'));
+      if (page.derivedLayoutId)
+        assert.ok(mount.querySelector('button[aria-label="Edit page path for Article"]'));
     }
   } finally {
     await act(async () => root.unmount());

@@ -845,7 +845,7 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
     return (
       <div ref={viewportRef} tabIndex={0}>
         <div ref={contentRef} />
-        <input aria-label="Instance" />
+        <input aria-label="Page path" />
         <button type="button">
           <span>Page name</span>
         </button>

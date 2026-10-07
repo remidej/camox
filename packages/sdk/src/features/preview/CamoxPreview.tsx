@@ -194,8 +194,7 @@ export const PageContent = () => {
             mode="site"
             showAddBlockTop={
               index === 0
-                ? (layout?._internal.blockDefinitions.some((b) => b.placement === "before") ??
-                  false)
+                ? (layout?._internal.blockDefinitions.some((b) => b.slot === "before") ?? false)
                 : true
             }
             showAddBlockBottom={true}

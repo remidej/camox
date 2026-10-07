@@ -7,7 +7,7 @@ const pokedex = createBlock({
   id: "pokedex",
   title: "Pokémon of the week",
   description:
-    "Spotlight three editor-picked Pokémon with names and artwork loaded from PokéAPI and links to their field-guide pages. Set each repeater item's Pokémon name in the editor sidebar (for example, gengar or mr-mime); names are not inline-editable on the cards.",
+    "Spotlight three editor-picked Pokémon with names and artwork loaded from PokéAPI and links to their field-guide pages. Set each repeatable item's Pokémon name in the editor sidebar (for example, gengar or mr-mime); names are not inline-editable on the cards.",
   content: {
     title: Type.String({ title: "Title", default: "Pokémon of the week" }),
     description: Type.String({

@@ -20,9 +20,9 @@ export type OverlayMessage =
   // Repeater container messages (Parent → Iframe)
   | { type: "CAMOX_HOVER_REPEATER"; blockId: string; fieldName: string }
   | { type: "CAMOX_HOVER_REPEATER_END"; blockId: string; fieldName: string }
-  // Repeater item messages (Parent → Iframe)
-  | { type: "CAMOX_HOVER_REPEATER_ITEM"; blockId: string; itemId: string }
-  | { type: "CAMOX_HOVER_REPEATER_ITEM_END"; blockId: string; itemId: string }
+  // Repeatable item messages (Parent → Iframe)
+  | { type: "CAMOX_HOVER_REPEATABLE_ITEM"; blockId: string; itemId: string }
+  | { type: "CAMOX_HOVER_REPEATABLE_ITEM_END"; blockId: string; itemId: string }
   // Block actions (Iframe → Parent)
   | {
       type: "CAMOX_ADD_BLOCK_REQUEST";
@@ -55,7 +55,7 @@ export function selectionHoverMessage(
   }
   if (selection.type === "item") {
     return {
-      type: hovered ? "CAMOX_HOVER_REPEATER_ITEM" : "CAMOX_HOVER_REPEATER_ITEM_END",
+      type: hovered ? "CAMOX_HOVER_REPEATABLE_ITEM" : "CAMOX_HOVER_REPEATABLE_ITEM_END",
       blockId,
       itemId: String(selection.itemId),
     };

@@ -150,7 +150,7 @@ interface CreateBlockOptions<
    * or be available for AI page generation.
    */
   layoutOnly?: TLayoutOnly;
-  /** Share content and settings across all instances of this type. Defaults to false. */
+  /** Share content and settings across all placements of this block definition. Defaults to false. */
   synced?: boolean;
   /**
    * React component that renders the block.
@@ -456,7 +456,7 @@ export function createEditableBlock<
     setIsHovered: React.Dispatch<React.SetStateAction<boolean>>;
   } & Pick<BlockComponentProps<TContent>, "mode">;
 
-  interface RepeaterItemContextValue {
+  interface RepeatableItemContextValue {
     arrayFieldName: string;
     itemIndex: number;
     itemContent: any;
@@ -471,7 +471,7 @@ export function createEditableBlock<
   }
 
   const Context = React.createContext<BlockContextValue | null>(null);
-  const RepeaterItemContext = React.createContext<RepeaterItemContextValue | null>(null);
+  const RepeatableItemContext = React.createContext<RepeatableItemContextValue | null>(null);
   const ReferenceContext = React.createContext<{
     occurrenceId: string;
     select: (event?: React.MouseEvent<HTMLElement>) => void;
@@ -484,11 +484,11 @@ export function createEditableBlock<
   /**
    * Build a field ID that matches the sidebar's `getFieldId` format.
    * Root fields:          blockId__fieldName
-   * Repeater item fields: blockId__itemId__fieldName
+   * Repeatable item fields: blockId__itemId__fieldName
    */
   const getOverlayFieldId = (
     blockId: number,
-    repeaterContext: RepeaterItemContextValue | null,
+    repeaterContext: RepeatableItemContextValue | null,
     fieldName: string,
   ): string => {
     if (repeaterContext?.itemId != null) {
@@ -768,7 +768,7 @@ export function createEditableBlock<
     const currentPathname = useLocation({ select: (l) => l.pathname });
 
     // Check if we're inside a Repeater
-    const repeaterContext = React.use(RepeaterItemContext);
+    const repeaterContext = React.use(RepeatableItemContext);
 
     // Generate unique field ID for overlay tracking
     const reference = React.use(ReferenceContext);
@@ -930,7 +930,7 @@ export function createEditableBlock<
 
   const Icon = ({ name, ...props }: IconProps & { name: keyof IconFields }) => {
     const block = React.use(Context);
-    const item = React.use(RepeaterItemContext);
+    const item = React.use(RepeatableItemContext);
     const selectTarget = usePreviewSelection();
     if (!block) throw new Error("Icon must be used within a Block Component");
     const editable = useIsEditable(block.mode);
@@ -1001,7 +1001,7 @@ export function createEditableBlock<
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
     const { window: iframeWindow } = useFrame();
-    const repeaterContext = React.use(RepeaterItemContext);
+    const repeaterContext = React.use(RepeatableItemContext);
     const fieldValue = repeaterContext
       ? (repeaterContext.itemContent[name] as string)
       : (content[name] as string);
@@ -1100,7 +1100,7 @@ export function createEditableBlock<
     const isContentEditable = useIsEditable(mode);
     const elementRef = React.useRef<HTMLElement>(null);
     const { window: iframeWindow } = useFrame();
-    const repeaterContext = React.use(RepeaterItemContext);
+    const repeaterContext = React.use(RepeatableItemContext);
     const rawFieldValue = repeaterContext
       ? (repeaterContext.itemContent[name] as LinkValue)
       : (content[name] as LinkValue);
@@ -1265,7 +1265,7 @@ export function createEditableBlock<
     const { blockId, content, mode } = blockContext;
     const isContentEditable = useIsEditable(mode);
     const { window: iframeWindow } = useFrame();
-    const repeaterContext = React.use(RepeaterItemContext);
+    const repeaterContext = React.use(RepeatableItemContext);
     const { filesMap } = useNormalizedData();
     const rawSource = repeaterContext ? repeaterContext.itemContent[name] : content[name];
     // Resolve _fileId markers to full file objects
@@ -1368,7 +1368,7 @@ export function createEditableBlock<
     }
 
     const { content } = blockContext;
-    const repeaterContext = React.use(RepeaterItemContext);
+    const repeaterContext = React.use(RepeatableItemContext);
     const { filesMap } = useNormalizedData();
     const rawSource = repeaterContext ? repeaterContext.itemContent[name] : content[name];
     // Resolve _fileId markers to full file objects
@@ -1389,7 +1389,7 @@ export function createEditableBlock<
   };
 
   // Sentinel key used by ImageList/FileList to surface the iterated asset value to
-  // the inner Image/File component via a synthesized RepeaterItemContext. Not
+  // the inner Image/File component via a synthesized RepeatableItemContext. Not
   // a valid TypeBox property name, so it can't collide with a real field.
   const ASSET_LIST_SELF_KEY = "__camox_asset_self__";
 
@@ -1405,7 +1405,7 @@ export function createEditableBlock<
       throw new Error("ImageList/FileList must be used within a Block Component");
     }
 
-    const parentRepeaterContext = React.use(RepeaterItemContext);
+    const parentRepeaterContext = React.use(RepeatableItemContext);
     const { filesMap } = useNormalizedData();
     const fieldName = String(name);
 
@@ -1451,7 +1451,7 @@ export function createEditableBlock<
     return (
       <RepeaterHoverProvider blockId={blockContext.blockId} fieldName={fieldName}>
         {resolved.map((value, index) => (
-          <RepeaterItemContext.Provider
+          <RepeatableItemContext.Provider
             key={index}
             value={{
               arrayFieldName: fieldName,
@@ -1464,7 +1464,7 @@ export function createEditableBlock<
             }}
           >
             <Single name={ASSET_LIST_SELF_KEY}>{children}</Single>
-          </RepeaterItemContext.Provider>
+          </RepeatableItemContext.Provider>
         ))}
       </RepeaterHoverProvider>
     );
@@ -1480,8 +1480,8 @@ export function createEditableBlock<
     children: (props: FileRenderProps, data: FileValue) => React.ReactNode;
   }) => React.ReactNode;
 
-  // RepeaterItemWrapper - wraps each repeater item with overlay support
-  const RepeaterItemWrapper = ({
+  // RepeatableItemWrapper - wraps each repeatable item with overlay support
+  const RepeatableItemWrapper = ({
     itemId,
     blockId,
     mode,
@@ -1509,8 +1509,8 @@ export function createEditableBlock<
     const isHovered = useOverlayMessage(
       iframeWindow,
       isContentEditable,
-      "CAMOX_HOVER_REPEATER_ITEM",
-      "CAMOX_HOVER_REPEATER_ITEM_END",
+      "CAMOX_HOVER_REPEATABLE_ITEM",
+      "CAMOX_HOVER_REPEATABLE_ITEM_END",
       { blockId: String(blockId), itemId: String(itemId) },
     );
 
@@ -1525,7 +1525,7 @@ export function createEditableBlock<
       if (target.closest("[data-camox-field-id]")) return;
       if (
         target.closest(
-          "[data-camox-repeater-item-id], [data-camox-block-id], [data-camox-comment-block-id]",
+          "[data-camox-repeatable-item-id], [data-camox-block-id], [data-camox-comment-block-id]",
         ) !== event.currentTarget
       )
         return;
@@ -1534,7 +1534,7 @@ export function createEditableBlock<
 
     return (
       <div
-        data-camox-repeater-item-id={isContentEditable ? itemId : undefined}
+        data-camox-repeatable-item-id={isContentEditable ? itemId : undefined}
         data-camox-hover-group={isContentEditable ? hoveredRepeaterGroup : undefined}
         onClickCapture={handleClick}
         onMouseEnter={() => setIsLocallyHovered(true)}
@@ -1671,11 +1671,11 @@ export function createEditableBlock<
     const { blockId, content, mode } = blockContext;
 
     // Check if we're inside another repeater (nested)
-    const parentRepeaterContext = React.use(RepeaterItemContext);
+    const parentRepeaterContext = React.use(RepeatableItemContext);
     const fieldName = String(name);
 
     // Type-cast components to work with item fields
-    // This is safe because each component checks RepeaterItemContext at runtime
+    // This is safe because each component checks RepeatableItemContext at runtime
     const ItemField = Field as <F extends keyof ItemStringFields<K>>(props: {
       name: F;
       children: (props: FieldRenderProps, data: FieldRenderData) => React.ReactNode;
@@ -1809,7 +1809,7 @@ export function createEditableBlock<
           };
 
           return (
-            <RepeaterItemContext.Provider
+            <RepeatableItemContext.Provider
               key={itemId ?? index}
               value={{
                 arrayFieldName: fieldName,
@@ -1820,10 +1820,10 @@ export function createEditableBlock<
                 containerItemId: itemId ?? parentRepeaterContext?.containerItemId,
               }}
             >
-              <RepeaterItemWrapper itemId={itemId} blockId={blockId} mode={mode}>
+              <RepeatableItemWrapper itemId={itemId} blockId={blockId} mode={mode}>
                 {children(itemApi, index)}
-              </RepeaterItemWrapper>
-            </RepeaterItemContext.Provider>
+              </RepeatableItemWrapper>
+            </RepeatableItemContext.Provider>
           );
         })}
       </RepeaterHoverProvider>
@@ -1907,7 +1907,7 @@ export function createEditableBlock<
       // Let fields and commentable items handle their own clicks.
       const target = e.target as HTMLElement;
       if (target.closest("[data-camox-field-id]")) return;
-      if (isCommentMode && target.closest("[data-camox-repeater-item-id]")) return;
+      if (isCommentMode && target.closest("[data-camox-repeatable-item-id]")) return;
 
       if (
         target.closest("[data-camox-block-id], [data-camox-comment-block-id]") !== e.currentTarget
@@ -2097,7 +2097,7 @@ export function createEditableBlock<
     if (!record && !editable) return null;
     const rendered = record ? (
       <ReferenceContext.Provider value={{ occurrenceId, select, update }}>
-        <RepeaterItemContext.Provider value={null}>
+        <RepeatableItemContext.Provider value={null}>
           <Context.Provider
             value={{
               ...block,
@@ -2116,7 +2116,7 @@ export function createEditableBlock<
               FileList: ReferenceFileList,
             } as unknown as ReferenceScope<ReferenceContent<TSchemaShape[K]>>)}
           </Context.Provider>
-        </RepeaterItemContext.Provider>
+        </RepeatableItemContext.Provider>
       </ReferenceContext.Provider>
     ) : (
       <button type="button" onClick={select}>
@@ -2186,7 +2186,7 @@ export function createEditableBlock<
       if (target.closest("[data-camox-field-id]")) return;
       if (
         selectIsCommentMode(previewStore.getSnapshot()) &&
-        target.closest("[data-camox-repeater-item-id]")
+        target.closest("[data-camox-repeatable-item-id]")
       )
         return;
       if (
@@ -2304,7 +2304,7 @@ export function createEditableBlock<
             type: options.id,
             content,
             settings: settingsDefaults,
-            placement: null,
+            slot: null,
             summary: "",
             position: "",
             createdAt: 0,

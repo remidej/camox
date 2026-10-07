@@ -77,7 +77,7 @@ const SortableRepeatableItem = ({
   const handleMouseEnter = () => {
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
-      type: "CAMOX_HOVER_REPEATER_ITEM",
+      type: "CAMOX_HOVER_REPEATABLE_ITEM",
       blockId: String(blockId),
       itemId: String(item.id),
     };
@@ -87,7 +87,7 @@ const SortableRepeatableItem = ({
   const handleMouseLeave = () => {
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
-      type: "CAMOX_HOVER_REPEATER_ITEM_END",
+      type: "CAMOX_HOVER_REPEATABLE_ITEM_END",
       blockId: String(blockId),
       itemId: String(item.id),
     };

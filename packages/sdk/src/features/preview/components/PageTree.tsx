@@ -276,7 +276,7 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
           open={ctx.ellipsisPopoverOpen}
           onOpenChange={ctx.setEllipsisPopoverOpen}
           isLayoutBlock
-          layoutPlacement={block.placement as "before" | "after"}
+          layoutSlot={block.slot as "before" | "after"}
         >
           <BlockTreeItemEllipsis open={ctx.ellipsisPopoverOpen} />
         </BlockActionsPopover>

@@ -8,9 +8,9 @@ import { act } from "react";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 import { CamoxAppProvider } from "../provider/components/CamoxAppContext";
-import { TemplateInstanceInput } from "./TemplateInstanceInput";
+import { DerivedPagePathInput } from "./DerivedPagePathInput";
 
-void test("template parameters submit encoded instances, reject invalid paths, and reset on selection", async () => {
+void test("derived layout parameters submit encoded page paths, reject invalid paths, and reset on selection", async () => {
   const dom = new Window({ url: "http://localhost/camox/canvas" });
   const globals = {
     React,
@@ -29,9 +29,9 @@ void test("template parameters submit encoded instances, reject invalid paths, a
   const mount = dom.document.createElement("div");
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement);
-  const templateId = "teams.$team.members.$member.details";
+  const derivedLayoutId = "teams.$team.members.$member.details";
   const layouts = [
-    { _internal: { id: templateId, kind: "derived" } },
+    { _internal: { id: derivedLayoutId, kind: "derived" } },
     { _internal: { id: "teams.staff.members.$member.details", kind: "derived" } },
   ] as Layout[];
   const app = { getLayouts: () => layouts } as CamoxApp;
@@ -40,8 +40,8 @@ void test("template parameters submit encoded instances, reject invalid paths, a
     await act(async () =>
       root.render(
         <CamoxAppProvider app={app}>
-          <TemplateInstanceInput
-            page={{ key: "template", title: "Members", pathname: null, templateId }}
+          <DerivedPagePathInput
+            page={{ key: "derived", title: "Members", pathname: null, derivedLayoutId }}
             pathname={pathname}
             onChange={(path) => changes.push(path)}
           />

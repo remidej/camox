@@ -25,6 +25,7 @@ import { Route as AppAuthAuthorizeRouteImport } from './routes/_app._auth/_autho
 import { Route as AppDashboardOrgSlugIndexRouteImport } from './routes/_app._dashboard/$orgSlug.index'
 import { Route as AppDashboardOrgSlugTeamRouteImport } from './routes/_app._dashboard/$orgSlug.team'
 import { Route as AppDashboardOrgSlugSettingsRouteImport } from './routes/_app._dashboard/$orgSlug.settings'
+import { Route as AppDashboardOrgSlugMembersRouteImport } from './routes/_app._dashboard/$orgSlug.members'
 import { Route as AppDashboardOrgSlugProjectSlugRouteImport } from './routes/_app._dashboard/$orgSlug.$projectSlug'
 import { Route as AppAuthAuthorizeStudioAuthorizeRouteImport } from './routes/_app._auth/_authorize.studio-authorize'
 import { Route as AppAuthAuthorizeDevAuthorizeRouteImport } from './routes/_app._auth/_authorize.dev-authorize'
@@ -112,6 +113,12 @@ const AppDashboardOrgSlugSettingsRoute =
     path: '/settings',
     getParentRoute: () => AppDashboardOrgSlugRoute,
   } as any)
+const AppDashboardOrgSlugMembersRoute =
+  AppDashboardOrgSlugMembersRouteImport.update({
+    id: '/members',
+    path: '/members',
+    getParentRoute: () => AppDashboardOrgSlugRoute,
+  } as any)
 const AppDashboardOrgSlugProjectSlugRoute =
   AppDashboardOrgSlugProjectSlugRouteImport.update({
     id: '/$projectSlug',
@@ -176,6 +183,7 @@ export interface FileRoutesByFullPath {
   '/dev-authorize': typeof AppAuthAuthorizeDevAuthorizeRoute
   '/studio-authorize': typeof AppAuthAuthorizeStudioAuthorizeRoute
   '/$orgSlug/$projectSlug': typeof AppDashboardOrgSlugProjectSlugRouteWithChildren
+  '/$orgSlug/members': typeof AppDashboardOrgSlugMembersRoute
   '/$orgSlug/settings': typeof AppDashboardOrgSlugSettingsRoute
   '/$orgSlug/team': typeof AppDashboardOrgSlugTeamRoute
   '/$orgSlug/': typeof AppDashboardOrgSlugIndexRoute
@@ -196,6 +204,7 @@ export interface FileRoutesByTo {
   '/cli-authorized': typeof AppAuthAuthorizeCliAuthorizedRoute
   '/dev-authorize': typeof AppAuthAuthorizeDevAuthorizeRoute
   '/studio-authorize': typeof AppAuthAuthorizeStudioAuthorizeRoute
+  '/$orgSlug/members': typeof AppDashboardOrgSlugMembersRoute
   '/$orgSlug/settings': typeof AppDashboardOrgSlugSettingsRoute
   '/$orgSlug/team': typeof AppDashboardOrgSlugTeamRoute
   '/$orgSlug': typeof AppDashboardOrgSlugIndexRoute
@@ -223,6 +232,7 @@ export interface FileRoutesById {
   '/_app/_auth/_authorize/dev-authorize': typeof AppAuthAuthorizeDevAuthorizeRoute
   '/_app/_auth/_authorize/studio-authorize': typeof AppAuthAuthorizeStudioAuthorizeRoute
   '/_app/_dashboard/$orgSlug/$projectSlug': typeof AppDashboardOrgSlugProjectSlugRouteWithChildren
+  '/_app/_dashboard/$orgSlug/members': typeof AppDashboardOrgSlugMembersRoute
   '/_app/_dashboard/$orgSlug/settings': typeof AppDashboardOrgSlugSettingsRoute
   '/_app/_dashboard/$orgSlug/team': typeof AppDashboardOrgSlugTeamRoute
   '/_app/_dashboard/$orgSlug/': typeof AppDashboardOrgSlugIndexRoute
@@ -247,6 +257,7 @@ export interface FileRouteTypes {
     | '/dev-authorize'
     | '/studio-authorize'
     | '/$orgSlug/$projectSlug'
+    | '/$orgSlug/members'
     | '/$orgSlug/settings'
     | '/$orgSlug/team'
     | '/$orgSlug/'
@@ -267,6 +278,7 @@ export interface FileRouteTypes {
     | '/cli-authorized'
     | '/dev-authorize'
     | '/studio-authorize'
+    | '/$orgSlug/members'
     | '/$orgSlug/settings'
     | '/$orgSlug/team'
     | '/$orgSlug'
@@ -293,6 +305,7 @@ export interface FileRouteTypes {
     | '/_app/_auth/_authorize/dev-authorize'
     | '/_app/_auth/_authorize/studio-authorize'
     | '/_app/_dashboard/$orgSlug/$projectSlug'
+    | '/_app/_dashboard/$orgSlug/members'
     | '/_app/_dashboard/$orgSlug/settings'
     | '/_app/_dashboard/$orgSlug/team'
     | '/_app/_dashboard/$orgSlug/'
@@ -419,6 +432,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardOrgSlugSettingsRouteImport
       parentRoute: typeof AppDashboardOrgSlugRoute
     }
+    '/_app/_dashboard/$orgSlug/members': {
+      id: '/_app/_dashboard/$orgSlug/members'
+      path: '/members'
+      fullPath: '/$orgSlug/members'
+      preLoaderRoute: typeof AppDashboardOrgSlugMembersRouteImport
+      parentRoute: typeof AppDashboardOrgSlugRoute
+    }
     '/_app/_dashboard/$orgSlug/$projectSlug': {
       id: '/_app/_dashboard/$orgSlug/$projectSlug'
       path: '/$projectSlug'
@@ -541,6 +561,7 @@ const AppDashboardOrgSlugProjectSlugRouteWithChildren =
 
 interface AppDashboardOrgSlugRouteChildren {
   AppDashboardOrgSlugProjectSlugRoute: typeof AppDashboardOrgSlugProjectSlugRouteWithChildren
+  AppDashboardOrgSlugMembersRoute: typeof AppDashboardOrgSlugMembersRoute
   AppDashboardOrgSlugSettingsRoute: typeof AppDashboardOrgSlugSettingsRoute
   AppDashboardOrgSlugTeamRoute: typeof AppDashboardOrgSlugTeamRoute
   AppDashboardOrgSlugIndexRoute: typeof AppDashboardOrgSlugIndexRoute
@@ -549,6 +570,7 @@ interface AppDashboardOrgSlugRouteChildren {
 const AppDashboardOrgSlugRouteChildren: AppDashboardOrgSlugRouteChildren = {
   AppDashboardOrgSlugProjectSlugRoute:
     AppDashboardOrgSlugProjectSlugRouteWithChildren,
+  AppDashboardOrgSlugMembersRoute: AppDashboardOrgSlugMembersRoute,
   AppDashboardOrgSlugSettingsRoute: AppDashboardOrgSlugSettingsRoute,
   AppDashboardOrgSlugTeamRoute: AppDashboardOrgSlugTeamRoute,
   AppDashboardOrgSlugIndexRoute: AppDashboardOrgSlugIndexRoute,

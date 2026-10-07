@@ -9,7 +9,7 @@ import type { ServiceContext } from "../_shared/service-context";
 import { initializeSyncedLiveData } from "./synced-live";
 
 /** Placements keep their own identity/order; only data is shared, within an environment. */
-const instances = Effect.fn("instances")(function* (
+const placements = Effect.fn("placements")(function* (
   ctx: ServiceContext,
   environmentId: number,
   type: string,
@@ -86,21 +86,21 @@ const copyItems = Effect.fn("copyItems")(function* (
   }
 });
 
-/** Enable syncing deterministically: the oldest existing instance wins. */
+/** Enable syncing deterministically: the oldest existing placement wins. */
 export const reconcileSyncedDefinition = Effect.fn("blocks.reconcileSyncedDefinition")(function* (
   ctx: ServiceContext,
   environmentId: number,
   type: string,
 ) {
   yield* initializeSyncedLiveData(ctx, environmentId, type);
-  const rows = yield* instances(ctx, environmentId, type);
+  const rows = yield* placements(ctx, environmentId, type);
   if (rows.length < 2) return;
   yield* syncBlockData(ctx, rows[0].block.id);
 });
 
 /**
  * Fan out a data edit, or seed a newly created placement from existing data.
- * This deliberately doesn't copy page/layout IDs, placement or block position.
+ * This deliberately doesn't copy page/layout IDs, layout slot or block position.
  * Published checkpoints remain immutable; edits still require publishing.
  */
 export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
@@ -133,7 +133,7 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
   );
   if (!definition?.synced) return;
 
-  const peers = (yield* instances(ctx, owner.environmentId, row.block.type))
+  const peers = (yield* placements(ctx, owner.environmentId, row.block.type))
     .map(({ block }) => block)
     .filter((block) => block.id !== blockId);
   if (peers.length === 0) return;

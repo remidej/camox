@@ -81,10 +81,10 @@ const singleton: CanvasPage = {
   title: "About",
   pathname: "/about",
 };
-const template: CanvasPage = {
-  key: "template:articles.$slug",
+const derivedPage: CanvasPage = {
+  key: "derived:articles.$slug",
   layoutId: "articles.$slug",
-  templateId: "articles.$slug",
+  derivedLayoutId: "articles.$slug",
   title: "Article",
   pathname: null,
 };
@@ -239,14 +239,14 @@ function clientPage(client: QueryClient, path: string) {
   return client.getQueryData(queryKeys.pages.getByPath(path, "draft"));
 }
 
-void test("singleton and template sidebars load shared layouts, seed source-specific blocks, and use full URL instances", async () => {
+void test("singleton and derived layout sidebars load shared layouts, seed source-specific blocks, and use full URL pages", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
   try {
     for (const [path, page] of [
       ["/about", singleton],
-      ["/articles/hello%20world", template],
-      ["/articles/another", template],
+      ["/articles/hello%20world", derivedPage],
+      ["/articles/another", derivedPage],
     ] as const) {
       await dom.render(path, page);
       await dom.settle();

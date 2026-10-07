@@ -348,7 +348,7 @@ void test("read-only panel centers responsive viewports and preserves shell sele
   }
 });
 
-void test("nested preview targets use their containing owner, not the active route or shared block ID", async () => {
+void test("nested preview targets use their containing owner, not the active route or a reused block ID", async () => {
   const dom = await setup();
   const { PreviewPanel } = await import("./PreviewPanel");
   const { previewStore: store } = await import("../previewStore");

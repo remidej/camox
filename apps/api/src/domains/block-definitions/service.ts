@@ -184,7 +184,7 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
   const blockedDefinitionDeletions: Array<{ blockId: string; blockCount: number }> = [];
 
   for (const orphan of orphans) {
-    // A block instance is attached to either a page or a layout (the column
+    // A block is attached to either a page or a layout (the column
     // not in use is null), so usage is the union of both joins scoped to this
     // environment.
     const pageUses = yield* Effect.promise(() =>

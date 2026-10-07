@@ -146,7 +146,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
     );
     if (!file)
       return yield* new InvalidInputError({
-        message: "Asset is outside this site/environment or missing",
+        message: "Asset is outside this project/environment or missing",
       });
     asset = {
       url: file.url,
