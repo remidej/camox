@@ -485,7 +485,7 @@ export function createEditableBlock<
     selectRecordField: (
       recordFieldName: string,
       recordFieldType: FieldType,
-      event?: React.MouseEvent<HTMLElement>,
+      event?: SelectionEvent,
     ) => void;
     update: (field: string, value: string) => void;
   } | null>(null);
@@ -1027,15 +1027,24 @@ export function createEditableBlock<
       ? (repeaterContext.itemContent[name] as string)
       : (content[name] as string);
 
-    const fieldId = getOverlayFieldId(blockId, repeaterContext, String(name));
+    // Inside a placed record, the embed is a record field of that placement.
+    const reference = React.use(ReferenceContext);
+    const fieldId = reference
+      ? `${reference.occurrenceId}__${String(name)}`
+      : getOverlayFieldId(blockId, repeaterContext, String(name));
 
     const [isHovered, setIsHovered] = React.useState(false);
-    const overlayState = useOverlayState(isHovered);
+    const isRecordFieldSelected = useRecordSelection(reference?.placement ?? null, String(name));
+    const overlayState = useOverlayState(isHovered, reference != null && isRecordFieldSelected);
     const embedRef = React.useRef<HTMLDivElement>(null);
     const itemId = repeaterContext?.itemId;
     const selectField = React.useCallback(
       (event?: SelectionEvent) => {
         if (!isContentEditable) return;
+        if (reference) {
+          reference.selectRecordField(String(name), "Embed", event);
+          return;
+        }
         selectTarget(
           itemId != null
             ? { type: "item-field", blockId, itemId, fieldName: String(name), fieldType: "Embed" }
@@ -1043,7 +1052,7 @@ export function createEditableBlock<
           event,
         );
       },
-      [isContentEditable, blockId, itemId, name, selectTarget],
+      [isContentEditable, reference, blockId, itemId, name, selectTarget],
     );
 
     React.useEffect(() => {
@@ -1091,7 +1100,7 @@ export function createEditableBlock<
         data-camox-field-id={isContentEditable ? fieldId : undefined}
         data-camox-field-type={isContentEditable ? "embed" : undefined}
         {...(isContentEditable ? overlayState : {})}
-        data-camox-overlay-mode={options.synced ? "synced" : undefined}
+        data-camox-overlay-mode={assetOverlayMode(reference)}
         onMouseEnter={isContentEditable ? () => setIsHovered(true) : undefined}
         onMouseLeave={isContentEditable ? () => setIsHovered(false) : undefined}
       >
@@ -2093,32 +2102,23 @@ export function createEditableBlock<
     return ctx.settings[name];
   };
 
-  // Record assets select their record field (edited in the sidebar record field view);
-  // they never expose a block-field mutation or picker. Embeds stay view-only.
+  // Record assets and embeds select their record field (edited in the sidebar record field
+  // view); they never expose a block-field mutation or picker.
   const ReferencePrimitive = ({
     primitive: Primitive,
-    viewOnly = false,
     ...props
   }: {
     primitive: React.ComponentType<any>;
-    viewOnly?: boolean;
     name: string;
     children: any;
   }) => {
     const block = React.use(Context)!;
     if ((block.content as Record<string, unknown>)[props.name] == null) return null;
-    if (!viewOnly) return <Primitive {...props} />;
-    return (
-      <Context.Provider value={{ ...block, mode: "peek" }}>
-        <Primitive {...props} />
-      </Context.Provider>
-    );
+    return <Primitive {...props} />;
   };
   const ReferenceImage = (props: any) => <ReferencePrimitive primitive={Image} {...props} />;
   const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
-  const ReferenceEmbed = (props: any) => (
-    <ReferencePrimitive primitive={Embed} viewOnly {...props} />
-  );
+  const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
   const ReferenceImageList = (props: any) => (
     <ReferencePrimitive primitive={ImageList} {...props} />
   );
@@ -2188,7 +2188,7 @@ export function createEditableBlock<
     const selectRecordField = (
       recordFieldName: string,
       recordFieldType: FieldType,
-      event?: React.MouseEvent<HTMLElement>,
+      event?: SelectionEvent,
     ) => {
       if (!editable || !placement) return;
       selectTarget({ type: "record-field", ...placement, recordFieldName, recordFieldType }, event);
