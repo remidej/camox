@@ -115,7 +115,7 @@ list through the block edit tools with an array of customer IDs.
 1. Add a logo grid to a draft page. In edit mode the empty list shows an "Add
    Customers" placeholder that opens the list view with the picker focused; the
    live site renders nothing. Link two customers, one of which the testimonial
-   also uses. Customers never published are flagged on their card.
+   also uses. Customers never published show a Draft badge on their card.
 2. Publish the page. The review lists the shared customer once. A customer that was
    never published doesn't block publishing; the live grid skips it and keeps the
    order of the others.

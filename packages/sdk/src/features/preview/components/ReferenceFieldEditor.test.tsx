@@ -222,7 +222,7 @@ async function renderReference(
   };
 }
 
-void test("a linked record shows a card with its thumbnail, label, publication badge and collection", async () => {
+void test("a linked record shows a card with its label, publication badge and collection", async () => {
   const view = await renderReference({ value: ADA, record: adaRecord });
   try {
     const card = view.host.querySelector<HTMLElement>("[data-record-card]");
@@ -230,29 +230,12 @@ void test("a linked record shows a card with its thumbnail, label, publication b
     assert.match(card.textContent ?? "", /Ada/);
     assert.match(card.textContent ?? "", /Published/);
     assert.match(card.textContent ?? "", /Customers/);
-    const thumbnail = card.querySelector("img");
-    assert.ok(thumbnail, "the first image field is the thumbnail");
-    assert.match(thumbnail.getAttribute("src") ?? "", /ada-logo\.png/);
+    assert.ok(!card.querySelector("img"), "cards never show the record's image");
     assert.ok(!view.host.querySelector('[role="combobox"]'), "no picker while linked");
     await view.click("Open Ada");
     assert.deepEqual(view.opened, [ADA], "the card opens the record view");
     assert.ok(!view.modal.target, "not the edit modal");
     assert.deepEqual(view.changes, []);
-  } finally {
-    await view.cleanup();
-  }
-});
-
-void test("a record without an image falls back to an icon", async () => {
-  const view = await renderReference({
-    value: ADA,
-    record: { ...adaRecord, content: { ...adaRecord.content, logo: null } },
-  });
-  try {
-    const card = view.host.querySelector<HTMLElement>("[data-record-card]");
-    assert.ok(card);
-    assert.ok(!card.querySelector("img"));
-    assert.ok(card.querySelector("svg"), "icon fallback");
   } finally {
     await view.cleanup();
   }
@@ -363,7 +346,7 @@ void test("Create item prefills the label from the search, links the saved recor
   }
 });
 
-void test("hints flag a missing required reference and a never-published linked record", async () => {
+void test("hints flag a missing required reference and a never-published required record", async () => {
   const cases: {
     name: string;
     value: string | null;
@@ -378,7 +361,7 @@ void test("hints flag a missing required reference and a never-published linked 
       name: "draft optional",
       value: GRACE,
       required: false,
-      expected: "Won't appear on the live site until published",
+      expected: null,
     },
     {
       name: "draft required",

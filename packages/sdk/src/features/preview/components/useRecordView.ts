@@ -24,7 +24,6 @@ export type SelectionCrumb = {
   isCurrent: boolean;
   onClick?: () => void;
   hoverTarget?: Selection | null;
-  className?: string;
 };
 
 type RecordSelection = Extract<Selection, { type: "record" | "record-field" }>;
@@ -123,7 +122,7 @@ export function useRecordView({
     ? { selection: recordSelection, record: placedRecord, collection, status }
     : null;
 
-  /** Reference field and purple record crumbs, between the block and the record field. */
+  /** Reference field and record crumbs, between the block and the record field. */
   const recordCrumbs = (fieldHasOwnView: boolean): SelectionCrumb[] => {
     if (!recordView) return [];
     const { blockId, fieldName } = recordView.selection;
@@ -142,7 +141,6 @@ export function useRecordView({
         key: "record",
         label: recordView.record.label,
         isCurrent: !fieldHasOwnView,
-        className: "text-purple-700 dark:text-purple-400",
         hoverTarget: recordTarget,
         onClick: fieldHasOwnView
           ? () => previewStore.send({ type: "selectRecord", ...owner, ...placement })

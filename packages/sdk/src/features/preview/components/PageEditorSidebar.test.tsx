@@ -557,7 +557,7 @@ void test("an unset required reference says which collection it expects in the f
   assert.match(sidebar.text(), /Required/);
 });
 
-void test("clicking the record card opens the record view with a shared header, badge and field rows", async (t) => {
+void test("clicking the record card opens the record view with its field rows and no shared header", async (t) => {
   const sidebar = await renderSidebar(t, {
     type: "block-field",
     blockId: BLOCK_ID,
@@ -573,11 +573,10 @@ void test("clicking the record card opens the record view with a shared header, 
   });
   assert.equal(sidebar.modalOpened(), false, "the page editor no longer opens the edit modal");
   assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme"]);
-  const header = sidebar.host.querySelector("[data-shared-record]");
-  assert.ok(header, "the record view explains the record is shared");
-  assert.match(header.textContent ?? "", /Shared · Customers/);
-  assert.match(header.textContent ?? "", /everywhere/);
-  assert.match(sidebar.text(), /Published/);
+  assert.ok(
+    !sidebar.host.querySelector("[data-shared-record]"),
+    "a single reference's record view has no shared header",
+  );
   for (const row of [/Name\s*Acme/, /Quote\s*Great/, /Featured\s*Off/, /Logo\s*acme\.png/]) {
     assert.match(sidebar.text(), row);
   }
@@ -590,7 +589,7 @@ void test("breadcrumbs step up from a record field to the record, the reference 
   const recordCrumb = [...sidebar.host.querySelectorAll("nav li > button")].find(
     (element) => element.textContent === "Acme",
   );
-  assert.match(recordCrumb?.className ?? "", /purple/, "the record crumb is purple");
+  assert.doesNotMatch(recordCrumb?.className ?? "", /purple/, "the sidebar has no purple");
 
   await sidebar.click("Acme");
   assert.deepEqual(sidebar.selection(), {
@@ -652,7 +651,7 @@ void test("a record selection falls back to the reference field view once the re
     fieldName: "company",
     recordId: ACME,
   });
-  assert.ok(sidebar.host.querySelector("[data-shared-record]"));
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme"]);
   await act(async () => {
     sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
       ...bundle,
@@ -800,13 +799,13 @@ void test("a reference list shows its records as cards in list order", async (t)
     "every card has a drag handle",
   );
   assert.ok(
-    sidebar.host.querySelector("[data-record-card] img"),
-    "cards show the record thumbnail",
+    !sidebar.host.querySelector("[data-record-card] img"),
+    "cards never show the record's image",
   );
   assert.deepEqual(
     shown.map((card) => card.hint),
-    ["Won't appear on the live site until published", null],
-    "only the never-published record is flagged",
+    [null, null],
+    "never-published records are not flagged",
   );
   assert.doesNotMatch(sidebar.text(), /Required|Blocks publishing/);
 });

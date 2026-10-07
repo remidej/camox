@@ -96,12 +96,14 @@ without copying page/block trees or sharing their restoration behavior.
 - _Revised after slice 4 landed:_ records are edited like repeater items, not in a
   modal. The sidebar drills Block › Reference field › Record › Record field (for
   example Testimonial › Customer › Acme › Quote), with breadcrumbs. The reference
-  field view owns linking (and, for lists, reordering): a record card (first-image
-  thumbnail, label, publication badge, collection title, X with an **Unlink**
+  field view owns linking (and, for lists, reordering): a record card (no image or
+  icon; label truncated with an ellipsis; publication badge, collection title, X with an **Unlink**
   tooltip and no confirmation) and, only when unlinked, a combobox. **Create item**
   lives only in the combobox footer, as in PagePicker; it opens the existing create
   modal prefilled with the search text and links the saved record. The record view
-  shows a purple shared header and the record fields; it has no publish control.
+  shows the record fields; only records reached through a reference list also get
+  a shared header. Purple stays in the preview, never in the sidebar. The record
+  view has no publish control.
   Record and record-field selections identify the occurrence plus the record, and
   drive preview highlights on the selected occurrence only. In preview, record
   fields (including images and files) are selectable and editable inline.
@@ -161,7 +163,7 @@ depth and cycles, and query-backed lists (slice 6) remain open.
 - `block.ReferenceList` renders its child once per resolved record with the same
   typed record scope as `block.Reference`, and renders nothing for an empty list.
 - Editors manage a list in the reference field view: sortable record cards with
-  **Unlink**, a never-published hint, and a combobox that appends (hiding linked
+  **Unlink** (never-published records are only shown by their Draft badge), and a combobox that appends (hiding linked
   records, replaced by "Limit of {maxItems} reached" at `maxItems`, **Create item**
   appends). The field list summarizes a list as "{n} linked". Writes send the whole
   array. Record and record field views are unchanged; selection shapes are reused

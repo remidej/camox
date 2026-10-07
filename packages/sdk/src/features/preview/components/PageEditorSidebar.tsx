@@ -239,6 +239,11 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
 
   // Compute schema and data based on selection
   const recordSchema = recordView?.collection._internal.contentSchema;
+  // Only records reached through a reference list get the shared header.
+  const recordInList =
+    recordView != null &&
+    contentFieldSchema(blockDef?._internal.contentSchema, recordView.selection.fieldName)
+      ?.fieldType === "ReferenceList";
   const currentSchema = React.useMemo(() => {
     if (recordSchema) return recordSchema;
     if (!blockDef) return null;
@@ -527,19 +532,13 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                       className={cn(
                         "hover:text-foreground flex h-7 min-w-0 cursor-pointer items-center truncate text-left transition-colors",
                         item.isCurrent && "text-foreground font-medium",
-                        item.className,
                       )}
                       onClick={item.onClick}
                     >
                       {item.label}
                     </button>
                   ) : (
-                    <span
-                      className={cn(
-                        "text-foreground block h-7 min-w-0 truncate leading-7 font-medium",
-                        item.className,
-                      )}
-                    >
+                    <span className="text-foreground block h-7 min-w-0 truncate leading-7 font-medium">
                       {item.label}
                     </span>
                   )}
@@ -601,11 +600,11 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   </SidebarSectionContent>
                 </SidebarSection>
               )}
-              {recordView && !fieldHasOwnView && (
+              {recordView && !fieldHasOwnView && recordInList && (
                 <SidebarSection divider="bottom" aria-label="Shared record">
                   <div data-shared-record className="space-y-1 px-2 py-3">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-purple-700 dark:text-purple-400">
+                      <p className="min-w-0 truncate text-sm font-medium">
                         Shared · {recordView.collection._internal.title}
                       </p>
                       {recordView.status && (

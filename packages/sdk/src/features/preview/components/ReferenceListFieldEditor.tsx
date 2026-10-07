@@ -33,7 +33,7 @@ import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
 import type { PublicationStatus } from "./PageStatusBadge";
-import { RecordCard, recordThumbnail, type RecordThumbnail } from "./RecordCard";
+import { RecordCard } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
 
 const sameIds = (a: readonly string[], b: readonly string[]) =>
@@ -44,7 +44,6 @@ function SortableRecordCard({
   label,
   collectionTitle,
   status,
-  thumbnail,
   onOpen,
   onUnlink,
   hover,
@@ -53,7 +52,6 @@ function SortableRecordCard({
   label: string;
   collectionTitle: string;
   status?: PublicationStatus;
-  thumbnail: RecordThumbnail | null;
   onOpen?: () => void;
   onUnlink: () => void;
   hover?: { fieldId: string; postToIframe: (message: OverlayMessage) => void };
@@ -82,13 +80,12 @@ function SortableRecordCard({
         transition,
         opacity: isDragging ? 0.5 : 1,
       }}
-      className="space-y-1"
+      className="min-w-0"
     >
       <RecordCard
         label={label}
         collectionTitle={collectionTitle}
         status={status}
-        thumbnail={thumbnail}
         onOpen={onOpen}
         leading={
           <Button
@@ -123,12 +120,6 @@ function SortableRecordCard({
           </Tooltip>
         }
       />
-      {/* Only a record that was never published is missing from the live site. */}
-      {status === "draft" && (
-        <p data-reference-hint className="text-muted-foreground px-1 text-xs">
-          Won't appear on the live site until published
-        </p>
-      )}
     </li>
   );
 }
@@ -153,7 +144,7 @@ export function ReferenceListFieldEditor({
   fieldId?: string;
   value: unknown;
   maxItems?: number;
-  /** Hydrated records from the block bundle, used for card thumbnails. */
+  /** Hydrated records from the block bundle, used for card labels before records load. */
   records?: readonly NormalizedCollectionRecord[];
   onChange?: (ids: string[]) => void | Promise<void>;
   /** Opens a linked record's view, where its fields are edited. */
@@ -247,7 +238,7 @@ export function ReferenceListFieldEditor({
   const options = (records.data ?? []).filter((option) => !ids.includes(option.id));
 
   return (
-    <fieldset disabled={saving} className="space-y-3">
+    <fieldset disabled={saving} className="min-w-0 space-y-3">
       {ids.length > 0 && (
         <DndContext
           sensors={sensors}
@@ -256,7 +247,7 @@ export function ReferenceListFieldEditor({
           modifiers={[restrictToVerticalAxis]}
         >
           <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-            <ul className="flex flex-col gap-2">
+            <ul className="flex min-w-0 flex-col gap-2">
               {ids.map((id) => {
                 const summary = records.data?.find((option) => option.id === id);
                 const hydrated = hydratedRecords.find((record) => record.id === id);
@@ -267,11 +258,6 @@ export function ReferenceListFieldEditor({
                     label={summary?.label ?? hydrated?.label ?? "Unavailable item"}
                     collectionTitle={collectionTitle}
                     status={summary?.status}
-                    thumbnail={
-                      hydrated
-                        ? recordThumbnail(collection?._internal.contentSchema, hydrated.content)
-                        : null
-                    }
                     onOpen={onOpenRecord ? () => onOpenRecord(id) : undefined}
                     onUnlink={() => change(ids.filter((linked) => linked !== id))}
                     hover={

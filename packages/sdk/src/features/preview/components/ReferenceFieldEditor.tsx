@@ -14,7 +14,7 @@ import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
 import type { PublicationStatus } from "./PageStatusBadge";
-import { RecordCard, recordThumbnail } from "./RecordCard";
+import { RecordCard } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
 
 function referenceHint({
@@ -28,9 +28,8 @@ function referenceHint({
 }) {
   if (!linked) return required ? "Required" : null;
   // Only a record that was never published is missing from the live site.
-  if (status !== "draft") return null;
-  if (required) return "Blocks publishing until this record is included";
-  return "Won't appear on the live site until published";
+  if (status !== "draft" || !required) return null;
+  return "Blocks publishing until this record is included";
 }
 
 /** This view owns the reference only. Record content is edited elsewhere. */
@@ -49,7 +48,7 @@ export function ReferenceFieldEditor({
   fieldId?: string;
   value: unknown;
   required?: boolean;
-  /** The hydrated record from the block bundle, used for the card thumbnail. */
+  /** The hydrated record from the block bundle, used for the card label before records load. */
   record?: NormalizedCollectionRecord | null;
   onChange: (id: string | null) => void | Promise<void>;
   /** Opens the linked record's view, where its fields are edited. */
@@ -118,15 +117,12 @@ export function ReferenceFieldEditor({
   }
 
   return (
-    <fieldset disabled={saving} className="space-y-3">
+    <fieldset disabled={saving} className="min-w-0 space-y-3">
       {selectedId && (
         <RecordCard
           label={selectedLabel}
           collectionTitle={collectionTitle}
           status={selected?.status}
-          thumbnail={
-            hydrated ? recordThumbnail(collection?._internal.contentSchema, hydrated.content) : null
-          }
           onOpen={onOpenRecord ? () => onOpenRecord(selectedId) : undefined}
           actions={
             <Tooltip>
