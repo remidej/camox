@@ -1,4 +1,4 @@
-import type { Selection } from "./previewStore";
+import type { RecordPlacement, Selection } from "./previewStore";
 
 export interface FieldRect {
   top: number;
@@ -46,18 +46,29 @@ export type OverlayMessage =
 /**
  * The field ID shared by the preview's editable fields and the sidebar's hover/focus messages:
  * `block__field` for block fields, `block__item__field` for repeater item fields, and
- * `block__referenceField__recordField` for the fields of a record placed by a reference field.
+ * `block__referenceField__record__recordField` for the fields of a placed collection record.
+ * Record field IDs carry the record ID so that each record of a reference list is its own target.
  */
 export function overlayFieldId(
   blockId: number | string,
   fieldName: string,
-  scope: { itemId?: number | null; referenceFieldName?: string } = {},
+  scope: { itemId?: number | null; placement?: Omit<RecordPlacement, "blockId"> } = {},
 ): string {
-  if (scope.referenceFieldName != null) {
-    return `${blockId}__${scope.referenceFieldName}__${fieldName}`;
+  if (scope.placement) {
+    return `${recordPlacementId({ blockId, ...scope.placement })}__${fieldName}`;
   }
   if (scope.itemId != null) return `${blockId}__${scope.itemId}__${fieldName}`;
   return `${blockId}__${fieldName}`;
+}
+
+/**
+ * The overlay ID of one placement of a record: `block__referenceField__record`. Unique per
+ * record within a reference list, and distinct from the same record placed by other blocks.
+ */
+export function recordPlacementId(
+  placement: Omit<RecordPlacement, "blockId"> & { blockId: number | string },
+): string {
+  return `${placement.blockId}__${placement.fieldName}__${placement.recordId}`;
 }
 
 /** Use the same preview targets for selection-path hover as the sidebar editors. */
@@ -78,13 +89,11 @@ export function selectionHoverMessage(
     };
   }
   if (selection.type === "record") {
-    const fieldId = overlayFieldId(blockId, selection.fieldName);
+    const fieldId = recordPlacementId(selection);
     return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
   }
   if (selection.type === "record-field") {
-    const fieldId = overlayFieldId(blockId, selection.recordFieldName, {
-      referenceFieldName: selection.fieldName,
-    });
+    const fieldId = overlayFieldId(blockId, selection.recordFieldName, { placement: selection });
     return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
   }
   if (selection.fieldType === "Repeater") {

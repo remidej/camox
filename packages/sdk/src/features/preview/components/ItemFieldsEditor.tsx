@@ -29,7 +29,7 @@ import {
   type NormalizedItem,
 } from "@/lib/normalized-data";
 
-import { overlayFieldId, type OverlayMessage } from "../overlayMessages";
+import { overlayFieldId, recordPlacementId, type OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, type RecordPlacement } from "../previewStore";
 import { DrillRow } from "./DrillRow";
@@ -134,7 +134,7 @@ const ItemFieldsEditor = ({
   const focusedFieldIdRef = React.useRef<string | null>(null);
 
   const getFieldId = (fieldName: string) =>
-    overlayFieldId(blockId, fieldName, { itemId, referenceFieldName: placement?.fieldName });
+    overlayFieldId(blockId, fieldName, { itemId, placement });
 
   const getFieldElementId = (fieldName: string) => `${fieldIdPrefix}-${fieldName}`;
 
@@ -275,6 +275,11 @@ const ItemFieldsEditor = ({
                 records={referenceList(references, field.name)}
                 onChange={(ids) => onFieldChange(field.name, ids)}
                 onOpenRecord={(recordId) => openRecord(field.name, recordId)}
+                recordHover={{
+                  fieldId: (recordId) =>
+                    recordPlacementId({ blockId, fieldName: field.name, recordId }),
+                  postToIframe,
+                }}
                 drill={
                   selectedFieldName
                     ? undefined

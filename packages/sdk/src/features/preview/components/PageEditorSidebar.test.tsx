@@ -910,6 +910,44 @@ void test("reordering a list keeps the selected record", async (t) => {
   assert.ok(sidebar.host.querySelector("[data-shared-record]"));
 });
 
+void test("hovering a listed record card or its record field rows highlights that entry in the preview", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
+  const messages: unknown[] = [];
+  const iframe = {
+    contentWindow: { postMessage: (message: unknown) => messages.push(message) },
+  } as unknown as HTMLIFrameElement;
+  await act(async () => sidebar.previewStore.send({ type: "setIframeElement", element: iframe }));
+  t.after(() => sidebar.previewStore.send({ type: "setIframeElement", element: null }));
+  const hover = async (element: Element, type: "mouseover" | "mouseout") => {
+    await act(async () => {
+      element.dispatchEvent(new window.MouseEvent(type, { bubbles: true }) as unknown as Event);
+    });
+  };
+
+  const card = sidebar.host.querySelectorAll("[data-record-card]")[1]!;
+  await hover(card, "mouseover");
+  assert.deepEqual(messages.at(-1), {
+    type: "CAMOX_HOVER_FIELD",
+    fieldId: `${BLOCK_ID}__logos__acme`,
+  });
+  await hover(card, "mouseout");
+  assert.deepEqual(messages.at(-1), {
+    type: "CAMOX_HOVER_FIELD_END",
+    fieldId: `${BLOCK_ID}__logos__acme`,
+  });
+
+  await sidebar.click("Open Acme");
+  const quote = [...sidebar.host.querySelectorAll("label")]
+    .find((label) => label.textContent === "Quote")
+    ?.closest(".space-y-2");
+  assert.ok(quote, "the record view lists its field rows");
+  await hover(quote, "mouseover");
+  assert.deepEqual(messages.at(-1), {
+    type: "CAMOX_HOVER_FIELD",
+    fieldId: `${BLOCK_ID}__logos__acme__quote`,
+  });
+});
+
 void test("the picker offers only unlinked records and appends the chosen one", async (t) => {
   const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX] });
   await sidebar.openPicker();

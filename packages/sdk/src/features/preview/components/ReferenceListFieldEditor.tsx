@@ -52,6 +52,7 @@ function SortableRecordCard({
   thumbnail,
   onOpen,
   onUnlink,
+  hover,
 }: {
   id: string;
   label: string;
@@ -60,14 +61,27 @@ function SortableRecordCard({
   thumbnail: RecordThumbnail | null;
   onOpen?: () => void;
   onUnlink: () => void;
+  hover?: { fieldId: string; postToIframe: (message: OverlayMessage) => void };
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
   });
+  const [isHovered, setIsHovered] = React.useState(false);
+  const hoverFieldId = hover?.fieldId;
+  const postToIframe = hover?.postToIframe;
+
+  // Opening the record unmounts the card without a mouseleave; pair the messages on cleanup.
+  React.useEffect(() => {
+    if (!isHovered || hoverFieldId === undefined || !postToIframe) return;
+    postToIframe({ type: "CAMOX_HOVER_FIELD", fieldId: hoverFieldId });
+    return () => postToIframe({ type: "CAMOX_HOVER_FIELD_END", fieldId: hoverFieldId });
+  }, [isHovered, hoverFieldId, postToIframe]);
 
   return (
     <li
       ref={setNodeRef}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -136,6 +150,7 @@ export function ReferenceListFieldEditor({
   records: placed = [],
   onChange,
   onOpenRecord,
+  recordHover,
   drill,
 }: {
   collectionId: string;
@@ -148,6 +163,11 @@ export function ReferenceListFieldEditor({
   onChange?: (ids: string[]) => void | Promise<void>;
   /** Opens a linked record's view, where its fields are edited. */
   onOpenRecord?: (id: string) => void;
+  /** Highlights a linked record's entry in the preview while its card is hovered. */
+  recordHover?: {
+    fieldId: (recordId: string) => string;
+    postToIframe: (message: OverlayMessage) => void;
+  };
   drill?: {
     label: string;
     fieldId: string;
@@ -261,6 +281,12 @@ export function ReferenceListFieldEditor({
                     }
                     onOpen={onOpenRecord ? () => onOpenRecord(id) : undefined}
                     onUnlink={() => change(ids.filter((linked) => linked !== id))}
+                    hover={
+                      recordHover && {
+                        fieldId: recordHover.fieldId(id),
+                        postToIframe: recordHover.postToIframe,
+                      }
+                    }
                   />
                 );
               })}

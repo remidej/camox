@@ -18,7 +18,7 @@ import {
 } from "@/lib/queries";
 
 import { useFrame } from "../../features/preview/components/Frame";
-import { overlayFieldId } from "../../features/preview/overlayMessages";
+import { overlayFieldId, recordPlacementId } from "../../features/preview/overlayMessages";
 import {
   usePreviewSelection,
   usePreviewTargetSelection,
@@ -65,6 +65,7 @@ import {
   type ReferenceContent,
   type ReferenceKeys,
   type ReferenceListKeys,
+  type ReferenceRecord,
   type ReferenceScope,
 } from "../lib/reference";
 import { referenceWritesFor } from "./referenceWrites";
@@ -506,9 +507,7 @@ export function createEditableBlock<
     scope: { itemId?: number | null; reference?: ReferenceContextValue | null } = {},
   ): string =>
     scope.reference
-      ? overlayFieldId(blockId, fieldName, {
-          referenceFieldName: scope.reference.placement.fieldName,
-        })
+      ? overlayFieldId(blockId, fieldName, { placement: scope.reference.placement })
       : overlayFieldId(blockId, fieldName, { itemId: scope.itemId });
 
   // Only allow string fields - not objects, arrays, or embed URLs
@@ -2124,60 +2123,32 @@ export function createEditableBlock<
   );
   const ReferenceFileList = (props: any) => <ReferencePrimitive primitive={FileList} {...props} />;
 
-  const Reference = <K extends ReferenceKeys<TSchemaShape>>({
-    name,
-    children,
-  }: {
-    name: K;
-    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
-  }): React.ReactNode => {
-    const block = React.use(Context);
-    const { recordsMap } = useNormalizedData();
-    const camoxApp = useOptionalCamoxApp();
+  /**
+   * Selection, hover and inline writes for one placement of a record: the record a reference
+   * field places, or one record of a reference list. Inline writes go to the shared record.
+   */
+  const usePlacedRecord = (
+    block: BlockContextValue,
+    fieldName: string,
+    record: ReferenceRecord | null,
+  ) => {
     const selectTarget = usePreviewSelection();
     const projectSlug = useProjectSlug();
     const queryClient = useQueryClient();
     const mutation = useMutation(collectionMutations.edit());
     const [error, setError] = React.useState<string | null>(null);
-    const [hovered, setHovered] = React.useState(false);
-    if (!block) throw new Error("Reference must be used within a Block Component");
+    const [pointerHovered, setPointerHovered] = React.useState(false);
     const editable = useIsEditable(block.mode);
-    const fieldName = String(name);
-    const schema = typeboxSchema.properties[fieldName];
-    const collectionTitle =
-      camoxApp?.getCollectionById(schema.collectionId)?._internal.title ??
-      schema.title ??
-      fieldName;
-    const record = resolveReference(
-      (block.content as Record<string, unknown>)[fieldName],
-      schema.collectionId,
-      recordsMap,
-    );
-    const occurrenceId = referenceOccurrenceId(block.blockId, fieldName);
     const placement = record ? { blockId: block.blockId, fieldName, recordId: record.id } : null;
-    const referenceSelected = useFieldSelection(block.blockId, fieldName, "Reference");
-    const recordSelected = useRecordSelection(placement);
+    const selected = useRecordSelection(placement);
     const { window: iframeWindow } = useFrame();
     const sidebarHovered = useOverlayMessage(
       iframeWindow,
       editable,
       "CAMOX_HOVER_FIELD",
       "CAMOX_HOVER_FIELD_END",
-      { fieldId: occurrenceId },
+      { fieldId: placement ? recordPlacementId(placement) : undefined },
     );
-    const overlay = useOverlayState(hovered || sidebarHovered, referenceSelected || recordSelected);
-    const selectReferenceField = (event?: React.MouseEvent<HTMLElement>) => {
-      if (!editable) return;
-      selectTarget(
-        {
-          type: "block-field",
-          blockId: block.blockId,
-          fieldName,
-          fieldType: "Reference",
-        },
-        event,
-      );
-    };
     // Record fields select themselves; any other click inside the placement selects the record.
     const selectRecord = (event: React.MouseEvent<HTMLElement>) => {
       if (!editable || !placement) return;
@@ -2203,7 +2174,7 @@ export function createEditableBlock<
             collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
             saved,
           );
-          // Shared source changes must refresh every occurrence, not only this block.
+          // Shared source changes must refresh every placement, not only this block.
           void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
           return saved;
         })
@@ -2211,31 +2182,120 @@ export function createEditableBlock<
           setError(cause instanceof Error ? cause.message : "Could not save item");
         });
     };
+    return {
+      editable,
+      error,
+      selected,
+      hovered: pointerHovered || sidebarHovered,
+      reference: placement ? { placement, selectRecordField, update } : null,
+      wrapperProps: {
+        onClickCapture: selectRecord,
+        onMouseEnter: () => setPointerHovered(true),
+        onMouseLeave: () => setPointerHovered(false),
+      },
+    };
+  };
+
+  /** Renders a placed record's scope: its fields read and write the record, not the block. */
+  const RecordScope = ({
+    block,
+    fieldName,
+    record,
+    reference,
+    children,
+  }: {
+    block: BlockContextValue;
+    fieldName: string;
+    record: ReferenceRecord;
+    reference: ReferenceContextValue;
+    children: (scope: ReferenceScope<any>) => React.ReactNode;
+  }) => (
+    <ReferenceContext.Provider value={reference}>
+      <RepeatableItemContext.Provider value={null}>
+        <Context.Provider
+          value={{
+            ...block,
+            content: record.content as TContent,
+            sourceSchema: typeboxSchema.properties[fieldName].referenceSchema.properties,
+          }}
+        >
+          {children({
+            id: record.id,
+            label: record.label,
+            Field,
+            Image: ReferenceImage,
+            File: ReferenceFile,
+            Embed: ReferenceEmbed,
+            ImageList: ReferenceImageList,
+            FileList: ReferenceFileList,
+          } as unknown as ReferenceScope<any>)}
+        </Context.Provider>
+      </RepeatableItemContext.Provider>
+    </ReferenceContext.Provider>
+  );
+
+  const Reference = <K extends ReferenceKeys<TSchemaShape>>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
+  }): React.ReactNode => {
+    const block = React.use(Context);
+    const { recordsMap } = useNormalizedData();
+    const camoxApp = useOptionalCamoxApp();
+    const selectTarget = usePreviewSelection();
+    const { window: iframeWindow } = useFrame();
+    if (!block) throw new Error("Reference must be used within a Block Component");
+    const fieldName = String(name);
+    const schema = typeboxSchema.properties[fieldName];
+    const collectionTitle =
+      camoxApp?.getCollectionById(schema.collectionId)?._internal.title ??
+      schema.title ??
+      fieldName;
+    const record = resolveReference(
+      (block.content as Record<string, unknown>)[fieldName],
+      schema.collectionId,
+      recordsMap,
+    );
+    const placed = usePlacedRecord(block, fieldName, record);
+    const { editable } = placed;
+    const occurrenceId = referenceOccurrenceId(block.blockId, fieldName);
+    const referenceSelected = useFieldSelection(block.blockId, fieldName, "Reference");
+    const fieldHovered = useOverlayMessage(
+      iframeWindow,
+      editable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId: occurrenceId },
+    );
+    const overlay = useOverlayState(
+      placed.hovered || fieldHovered,
+      referenceSelected || placed.selected,
+    );
+    const selectReferenceField = (event?: React.MouseEvent<HTMLElement>) => {
+      if (!editable) return;
+      selectTarget(
+        {
+          type: "block-field",
+          blockId: block.blockId,
+          fieldName,
+          fieldType: "Reference",
+        },
+        event,
+      );
+    };
     if (!record && !editable) return null;
     const rendered =
-      record && placement ? (
-        <ReferenceContext.Provider value={{ placement, selectRecordField, update }}>
-          <RepeatableItemContext.Provider value={null}>
-            <Context.Provider
-              value={{
-                ...block,
-                content: record.content as TContent,
-                sourceSchema: schema.referenceSchema.properties,
-              }}
-            >
-              {children({
-                id: record.id,
-                label: record.label,
-                Field,
-                Image: ReferenceImage,
-                File: ReferenceFile,
-                Embed: ReferenceEmbed,
-                ImageList: ReferenceImageList,
-                FileList: ReferenceFileList,
-              } as unknown as ReferenceScope<ReferenceContent<TSchemaShape[K]>>)}
-            </Context.Provider>
-          </RepeatableItemContext.Provider>
-        </ReferenceContext.Provider>
+      record && placed.reference ? (
+        <RecordScope
+          block={block}
+          fieldName={fieldName}
+          record={record}
+          reference={placed.reference}
+        >
+          {children}
+        </RecordScope>
       ) : (
         <button
           type="button"
@@ -2259,19 +2319,51 @@ export function createEditableBlock<
         data-camox-reference-label={record?.label}
         data-camox-overlay-mode="reference"
         {...overlay}
-        onClickCapture={selectRecord}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        {...placed.wrapperProps}
       >
         {rendered}
-        {error && <p role="alert">Could not save item. {error}</p>}
+        {placed.error && <p role="alert">Could not save item. {placed.error}</p>}
       </div>
     );
   };
 
-  // Listed records render in place, but are not selectable or inline-editable yet:
-  // their primitives render as on the live site (`peek` is never editable). An empty list
-  // shows a placeholder in edit mode that opens the sidebar's record picker.
+  /** One record of a reference list: selected and outlined on its own, apart from the others. */
+  const ListedRecord = ({
+    block,
+    fieldName,
+    record,
+    children,
+  }: {
+    block: BlockContextValue;
+    fieldName: string;
+    record: ReferenceRecord;
+    children: (scope: ReferenceScope<any>) => React.ReactNode;
+  }) => {
+    const placed = usePlacedRecord(block, fieldName, record);
+    const overlay = useOverlayState(placed.hovered, placed.selected);
+    if (!placed.reference) return null;
+    const rendered = (
+      <RecordScope block={block} fieldName={fieldName} record={record} reference={placed.reference}>
+        {children}
+      </RecordScope>
+    );
+    if (!placed.editable) return rendered;
+    return (
+      <div
+        data-camox-field-id={recordPlacementId(placed.reference.placement)}
+        data-camox-collection-record-id={record.id}
+        data-camox-reference-label={record.label}
+        data-camox-overlay-mode="reference"
+        {...overlay}
+        {...placed.wrapperProps}
+      >
+        {rendered}
+        {placed.error && <p role="alert">Could not save item. {placed.error}</p>}
+      </div>
+    );
+  };
+
+  // An empty list shows a placeholder in edit mode that opens the sidebar's record picker.
   const ReferenceList = <K extends ReferenceListKeys<TSchemaShape>>({
     name,
     children,
@@ -2325,30 +2417,11 @@ export function createEditableBlock<
         </button>
       );
     }
+    // Keyed by record, so reordering the list keeps each entry's state.
     return records.map((record) => (
-      <ReferenceContext.Provider key={record.id} value={null}>
-        <RepeatableItemContext.Provider value={null}>
-          <Context.Provider
-            value={{
-              ...block,
-              mode: "peek",
-              content: record.content as TContent,
-              sourceSchema: schema.referenceSchema.properties,
-            }}
-          >
-            {children({
-              id: record.id,
-              label: record.label,
-              Field,
-              Image: ReferenceImage,
-              File: ReferenceFile,
-              Embed: ReferenceEmbed,
-              ImageList: ReferenceImageList,
-              FileList: ReferenceFileList,
-            } as unknown as ReferenceScope<ReferenceContent<TSchemaShape[K]>>)}
-          </Context.Provider>
-        </RepeatableItemContext.Provider>
-      </ReferenceContext.Provider>
+      <ListedRecord key={record.id} block={block} fieldName={fieldName} record={record}>
+        {children as (scope: ReferenceScope<any>) => React.ReactNode}
+      </ListedRecord>
     ));
   };
 

@@ -57,7 +57,7 @@ const cases: {
     name: "record",
     selection: { type: "record", blockId: 1, fieldName: "company", recordId: "acme" },
     type: "CAMOX_HOVER_FIELD",
-    target: { fieldId: "1__company" },
+    target: { fieldId: "1__company__acme" },
   },
   {
     name: "record field",
@@ -70,7 +70,7 @@ const cases: {
       recordFieldType: "String",
     },
     type: "CAMOX_HOVER_FIELD",
-    target: { fieldId: "1__company__quote" },
+    target: { fieldId: "1__company__acme__quote" },
   },
 ];
 

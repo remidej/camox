@@ -84,9 +84,7 @@ function stringFieldId(selection: Selection | null): string | null {
         : null;
     case "record-field":
       return selection.recordFieldType === "String"
-        ? overlayFieldId(blockId, selection.recordFieldName, {
-            referenceFieldName: selection.fieldName,
-          })
+        ? overlayFieldId(blockId, selection.recordFieldName, { placement: selection })
         : null;
     default:
       return null;
