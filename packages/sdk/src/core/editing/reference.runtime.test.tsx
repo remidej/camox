@@ -9,8 +9,10 @@ import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { previewStore, type Selection } from "../../features/preview/previewStore";
+import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
+import type { CamoxApp } from "../createApp";
 import { createCollection } from "../createCollection";
 import { Type } from "../lib/contentType";
 import type { ReferenceRecord } from "../lib/reference";
@@ -192,26 +194,30 @@ void test("an unset reference placeholder names the collection and selects the r
     id: "unset-reference",
     title: "",
     description: "",
-    content: { customer: Type.Reference(customers) },
+    // The field title is not the collection's: the placeholder names the collection.
+    content: { customer: Type.Reference(customers, { title: "Company" }) },
     toMarkdown: () => [],
     component: () => (
       <block.Reference name="customer">{(customer) => <h2>{customer.label}</h2>}</block.Reference>
     ),
   });
+  const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
   const placement = (mode: "site" | "peek") => (
-    <QueryClientProvider client={new QueryClient()}>
-      <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
-        <block._internal.Component
-          mode={mode}
-          blockData={{
-            _id: 3,
-            type: "unset-reference",
-            position: "a0",
-            content: { customer: null },
-          }}
-        />
-      </NormalizedDataProvider>
-    </QueryClientProvider>
+    <CamoxAppProvider app={app as unknown as CamoxApp}>
+      <QueryClientProvider client={new QueryClient()}>
+        <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
+          <block._internal.Component
+            mode={mode}
+            blockData={{
+              _id: 3,
+              type: "unset-reference",
+              position: "a0",
+              content: { customer: null },
+            }}
+          />
+        </NormalizedDataProvider>
+      </QueryClientProvider>
+    </CamoxAppProvider>
   );
 
   const live = renderToStaticMarkup(placement("peek"));

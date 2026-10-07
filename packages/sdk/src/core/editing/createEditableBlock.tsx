@@ -25,6 +25,7 @@ import {
 } from "../../features/preview/previewSelection";
 import { previewStore, selectIsCommentMode } from "../../features/preview/previewStore";
 import { referencePickerFocus } from "../../features/preview/referencePickerFocus";
+import { useOptionalCamoxApp } from "../../features/provider/components/CamoxAppContext";
 import { useNormalizedData, isItemMarker, resolveAssetValue } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
 import {
@@ -2130,6 +2131,7 @@ export function createEditableBlock<
   }): React.ReactNode => {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
+    const camoxApp = useOptionalCamoxApp();
     const selectTarget = usePreviewSelection();
     const projectSlug = useProjectSlug();
     const queryClient = useQueryClient();
@@ -2140,6 +2142,10 @@ export function createEditableBlock<
     const editable = useIsEditable(block.mode);
     const fieldName = String(name);
     const schema = typeboxSchema.properties[fieldName];
+    const collectionTitle =
+      camoxApp?.getCollectionById(schema.collectionId)?._internal.title ??
+      schema.title ??
+      fieldName;
     const record = resolveReference(
       (block.content as Record<string, unknown>)[fieldName],
       schema.collectionId,
@@ -2240,7 +2246,7 @@ export function createEditableBlock<
             referencePickerFocus.send({ type: "request", fieldId: occurrenceId });
           }}
         >
-          Select {schema.title ?? fieldName}
+          Select {collectionTitle}
         </button>
       );
     if (!editable) return rendered;
