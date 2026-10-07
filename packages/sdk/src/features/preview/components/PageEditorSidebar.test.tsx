@@ -34,9 +34,31 @@ registerHooks({
     }
     if (specifier === "./AttachedComments" && context.parentURL?.endsWith("/PageEditorSidebar.tsx"))
       source = "export const AttachedComments = () => null";
-    if (context.parentURL?.endsWith("/AssetFieldEditor.tsx")) {
+    if (
+      context.parentURL?.endsWith("/AssetFieldEditor.tsx") ||
+      context.parentURL?.endsWith("/MultipleAssetFieldEditor.tsx")
+    ) {
       if (specifier === "./AssetLightbox") source = "export const AssetLightbox = () => null";
-      if (specifier === "./AssetPickerModal") source = "export const AssetPickerModal = () => null";
+      // The picker stub offers one library file, with the extra metadata the API returns.
+      if (specifier === "./AssetPickerModal") {
+        source = `export function AssetPickerModal({ open, mode, onSelectSingle, onSelectMultiple }) {
+          if (!open) return null;
+          const file = ${JSON.stringify({
+            id: 5,
+            url: "https://cdn.test/logo.png",
+            alt: "",
+            filename: "logo.png",
+            mimeType: "image/png",
+            size: 1200,
+            projectId: 1,
+            blobId: "blob-5",
+          })};
+          return React.createElement("button", {
+            type: "button",
+            onClick: () => (mode === "single" ? onSelectSingle(file) : onSelectMultiple([file])),
+          }, "Pick logo.png");
+        }`;
+      }
     }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
@@ -67,6 +89,15 @@ const acmeContent = {
     mimeType: "image/png",
     _fileId: "9",
   },
+  gallery: [
+    {
+      url: "https://cdn.test/team.png",
+      alt: "Team",
+      filename: "team.png",
+      mimeType: "image/png",
+      _fileId: "8",
+    },
+  ],
 };
 const acme = {
   id: ACME,
@@ -123,6 +154,7 @@ async function renderSidebar(
       quote: CollectionType.String({ title: "Quote" }),
       featured: CollectionType.Boolean({ default: false, title: "Featured" }),
       logo: CollectionType.Image({ title: "Logo" }),
+      gallery: CollectionType.ImageList({ title: "Gallery" }),
     },
     label: "name",
   });
@@ -181,7 +213,10 @@ async function renderSidebar(
   } as never);
   client.setQueryData(fileQueries.get(FILE_ID).queryKey, file as never);
   client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: 1 } as never);
-  client.setQueryData(fileQueries.getUsageCount(FILE_ID).queryKey, { count: 3 } as never);
+  // Every file is used elsewhere, so unlinking never offers to delete it.
+  for (const id of [FILE_ID, 8, 9]) {
+    client.setQueryData(fileQueries.getUsageCount(id).queryKey, { count: 3 } as never);
+  }
   const records = [{ id: ACME, label: "Acme", status: "published", version: 3 }];
   client.setQueryData(collectionQueries.records("site", "customers").queryKey, records as never);
 
@@ -384,7 +419,10 @@ void test("field edits are not sent while viewing the live site", async (t) => {
   assert.deepEqual(sidebar.writes, []);
 });
 
-const recordField = (recordFieldName: string, recordFieldType: "String" | "Boolean") =>
+const recordField = (
+  recordFieldName: string,
+  recordFieldType: "String" | "Boolean" | "Image" | "ImageList",
+) =>
   ({
     type: "record-field",
     blockId: BLOCK_ID,
@@ -522,4 +560,52 @@ void test("a record selection falls back to the reference field view once the re
   assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company"]);
   assert.ok(!sidebar.host.querySelector("[data-shared-record]"));
   assert.ok(sidebar.host.querySelector("button[aria-haspopup]"), "the picker is shown again");
+});
+
+const pickedLogo = {
+  url: "https://cdn.test/logo.png",
+  alt: "",
+  filename: "logo.png",
+  mimeType: "image/png",
+  size: 1200,
+  _fileId: "5",
+};
+
+void test("record image edits are saved to the record as asset snapshots", async (t) => {
+  const sidebar = await renderSidebar(t, recordField("logo", "Image"));
+  assert.match(sidebar.text(), /acme\.png/);
+  await sidebar.click("Select existing image");
+  await sidebar.click("Pick logo.png");
+  await sidebar.unlinkAsset();
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input.content]),
+    [
+      ["collectionDefinitions/editRecord", { ...acmeContent, logo: pickedLogo }],
+      ["collectionDefinitions/editRecord", { ...acmeContent, logo: null }],
+    ],
+  );
+  assert.deepEqual(sidebar.selection(), recordField("logo", "Image"));
+});
+
+void test("record image list edits are saved to the record as asset snapshots", async (t) => {
+  const sidebar = await renderSidebar(t, recordField("gallery", "ImageList"));
+  assert.match(sidebar.text(), /team\.png/);
+  await sidebar.click("Select existing images");
+  await sidebar.click("Pick logo.png");
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input.content]),
+    [
+      [
+        "collectionDefinitions/editRecord",
+        { ...acmeContent, gallery: [...acmeContent.gallery, pickedLogo] },
+      ],
+    ],
+  );
+});
+
+void test("record asset edits are not sent while viewing the live site", async (t) => {
+  const sidebar = await renderSidebar(t, recordField("logo", "Image"));
+  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
+  await sidebar.unlinkAsset();
+  assert.deepEqual(sidebar.writes, []);
 });

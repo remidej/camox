@@ -46,6 +46,25 @@ export function collectionFormDefaults(
   );
 }
 
+const isAssetFieldType = (fieldType: unknown) =>
+  fieldType === "Image" ||
+  fieldType === "File" ||
+  fieldType === "ImageList" ||
+  fieldType === "FileList";
+
+/** Reads a stored record asset field into the shape the asset editors expect (numeric file IDs). */
+export function editorAssetField(fieldType: unknown, value: unknown) {
+  if (!isAssetFieldType(fieldType)) return value;
+  if (Array.isArray(value)) return value.map(editorAsset);
+  return editorAsset(value);
+}
+
+/** Serializes an asset editor value into the collection record asset snapshot shape. */
+export function serializeAssetField(fieldType: unknown, value: unknown) {
+  if (!isAssetFieldType(fieldType)) return value;
+  return Array.isArray(value) ? value.map(serializeAsset) : serializeAsset(value);
+}
+
 function editorAsset(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const asset = value as Record<string, unknown>;
@@ -76,12 +95,8 @@ export function collectionFormContent(
   return Object.fromEntries(
     fields.map(([name, schema]) => {
       const value = values[name];
-      if (schema.fieldType.endsWith("List")) {
-        return [name, Array.isArray(value) ? value.map(serializeAsset) : value];
-      }
-      if (schema.fieldType === "Image" || schema.fieldType === "File") {
-        return [name, serializeAsset(value)];
-      }
+      if (isAssetFieldType(schema.fieldType))
+        return [name, serializeAssetField(schema.fieldType, value)];
       // Do not flatten existing rich text when another field is edited.
       if (
         schema.fieldType === "String" &&
