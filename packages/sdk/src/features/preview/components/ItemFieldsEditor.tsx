@@ -27,9 +27,9 @@ import {
   type NormalizedItem,
 } from "@/lib/normalized-data";
 
-import type { OverlayMessage } from "../overlayMessages";
+import { overlayFieldId, type OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import { previewStore } from "../previewStore";
+import { previewStore, type RecordPlacement } from "../previewStore";
 import { DrillRow } from "./DrillRow";
 import { IconFieldEditor } from "./IconFieldEditor";
 import { ReferenceFieldEditor } from "./ReferenceFieldEditor";
@@ -97,8 +97,8 @@ interface ItemFieldsEditorProps {
   itemsMap: Map<number, NormalizedItem>;
   /** Hydrated records linked by this block's reference fields, keyed by field name. */
   references?: Record<string, NormalizedCollectionRecord | null>;
-  /** When editing a placed collection record's fields: the reference field placing it. */
-  placement?: { fieldName: string; recordId: string };
+  /** When editing a placed collection record's fields: where the block places it. */
+  placement?: RecordPlacement;
   /** Prefix used to scope DOM ids for each field so label-input pairs and
    * imperative focus lookups don't collide across sheet instances. */
   fieldIdPrefix: string;
@@ -130,12 +130,8 @@ const ItemFieldsEditor = ({
   const timerRef = React.useRef<number | null>(null);
   const focusedFieldIdRef = React.useRef<string | null>(null);
 
-  // Build field ID matching the iframe's getOverlayFieldId format
-  const getFieldId = (fieldName: string) => {
-    if (placement) return `${blockId}__${placement.fieldName}__${fieldName}`;
-    if (itemId != null) return `${blockId}__${itemId}__${fieldName}`;
-    return `${blockId}__${fieldName}`;
-  };
+  const getFieldId = (fieldName: string) =>
+    overlayFieldId(blockId, fieldName, { itemId, referenceFieldName: placement?.fieldName });
 
   const getFieldElementId = (fieldName: string) => `${fieldIdPrefix}-${fieldName}`;
 
@@ -194,9 +190,7 @@ const ItemFieldsEditor = ({
       previewStore.send({
         type: "selectRecordField",
         ...owner,
-        blockId,
-        fieldName: placement.fieldName,
-        recordId: placement.recordId,
+        ...placement,
         recordFieldName: fieldName,
         recordFieldType: fieldType,
       });

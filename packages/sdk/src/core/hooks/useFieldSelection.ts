@@ -2,7 +2,11 @@ import { useSelector } from "@xstate/store-react";
 import { useContext } from "react";
 
 import { PreviewEditingOwnerContext } from "../../features/preview/previewSelection";
-import { previewStore, selectionForOwner } from "../../features/preview/previewStore";
+import {
+  previewStore,
+  selectionForOwner,
+  type RecordPlacement,
+} from "../../features/preview/previewStore";
 import type { FieldType } from "../lib/fieldTypes.tsx";
 
 /**
@@ -39,9 +43,6 @@ export function useFieldSelection(
     return false;
   });
 }
-
-/** A record placed by a block's reference field. */
-export type RecordPlacement = { blockId: number; fieldName: string; recordId: string };
 
 /**
  * Returns whether the placed record, or one of its record fields when `recordFieldName` is

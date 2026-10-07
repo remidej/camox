@@ -21,17 +21,20 @@ export type Selection =
       fieldName: string;
       fieldType: FieldType;
     }
-  /** A collection record placed by a block's reference field (one occurrence of the record). */
-  | { type: "record"; blockId: number; fieldName: string; recordId: string }
-  | {
+  | ({ type: "record" } & RecordPlacement)
+  | ({
       type: "record-field";
-      blockId: number;
-      /** The block's reference field that places the record. */
-      fieldName: string;
-      recordId: string;
       recordFieldName: string;
       recordFieldType: FieldType;
-    };
+    } & RecordPlacement);
+
+/** A collection record placed by a block's reference field (one occurrence of the record). */
+export type RecordPlacement = {
+  blockId: number;
+  /** The block's reference field that places the record. */
+  fieldName: string;
+  recordId: string;
+};
 
 /** Derived routes have no page row, but their persisted layout remains editable. */
 export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: number };
@@ -253,10 +256,7 @@ export const previewStore = createStore({
         fieldType: event.fieldType,
       }),
     }),
-    selectRecord: (
-      context,
-      event: EditingOwner & { blockId: number; fieldName: string; recordId: string },
-    ) => ({
+    selectRecord: (context, event: EditingOwner & RecordPlacement) => ({
       ...context,
       editingContext: targetContext(event, {
         type: "record" as const,
@@ -267,13 +267,8 @@ export const previewStore = createStore({
     }),
     selectRecordField: (
       context,
-      event: EditingOwner & {
-        blockId: number;
-        fieldName: string;
-        recordId: string;
-        recordFieldName: string;
-        recordFieldType: FieldType;
-      },
+      event: EditingOwner &
+        RecordPlacement & { recordFieldName: string; recordFieldType: FieldType },
     ) => ({
       ...context,
       editingContext: targetContext(event, {

@@ -43,6 +43,23 @@ export type OverlayMessage =
   | { type: "CAMOX_FORMAT_TEXT"; formatKey: string }
   | { type: "CAMOX_TOGGLE_TEXT_LINK"; target: string | null; text?: string };
 
+/**
+ * The field ID shared by the preview's editable fields and the sidebar's hover/focus messages:
+ * `block__field` for block fields, `block__item__field` for repeater item fields, and
+ * `block__referenceField__recordField` for the fields of a record placed by a reference field.
+ */
+export function overlayFieldId(
+  blockId: number | string,
+  fieldName: string,
+  scope: { itemId?: number | null; referenceFieldName?: string } = {},
+): string {
+  if (scope.referenceFieldName != null) {
+    return `${blockId}__${scope.referenceFieldName}__${fieldName}`;
+  }
+  if (scope.itemId != null) return `${blockId}__${scope.itemId}__${fieldName}`;
+  return `${blockId}__${fieldName}`;
+}
+
 /** Use the same preview targets for selection-path hover as the sidebar editors. */
 export function selectionHoverMessage(
   selection: Selection | null,
@@ -61,11 +78,13 @@ export function selectionHoverMessage(
     };
   }
   if (selection.type === "record") {
-    const fieldId = `${blockId}__${selection.fieldName}`;
+    const fieldId = overlayFieldId(blockId, selection.fieldName);
     return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
   }
   if (selection.type === "record-field") {
-    const fieldId = `${blockId}__${selection.fieldName}__${selection.recordFieldName}`;
+    const fieldId = overlayFieldId(blockId, selection.recordFieldName, {
+      referenceFieldName: selection.fieldName,
+    });
     return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
   }
   if (selection.fieldType === "Repeater") {
@@ -75,10 +94,9 @@ export function selectionHoverMessage(
       fieldName: selection.fieldName,
     };
   }
-  const fieldId =
-    selection.type === "item-field"
-      ? `${blockId}__${selection.itemId}__${selection.fieldName}`
-      : `${blockId}__${selection.fieldName}`;
+  const fieldId = overlayFieldId(blockId, selection.fieldName, {
+    itemId: selection.type === "item-field" ? selection.itemId : null,
+  });
   return { type: hovered ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId };
 }
 

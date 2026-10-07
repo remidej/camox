@@ -4,10 +4,9 @@ import { Input } from "@camox/ui/input";
 import { ChevronsUpDown, Plus } from "lucide-react";
 import * as React from "react";
 
-import { PageStatusBadge } from "./PageStatusBadge";
-import type { RecordStatus } from "./RecordCard";
+import { PageStatusBadge, type PublicationStatus } from "./PageStatusBadge";
 
-export type RecordOption = { id: string; label: string; status: RecordStatus };
+export type RecordOption = { id: string; label: string; status: PublicationStatus };
 
 /**
  * Picks a collection record by label. The footer action (e.g. Create item) receives the
@@ -19,7 +18,6 @@ export function RecordCombobox({
   onSelect,
   footerAction,
   disabled,
-  triggerLabel = "Select item",
   open: controlledOpen,
   onOpenChange,
 }: {
@@ -28,7 +26,6 @@ export function RecordCombobox({
   onSelect: (record: RecordOption) => void;
   footerAction?: { label: string; onSelect: (search: string) => void };
   disabled?: boolean;
-  triggerLabel?: string;
   /** Control the popup, e.g. to open it when the preview asks to link a record. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -62,7 +59,7 @@ export function RecordCombobox({
       <Combobox.Trigger
         render={<Button type="button" variant="outline" className="w-full justify-between" />}
       >
-        {triggerLabel}
+        Select item
         <ChevronsUpDown aria-hidden className="text-muted-foreground size-4" />
       </Combobox.Trigger>
       <Combobox.Portal>

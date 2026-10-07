@@ -3,9 +3,7 @@ import * as React from "react";
 
 import { transformImageUrl } from "@/core/lib/imageTransform";
 
-import { PageStatusBadge } from "./PageStatusBadge";
-
-export type RecordStatus = "draft" | "published" | "modified";
+import { PageStatusBadge, type PublicationStatus } from "./PageStatusBadge";
 
 export type RecordThumbnail = { url: string; alt?: string; mimeType?: string; size?: number };
 
@@ -28,7 +26,7 @@ export function recordThumbnail(
 
 /**
  * A linked collection record: thumbnail, label, publication badge and collection title.
- * `actions` holds trailing controls (unlink now, reorder handles for reference lists later).
+ * `actions` holds trailing controls such as unlink.
  */
 export function RecordCard({
   label,
@@ -40,7 +38,7 @@ export function RecordCard({
 }: {
   label: string;
   collectionTitle: string;
-  status?: RecordStatus;
+  status?: PublicationStatus;
   thumbnail?: RecordThumbnail | null;
   onOpen?: () => void;
   actions?: React.ReactNode;
