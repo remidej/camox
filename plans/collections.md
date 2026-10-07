@@ -93,12 +93,19 @@ without copying page/block trees or sharing their restoration behavior.
   occurrence. Shared fields have purple outlines and use the source record label.
   Missing/unset references render an editor attachment placeholder, never a fake
   record; public rendering is empty.
-- The sidebar reference field shows a combobox only when no item is linked. Its selected-item
-  card opens the existing edit modal; an X with an **Unlink** tooltip removes the
-  attachment. **Create item** is offered only when unlinked and opens the existing
-  create modal, attaching the saved item. It does not embed source field editors. A cancelled
-  creation never changes the attachment, and unlinking never deletes the item.
-  Compatible text fields also support inline source editing in preview.
+- _Revised after slice 4 landed:_ records are edited like repeater items, not in a
+  modal. The sidebar drills Block › Reference field › Record › Record field (for
+  example Testimonial › Customer › Acme › Quote), with breadcrumbs. The reference
+  field view owns linking (and, for lists, reordering): a record card (first-image
+  thumbnail, label, publication badge, collection title, X with an **Unlink**
+  tooltip and no confirmation) and, only when unlinked, a combobox. **Create item**
+  lives only in the combobox footer, as in PagePicker; it opens the existing create
+  modal prefilled with the search text and links the saved record. The record view
+  shows a purple shared header and the record fields; it has no publish control.
+  Record and record-field selections identify the occurrence plus the record, and
+  drive preview highlights on the selected occurrence only. In preview, record
+  fields (including images and files) are selectable and editable inline.
+  A cancelled creation never changes the link, and unlinking never deletes the record.
 - Draft resolution reads draft records; live resolution reads only published
   revisions. Editing a source refreshes its draft occurrences, not live content.
   Independently publishing a source refreshes live occurrences. Referenced assets
