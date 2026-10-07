@@ -162,7 +162,8 @@ depth and cycles, and query-backed lists (slice 6) remain open.
   typed record scope as `block.Reference`, and renders nothing for an empty list.
 - Editors manage a list in the reference field view: sortable record cards with
   **Unlink**, a never-published hint, and a combobox that appends (hiding linked
-  records, hidden at `maxItems`, **Create item** appends). Writes send the whole
+  records, replaced by "Limit of {maxItems} reached" at `maxItems`, **Create item**
+  appends). The field list summarizes a list as "{n} linked". Writes send the whole
   array. Record and record field views are unchanged; selection shapes are reused
   (uniqueness makes them unambiguous) and placement ids include the record id.
   A selection whose record left the list falls back to the reference field view.

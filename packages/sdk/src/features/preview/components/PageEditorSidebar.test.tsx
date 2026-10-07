@@ -975,10 +975,11 @@ void test("the picker explains when every record is already linked", async (t) =
   assert.match(document.body.textContent ?? "", /Every Customers item is already linked/);
 });
 
-void test("the picker is hidden once the list reaches its maximum", async (t) => {
+void test("the picker is replaced by a limit message once the list reaches its maximum", async (t) => {
   const sidebar = await renderSidebar(t, logosField, { logos: [ACME, GLOBEX, INITECH] });
   assert.equal(cards(sidebar.host).length, 3);
   assert.ok(!sidebar.host.querySelector("button[aria-haspopup]"), "no picker at maxItems");
+  assert.match(sidebar.text(), /Limit of 3 reached/);
 });
 
 void test("Create item prefills the label, appends the saved record, and cancel changes nothing", async (t) => {

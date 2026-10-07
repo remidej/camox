@@ -292,6 +292,7 @@ export function ReferenceListFieldEditor({
           </SortableContext>
         </DndContext>
       )}
+      {!canAdd && <p className="text-muted-foreground px-1 text-xs">Limit of {maxItems} reached</p>}
       {canAdd && (
         <RecordCombobox
           records={options}
