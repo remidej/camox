@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { CheckCircle2, CircleAlert, Code2 } from "lucide-react";
 import { type ChangeEvent, type KeyboardEvent, useState } from "react";
 
@@ -16,21 +16,21 @@ const typeSafeBlockDemo = createBlock({
   title: "Type-safe Block Demo",
   description:
     "Use this interactive code demonstration to explain how createBlock infers valid Field names from a block's content schema. It works best near developer-focused product or framework content. Keep the heading concise and let visitors type in the field-name input to experience suggestions and validation.",
-  content: {
-    pill: Type.String({
+  content: (field) => ({
+    pill: field.string({
       default: "Type-safe by design",
       title: "Pill label",
     }),
-    title: Type.String({
+    title: field.string({
       default: "Your schema becomes your API.",
       title: "Title",
     }),
-    description: Type.String({
+    description: field.string({
       default:
         "Field names are inferred directly from your block definition, with autocomplete and errors wherever you use them.",
       title: "Description",
     }),
-  },
+  }),
   component: TypeSafeBlockDemoComponent,
   toMarkdown: (c) => [c.pill, `## ${c.title}`, c.description],
 });
@@ -130,8 +130,7 @@ function TypeSafeBlockDemoComponent() {
           <div className="overflow-x-auto py-5 text-[0.78rem] leading-7 sm:py-6 sm:text-sm">
             <div className="min-w-[36rem] font-mono">
               <CodeLine number={1}>
-                <SyntaxToken tone="purple">import</SyntaxToken> {"{ "}
-                <SyntaxToken tone="blue">Type</SyntaxToken>, createBlock{" } "}
+                <SyntaxToken tone="purple">import</SyntaxToken> {"{ "}createBlock{" } "}
                 <SyntaxToken tone="purple">from</SyntaxToken>{" "}
                 <SyntaxToken tone="green">&quot;camox/createBlock&quot;</SyntaxToken>;
               </CodeLine>
@@ -140,16 +139,16 @@ function TypeSafeBlockDemoComponent() {
                 <SyntaxToken tone="purple">const</SyntaxToken> feature = createBlock({"{"}
               </CodeLine>
               <CodeLine number={4} indent={1}>
-                content: {"{"}
+                content: (field) =&gt; ({"{"}
               </CodeLine>
               {demoFields.map((field, index) => (
                 <CodeLine key={field.name} number={index + 5} indent={2}>
-                  <SyntaxToken tone="blue">{field.name}</SyntaxToken>: Type.String({"{"} default:{" "}
+                  <SyntaxToken tone="blue">{field.name}</SyntaxToken>: field.string({"{"} default:{" "}
                   <SyntaxToken tone="green">&quot;{field.defaultValue}&quot;</SyntaxToken> {"}"}),
                 </CodeLine>
               ))}
               <CodeLine number={7} indent={1}>
-                {"}"},
+                {"}"}),
               </CodeLine>
               <CodeLine number={8} indent={1}>
                 component:{" "}

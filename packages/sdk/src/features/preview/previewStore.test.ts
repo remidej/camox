@@ -404,15 +404,14 @@ void test("comment field types follow current definitions and nested item ancest
   const { getCommentTargetFieldType, revealCommentTarget } = await import("./previewCommentsStore");
   const { previewStore } = await import("./previewStore");
   const { createApp } = await import("../../core/createApp");
-  const { createBlock, Type } = await import("../../core/createBlock");
+  const { createBlock } = await import("../../core/createBlock");
   const definition = createBlock({
     id: "test",
     title: "Test",
     description: "Comment target fixture",
-    content: { title: Type.String({ default: "" }) } as Record<
-      string,
-      import("@sinclair/typebox").TSchema
-    >,
+    content: (field): Record<string, import("@sinclair/typebox").TSchema> => ({
+      title: field.string({ default: "" }),
+    }),
     component: () => null,
     toMarkdown: () => [],
   });

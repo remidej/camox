@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { BlockContainer } from "@/components/BlockContainer";
 
@@ -7,36 +7,36 @@ const article = createBlock({
   title: "Article",
   description:
     "Use this block for long-form, text-first pages such as legal documents, policies, guides, and blog articles. Give the page a clear title and introduction, then organize the body into concise titled sections. Keep paragraphs readable and use inline formatting or links where helpful.",
-  content: {
-    meta: Type.String({
+  content: (field) => ({
+    meta: field.string({
       default: "Last updated recently",
       title: "Metadata",
     }),
-    title: Type.String({
+    title: field.string({
       default: "Article title",
       title: "Title",
     }),
-    introduction: Type.String({
+    introduction: field.string({
       default: "A short introduction that explains what this page covers.",
       title: "Introduction",
     }),
-    sections: Type.Repeater({
-      content: {
-        title: Type.String({
+    sections: field.repeater({
+      content: (field) => ({
+        title: field.string({
           default: "Section title",
           title: "Title",
         }),
-        body: Type.String({
+        body: field.string({
           default: "Write the section content here.",
           title: "Body",
         }),
-      },
+      }),
       minItems: 1,
       maxItems: Infinity,
       title: "Sections",
       toMarkdown: (c) => [`## ${c.title}`, c.body],
     }),
-  },
+  }),
   component: ArticleComponent,
   toMarkdown: (c) => [c.meta, `# ${c.title}`, c.introduction, c.sections],
 });

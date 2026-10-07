@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { BlockContainer } from "@/components/BlockContainer";
 import { Pill } from "@/components/Pill";
@@ -8,36 +8,36 @@ const paragraphGrid = createBlock({
   title: "Paragraph Grid",
   description:
     "Use this block for a 'why us' section about avoiding the operational pitfalls of agent-built websites. Open with a concise promise, follow with four problem-led benefits, and close with a synthesis banner. Each item should name a concrete failure the product prevents, then explain how it prevents it. Emphasize the key failure term with inline italics. Keep claims grounded in product behavior and do not criticize named competitors.",
-  content: {
-    pill: Type.String({
+  content: (field) => ({
+    pill: field.string({
       default: "Why us",
       title: "Pill label",
     }),
-    title: Type.String({
+    title: field.string({
       default: "Agent-built websites, without the usual pitfalls.",
       title: "Section heading",
     }),
-    paragraphs: Type.Repeater({
-      content: {
-        title: Type.String({
+    paragraphs: field.repeater({
+      content: (field) => ({
+        title: field.string({
           default: "Pages don't *drift*.",
           title: "Problem prevented",
         }),
-        description: Type.String({
+        description: field.string({
           default: "Synced blocks keep your site consistent as it grows.",
           title: "How it works",
         }),
-      },
+      }),
       minItems: 4,
       maxItems: 4,
       title: "Problem-led benefits",
       toMarkdown: (c) => [`**${c.title}** ${c.description}`],
     }),
-    bannerText: Type.String({
+    bannerText: field.string({
       default: "Camox combines the *speed* of agents with the *structure* of a CMS.",
       title: "Banner text",
     }),
-  },
+  }),
   component: ParagraphGridComponent,
   toMarkdown: (c) => [c.pill, `# ${c.title}`, c.paragraphs, `**${c.bannerText}**`],
 });

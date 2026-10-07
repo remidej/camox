@@ -14,7 +14,6 @@ import { initApiClient } from "../../lib/api-client";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import type { CamoxApp } from "../createApp";
 import { createCollection } from "../createCollection";
-import { Type } from "../lib/contentType";
 import type { ReferenceRecord } from "../lib/reference";
 
 // Exercise the actual editable scope, field and normalized provider. The harness
@@ -90,7 +89,7 @@ void test("editable reference occurrences write one source and retain placement 
     title: "Customers",
     description: "",
     label: "name",
-    content: { name: Type.String({ default: "" }) },
+    content: (field) => ({ name: field.string({ default: "" }) }),
   });
   source = {
     id: "source-id",
@@ -104,7 +103,7 @@ void test("editable reference occurrences write one source and retain placement 
     id: "reference",
     title: "",
     description: "",
-    content: { customer: Type.Reference(customers) },
+    content: (field) => ({ customer: field.reference(customers) }),
     toMarkdown: (c) => [c.customer.name],
     component: () => (
       <block.Reference name="customer">
@@ -188,14 +187,14 @@ void test("an unset reference placeholder names the collection and selects the r
     title: "Customers",
     description: "",
     label: "name",
-    content: { name: Type.String({ default: "" }) },
+    content: (field) => ({ name: field.string({ default: "" }) }),
   });
   const block = createEditableBlock({
     id: "unset-reference",
     title: "",
     description: "",
     // The field title is not the collection's: the placeholder names the collection.
-    content: { customer: Type.Reference(customers, { title: "Company" }) },
+    content: (field) => ({ customer: field.reference(customers, { title: "Company" }) }),
     toMarkdown: () => [],
     component: () => (
       <block.Reference name="customer">{(customer) => <h2>{customer.label}</h2>}</block.Reference>
@@ -263,7 +262,7 @@ void test("clicks inside a placed record select its record field or the record f
     title: "Customers",
     description: "",
     label: "name",
-    content: { name: Type.String({ default: "" }) },
+    content: (field) => ({ name: field.string({ default: "" }) }),
   });
   const record: ReferenceRecord = {
     id: "acme",
@@ -276,7 +275,10 @@ void test("clicks inside a placed record select its record field or the record f
     id: "placements",
     title: "",
     description: "",
-    content: { name: Type.String({ default: "" }), customer: Type.Reference(customers) },
+    content: (field) => ({
+      name: field.string({ default: "" }),
+      customer: field.reference(customers),
+    }),
     toMarkdown: () => [],
     component: () => (
       <block.Reference name="customer">
@@ -389,13 +391,13 @@ void test("record images and files select their record field for that placement 
     title: "Customers",
     description: "",
     label: "name",
-    content: {
-      name: Type.String({ default: "" }),
-      logo: Type.Image({ title: "Logo" }),
-      gallery: Type.ImageList({ title: "Gallery" }),
-      brochure: Type.File({ accept: ["application/pdf"], title: "Brochure" }),
-      attachments: Type.FileList({ accept: ["application/pdf"], title: "Attachments" }),
-    },
+    content: (field) => ({
+      name: field.string({ default: "" }),
+      logo: field.image({ title: "Logo" }),
+      gallery: field.imageList({ title: "Gallery" }),
+      brochure: field.file({ accept: ["application/pdf"], title: "Brochure" }),
+      attachments: field.fileList({ accept: ["application/pdf"], title: "Attachments" }),
+    }),
   });
   const asset = (name: string, mimeType: string, fileId: string) => ({
     url: `https://cdn.test/${name}`,
@@ -421,7 +423,10 @@ void test("record images and files select their record field for that placement 
     id: "record-assets",
     title: "",
     description: "",
-    content: { logo: Type.Image({ title: "Logo" }), customer: Type.Reference(customers) },
+    content: (field) => ({
+      logo: field.image({ title: "Logo" }),
+      customer: field.reference(customers),
+    }),
     toMarkdown: () => [],
     component: () => (
       <block.Reference name="customer">
@@ -537,7 +542,7 @@ void test("record embeds select their record field for that placement only", asy
     title: "Customers",
     description: "",
     label: "name",
-    content: { name: Type.String({ default: "" }), video: Type.Embed(embed) },
+    content: (field) => ({ name: field.string({ default: "" }), video: field.embed(embed) }),
   });
   const record: ReferenceRecord = {
     id: "acme",
@@ -550,7 +555,7 @@ void test("record embeds select their record field for that placement only", asy
     id: "record-embed",
     title: "",
     description: "",
-    content: { video: Type.Embed(embed), customer: Type.Reference(customers) },
+    content: (field) => ({ video: field.embed(embed), customer: field.reference(customers) }),
     toMarkdown: () => [],
     component: () => (
       <block.Reference name="customer">

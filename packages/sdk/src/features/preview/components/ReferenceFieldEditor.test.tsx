@@ -7,7 +7,7 @@ import * as React from "react";
 import { act } from "react";
 
 import { createApp } from "@/core/createApp";
-import { createCollection, Type } from "@/core/createCollection";
+import { createCollection } from "@/core/createCollection";
 import {
   CollectionItemModalProvider,
   useCollectionItemModal,
@@ -28,11 +28,11 @@ const customers = createCollection({
   title: "Customers",
   description: "",
   label: "name",
-  content: {
-    name: Type.String({ title: "Name" }),
-    company: Type.String({ title: "Company" }),
-    logo: Type.Image({ title: "Logo" }),
-  },
+  content: (field) => ({
+    name: field.string({ title: "Name" }),
+    company: field.string({ title: "Company" }),
+    logo: field.image({ title: "Logo" }),
+  }),
 });
 const app = createApp({ blocks: [], collections: [customers] });
 

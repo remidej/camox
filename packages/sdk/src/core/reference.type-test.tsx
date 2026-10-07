@@ -1,4 +1,4 @@
-import { createBlock, Type } from "./createBlock";
+import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
 
 const customers = createCollection({
@@ -6,21 +6,24 @@ const customers = createCollection({
   title: "Customers",
   description: "",
   label: "name",
-  content: {
-    name: Type.String({ default: "" }),
-    logo: Type.Image(),
-    file: Type.File({ accept: ["application/pdf"] }),
-    video: Type.Embed({ pattern: ".*", default: "" }),
-    enabled: Type.Boolean({ default: false }),
-    category: Type.Enum({ options: { a: "A" }, default: "a" }),
-    images: Type.ImageList(),
-  },
+  content: (field) => ({
+    name: field.string({ default: "" }),
+    logo: field.image(),
+    file: field.file({ accept: ["application/pdf"] }),
+    video: field.embed({ pattern: ".*", default: "" }),
+    enabled: field.boolean({ default: false }),
+    category: field.enum({ options: { a: "A" }, default: "a" }),
+    images: field.imageList(),
+  }),
 });
 const block = createBlock({
   id: "testimonial",
   title: "Testimonial",
   description: "",
-  content: { customer: Type.Reference(customers), heading: Type.String({ default: "" }) },
+  content: (field) => ({
+    customer: field.reference(customers),
+    heading: field.string({ default: "" }),
+  }),
   component: () => null,
   toMarkdown: (c) => {
     // @ts-expect-error Unknown source field.

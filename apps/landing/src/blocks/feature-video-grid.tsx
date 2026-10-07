@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Check } from "lucide-react";
 
 import { BlockContainer } from "@/components/BlockContainer";
@@ -10,57 +10,57 @@ const featureVideoGrid = createBlock({
   title: "Feature Video Grid",
   description:
     "Use this block to showcase two product features with short autoplaying videos, compact copy, and small supporting points. It is a generic marketing section for visual product capabilities, feature launches, workflow demos, or before/after interactions. Keep the text concise and let the looping videos carry the explanation.",
-  content: {
-    pill: Type.String({
+  content: (field) => ({
+    pill: field.string({
       default: "Features",
       title: "Pill label",
     }),
-    title: Type.String({
+    title: field.string({
       default: "Features you can see.",
       title: "Title",
     }),
-    description: Type.String({
+    description: field.string({
       default:
         "Short looping videos show the product in motion, with just enough copy to explain why each capability matters.",
       title: "Description",
     }),
-    items: Type.Repeater({
-      content: {
-        label: Type.String({
+    items: field.repeater({
+      content: (field) => ({
+        label: field.string({
           default: "Feature",
           title: "Label",
         }),
-        title: Type.String({
+        title: field.string({
           default: "A visual product capability",
           title: "Title",
         }),
-        description: Type.String({
+        description: field.string({
           default: "Show the workflow in a short loop, then explain the outcome in one sentence.",
           title: "Description",
         }),
-        video: Type.File({
+        video: field.file({
           accept: ["video/mp4", "video/webm", "video/quicktime"],
           title: "Feature video",
         }),
-        points: Type.Repeater({
-          content: {
-            text: Type.String({
+        points: field.repeater({
+          content: (field) => ({
+            text: field.string({
               default: "A concise supporting point",
               title: "Point",
             }),
-          },
+          }),
           minItems: 1,
           maxItems: 4,
           title: "Points",
           toMarkdown: (c) => [c.text],
         }),
-      },
+      }),
       minItems: 1,
       maxItems: Infinity,
       title: "Feature videos",
       toMarkdown: (c) => [`### ${c.title}`, c.label, c.description, c.video, c.points],
     }),
-  },
+  }),
   component: FeatureVideoGridComponent,
   toMarkdown: (c) => [c.pill, `## ${c.title}`, c.description, c.items],
 });

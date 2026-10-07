@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Check, X } from "lucide-react";
 
 import { BlockContainer } from "@/components/BlockContainer";
@@ -10,44 +10,44 @@ const withoutWith = createBlock({
   title: "Without / With",
   description:
     "Use this comparison block to contrast recurring problems with the better outcomes, capabilities, or behaviors that address them. Each row pairs one concise 'without' statement with one directly corresponding 'with' statement. Keep both sides parallel, concrete, and similar in length.",
-  content: {
-    pill: Type.String({
+  content: (field) => ({
+    pill: field.string({
       default: "Compare",
       title: "Pill label",
     }),
-    title: Type.String({
+    title: field.string({
       default: "See the difference.",
       title: "Title",
     }),
-    description: Type.String({
+    description: field.string({
       default: "Compare the usual approach with a better way forward.",
       title: "Description",
     }),
-    withoutLabel: Type.String({
+    withoutLabel: field.string({
       default: "Without",
       title: "Without column label",
     }),
-    withLabel: Type.String({
+    withLabel: field.string({
       default: "With",
       title: "With column label",
     }),
-    comparisons: Type.Repeater({
-      content: {
-        without: Type.String({
+    comparisons: field.repeater({
+      content: (field) => ({
+        without: field.string({
           default: "A disconnected workflow",
           title: "Without",
         }),
-        with: Type.String({
+        with: field.string({
           default: "One connected workflow",
           title: "With",
         }),
-      },
+      }),
       minItems: 2,
       maxItems: 8,
       title: "Comparisons",
       toMarkdown: (c) => [`**Without:** ${c.without}\n**With:** ${c.with}`],
     }),
-  },
+  }),
   component: WithoutWithComponent,
   toMarkdown: (c) => [
     c.pill,

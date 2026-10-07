@@ -62,7 +62,7 @@ use this exact definition and verify that public reads never receive draft edits
 
 ## Shared testimonial company (slice 4)
 
-The testimonial's `company` is now `Type.Reference(customers)`. The quote, author,
+The testimonial's `company` is now `field.reference(customers)`. The quote, author,
 and title still belong to each testimonial; `customer.company` belongs to the
 shared Customers item. `testimonial.Reference` provides its typed rendering scope.
 The Markdown callback reads `c.company.company`, not the stored record ID.
@@ -87,7 +87,7 @@ The Markdown callback reads `c.company.company`, not the stored record ID.
 7. Click the card's **Unlink** X on one testimonial: the other remains attached, and the customer remains
    in Content → Customers. Deleting a still-referenced customer is rejected.
 
-For required companies, add `{ required: true }` to `Type.Reference`. Drafts may
+For required companies, add `{ required: true }` to `field.reference`. Drafts may
 remain incomplete, but publication requires an attached published customer or
 its explicit inclusion in the publication review. Unpublishing a required live
 dependency is rejected; optional unpublished references render empty.

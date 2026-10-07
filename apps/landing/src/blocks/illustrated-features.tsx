@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 
 import { BlockContainer } from "@/components/BlockContainer";
 import { InlineHeading } from "@/components/InlineHeading";
@@ -9,48 +9,48 @@ const illustratedFeatures = createBlock({
   title: "Illustrated Features",
   description:
     "Use this block to showcase a list of product features in depth. The section opens with a pill label, a large headline and supporting description, then presents features in a 2-column grid with rounded borders. Each cell shows the title, description, and an illustration anchored to the bottom. Good fit for marketing pages that need to explain several capabilities with visual support.",
-  content: {
-    pill: Type.String({
+  content: (field) => ({
+    pill: field.string({
       default: "Features",
       title: "Pill label",
     }),
-    title: Type.String({
+    title: field.string({
       default: "Everything you need to ship faster.",
       title: "Title",
     }),
-    description: Type.String({
+    description: field.string({
       default:
         "A focused toolkit that gets out of your way, so you can move from idea to launch without the usual friction.",
       title: "Description",
     }),
-    items: Type.Repeater({
-      content: {
-        title: Type.String({
+    items: field.repeater({
+      content: (field) => ({
+        title: field.string({
           default: "Built for speed.",
           title: "Feature title",
         }),
-        description: Type.String({
+        description: field.string({
           default:
             "Skip the boilerplate and get straight to building. Our primitives are designed to be fast by default, so your product stays snappy at any scale.",
           title: "Feature description",
         }),
-        illustration: Type.Image({
+        illustration: field.image({
           title: "Illustration",
         }),
-      },
+      }),
       minItems: 1,
       maxItems: Infinity,
       title: "Features",
       toMarkdown: (c) => [`**${c.title}** ${c.description}`, c.illustration],
     }),
-  },
-  settings: {
-    columns: Type.Enum({
+  }),
+  settings: (setting) => ({
+    columns: setting.enum({
       default: "2",
       options: { "2": "2 columns", "3": "3 columns" },
       title: "Columns per row",
     }),
-  },
+  }),
   component: IllustratedFeaturesComponent,
   toMarkdown: (c) => [c.pill, `# ${c.title}`, c.description, c.items],
 });

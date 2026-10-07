@@ -1,6 +1,6 @@
 import { Type as TypeBox } from "@sinclair/typebox";
 
-import { createBlock, Type } from "./createBlock";
+import { createBlock } from "./createBlock";
 import type { IconValue } from "./lib/iconTypes";
 
 // Use a branded schema to check field inference independently of a project's
@@ -15,16 +15,16 @@ const block = createBlock({
   title: "Icons",
   description: "",
   component: () => null,
-  content: {
+  content: (field) => ({
     icon,
-    text: Type.String({ default: "Text" }),
-    items: Type.Repeater({
-      content: { icon, text: Type.String({ default: "Text" }) },
+    text: field.string({ default: "Text" }),
+    items: field.repeater({
+      content: (field) => ({ icon, text: field.string({ default: "Text" }) }),
       minItems: 1,
       maxItems: 5,
       toMarkdown: (c) => [c.text],
     }),
-  },
+  }),
   toMarkdown: (c) => [c.text],
 });
 

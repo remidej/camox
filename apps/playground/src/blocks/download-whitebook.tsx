@@ -1,4 +1,4 @@
-import { Type, createBlock } from "camox/createBlock";
+import { createBlock } from "camox/createBlock";
 import { Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -8,30 +8,30 @@ const downloadWhitebook = createBlock({
   title: "Download Whitebook",
   description:
     "Use this block to offer a downloadable PDF whitebook or whitepaper. It displays a cover image alongside a title, description, and a download button. Ideal for lead magnets, research papers, guides, or any downloadable document you want to highlight.",
-  content: {
-    title: Type.String({
+  content: (field) => ({
+    title: field.string({
       default: "Download our whitebook",
       title: "Title",
     }),
-    description: Type.String({
+    description: field.string({
       default:
         "Get our comprehensive guide packed with insights, best practices, and actionable strategies.",
       maxLength: 280,
       title: "Description",
     }),
-    cover: Type.Image({
+    cover: field.image({
       title: "Cover",
     }),
-    file: Type.File({
+    file: field.file({
       accept: ["application/pdf"],
       title: "PDF File",
     }),
-    cta: Type.String({
+    cta: field.string({
       default: "Download PDF",
       maxLength: 40,
       title: "Button Label",
     }),
-  },
+  }),
   component: DownloadWhitebookComponent,
   toMarkdown: (c) => [`## ${c.title}`, c.description, c.cover, c.file],
 });

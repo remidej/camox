@@ -1,15 +1,15 @@
-import { createCollection, Type } from "camox/createCollection";
+import { createCollection } from "camox/createCollection";
 
 export const collection = createCollection({
   id: "articles",
   title: "Articles",
   description: "Editorial articles with independently published records.",
-  content: {
-    title: Type.String({ minLength: 1 }),
-    slug: Type.String({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
-    excerpt: Type.String(),
-    cover: Type.Image(),
-    body: Type.String(),
-  },
+  content: (field) => ({
+    title: field.string({ minLength: 1 }),
+    slug: field.string({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
+    excerpt: field.string(),
+    cover: field.image(),
+    body: field.string(),
+  }),
   label: "title",
 });
