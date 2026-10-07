@@ -13,6 +13,7 @@ import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
 import { blockQueries, collectionQueries, fileQueries, projectQueries } from "@/lib/queries";
 
 import type { EditingOwner, Selection } from "../previewStore";
+import { referencePickerFocus } from "../referencePickerFocus";
 
 // Render the real sidebar; only replace leaves that need a rich-text engine or
 // comment queries. The String editor stub types plain text into the field.
@@ -107,10 +108,25 @@ const acme = {
   content: acmeContent,
 };
 
+const GLOBEX = "globex";
+const CREATED = "created";
+const INITECH = "initech";
+const listedRecords = [
+  acme,
+  { ...acme, id: GLOBEX, label: "Globex", version: 1, content: { ...acmeContent, name: "Globex" } },
+  {
+    ...acme,
+    id: INITECH,
+    label: "Initech",
+    version: 2,
+    content: { ...acmeContent, name: "Initech" },
+  },
+];
+
 async function renderSidebar(
   t: TestContext,
   selection: Selection,
-  options: { company?: string | null; fileUsage?: number } = {},
+  options: { company?: string | null; fileUsage?: number; logos?: string[] } = {},
 ) {
   const window = new Window({ url: "http://localhost/" });
   Object.assign(globalThis, {
@@ -126,6 +142,7 @@ async function renderSidebar(
     PointerEvent: window.PointerEvent,
     KeyboardEvent: window.KeyboardEvent,
     Event: window.Event,
+    SubmitEvent: window.SubmitEvent,
     DataTransfer: window.DataTransfer,
     getComputedStyle: window.getComputedStyle.bind(window),
     ResizeObserver: window.ResizeObserver,
@@ -144,6 +161,7 @@ async function renderSidebar(
   const { createCollection, Type: CollectionType } = await import("../../../core/createCollection");
   const { CollectionItemModalProvider, useCollectionItemModal } =
     await import("../../content/CollectionItemModalContext");
+  const { ContentCollectionItemModal } = await import("../../content/ContentCollection");
 
   const customers = createCollection({
     id: "customers",
@@ -167,6 +185,7 @@ async function renderSidebar(
       quote: Type.String({ default: "" }),
       logo: Type.Image({ title: "Logo" }),
       company: Type.Reference(customers, { title: "Company", required: true }),
+      logos: Type.ReferenceList(customers, { title: "Logos", maxItems: 3 }),
       people: Type.Repeater({
         title: "People",
         content: { name: Type.String({ default: "" }), photo: Type.Image({ title: "Photo" }) },
@@ -189,13 +208,17 @@ async function renderSidebar(
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
   const company = options.company === undefined ? ACME : options.company;
+  const logos = options.logos ?? [];
   client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, {
     block: {
       id: BLOCK_ID,
       type: "testimonial",
-      content: { quote: "Hello", logo, people: [{ _itemId: ITEM_ID }], company },
+      content: { quote: "Hello", logo, people: [{ _itemId: ITEM_ID }], company, logos },
       settings: {},
-      references: { company: company === ACME ? acme : null },
+      references: {
+        company: company === ACME ? acme : null,
+        logos: logos.flatMap((id) => listedRecords.filter((record) => record.id === id)),
+      },
     },
     repeatableItems: [
       {
@@ -219,8 +242,19 @@ async function renderSidebar(
       count: options.fileUsage ?? 3,
     } as never);
   }
-  const records = [{ id: ACME, label: "Acme", status: "published", version: 3 }];
+  let records = [
+    { id: ACME, label: "Acme", status: "published", version: 3 },
+    { id: GLOBEX, label: "Globex", status: "draft", version: 1 },
+    { id: INITECH, label: "Initech", status: "modified", version: 2 },
+  ];
   client.setQueryData(collectionQueries.records("site", "customers").queryKey, records as never);
+  client.setQueryData(collectionQueries.get("site", "customers").queryKey, {
+    collectionId: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
+  } as never);
 
   const writes: Write[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
@@ -232,6 +266,14 @@ async function renderSidebar(
     }
     if (procedure === "collectionDefinitions/listRecords") return Response.json({ json: records });
     writes.push({ procedure, input: json });
+    if (procedure === "collectionDefinitions/createRecord") {
+      const content = (json as { content: Record<string, unknown> }).content;
+      records = [
+        ...records,
+        { id: CREATED, label: String(content.name), status: "draft", version: 1 },
+      ];
+      return Response.json({ json: { id: CREATED, version: 1, draft: content } });
+    }
     if (procedure === "collectionDefinitions/editRecord") {
       const { id, expectedVersion, content } = json as {
         id: string;
@@ -271,6 +313,7 @@ async function renderSidebar(
                 <PageEditorSidebar />
               </PreviewEditingOwnerContext.Provider>
               <ModalProbe />
+              <ContentCollectionItemModal projectSlug="site" />
             </CollectionItemModalProvider>
           </CamoxAppProvider>
         </AuthContext.Provider>
@@ -327,6 +370,56 @@ async function renderSidebar(
         textarea.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
       });
       await act(() => new Promise((resolve) => setTimeout(resolve, 550)));
+      await settle();
+    },
+    /** Opens the record picker, as the keyboard does. */
+    async openPicker() {
+      const trigger = host.querySelector<HTMLElement>("button[aria-haspopup]");
+      assert.ok(trigger, "the record picker is shown");
+      await act(async () => {
+        trigger.dispatchEvent(
+          new window.KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+          }) as unknown as KeyboardEvent,
+        );
+      });
+    },
+    /** Labels (with publication badges) of the records the open picker offers. */
+    options: () =>
+      [...document.querySelectorAll('[role="option"]')].map((option) => option.textContent),
+    async search(value: string) {
+      const input = document.querySelector<HTMLInputElement>('input[aria-label="Search items"]');
+      assert.ok(input, "search input is open");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(
+          input,
+          value,
+        );
+        input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+      });
+    },
+    async pick(label: string) {
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (element) => element.textContent?.startsWith(label),
+      );
+      assert.ok(option, `missing option: ${label}`);
+      await act(async () => option.click());
+      await settle();
+    },
+    /** Submits the open create-record form and waits for the save. */
+    async submitCreateForm() {
+      const form = document.querySelector<HTMLTextAreaElement>("#collection-name")?.closest("form");
+      assert.ok(form, "the create form is open");
+      await act(async () => {
+        form.dispatchEvent(
+          new window.SubmitEvent("submit", {
+            bubbles: true,
+            cancelable: true,
+          }) as unknown as Event,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
       await settle();
     },
     /** Flips the switch shown in the selected boolean field view. */
@@ -644,4 +737,312 @@ void test("unlinking a record image list entry never offers to delete the file",
     sidebar.writes.map((write) => [write.procedure, write.input.content]),
     [["collectionDefinitions/editRecord", { ...acmeContent, gallery: [] }]],
   );
+});
+
+void test("the block field list summarizes a reference list by its count", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "block", blockId: BLOCK_ID },
+    { logos: [ACME, GLOBEX] },
+  );
+  assert.match(sidebar.text(), /Logos\s*2 Customers linked/);
+});
+
+void test("an empty reference list says which collection it expects in the field list", async (t) => {
+  const sidebar = await renderSidebar(t, { type: "block", blockId: BLOCK_ID }, { company: ACME });
+  assert.match(sidebar.text(), /Logos\s*No Customers linked/);
+  assert.doesNotMatch(sidebar.text(), /Logos\s*No Customers linked\s*Required/);
+});
+
+const logosField = {
+  type: "block-field",
+  blockId: BLOCK_ID,
+  fieldName: "logos",
+  fieldType: "ReferenceList",
+} as const;
+
+const cards = (host: HTMLElement) =>
+  [...host.querySelectorAll<HTMLElement>("[data-record-card]")].map((card) => ({
+    label: card.querySelector("button[aria-label^='Open']")?.getAttribute("aria-label"),
+    text: card.textContent ?? "",
+    dragHandle: card.querySelector("button[aria-label='Reorder']") != null,
+    hint: card.closest("li")?.querySelector("[data-reference-hint]")?.textContent ?? null,
+  }));
+
+void test("a reference list shows its records as cards in list order", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos"]);
+  const shown = cards(sidebar.host);
+  assert.deepEqual(
+    shown.map((card) => card.label),
+    ["Open Globex", "Open Acme"],
+  );
+  assert.match(shown[0]!.text, /Globex\s*Draft\s*Customers/);
+  assert.match(shown[1]!.text, /Acme\s*Published\s*Customers/);
+  assert.ok(
+    shown.every((card) => card.dragHandle),
+    "every card has a drag handle",
+  );
+  assert.ok(
+    sidebar.host.querySelector("[data-record-card] img"),
+    "cards show the record thumbnail",
+  );
+  assert.deepEqual(
+    shown.map((card) => card.hint),
+    ["Won't appear on the live site until published", null],
+    "only the never-published record is flagged",
+  );
+  assert.doesNotMatch(sidebar.text(), /Required|Blocks publishing/);
+});
+
+void test("unlinking a listed record writes the list without it and never offers deletion", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME, INITECH] });
+  const unlink = sidebar.host
+    .querySelectorAll<HTMLElement>("[data-record-card]")[1]
+    ?.querySelector<HTMLElement>("button[aria-label='Unlink']");
+  assert.ok(unlink, "each card has an unlink button");
+  await act(async () => unlink.click());
+  await sidebar.settle();
+  assert.deepEqual(sidebar.writes, [
+    {
+      procedure: "blocks/updateContent",
+      input: { id: BLOCK_ID, content: { logos: [GLOBEX, INITECH] } },
+    },
+  ]);
+  assert.equal(sidebar.modalOpened(), false);
+  assert.ok(!sidebar.hasButton("Delete"), "no deletion is offered");
+  assert.deepEqual(
+    cards(sidebar.host).map((card) => card.label),
+    ["Open Globex", "Open Initech"],
+  );
+});
+
+void test("clicking a listed record card opens its record view, whose field edits save to the record", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
+  await sidebar.click("Open Acme");
+  assert.deepEqual(sidebar.selection(), {
+    type: "record",
+    blockId: BLOCK_ID,
+    fieldName: "logos",
+    recordId: ACME,
+  });
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos", "Acme"]);
+  assert.ok(sidebar.host.querySelector("[data-shared-record]"));
+  await act(async () =>
+    sidebar.previewStore.send({
+      type: "selectRecordField",
+      ...owner,
+      blockId: BLOCK_ID,
+      fieldName: "logos",
+      recordId: ACME,
+      recordFieldName: "quote",
+      recordFieldType: "String",
+    }),
+  );
+  await sidebar.settle();
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos", "Acme", "Quote"]);
+  await sidebar.typeText("Superb");
+  assert.deepEqual(sidebar.writes, [
+    {
+      procedure: "collectionDefinitions/editRecord",
+      input: {
+        projectSlug: "site",
+        collectionId: "customers",
+        id: ACME,
+        expectedVersion: 3,
+        content: { ...acmeContent, quote: "Superb" },
+      },
+    },
+  ]);
+  await sidebar.click("Logos");
+  assert.deepEqual(sidebar.selection(), logosField);
+});
+
+void test("a selection on a record no longer in the list falls back to the reference list view", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "record", blockId: BLOCK_ID, fieldName: "logos", recordId: ACME },
+    { logos: [GLOBEX, ACME] },
+  );
+  assert.ok(sidebar.host.querySelector("[data-shared-record]"));
+  await act(async () => {
+    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+      ...bundle,
+      block: {
+        ...bundle.block,
+        content: { ...bundle.block.content, logos: [GLOBEX] },
+        references: { ...bundle.block.references, logos: [bundle.block.references.logos[0]] },
+      },
+    }));
+  });
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), logosField);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Logos"]);
+  assert.deepEqual(
+    cards(sidebar.host).map((card) => card.label),
+    ["Open Globex"],
+  );
+});
+
+void test("reordering a list keeps the selected record", async (t) => {
+  const selection = {
+    type: "record",
+    blockId: BLOCK_ID,
+    fieldName: "logos",
+    recordId: ACME,
+  } as const;
+  const sidebar = await renderSidebar(t, selection, { logos: [GLOBEX, ACME] });
+  await act(async () => {
+    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+      ...bundle,
+      block: {
+        ...bundle.block,
+        content: { ...bundle.block.content, logos: [ACME, GLOBEX] },
+        references: {
+          ...bundle.block.references,
+          logos: [...bundle.block.references.logos].reverse(),
+        },
+      },
+    }));
+  });
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), selection);
+  assert.ok(sidebar.host.querySelector("[data-shared-record]"));
+});
+
+void test("the picker offers only unlinked records and appends the chosen one", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX] });
+  await sidebar.openPicker();
+  assert.deepEqual(sidebar.options(), ["AcmePublished", "InitechModified"]);
+  await sidebar.pick("Initech");
+  assert.deepEqual(sidebar.writes, [
+    {
+      procedure: "blocks/updateContent",
+      input: { id: BLOCK_ID, content: { logos: [GLOBEX, INITECH] } },
+    },
+  ]);
+  assert.deepEqual(sidebar.selection(), logosField, "the view stays on the list");
+});
+
+void test("the picker explains when every record is already linked", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [ACME, GLOBEX] });
+  await act(async () => {
+    sidebar.client.setQueryData(
+      collectionQueries.records("site", "customers").queryKey,
+      (records: any) => records.slice(0, 2),
+    );
+  });
+  await sidebar.openPicker();
+  assert.deepEqual(sidebar.options(), []);
+  assert.match(document.body.textContent ?? "", /Every Customers item is already linked/);
+});
+
+void test("the picker is hidden once the list reaches its maximum", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [ACME, GLOBEX, INITECH] });
+  assert.equal(cards(sidebar.host).length, 3);
+  assert.ok(!sidebar.host.querySelector("button[aria-haspopup]"), "no picker at maxItems");
+});
+
+void test("Create item prefills the label, appends the saved record, and cancel changes nothing", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [ACME] });
+  const createFromSearch = async () => {
+    await sidebar.openPicker();
+    await sidebar.search("Hooli");
+    await sidebar.click("Create item");
+  };
+  await createFromSearch();
+  const name = document.querySelector<HTMLTextAreaElement>("#collection-name");
+  assert.equal(name?.value, "Hooli", "the label is prefilled from the search");
+  await sidebar.click("Close");
+  assert.equal(sidebar.modalOpened(), false);
+  assert.equal(sidebar.writes.length, 0, "cancel leaves the list unchanged");
+
+  await createFromSearch();
+  await sidebar.submitCreateForm();
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input]),
+    [
+      [
+        "collectionDefinitions/createRecord",
+        {
+          projectSlug: "site",
+          collectionId: "customers",
+          content: { name: "Hooli", quote: "", featured: false, logo: null, gallery: [] },
+        },
+      ],
+      ["blocks/updateContent", { id: BLOCK_ID, content: { logos: [ACME, CREATED] } }],
+    ],
+  );
+  assert.equal(sidebar.modalOpened(), false);
+  assert.deepEqual(sidebar.selection(), logosField, "the view stays on the list");
+});
+
+/** Lays the list's cards out vertically, which happy-dom doesn't do, so drags can measure them. */
+function stackCards(t: TestContext, host: HTMLElement) {
+  const items = () =>
+    [...host.querySelectorAll("[data-record-card]")].map((card) => card.closest("li"));
+  t.mock.method(
+    window.HTMLElement.prototype,
+    "getBoundingClientRect",
+    function (this: HTMLElement) {
+      const index = items().indexOf(this as HTMLLIElement);
+      const top = index === -1 ? 0 : index * 60;
+      return { x: 0, y: top, top, left: 0, width: 200, height: 50, right: 200, bottom: top + 50 };
+    },
+  );
+}
+
+void test("dragging a card writes the new order", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME, INITECH] });
+  stackCards(t, sidebar.host);
+  const handle = sidebar.host.querySelector<HTMLElement>("button[aria-label='Reorder']");
+  assert.ok(handle);
+  const press = async (code: string) => {
+    await act(async () => {
+      handle.dispatchEvent(
+        new window.KeyboardEvent("keydown", { code, bubbles: true }) as unknown as KeyboardEvent,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+  await act(async () => handle.focus());
+  await press("Space");
+  await press("ArrowDown");
+  await press("Space");
+  await sidebar.settle();
+  assert.deepEqual(sidebar.writes, [
+    {
+      procedure: "blocks/updateContent",
+      input: { id: BLOCK_ID, content: { logos: [ACME, GLOBEX, INITECH] } },
+    },
+  ]);
+  assert.deepEqual(
+    cards(sidebar.host).map((card) => card.label),
+    ["Open Acme", "Open Globex", "Open Initech"],
+  );
+});
+
+void test("reference list changes are not sent while viewing the live site", async (t) => {
+  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
+  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
+  const unlink = sidebar.host.querySelector<HTMLElement>("button[aria-label='Unlink']");
+  assert.ok(unlink);
+  await act(async () => unlink.click());
+  await sidebar.settle();
+  assert.deepEqual(sidebar.writes, []);
+  assert.deepEqual(
+    cards(sidebar.host).map((card) => card.label),
+    ["Open Globex", "Open Acme"],
+    "the list is unchanged",
+  );
+});
+
+void test("the preview's empty-list placeholder opens the list view with the picker focused", async (t) => {
+  referencePickerFocus.send({ type: "request", fieldId: `${BLOCK_ID}__logos` });
+  const sidebar = await renderSidebar(t, logosField);
+  await sidebar.settle();
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="Search items"]');
+  assert.ok(input, "the picker opens");
+  assert.equal(document.activeElement, input, "the search input has focus");
+  assert.equal(referencePickerFocus.getSnapshot().context.fieldId, null, "the request is consumed");
 });

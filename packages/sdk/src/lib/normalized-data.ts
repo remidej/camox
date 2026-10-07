@@ -45,6 +45,12 @@ export function singleReference(references: NormalizedReferences | undefined, fi
   return value && !Array.isArray(value) ? value : null;
 }
 
+/** A reference list field's records, in list order; single references resolve to none. */
+export function referenceList(references: NormalizedReferences | undefined, fieldName: string) {
+  const value = references?.[fieldName];
+  return Array.isArray(value) ? value : [];
+}
+
 /* -------------------------------------------------------------------------------------------------
  * Context for block rendering (inside iframe)
  * Provides file/item lookup maps so createBlock components can resolve markers.

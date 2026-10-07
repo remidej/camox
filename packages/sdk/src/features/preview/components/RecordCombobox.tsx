@@ -16,6 +16,7 @@ export function RecordCombobox({
   records,
   collectionTitle,
   onSelect,
+  emptyMessage: emptyMessageOverride,
   footerAction,
   disabled,
   open: controlledOpen,
@@ -24,6 +25,8 @@ export function RecordCombobox({
   records: readonly RecordOption[];
   collectionTitle: string;
   onSelect: (record: RecordOption) => void;
+  /** Shown instead of the default when there are no records to offer. */
+  emptyMessage?: string;
   footerAction?: { label: string; onSelect: (search: string) => void };
   disabled?: boolean;
   /** Control the popup, e.g. to open it when the preview asks to link a record. */
@@ -38,7 +41,9 @@ export function RecordCombobox({
   };
   const [search, setSearch] = React.useState("");
   const emptyMessage =
-    records.length === 0 ? `${collectionTitle} has no items yet.` : "No items found.";
+    records.length > 0
+      ? "No items found."
+      : (emptyMessageOverride ?? `${collectionTitle} has no items yet.`);
 
   return (
     <Combobox.Root

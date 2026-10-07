@@ -1,5 +1,5 @@
 import { toast } from "@camox/ui/toaster";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import { referenceWritesFor } from "@/core/editing/referenceWrites";
@@ -9,7 +9,9 @@ import { serializeAssetField } from "@/features/content/collection-form";
 import { useProjectSlug } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
+  type BlockBundle,
   blockMutations,
+  blockQueries,
   collectionMutations,
   collectionQueries,
   repeatableItemMutations,
@@ -27,16 +29,46 @@ export type FieldWriteTarget =
   | { kind: "item"; blockId: number; itemId: number }
   | { kind: "record"; record: ReferenceRecord };
 
-/** Saves one field of the write target. Awaitable for reference fields only. */
+/** Saves one field of the write target. Awaitable for reference and reference list fields only. */
 export type FieldWriter = (fieldName: string, value: unknown) => void | Promise<void>;
 
 const fieldTypeOf = (schema: unknown, fieldName: string) =>
   contentFieldSchema(schema, fieldName)?.fieldType;
 
 /**
+ * Shows a reference list change in the sidebar and preview before the server confirms it:
+ * the block's draft stores the new ids, and its hydrated records follow the same order.
+ * Newly linked records render once the block is refetched with them. Returns an undo.
+ */
+function applyReferenceListOptimistically(
+  queryClient: QueryClient,
+  blockId: number,
+  fieldName: string,
+  value: unknown,
+) {
+  const queryKey = blockQueries.get(blockId).queryKey;
+  const previous = queryClient.getQueryData<BlockBundle>(queryKey);
+  if (!previous || !Array.isArray(value)) return () => {};
+  const placed = previous.block.references?.[fieldName];
+  const records = Array.isArray(placed) ? placed : [];
+  queryClient.setQueryData(queryKey, {
+    ...previous,
+    block: {
+      ...previous.block,
+      content: { ...(previous.block.content as Record<string, unknown>), [fieldName]: value },
+      references: {
+        ...previous.block.references,
+        [fieldName]: value.flatMap((id) => records.filter((record) => record.id === id)),
+      },
+    },
+  });
+  return () => queryClient.setQueryData(queryKey, previous);
+}
+
+/**
  * Returns the single field-change handler shared by every sidebar field editor
  * (field list, asset and link views). Edits are dropped outside the draft
- * source. Reference changes return a promise (rejecting outside the draft
+ * source. Reference and reference list changes return a promise (rejecting outside the draft
  * source) so callers like the create-record modal can wait for the link.
  * Record edits go through the per-record queue shared with inline preview
  * edits, as full content with the expected version; their assets are sent as
@@ -81,7 +113,29 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       const mutation = target?.kind === "item" ? updateItemContent : updateBlockContent;
       const id = target?.kind === "item" ? target.itemId : target?.blockId;
 
-      if (fieldTypeOf(schema, fieldName) === "Reference") {
+      const fieldType = fieldTypeOf(schema, fieldName);
+      if (fieldType === "ReferenceList" && target?.kind === "block") {
+        return (async () => {
+          if (!requireDraft()) throw new Error("Switch to draft to change this list.");
+          const restore = applyReferenceListOptimistically(
+            queryClient,
+            target.blockId,
+            fieldName,
+            value,
+          );
+          try {
+            await updateBlockContent.mutateAsync({ id: target.blockId, content });
+          } catch (cause) {
+            restore();
+            throw cause;
+          }
+          // Hydrates records the list just linked.
+          void queryClient.invalidateQueries({
+            queryKey: blockQueries.get(target.blockId).queryKey,
+          });
+        })();
+      }
+      if (fieldType === "Reference" || fieldType === "ReferenceList") {
         return (async () => {
           if (id == null || !requireDraft())
             throw new Error("Switch to draft to change this reference.");

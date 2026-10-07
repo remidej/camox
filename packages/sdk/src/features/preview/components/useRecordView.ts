@@ -41,8 +41,9 @@ export type RecordView = {
 
 /**
  * Resolves a record or record-field selection into the record it shows, while the block's
- * reference field still links that record. A stale selection (the record was unlinked or
- * replaced) shows, and then selects, the reference field view instead.
+ * reference field still links that record, or the reference list still contains it. A stale
+ * selection (the record was unlinked or replaced) shows, and then selects, the reference field
+ * view instead.
  */
 export function useRecordView({
   owner,
@@ -68,14 +69,21 @@ export function useRecordView({
   const collectionId = referenceField?.collectionId;
   const collection = collectionId ? camoxApp.getCollectionById(collectionId) : undefined;
   const placed = referenceFieldName ? block?.references?.[referenceFieldName] : undefined;
-  // Reference list placements are not selectable yet; only single references resolve here.
-  const placedRecord = placed && !Array.isArray(placed) ? placed : undefined;
+  const stored = recordSelection
+    ? (block?.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName]
+    : undefined;
+  // A single reference places the record it stores; a list places each record it contains.
+  const placedRecord = Array.isArray(placed)
+    ? Array.isArray(stored) && stored.includes(recordSelection?.recordId)
+      ? placed.find((record) => record.id === recordSelection?.recordId)
+      : undefined
+    : stored === recordSelection?.recordId
+      ? (placed ?? undefined)
+      : undefined;
   const isStale =
-    recordSelection != null &&
-    block != null &&
-    ((block.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName] !==
-      recordSelection.recordId ||
-      placedRecord?.id !== recordSelection.recordId);
+    recordSelection != null && block != null && placedRecord?.id !== recordSelection.recordId;
+  const referenceFieldType =
+    referenceField?.fieldType === "ReferenceList" ? "ReferenceList" : "Reference";
 
   const recordBlockId = recordSelection?.blockId;
   const referenceFieldSelection = React.useMemo<Selection | null>(
@@ -85,10 +93,10 @@ export function useRecordView({
             type: "block-field",
             blockId: recordBlockId,
             fieldName: referenceFieldName,
-            fieldType: "Reference",
+            fieldType: referenceFieldType,
           }
         : null,
-    [recordBlockId, referenceFieldName],
+    [recordBlockId, referenceFieldName, referenceFieldType],
   );
   React.useEffect(() => {
     if (!isStale || !referenceFieldSelection) return;

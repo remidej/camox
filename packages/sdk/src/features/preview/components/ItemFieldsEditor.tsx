@@ -22,6 +22,7 @@ import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import {
   isItemMarker,
   resolveAssetValue,
+  referenceList,
   singleReference,
   type NormalizedReferences,
   type NormalizedFile,
@@ -34,6 +35,7 @@ import { previewStore, type RecordPlacement } from "../previewStore";
 import { DrillRow } from "./DrillRow";
 import { IconFieldEditor } from "./IconFieldEditor";
 import { ReferenceFieldEditor } from "./ReferenceFieldEditor";
+import { ReferenceListFieldEditor } from "./ReferenceListFieldEditor";
 import { RepeatableItemsList } from "./RepeatableItemsList";
 
 /* -------------------------------------------------------------------------------------------------
@@ -248,6 +250,30 @@ const ItemFieldsEditor = ({
                 required={field.required}
                 record={singleReference(references, field.name)}
                 onChange={(value) => onFieldChange(field.name, value)}
+                onOpenRecord={(recordId) => openRecord(field.name, recordId)}
+                drill={
+                  selectedFieldName
+                    ? undefined
+                    : {
+                        label,
+                        fieldId,
+                        onClick: () => selectField(field.name, field.fieldType),
+                        postToIframe,
+                      }
+                }
+              />
+            );
+          }
+          if (field.fieldType === "ReferenceList" && field.collectionId) {
+            return (
+              <ReferenceListFieldEditor
+                key={field.name}
+                collectionId={field.collectionId}
+                fieldId={fieldId}
+                value={data[field.name]}
+                maxItems={field.maxItems}
+                records={referenceList(references, field.name)}
+                onChange={(ids) => onFieldChange(field.name, ids)}
                 onOpenRecord={(recordId) => openRecord(field.name, recordId)}
                 drill={
                   selectedFieldName

@@ -26,7 +26,8 @@ export function recordThumbnail(
 
 /**
  * A linked collection record: thumbnail, label, publication badge and collection title.
- * `actions` holds trailing controls such as unlink.
+ * `leading` holds controls before it, such as a drag handle; `actions` holds trailing
+ * controls such as unlink.
  */
 export function RecordCard({
   label,
@@ -34,6 +35,7 @@ export function RecordCard({
   status,
   thumbnail,
   onOpen,
+  leading,
   actions,
 }: {
   label: string;
@@ -41,6 +43,7 @@ export function RecordCard({
   status?: PublicationStatus;
   thumbnail?: RecordThumbnail | null;
   onOpen?: () => void;
+  leading?: React.ReactNode;
   actions?: React.ReactNode;
 }) {
   const body = (
@@ -75,6 +78,7 @@ export function RecordCard({
       data-record-card
       className="text-foreground hover:bg-accent/75 flex max-w-full items-center gap-1 rounded-lg border-2 p-1"
     >
+      {leading}
       {onOpen ? (
         <button
           type="button"

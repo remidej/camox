@@ -2270,7 +2270,8 @@ export function createEditableBlock<
   };
 
   // Listed records render in place, but are not selectable or inline-editable yet:
-  // their primitives render as on the live site (`peek` is never editable).
+  // their primitives render as on the live site (`peek` is never editable). An empty list
+  // shows a placeholder in edit mode that opens the sidebar's record picker.
   const ReferenceList = <K extends ReferenceListKeys<TSchemaShape>>({
     name,
     children,
@@ -2280,7 +2281,10 @@ export function createEditableBlock<
   }): React.ReactNode => {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
+    const camoxApp = useOptionalCamoxApp();
+    const selectTarget = usePreviewSelection();
     if (!block) throw new Error("ReferenceList must be used within a Block Component");
+    const editable = useIsEditable(block.mode);
     const fieldName = String(name);
     const schema = typeboxSchema.properties[fieldName];
     const records = resolveReferenceList(
@@ -2288,6 +2292,39 @@ export function createEditableBlock<
       schema.collectionId,
       recordsMap,
     );
+    if (records.length === 0) {
+      if (!editable) return null;
+      const collectionTitle =
+        camoxApp?.getCollectionById(schema.collectionId)?._internal.title ??
+        schema.title ??
+        fieldName;
+      return (
+        <button
+          type="button"
+          data-camox-reference-placeholder=""
+          className="camox-reference-placeholder"
+          onClick={(event) => {
+            selectTarget(
+              {
+                type: "block-field",
+                blockId: block.blockId,
+                fieldName,
+                fieldType: "ReferenceList",
+              },
+              event,
+            );
+            // Commenting targets the field; only editing links records.
+            if (selectIsCommentMode(previewStore.getSnapshot())) return;
+            referencePickerFocus.send({
+              type: "request",
+              fieldId: referenceOccurrenceId(block.blockId, fieldName),
+            });
+          }}
+        >
+          Add {collectionTitle}
+        </button>
+      );
+    }
     return records.map((record) => (
       <ReferenceContext.Provider key={record.id} value={null}>
         <RepeatableItemContext.Provider value={null}>

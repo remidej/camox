@@ -623,7 +623,7 @@ void test("record embeds select their record field for that placement only", asy
   }
 });
 
-void test("editable reference lists render their linked records in stored order and nothing when empty", () => {
+void test("editable reference lists render their linked records in stored order", () => {
   const customers = createCollection({
     id: "customers",
     title: "Customers",
@@ -685,4 +685,69 @@ void test("editable reference lists render their linked records in stored order 
   assert.match(html, /Beta.*Acme/s);
   assert.doesNotMatch(render([]), /<li/);
   assert.equal(requests.length, writesBefore);
+});
+
+void test("an empty reference list shows an add placeholder in edit mode that focuses the sidebar picker", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: { name: Type.String({ default: "" }) },
+  });
+  const block = createEditableBlock({
+    id: "empty-logo-grid",
+    title: "",
+    description: "",
+    content: { logos: Type.ReferenceList(customers, { title: "Logos" }) },
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="logos">
+          {(customer) => <li>{customer.label}</li>}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+  const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
+  const placement = (mode: "site" | "peek") => (
+    <CamoxAppProvider app={app as unknown as CamoxApp}>
+      <QueryClientProvider client={new QueryClient()}>
+        <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
+          <block._internal.Component
+            mode={mode}
+            blockData={{ _id: 5, type: "empty-logo-grid", position: "a0", content: { logos: [] } }}
+          />
+        </NormalizedDataProvider>
+      </QueryClientProvider>
+    </CamoxAppProvider>
+  );
+
+  const live = renderToStaticMarkup(placement("peek"));
+  assert.match(live, /<ul><\/ul>/, "live rendering of an empty list is empty");
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(placement("site")));
+    const placeholder = host.querySelector<HTMLElement>("[data-camox-reference-placeholder]");
+    assert.ok(placeholder, "editable empty lists render a placeholder");
+    assert.equal(placeholder.textContent?.trim(), "Add Customers");
+    await act(async () => placeholder.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "block-field",
+      blockId: 5,
+      fieldName: "logos",
+      fieldType: "ReferenceList",
+    });
+    assert.equal(referencePickerFocus.getSnapshot().context.fieldId, "5__logos");
+  } finally {
+    referencePickerFocus.send({ type: "consume", fieldId: "5__logos" });
+    await act(async () => root.unmount());
+    await window.happyDOM.close();
+  }
 });
