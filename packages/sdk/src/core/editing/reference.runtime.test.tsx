@@ -83,7 +83,7 @@ const { createEditableBlock } = await import("./createEditableBlock");
 const { PreviewEditingOwnerContext } = await import("../../features/preview/previewSelection");
 const { referencePickerFocus } = await import("../../features/preview/referencePickerFocus");
 
-void test("editable reference occurrences write one source and retain placement selection and purple identity", async () => {
+void test("editable reference placements write one source and retain placement selection and purple identity", async () => {
   const customers = createCollection({
     id: "customers",
     title: "Customers",
@@ -145,8 +145,8 @@ void test("editable reference occurrences write one source and retain placement 
       </QueryClientProvider>,
     );
   const html = render();
-  assert.match(html, /data-camox-field-id="1__customer__name"/);
-  assert.match(html, /data-camox-field-id="2__customer__name"/);
+  assert.match(html, /data-camox-field-id="1__customer__source-id__name"/);
+  assert.match(html, /data-camox-field-id="2__customer__source-id__name"/);
   assert.equal((html.match(/data-camox-collection-record-id="source-id"/g) ?? []).length, 2);
   assert.match(html, /data-camox-overlay-mode="reference"/);
   assert.match(html, /data-camox-reference-label="Source label"/);
@@ -303,7 +303,7 @@ void test("clicks inside a placed record select its record field or the record f
   const placement = (blockId: number) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer"]`)!;
   const recordField = (blockId: number) =>
-    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__name"]`)!;
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__name"]`)!;
   const focused = (element: Element) => element.hasAttribute("data-camox-focused");
   const hovered = (element: Element) => element.hasAttribute("data-camox-hovered");
   try {
@@ -371,12 +371,23 @@ void test("clicks inside a placed record select its record field or the record f
     await act(async () => {
       window.dispatchEvent(
         new window.MessageEvent("message", {
-          data: { type: "CAMOX_HOVER_FIELD", fieldId: "2__customer__name" },
+          data: { type: "CAMOX_HOVER_FIELD", fieldId: "2__customer__acme__name" },
         }),
       );
     });
     assert.ok(hovered(recordField(2)));
     assert.ok(!hovered(recordField(1)));
+
+    // Sidebar hover of the record (its card or record crumb) targets that placement only.
+    await act(async () => {
+      window.dispatchEvent(
+        new window.MessageEvent("message", {
+          data: { type: "CAMOX_HOVER_FIELD", fieldId: "1__customer__acme" },
+        }),
+      );
+    });
+    assert.ok(hovered(placement(1)));
+    assert.ok(!hovered(placement(2)));
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
@@ -456,7 +467,7 @@ void test("record images and files select their record field for that placement 
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const field = (blockId: number, name: string) =>
-    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__${name}"]`);
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__${name}"]`);
   const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
   const inField = (blockId: number, name: string, selector: string) =>
     field(blockId, name)?.querySelector<HTMLElement>(selector);
@@ -577,7 +588,7 @@ void test("record embeds select their record field for that placement only", asy
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
   const video = (blockId: number) =>
-    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__video"]`);
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__video"]`);
   const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
   try {
     await act(async () =>
@@ -620,6 +631,518 @@ void test("record embeds select their record field for that placement only", asy
     });
     assert.ok(focused(video(2)), "the clicked placement's record embed is selected");
     assert.ok(!focused(video(1)), "another placement of the same record is not");
+  } finally {
+    await act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    await window.happyDOM.close();
+  }
+});
+
+void test("editable reference lists render their linked records in stored order", () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+  });
+  const records: ReferenceRecord[] = ["Acme", "Beta"].map((name) => ({
+    id: `${name.toLowerCase()}-id`,
+    collectionId: "customers",
+    label: `${name} label`,
+    content: { name },
+    version: 1,
+  }));
+  const block = createEditableBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: (field) => ({ customers: field.referenceList(customers) }),
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="customers">
+          {(customer) => (
+            <li aria-label={customer.label}>
+              <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
+            </li>
+          )}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+  const render = (customerIds: string[]) =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <NormalizedDataProvider
+          files={[]}
+          repeatableItems={[]}
+          blocks={[{ references: { customers: records } }]}
+        >
+          <block._internal.Component
+            mode="site"
+            blockData={{
+              _id: 4,
+              type: "logo-grid",
+              position: "a0",
+              content: { customers: customerIds },
+            }}
+          />
+        </NormalizedDataProvider>
+      </QueryClientProvider>,
+    );
+  const writesBefore = requests.length;
+  const html = render(["beta-id", "missing-id", "acme-id"]);
+  assert.deepEqual(
+    [...html.matchAll(/<li aria-label="([^"]+)">/g)].map((match) => match[1]),
+    ["Beta label", "Acme label"],
+  );
+  assert.match(html, /Beta.*Acme/s);
+  assert.doesNotMatch(render([]), /<li/);
+  assert.equal(requests.length, writesBefore);
+});
+
+void test("an empty reference list shows an add placeholder in edit mode that focuses the sidebar picker", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+  });
+  const block = createEditableBlock({
+    id: "empty-logo-grid",
+    title: "",
+    description: "",
+    content: (field) => ({ logos: field.referenceList(customers, { title: "Logos" }) }),
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="logos">
+          {(customer) => <li>{customer.label}</li>}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+  const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
+  const placement = (mode: "site" | "peek") => (
+    <CamoxAppProvider app={app as unknown as CamoxApp}>
+      <QueryClientProvider client={new QueryClient()}>
+        <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
+          <block._internal.Component
+            mode={mode}
+            blockData={{ _id: 5, type: "empty-logo-grid", position: "a0", content: { logos: [] } }}
+          />
+        </NormalizedDataProvider>
+      </QueryClientProvider>
+    </CamoxAppProvider>
+  );
+
+  const live = renderToStaticMarkup(placement("peek"));
+  assert.match(live, /<ul><\/ul>/, "live rendering of an empty list is empty");
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(placement("site")));
+    const placeholder = host.querySelector<HTMLElement>("[data-camox-reference-placeholder]");
+    assert.ok(placeholder, "editable empty lists render a placeholder");
+    assert.equal(placeholder.textContent?.trim(), "Add Customers");
+    // Sidebar hover of the list's field row highlights the placeholder.
+    await act(async () => {
+      window.dispatchEvent(
+        new window.MessageEvent("message", {
+          data: { type: "CAMOX_HOVER_FIELD", fieldId: "5__logos" },
+        }),
+      );
+    });
+    assert.ok(
+      host.querySelector('[data-camox-field-id="5__logos"]')?.hasAttribute("data-camox-hovered"),
+    );
+    await act(async () => placeholder.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "block-field",
+      blockId: 5,
+      fieldName: "logos",
+      fieldType: "ReferenceList",
+    });
+    assert.equal(referencePickerFocus.getSnapshot().context.fieldId, "5__logos");
+  } finally {
+    referencePickerFocus.send({ type: "consume", fieldId: "5__logos" });
+    await act(async () => root.unmount());
+    await window.happyDOM.close();
+  }
+});
+
+void test("clicks inside a listed record select its record field or the record for that entry only", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+  });
+  const records: ReferenceRecord[] = ["Acme", "Beta"].map((name) => ({
+    id: name.toLowerCase(),
+    collectionId: "customers",
+    label: name,
+    content: { name: `${name} Inc.` },
+    version: 1,
+  }));
+  const block = createEditableBlock({
+    id: "listed-placements",
+    title: "",
+    description: "",
+    content: (field) => ({
+      name: field.string({ default: "" }),
+      logos: field.referenceList(customers),
+    }),
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="logos">
+          {(customer) => (
+            <li>
+              <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
+              <p data-record={customer.id}>Since 1999</p>
+            </li>
+          )}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: owner.pageId });
+  const entry = (blockId: number, recordId: string) =>
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__logos__${recordId}"]`)!;
+  const recordField = (blockId: number, recordId: string) =>
+    host.querySelector<HTMLElement>(
+      `[data-camox-field-id="${blockId}__logos__${recordId}__name"]`,
+    )!;
+  const focused = (element: Element) => element.hasAttribute("data-camox-focused");
+  const hovered = (element: Element) => element.hasAttribute("data-camox-hovered");
+  const render = (ids: string[]) =>
+    root.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PreviewEditingOwnerContext value={owner}>
+          <NormalizedDataProvider
+            files={[]}
+            repeatableItems={[]}
+            blocks={[{ references: { logos: records } }]}
+          >
+            {[1, 2].map((blockId) => (
+              <block._internal.Component
+                key={blockId}
+                mode="site"
+                blockData={{
+                  _id: blockId,
+                  type: "listed-placements",
+                  position: `a${blockId}`,
+                  content: { name: "Block name", logos: ids },
+                }}
+              />
+            ))}
+          </NormalizedDataProvider>
+        </PreviewEditingOwnerContext>
+      </QueryClientProvider>,
+    );
+  try {
+    await act(async () => render(["acme", "beta"]));
+
+    await act(async () => recordField(2, "beta").click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record-field",
+      blockId: 2,
+      fieldName: "logos",
+      recordId: "beta",
+      recordFieldName: "name",
+      recordFieldType: "String",
+    });
+    assert.ok(focused(recordField(2, "beta")), "the clicked entry's record field is selected");
+    assert.ok(!focused(recordField(2, "acme")), "other records in the list are not");
+    assert.ok(!focused(recordField(1, "beta")), "the same record in another block is not");
+
+    await act(async () => host.querySelector<HTMLElement>('[data-record="acme"]')!.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record",
+      blockId: 1,
+      fieldName: "logos",
+      recordId: "acme",
+    });
+    assert.ok(focused(entry(1, "acme")), "the clicked entry's record is selected");
+    assert.ok(!focused(entry(1, "beta")), "other records in the list are not");
+    assert.ok(!focused(entry(2, "acme")), "the same record in another block is not");
+    assert.ok(!focused(recordField(1, "acme")));
+
+    // Reordering the list keeps the selected entry selected, wherever it moved.
+    await act(async () => render(["beta", "acme"]));
+    assert.deepEqual(
+      [...host.querySelectorAll("[data-record]")]
+        .slice(0, 2)
+        .map((p) => p.getAttribute("data-record")),
+      ["beta", "acme"],
+    );
+    assert.ok(focused(entry(1, "acme")), "the selection survives reordering");
+    assert.ok(!focused(entry(1, "beta")));
+
+    // Sidebar hover of a record card or record field row targets only that entry.
+    const hover = (fieldId: string, start = true) =>
+      act(async () => {
+        window.dispatchEvent(
+          new window.MessageEvent("message", {
+            data: { type: start ? "CAMOX_HOVER_FIELD" : "CAMOX_HOVER_FIELD_END", fieldId },
+          }),
+        );
+      });
+    await hover("2__logos__beta");
+    assert.ok(hovered(entry(2, "beta")));
+    assert.ok(!hovered(entry(2, "acme")) && !hovered(entry(1, "beta")));
+    await hover("2__logos__beta", false);
+    assert.ok(!hovered(entry(2, "beta")));
+    await hover("1__logos__acme__name");
+    assert.ok(hovered(recordField(1, "acme")));
+    assert.ok(!hovered(recordField(1, "beta")) && !hovered(recordField(2, "acme")));
+    await hover("1__logos__acme__name", false);
+
+    // Sidebar hover of the list's field row highlights every entry of that list only.
+    await hover("2__logos");
+    assert.ok(hovered(entry(2, "acme")) && hovered(entry(2, "beta")));
+    assert.ok(!hovered(entry(1, "acme")) && !hovered(entry(1, "beta")));
+    await hover("2__logos", false);
+    assert.ok(!hovered(entry(2, "acme")) && !hovered(entry(2, "beta")));
+  } finally {
+    await act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    await window.happyDOM.close();
+  }
+});
+
+void test("inline edits of a listed record write the shared record and refresh every placement", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+  });
+  source = {
+    id: "listed-source",
+    collectionId: "customers",
+    label: "Listed",
+    content: { name: "Before" },
+    version: 3,
+  };
+  const other: ReferenceRecord = {
+    id: "other",
+    collectionId: "customers",
+    label: "Other",
+    content: { name: "Other" },
+    version: 1,
+  };
+  const block = createEditableBlock({
+    id: "listed-writes",
+    title: "",
+    description: "",
+    content: (field) => ({ logos: field.referenceList(customers) }),
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="logos">
+          {(customer) => (
+            <li>
+              <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
+            </li>
+          )}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+  const client = new QueryClient();
+  const render = () =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <NormalizedDataProvider
+          files={[]}
+          repeatableItems={[]}
+          blocks={[{ references: { logos: [other, source] } }]}
+        >
+          {[1, 2].map((blockId) => (
+            <block._internal.Component
+              key={blockId}
+              mode="site"
+              blockData={{
+                _id: blockId,
+                type: "listed-writes",
+                position: "a0",
+                content: { logos: blockId === 1 ? ["other", "listed-source"] : ["listed-source"] },
+              }}
+            />
+          ))}
+        </NormalizedDataProvider>
+      </QueryClientProvider>,
+    );
+  editors.length = 0;
+  const writesBefore = requests.length;
+  render();
+  assert.deepEqual(
+    editors.map((editor) => editor.externalState),
+    ["Other", "Before", "Before"],
+  );
+  editors[1].onChange("After");
+  // Mutation execution is async; no timers or network are involved.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, writesBefore + 1, "one write to the shared record");
+  assert.equal(requests.at(-1)?.expectedVersion, 3);
+  assert.equal(source.content.name, "After");
+  editors.length = 0;
+  render();
+  assert.deepEqual(
+    editors.map((editor) => editor.externalState),
+    ["Other", "After", "After"],
+    "every placement of the record shows the edit",
+  );
+  editors.length = 0;
+  client.clear();
+});
+
+void test("images and files of listed records select their record field for that entry only", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: (field) => ({
+      name: field.string({ default: "" }),
+      logo: field.image({ title: "Logo" }),
+      brochure: field.file({ accept: ["application/pdf"], title: "Brochure" }),
+    }),
+  });
+  const asset = (name: string, mimeType: string, fileId: string) => ({
+    url: `https://cdn.test/${name}`,
+    alt: "",
+    filename: name,
+    mimeType,
+    _fileId: fileId,
+  });
+  const records: ReferenceRecord[] = ["acme", "beta"].map((id, index) => ({
+    id,
+    collectionId: "customers",
+    label: id,
+    content: {
+      name: id,
+      logo: asset(`${id}.png`, "image/png", String(index * 2 + 1)),
+      brochure: asset(`${id}.pdf`, "application/pdf", String(index * 2 + 2)),
+    },
+    version: 1,
+  }));
+  const block = createEditableBlock({
+    id: "listed-assets",
+    title: "",
+    description: "",
+    content: (field) => ({ logos: field.referenceList(customers) }),
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="logos">
+          {(customer) => (
+            <li>
+              <customer.Image name="logo">{(props) => <img {...props} />}</customer.Image>
+              <customer.File name="brochure">
+                {(props, file) => <a {...props}>{file.filename}</a>}
+              </customer.File>
+            </li>
+          )}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const writesBefore = requests.length;
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: owner.pageId });
+  const field = (blockId: number, recordId: string, name: string) =>
+    host.querySelector<HTMLElement>(
+      `[data-camox-field-id="${blockId}__logos__${recordId}__${name}"]`,
+    );
+  const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
+  const recordField = (
+    blockId: number,
+    recordId: string,
+    recordFieldName: string,
+    recordFieldType: string,
+  ) => ({
+    type: "record-field",
+    blockId,
+    fieldName: "logos",
+    recordId,
+    recordFieldName,
+    recordFieldType,
+  });
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <PreviewEditingOwnerContext value={owner}>
+            <NormalizedDataProvider
+              files={[]}
+              repeatableItems={[]}
+              blocks={[{ references: { logos: records } }]}
+            >
+              {[1, 2].map((blockId) => (
+                <block._internal.Component
+                  key={blockId}
+                  mode="site"
+                  blockData={{
+                    _id: blockId,
+                    type: "listed-assets",
+                    position: `a${blockId}`,
+                    content: { logos: ["acme", "beta"] },
+                  }}
+                />
+              ))}
+            </NormalizedDataProvider>
+          </PreviewEditingOwnerContext>
+        </QueryClientProvider>,
+      ),
+    );
+
+    const logo = field(2, "beta", "logo")?.querySelector<HTMLElement>("img");
+    assert.ok(logo, "the listed record's image renders inside its own field");
+    assert.match(logo.getAttribute("src") ?? "", /beta\.png/);
+    await act(async () => logo.click());
+    assert.deepEqual(selections.at(-1), recordField(2, "beta", "logo", "Image"));
+    assert.ok(focused(field(2, "beta", "logo")), "the clicked entry's image is selected");
+    assert.ok(!focused(field(2, "acme", "logo")), "other records in the list are not");
+    assert.ok(!focused(field(1, "beta", "logo")), "the same record in another block is not");
+
+    const brochure = field(1, "acme", "brochure");
+    assert.equal(brochure?.tagName, "A");
+    const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
+    await act(async () => brochure.dispatchEvent(click as unknown as Event));
+    assert.ok(click.defaultPrevented, "selecting a file does not download it");
+    assert.deepEqual(selections.at(-1), recordField(1, "acme", "brochure", "File"));
+    assert.ok(focused(brochure));
+    assert.ok(!focused(field(1, "beta", "brochure")) && !focused(field(2, "acme", "brochure")));
+    assert.equal(requests.length, writesBefore, "selecting record assets never writes");
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });

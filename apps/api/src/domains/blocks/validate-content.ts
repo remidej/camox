@@ -128,6 +128,8 @@ function adaptSchema(
   if (schema.fieldType === "Reference") {
     return { anyOf: [{ type: "null" }, { type: "string", format: "uuid" }] };
   }
+  // Ids, duplicates and maxItems are checked in scope by validateReferenceValues.
+  if (schema.fieldType === "ReferenceList") return { type: "array" };
 
   const out: ContentSchema = { ...schema };
   if (schema.$ref?.startsWith("#")) {

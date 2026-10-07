@@ -1,4 +1,4 @@
-import type { ResolvedReference } from "../domains/collections/references";
+import type { ResolvedReferences } from "../domains/collections/references";
 import { transformImageUrl } from "./image-transform";
 import { lexicalStateToPlainText } from "./lexical-state";
 
@@ -8,7 +8,7 @@ type SettingsContext = {
   settings?: Record<string, unknown> | null;
   itemSettings?: Record<string, unknown> | null;
   files?: Map<number, ResolvedFile> | null;
-  references?: Record<string, ResolvedReference | null>;
+  references?: ResolvedReferences;
 };
 
 export function contentToMarkdown(
@@ -80,10 +80,13 @@ function resolveLine(
 
   const resolve = (key: string) => {
     const [root, field, ...nested] = key.split(".");
+    if (!field && schemaProperties[root]?.fieldType === "ReferenceList") {
+      return resolveReferenceList(schemaProperties[root], ctx.references?.[root], ctx);
+    }
     if (!field) return resolveField(schemaProperties[root], content[root], ctx);
     if (nested.length) return undefined;
     const reference = ctx.references?.[root];
-    if (!reference) return undefined;
+    if (!reference || Array.isArray(reference)) return undefined;
     const properties = (reference.contentSchema as { properties?: Record<string, unknown> })
       ?.properties;
     return resolveField(properties?.[field], reference.content[field], ctx);
@@ -94,6 +97,37 @@ function resolveLine(
   return line.replace(PLACEHOLDER_RE, (_match, key: string) => {
     return resolve(key) ?? "";
   });
+}
+
+/**
+ * Render a reference list's resolved records (already ordered, and limited to published
+ * ones for live reads) as a bulleted list, one item per record via the per-use
+ * `toMarkdown`. Without one, each record falls back to its label.
+ */
+function resolveReferenceList(
+  schema: { toMarkdown?: readonly string[] },
+  records: ResolvedReferences[string] | undefined,
+  ctx: SettingsContext,
+): string | undefined {
+  if (!Array.isArray(records)) return undefined;
+  const itemParts: string[] = [];
+  for (const record of records) {
+    const properties = (record.contentSchema as { properties?: Record<string, unknown> })
+      ?.properties;
+    const md = schema.toMarkdown
+      ? contentToMarkdown(schema.toMarkdown, properties ?? {}, record.content, {
+          insideList: true,
+          files: ctx.files,
+        })
+      : record.label;
+    if (md) itemParts.push(toListItem(md));
+  }
+  return itemParts.length > 0 ? itemParts.join("\n") : undefined;
+}
+
+function toListItem(markdown: string): string {
+  const lines = markdown.split("\n");
+  return [`- ${lines[0]}`, ...lines.slice(1).map((l) => `  ${l}`)].join("\n");
 }
 
 function asString(value: unknown): string {
@@ -211,10 +245,7 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
         md = fieldParts.join(" — ");
       }
       if (!md) continue;
-
-      const lines = md.split("\n");
-      const listItem = [`- ${lines[0]}`, ...lines.slice(1).map((l) => `  ${l}`)].join("\n");
-      itemParts.push(listItem);
+      itemParts.push(toListItem(md));
     }
     return itemParts.length > 0 ? itemParts.join("\n") : undefined;
   }

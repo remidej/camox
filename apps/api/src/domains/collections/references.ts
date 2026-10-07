@@ -21,14 +21,48 @@ export type ResolvedReference = {
   revisionId?: string;
 };
 
-export function referenceFields(schema: unknown): [string, Field][] {
+/** A block's resolved references: a record (or null) per reference, records in order per list. */
+export type ResolvedReferences = Record<string, ResolvedReference | ResolvedReference[] | null>;
+
+function fieldsOfType(
+  schema: unknown,
+  fieldType: "Reference" | "ReferenceList",
+): [string, Field][] {
   const properties = (schema as { properties?: Record<string, Field> } | null)?.properties;
-  return Object.entries(properties ?? {}).filter(([, field]) => field.fieldType === "Reference");
+  return Object.entries(properties ?? {}).filter(([, field]) => field.fieldType === fieldType);
 }
 
-/** Only direct single references are supported; fail closed for future shapes. */
+export function referenceFields(schema: unknown): [string, Field][] {
+  return fieldsOfType(schema, "Reference");
+}
+
+export function referenceListFields(schema: unknown): [string, Field][] {
+  return fieldsOfType(schema, "ReferenceList");
+}
+
+/** The record ids a reference list value links, in stored order; anything else links none. */
+export function referenceListIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === "string" && id !== "");
+}
+
+/** A reference field's resolved record; reference lists never resolve to one record. */
+export function resolvedReference(references: ResolvedReferences | undefined, field: string) {
+  const value = references?.[field];
+  return value && !Array.isArray(value) ? value : null;
+}
+
+/** A reference list field's resolved records, in list order; references resolve to none. */
+export function resolvedReferenceList(references: ResolvedReferences | undefined, field: string) {
+  const value = references?.[field];
+  return Array.isArray(value) ? value : [];
+}
+
+/** Only top-level references and reference lists are supported; fail closed for other shapes. */
 export function validateReferenceSchema(schema: unknown, allow = true) {
-  const allowed = new Set(referenceFields(schema).map(([, field]) => field));
+  const allowed = new Set(
+    [...referenceFields(schema), ...referenceListFields(schema)].map(([, field]) => field),
+  );
   function visit(value: unknown): InvalidInputError | undefined {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
@@ -41,9 +75,9 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
     const field = value as Field;
     const kind = field.kind ?? field.fieldType;
     if (kind === "ReferenceList" || kind === "Reference") {
-      if (!allow || field.fieldType !== "Reference" || !allowed.has(field)) {
+      if (!allow || field.fieldType !== kind || !allowed.has(field)) {
         return new InvalidInputError({
-          message: "Only top-level single block references are supported",
+          message: "Only top-level block references and reference lists are supported",
         });
       }
       if (typeof field.collectionId !== "string" || !field.collectionId) {
@@ -66,81 +100,110 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
   content: unknown,
   source: "draft" | "live",
 ) {
-  const fields = referenceFields(schema);
-  const result: Record<string, ResolvedReference | null> = {};
-  if (!fields.length) return result;
+  const singles = referenceFields(schema);
+  const lists = referenceListFields(schema);
+  const result: ResolvedReferences = {};
+  if (!singles.length && !lists.length) return result;
   if (source === "draft") {
     const user = yield* requireUser(ctx);
     yield* getAuthorizedProject(ctx.db, scope.projectId, user.id);
   }
-  for (const [name, field] of fields) {
-    result[name] = null;
-    const id = (content as Record<string, unknown> | null)?.[name];
-    if (!z.uuid().safeParse(id).success) continue;
-    const definition = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(collectionDefinitions)
-        .where(
-          and(
-            eq(collectionDefinitions.projectId, scope.projectId),
-            eq(collectionDefinitions.environmentId, scope.environmentId),
-            eq(collectionDefinitions.collectionId, String(field.collectionId)),
-            eq(collectionDefinitions.active, true),
-          ),
-        )
-        .get(),
-    );
+  const values = content as Record<string, unknown> | null;
+  for (const [name, field] of singles) {
+    const definition = yield* activeDefinition(ctx, scope, field);
+    result[name] = definition
+      ? yield* resolveRecord(ctx, definition, values?.[name], source)
+      : null;
+  }
+  for (const [name, field] of lists) {
+    const records: ResolvedReference[] = [];
+    result[name] = records;
+    const definition = yield* activeDefinition(ctx, scope, field);
     if (!definition) continue;
-    const record = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(collectionRecords)
-        .where(
-          and(
-            eq(collectionRecords.id, id as string),
-            eq(collectionRecords.definitionId, definition.id),
-          ),
-        )
-        .get(),
-    );
-    if (!record) continue;
-    if (source === "draft") {
-      result[name] = {
-        id: record.id,
-        collectionId: definition.collectionId,
-        content: record.draft,
-        label: lexicalStateToPlainText(record.draft[definition.label] as string),
-        contentSchema: definition.contentSchema,
-        version: record.version,
-      };
-      continue;
+    // Draft resolves every linked record; live only published ones. Missing records are skipped.
+    for (const id of referenceListIds(values?.[name])) {
+      const record = yield* resolveRecord(ctx, definition, id, source);
+      if (record) records.push(record);
     }
-    const { publishedRevisionId } = record;
-    if (!publishedRevisionId) continue;
-    const revision = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(collectionRevisions)
-        .where(
-          and(
-            eq(collectionRevisions.id, publishedRevisionId),
-            eq(collectionRevisions.recordId, record.id),
-          ),
-        )
-        .get(),
-    );
-    if (!revision) continue;
-    result[name] = {
-      id: record.id,
-      collectionId: definition.collectionId,
-      content: revision.content,
-      label: lexicalStateToPlainText(revision.content[String(revision.definition.label)] as string),
-      contentSchema: (revision.definition as { contentSchema: unknown }).contentSchema,
-      revisionId: revision.id,
-    };
   }
   return result;
+});
+
+function activeDefinition(
+  ctx: ServiceContext,
+  scope: { projectId: number; environmentId: number },
+  field: Field,
+) {
+  return Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionDefinitions)
+      .where(
+        and(
+          eq(collectionDefinitions.projectId, scope.projectId),
+          eq(collectionDefinitions.environmentId, scope.environmentId),
+          eq(collectionDefinitions.collectionId, String(field.collectionId)),
+          eq(collectionDefinitions.active, true),
+        ),
+      )
+      .get(),
+  );
+}
+
+const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
+  ctx: ServiceContext,
+  definition: typeof collectionDefinitions.$inferSelect,
+  id: unknown,
+  source: "draft" | "live",
+) {
+  const validId = z.uuid().safeParse(id);
+  if (!validId.success) return null;
+  const record = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionRecords)
+      .where(
+        and(
+          eq(collectionRecords.id, validId.data),
+          eq(collectionRecords.definitionId, definition.id),
+        ),
+      )
+      .get(),
+  );
+  if (!record) return null;
+  if (source === "draft") {
+    return {
+      id: record.id,
+      collectionId: definition.collectionId,
+      content: record.draft,
+      label: lexicalStateToPlainText(record.draft[definition.label] as string),
+      contentSchema: definition.contentSchema,
+      version: record.version,
+    } satisfies ResolvedReference;
+  }
+  const { publishedRevisionId } = record;
+  if (!publishedRevisionId) return null;
+  const revision = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionRevisions)
+      .where(
+        and(
+          eq(collectionRevisions.id, publishedRevisionId),
+          eq(collectionRevisions.recordId, record.id),
+        ),
+      )
+      .get(),
+  );
+  if (!revision) return null;
+  return {
+    id: record.id,
+    collectionId: definition.collectionId,
+    content: revision.content,
+    label: lexicalStateToPlainText(revision.content[String(revision.definition.label)] as string),
+    contentSchema: (revision.definition as { contentSchema: unknown }).contentSchema,
+    revisionId: revision.id,
+  } satisfies ResolvedReference;
 });
 
 export const hydrateReferences = Effect.fn("collections.hydrateReferences")(function* <
@@ -150,10 +213,7 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
   scope: { projectId: number; environmentId: number },
   values: T[],
   source: "draft" | "live",
-): Effect.fn.Return<
-  (T & { references: Record<string, ResolvedReference | null> })[],
-  ServiceError
-> {
+): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
   const definitions = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -185,34 +245,61 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
   schema: unknown,
   content: unknown,
 ) {
+  const values = content as Record<string, unknown> | null;
   for (const [name, field] of referenceFields(schema)) {
-    const value = (content as Record<string, unknown> | null)?.[name];
+    const value = values?.[name];
     if (value === undefined || value === null) continue;
-    const validId = z.uuid().safeParse(value);
-    if (!validId.success) return yield* missingReference(name);
-    const recordId = validId.data;
-    const record = yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: collectionRecords.id })
-        .from(collectionRecords)
-        .innerJoin(
-          collectionDefinitions,
-          eq(collectionDefinitions.id, collectionRecords.definitionId),
-        )
-        .where(
-          and(
-            eq(collectionRecords.id, recordId),
-            eq(collectionDefinitions.projectId, scope.projectId),
-            eq(collectionDefinitions.environmentId, scope.environmentId),
-            eq(collectionDefinitions.collectionId, String(field.collectionId)),
-            eq(collectionDefinitions.active, true),
-          ),
-        )
-        .get(),
-    );
-    if (!record) return yield* missingReference(name);
+    if (!(yield* recordInScope(ctx, scope, field, value))) return yield* missingReference(name);
+  }
+  for (const [name, field] of referenceListFields(schema)) {
+    const value = values?.[name];
+    if (value === undefined) continue;
+    if (!Array.isArray(value)) return yield* invalidList(name, "must be an array of record ids");
+    if (new Set(value).size !== value.length) {
+      return yield* invalidList(name, "links the same record more than once");
+    }
+    if (typeof field.maxItems === "number" && value.length > field.maxItems) {
+      return yield* invalidList(name, `links more than ${field.maxItems} records`);
+    }
+    for (const id of value) {
+      if (!(yield* recordInScope(ctx, scope, field, id))) return yield* missingReference(name);
+    }
   }
 });
+
+const recordInScope = Effect.fn("collections.recordInScope")(function* (
+  ctx: ServiceContext,
+  scope: { projectId: number; environmentId: number },
+  field: Field,
+  value: unknown,
+) {
+  const validId = z.uuid().safeParse(value);
+  if (!validId.success) return false;
+  const record = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: collectionRecords.id })
+      .from(collectionRecords)
+      .innerJoin(
+        collectionDefinitions,
+        eq(collectionDefinitions.id, collectionRecords.definitionId),
+      )
+      .where(
+        and(
+          eq(collectionRecords.id, validId.data),
+          eq(collectionDefinitions.projectId, scope.projectId),
+          eq(collectionDefinitions.environmentId, scope.environmentId),
+          eq(collectionDefinitions.collectionId, String(field.collectionId)),
+          eq(collectionDefinitions.active, true),
+        ),
+      )
+      .get(),
+  );
+  return !!record;
+});
+
+function invalidList(name: string, problem: string) {
+  return new InvalidInputError({ message: `${name}: reference list ${problem}` });
+}
 
 function missingReference(name: string) {
   return new InvalidInputError({

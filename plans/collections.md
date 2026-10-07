@@ -83,7 +83,7 @@ without copying page/block trees or sharing their restoration behavior.
 
 ## Slice 4 decision: single references
 
-- A top-level block `Type.Reference(collection, { required?: boolean })` stores
+- A top-level block `field.reference(collection, { required?: boolean })` stores
   only a UUID or null. Resolution is separate from authored block content and
   always scopes the record by project, environment, and collection. References
   in settings, repeaters, and collection schemas remain outside this slice.
@@ -96,12 +96,14 @@ without copying page/block trees or sharing their restoration behavior.
 - _Revised after slice 4 landed:_ records are edited like repeater items, not in a
   modal. The sidebar drills Block › Reference field › Record › Record field (for
   example Testimonial › Customer › Acme › Quote), with breadcrumbs. The reference
-  field view owns linking (and, for lists, reordering): a record card (first-image
-  thumbnail, label, publication badge, collection title, X with an **Unlink**
+  field view owns linking (and, for lists, reordering): a record card (no image or
+  icon; label truncated with an ellipsis; publication badge, collection title, X with an **Unlink**
   tooltip and no confirmation) and, only when unlinked, a combobox. **Create item**
   lives only in the combobox footer, as in PagePicker; it opens the existing create
   modal prefilled with the search text and links the saved record. The record view
-  shows a purple shared header and the record fields; it has no publish control.
+  shows the record fields; only records reached through a reference list also get
+  a shared header. Purple stays in the preview, never in the sidebar. The record
+  view has no publish control.
   Record and record-field selections identify the occurrence plus the record, and
   drive preview highlights on the selected occurrence only. In preview, record
   fields (including images and files) are selectable and editable inline.
@@ -131,6 +133,53 @@ without copying page/block trees or sharing their restoration behavior.
 - The playground testimonial's company demonstrates single references. Existing
   plain-text company values are not converted into records automatically; the
   editor explicitly attaches a Customers item.
+
+## Slice 5 decision: manual reference lists
+
+Recorded from #132. Only manual lists in top-level block content are in this half
+of slice 5; references in repeaters, settings, and collection schemas, relation
+depth and cycles, and query-backed lists (slice 6) remain open.
+
+- `field.referenceList(collection, { title?, description?, maxItems?, toMarkdown? })`
+  carries field type `ReferenceList`, the collection id, and the collection's content
+  schema. It stores an ordered array of distinct record UUIDs and defaults to `[]`.
+  There is no `required` or `minItems`: an empty list is always valid. Entries have
+  no settings; per-placement presentation belongs in a repeater item.
+- Schema validation accepts lists at the top level of block content only. Value
+  validation (shared services, so agent tools get the same errors) rejects ids outside
+  the field's collection, project, or environment, duplicates, and lists over
+  `maxItems`, with field-named errors.
+- Draft resolution returns every linked record in stored order; live resolution
+  returns only records with a published revision, in stored order. Missing records
+  are skipped. Checkpoints store the ordered ids, never pinned revisions, so history
+  and live views resolve them against current published records.
+- The dependency index expands list values into one non-required use per linked
+  record (migration `0030_reference_lists` redefines the view; triggers stay).
+  Deleting a record any draft or live list links is refused; unpublishing it is
+  allowed; page, layout, and synced-block publication is never blocked by list
+  entries; placement writes linking a missing record are refused.
+- Linked records join the deduplicated publication review (changed records default
+  on) and are never "missing required".
+- `block.ReferenceList` renders its child once per resolved record with the same
+  typed record scope as `block.Reference`, and renders nothing for an empty list.
+- Editors manage a list in the reference field view: sortable record cards with
+  **Unlink** (never-published records are only shown by their Draft badge), and a combobox that appends (hiding linked
+  records, replaced by "Limit of {maxItems} reached" at `maxItems`, **Create item**
+  appends). The field list summarizes a list as "{n} linked". Writes send the whole
+  array. Record and record field views are unchanged; selection shapes are reused
+  (uniqueness makes them unambiguous) and placement ids include the record id.
+  A selection whose record left the list falls back to the reference field view.
+- In the preview each listed record is a placement like a single reference's record:
+  clicking a record field selects `record-field`, clicking elsewhere in the record
+  selects `record`, and inline edits write the shared record. Overlay ids are
+  `block__field__record` for a placement and `block__field__record__recordField` for its
+  fields, for single references too, so hover and focus messages derive from the
+  selection alone and only the targeted entry is outlined.
+  In edit mode an empty list shows a dashed "Add {collection}" placeholder.
+- The list's per-use `toMarkdown` runs per resolved record, like repeater items, and
+  the block includes it through its content token; live Markdown omits unpublished
+  records.
+- The playground logo grid links customers shared with the testimonial.
 
 ## Status and intent
 
@@ -195,19 +244,19 @@ Deleting a placement or removing a reference must not delete the collection reco
 Reuse the existing `content` schema vocabulary rather than introducing a second schema language.
 
 ```tsx
-import { createCollection, Type } from "camox/createCollection";
+import { createCollection } from "camox/createCollection";
 
 export const customers = createCollection({
   id: "customers",
   title: "Customers",
   description: "Customers featured in testimonials and case studies.",
 
-  content: {
-    name: Type.String({ default: "New customer" }),
-    logo: Type.Image(),
-    quote: Type.String({ default: "" }),
-    spokesperson: Type.String({ default: "" }),
-  },
+  content: (field) => ({
+    name: field.string({ default: "New customer" }),
+    logo: field.image(),
+    quote: field.string(),
+    spokesperson: field.string(),
+  }),
 
   label: "name",
 });
@@ -244,13 +293,13 @@ const testimonial = createBlock({
   title: "Testimonial",
   description: "A quote from a selected customer.",
 
-  content: {
-    customer: Type.Reference(customers),
-  },
+  content: (field) => ({
+    customer: field.reference(customers),
+  }),
 
-  settings: {
-    showLogo: Type.Boolean({ default: true }),
-  },
+  settings: (setting) => ({
+    showLogo: setting.boolean({ default: true }),
+  }),
 
   component: Testimonial,
 
@@ -285,12 +334,12 @@ Use `ReferenceList`, matching `ImageList`, on both the schema and rendering side
 
 ```tsx
 // Inside a block definition:
-content: {
-  customers: Type.ReferenceList(customers, {
+content: (field) => ({
+  customers: field.referenceList(customers, {
     maxItems: 24,
     toMarkdown: (customer) => [customer.name],
   }),
-},
+}),
 
 toMarkdown: (c) => [
   "## Our customers",
@@ -311,8 +360,8 @@ Editors can select, remove, and reorder references. Ordering belongs to the list
 The same field and rendering component support developer-defined queries:
 
 ```tsx
-content: {
-  articles: Type.ReferenceList(articles, {
+content: (field) => ({
+  articles: field.referenceList(articles, {
     query: {
       orderBy: { title: "asc" },
       limit: 3,
@@ -322,7 +371,7 @@ content: {
       article.excerpt,
     ],
   }),
-},
+}),
 ```
 
 - Query keys and supported operators must be typed against the collection.
@@ -336,7 +385,7 @@ This is the declarative integration for list/index/recent-content use cases; no 
 
 ### References inside collections and repeaters
 
-The same `Type.Reference` and `Type.ReferenceList` types work in collection schemas, for example an article referencing an author. They also work in repeater content for local placement settings.
+The same `field.reference` and `field.referenceList` builders work in collection schemas, for example an article referencing an author. They also work in repeater content for local placement settings.
 
 There is no second relationship API. Resolution must be bounded and must not recursively expand cyclic relationships without a limit. Detailed expansion/depth policy remains an implementation decision.
 

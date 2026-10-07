@@ -24,7 +24,7 @@ import {
   transformImageUrl,
 } from "./lib/imageTransform";
 import { markdownToReactNodes } from "./lib/lexicalReact";
-import { resolveReference } from "./lib/reference";
+import { resolveReference, resolveReferenceList, type ReferenceRecord } from "./lib/reference";
 
 export type {
   BlockComponentProps,
@@ -330,29 +330,63 @@ function createViewBlock(options: EditableOptions) {
     const schema = typeboxSchema.properties[name];
     const record = resolveReference(block.content[name], schema.collectionId, recordsMap);
     if (!record) return null;
-    return (
-      <RepeaterContext.Provider value={null}>
-        <Context.Provider
-          value={{
-            ...block,
-            content: record.content,
-            sourceSchema: schema.referenceSchema.properties,
-          }}
-        >
-          {children({
-            id: record.id,
-            label: record.label,
-            Field,
-            Image: ReferenceImage,
-            File: ReferenceFile,
-            Embed: ReferenceEmbed,
-            ImageList,
-            FileList,
-          })}
-        </Context.Provider>
-      </RepeaterContext.Provider>
+    return <RecordScope block={block} schema={schema} record={record} children={children} />;
+  };
+
+  const ReferenceList = ({ name, children }: any) => {
+    const editingRuntime = useBlockEditingRuntime();
+    if (editingRuntime)
+      return editingRuntime.renderPrimitive(options, "ReferenceList", { name, children });
+    const block = React.use(Context);
+    const { recordsMap } = useNormalizedData();
+    if (!block) throw new Error("ReferenceList must be used within a Block Component");
+    const schema = typeboxSchema.properties[name];
+    return resolveReferenceList(block.content[name], schema.collectionId, recordsMap).map(
+      (record) => (
+        <RecordScope
+          key={record.id}
+          block={block}
+          schema={schema}
+          record={record}
+          children={children}
+        />
+      ),
     );
   };
+
+  /** Renders a placed record with the record's content as the field source. */
+  const RecordScope = ({
+    block,
+    schema,
+    record,
+    children,
+  }: {
+    block: BlockContextValue;
+    schema: any;
+    record: ReferenceRecord;
+    children: (scope: any) => React.ReactNode;
+  }) => (
+    <RepeaterContext.Provider value={null}>
+      <Context.Provider
+        value={{
+          ...block,
+          content: record.content,
+          sourceSchema: schema.referenceSchema.properties,
+        }}
+      >
+        {children({
+          id: record.id,
+          label: record.label,
+          Field,
+          Image: ReferenceImage,
+          File: ReferenceFile,
+          Embed: ReferenceEmbed,
+          ImageList,
+          FileList,
+        })}
+      </Context.Provider>
+    </RepeaterContext.Provider>
+  );
 
   const AssetList = ({ name, children, primitive }: any) => {
     const editingRuntime = useBlockEditingRuntime();
@@ -561,6 +595,7 @@ function createViewBlock(options: EditableOptions) {
     FileList,
     Repeater,
     Reference,
+    ReferenceList,
     useSetting,
     _internal: {
       Component,

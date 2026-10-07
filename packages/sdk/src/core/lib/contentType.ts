@@ -16,6 +16,10 @@ export type ReferenceSchema<T extends Record<string, TSchema>> = TUnsafe<string 
   readonly [ReferenceContentBrand]: T;
   fieldType: "Reference";
 };
+export type ReferenceListSchema<T extends Record<string, TSchema>> = TUnsafe<string[]> & {
+  readonly [ReferenceContentBrand]: T;
+  fieldType: "ReferenceList";
+};
 
 declare const __CAMOX_ICON_IDS__: readonly string[];
 
@@ -422,6 +426,24 @@ export interface ContentFieldBuilder {
     options?: { title?: string; required?: boolean },
   ) => ReferenceSchema<T>;
   /**
+   * An ordered list of distinct records of `collection`; each resolves independently.
+   * An empty list is always valid, so there is no `required` or `minItems`.
+   * `toMarkdown` renders each linked record (one list item per record, in stored order);
+   * the block's own `toMarkdown` includes the whole list through its token.
+   *
+   * @example
+   * field.referenceList(customers, { maxItems: 6, toMarkdown: (c) => [c.name] })
+   */
+  referenceList: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options?: {
+      title?: string;
+      description?: string;
+      maxItems?: number;
+      toMarkdown?: ToMarkdownBuilder<T>;
+    },
+  ) => ReferenceListSchema<T>;
+  /**
    * Repeatable items, each with its own content and optional settings. Repeaters may nest.
    * Item settings are edited in the sidebar when the item is selected.
    *
@@ -626,6 +648,38 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       referenceSchema: collection._internal.contentSchema,
       labelField: collection._internal.label,
     }) as ReferenceSchema<T>,
+  referenceList: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options: {
+      title?: string;
+      description?: string;
+      maxItems?: number;
+      toMarkdown?: ToMarkdownBuilder<T>;
+    } = {},
+  ) =>
+    TypeBoxType.Unsafe<string[]>({
+      type: "array",
+      items: { type: "string", format: "uuid" },
+      fieldType: "ReferenceList",
+      collectionId: collection._internal.id,
+      title: options.title ?? collection._internal.title,
+      ...(options.description === undefined ? {} : { description: options.description }),
+      ...(options.maxItems === undefined ? {} : { maxItems: options.maxItems }),
+      ...(options.toMarkdown === undefined
+        ? {}
+        : {
+            toMarkdown: resolveToMarkdown<T>(
+              options.toMarkdown,
+              undefined,
+              "item",
+              collection._internal.contentSchema.properties as T,
+            ),
+          }),
+      default: [],
+      // Used by the typed child scope, not a copy of a record's content.
+      referenceSchema: collection._internal.contentSchema,
+      labelField: collection._internal.label,
+    }) as ReferenceListSchema<T>,
   repeater: <
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,

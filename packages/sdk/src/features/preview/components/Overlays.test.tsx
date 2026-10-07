@@ -150,7 +150,10 @@ void test("selecting a record text field focuses it in the selected placement", 
         recordFieldType: "String",
       }),
     );
-    assert.deepEqual(messages.at(-1), { type: "CAMOX_FOCUS_FIELD", fieldId: "2__customer__quote" });
+    assert.deepEqual(messages.at(-1), {
+      type: "CAMOX_FOCUS_FIELD",
+      fieldId: "2__customer__acme__quote",
+    });
   } finally {
     await React.act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });

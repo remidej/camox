@@ -6,6 +6,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { NavigationProvider } from "../features/navigation/navigation";
+import { recordPlacementId } from "../features/preview/overlayMessages";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
 import { NormalizedDataProvider, type NormalizedFile } from "../lib/normalized-data";
@@ -13,7 +14,7 @@ import { createBlock } from "./createBlock";
 import { createCollection } from "./createCollection";
 import { ReferenceWrites } from "./editing/referenceWrites";
 import { contentFieldBuilder } from "./lib/contentType";
-import { referenceOccurrenceId, resolveReference, type ReferenceRecord } from "./lib/reference";
+import { resolveReference, type ReferenceRecord } from "./lib/reference";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("https://api.example.test");
@@ -162,16 +163,126 @@ void test("public scopes render source fields and labels, never fabricate missin
   }
 });
 
-void test("occurrence identity is separate from source identity and resolution validates collection", () => {
-  assert.notEqual(referenceOccurrenceId(1, "customer"), referenceOccurrenceId(2, "customer"));
-  assert.notEqual(referenceOccurrenceId(1, "customer"), referenceOccurrenceId(1, "other"));
+void test("reference list schema stores ordered identities, defaults empty and only caps the length", () => {
+  const field = contentFieldBuilder.referenceList(customers, { maxItems: 6 });
+  assert.equal(field.fieldType, "ReferenceList");
+  assert.equal(field.collectionId, "customers");
+  assert.equal(field.referenceSchema, customers._internal.contentSchema);
+  assert.deepEqual(field.default, []);
+  assert.equal(field.maxItems, 6);
+  assert.equal(field.title, "Customers");
+  assert.equal("required" in field, false);
+  assert.equal("minItems" in field, false);
+  const block = createBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: (field) => ({ customers: field.referenceList(customers) }),
+    component: () => null,
+    toMarkdown: () => [],
+  });
+  assert.deepEqual(block._internal.getInitialContent(), { customers: [] });
+  assert.deepEqual(block._internal.getInitialBundle().content, { customers: [] });
+});
+
+void test("reference lists emit per-use record Markdown and are included by their token", () => {
+  const block = createBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: (field) => ({
+      customers: field.referenceList(customers, {
+        toMarkdown: (c) => [`Logo of ${c.name}`, c.logo],
+      }),
+    }),
+    component: () => null,
+    toMarkdown: (c) => ["Trusted by:", c.customers],
+  });
+  const schema = block._internal.contentSchema;
+  assert.deepEqual(schema.properties.customers.toMarkdown, ["Logo of {{name}}", "{{logo}}"]);
+  assert.deepEqual(schema.toMarkdown, ["Trusted by:", "{{customers}}"]);
+  assert.equal("toMarkdown" in contentFieldBuilder.referenceList(customers), false);
+});
+
+void test("reference lists render each resolved record in stored order and nothing when empty", () => {
+  const second: ReferenceRecord = {
+    id: "5a1f0c0e-5d8c-4c55-8f2e-0d3f0b6f4a11",
+    collectionId: "customers",
+    label: "Beta label",
+    content: { name: "Beta" },
+  };
+  const block = createBlock({
+    id: "logo-grid",
+    title: "",
+    description: "",
+    content: (field) => ({ customers: field.referenceList(customers) }),
+    toMarkdown: () => [],
+    component: () => (
+      <ul>
+        <block.ReferenceList name="customers">
+          {(customer) => (
+            <li aria-label={customer.label} data-id={customer.id}>
+              <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
+            </li>
+          )}
+        </block.ReferenceList>
+      </ul>
+    ),
+  });
+  const render = (value: unknown, references: ReferenceRecord[]) =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthContext.Provider
+          value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+        >
+          <NavigationProvider>
+            <NormalizedDataProvider
+              files={[]}
+              repeatableItems={[]}
+              blocks={[{ references: { customers: references } }]}
+            >
+              <block._internal.Component
+                mode="site"
+                blockData={{
+                  _id: 1,
+                  type: "logo-grid",
+                  position: "a0",
+                  content: { customers: value as string[] },
+                }}
+              />
+            </NormalizedDataProvider>
+          </NavigationProvider>
+        </AuthContext.Provider>
+      </QueryClientProvider>,
+    );
+  const missing = "9b0c6d55-1d2e-4f57-9a43-3c1b4c1f8f00";
+  const html = render([second.id, missing, id], [record, second]);
+  assert.match(
+    html,
+    new RegExp(
+      `<ul><li aria-label="Beta label" data-id="${second.id}"><b><span>Beta</span></b></li>` +
+        `<li aria-label="Source label" data-id="${id}"><b><span>Acme</span></b></li></ul>`,
+    ),
+  );
+  assert.match(render([], [record]), /<ul><\/ul>/);
+  assert.match(render(undefined, []), /<ul><\/ul>/);
+  assert.match(render([id], [{ ...record, collectionId: "other" }]), /<ul><\/ul>/);
+});
+
+void test("placement identity is separate from source identity and resolution validates collection", () => {
+  const placement = { blockId: 1, fieldName: "customer", recordId: id };
+  assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: 2 }));
+  assert.notEqual(
+    recordPlacementId(placement),
+    recordPlacementId({ ...placement, fieldName: "o" }),
+  );
   const records = new Map([[id, record]]);
   assert.equal(resolveReference(id, "customers", records), record);
   assert.equal(resolveReference(id, "other", records), null);
   assert.equal(resolveReference(null, "customers", records), null);
 });
 
-void test("two occurrences serialize shared source edits without clobbering another field", async () => {
+void test("two placements serialize shared source edits without clobbering another field", async () => {
   const writer = new ReferenceWrites();
   const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
   const save = async (input: (typeof requests)[number]) => {

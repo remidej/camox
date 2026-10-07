@@ -23,10 +23,38 @@ export interface NormalizedCollectionRecord {
   revisionId?: string;
 }
 
+/** A record (or null) per reference field, the resolved records in order per reference list. */
+export type NormalizedReferences = Record<
+  string,
+  NormalizedCollectionRecord | NormalizedCollectionRecord[] | null
+>;
+
 type ReferenceBlock = {
-  references?: Record<string, NormalizedCollectionRecord | null>;
+  references?: NormalizedReferences;
 };
 const EMPTY_REFERENCE_BLOCKS: ReferenceBlock[] = [];
+
+/** Every record a block's references and reference lists resolve to. */
+export function referencedRecords(references: NormalizedReferences | undefined) {
+  return Object.values(references ?? {}).flatMap((value) => value ?? []);
+}
+
+/** A single reference field's record; reference lists never resolve to one record. */
+export function singleReference(references: NormalizedReferences | undefined, fieldName: string) {
+  const value = references?.[fieldName];
+  return value && !Array.isArray(value) ? value : null;
+}
+
+/** A reference list field's records, in list order; single references resolve to none. */
+export function referenceList(references: NormalizedReferences | undefined, fieldName: string) {
+  const value = references?.[fieldName];
+  return Array.isArray(value) ? value : [];
+}
+
+/** The records a reference or reference list field places, in order. */
+export function placedRecords(references: NormalizedReferences | undefined, fieldName: string) {
+  return [references?.[fieldName] ?? []].flat();
+}
 
 /* -------------------------------------------------------------------------------------------------
  * Context for block rendering (inside iframe)
@@ -62,9 +90,7 @@ export const NormalizedDataProvider = ({
       itemsMap: new Map(repeatableItems.map((i) => [i.id, i])),
       recordsMap: new Map(
         blocks.flatMap((block) =>
-          Object.values(block.references ?? {})
-            .filter((record): record is NormalizedCollectionRecord => record !== null)
-            .map((record) => [record.id, record] as const),
+          referencedRecords(block.references).map((record) => [record.id, record] as const),
         ),
       ),
     }),
@@ -212,8 +238,8 @@ export function seedBlockCaches(
     // Collect file IDs referenced by this block and its items
     const fileIds = new Set<number>();
     collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
-    for (const record of Object.values((block as ReferenceBlock).references ?? {})) {
-      if (record) collectFileIdsFromContent(record.content, fileIds);
+    for (const record of referencedRecords((block as ReferenceBlock).references)) {
+      collectFileIdsFromContent(record.content, fileIds);
     }
     for (const item of blockItems) {
       collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);

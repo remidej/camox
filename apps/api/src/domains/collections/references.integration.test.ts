@@ -9,7 +9,12 @@ import { createBlock, getBlock, getPageMarkdown, updateBlockContent } from "../b
 import { getLayout, publishLayout } from "../layouts/service";
 import { getPageByPath, listPages, publishPage } from "../pages/service";
 import { referenceTargets } from "./reference-publication";
-import { validateReferenceSchema, validateReferenceValues } from "./references";
+import {
+  validateReferenceSchema,
+  validateReferenceValues,
+  type ResolvedReference,
+  type ResolvedReferences,
+} from "./references";
 import { collectionRecords } from "./schema";
 import {
   createRecord,
@@ -20,6 +25,10 @@ import {
   syncCollectionDefinitions,
   unpublishRecord,
 } from "./service";
+
+/** The testimonial's single reference. */
+const customer = (block: { references: ResolvedReferences }) =>
+  block.references.customer as ResolvedReference | null;
 
 async function fixture(required = false, assets = false) {
   const f = await createProjectFixture(`references-${crypto.randomUUID()}`);
@@ -170,8 +179,9 @@ describe("single collection references", () => {
         }),
       );
       expect(
-        (await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block
-          .references.customer?.id,
+        customer(
+          (await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block,
+        )?.id,
       ).toBe(f.record.id);
     },
   );
@@ -258,8 +268,8 @@ describe("single collection references", () => {
       }),
     );
     expect(
-      (await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block.references
-        .customer?.id,
+      customer((await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block)
+        ?.id,
     ).toBe(replacement.id);
     await runService(unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 }));
     await runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 }));
@@ -344,7 +354,7 @@ describe("single collection references", () => {
           managed.map((file) => file.id).sort((a, b) => a - b),
         );
       }
-      expect(block.block.references.customer?.content.logo).toMatchObject({
+      expect(customer(block.block)?.content.logo).toMatchObject({
         _fileId: String(managed[0].id),
         url: managed[0].url,
         alt: "Authored logo",
@@ -372,7 +382,7 @@ describe("single collection references", () => {
       expect(layout.files.map((file) => file.id).sort((a, b) => a - b)).toEqual(
         managed.map((file) => file.id).sort((a, b) => a - b),
       );
-      expect(layout.blocks[0].references.customer?.content.document).toMatchObject({
+      expect(customer(layout.blocks[0])?.content.document).toMatchObject({
         _fileId: String(managed[1].id),
         url: managed[1].url,
       });
@@ -587,7 +597,7 @@ describe("single collection references", () => {
         source: "draft",
       }),
     );
-    expect(draft.blocks[0].references.customer?.content.name).toBe("Original");
+    expect(customer(draft.blocks[0])?.content.name).toBe("Original");
     await expect(runService(publishLayout(f.ctx, { id: f.layout.id }))).rejects.toMatchObject({
       code: "CONFLICT",
     });
@@ -604,7 +614,7 @@ describe("single collection references", () => {
         source: "live",
       }),
     );
-    expect(live.blocks[0].references.customer?.content.name).toBe("Original");
+    expect(customer(live.blocks[0])?.content.name).toBe("Original");
     await expect(
       runService(unpublishRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 2 })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -624,11 +634,260 @@ describe("single collection references", () => {
         .customer,
     ).toBeNull();
     expect(
-      (await runService(getBlock(f.ctx, { id: f.block.id, source: "draft" }))).block.references
-        .customer?.content.name,
+      customer((await runService(getBlock(f.ctx, { id: f.block.id, source: "draft" }))).block)
+        ?.content.name,
     ).toBe("Original");
     await expect(
       runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id, expectedVersion: 3 })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+const referenceList = (maxItems?: number) => ({
+  type: "array",
+  items: { type: "string", format: "uuid" },
+  fieldType: "ReferenceList",
+  collectionId: "customers",
+  title: "Customers",
+  default: [],
+  ...(maxItems === undefined ? {} : { maxItems }),
+});
+
+async function listFixture() {
+  const f = await fixture();
+  const [beta, gamma] = await Promise.all(
+    ["Beta", "Gamma"].map((name) =>
+      runService(createRecord(f.ctx, { ...f.scope, content: { name } })),
+    ),
+  );
+  await f.db.insert(blockDefinitions).values({
+    projectId: f.project.id,
+    environmentId: f.environment.id,
+    blockId: "logo-grid",
+    title: "Logo grid",
+    description: "",
+    contentSchema: {
+      type: "object",
+      properties: { customers: { ...referenceList(3), toMarkdown: ["Logo of {{name}}"] } },
+      required: ["customers"],
+      additionalProperties: false,
+      toMarkdown: ["Trusted by:", "{{customers}}"],
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const list = await runService(
+    createBlock(f.ctx, { pageId: f.page.id, type: "logo-grid", content: {} }),
+  );
+  const setList = (customers: unknown) =>
+    runService(updateBlockContent(f.ctx, { id: list.id, content: { customers } }));
+  const ids = (references: Record<string, unknown> | undefined) =>
+    ((references?.customers ?? []) as { id: string }[]).map((record) => record.id);
+  const listIds = async (ctx: typeof f.ctx, source: "draft" | "live") =>
+    ids((await runService(getBlock(ctx, { id: list.id, source }))).block.references);
+  const listMarkdown = async (ctx: typeof f.ctx, source: "draft" | "live") =>
+    (await runService(getPageMarkdown(ctx, { pageId: f.page.id, source }))).markdown;
+  return { ...f, alpha: f.record, beta, gamma, list, setList, ids, listIds, listMarkdown };
+}
+
+describe("reference lists", () => {
+  it("accepts reference lists at the top level of block content only", async () => {
+    const accepted = { properties: { customers: referenceList() } };
+    expect(() => Effect.runSync(validateReferenceSchema(accepted))).not.toThrow();
+    for (const [schema, allow] of [
+      [{ properties: { items: { fieldType: "Repeater", items: accepted } } }, true],
+      [accepted, false],
+      [{ properties: { customers: { ...referenceList(), collectionId: undefined } } }, true],
+    ] as const) {
+      expect(() => Effect.runSync(validateReferenceSchema(schema, allow))).toThrow();
+    }
+    const f = await fixture();
+    await expect(
+      runService(
+        syncCollectionDefinitions(f.publicCtx, {
+          projectSlug: f.project.slug,
+          deployToken: "test-deploy-token",
+          autoCreate: false,
+          definitions: [
+            {
+              collectionId: "partners",
+              title: "Partners",
+              description: "",
+              label: "name",
+              contentSchema: {
+                type: "object",
+                properties: {
+                  name: { type: "string", fieldType: "String" },
+                  customers: referenceList() as never,
+                },
+                required: ["name", "customers"],
+                additionalProperties: false,
+              },
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("stores ordered ids, defaults to empty and rejects out-of-scope, duplicate and overfull lists", async () => {
+    const f = await listFixture();
+    expect(f.list.content).toEqual({ customers: [] });
+    await f.setList([f.gamma.id, f.alpha.id]);
+    expect(
+      (await runService(getBlock(f.ctx, { id: f.list.id, source: "draft" }))).block.content
+        .customers,
+    ).toEqual([f.gamma.id, f.alpha.id]);
+
+    const otherProject = await fixture();
+    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: true,
+        definitions: [
+          {
+            collectionId: "customers",
+            title: "Customers",
+            description: "",
+            label: "name",
+            contentSchema: {
+              type: "object",
+              properties: { name: { type: "string", fieldType: "String" } },
+              required: ["name"],
+              additionalProperties: false,
+            },
+          },
+        ],
+      }),
+    );
+    const otherEnvironment = await runService(
+      createRecord(devCtx, { ...f.scope, content: { name: "Dev" } }),
+    );
+    for (const invalid of [
+      [otherProject.record.id],
+      [otherEnvironment.id],
+      [f.alpha.id, f.alpha.id],
+      [f.alpha.id, f.beta.id, f.gamma.id, otherProject.record.id],
+      ["not-a-uuid"],
+      f.alpha.id,
+    ]) {
+      await expect(f.setList(invalid)).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("customers"),
+      });
+    }
+    for (const [invalid, message] of [
+      [[f.alpha.id, f.alpha.id], "customers: reference list links the same record more than once"],
+      [
+        [f.alpha.id, f.beta.id, f.gamma.id, otherProject.record.id],
+        "customers: reference list links more than 3 records",
+      ],
+    ] as const) {
+      await expect(f.setList(invalid)).rejects.toMatchObject({ message });
+    }
+    expect(await f.listIds(f.ctx, "draft")).toEqual([f.gamma.id, f.alpha.id]);
+  });
+
+  it("resolves every draft record in order and only published records live, from checkpoints too", async () => {
+    const f = await listFixture();
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.alpha.id, expectedVersion: 1 }));
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.gamma.id, expectedVersion: 1 }));
+    await f.setList([f.gamma.id, f.beta.id, f.alpha.id]);
+    expect(await f.listIds(f.ctx, "draft")).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
+
+    // An unpublished list record never blocks publishing the page.
+    await runService(publishPage(f.ctx, { id: f.page.id }));
+    expect(await f.listIds(f.publicCtx, "live")).toEqual([f.gamma.id, f.alpha.id]);
+    const live = await runService(
+      getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/reference" }),
+    );
+    expect(f.ids(live.blocks.find((block) => block.id === f.list.id)?.references)).toEqual([
+      f.gamma.id,
+      f.alpha.id,
+    ]);
+
+    // Checkpoints store ids; history resolves them against current published records.
+    const checkpointId = (await f.db.select().from(pages).where(eq(pages.id, f.page.id)).get())!
+      .livePublishedCheckpointId!;
+    await f.setList([]);
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.beta.id, expectedVersion: 1 }));
+    const history = await runService(
+      getPageByPath(f.ctx, {
+        projectSlug: f.project.slug,
+        path: "/reference",
+        source: { checkpointId },
+      }),
+    );
+    const historyList = history.blocks.find((block) => block.id === f.list.id);
+    expect(historyList?.content.customers).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
+    expect(f.ids(historyList?.references)).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
+    expect(await f.listIds(f.ctx, "draft")).toEqual([]);
+  });
+
+  it("renders each linked record's Markdown in order, draft or live, and nothing when empty", async () => {
+    const f = await listFixture();
+    expect(await f.listMarkdown(f.ctx, "draft")).toMatch(/<!-- Logo grid -->\nTrusted by:$/);
+
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.alpha.id, expectedVersion: 1 }));
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.gamma.id, expectedVersion: 1 }));
+    await f.setList([f.gamma.id, f.beta.id, f.alpha.id]);
+    expect(await f.listMarkdown(f.ctx, "draft")).toContain(
+      "<!-- Logo grid -->\nTrusted by:\n\n- Logo of Gamma\n- Logo of Beta\n- Logo of Original",
+    );
+
+    await runService(publishPage(f.ctx, { id: f.page.id }));
+    expect(await f.listMarkdown(f.publicCtx, "live")).toContain(
+      "<!-- Logo grid -->\nTrusted by:\n\n- Logo of Gamma\n- Logo of Original",
+    );
+  });
+
+  it("refuses deleting a record linked from a draft or live list but allows unpublishing it", async () => {
+    const f = await listFixture();
+    await f.setList([f.beta.id]);
+    await expect(
+      runService(deleteRecord(f.ctx, { ...f.scope, id: f.beta.id, expectedVersion: 1 })),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    await runService(publishRecord(f.ctx, { ...f.scope, id: f.beta.id, expectedVersion: 1 }));
+    await runService(publishPage(f.ctx, { id: f.page.id }));
+    await f.setList([]);
+    await runService(unpublishRecord(f.ctx, { ...f.scope, id: f.beta.id, expectedVersion: 2 }));
+    await expect(
+      runService(deleteRecord(f.ctx, { ...f.scope, id: f.beta.id, expectedVersion: 3 })),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await f.listIds(f.publicCtx, "live")).toEqual([]);
+
+    // Once no list links it, it can be deleted; the index then refuses relinking it.
+    await runService(publishPage(f.ctx, { id: f.page.id }));
+    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.beta.id, expectedVersion: 3 }));
+    await expect(
+      f.db
+        .update(blocks)
+        .set({ content: { customers: [f.gamma.id, f.beta.id] } })
+        .where(eq(blocks.id, f.list.id)),
+    ).rejects.toThrow();
+  });
+
+  it("lists each changed linked record once in the publish review, never as required", async () => {
+    const f = await listFixture();
+    await f.setList([f.beta.id, f.alpha.id]);
+    const review = await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"));
+    expect(review.missingRequired).toEqual([]);
+    expect(review.targets.map((target) => target.id).sort()).toEqual(
+      [f.alpha.id, f.beta.id].sort(),
+    );
+    expect(review.targets.find((target) => target.id === f.beta.id)).toMatchObject({
+      required: false,
+      status: "draft",
+      expectedVersion: 1,
+    });
+    await runService(
+      publishPage(f.ctx, {
+        id: f.page.id,
+        collections: [{ id: f.beta.id, collectionId: "customers", expectedVersion: 1 }],
+      }),
+    );
+    expect(await f.listIds(f.publicCtx, "live")).toEqual([f.beta.id]);
   });
 });

@@ -22,17 +22,20 @@ import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import {
   isItemMarker,
   resolveAssetValue,
-  type NormalizedCollectionRecord,
+  referenceList,
+  singleReference,
+  type NormalizedReferences,
   type NormalizedFile,
   type NormalizedItem,
 } from "@/lib/normalized-data";
 
-import { overlayFieldId, type OverlayMessage } from "../overlayMessages";
+import { overlayFieldId, recordPlacementId, type OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, type RecordPlacement } from "../previewStore";
 import { DrillRow } from "./DrillRow";
 import { IconFieldEditor } from "./IconFieldEditor";
 import { ReferenceFieldEditor } from "./ReferenceFieldEditor";
+import { ReferenceListFieldEditor } from "./ReferenceListFieldEditor";
 import { RepeatableItemsList } from "./RepeatableItemsList";
 
 /* -------------------------------------------------------------------------------------------------
@@ -96,7 +99,7 @@ interface ItemFieldsEditorProps {
   filesMap: Map<number, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
   /** Hydrated records linked by this block's reference fields, keyed by field name. */
-  references?: Record<string, NormalizedCollectionRecord | null>;
+  references?: NormalizedReferences;
   /** When editing a placed collection record's fields: where the block places it. */
   placement?: RecordPlacement;
   /** Prefix used to scope DOM ids for each field so label-input pairs and
@@ -131,7 +134,7 @@ const ItemFieldsEditor = ({
   const focusedFieldIdRef = React.useRef<string | null>(null);
 
   const getFieldId = (fieldName: string) =>
-    overlayFieldId(blockId, fieldName, { itemId, referenceFieldName: placement?.fieldName });
+    overlayFieldId(blockId, fieldName, { itemId, placement });
 
   const getFieldElementId = (fieldName: string) => `${fieldIdPrefix}-${fieldName}`;
 
@@ -245,9 +248,38 @@ const ItemFieldsEditor = ({
                 fieldId={fieldId}
                 value={data[field.name]}
                 required={field.required}
-                record={references?.[field.name] ?? null}
+                record={singleReference(references, field.name)}
                 onChange={(value) => onFieldChange(field.name, value)}
                 onOpenRecord={(recordId) => openRecord(field.name, recordId)}
+                drill={
+                  selectedFieldName
+                    ? undefined
+                    : {
+                        label,
+                        fieldId,
+                        onClick: () => selectField(field.name, field.fieldType),
+                        postToIframe,
+                      }
+                }
+              />
+            );
+          }
+          if (field.fieldType === "ReferenceList" && field.collectionId) {
+            return (
+              <ReferenceListFieldEditor
+                key={field.name}
+                collectionId={field.collectionId}
+                fieldId={fieldId}
+                value={data[field.name]}
+                maxItems={field.maxItems}
+                records={referenceList(references, field.name)}
+                onChange={(ids) => onFieldChange(field.name, ids)}
+                onOpenRecord={(recordId) => openRecord(field.name, recordId)}
+                recordHover={{
+                  fieldId: (recordId) =>
+                    recordPlacementId({ blockId, fieldName: field.name, recordId }),
+                  postToIframe,
+                }}
                 drill={
                   selectedFieldName
                     ? undefined

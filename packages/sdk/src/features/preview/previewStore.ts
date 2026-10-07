@@ -28,7 +28,7 @@ export type Selection =
       recordFieldType: FieldType;
     } & RecordPlacement);
 
-/** A collection record placed by a block's reference field (one occurrence of the record). */
+/** A collection record placed by a block's reference field (one placement of the record). */
 export type RecordPlacement = {
   blockId: number;
   /** The block's reference field that places the record. */
