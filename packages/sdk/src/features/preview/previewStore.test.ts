@@ -714,3 +714,31 @@ void test("record field selections are owner-scoped and step up through the reco
     selection: { type: "record", blockId: 8, fieldName: "company", recordId: "globex" },
   });
 });
+
+void test("records placed by an item step up through the item's reference field and the item", async () => {
+  const { previewStore: store, selectionItemId } = await import("./previewStore");
+  let snapshot = store.getInitialSnapshot();
+  [snapshot] = store.transition(snapshot, {
+    type: "selectRecordField",
+    kind: "page",
+    pageId: 3,
+    blockId: 7,
+    itemId: 12,
+    fieldName: "sponsor",
+    recordId: "acme",
+    recordFieldName: "quote",
+    recordFieldType: "String",
+  });
+  assert.equal(selectionItemId(snapshot.context.editingContext!.selection), 12);
+  const path: Array<Selection | null | undefined> = [];
+  for (let step = 0; step < 4; step++) {
+    [snapshot] = store.transition(snapshot, { type: "selectParent" });
+    path.push(snapshot.context.editingContext?.selection);
+  }
+  assert.deepEqual(path, [
+    { type: "record", blockId: 7, itemId: 12, fieldName: "sponsor", recordId: "acme" },
+    { type: "item-field", blockId: 7, itemId: 12, fieldName: "sponsor", fieldType: "Reference" },
+    { type: "item", blockId: 7, itemId: 12 },
+    { type: "block", blockId: 7 },
+  ]);
+});

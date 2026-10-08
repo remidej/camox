@@ -28,6 +28,7 @@ import {
 import { contentWithSeeds } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
 import { validateContent } from "../blocks/validate-content";
+import { blockScope, validateReferenceValues } from "../collections/references";
 import { collectFileIds } from "../pages/ai";
 
 // --- Input Schemas ---
@@ -390,10 +391,21 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
       ),
     });
   }
-  yield* validateContent(
-    yield* contentWithSeeds(sanitizedContent, preparedSeeds, repeater?.items),
+  const contentWithItems = yield* contentWithSeeds(
+    sanitizedContent,
+    preparedSeeds,
     repeater?.items,
-    { path: "content", partial: false, rootSchema: schema },
+  );
+  yield* validateContent(contentWithItems, repeater?.items, {
+    path: "content",
+    partial: false,
+    rootSchema: schema,
+  });
+  yield* validateReferenceValues(
+    ctx,
+    yield* blockScope(ctx, access.block),
+    repeater?.items,
+    contentWithItems,
   );
 
   // Get siblings to determine correct position
@@ -522,6 +534,11 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       rootSchema: schema,
     });
     const sanitizedPatch = yield* sanitizeItemContent(content, itemSchema?.properties, schema);
+    const block = yield* Effect.promise(() =>
+      ctx.db.select().from(blocks).where(eq(blocks.id, access.item.blockId)).get(),
+    );
+    if (!block) return yield* new NotFoundError();
+    yield* validateReferenceValues(ctx, yield* blockScope(ctx, block), itemSchema, sanitizedPatch);
 
     // Merge partial content into existing content (frontend sends single-field patches)
     const merged = {

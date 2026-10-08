@@ -1150,3 +1150,166 @@ void test("images and files of listed records select their record field for that
     await window.happyDOM.close();
   }
 });
+
+void test("repeatable items place records of their own, selected and linked per item", async () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+  });
+  const acme: ReferenceRecord = {
+    id: "acme",
+    collectionId: "customers",
+    label: "Acme",
+    content: { name: "Acme Inc." },
+    version: 1,
+  };
+  const block = createEditableBlock({
+    id: "logo-wall",
+    title: "",
+    description: "",
+    content: (field) => ({
+      logos: field.repeater({
+        content: (field) => ({
+          customer: field.reference(customers),
+          partners: field.referenceList(customers),
+        }),
+        settings: (setting) => ({ emphasized: setting.boolean({ default: false }) }),
+        minItems: 1,
+        maxItems: 6,
+        toMarkdown: (c) => [c.customer.name],
+      }),
+    }),
+    toMarkdown: (c) => [c.logos],
+    component: () => (
+      <block.Repeater name="logos">
+        {(logo) => (
+          <article data-emphasized={String(logo.useSetting("emphasized"))}>
+            <logo.Reference name="customer">
+              {(customer) => (
+                <section>
+                  <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
+                  <p>Since 1999</p>
+                </section>
+              )}
+            </logo.Reference>
+            <logo.ReferenceList name="partners">
+              {(partner) => <span data-partner={partner.id}>{partner.label}</span>}
+            </logo.ReferenceList>
+          </article>
+        )}
+      </block.Repeater>
+    ),
+  });
+  const item = (id: number, content: Record<string, unknown>, references = {}) => ({
+    id,
+    blockId: 5,
+    parentItemId: null,
+    fieldName: "logos",
+    content,
+    settings: { emphasized: id === 11 },
+    summary: "",
+    position: `a${id}`,
+    createdAt: 0,
+    updatedAt: 0,
+    references,
+  });
+  const items = [
+    item(11, { customer: "acme", partners: ["acme"] }, { customer: acme, partners: [acme] }),
+    item(12, { customer: null, partners: [] }, { customer: null, partners: [] }),
+  ];
+  const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: owner.pageId });
+  const byId = (fieldId: string) =>
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${fieldId}"]`);
+  const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
+  try {
+    await act(async () =>
+      root.render(
+        <CamoxAppProvider app={app as unknown as CamoxApp}>
+          <QueryClientProvider client={new QueryClient()}>
+            <PreviewEditingOwnerContext value={owner}>
+              <NormalizedDataProvider files={[]} repeatableItems={items} blocks={[]}>
+                <block._internal.Component
+                  mode="site"
+                  blockData={{
+                    _id: 5,
+                    type: "logo-wall",
+                    position: "a0",
+                    // Stored content holds item markers, not the items' own content.
+                    content: { logos: [{ _itemId: 11 }, { _itemId: 12 }] } as never,
+                  }}
+                />
+              </NormalizedDataProvider>
+            </PreviewEditingOwnerContext>
+          </QueryClientProvider>
+        </CamoxAppProvider>,
+      ),
+    );
+
+    // Records linked only by items still resolve; placement settings stay on the item.
+    assert.equal(byId("5__11__customer__acme__name")?.textContent, "Acme Inc.");
+    assert.equal(host.querySelector("[data-partner]")?.textContent, "Acme");
+    assert.ok(byId("5__11__partners__acme"), "each listed record is its own item placement");
+    assert.deepEqual(
+      [...host.querySelectorAll("article")].map((article) => article.dataset.emphasized),
+      ["true", "false"],
+    );
+
+    await act(async () => byId("5__11__customer__acme__name")!.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record-field",
+      blockId: 5,
+      itemId: 11,
+      fieldName: "customer",
+      recordId: "acme",
+      recordFieldName: "name",
+      recordFieldType: "String",
+    });
+    assert.ok(focused(byId("5__11__customer__acme__name")));
+    assert.ok(!focused(byId("5__11__partners__acme")), "the same record listed in the item is not");
+
+    await act(async () => host.querySelector("p")!.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record",
+      blockId: 5,
+      itemId: 11,
+      fieldName: "customer",
+      recordId: "acme",
+    });
+    assert.ok(focused(byId("5__11__customer")), "the item's reference placement is selected");
+
+    // An item's unset reference selects that item's field and asks the sidebar to link it.
+    const placeholder = byId("5__12__customer")?.querySelector<HTMLElement>(
+      "[data-camox-reference-placeholder]",
+    );
+    assert.equal(placeholder?.textContent?.trim(), "Select Customers");
+    await act(async () => placeholder!.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "item-field",
+      blockId: 5,
+      itemId: 12,
+      fieldName: "customer",
+      fieldType: "Reference",
+    });
+    assert.ok(focused(byId("5__12__customer")));
+    assert.equal(referencePickerFocus.getSnapshot().context.fieldId, "5__12__customer");
+    const emptyList = byId("5__12__partners");
+    assert.equal(emptyList?.textContent?.trim(), "Add Customers");
+  } finally {
+    await act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    await window.happyDOM.close();
+  }
+});

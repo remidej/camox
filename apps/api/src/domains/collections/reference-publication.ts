@@ -19,6 +19,7 @@ import { buildLayoutSnapshotFromDraft } from "../layouts/service";
 import { buildPageSnapshotFromDraft } from "../pages/service";
 import { collectionSelection, referenceTargetsInput } from "./reference-publication-input";
 import {
+  itemSchemas,
   referenceFields,
   referenceListFields,
   resolvedReference,
@@ -58,6 +59,7 @@ const publicationScope = Effect.fn("collections.publicationScope")(function* (
     pageSnapshot,
     layoutSnapshot,
     blocks: [...(pageSnapshot?.blocks ?? []), ...(layoutSnapshot?.blocks ?? [])],
+    items: [...(pageSnapshot?.repeatableItems ?? []), ...(layoutSnapshot?.repeatableItems ?? [])],
   };
 });
 
@@ -109,16 +111,30 @@ const plan = Effect.fn("collections.plan")(function* (
           : "modified",
     });
   };
+  // Blocks and their repeatable items each place records through their own content schema.
+  const placements: { path: string; schema: unknown; content: unknown }[] = [];
   for (const block of scope.blocks) {
     const schema = definitions.find(
       (definition) => definition.blockId === block.type,
     )?.contentSchema;
-    const draft = yield* resolveReferences(ctx, scope.owner, schema, block.content, "draft");
-    const live = yield* resolveReferences(ctx, scope.owner, schema, block.content, "live");
+    placements.push({ path: String(block.id), schema, content: block.content });
+    const items = scope.items.filter((item) => item.blockId === block.id);
+    const schemas = itemSchemas(schema, items);
+    for (const item of items) {
+      placements.push({
+        path: `${block.id}.${item.id}`,
+        schema: schemas.get(item.id),
+        content: item.content,
+      });
+    }
+  }
+  for (const { path, schema, content } of placements) {
+    const draft = yield* resolveReferences(ctx, scope.owner, schema, content, "draft");
+    const live = yield* resolveReferences(ctx, scope.owner, schema, content, "live");
     for (const [field, reference] of referenceFields(schema)) {
       const record = resolvedReference(draft, field);
       if (!record) {
-        if (reference.required === true) missingRequired.push(`${block.id}.${field}`);
+        if (reference.required === true) missingRequired.push(`${path}.${field}`);
         continue;
       }
       addTarget(record, resolvedReference(live, field) ?? undefined, reference.required === true);

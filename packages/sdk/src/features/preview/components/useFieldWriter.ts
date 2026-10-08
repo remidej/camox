@@ -10,7 +10,11 @@ import { serializeAssetField } from "@/features/content/collection-form";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
-import { referenceList, type NormalizedCollectionRecord } from "@/lib/normalized-data";
+import {
+  referenceList,
+  type NormalizedCollectionRecord,
+  type NormalizedReferences,
+} from "@/lib/normalized-data";
 import {
   type BlockBundle,
   blockMutations,
@@ -38,24 +42,39 @@ export type FieldWriter = (fieldName: string, value: unknown) => void | Promise<
 const fieldTypeOf = (schema: unknown, fieldName: string) =>
   contentFieldSchema(schema, fieldName)?.fieldType;
 
+/** The block or repeatable item of a bundle that owns a reference list. */
+type ListOwner = { kind: "block" } | { kind: "item"; itemId: number };
+
+type ReferenceOwner = { content: unknown; references?: NormalizedReferences };
+
+function listOwnerIn(bundle: BlockBundle, owner: ListOwner): ReferenceOwner | undefined {
+  if (owner.kind === "block") return bundle.block;
+  return bundle.repeatableItems.find((item) => item.id === owner.itemId);
+}
+
 /** A block bundle whose reference list stores `ids`, hydrated from `records` in that order. */
 function withReferenceList(
   bundle: BlockBundle,
+  owner: ListOwner,
   fieldName: string,
   ids: string[],
   records: readonly NormalizedCollectionRecord[],
 ): BlockBundle {
+  const withList = <T extends ReferenceOwner>(current: T): T => ({
+    ...current,
+    content: { ...(current.content as Record<string, unknown>), [fieldName]: ids },
+    references: {
+      ...current.references,
+      [fieldName]: ids.flatMap((id) => records.find((record) => record.id === id) ?? []),
+    },
+  });
+  if (owner.kind === "block") return { ...bundle, block: withList(bundle.block) };
   return {
     ...bundle,
-    block: {
-      ...bundle.block,
-      content: { ...(bundle.block.content as Record<string, unknown>), [fieldName]: ids },
-      references: {
-        ...bundle.block.references,
-        [fieldName]: ids.flatMap((id) => records.find((record) => record.id === id) ?? []),
-      },
-    },
-  } as BlockBundle;
+    repeatableItems: bundle.repeatableItems.map((item) =>
+      item.id === owner.itemId ? withList(item) : item,
+    ),
+  };
 }
 
 /**
@@ -68,15 +87,17 @@ function withReferenceList(
 function applyReferenceListOptimistically(
   queryClient: QueryClient,
   blockId: number,
+  owner: ListOwner,
   fieldName: string,
   ids: string[],
   linkRecord: (id: string) => Promise<NormalizedCollectionRecord>,
 ) {
   const queryKey = blockQueries.get(blockId).queryKey;
   const previous = queryClient.getQueryData<BlockBundle>(queryKey);
-  if (!previous) return () => {};
-  const hydrated = referenceList(previous.block.references, fieldName);
-  queryClient.setQueryData(queryKey, withReferenceList(previous, fieldName, ids, hydrated));
+  const previousOwner = previous && listOwnerIn(previous, owner);
+  if (!previous || !previousOwner) return () => {};
+  const hydrated = referenceList(previousOwner.references, fieldName);
+  queryClient.setQueryData(queryKey, withReferenceList(previous, owner, fieldName, ids, hydrated));
 
   const missing = ids.filter((id) => !hydrated.some((record) => record.id === id));
   if (missing.length > 0) {
@@ -84,13 +105,14 @@ function applyReferenceListOptimistically(
       .then((linked) =>
         queryClient.setQueryData<BlockBundle>(queryKey, (current) => {
           // A later change or the server's own hydration wins.
-          if (!current) return current;
+          const currentOwner = current && listOwnerIn(current, owner);
+          if (!current || !currentOwner) return current;
           const stored = referenceListIds(
-            (current.block.content as Record<string, unknown>)[fieldName],
+            (currentOwner.content as Record<string, unknown>)[fieldName],
           );
           if (stored.join() !== ids.join()) return current;
-          const records = [...referenceList(current.block.references, fieldName), ...linked];
-          return withReferenceList(current, fieldName, ids, records);
+          const records = [...referenceList(currentOwner.references, fieldName), ...linked];
+          return withReferenceList(current, owner, fieldName, ids, records);
         }),
       )
       .catch(() => {
@@ -150,8 +172,7 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       const id = target?.kind === "item" ? target.itemId : target?.blockId;
 
       const field = contentFieldSchema(schema, fieldName);
-      // Reference lists are top-level block fields only.
-      if (field?.fieldType === "ReferenceList" && target?.kind === "block") {
+      if (field?.fieldType === "ReferenceList" && target) {
         const { collectionId = "" } = field;
         const linkRecord = async (recordId: string): Promise<NormalizedCollectionRecord> => {
           const record = await queryClient.ensureQueryData(
@@ -172,12 +193,17 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
           const restore = applyReferenceListOptimistically(
             queryClient,
             target.blockId,
+            target.kind === "item" ? { kind: "item", itemId: target.itemId } : { kind: "block" },
             fieldName,
             referenceListIds(value),
             linkRecord,
           );
           try {
-            await updateBlockContent.mutateAsync({ id: target.blockId, content });
+            if (target.kind === "item") {
+              await updateItemContent.mutateAsync({ id: target.itemId, content });
+            } else {
+              await updateBlockContent.mutateAsync({ id: target.blockId, content });
+            }
           } catch (cause) {
             restore();
             throw cause;

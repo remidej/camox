@@ -121,3 +121,23 @@ list through the block edit tools with an array of customer IDs.
    order of the others.
 3. Unpublishing a customer linked only from the grid is allowed, and the live grid
    skips it. Deleting a customer that any draft or live grid links is rejected.
+
+## Customer highlights (slice 5, references in repeatable items)
+
+The customer highlights block is a repeater whose items each hold
+`field.reference(customers, { required: true })`, a local note, and an `emphasized`
+setting. Each item's `highlight.Reference` renders the shared customer with the same
+typed scope as `testimonial.Reference`; the note and emphasis belong to the item only.
+
+1. Add customer highlights to a draft page. In edit mode each item's unset customer shows a
+   "Select Customers" placeholder that opens that item's Customer view with the picker
+   focused. Link a customer the testimonial or logo grid also uses.
+2. Select an item in the sidebar and drill into its Customer: the path reads Customer
+   highlights › Highlights › item › Customer › the customer. Editing the customer's company
+   inline or in the sidebar updates every block that shows it; toggling Emphasized changes
+   only this item.
+3. Publishing the page with an unset customer, or one never published and excluded from
+   the review, is rejected because the item's reference is required. The review lists a
+   customer once even when several items and blocks link it.
+4. Unpublishing a customer that a live item requires, or deleting one any item links, is
+   rejected.

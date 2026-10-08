@@ -28,13 +28,35 @@ export type Selection =
       recordFieldType: FieldType;
     } & RecordPlacement);
 
-/** A collection record placed by a block's reference field (one placement of the record). */
+/** A collection record placed by a reference field (one placement of the record). */
 export type RecordPlacement = {
   blockId: number;
-  /** The block's reference field that places the record. */
+  /** The repeatable item whose reference field places the record, if not the block's own. */
+  itemId?: number;
+  /** The block's or item's reference field that places the record. */
   fieldName: string;
   recordId: string;
 };
+
+/** Copies only a placement's identity, never the event or other selection fields. */
+export function recordPlacement(placement: RecordPlacement): RecordPlacement {
+  return {
+    blockId: placement.blockId,
+    ...(placement.itemId == null ? {} : { itemId: placement.itemId }),
+    fieldName: placement.fieldName,
+    recordId: placement.recordId,
+  };
+}
+
+/** Whether two placements are the same occurrence: same block, item, field and record. */
+export function samePlacement(a: RecordPlacement, b: RecordPlacement): boolean {
+  return (
+    a.blockId === b.blockId &&
+    (a.itemId ?? null) === (b.itemId ?? null) &&
+    a.fieldName === b.fieldName &&
+    a.recordId === b.recordId
+  );
+}
 
 /** Derived routes have no page row, but their persisted layout remains editable. */
 export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: number };
@@ -73,10 +95,11 @@ export function selectionBlockId(sel: Selection | null): number | null {
   return sel?.blockId ?? null;
 }
 
-/** Extract the itemId from item or item-field selections. */
+/** Extract the itemId from item and item-field selections, and records placed by an item. */
 export function selectionItemId(sel: Selection | null): number | null {
   if (!sel) return null;
   if (sel.type === "item" || sel.type === "item-field") return sel.itemId;
+  if (sel.type === "record" || sel.type === "record-field") return sel.itemId ?? null;
   return null;
 }
 
@@ -258,12 +281,7 @@ export const previewStore = createStore({
     }),
     selectRecord: (context, event: EditingOwner & RecordPlacement) => ({
       ...context,
-      editingContext: targetContext(event, {
-        type: "record" as const,
-        blockId: event.blockId,
-        fieldName: event.fieldName,
-        recordId: event.recordId,
-      }),
+      editingContext: targetContext(event, { type: "record" as const, ...recordPlacement(event) }),
     }),
     selectRecordField: (
       context,
@@ -273,9 +291,7 @@ export const previewStore = createStore({
       ...context,
       editingContext: targetContext(event, {
         type: "record-field" as const,
-        blockId: event.blockId,
-        fieldName: event.fieldName,
-        recordId: event.recordId,
+        ...recordPlacement(event),
         recordFieldName: event.recordFieldName,
         recordFieldType: event.recordFieldType,
       }),
@@ -289,26 +305,26 @@ export const previewStore = createStore({
           ...context,
           editingContext: {
             ...editingContext,
-            selection: {
-              type: "record" as const,
-              blockId: sel.blockId,
-              fieldName: sel.fieldName,
-              recordId: sel.recordId,
-            },
+            selection: { type: "record" as const, ...recordPlacement(sel) },
           },
         };
       }
       if (sel.type === "record") {
+        // The reference field that places the record, in its block or repeatable item.
+        const field = { fieldName: sel.fieldName, fieldType: "Reference" as const };
         return {
           ...context,
           editingContext: {
             ...editingContext,
-            selection: {
-              type: "block-field" as const,
-              blockId: sel.blockId,
-              fieldName: sel.fieldName,
-              fieldType: "Reference" as const,
-            },
+            selection:
+              sel.itemId == null
+                ? { type: "block-field" as const, blockId: sel.blockId, ...field }
+                : {
+                    type: "item-field" as const,
+                    blockId: sel.blockId,
+                    itemId: sel.itemId,
+                    ...field,
+                  },
           },
         };
       }

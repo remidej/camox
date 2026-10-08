@@ -1,4 +1,10 @@
-import { Type as TypeBoxType, type TSchema, type Static } from "@sinclair/typebox";
+import {
+  Type as TypeBoxType,
+  type TArray,
+  type TObject,
+  type TSchema,
+  type Static,
+} from "@sinclair/typebox";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
@@ -217,6 +223,8 @@ export interface PeekItem {
   position: string;
   createdAt: number;
   updatedAt: number;
+  /** Peek items link no records. */
+  references: Record<string, never>;
 }
 
 export interface RepeatableItemSeed {
@@ -348,6 +356,7 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
+        references: {},
       });
 
       markers.push({ _itemId: itemId });
@@ -479,6 +488,8 @@ export function createEditableBlock<
      * selection to the enclosing DB item rather than to the block.
      */
     containerItemId?: number;
+    /** The item's field schemas, at any repeater depth. */
+    itemSchema?: Record<string, any>;
   }
 
   const Context = React.createContext<BlockContextValue | null>(null);
@@ -661,16 +672,22 @@ export function createEditableBlock<
       : never]: RepeatableItemType<K>[F];
   };
 
-  // Extract nested field.repeater() array fields (excludes asset list arrays)
+  // Extract nested field.repeater() array fields (excludes asset and reference list arrays)
   type ItemRepeatableFields<K extends keyof RepeatableFields> = {
     [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
       ? ImageValue extends U
         ? never
         : FileValue extends U
           ? never
-          : F
+          : U extends string
+            ? never
+            : F
       : never]: RepeatableItemType<K>[F];
   };
+
+  // The item's field schemas, which carry the collections its reference fields link.
+  type ItemShape<K extends keyof RepeatableFields> =
+    TSchemaShape[K & keyof TSchemaShape] extends TArray<TObject<infer T>> ? T : never;
 
   // Extract the per-item settings shape recorded by field.repeater()
   // via the `WithItemSettings` phantom brand.
@@ -1712,6 +1729,14 @@ export function createEditableBlock<
           name: F;
           children: (props: FileRenderProps, data: FileValue) => React.ReactNode;
         }) => React.ReactNode;
+        Reference: <F extends ReferenceKeys<ItemShape<K>>>(props: {
+          name: F;
+          children: (scope: ReferenceScope<ReferenceContent<ItemShape<K>[F]>>) => React.ReactNode;
+        }) => React.ReactNode;
+        ReferenceList: <F extends ReferenceListKeys<ItemShape<K>>>(props: {
+          name: F;
+          children: (scope: ReferenceScope<ReferenceContent<ItemShape<K>[F]>>) => React.ReactNode;
+        }) => React.ReactNode;
         Repeater: <F extends keyof ItemRepeatableFields<K>>(props: {
           name: F;
           children: (
@@ -1750,6 +1775,14 @@ export function createEditableBlock<
               Repeater: (props: {
                 name: string;
                 children: (item: any, index: number) => React.ReactNode;
+              }) => React.ReactNode;
+              Reference: (props: {
+                name: string;
+                children: (scope: ReferenceScope<any>) => React.ReactNode;
+              }) => React.ReactNode;
+              ReferenceList: (props: {
+                name: string;
+                children: (scope: ReferenceScope<any>) => React.ReactNode;
               }) => React.ReactNode;
               useSetting: (name: string) => unknown;
             },
@@ -1846,6 +1879,14 @@ export function createEditableBlock<
             name: string;
             children: (item: any, index: number) => React.ReactNode;
           }) => React.ReactNode;
+          Reference: (props: {
+            name: string;
+            children: (scope: ReferenceScope<any>) => React.ReactNode;
+          }) => React.ReactNode;
+          ReferenceList: (props: {
+            name: string;
+            children: (scope: ReferenceScope<any>) => React.ReactNode;
+          }) => React.ReactNode;
           useSetting: (name: string) => unknown;
         },
         index: number,
@@ -1874,6 +1915,11 @@ export function createEditableBlock<
     type TItem = RepeatableItemType<K>;
 
     const settingsDefaultsForField = repeatableItemSettingsDefaults[fieldName];
+    const itemSchema = (
+      parentRepeaterContext
+        ? parentRepeaterContext.itemSchema?.[fieldName]
+        : (typeboxSchema.properties as Record<string, any>)[fieldName]
+    )?.items?.properties as Record<string, any> | undefined;
 
     return (
       <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
@@ -1901,6 +1947,20 @@ export function createEditableBlock<
             ImageList: ItemImageList,
             FileList: ItemFileList,
             Repeater: ItemRepeater,
+            Reference: Reference as unknown as <F extends ReferenceKeys<ItemShape<K>>>(props: {
+              name: F;
+              children: (
+                scope: ReferenceScope<ReferenceContent<ItemShape<K>[F]>>,
+              ) => React.ReactNode;
+            }) => React.ReactNode,
+            ReferenceList: ReferenceList as unknown as <
+              F extends ReferenceListKeys<ItemShape<K>>,
+            >(props: {
+              name: F;
+              children: (
+                scope: ReferenceScope<ReferenceContent<ItemShape<K>[F]>>,
+              ) => React.ReactNode;
+            }) => React.ReactNode,
             useSetting: useItemSetting as <F extends keyof ItemSettingsStatic<K>>(
               name: F,
             ) => ItemSettingsStatic<K>[F],
@@ -1916,6 +1976,7 @@ export function createEditableBlock<
                 itemSettings,
                 itemId: itemId,
                 containerItemId: itemId ?? parentRepeaterContext?.containerItemId,
+                itemSchema,
               }}
             >
               <RepeatableItemWrapper itemId={itemId} blockId={blockId} mode={mode}>
@@ -2129,6 +2190,7 @@ export function createEditableBlock<
    */
   const usePlacedRecord = (
     block: BlockContextValue,
+    itemId: number | undefined,
     fieldName: string,
     record: ReferenceRecord | null,
   ) => {
@@ -2139,7 +2201,14 @@ export function createEditableBlock<
     const [error, setError] = React.useState<string | null>(null);
     const [pointerHovered, setPointerHovered] = React.useState(false);
     const editable = useIsEditable(block.mode);
-    const placement = record ? { blockId: block.blockId, fieldName, recordId: record.id } : null;
+    const placement: RecordPlacement | null = record
+      ? {
+          blockId: block.blockId,
+          ...(itemId == null ? {} : { itemId }),
+          fieldName,
+          recordId: record.id,
+        }
+      : null;
     const selected = useRecordSelection(placement);
     const { window: iframeWindow } = useFrame();
     const sidebarHovered = useOverlayMessage(
@@ -2199,13 +2268,14 @@ export function createEditableBlock<
   /** Renders a placed record's scope: its fields read and write the record, not the block. */
   const RecordScope = ({
     block,
-    fieldName,
+    field,
     record,
     reference,
     children,
   }: {
     block: BlockContextValue;
-    fieldName: string;
+    /** The reference field's schema, which carries the record's content schema. */
+    field: any;
     record: ReferenceRecord;
     reference: ReferenceContextValue;
     children: (scope: ReferenceScope<any>) => React.ReactNode;
@@ -2216,7 +2286,7 @@ export function createEditableBlock<
           value={{
             ...block,
             content: record.content as TContent,
-            sourceSchema: typeboxSchema.properties[fieldName].referenceSchema.properties,
+            sourceSchema: field.referenceSchema.properties,
           }}
         >
           {children({
@@ -2235,12 +2305,28 @@ export function createEditableBlock<
   );
 
   /** Names the collection a reference field links, for its placeholder. */
-  const useCollectionTitle = (fieldName: string) => {
+  const useCollectionTitle = (fieldName: string, field: any) => {
     const camoxApp = useOptionalCamoxApp();
-    const schema = typeboxSchema.properties[fieldName];
     return (
-      camoxApp?.getCollectionById(schema.collectionId)?._internal.title ?? schema.title ?? fieldName
+      camoxApp?.getCollectionById(field.collectionId)?._internal.title ?? field.title ?? fieldName
     );
+  };
+
+  /**
+   * A reference field where it renders: in the block's content, or in the enclosing repeatable
+   * item's content. Its stored value, schema and overlay ID follow that owner.
+   */
+  const useReferenceField = (block: BlockContextValue, fieldName: string) => {
+    const item = React.use(RepeatableItemContext);
+    const itemId = item?.itemId;
+    return {
+      itemId,
+      field: item ? item.itemSchema?.[fieldName] : typeboxSchema.properties[fieldName],
+      stored: item
+        ? item.itemContent[fieldName]
+        : (block.content as Record<string, unknown>)[fieldName],
+      fieldId: overlayFieldId(block.blockId, fieldName, { itemId }),
+    };
   };
 
   /**
@@ -2249,12 +2335,14 @@ export function createEditableBlock<
    */
   const ReferencePlaceholder = ({
     block,
+    itemId,
     fieldName,
     fieldType,
     children,
     ...props
   }: Omit<React.ComponentProps<"button">, "onClick" | "type"> & {
     block: BlockContextValue;
+    itemId: number | undefined;
     fieldName: string;
     fieldType: "Reference" | "ReferenceList";
   }) => {
@@ -2267,14 +2355,16 @@ export function createEditableBlock<
         {...props}
         onClick={(event) => {
           selectTarget(
-            { type: "block-field", blockId: block.blockId, fieldName, fieldType },
+            itemId == null
+              ? { type: "block-field", blockId: block.blockId, fieldName, fieldType }
+              : { type: "item-field", blockId: block.blockId, itemId, fieldName, fieldType },
             event,
           );
           // Commenting targets the field; only editing links records.
           if (selectIsCommentMode(previewStore.getSnapshot())) return;
           referencePickerFocus.send({
             type: "request",
-            fieldId: overlayFieldId(block.blockId, fieldName),
+            fieldId: overlayFieldId(block.blockId, fieldName, { itemId }),
           });
         }}
       >
@@ -2322,16 +2412,12 @@ export function createEditableBlock<
     const { window: iframeWindow } = useFrame();
     if (!block) throw new Error("Reference must be used within a Block Component");
     const fieldName = String(name);
-    const collectionTitle = useCollectionTitle(fieldName);
-    const record = resolveReference(
-      (block.content as Record<string, unknown>)[fieldName],
-      typeboxSchema.properties[fieldName].collectionId,
-      recordsMap,
-    );
-    const placedRecord = usePlacedRecord(block, fieldName, record);
+    const { itemId, field, stored, fieldId } = useReferenceField(block, fieldName);
+    const collectionTitle = useCollectionTitle(fieldName, field);
+    const record = resolveReference(stored, field.collectionId, recordsMap);
+    const placedRecord = usePlacedRecord(block, itemId, fieldName, record);
     const { editable } = placedRecord;
-    const fieldId = overlayFieldId(block.blockId, fieldName);
-    const referenceSelected = useFieldSelection(block.blockId, fieldName, "Reference");
+    const referenceSelected = useFieldSelection(block.blockId, fieldName, "Reference", itemId);
     const fieldHovered = useOverlayMessage(
       iframeWindow,
       editable,
@@ -2346,16 +2432,16 @@ export function createEditableBlock<
     if (!record && !editable) return null;
     const rendered =
       record && placedRecord.reference ? (
-        <RecordScope
-          block={block}
-          fieldName={fieldName}
-          record={record}
-          reference={placedRecord.reference}
-        >
+        <RecordScope block={block} field={field} record={record} reference={placedRecord.reference}>
           {children}
         </RecordScope>
       ) : (
-        <ReferencePlaceholder block={block} fieldName={fieldName} fieldType="Reference">
+        <ReferencePlaceholder
+          block={block}
+          itemId={itemId}
+          fieldName={fieldName}
+          fieldType="Reference"
+        >
           Select {collectionTitle}
         </ReferencePlaceholder>
       );
@@ -2375,28 +2461,27 @@ export function createEditableBlock<
   /** One record of a reference list: selected and outlined on its own, apart from the others. */
   const ListedRecord = ({
     block,
+    itemId,
+    field,
     fieldName,
     record,
     listHovered,
     children,
   }: {
     block: BlockContextValue;
+    itemId: number | undefined;
+    field: any;
     fieldName: string;
     record: ReferenceRecord;
     /** Whether the sidebar hovers the whole list, which outlines every entry. */
     listHovered: boolean;
     children: (scope: ReferenceScope<any>) => React.ReactNode;
   }) => {
-    const placedRecord = usePlacedRecord(block, fieldName, record);
+    const placedRecord = usePlacedRecord(block, itemId, fieldName, record);
     const overlay = useOverlayState(placedRecord.hovered || listHovered, placedRecord.selected);
     if (!placedRecord.reference) return null;
     const rendered = (
-      <RecordScope
-        block={block}
-        fieldName={fieldName}
-        record={record}
-        reference={placedRecord.reference}
-      >
+      <RecordScope block={block} field={field} record={record} reference={placedRecord.reference}>
         {children}
       </RecordScope>
     );
@@ -2427,8 +2512,8 @@ export function createEditableBlock<
     if (!block) throw new Error("ReferenceList must be used within a Block Component");
     const editable = useIsEditable(block.mode);
     const fieldName = String(name);
-    const collectionTitle = useCollectionTitle(fieldName);
-    const fieldId = overlayFieldId(block.blockId, fieldName);
+    const { itemId, field, stored, fieldId } = useReferenceField(block, fieldName);
+    const collectionTitle = useCollectionTitle(fieldName, field);
     // The sidebar's field row hovers the list as a whole.
     const listHovered = useOverlayMessage(
       iframeWindow,
@@ -2438,16 +2523,13 @@ export function createEditableBlock<
       { fieldId },
     );
     const placeholderOverlay = useOverlayState(listHovered);
-    const records = resolveReferenceList(
-      (block.content as Record<string, unknown>)[fieldName],
-      typeboxSchema.properties[fieldName].collectionId,
-      recordsMap,
-    );
+    const records = resolveReferenceList(stored, field.collectionId, recordsMap);
     if (records.length === 0) {
       if (!editable) return null;
       return (
         <ReferencePlaceholder
           block={block}
+          itemId={itemId}
           fieldName={fieldName}
           fieldType="ReferenceList"
           data-camox-field-id={fieldId}
@@ -2463,6 +2545,8 @@ export function createEditableBlock<
       <ListedRecord
         key={record.id}
         block={block}
+        itemId={itemId}
+        field={field}
         fieldName={fieldName}
         record={record}
         listHovered={listHovered}

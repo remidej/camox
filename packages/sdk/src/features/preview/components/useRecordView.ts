@@ -3,16 +3,15 @@ import * as React from "react";
 
 import { referenceListIds } from "@/core/lib/reference";
 import { useProjectSlug } from "@/lib/auth";
-import { placedRecords, type NormalizedCollectionRecord } from "@/lib/normalized-data";
-import { type BlockBundle, collectionQueries } from "@/lib/queries";
+import {
+  placedRecords,
+  type NormalizedCollectionRecord,
+  type NormalizedReferences,
+} from "@/lib/normalized-data";
+import { collectionQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import {
-  previewStore,
-  type EditingOwner,
-  type RecordPlacement,
-  type Selection,
-} from "../previewStore";
+import { previewStore, recordPlacement, type EditingOwner, type Selection } from "../previewStore";
 import { contentFieldSchema } from "./contentFieldSchema";
 import { formatFieldName } from "./ItemFieldsEditor";
 import type { PublicationStatus } from "./PageStatusBadge";
@@ -45,8 +44,16 @@ function linksRecord(fieldType: string | undefined, stored: unknown, recordId: s
   return stored === recordId;
 }
 
+/** The block or repeatable item whose reference field places the selected record. */
+export type RecordPlacer = {
+  content: unknown;
+  references?: NormalizedReferences;
+  /** Its content schema, which declares its reference fields. */
+  contentSchema: unknown;
+};
+
 /**
- * Resolves a record or record-field selection into the record it shows, while the block's
+ * Resolves a record or record-field selection into the record it shows, while the placer's
  * reference field still links that record, or the reference list still contains it. A stale
  * selection (the field no longer links the record) shows, and then selects, the reference field
  * view instead.
@@ -54,14 +61,11 @@ function linksRecord(fieldType: string | undefined, stored: unknown, recordId: s
 export function useRecordView({
   owner,
   selection,
-  block,
-  contentSchema,
+  placer,
 }: {
   owner: EditingOwner;
   selection: Selection | null;
-  block: BlockBundle["block"] | null;
-  /** The selected block's content schema, which declares its reference fields. */
-  contentSchema: unknown;
+  placer: RecordPlacer | null;
 }) {
   const camoxApp = useCamoxApp();
   const projectSlug = useProjectSlug();
@@ -70,22 +74,22 @@ export function useRecordView({
     selection?.type === "record" || selection?.type === "record-field" ? selection : null;
   const referenceFieldName = recordSelection?.fieldName;
   const referenceField = referenceFieldName
-    ? contentFieldSchema(contentSchema, referenceFieldName)
+    ? contentFieldSchema(placer?.contentSchema, referenceFieldName)
     : undefined;
   const collectionId = referenceField?.collectionId;
   const collection = collectionId ? camoxApp.getCollectionById(collectionId) : undefined;
   const isStale =
     recordSelection != null &&
-    block != null &&
+    placer != null &&
     !linksRecord(
       referenceField?.fieldType,
-      (block.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName],
+      (placer.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName],
       recordSelection.recordId,
     );
-  // A record the field just linked shows once the block's hydrated records include it.
+  // A record the field just linked shows once the placer's hydrated records include it.
   const placedRecord =
     recordSelection && !isStale
-      ? placedRecords(block?.references, recordSelection.fieldName).find(
+      ? placedRecords(placer?.references, recordSelection.fieldName).find(
           (record) => record.id === recordSelection.recordId,
         )
       : undefined;
@@ -93,18 +97,13 @@ export function useRecordView({
     referenceField?.fieldType === "ReferenceList" ? "ReferenceList" : "Reference";
 
   const recordBlockId = recordSelection?.blockId;
-  const referenceFieldSelection = React.useMemo<Selection | null>(
-    () =>
-      recordBlockId != null && referenceFieldName
-        ? {
-            type: "block-field",
-            blockId: recordBlockId,
-            fieldName: referenceFieldName,
-            fieldType: referenceFieldType,
-          }
-        : null,
-    [recordBlockId, referenceFieldName, referenceFieldType],
-  );
+  const recordItemId = recordSelection?.itemId;
+  const referenceFieldSelection = React.useMemo<Selection | null>(() => {
+    if (recordBlockId == null || !referenceFieldName) return null;
+    const field = { fieldName: referenceFieldName, fieldType: referenceFieldType } as const;
+    if (recordItemId == null) return { type: "block-field", blockId: recordBlockId, ...field };
+    return { type: "item-field", blockId: recordBlockId, itemId: recordItemId, ...field };
+  }, [recordBlockId, recordItemId, referenceFieldName, referenceFieldType]);
   React.useEffect(() => {
     if (!isStale || !referenceFieldSelection) return;
     previewStore.send({ type: "selectTarget", ...owner, selection: referenceFieldSelection });
@@ -125,13 +124,12 @@ export function useRecordView({
   /** Reference field and record crumbs, between the block and the record field. */
   const recordCrumbs = (fieldHasOwnView: boolean): SelectionCrumb[] => {
     if (!recordView) return [];
-    const { blockId, fieldName } = recordView.selection;
-    const placement: RecordPlacement = { blockId, fieldName, recordId: recordView.record.id };
+    const placement = recordPlacement(recordView.selection);
     const recordTarget: Selection = { type: "record", ...placement };
     return [
       {
         key: "reference-field",
-        label: referenceField?.title ?? formatFieldName(fieldName),
+        label: referenceField?.title ?? formatFieldName(placement.fieldName),
         isCurrent: false,
         hoverTarget: referenceFieldSelection,
         onClick: () =>

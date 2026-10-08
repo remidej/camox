@@ -62,13 +62,16 @@ export function overlayFieldId(
 }
 
 /**
- * The overlay ID of one placement of a record: `block__referenceField__record`. Unique per
- * record within a reference list, and distinct from the same record placed by other blocks.
+ * The overlay ID of one placement of a record: `block__referenceField__record`, or
+ * `block__item__referenceField__record` when a repeatable item places it. Unique per record
+ * within a reference list, and distinct from the same record placed elsewhere.
  */
 export function recordPlacementId(
   placement: Omit<RecordPlacement, "blockId"> & { blockId: number | string },
 ): string {
-  return `${placement.blockId}__${placement.fieldName}__${placement.recordId}`;
+  const owner =
+    placement.itemId == null ? placement.blockId : `${placement.blockId}__${placement.itemId}`;
+  return `${owner}__${placement.fieldName}__${placement.recordId}`;
 }
 
 /** Use the same preview targets for selection-path hover as the sidebar editors. */

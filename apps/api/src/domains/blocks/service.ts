@@ -38,7 +38,13 @@ import {
   type SnapshotBlock,
   type SnapshotRepeatableItem,
 } from "../_shared/snapshot-schemas";
-import { blockScope, hydrateReferences, validateReferenceValues } from "../collections/references";
+import {
+  blockScope,
+  hydrateItemReferences,
+  hydrateReferences,
+  type ResolvedReferences,
+  validateReferenceValues,
+} from "../collections/references";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
 import { normalizeFieldValue } from "./asset-value";
@@ -837,19 +843,23 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     (item as any).content = itemContent;
   }
 
+  const scope = yield* blockScope(ctx, block);
+  const referenceSource = source === "draft" ? "draft" : "live";
   const hydratedBlock = (yield* hydrateReferences(
     ctx,
-    yield* blockScope(ctx, block),
+    scope,
     [{ ...block, content }],
-    source === "draft" ? "draft" : "live",
+    referenceSource,
   ))[0];
+  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted, referenceSource);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<number>();
   collectFileIds(content, fileIds);
   collectFileIds(hydratedBlock.references, fileIds);
-  for (const item of sorted) {
+  for (const item of hydratedItems) {
     collectFileIds(item.content as Record<string, unknown>, fileIds);
+    collectFileIds(item.references, fileIds);
   }
 
   const fileRows =
@@ -864,7 +874,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
 
   return {
     block: hydratedBlock,
-    repeatableItems: sorted,
+    repeatableItems: hydratedItems,
     files: fileRows,
   };
 });
@@ -914,7 +924,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   // row shape are structurally compatible — same columns, same nullability —
   // so the renderer below works against either.
   type RenderableBlock = SnapshotBlock;
-  type RenderableItem = SnapshotRepeatableItem;
+  type RenderableItem = SnapshotRepeatableItem & { references?: ResolvedReferences };
   let sorted: RenderableBlock[];
   let allItems: RenderableItem[];
   let sortedLayout: RenderableBlock[] = [];
@@ -980,6 +990,15 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     }
   }
 
+  const referenceSource = source === "draft" ? "draft" : "live";
+  allItems = yield* hydrateItemReferences(ctx, page, sorted, allItems, referenceSource);
+  layoutAllItems = yield* hydrateItemReferences(
+    ctx,
+    page,
+    sortedLayout,
+    layoutAllItems,
+    referenceSource,
+  );
   nestChildItems(allItems);
   const itemsByBlock = new Map<number, RenderableItem[]>();
   for (const item of allItems) {
@@ -1004,7 +1023,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     ctx,
     page,
     [...sorted, ...sortedLayout],
-    source === "draft" ? "draft" : "live",
+    referenceSource,
   );
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
   const fileIds = new Set<number>();
@@ -1012,8 +1031,9 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     collectFileIds(block.content as Record<string, unknown>, fileIds);
     collectFileIds(block.references, fileIds);
   }
-  for (const list of [...itemsByBlock.values(), ...layoutItemsByBlock.values()]) {
-    for (const item of list) collectFileIds(item.content as Record<string, unknown>, fileIds);
+  for (const item of [...allItems, ...layoutAllItems]) {
+    collectFileIds(item.content as Record<string, unknown>, fileIds);
+    collectFileIds(item.references ?? {}, fileIds);
   }
   const fileMap = yield* buildFileMap(ctx.db, fileIds);
 
@@ -1127,7 +1147,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     def?.settingsSchema,
   );
   const allSeeds = prepared.seeds;
-  yield* validateReferenceValues(ctx, access.page, def?.contentSchema, prepared.content);
+  yield* validateReferenceValues(ctx, access.page, def?.contentSchema, prepared.bundle);
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(

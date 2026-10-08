@@ -126,7 +126,14 @@ const listedRecords = [
 async function renderSidebar(
   t: TestContext,
   selection: Selection,
-  options: { company?: string | null; fileUsage?: number; logos?: string[] } = {},
+  options: {
+    company?: string | null;
+    fileUsage?: number;
+    logos?: string[];
+    /** The repeater item's own reference and reference list. */
+    sponsor?: string | null;
+    partners?: string[];
+  } = {},
 ) {
   const window = new Window({ url: "http://localhost/" });
   Object.assign(globalThis, {
@@ -191,6 +198,8 @@ async function renderSidebar(
         content: (field) => ({
           name: field.string({ default: "" }),
           photo: field.image({ title: "Photo" }),
+          sponsor: field.reference(customers, { title: "Sponsor" }),
+          partners: field.referenceList(customers, { title: "Partners", maxItems: 3 }),
         }),
         minItems: 1,
         maxItems: 5,
@@ -212,6 +221,10 @@ async function renderSidebar(
   });
   const company = options.company === undefined ? ACME : options.company;
   const logos = options.logos ?? [];
+  const sponsor = options.sponsor ?? null;
+  const partners = options.partners ?? [];
+  const linked = (ids: string[]) =>
+    ids.flatMap((id) => listedRecords.filter((record) => record.id === id));
   client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, {
     block: {
       id: BLOCK_ID,
@@ -220,7 +233,7 @@ async function renderSidebar(
       settings: {},
       references: {
         company: company === ACME ? acme : null,
-        logos: logos.flatMap((id) => listedRecords.filter((record) => record.id === id)),
+        logos: linked(logos),
       },
     },
     repeatableItems: [
@@ -231,8 +244,12 @@ async function renderSidebar(
         parentItemId: null,
         position: "a0",
         summary: "Ada",
-        content: { name: "Ada", photo: logo },
+        content: { name: "Ada", photo: logo, sponsor, partners },
         settings: {},
+        references: {
+          sponsor: linked(sponsor ? [sponsor] : [])[0] ?? null,
+          partners: linked(partners),
+        },
       },
     ],
     files: [file],
@@ -361,6 +378,13 @@ async function renderSidebar(
     modalOpened: () => modal.target != null,
     selection: () => previewStore.getSnapshot().context.editingContext?.selection ?? null,
     /** The labels and names of the records the preview renders for the logo list. */
+    /** The labels of the records the preview renders for the item's partner list. */
+    previewPartners: () =>
+      (
+        client.getQueryData(blockQueries.get(BLOCK_ID).queryKey) as {
+          repeatableItems: { references: { partners: { label: string }[] } }[];
+        }
+      ).repeatableItems[0]!.references.partners.map((record) => record.label),
     previewLogos: () =>
       (
         client.getQueryData(blockQueries.get(BLOCK_ID).queryKey) as {
@@ -1144,4 +1168,119 @@ void test("the preview's empty-list placeholder opens the list view with the pic
   assert.ok(input, "the picker opens");
   assert.equal(document.activeElement, input, "the search input has focus");
   assert.equal(referencePickerFocus.getSnapshot().context.fieldId, null, "the request is consumed");
+});
+
+const sponsorField = {
+  type: "item-field",
+  blockId: BLOCK_ID,
+  itemId: ITEM_ID,
+  fieldName: "sponsor",
+  fieldType: "Reference",
+} as const;
+
+void test("an item's reference opens its record view under the item, and steps back to it", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID },
+    {
+      sponsor: ACME,
+    },
+  );
+  assert.match(sidebar.text(), /Sponsor\s*Acme/);
+  // The field row's drill button shows the linked record's label.
+  await sidebar.click("Acme");
+  assert.deepEqual(sidebar.selection(), sponsorField);
+  await sidebar.click("Open Acme");
+  assert.deepEqual(sidebar.selection(), {
+    type: "record",
+    blockId: BLOCK_ID,
+    itemId: ITEM_ID,
+    fieldName: "sponsor",
+    recordId: ACME,
+  });
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "People", "Ada", "Sponsor", "Acme"]);
+  assert.match(sidebar.text(), /Quote\s*Great/);
+  assert.ok(!sidebar.hasButton("Add sibling"), "item list actions belong to the item view");
+
+  await sidebar.click("Sponsor");
+  assert.deepEqual(sidebar.selection(), sponsorField);
+  await sidebar.click("Ada");
+  assert.deepEqual(sidebar.selection(), { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID });
+});
+
+void test("record field edits reached through an item save to the record", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    {
+      type: "record-field",
+      blockId: BLOCK_ID,
+      itemId: ITEM_ID,
+      fieldName: "sponsor",
+      recordId: ACME,
+      recordFieldName: "quote",
+      recordFieldType: "String",
+    },
+    { sponsor: ACME },
+  );
+  await sidebar.typeText("Superb");
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input.id, write.input.content]),
+    [["collectionDefinitions/editRecord", ACME, { ...acmeContent, quote: "Superb" }]],
+  );
+});
+
+void test("an item's record selection falls back to the item's reference field once unlinked", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "record", blockId: BLOCK_ID, itemId: ITEM_ID, fieldName: "sponsor", recordId: ACME },
+    { sponsor: ACME },
+  );
+  await act(async () => {
+    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+      ...bundle,
+      repeatableItems: bundle.repeatableItems.map((item: any) => ({
+        ...item,
+        content: { ...item.content, sponsor: null },
+        references: { ...item.references, sponsor: null },
+      })),
+    }));
+  });
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), sponsorField);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "People", "Ada", "Sponsor"]);
+  assert.ok(sidebar.host.querySelector("button[aria-haspopup]"), "the picker is shown again");
+});
+
+void test("an item's reference list writes to the item and updates its preview records first", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { ...sponsorField, fieldName: "partners", fieldType: "ReferenceList" },
+    { partners: [GLOBEX, ACME] },
+  );
+  assert.deepEqual(
+    cards(sidebar.host).map((card) => card.label),
+    ["Open Globex", "Open Acme"],
+  );
+  const unlink = sidebar.host
+    .querySelectorAll<HTMLElement>("[data-record-card]")[0]
+    ?.querySelector<HTMLElement>("button[aria-label='Unlink']");
+  await act(async () => unlink!.click());
+  await sidebar.settle();
+  assert.deepEqual(sidebar.writes, [
+    {
+      procedure: "repeatableItems/updateContent",
+      input: { id: ITEM_ID, content: { partners: [ACME] } },
+    },
+  ]);
+  assert.deepEqual(sidebar.previewPartners(), ["Acme"]);
+
+  await sidebar.click("Open Acme");
+  assert.deepEqual(sidebar.selection(), {
+    type: "record",
+    blockId: BLOCK_ID,
+    itemId: ITEM_ID,
+    fieldName: "partners",
+    recordId: ACME,
+  });
+  assert.ok(sidebar.host.querySelector("[data-shared-record]"), "listed records are shared");
 });

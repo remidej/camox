@@ -98,7 +98,7 @@ interface ItemFieldsEditorProps {
   /** Lookup maps for resolving _fileId and _itemId markers */
   filesMap: Map<number, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
-  /** Hydrated records linked by this block's reference fields, keyed by field name. */
+  /** Hydrated records linked by this block's or item's reference fields, keyed by field name. */
   references?: NormalizedReferences;
   /** When editing a placed collection record's fields: where the block places it. */
   placement?: RecordPlacement;
@@ -228,9 +228,17 @@ const ItemFieldsEditor = ({
     // Keep the field screen open when focus moves into its comments.
   };
 
+  /** Where this block or item places a record through one of its reference fields. */
+  const placementOf = (fieldName: string, recordId: string): RecordPlacement => ({
+    blockId,
+    ...(itemId == null ? {} : { itemId }),
+    fieldName,
+    recordId,
+  });
+
   const openRecord = (fieldName: string, recordId: string) => {
     if (owner === null) return;
-    previewStore.send({ type: "selectRecord", ...owner, blockId, fieldName, recordId });
+    previewStore.send({ type: "selectRecord", ...owner, ...placementOf(fieldName, recordId) });
   };
 
   return (
@@ -276,8 +284,7 @@ const ItemFieldsEditor = ({
                 onChange={(ids) => onFieldChange(field.name, ids)}
                 onOpenRecord={(recordId) => openRecord(field.name, recordId)}
                 recordHover={{
-                  fieldId: (recordId) =>
-                    recordPlacementId({ blockId, fieldName: field.name, recordId }),
+                  fieldId: (recordId) => recordPlacementId(placementOf(field.name, recordId)),
                   postToIframe,
                 }}
                 drill={
