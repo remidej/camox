@@ -138,6 +138,7 @@ export function ReferenceListFieldEditor({
   onOpenRecord,
   recordHover,
   drill,
+  allowCreate = true,
 }: {
   collectionId: string;
   /** Overlay field ID of this placement; the preview placeholder requests focus by it. */
@@ -160,6 +161,8 @@ export function ReferenceListFieldEditor({
     onClick: () => void;
     postToIframe: (message: OverlayMessage) => void;
   };
+  /** Offer Create item in the picker; off where the create modal would replace a form. */
+  allowCreate?: boolean;
 }) {
   const projectSlug = useProjectSlug();
   const collection = useCamoxApp().getCollectionById(collectionId);
@@ -285,18 +288,22 @@ export function ReferenceListFieldEditor({
           disabled={saving || records.isPending || records.isError}
           open={pickerOpen}
           onOpenChange={setPickerOpen}
-          footerAction={{
-            label: "Create item",
-            onSelect: (search) =>
-              modal.open({
-                collectionId,
-                initialContent:
-                  collection && search.trim()
-                    ? { [collection._internal.label]: search }
-                    : undefined,
-                onSaved: (created) => save([...ids, created.id]),
-              }),
-          }}
+          footerAction={
+            allowCreate
+              ? {
+                  label: "Create item",
+                  onSelect: (search) =>
+                    modal.open({
+                      collectionId,
+                      initialContent:
+                        collection && search.trim()
+                          ? { [collection._internal.label]: search }
+                          : undefined,
+                      onSaved: (created) => save([...ids, created.id]),
+                    }),
+                }
+              : undefined
+          }
         />
       )}
       {records.isPending && <p role="status">Loading items…</p>}

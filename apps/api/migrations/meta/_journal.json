@@ -225,6 +225,13 @@
       "when": 1790604588524,
       "tag": "0031_repeater_references",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1790604588525,
+      "tag": "0032_collection_references",
+      "breakpoints": true
     }
   ]
 }

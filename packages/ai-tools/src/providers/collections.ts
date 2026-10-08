@@ -87,7 +87,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
     {
       name: "createCollectionRecord",
       description:
-        "Create an unpublished standalone record. Supply full content matching getCollection's schema. Publish separately.",
+        "Create an unpublished standalone record. Supply full content matching getCollection's schema; reference fields hold a record id (or null) and reference lists an array of distinct record ids from the referenced collection. Publish separately.",
       inputSchema: createInput,
       meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
       handler: async (input) => {

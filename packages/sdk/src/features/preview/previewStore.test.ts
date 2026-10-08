@@ -742,3 +742,31 @@ void test("records placed by an item step up through the item's reference field 
     { type: "block", blockId: 7 },
   ]);
 });
+
+void test("records linked by a placed record step up through that record's reference field", async () => {
+  const { previewStore: store } = await import("./previewStore");
+  let snapshot = store.getInitialSnapshot();
+  [snapshot] = store.transition(snapshot, {
+    type: "selectRecordField",
+    kind: "page",
+    pageId: 3,
+    blockId: 7,
+    fieldName: "article",
+    recordId: "launch",
+    nested: { fieldName: "author", recordId: "jane" },
+    recordFieldName: "name",
+    recordFieldType: "String",
+  });
+  const path: Array<Selection | null | undefined> = [];
+  for (let step = 0; step < 4; step++) {
+    [snapshot] = store.transition(snapshot, { type: "selectParent" });
+    path.push(snapshot.context.editingContext?.selection);
+  }
+  const article = { blockId: 7, fieldName: "article", recordId: "launch" };
+  assert.deepEqual(path, [
+    { type: "record", ...article, nested: { fieldName: "author", recordId: "jane" } },
+    { type: "record-field", ...article, recordFieldName: "author", recordFieldType: "Reference" },
+    { type: "record", ...article },
+    { type: "block-field", blockId: 7, fieldName: "article", fieldType: "Reference" },
+  ]);
+});

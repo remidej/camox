@@ -92,6 +92,18 @@ const cases: {
     type: "CAMOX_HOVER_FIELD",
     target: { fieldId: "1__2__sponsor__acme__quote" },
   },
+  {
+    name: "record linked by a placed record",
+    selection: {
+      type: "record",
+      blockId: 1,
+      fieldName: "article",
+      recordId: "launch",
+      nested: { fieldName: "author", recordId: "jane" },
+    },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "1__article__launch__author__jane" },
+  },
 ];
 
 for (const { name, selection, type, target } of cases) {

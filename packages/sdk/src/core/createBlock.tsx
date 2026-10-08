@@ -47,6 +47,8 @@ interface BlockContextValue {
   blockId: number;
   content: Record<string, unknown>;
   sourceSchema?: Record<string, any>;
+  /** Inside a placed record: 1 for records the block or an item places, 2 for those they link. */
+  recordHop?: 1 | 2;
   settings: Record<string, unknown>;
   mode: "site" | "peek" | "layout";
 }
@@ -323,10 +325,12 @@ function createViewBlock(options: EditableOptions) {
   const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
   const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
 
-  /** A reference field's schema, in the block or in the enclosing repeatable item. */
+  /** A reference field's schema: in the block, the enclosing item, or the placed record. */
   function useReferenceField(name: string) {
+    const block = React.use(Context);
     const item = React.use(RepeaterContext);
-    return item ? item.itemSchema?.[name] : typeboxSchema.properties[name];
+    if (item) return item.itemSchema?.[name];
+    return (block?.sourceSchema ?? typeboxSchema.properties)[name];
   }
 
   const Reference = ({ name, children }: any) => {
@@ -361,7 +365,10 @@ function createViewBlock(options: EditableOptions) {
     ));
   };
 
-  /** Renders a placed record with the record's content as the field source. */
+  /**
+   * Renders a placed record with the record's content as the field source. Records placed by the
+   * block or an item (the first hop) also render the records they link (the second hop).
+   */
   const RecordScope = ({
     block,
     schema,
@@ -372,28 +379,33 @@ function createViewBlock(options: EditableOptions) {
     schema: any;
     record: ReferenceRecord;
     children: (scope: any) => React.ReactNode;
-  }) => (
-    <RepeaterContext.Provider value={null}>
-      <Context.Provider
-        value={{
-          ...block,
-          content: record.content,
-          sourceSchema: schema.referenceSchema.properties,
-        }}
-      >
-        {children({
-          id: record.id,
-          label: record.label,
-          Field,
-          Image: ReferenceImage,
-          File: ReferenceFile,
-          Embed: ReferenceEmbed,
-          ImageList,
-          FileList,
-        })}
-      </Context.Provider>
-    </RepeaterContext.Provider>
-  );
+  }) => {
+    const hop = block.recordHop ? 2 : 1;
+    return (
+      <RepeaterContext.Provider value={null}>
+        <Context.Provider
+          value={{
+            ...block,
+            content: record.content,
+            sourceSchema: schema.referenceSchema.properties,
+            recordHop: hop,
+          }}
+        >
+          {children({
+            id: record.id,
+            label: record.label,
+            Field,
+            Image: ReferenceImage,
+            File: ReferenceFile,
+            Embed: ReferenceEmbed,
+            ImageList,
+            FileList,
+            ...(hop === 1 ? { Reference, ReferenceList } : {}),
+          })}
+        </Context.Provider>
+      </RepeaterContext.Provider>
+    );
+  };
 
   const AssetList = ({ name, children, primitive }: any) => {
     const editingRuntime = useBlockEditingRuntime();

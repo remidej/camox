@@ -1313,3 +1313,160 @@ void test("repeatable items place records of their own, selected and linked per 
     await window.happyDOM.close();
   }
 });
+
+void test("records placed by a block render the records they link, one hop further only", async () => {
+  const employers = createCollection({
+    id: "employers",
+    title: "Employers",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+  });
+  const authors = createCollection({
+    id: "authors",
+    title: "Authors",
+    description: "",
+    label: "name",
+    content: (field) => ({
+      name: field.string({ default: "" }),
+      employer: field.reference(employers),
+    }),
+  });
+  const articles = createCollection({
+    id: "articles",
+    title: "Articles",
+    description: "",
+    label: "title",
+    content: (field) => ({
+      title: field.string({ default: "" }),
+      author: field.reference(authors),
+      editor: field.reference(authors),
+    }),
+  });
+  const jane: ReferenceRecord = {
+    id: "jane",
+    collectionId: "authors",
+    label: "Jane",
+    content: { name: "Jane Doe", employer: "acme" },
+    version: 1,
+  };
+  const article: ReferenceRecord = {
+    id: "launch",
+    collectionId: "articles",
+    label: "Launch",
+    content: { title: "Launch day", author: "jane", editor: null },
+    version: 1,
+    references: { author: jane, editor: null },
+  };
+  let secondHopScope: Record<string, unknown> | undefined;
+  const block = createEditableBlock({
+    id: "teaser",
+    title: "",
+    description: "",
+    content: (field) => ({ article: field.reference(articles) }),
+    toMarkdown: () => [],
+    component: () => (
+      <block.Reference name="article">
+        {(article) => (
+          <section>
+            <article.Field name="title">{(props) => <h2 {...props} />}</article.Field>
+            <article.Reference name="author">
+              {(author) => {
+                secondHopScope = author;
+                return <author.Field name="name">{(props) => <b {...props} />}</author.Field>;
+              }}
+            </article.Reference>
+            <article.Reference name="editor">{() => <i>editor</i>}</article.Reference>
+          </section>
+        )}
+      </block.Reference>
+    ),
+  });
+  const app = {
+    getCollectionById: (id: string) =>
+      ({ employers, authors, articles })[id as "employers" | "authors" | "articles"],
+  };
+
+  const window = new Window();
+  Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  previewStore.send({ type: "enterEditMode" });
+  previewStore.send({ type: "activatePage", pageId: owner.pageId });
+  const byId = (fieldId: string) =>
+    host.querySelector<HTMLElement>(`[data-camox-field-id="${fieldId}"]`);
+  const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
+  try {
+    await act(async () =>
+      root.render(
+        <CamoxAppProvider app={app as unknown as CamoxApp}>
+          <QueryClientProvider client={new QueryClient()}>
+            <PreviewEditingOwnerContext value={owner}>
+              <NormalizedDataProvider
+                files={[]}
+                repeatableItems={[]}
+                blocks={[{ references: { article } }]}
+              >
+                <block._internal.Component
+                  mode="site"
+                  blockData={{
+                    _id: 9,
+                    type: "teaser",
+                    position: "a0",
+                    content: { article: "launch" },
+                  }}
+                />
+              </NormalizedDataProvider>
+            </PreviewEditingOwnerContext>
+          </QueryClientProvider>
+        </CamoxAppProvider>,
+      ),
+    );
+
+    // The author is resolved from the article's own links, as its own purple placement.
+    const name = byId("9__article__launch__author__jane__name");
+    assert.equal(name?.textContent, "Jane Doe");
+    // The article's author field wraps the placement, as a block's reference field does.
+    const authorPlacement = byId("9__article__launch__author");
+    assert.equal(authorPlacement?.dataset.camoxReferenceLabel, "Jane");
+    assert.equal(authorPlacement?.dataset.camoxOverlayMode, "reference");
+    assert.ok(secondHopScope && !("Reference" in secondHopScope), "the second hop stops");
+
+    await act(async () => name!.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record-field",
+      blockId: 9,
+      fieldName: "article",
+      recordId: "launch",
+      nested: { fieldName: "author", recordId: "jane" },
+      recordFieldName: "name",
+      recordFieldType: "String",
+    });
+    assert.ok(focused(name));
+    assert.ok(!focused(byId("9__article__launch__title")), "the article's field is not");
+
+    // An unset reference of the article selects that record field and asks to link it.
+    const placeholder = byId("9__article__launch__editor")?.querySelector<HTMLElement>(
+      "[data-camox-reference-placeholder]",
+    );
+    assert.equal(placeholder?.textContent?.trim(), "Select Authors");
+    await act(async () => placeholder!.click());
+    assert.deepEqual(selections.at(-1), {
+      type: "record-field",
+      blockId: 9,
+      fieldName: "article",
+      recordId: "launch",
+      recordFieldName: "editor",
+      recordFieldType: "Reference",
+    });
+    assert.ok(focused(byId("9__article__launch__editor")));
+    assert.equal(referencePickerFocus.getSnapshot().context.fieldId, "9__article__launch__editor");
+  } finally {
+    await act(async () => root.unmount());
+    previewStore.send({ type: "activatePage", pageId: null });
+    previewStore.send({ type: "exitEditMode" });
+    await window.happyDOM.close();
+  }
+});

@@ -19,6 +19,8 @@ export type ResolvedReference = {
   contentSchema: unknown;
   version?: number;
   revisionId?: string;
+  /** The records this record links, one hop further; absent beyond the second hop. */
+  references?: ResolvedReferences;
 };
 
 /** A block's resolved references: a record (or null) per reference, records in order per list. */
@@ -44,6 +46,11 @@ export function referenceListFields(schema: unknown): [string, Field][] {
 export function referenceListIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((id): id is string => typeof id === "string" && id !== "");
+}
+
+/** Every record that resolved references link, single or listed. */
+export function referencedRecords(references: ResolvedReferences | undefined) {
+  return Object.values(references ?? {}).flatMap((value) => value ?? []);
 }
 
 /** A reference field's resolved record; reference lists never resolve to one record. */
@@ -99,7 +106,9 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
         return new InvalidInputError({ message: "Reference requires collectionId" });
       }
     }
-    for (const child of Object.values(field)) {
+    for (const [key, child] of Object.entries(field)) {
+      // A reference carries its collection's schema, which collection sync validates.
+      if (key === "referenceSchema" && (kind === "Reference" || kind === "ReferenceList")) continue;
       const error = visit(child);
       if (error) return error;
     }
@@ -134,18 +143,25 @@ export function itemSchemas(blockSchema: unknown, items: readonly ItemRow[]) {
   return schemas;
 }
 
+/**
+ * Resolves the records a block, item or record links. Resolution is bounded at two hops: records
+ * placed by blocks and items (`hop` 1) resolve the records they link (`hop` 2), which resolve
+ * nothing further. Cycles therefore cannot expand without limit.
+ */
 export const resolveReferences = Effect.fn("collections.resolveReferences")(function* (
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
   schema: unknown,
   content: unknown,
   source: "draft" | "live",
-) {
+  hop: 1 | 2 = 1,
+): Effect.fn.Return<ResolvedReferences, ServiceError> {
   const singles = referenceFields(schema);
   const lists = referenceListFields(schema);
   const result: ResolvedReferences = {};
   if (!singles.length && !lists.length) return result;
-  if (source === "draft") {
+  // The first hop already authorized draft access for the nested one.
+  if (source === "draft" && hop === 1) {
     const user = yield* requireUser(ctx);
     yield* getAuthorizedProject(ctx.db, scope.projectId, user.id);
   }
@@ -153,7 +169,7 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
   for (const [name, field] of singles) {
     const definition = yield* activeDefinition(ctx, scope, field);
     result[name] = definition
-      ? yield* resolveRecord(ctx, definition, values?.[name], source)
+      ? yield* resolveRecord(ctx, definition, values?.[name], source, hop)
       : null;
   }
   for (const [name, field] of lists) {
@@ -163,7 +179,7 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
     if (!definition) continue;
     // Draft resolves every linked record; live only published ones. Missing records are skipped.
     for (const id of referenceListIds(values?.[name])) {
-      const record = yield* resolveRecord(ctx, definition, id, source);
+      const record = yield* resolveRecord(ctx, definition, id, source, hop);
       if (record) records.push(record);
     }
   }
@@ -196,7 +212,15 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
   definition: typeof collectionDefinitions.$inferSelect,
   id: unknown,
   source: "draft" | "live",
-) {
+  hop: 1 | 2,
+): Effect.fn.Return<ResolvedReference | null, ServiceError> {
+  // A record placed at the first hop resolves its own references; the second hop stops.
+  const linked = (contentSchema: unknown, content: unknown) =>
+    hop === 1
+      ? resolveReferences(ctx, definition, contentSchema, content, source, 2).pipe(
+          Effect.map((references) => ({ references })),
+        )
+      : Effect.succeed({});
   const validId = z.uuid().safeParse(id);
   if (!validId.success) return null;
   const record = yield* Effect.promise(() =>
@@ -220,6 +244,7 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
       label: lexicalStateToPlainText(record.draft[definition.label] as string),
       contentSchema: definition.contentSchema,
       version: record.version,
+      ...(yield* linked(definition.contentSchema, record.draft)),
     } satisfies ResolvedReference;
   }
   const { publishedRevisionId } = record;
@@ -237,13 +262,15 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
       .get(),
   );
   if (!revision) return null;
+  const contentSchema = (revision.definition as { contentSchema: unknown }).contentSchema;
   return {
     id: record.id,
     collectionId: definition.collectionId,
     content: revision.content,
     label: lexicalStateToPlainText(revision.content[String(revision.definition.label)] as string),
-    contentSchema: (revision.definition as { contentSchema: unknown }).contentSchema,
+    contentSchema,
     revisionId: revision.id,
+    ...(yield* linked(contentSchema, revision.content)),
   } satisfies ResolvedReference;
 });
 
@@ -365,7 +392,7 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
   }
 });
 
-const recordInScope = Effect.fn("collections.recordInScope")(function* (
+export const recordInScope = Effect.fn("collections.recordInScope")(function* (
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
   field: Field,
@@ -399,7 +426,7 @@ function invalidList(name: string, problem: string) {
   return new InvalidInputError({ message: `${name}: reference list ${problem}` });
 }
 
-function missingReference(name: string) {
+export function missingReference(name: string) {
   return new InvalidInputError({
     message: `${name}: reference is missing or outside this collection/project/environment`,
   });

@@ -506,8 +506,19 @@ export interface SettingBuilder {
  */
 export interface CollectionFieldBuilder extends Pick<
   ContentFieldBuilder,
-  "image" | "imageList" | "file" | "fileList" | "embed"
+  "image" | "imageList" | "file" | "fileList" | "embed" | "referenceList"
 > {
+  /**
+   * Selects a record of another collection by identity, e.g. an article's author. Never
+   * required: an unpublished record resolves empty on the live site.
+   *
+   * @example
+   * field.reference(authors, { title: "Author" })
+   */
+  reference: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options?: { title?: string },
+  ) => ReferenceSchema<T>;
   /**
    * A text field.
    *
@@ -746,6 +757,9 @@ export const collectionFieldBuilder: CollectionFieldBuilder = {
   file: contentFieldBuilder.file,
   fileList: contentFieldBuilder.fileList,
   embed: contentFieldBuilder.embed,
+  reference: (collection, options = {}) =>
+    contentFieldBuilder.reference(collection, { title: options.title }),
+  referenceList: contentFieldBuilder.referenceList,
 };
 
 /** Runs a block's builders so the rest of its definition works with plain schemas. */

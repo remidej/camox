@@ -34,6 +34,16 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
     if (new Set(input.definitions.map((d) => d.collectionId)).size !== input.definitions.length) {
       return yield* new InvalidInputError({ message: "Duplicate collection IDs" });
     }
+    // A collection references only collections synced alongside it.
+    const synced = new Set(input.definitions.map((d) => d.collectionId));
+    for (const definition of input.definitions) {
+      for (const [key, field] of Object.entries(definition.contentSchema.properties)) {
+        if (field.collectionId === undefined || synced.has(field.collectionId)) continue;
+        return yield* new InvalidInputError({
+          message: `${definition.collectionId}.${key}: references unknown collection "${field.collectionId}"`,
+        });
+      }
+    }
     const project = yield* assertSyncAccess(ctx.db, input.projectSlug, {
       user: ctx.user,
       environmentName: ctx.environmentName,

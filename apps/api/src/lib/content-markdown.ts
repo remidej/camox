@@ -79,17 +79,26 @@ function resolveLine(
   if (placeholders.length === 0) return line;
 
   const resolve = (key: string) => {
-    const [root, field, ...nested] = key.split(".");
-    if (!field && schemaProperties[root]?.fieldType === "ReferenceList") {
+    const [root, ...path] = key.split(".");
+    if (!path.length && schemaProperties[root]?.fieldType === "ReferenceList") {
       return resolveReferenceList(schemaProperties[root], ctx.references?.[root], ctx);
     }
-    if (!field) return resolveField(schemaProperties[root], content[root], ctx);
-    if (nested.length) return undefined;
-    const reference = ctx.references?.[root];
-    if (!reference || Array.isArray(reference)) return undefined;
-    const properties = (reference.contentSchema as { properties?: Record<string, unknown> })
-      ?.properties;
-    return resolveField(properties?.[field], reference.content[field], ctx);
+    if (!path.length) return resolveField(schemaProperties[root], content[root], ctx);
+    // Walk single references (`article.author.name`) through each record's resolved links.
+    let record = ctx.references?.[root];
+    for (const [index, field] of path.entries()) {
+      if (!record || Array.isArray(record)) return undefined;
+      const properties = (record.contentSchema as { properties?: Record<string, any> })?.properties;
+      if (index < path.length - 1) {
+        record = record.references?.[field];
+        continue;
+      }
+      if (properties?.[field]?.fieldType === "ReferenceList") {
+        return resolveReferenceList(properties[field], record.references?.[field], ctx);
+      }
+      return resolveField(properties?.[field], record.content[field], ctx);
+    }
+    return undefined;
   };
   const resolvedValues = placeholders.map(resolve);
   if (resolvedValues.every((v) => !v)) return null;
@@ -118,6 +127,7 @@ function resolveReferenceList(
       ? contentToMarkdown(schema.toMarkdown, properties ?? {}, record.content, {
           insideList: true,
           files: ctx.files,
+          references: record.references,
         })
       : record.label;
     if (md) itemParts.push(toListItem(md));

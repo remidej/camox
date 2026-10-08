@@ -52,8 +52,8 @@ function TypeChecks() {
           <customer.Field name="missing">{() => null}</customer.Field>
           {/* @ts-expect-error File is not an image. */}
           <customer.Image name="file">{() => null}</customer.Image>
-          {/* @ts-expect-error The scope does not expose nested references. */}
-          <customer.Reference name="customer">{() => null}</customer.Reference>
+          {/* @ts-expect-error Customers link no other collection. */}
+          <customer.Reference name="name">{() => null}</customer.Reference>
         </>
       )}
     </block.Reference>
@@ -180,3 +180,67 @@ function ItemTypeChecks() {
   );
 }
 void ItemTypeChecks;
+
+const authors = createCollection({
+  id: "authors",
+  title: "Authors",
+  description: "",
+  label: "name",
+  content: (field) => ({
+    name: field.string(),
+    portrait: field.image(),
+    employer: field.reference(customers),
+  }),
+});
+const articles = createCollection({
+  id: "articles",
+  title: "Articles",
+  description: "",
+  label: "title",
+  content: (field) => ({
+    title: field.string(),
+    author: field.reference(authors),
+    coauthors: field.referenceList(authors),
+  }),
+});
+const teaser = createBlock({
+  id: "teaser",
+  title: "Teaser",
+  description: "",
+  content: (field) => ({ article: field.reference(articles) }),
+  component: () => null,
+  toMarkdown: (c) => {
+    // @ts-expect-error Unknown field of the linked record.
+    void c.article.author.missing;
+    return [c.article.title, c.article.author.name, c.article.coauthors];
+  },
+});
+
+function NestedTypeChecks() {
+  return (
+    <teaser.Reference name="article">
+      {(article) => (
+        <>
+          <article.Reference name="author">
+            {(author) => (
+              <>
+                <author.Field name="name">{(props) => <b {...props} />}</author.Field>
+                <author.Image name="portrait">{(props) => <img {...props} />}</author.Image>
+                {/* @ts-expect-error Records at the second hop link nothing further. */}
+                <author.Reference name="employer">{() => null}</author.Reference>
+              </>
+            )}
+          </article.Reference>
+          <article.ReferenceList name="coauthors">
+            {(author) => <author.Field name="name">{(props) => <i {...props} />}</author.Field>}
+          </article.ReferenceList>
+          {/* @ts-expect-error A reference list is not a single reference. */}
+          <article.Reference name="coauthors">{() => null}</article.Reference>
+          {/* @ts-expect-error The title is not a reference. */}
+          <article.ReferenceList name="title">{() => null}</article.ReferenceList>
+        </>
+      )}
+    </teaser.Reference>
+  );
+}
+void NestedTypeChecks;

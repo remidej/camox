@@ -36,6 +36,11 @@ export type RecordPlacement = {
   /** The block's or item's reference field that places the record. */
   fieldName: string;
   recordId: string;
+  /**
+   * The second hop: the record that this placement's record links through one of its own
+   * reference fields (an article's author). The selection then points to that record.
+   */
+  nested?: { fieldName: string; recordId: string };
 };
 
 /** Copies only a placement's identity, never the event or other selection fields. */
@@ -45,6 +50,9 @@ export function recordPlacement(placement: RecordPlacement): RecordPlacement {
     ...(placement.itemId == null ? {} : { itemId: placement.itemId }),
     fieldName: placement.fieldName,
     recordId: placement.recordId,
+    ...(placement.nested
+      ? { nested: { fieldName: placement.nested.fieldName, recordId: placement.nested.recordId } }
+      : {}),
   };
 }
 
@@ -54,7 +62,9 @@ export function samePlacement(a: RecordPlacement, b: RecordPlacement): boolean {
     a.blockId === b.blockId &&
     (a.itemId ?? null) === (b.itemId ?? null) &&
     a.fieldName === b.fieldName &&
-    a.recordId === b.recordId
+    a.recordId === b.recordId &&
+    a.nested?.fieldName === b.nested?.fieldName &&
+    a.nested?.recordId === b.nested?.recordId
   );
 }
 
@@ -306,6 +316,22 @@ export const previewStore = createStore({
           editingContext: {
             ...editingContext,
             selection: { type: "record" as const, ...recordPlacement(sel) },
+          },
+        };
+      }
+      if (sel.type === "record" && sel.nested) {
+        // A linked record steps up to the reference field of the record that links it.
+        const { nested: _nested, ...outer } = recordPlacement(sel);
+        return {
+          ...context,
+          editingContext: {
+            ...editingContext,
+            selection: {
+              type: "record-field" as const,
+              ...outer,
+              recordFieldName: sel.nested.fieldName,
+              recordFieldType: "Reference" as const,
+            },
           },
         };
       }

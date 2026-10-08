@@ -22,7 +22,27 @@ type Primitive<K, P, D> = (props: {
   children: (props: P, data: D) => React.ReactNode;
 }) => React.ReactNode;
 
-export type ReferenceScope<T extends Record<string, TSchema>> = {
+/**
+ * The typed scope of a placed record. A record placed by a block or item (the first hop) also
+ * renders the records it links; those (the second hop) link nothing further.
+ */
+export type ReferenceScope<
+  T extends Record<string, TSchema>,
+  Nested extends boolean = true,
+> = RecordFields<T> & (Nested extends true ? LinkedRecords<T> : unknown);
+
+type LinkedRecords<T extends Record<string, TSchema>> = {
+  Reference: <K extends ReferenceKeys<T>>(props: {
+    name: K;
+    children: (scope: ReferenceScope<ReferenceContent<T[K]>, false>) => React.ReactNode;
+  }) => React.ReactNode;
+  ReferenceList: <K extends ReferenceListKeys<T>>(props: {
+    name: K;
+    children: (scope: ReferenceScope<ReferenceContent<T[K]>, false>) => React.ReactNode;
+  }) => React.ReactNode;
+};
+
+type RecordFields<T extends Record<string, TSchema>> = {
   id: string;
   label: string;
   Field: (
@@ -66,6 +86,8 @@ export type ReferenceRecord = {
   label: string;
   content: Record<string, unknown>;
   version?: number;
+  /** The records this record links, when it was placed at the first hop. */
+  references?: Record<string, ReferenceRecord | ReferenceRecord[] | null>;
 };
 
 export function resolveReference(

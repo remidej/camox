@@ -1,7 +1,20 @@
 import { isLexicalState, lexicalStateToPlainText } from "@/core/lib/lexicalState";
 
 export type FieldSchema = {
-  fieldType: "String" | "Embed" | "Enum" | "Boolean" | "Image" | "File" | "ImageList" | "FileList";
+  fieldType:
+    | "String"
+    | "Embed"
+    | "Enum"
+    | "Boolean"
+    | "Image"
+    | "File"
+    | "ImageList"
+    | "FileList"
+    | "Reference"
+    | "ReferenceList";
+  /** The collection a reference field links. */
+  collectionId?: string;
+  maxItems?: number;
   title?: string;
   default?: unknown;
   enum?: string[];
@@ -26,6 +39,11 @@ export function collectionFormDefaults(
 ): Record<string, unknown> {
   return Object.fromEntries(
     fields.map(([name, schema]) => {
+      if (schema.fieldType === "Reference") return [name, content[name] ?? null];
+      if (schema.fieldType === "ReferenceList") {
+        const ids = content[name];
+        return [name, Array.isArray(ids) ? ids : []];
+      }
       // Asset schema defaults are preview-only, never authored form data.
       if (schema.fieldType === "Image" || schema.fieldType === "File") {
         return [name, editorAsset(content[name])];

@@ -143,27 +143,31 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
   return React.useCallback(
     (fieldName: string, value: unknown) => {
       if (target?.kind === "record") {
-        if (!requireDraft()) return;
+        const fieldType = fieldTypeOf(schema, fieldName);
+        // A record's own reference fields report failures to their reference editor.
+        const awaited = fieldType === "Reference" || fieldType === "ReferenceList";
+        if (!requireDraft()) {
+          return awaited
+            ? Promise.reject(new Error("Switch to draft to change this reference."))
+            : undefined;
+        }
         const { record } = target;
-        void referenceWritesFor(queryClient)
-          .save(
-            record,
-            fieldName,
-            serializeAssetField(fieldTypeOf(schema, fieldName), value),
-            async (input) => {
-              const saved = await editRecord.mutateAsync({ ...input, projectSlug });
-              queryClient.setQueryData(
-                collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
-                saved,
-              );
-              // Shared source changes must refresh every placement, not only this block.
-              void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
-              return saved;
-            },
-          )
-          .catch((cause: unknown) => {
-            toast.error(cause instanceof Error ? cause.message : "Could not save item");
-          });
+        const saving = referenceWritesFor(queryClient)
+          .save(record, fieldName, serializeAssetField(fieldType, value), async (input) => {
+            const saved = await editRecord.mutateAsync({ ...input, projectSlug });
+            queryClient.setQueryData(
+              collectionQueries.record(projectSlug, record.collectionId, record.id).queryKey,
+              saved,
+            );
+            // Shared source changes must refresh every placement, not only this block.
+            void invalidateCollectionRecordViews(queryClient, projectSlug, record.collectionId);
+            return saved;
+          })
+          .then(() => undefined);
+        if (awaited) return saving;
+        void saving.catch((cause: unknown) => {
+          toast.error(cause instanceof Error ? cause.message : "Could not save item");
+        });
         return;
       }
 

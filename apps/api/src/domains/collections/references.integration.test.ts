@@ -25,6 +25,7 @@ import {
   createRecord,
   deleteRecord,
   editRecord,
+  getCollectionRecord,
   publishRecord,
   readRecord,
   syncCollectionDefinitions,
@@ -1167,5 +1168,276 @@ describe("references in repeatable items", () => {
         .set({ content: { customer: f.alpha.id, partners: [f.gamma.id] } })
         .where(eq(repeatableItems.id, f.logo.id)),
     ).rejects.toThrow();
+  });
+});
+
+const collectionReference = (collectionId: string) => ({
+  fieldType: "Reference" as const,
+  collectionId,
+  anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+  default: null,
+});
+const collectionReferenceList = (collectionId: string) => ({
+  ...referenceList(),
+  fieldType: "ReferenceList" as const,
+  collectionId,
+});
+
+/** Articles link an author and co-authors; authors link a favorite article back (a cycle). */
+async function relationFixture() {
+  const f = await createProjectFixture(`relations-${crypto.randomUUID()}`);
+  const ctx = createServiceContext(f.db, f.memberUser);
+  const publicCtx = createServiceContext(f.db, null);
+  const definition = (collectionId: string, properties: Record<string, unknown>) => ({
+    collectionId,
+    title: collectionId,
+    description: "",
+    label: "name",
+    contentSchema: {
+      type: "object" as const,
+      properties: { name: { type: "string", fieldType: "String" as const }, ...properties },
+      required: ["name", ...Object.keys(properties)],
+      additionalProperties: false as const,
+    },
+  });
+  const sync = (definitions: ReturnType<typeof definition>[]) =>
+    runService(
+      syncCollectionDefinitions(publicCtx, {
+        projectSlug: f.project.slug,
+        deployToken: "test-deploy-token",
+        autoCreate: false,
+        definitions: definitions as never,
+      }),
+    );
+  const authorsDefinition = definition("authors", { favorite: collectionReference("articles") });
+  const articlesDefinition = definition("articles", {
+    author: collectionReference("authors"),
+    coauthors: collectionReferenceList("authors"),
+  });
+  await sync([authorsDefinition, articlesDefinition]);
+  const authors = { projectSlug: f.project.slug, collectionId: "authors" };
+  const articles = { projectSlug: f.project.slug, collectionId: "articles" };
+  const jane = await runService(
+    createRecord(ctx, { ...authors, content: { name: "Jane", favorite: null } }),
+  );
+  const sam = await runService(
+    createRecord(ctx, { ...authors, content: { name: "Sam", favorite: null } }),
+  );
+  const article = await runService(
+    createRecord(ctx, {
+      ...articles,
+      content: { name: "Launch", author: jane.id, coauthors: [sam.id] },
+    }),
+  );
+  // Jane's favorite article closes the cycle article → author → article.
+  await runService(
+    editRecord(ctx, {
+      ...authors,
+      id: jane.id,
+      expectedVersion: 1,
+      content: { name: "Jane", favorite: article.id },
+    }),
+  );
+  const page = await f.db
+    .insert(pages)
+    .values({
+      projectId: f.project.id,
+      environmentId: f.environment.id,
+      layoutId: f.layout.id,
+      pathSegment: "relations",
+      fullPath: "/relations",
+      nickname: "",
+      createdAt: 1,
+      updatedAt: 1,
+      contentUpdatedAt: 1,
+    })
+    .returning()
+    .get();
+  await f.db.insert(blockDefinitions).values({
+    projectId: f.project.id,
+    environmentId: f.environment.id,
+    blockId: "article-teaser",
+    title: "Article teaser",
+    description: "",
+    contentSchema: {
+      type: "object",
+      properties: { article: collectionReference("articles") },
+      required: ["article"],
+      additionalProperties: false,
+      toMarkdown: ["{{article.name}} by {{article.author.name}}", "{{article.coauthors}}"],
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const block = await runService(
+    createBlock(ctx, { pageId: page.id, type: "article-teaser", content: { article: article.id } }),
+  );
+  const teaser = async (source: "draft" | "live") =>
+    (await runService(getBlock(source === "draft" ? ctx : publicCtx, { id: block.id, source })))
+      .block.references.article as ResolvedReference | null;
+  return {
+    ...f,
+    ctx,
+    publicCtx,
+    authors,
+    articles,
+    jane,
+    sam,
+    article,
+    page,
+    block,
+    teaser,
+    sync,
+    authorsDefinition,
+    articlesDefinition,
+    definition,
+  };
+}
+
+describe("references between collections", () => {
+  it("accepts block references to collections that themselves link records", () => {
+    const schema = {
+      properties: {
+        author: {
+          ...collectionReference("authors"),
+          referenceSchema: { properties: { articles: collectionReferenceList("articles") } },
+        },
+      },
+    };
+    expect(() => Effect.runSync(validateReferenceSchema(schema))).not.toThrow();
+  });
+
+  it("syncs collection references only to synced collections, never as required", async () => {
+    const f = await relationFixture();
+    await expect(f.sync([f.articlesDefinition])).rejects.toMatchObject({
+      message: 'articles.author: references unknown collection "authors"',
+    });
+    await expect(
+      f.sync([
+        f.authorsDefinition,
+        f.definition("articles", { author: { ...collectionReference("authors"), required: true } }),
+      ]),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("validates record references in scope, ordered and distinct", async () => {
+    const f = await relationFixture();
+    const other = await relationFixture();
+    for (const content of [
+      { name: "x", author: other.jane.id, coauthors: [] },
+      { name: "x", author: f.article.id, coauthors: [] },
+      { name: "x", author: null, coauthors: [f.sam.id, f.sam.id] },
+      { name: "x", author: "not-a-uuid", coauthors: [] },
+    ]) {
+      await expect(
+        runService(createRecord(f.ctx, { ...f.articles, content })),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    const saved = await runService(
+      createRecord(f.ctx, {
+        ...f.articles,
+        content: { name: "x", author: null, coauthors: [f.sam.id, f.jane.id] },
+      }),
+    );
+    expect(saved.draft.coauthors).toEqual([f.sam.id, f.jane.id]);
+  });
+
+  it("resolves two hops from a block, stops there through cycles, and only published records live", async () => {
+    const f = await relationFixture();
+    const draft = await f.teaser("draft");
+    const author = draft!.references!.author as ResolvedReference;
+    expect(author.content.name).toBe("Jane");
+    expect((draft!.references!.coauthors as ResolvedReference[]).map((r) => r.id)).toEqual([
+      f.sam.id,
+    ]);
+    // Jane's favorite article is the third hop: never expanded.
+    expect(author.references).toBeUndefined();
+
+    await runService(
+      publishPage(f.ctx, {
+        id: f.page.id,
+        collections: [{ id: f.article.id, collectionId: "articles", expectedVersion: 1 }],
+      }),
+    );
+    const live = await f.teaser("live");
+    expect(live?.content.name).toBe("Launch");
+    expect(live?.references).toEqual({ author: null, coauthors: [] });
+
+    await runService(publishRecord(f.ctx, { ...f.authors, id: f.jane.id, expectedVersion: 2 }));
+    expect(((await f.teaser("live"))!.references!.author as ResolvedReference).id).toBe(f.jane.id);
+  });
+
+  it("lists second-hop records once in the publish review, never as required", async () => {
+    const f = await relationFixture();
+    const review = await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"));
+    expect(review.targets.every((target) => !target.required)).toBe(true);
+    expect(review.targets.map((target) => target.id).sort()).toEqual(
+      [f.article.id, f.jane.id, f.sam.id].sort(),
+    );
+    await runService(
+      publishPage(f.ctx, {
+        id: f.page.id,
+        collections: [
+          { id: f.article.id, collectionId: "articles", expectedVersion: 1 },
+          { id: f.jane.id, collectionId: "authors", expectedVersion: 2 },
+        ],
+      }),
+    );
+    const live = await f.teaser("live");
+    expect((live!.references!.author as ResolvedReference).content.name).toBe("Jane");
+    expect(
+      (await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"))).targets.find(
+        (target) => target.id === f.jane.id,
+      )?.status,
+    ).toBe("published");
+  });
+
+  it("renders nested reference Markdown through the placement's per-use format", async () => {
+    const f = await relationFixture();
+    expect(
+      (await runService(getPageMarkdown(f.ctx, { pageId: f.page.id, source: "draft" }))).markdown,
+    ).toContain("Launch by Jane\n\n- Sam");
+  });
+
+  it("refuses deleting a record another record links, allows unpublishing it, and guards raw writes", async () => {
+    const f = await relationFixture();
+    await expect(
+      runService(deleteRecord(f.ctx, { ...f.authors, id: f.sam.id, expectedVersion: 1 })),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await runService(publishRecord(f.ctx, { ...f.authors, id: f.sam.id, expectedVersion: 1 }));
+    await runService(unpublishRecord(f.ctx, { ...f.authors, id: f.sam.id, expectedVersion: 2 }));
+
+    // Once no draft or live record links Sam, Sam can be deleted; relinking is then refused.
+    await runService(
+      editRecord(f.ctx, {
+        ...f.articles,
+        id: f.article.id,
+        expectedVersion: 1,
+        content: { name: "Launch", author: f.jane.id, coauthors: [] },
+      }),
+    );
+    await runService(deleteRecord(f.ctx, { ...f.authors, id: f.sam.id, expectedVersion: 3 }));
+    await expect(
+      f.db
+        .update(collectionRecords)
+        .set({ draft: { name: "Launch", author: f.jane.id, coauthors: [f.sam.id] } })
+        .where(eq(collectionRecords.id, f.article.id)),
+    ).rejects.toThrow();
+  });
+
+  it("backfills an added reference field as unset on existing records", async () => {
+    const f = await relationFixture();
+    await f.sync([
+      f.authorsDefinition,
+      f.definition("articles", {
+        author: collectionReference("authors"),
+        coauthors: collectionReferenceList("authors"),
+        editor: collectionReference("authors"),
+      }),
+    ]);
+    const record = await runService(
+      getCollectionRecord(f.ctx, { ...f.articles, id: f.article.id }),
+    );
+    expect(record.draft).toMatchObject({ author: f.jane.id, editor: null });
   });
 });

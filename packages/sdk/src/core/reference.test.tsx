@@ -361,6 +361,78 @@ void test("repeatable items render the records they link, at any repeater depth"
   );
 });
 
+void test("placed records render the records they link, and nothing a hop further", () => {
+  const authors = createCollection({
+    id: "authors",
+    title: "Authors",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string(), employer: field.reference(customers) }),
+  });
+  const articles = createCollection({
+    id: "articles",
+    title: "Articles",
+    description: "",
+    label: "title",
+    content: (field) => ({ title: field.string(), coauthors: field.referenceList(authors) }),
+  });
+  const author: ReferenceRecord = {
+    id: "jane",
+    collectionId: "authors",
+    label: "Jane",
+    content: { name: "Jane Doe", employer: id },
+  };
+  const block = createBlock({
+    id: "teaser",
+    title: "",
+    description: "",
+    content: (field) => ({ article: field.reference(articles) }),
+    toMarkdown: () => [],
+    component: () => (
+      <block.Reference name="article">
+        {(article) => (
+          <article.ReferenceList name="coauthors">
+            {(coauthor) => <i>{"Reference" in coauthor ? "deeper" : coauthor.label}</i>}
+          </article.ReferenceList>
+        )}
+      </block.Reference>
+    ),
+  });
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>
+      <AuthContext.Provider
+        value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+      >
+        <NavigationProvider>
+          <NormalizedDataProvider
+            files={[]}
+            repeatableItems={[]}
+            blocks={[
+              {
+                references: {
+                  article: {
+                    id: "launch",
+                    collectionId: "articles",
+                    label: "Launch",
+                    content: { title: "Launch", coauthors: ["jane"] },
+                    references: { coauthors: [author] },
+                  },
+                },
+              },
+            ]}
+          >
+            <block._internal.Component
+              mode="site"
+              blockData={{ _id: 1, type: "teaser", position: "a0", content: { article: "launch" } }}
+            />
+          </NormalizedDataProvider>
+        </NavigationProvider>
+      </AuthContext.Provider>
+    </QueryClientProvider>,
+  );
+  assert.match(html, /<i>Jane<\/i>/);
+});
+
 void test("placement identity is separate from source identity and resolution validates collection", () => {
   const placement = { blockId: 1, fieldName: "customer", recordId: id };
   assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: 2 }));

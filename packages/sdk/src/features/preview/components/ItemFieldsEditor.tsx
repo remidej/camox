@@ -228,13 +228,16 @@ const ItemFieldsEditor = ({
     // Keep the field screen open when focus moves into its comments.
   };
 
-  /** Where this block or item places a record through one of its reference fields. */
-  const placementOf = (fieldName: string, recordId: string): RecordPlacement => ({
-    blockId,
-    ...(itemId == null ? {} : { itemId }),
-    fieldName,
-    recordId,
-  });
+  /**
+   * Where these fields place a record through one of their reference fields: the block or item
+   * places it directly; a placed record links it as the second hop.
+   */
+  const placementOf = (fieldName: string, recordId: string): RecordPlacement =>
+    placement
+      ? { ...placement, nested: { fieldName, recordId } }
+      : { blockId, ...(itemId == null ? {} : { itemId }), fieldName, recordId };
+  // Records reached at the second hop link records that are never shown, so never opened.
+  const opensRecords = !placement?.nested;
 
   const openRecord = (fieldName: string, recordId: string) => {
     if (owner === null) return;
@@ -258,7 +261,9 @@ const ItemFieldsEditor = ({
                 required={field.required}
                 record={singleReference(references, field.name)}
                 onChange={(value) => onFieldChange(field.name, value)}
-                onOpenRecord={(recordId) => openRecord(field.name, recordId)}
+                onOpenRecord={
+                  opensRecords ? (recordId) => openRecord(field.name, recordId) : undefined
+                }
                 drill={
                   selectedFieldName
                     ? undefined
@@ -282,11 +287,17 @@ const ItemFieldsEditor = ({
                 maxItems={field.maxItems}
                 records={referenceList(references, field.name)}
                 onChange={(ids) => onFieldChange(field.name, ids)}
-                onOpenRecord={(recordId) => openRecord(field.name, recordId)}
-                recordHover={{
-                  fieldId: (recordId) => recordPlacementId(placementOf(field.name, recordId)),
-                  postToIframe,
-                }}
+                onOpenRecord={
+                  opensRecords ? (recordId) => openRecord(field.name, recordId) : undefined
+                }
+                recordHover={
+                  opensRecords
+                    ? {
+                        fieldId: (recordId) => recordPlacementId(placementOf(field.name, recordId)),
+                        postToIframe,
+                      }
+                    : undefined
+                }
                 drill={
                   selectedFieldName
                     ? undefined

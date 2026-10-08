@@ -43,6 +43,25 @@ void describe("collection definitions", () => {
       /String field/,
     );
   });
+  void it("links other collections through references that are never required", () => {
+    const authored = createCollection({
+      id: "posts",
+      title: "Posts",
+      description: "",
+      content: (field) => ({
+        title: field.string({ minLength: 1 }),
+        author: field.reference(collection, { title: "Author" }),
+        related: field.referenceList(collection, { maxItems: 3 }),
+      }),
+      label: "title",
+    });
+    const { author, related } = authored._internal.contentSchema.properties;
+    assert.equal(author.fieldType, "Reference");
+    assert.equal(author.collectionId, "articles");
+    assert.equal(author.required, false);
+    assert.equal(related.fieldType, "ReferenceList");
+    assert.equal(related.maxItems, 3);
+  });
   void it("rejects unsupported field kinds at definition creation, not after authoring", () => {
     for (const unsupported of [
       contentFieldBuilder.link({ default: { text: "", href: "/", newTab: false } }),
