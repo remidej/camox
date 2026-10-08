@@ -469,6 +469,19 @@ void test("asset preview defaults never enter collection form data", () => {
   assert.deepEqual(collectionFormContent(fields, collectionFormDefaults(fields)), empty);
 });
 
+void test("collection form reference values default unset and round-trip as record ids", () => {
+  const fields: [string, FieldSchema][] = [
+    ["title", { fieldType: "String" }],
+    ["author", { fieldType: "Reference", collectionId: "authors" }],
+    ["coauthors", { fieldType: "ReferenceList", collectionId: "authors" }],
+  ];
+  assert.deepEqual(collectionFormDefaults(fields), { title: "", author: null, coauthors: [] });
+  const original = { title: "Launch", author: "jane", coauthors: ["sam", "ada"] };
+  const defaults = collectionFormDefaults(fields, original);
+  assert.deepEqual(defaults, original);
+  assert.deepEqual(collectionFormContent(fields, defaults, original), original);
+});
+
 void test("collection form values round-trip assets and preserve unchanged rich text", () => {
   const fields: [string, FieldSchema][] = [
     ["title", { fieldType: "String" }],

@@ -53,3 +53,17 @@ createCollection({ ...options, label: "category" });
 createCollection({ ...options, label: "embed" });
 // @ts-expect-error No incomplete loader helpers are exposed.
 collection.pages();
+
+createCollection({
+  id: "posts",
+  title: "Posts",
+  description: "",
+  content: (field) => ({
+    title: field.string(),
+    article: field.reference(collection),
+    articles: field.referenceList(collection),
+    // @ts-expect-error Collection references are never required.
+    required: field.reference(collection, { required: true }),
+  }),
+  label: "title",
+});

@@ -19,6 +19,8 @@ import { useState } from "react";
 import { SingleAssetFieldEditor } from "@/features/preview/components/AssetFieldEditor";
 import { MultipleAssetFieldEditor } from "@/features/preview/components/MultipleAssetFieldEditor";
 import { PageStatusBadge } from "@/features/preview/components/PageStatusBadge";
+import { ReferenceFieldEditor } from "@/features/preview/components/ReferenceFieldEditor";
+import { ReferenceListFieldEditor } from "@/features/preview/components/ReferenceListFieldEditor";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
   collectionQueries,
@@ -287,6 +289,23 @@ function CollectionItemForm({
                       name={field.name}
                       checked={field.state.value === true}
                       onCheckedChange={(checked) => field.handleChange(checked)}
+                    />
+                  )}
+                  {schema.fieldType === "Reference" && schema.collectionId && (
+                    <ReferenceFieldEditor
+                      collectionId={schema.collectionId}
+                      value={field.state.value}
+                      onChange={(id) => field.handleChange(id)}
+                      allowCreate={false}
+                    />
+                  )}
+                  {schema.fieldType === "ReferenceList" && schema.collectionId && (
+                    <ReferenceListFieldEditor
+                      collectionId={schema.collectionId}
+                      value={field.state.value}
+                      maxItems={schema.maxItems}
+                      onChange={(ids) => field.handleChange(ids)}
+                      allowCreate={false}
                     />
                   )}
                   {["Image", "File", "ImageList", "FileList"].includes(schema.fieldType) && (

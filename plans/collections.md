@@ -212,17 +212,37 @@ depth. Item settings, block settings and nested objects still reject them.
   to the customer reference); the record stays shared.
 - The playground's customer highlights block demonstrates item references.
 
-### Agreed for collection-to-collection references (not yet implemented)
+## Slice 5 decision: references between collections
 
-- Collection schemas accept `field.reference` and `field.referenceList`, with no
-  `required`: an unpublished target resolves empty live, never as a draft.
-- Resolution is normalized: each record resolves once into the shared records map by id,
-  following at most two hops from a block or item (block → article → author). Deeper
-  references render empty. A record visited once is never expanded again, so cycles
-  terminate.
-- Records reached within those hops join the deduplicated publication review as
-  independent switches, defaulting on when changed. Deleting a record still linked from
-  any record draft or revision is refused.
+Recorded from the last part of slice 5. Collection schemas accept `field.reference` and
+`field.referenceList`, for example an author linking the articles they wrote.
+
+- Collection references are never `required`: an unpublished target resolves empty live,
+  never as a draft. A collection references only collections synced alongside it.
+- Record writes validate references like block writes (scope, collection, distinct ids,
+  `maxItems`), through the same services the editor and agent tools use. Added reference
+  fields backfill as unset (`null`, `[]`).
+- Resolution is bounded at two hops: records a block or item places (the first hop)
+  resolve the records they link (the second hop) under their own `references`; second-hop
+  records resolve nothing further, so cycles cannot expand. The SDK records map is flat by
+  id; record scopes expose `Reference` and `ReferenceList` at the first hop only, in types
+  and at runtime.
+- The dependency index gains record placements (migration `0032_collection_references`):
+  each record's draft and current published revision. Deleting a record that any record
+  draft or live revision links is refused; unpublishing it is allowed; record writes get the
+  missing-record race guard.
+- Publication review adds second-hop records once each, as non-required switches defaulting
+  on when changed. Their status compares against their own published revision.
+- Placements gain a `nested` hop: overlay IDs append `__recordField__linkedRecord`, and a
+  linked record steps up to the first record's reference field, then to that record. The
+  sidebar drills Block › Reference field › Record › Record reference field › Linked record;
+  second-hop record views edit their own reference fields but never open further records.
+- Per-use Markdown walks nested paths (`c.author.articles`, `c.article.author.name`).
+- The collection create/edit form edits reference fields with the record picker, without
+  Create item (it would replace the form's own modal).
+- The playground's author bio block demonstrates two hops: block → author → articles.
+- Not covered: a page's derived Modified status does not yet reflect second-hop record edits;
+  the publication review still lists them.
 
 ## Status and intent
 

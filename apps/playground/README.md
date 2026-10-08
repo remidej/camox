@@ -141,3 +141,18 @@ typed scope as `testimonial.Reference`; the note and emphasis belong to the item
    customer once even when several items and blocks link it.
 4. Unpublishing a customer that a live item requires, or deleting one any item links, is
    rejected.
+
+## Author bio (slice 5, references between collections)
+
+The Authors collection links the articles each author wrote with
+`field.referenceList(articles)`. The author bio block places one author with
+`field.reference(authors)`; inside its scope, `author.ReferenceList` renders the author's
+articles, the second hop. Records at the second hop link nothing further.
+
+1. In Content → Authors, create an author and pick a few articles in the Articles field.
+2. Add an author bio to a draft page and select the author. Each article renders inside the
+   block; click an article title to edit it inline, or open it from the sidebar:
+   Author bio › Author › the author › Articles › the article.
+3. The publish review lists the author and each changed article once. Articles left
+   unpublished are skipped on the live site.
+4. Deleting an article that any author links is rejected; unpublishing it is allowed.

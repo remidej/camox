@@ -21,6 +21,8 @@ export interface NormalizedCollectionRecord {
   label: string;
   version?: number;
   revisionId?: string;
+  /** The records this record links, when a block or item placed it (the first hop). */
+  references?: NormalizedReferences;
 }
 
 /** A record (or null) per reference field, the resolved records in order per reference list. */
@@ -38,6 +40,16 @@ const EMPTY_REFERENCE_BLOCKS: ReferenceBlock[] = [];
 /** Every record a block's references and reference lists resolve to. */
 export function referencedRecords(references: NormalizedReferences | undefined) {
   return Object.values(references ?? {}).flatMap((value) => value ?? []);
+}
+
+/** The records references resolve to, and the records those link in turn (both hops). */
+export function linkedRecords(
+  references: NormalizedReferences | undefined,
+): NormalizedCollectionRecord[] {
+  return referencedRecords(references).flatMap((record) => [
+    record,
+    ...referencedRecords(record.references),
+  ]);
 }
 
 /** A single reference field's record; reference lists never resolve to one record. */
@@ -92,7 +104,7 @@ export const NormalizedDataProvider = ({
       // Blocks and repeatable items both link records; a record resolves the same either way.
       recordsMap: new Map(
         [...blocks, ...repeatableItems].flatMap((owner) =>
-          referencedRecords((owner as ReferenceBlock).references).map(
+          linkedRecords((owner as ReferenceBlock).references).map(
             (record) => [record.id, record] as const,
           ),
         ),
@@ -242,12 +254,12 @@ export function seedBlockCaches(
     // Collect file IDs referenced by this block and its items
     const fileIds = new Set<number>();
     collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
-    for (const record of referencedRecords((block as ReferenceBlock).references)) {
+    for (const record of linkedRecords((block as ReferenceBlock).references)) {
       collectFileIdsFromContent(record.content, fileIds);
     }
     for (const item of blockItems) {
       collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);
-      for (const record of referencedRecords((item as ReferenceBlock).references)) {
+      for (const record of linkedRecords((item as ReferenceBlock).references)) {
         collectFileIdsFromContent(record.content, fileIds);
       }
     }

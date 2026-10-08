@@ -251,10 +251,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   // Compute schema and data based on selection
   const recordSchema = recordView?.collection._internal.contentSchema;
   // Only records reached through a reference list get the shared header.
-  const recordInList =
-    recordView != null &&
-    contentFieldSchema(placer?.contentSchema, recordView.selection.fieldName)?.fieldType ===
-      "ReferenceList";
+  const recordInList = recordView?.inList === true;
   const currentSchema = React.useMemo(() => {
     if (recordSchema) return recordSchema;
     if (!blockDef) return null;
@@ -841,7 +838,9 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   postToIframe={postToIframe}
                   filesMap={filesMap}
                   itemsMap={itemsMap}
-                  references={recordView ? undefined : (currentItem ?? block).references}
+                  references={
+                    recordView ? recordView.record.references : (currentItem ?? block).references
+                  }
                   placement={recordView ? recordPlacement(recordView.selection) : undefined}
                   fieldIdPrefix={fieldIdPrefix}
                 />

@@ -79,9 +79,18 @@ const logo = { _fileId: FILE_ID };
 type Write = { procedure: string; input: Record<string, unknown> };
 
 const ACME = "acme";
+const ADA = "ada";
+const ada = {
+  id: ADA,
+  collectionId: "people",
+  label: "Ada Lovelace",
+  version: 4,
+  content: { name: "Ada Lovelace", role: "CTO" },
+};
 const acmeContent = {
   name: "Acme",
   quote: "Great",
+  contact: ADA as string | null,
   featured: false,
   logo: {
     url: "https://cdn.test/acme.png",
@@ -106,6 +115,8 @@ const acme = {
   label: "Acme",
   version: 3,
   content: acmeContent,
+  // Records placed by the block resolve the records they link (the second hop).
+  references: { contact: ada },
 };
 
 const GLOBEX = "globex";
@@ -170,6 +181,16 @@ async function renderSidebar(
     await import("../../content/CollectionItemModalContext");
   const { ContentCollectionItemModal } = await import("../../content/ContentCollection");
 
+  const people = createCollection({
+    id: "people",
+    title: "People",
+    description: "Linked from customers",
+    content: (field) => ({
+      name: field.string({ title: "Name" }),
+      role: field.string({ title: "Role" }),
+    }),
+    label: "name",
+  });
   const customers = createCollection({
     id: "customers",
     title: "Customers",
@@ -177,6 +198,7 @@ async function renderSidebar(
     content: (field) => ({
       name: field.string({ title: "Name" }),
       quote: field.string({ title: "Quote" }),
+      contact: field.reference(people, { title: "Contact" }),
       featured: field.boolean({ default: false, title: "Featured" }),
       logo: field.image({ title: "Logo" }),
       gallery: field.imageList({ title: "Gallery" }),
@@ -268,6 +290,9 @@ async function renderSidebar(
     { id: INITECH, label: "Initech", status: "modified", version: 2 },
   ];
   client.setQueryData(collectionQueries.records("site", "customers").queryKey, records as never);
+  client.setQueryData(collectionQueries.records("site", "people").queryKey, [
+    { id: ADA, label: "Ada Lovelace", status: "published", version: 4 },
+  ] as never);
   client.setQueryData(collectionQueries.get("site", "customers").queryKey, {
     collectionId: "customers",
     title: "Customers",
@@ -333,7 +358,9 @@ async function renderSidebar(
             authClient: createCamoxAuthClient("http://localhost:8788"),
           }}
         >
-          <CamoxAppProvider app={createApp({ blocks: [definition], collections: [customers] })}>
+          <CamoxAppProvider
+            app={createApp({ blocks: [definition], collections: [customers, people] })}
+          >
             <CollectionItemModalProvider onRouteTargetClose={() => {}}>
               <PreviewEditingOwnerContext.Provider value={owner}>
                 <PageEditorSidebar />
@@ -1089,7 +1116,14 @@ void test("Create item prefills the label, appends the saved record, and cancel 
         {
           projectSlug: "site",
           collectionId: "customers",
-          content: { name: "Hooli", quote: "", featured: false, logo: null, gallery: [] },
+          content: {
+            name: "Hooli",
+            quote: "",
+            contact: null,
+            featured: false,
+            logo: null,
+            gallery: [],
+          },
         },
       ],
       ["blocks/updateContent", { id: BLOCK_ID, content: { logos: [ACME, CREATED] } }],
@@ -1283,4 +1317,109 @@ void test("an item's reference list writes to the item and updates its preview r
     recordId: ACME,
   });
   assert.ok(sidebar.host.querySelector("[data-shared-record]"), "listed records are shared");
+});
+
+const contactRecord = {
+  type: "record",
+  blockId: BLOCK_ID,
+  fieldName: "company",
+  recordId: ACME,
+  nested: { fieldName: "contact", recordId: ADA },
+} as const;
+
+void test("a placed record's reference opens the record it links, one hop further", async (t) => {
+  const sidebar = await renderSidebar(t, {
+    type: "record",
+    blockId: BLOCK_ID,
+    fieldName: "company",
+    recordId: ACME,
+  });
+  assert.match(sidebar.text(), /Contact\s*Ada Lovelace/);
+  // The field row's drill button shows the linked record's label.
+  await sidebar.click("Ada Lovelace");
+  assert.deepEqual(sidebar.selection(), {
+    type: "record-field",
+    blockId: BLOCK_ID,
+    fieldName: "company",
+    recordId: ACME,
+    recordFieldName: "contact",
+    recordFieldType: "Reference",
+  });
+  await sidebar.click("Open Ada Lovelace");
+  assert.deepEqual(sidebar.selection(), contactRecord);
+  assert.deepEqual(sidebar.crumbs(), [
+    "Page",
+    "Testimonial",
+    "Company",
+    "Acme",
+    "Contact",
+    "Ada Lovelace",
+  ]);
+  assert.match(sidebar.text(), /Role\s*CTO/);
+
+  await sidebar.click("Acme");
+  assert.deepEqual(sidebar.selection(), {
+    type: "record",
+    blockId: BLOCK_ID,
+    fieldName: "company",
+    recordId: ACME,
+  });
+});
+
+void test("field edits of a record linked by a placed record save to that record", async (t) => {
+  const sidebar = await renderSidebar(t, {
+    ...contactRecord,
+    type: "record-field",
+    recordFieldName: "role",
+    recordFieldType: "String",
+  });
+  await sidebar.typeText("CEO");
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input.id, write.input.content]),
+    [["collectionDefinitions/editRecord", ADA, { name: "Ada Lovelace", role: "CEO" }]],
+  );
+});
+
+void test("linking a record from a placed record writes the placed record", async (t) => {
+  const sidebar = await renderSidebar(t, {
+    type: "record-field",
+    blockId: BLOCK_ID,
+    fieldName: "company",
+    recordId: ACME,
+    recordFieldName: "contact",
+    recordFieldType: "Reference",
+  });
+  const unlink = sidebar.host.querySelector<HTMLElement>("button[aria-label='Unlink']");
+  await act(async () => unlink!.click());
+  await sidebar.settle();
+  assert.deepEqual(
+    sidebar.writes.map((write) => [write.procedure, write.input.id, write.input.content]),
+    [["collectionDefinitions/editRecord", ACME, { ...acmeContent, contact: null }]],
+  );
+});
+
+void test("a linked record's selection falls back to the placed record's field once unlinked", async (t) => {
+  const sidebar = await renderSidebar(t, contactRecord);
+  await act(async () => {
+    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+      ...bundle,
+      block: {
+        ...bundle.block,
+        references: {
+          ...bundle.block.references,
+          company: { ...acme, content: { ...acmeContent, contact: null }, references: {} },
+        },
+      },
+    }));
+  });
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), {
+    type: "record-field",
+    blockId: BLOCK_ID,
+    fieldName: "company",
+    recordId: ACME,
+    recordFieldName: "contact",
+    recordFieldType: "Reference",
+  });
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme", "Contact"]);
 });

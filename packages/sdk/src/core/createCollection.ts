@@ -38,6 +38,8 @@ export function createCollection<
     "File",
     "ImageList",
     "FileList",
+    "Reference",
+    "ReferenceList",
   ]);
   for (const [key, field] of Object.entries(content)) {
     if (!supported.has(field.fieldType)) {

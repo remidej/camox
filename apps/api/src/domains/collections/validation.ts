@@ -5,6 +5,7 @@ import { z } from "zod";
 import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { missingReference, recordInScope } from "./references";
 import { decodeContent, validateText } from "./text-content";
 
 const property = z
@@ -20,8 +21,12 @@ const property = z
       "FileList",
       "Link",
       "Repeater",
+      "Reference",
+      "ReferenceList",
     ]),
-    type: z.string(),
+    // References are nullable through `anyOf` rather than a single `type`.
+    type: z.string().optional(),
+    anyOf: z.unknown().optional(),
     title: z.string().optional(),
     default: z.unknown().optional(),
     minLength: z.number().int().nonnegative().optional(),
@@ -38,8 +43,17 @@ const property = z
     toMarkdown: z.array(z.string()).optional(),
     itemSettingsSchema: z.unknown().optional(),
     defaultItemSettings: z.unknown().optional(),
+    description: z.string().optional(),
+    collectionId: z.string().min(1).optional(),
+    // Collection references are never required: unpublished targets resolve empty.
+    required: z.literal(false).optional(),
+    referenceSchema: z.unknown().optional(),
+    labelField: z.string().optional(),
   })
   .strict();
+
+const isReference = (fieldType: string) =>
+  fieldType === "Reference" || fieldType === "ReferenceList";
 
 export const contentSchemaInput = z
   .object({
@@ -61,13 +75,17 @@ export const contentSchemaInput = z
       if (["__proto__", "constructor", "prototype"].includes(key)) {
         ctx.addIssue({ code: "custom", message: `${key}: reserved field name` });
       }
-      let expected = "object";
+      let expected: string | undefined = "object";
       if (["String", "Enum", "Embed"].includes(field.fieldType)) expected = "string";
       if (field.fieldType === "Boolean") expected = "boolean";
-      if (["ImageList", "FileList", "Repeater"].includes(field.fieldType)) expected = "array";
+      if (["ImageList", "FileList", "Repeater", "ReferenceList"].includes(field.fieldType))
+        expected = "array";
+      if (field.fieldType === "Reference") expected = undefined;
       if (field.type !== expected)
         ctx.addIssue({ code: "custom", message: `${key}: invalid field type` });
-      if (field.fieldType.endsWith("List")) {
+      if (isReference(field.fieldType) !== (field.collectionId !== undefined))
+        ctx.addIssue({ code: "custom", message: `${key}: only references name a collection` });
+      if (field.fieldType === "ImageList" || field.fieldType === "FileList") {
         const item = property.safeParse(field.items);
         if (!item.success || item.data.fieldType !== field.fieldType.replace("List", "")) {
           ctx.addIssue({ code: "custom", message: `${key}: invalid asset list item schema` });
@@ -187,6 +205,26 @@ export const validateContent = Effect.fn("collections.validateContent")(function
   const result: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(schema.properties)) {
     const value = content[key];
+    if (field.fieldType === "Reference") {
+      const id = yield* decodeContent(z.uuid().nullable(), value);
+      if (id !== null && !(yield* recordInScope(ctx, definition, field, id)))
+        return yield* missingReference(key);
+      result[key] = id;
+      continue;
+    }
+    if (field.fieldType === "ReferenceList") {
+      const ids = yield* decodeContent(z.array(z.uuid()).max(field.maxItems ?? 100), value);
+      if (new Set(ids).size !== ids.length)
+        return yield* new InvalidInputError({
+          message: `${key}: reference list links the same record more than once`,
+        });
+      for (const id of ids) {
+        if (!(yield* recordInScope(ctx, definition, field, id)))
+          return yield* missingReference(key);
+      }
+      result[key] = ids;
+      continue;
+    }
     if (["String", "Embed", "Enum"].includes(field.fieldType)) {
       const authored =
         field.fieldType === "String"

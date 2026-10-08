@@ -20,6 +20,7 @@ import { buildPageSnapshotFromDraft } from "../pages/service";
 import { collectionSelection, referenceTargetsInput } from "./reference-publication-input";
 import {
   itemSchemas,
+  referencedRecords,
   referenceFields,
   referenceListFields,
   resolvedReference,
@@ -91,12 +92,14 @@ const plan = Effect.fn("collections.plan")(function* (
   const targets = new Map<string, Target>();
   const missingRequired: string[] = [];
   // Each record is one target however many placements link it; required wins.
+  const draftRecords = new Map<string, ResolvedReference>();
   const addTarget = (
     record: ResolvedReference,
     live: ResolvedReference | undefined,
     required: boolean,
   ) => {
     const previous = targets.get(record.id);
+    draftRecords.set(record.id, record);
     targets.set(record.id, {
       id: record.id,
       collectionId: record.collectionId,
@@ -150,6 +153,21 @@ const plan = Effect.fn("collections.plan")(function* (
         );
       }
     }
+  }
+  // Records reached at the second hop (an article's author) are independent, never required
+  // targets. Their live revision is looked up directly: the live first hop may not link them yet.
+  const reached = [...targets.keys()].flatMap((id) => draftRecords.get(id) ?? []);
+  for (const nested of reached.flatMap((record) => referencedRecords(record.references))) {
+    if (targets.has(nested.id)) continue;
+    const live = yield* resolveReferences(
+      ctx,
+      scope.owner,
+      { properties: { record: { fieldType: "Reference", collectionId: nested.collectionId } } },
+      { record: nested.id },
+      "live",
+      2,
+    );
+    addTarget(nested, resolvedReference(live, "record") ?? undefined, false);
   }
   return { targets: [...targets.values()], missingRequired };
 });
