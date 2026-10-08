@@ -222,6 +222,10 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
         isDbShape && "settings" in item
           ? (((item as any).settings as Record<string, unknown> | null | undefined) ?? null)
           : null;
+      // Items resolve their own references, like blocks do.
+      const itemReferences = isDbShape
+        ? (item as { references?: ResolvedReferences }).references
+        : undefined;
       if (!itemContent || typeof itemContent !== "object") continue;
 
       let md: string;
@@ -231,6 +235,7 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
           settings: ctx.settings,
           itemSettings,
           files: ctx.files,
+          references: itemReferences,
         });
       } else {
         const fieldParts: string[] = [];

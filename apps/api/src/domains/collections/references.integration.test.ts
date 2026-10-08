@@ -4,10 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blockDefinitions, blocks, files, pages } from "../../schema";
+import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
 import { createBlock, getBlock, getPageMarkdown, updateBlockContent } from "../blocks/service";
 import { getLayout, publishLayout } from "../layouts/service";
 import { getPageByPath, listPages, publishPage } from "../pages/service";
+import {
+  createRepeatableItem,
+  updateRepeatableItemContent,
+  updateRepeatableItemSettings,
+} from "../repeatable-items/service";
 import { referenceTargets } from "./reference-publication";
 import {
   validateReferenceSchema,
@@ -26,9 +31,9 @@ import {
   unpublishRecord,
 } from "./service";
 
-/** The testimonial's single reference. */
-const customer = (block: { references: ResolvedReferences }) =>
-  block.references.customer as ResolvedReference | null;
+/** The testimonial's (or a logo's) single reference. */
+const customer = (owner: { references: ResolvedReferences }) =>
+  owner.references.customer as ResolvedReference | null;
 
 async function fixture(required = false, assets = false) {
   const f = await createProjectFixture(`references-${crypto.randomUUID()}`);
@@ -691,11 +696,12 @@ async function listFixture() {
 }
 
 describe("reference lists", () => {
-  it("accepts reference lists at the top level of block content only", async () => {
+  it("accepts reference lists at the top level of block and item content only", async () => {
     const accepted = { properties: { customers: referenceList() } };
     expect(() => Effect.runSync(validateReferenceSchema(accepted))).not.toThrow();
     for (const [schema, allow] of [
-      [{ properties: { items: { fieldType: "Repeater", items: accepted } } }, true],
+      [{ properties: { nested: accepted } }, true],
+      [{ properties: { items: { fieldType: "Repeater", itemSettingsSchema: accepted } } }, true],
       [accepted, false],
       [{ properties: { customers: { ...referenceList(), collectionId: undefined } } }, true],
     ] as const) {
@@ -889,5 +895,277 @@ describe("reference lists", () => {
       }),
     );
     expect(await f.listIds(f.publicCtx, "live")).toEqual([f.beta.id]);
+  });
+});
+
+const itemReference = (required = false) => ({
+  fieldType: "Reference",
+  collectionId: "customers",
+  required,
+  anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+  default: null,
+});
+
+/** A repeater whose items each place a customer, with a local emphasis setting. */
+async function itemFixture(required = false) {
+  const f = await listFixture();
+  const item = {
+    type: "object",
+    properties: {
+      customer: itemReference(required),
+      partners: referenceList(2),
+      quotes: {
+        type: "array",
+        fieldType: "Repeater",
+        items: {
+          type: "object",
+          properties: { speaker: itemReference() },
+          required: ["speaker"],
+        },
+        toMarkdown: ["Quote by {{speaker.name}}"],
+      },
+    },
+    required: ["customer", "partners", "quotes"],
+  };
+  await f.db.insert(blockDefinitions).values({
+    projectId: f.project.id,
+    environmentId: f.environment.id,
+    blockId: "logo-wall",
+    title: "Logo wall",
+    description: "",
+    contentSchema: {
+      type: "object",
+      properties: {
+        logos: {
+          type: "array",
+          fieldType: "Repeater",
+          items: item,
+          itemSettingsSchema: {
+            type: "object",
+            properties: { emphasized: { type: "boolean", fieldType: "Boolean", default: false } },
+            required: ["emphasized"],
+          },
+          toMarkdown: ["{{customer.name}}", "{{partners}}", "{{quotes}}"],
+        },
+      },
+      required: ["logos"],
+      additionalProperties: false,
+      toMarkdown: ["Logos:", "{{logos}}"],
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const wall = await runService(
+    createBlock(f.ctx, {
+      pageId: f.page.id,
+      type: "logo-wall",
+      content: {
+        logos: [
+          {
+            customer: f.alpha.id,
+            partners: [f.gamma.id],
+            quotes: [{ speaker: f.beta.id }],
+          },
+        ],
+      },
+    }),
+  );
+  const bundle = (ctx: typeof f.ctx, source: "draft" | "live") =>
+    runService(getBlock(ctx, { id: wall.id, source }));
+  const draft = await bundle(f.ctx, "draft");
+  const logo = draft.repeatableItems.find((item) => item.fieldName === "logos")!;
+  const quote = draft.repeatableItems.find((item) => item.fieldName === "quotes")!;
+  return { ...f, wall, bundle, logo, quote };
+}
+
+describe("references in repeatable items", () => {
+  it("accepts references in item content at any repeater depth, never in item settings", async () => {
+    const reference = itemReference();
+    const repeater = (items: unknown) => ({
+      properties: { items: { fieldType: "Repeater", items } },
+    });
+    for (const schema of [
+      repeater({ properties: { customer: reference } }),
+      repeater({
+        properties: { nested: repeater({ properties: { customer: reference } }).properties.items },
+      }),
+    ]) {
+      expect(() => Effect.runSync(validateReferenceSchema(schema))).not.toThrow();
+    }
+    expect(() =>
+      Effect.runSync(
+        validateReferenceSchema({
+          properties: {
+            items: {
+              fieldType: "Repeater",
+              items: { properties: {} },
+              itemSettingsSchema: { properties: { customer: reference } },
+            },
+          },
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it("stores item references, resolves them per item and keeps settings local to the placement", async () => {
+    const f = await itemFixture();
+    expect(f.logo.content).toMatchObject({ customer: f.alpha.id, partners: [f.gamma.id] });
+    expect(customer(f.logo)?.content.name).toBe("Original");
+    expect((f.logo.references.partners as ResolvedReference[]).map((r) => r.id)).toEqual([
+      f.gamma.id,
+    ]);
+    expect((f.quote.references.speaker as ResolvedReference).id).toBe(f.beta.id);
+
+    await runService(
+      updateRepeatableItemSettings(f.ctx, { id: f.logo.id, settings: { emphasized: true } }),
+    );
+    await runService(
+      updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: f.gamma.id } }),
+    );
+    const draft = await f.bundle(f.ctx, "draft");
+    const logo = draft.repeatableItems.find((item) => item.id === f.logo.id)!;
+    expect(logo.settings).toEqual({ emphasized: true });
+    expect(customer(logo)?.id).toBe(f.gamma.id);
+    // Unlinking the placement never touches the record.
+    await runService(
+      updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: null } }),
+    );
+    expect(
+      (await runService(readRecord(f.ctx, { ...f.scope, id: f.gamma.id, source: "draft" })))?.id,
+    ).toBe(f.gamma.id);
+  });
+
+  it("rejects out-of-scope, duplicate and overfull item references on every write path", async () => {
+    const f = await itemFixture();
+    const otherProject = await fixture();
+    const foreign = otherProject.record.id;
+    for (const content of [
+      { customer: foreign },
+      { partners: [f.alpha.id, f.alpha.id] },
+      { partners: [f.alpha.id, f.beta.id, f.gamma.id] },
+    ]) {
+      await expect(
+        runService(updateRepeatableItemContent(f.ctx, { id: f.logo.id, content })),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    await expect(
+      runService(
+        createRepeatableItem(f.ctx, {
+          blockId: f.wall.id,
+          fieldName: "logos",
+          content: { customer: f.alpha.id },
+          nestedItems: [
+            {
+              tempId: "quote",
+              parentTempId: null,
+              fieldName: "quotes",
+              content: { speaker: foreign },
+              position: "a0",
+            },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("speaker") });
+    await expect(
+      runService(
+        createBlock(f.ctx, {
+          pageId: f.page.id,
+          type: "logo-wall",
+          content: { logos: [{ customer: foreign }] },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message:
+        "logos[0].customer: reference is missing or outside this collection/project/environment",
+    });
+    await expect(
+      runService(
+        updateBlockContent(f.ctx, {
+          id: f.wall.id,
+          content: { logos: [{ _itemId: f.logo.id, customer: foreign }] },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it.each([false, true])(
+    "publishes item references with the page and protects their records (synced: %s)",
+    async (synced) => {
+      const f = await itemFixture(true);
+      await f.db
+        .update(blockDefinitions)
+        .set({ synced })
+        .where(eq(blockDefinitions.blockId, "logo-wall"));
+      const review = await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"));
+      expect(review.targets.map((target) => target.id).sort()).toEqual(
+        [f.alpha.id, f.beta.id, f.gamma.id].sort(),
+      );
+      expect(review.targets.find((target) => target.id === f.alpha.id)?.required).toBe(true);
+
+      // A required item reference left unset blocks publication, like a block's.
+      await runService(
+        updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: null } }),
+      );
+      expect(
+        (await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"))).missingRequired,
+      ).toEqual([`${f.wall.id}.${f.logo.id}.customer`]);
+      await runService(
+        updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: f.alpha.id } }),
+      );
+      await expect(runService(publishPage(f.ctx, { id: f.page.id }))).rejects.toMatchObject({
+        code: "CONFLICT",
+      });
+      await runService(
+        publishPage(f.ctx, {
+          id: f.page.id,
+          collections: [{ id: f.alpha.id, collectionId: "customers", expectedVersion: 1 }],
+        }),
+      );
+      const live = await f.bundle(f.publicCtx, "live");
+      const logo = live.repeatableItems.find((item) => item.fieldName === "logos")!;
+      expect(customer(logo)?.content.name).toBe("Original");
+      // Unpublished optional records resolve empty live, never as drafts.
+      expect(logo.references.partners).toEqual([]);
+      expect(
+        live.repeatableItems.find((item) => item.fieldName === "quotes")?.references.speaker,
+      ).toBeNull();
+      const page = await runService(
+        getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/reference" }),
+      );
+      expect(customer(page.repeatableItems.find((item) => item.id === logo.id) as never)?.id).toBe(
+        f.alpha.id,
+      );
+
+      // A required live item reference cannot be unpublished; linked records cannot be deleted.
+      await expect(
+        runService(unpublishRecord(f.ctx, { ...f.scope, id: f.alpha.id, expectedVersion: 2 })),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      await expect(
+        runService(deleteRecord(f.ctx, { ...f.scope, id: f.beta.id, expectedVersion: 1 })),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    },
+  );
+
+  it("renders item references through the repeater's per-item Markdown", async () => {
+    const f = await itemFixture();
+    expect(await f.listMarkdown(f.ctx, "draft")).toContain(
+      "<!-- Logo wall -->\nLogos:\n\n- Original\n  - Gamma\n  - Quote by Beta",
+    );
+  });
+
+  it("refuses raw item writes linking a deleted record", async () => {
+    const f = await itemFixture();
+    await f.db.delete(blocks).where(eq(blocks.id, f.list.id));
+    await runService(
+      updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { partners: [] } }),
+    );
+    await runService(deleteRecord(f.ctx, { ...f.scope, id: f.gamma.id, expectedVersion: 1 }));
+    await expect(
+      f.db
+        .update(repeatableItems)
+        .set({ content: { customer: f.alpha.id, partners: [f.gamma.id] } })
+        .where(eq(repeatableItems.id, f.logo.id)),
+    ).rejects.toThrow();
   });
 });

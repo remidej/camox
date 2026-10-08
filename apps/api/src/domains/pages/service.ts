@@ -32,7 +32,12 @@ import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData, resolveSyncedLiveData } from "../blocks/synced-live";
 import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
 import { collectionSelection } from "../collections/reference-publication-input";
-import { hydrateReferences, referenceChanges } from "../collections/references";
+import {
+  hydrateItemReferences,
+  hydrateReferences,
+  referenceChanges,
+  type ResolvedReferences,
+} from "../collections/references";
 import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
@@ -386,6 +391,8 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
 // both inside composePageView.
 type RawBlock = SnapshotBlock;
 type RawItem = SnapshotRepeatableItem;
+/** An item as the page view serves it, with its resolved references. */
+type ViewItem = RawItem & { references: ResolvedReferences };
 
 export const readPageSnapshot = Effect.fn("pages.readPageSnapshot")(function* (
   ctx: ServiceContext,
@@ -490,14 +497,14 @@ function composePageView(args: {
   layout: typeof layouts.$inferSelect | null;
   pageBlocks: RawBlock[];
   layoutBlocks: RawBlock[];
-  allItems: RawItem[];
+  allItems: ViewItem[];
   fileRows: Map<number, typeof import("../../schema").files.$inferSelect>;
 }) {
   const { page, project, layout, pageBlocks, layoutBlocks, allItems, fileRows } = args;
 
   const allBlocks = [...pageBlocks, ...layoutBlocks];
 
-  const itemsByBlock = new Map<number, RawItem[]>();
+  const itemsByBlock = new Map<number, ViewItem[]>();
   for (const item of allItems) {
     const list = itemsByBlock.get(item.blockId) ?? [];
     list.push(item);
@@ -611,11 +618,19 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     allItems = [...pageItems, ...layoutItems];
   }
 
+  const referenceSource = source === "draft" ? "draft" : "live";
   const hydrated = yield* hydrateReferences(
     ctx,
     page,
     [...pageBlocks, ...layoutBlocks],
-    source === "draft" ? "draft" : "live",
+    referenceSource,
+  );
+  const hydratedItems = yield* hydrateItemReferences(
+    ctx,
+    page,
+    [...pageBlocks, ...layoutBlocks],
+    allItems,
+    referenceSource,
   );
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const fileIds = new Set<number>();
@@ -623,8 +638,9 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     collectFileIds(block.content as Record<string, unknown>, fileIds);
     collectFileIds(block.references, fileIds);
   }
-  for (const item of allItems) {
+  for (const item of hydratedItems) {
     collectFileIds(item.content as Record<string, unknown>, fileIds);
+    collectFileIds(item.references, fileIds);
   }
 
   const fileRows = yield* buildFileMap(db, fileIds);
@@ -638,7 +654,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     layout,
     pageBlocks,
     layoutBlocks,
-    allItems,
+    allItems: hydratedItems,
     fileRows,
   });
   return {

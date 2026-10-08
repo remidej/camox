@@ -57,6 +57,8 @@ interface RepeaterContextValue {
   itemContent: Record<string, unknown>;
   itemId?: number;
   itemSettings: Record<string, unknown>;
+  /** The item's field schemas, at any repeater depth. */
+  itemSchema?: Record<string, any>;
 }
 
 const ASSET_LIST_SELF_KEY = "__camox_asset_self__";
@@ -164,6 +166,7 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
+        references: {},
       });
       markers.push({ _itemId: id });
       const nestedContent: Record<string, unknown> = {};
@@ -320,6 +323,12 @@ function createViewBlock(options: EditableOptions) {
   const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
   const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
 
+  /** A reference field's schema, in the block or in the enclosing repeatable item. */
+  function useReferenceField(name: string) {
+    const item = React.use(RepeaterContext);
+    return item ? item.itemSchema?.[name] : typeboxSchema.properties[name];
+  }
+
   const Reference = ({ name, children }: any) => {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime)
@@ -327,8 +336,8 @@ function createViewBlock(options: EditableOptions) {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
     if (!block) throw new Error("Reference must be used within a Block Component");
-    const schema = typeboxSchema.properties[name];
-    const record = resolveReference(block.content[name], schema.collectionId, recordsMap);
+    const schema = useReferenceField(name);
+    const record = resolveReference(useValue(name), schema.collectionId, recordsMap);
     if (!record) return null;
     return <RecordScope block={block} schema={schema} record={record} children={children} />;
   };
@@ -340,18 +349,16 @@ function createViewBlock(options: EditableOptions) {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
     if (!block) throw new Error("ReferenceList must be used within a Block Component");
-    const schema = typeboxSchema.properties[name];
-    return resolveReferenceList(block.content[name], schema.collectionId, recordsMap).map(
-      (record) => (
-        <RecordScope
-          key={record.id}
-          block={block}
-          schema={schema}
-          record={record}
-          children={children}
-        />
-      ),
-    );
+    const schema = useReferenceField(name);
+    return resolveReferenceList(useValue(name), schema.collectionId, recordsMap).map((record) => (
+      <RecordScope
+        key={record.id}
+        block={block}
+        schema={schema}
+        record={record}
+        children={children}
+      />
+    ));
   };
 
   /** Renders a placed record with the record's content as the field source. */
@@ -444,6 +451,9 @@ function createViewBlock(options: EditableOptions) {
     const fieldName = String(name);
     const source = parent ? parent.itemContent[fieldName] : block.content[fieldName];
     if (!Array.isArray(source)) throw new Error(`Field "${fieldName}" is not an array`);
+    const itemSchema = (
+      parent ? parent.itemSchema?.[fieldName] : typeboxSchema.properties[fieldName]
+    )?.items?.properties;
     const values = source
       .map((item) => (isItemMarker(item) ? (itemsMap.get(item._itemId) ?? null) : item))
       .filter(Boolean);
@@ -468,6 +478,8 @@ function createViewBlock(options: EditableOptions) {
         ImageList,
         FileList,
         Repeater,
+        Reference,
+        ReferenceList,
         useSetting: (settingName: string) => itemSettings[settingName],
       };
       return (
@@ -479,6 +491,7 @@ function createViewBlock(options: EditableOptions) {
             itemContent,
             itemId,
             itemSettings,
+            itemSchema,
           }}
         >
           {children(api, index)}

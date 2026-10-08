@@ -72,6 +72,26 @@ const cases: {
     type: "CAMOX_HOVER_FIELD",
     target: { fieldId: "1__company__acme__quote" },
   },
+  {
+    name: "record placed by an item",
+    selection: { type: "record", blockId: 1, itemId: 2, fieldName: "sponsor", recordId: "acme" },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "1__2__sponsor__acme" },
+  },
+  {
+    name: "record field placed by an item",
+    selection: {
+      type: "record-field",
+      blockId: 1,
+      itemId: 2,
+      fieldName: "sponsor",
+      recordId: "acme",
+      recordFieldName: "quote",
+      recordFieldType: "String",
+    },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "1__2__sponsor__acme__quote" },
+  },
 ];
 
 for (const { name, selection, type, target } of cases) {

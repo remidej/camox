@@ -27,6 +27,7 @@ import { publishSyncedData } from "../blocks/synced-live";
 import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
 import { collectionSelection } from "../collections/reference-publication-input";
 import {
+  hydrateItemReferences,
   hydrateReferences,
   referenceChanges,
   validateReferenceValues,
@@ -351,10 +352,17 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     normalized.map(({ block }) => block),
     source,
   );
+  const hydratedItems = yield* hydrateItemReferences(
+    ctx,
+    layout,
+    layoutBlocks,
+    normalized.flatMap(({ items }) => items),
+    source,
+  );
   const fileIds = new Set<number>();
   for (const value of [...layoutBlocks, ...items])
     collectFileIds(value.content as Record<string, unknown>, fileIds);
-  for (const block of hydrated) collectFileIds(block.references, fileIds);
+  for (const value of [...hydrated, ...hydratedItems]) collectFileIds(value.references, fileIds);
   const fileRows = yield* buildFileMap(ctx.db, fileIds);
   return {
     layout: {
@@ -371,7 +379,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
         .map((block) => block.id),
     },
     blocks: hydrated,
-    repeatableItems: normalized.flatMap(({ items }) => items),
+    repeatableItems: hydratedItems,
     files: [...fileRows.values()],
   };
 });
@@ -464,7 +472,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         ctx,
         { projectId, environmentId: environment.id },
         definitionsByType.get(block.type)?.contentSchema,
-        block.content,
+        block.bundle,
       );
     }
   }

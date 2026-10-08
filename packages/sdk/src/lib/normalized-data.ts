@@ -29,6 +29,7 @@ export type NormalizedReferences = Record<
   NormalizedCollectionRecord | NormalizedCollectionRecord[] | null
 >;
 
+/** A block or repeatable item, with the records its reference fields link. */
 type ReferenceBlock = {
   references?: NormalizedReferences;
 };
@@ -88,9 +89,12 @@ export const NormalizedDataProvider = ({
     () => ({
       filesMap: new Map(files.map((f) => [f.id, f])),
       itemsMap: new Map(repeatableItems.map((i) => [i.id, i])),
+      // Blocks and repeatable items both link records; a record resolves the same either way.
       recordsMap: new Map(
-        blocks.flatMap((block) =>
-          referencedRecords(block.references).map((record) => [record.id, record] as const),
+        [...blocks, ...repeatableItems].flatMap((owner) =>
+          referencedRecords((owner as ReferenceBlock).references).map(
+            (record) => [record.id, record] as const,
+          ),
         ),
       ),
     }),
@@ -243,6 +247,9 @@ export function seedBlockCaches(
     }
     for (const item of blockItems) {
       collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);
+      for (const record of referencedRecords((item as ReferenceBlock).references)) {
+        collectFileIdsFromContent(record.content, fileIds);
+      }
     }
     const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
 

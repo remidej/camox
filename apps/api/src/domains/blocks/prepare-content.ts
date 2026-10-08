@@ -78,16 +78,15 @@ export const prepareBlockContent = Effect.fn("prepareBlockContent")(function* (
     seed.settings = yield* prepareSettings(seed.settings, field?.itemSettingsSchema, rootSchema);
   }
 
-  yield* validateContent(yield* contentWithSeeds(normalized.content, seeds, schema), schema, {
-    partial: false,
-    rootSchema,
-  });
+  const bundle = yield* contentWithSeeds(normalized.content, seeds, schema);
+  yield* validateContent(bundle, schema, { partial: false, rootSchema });
   const settings = yield* prepareSettings(
     rawSettings,
     settingsSchema,
     context.settingsSchema ?? settingsSchema,
   );
-  return { content: normalized.content, settings, seeds };
+  // `bundle` inlines the seeded items, for checks that span the block and its items.
+  return { content: normalized.content, settings, seeds, bundle };
 });
 
 export const prepareSettings = Effect.fn("prepareSettings")(function* (

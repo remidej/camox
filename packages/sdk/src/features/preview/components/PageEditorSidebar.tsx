@@ -21,6 +21,7 @@ import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
   previewStore,
+  recordPlacement,
   selectionBlockId,
   selectionField,
   selectionItemId,
@@ -38,7 +39,7 @@ import { MultipleAssetFieldEditor } from "./MultipleAssetFieldEditor";
 import { PageStatusBadge } from "./PageStatusBadge";
 import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
 import { type FieldWriteTarget, useFieldWriter } from "./useFieldWriter";
-import { useRecordView, type SelectionCrumb } from "./useRecordView";
+import { type RecordPlacer, useRecordView, type SelectionCrumb } from "./useRecordView";
 import { type RepeatableArraySchema, useRepeatableItemActions } from "./useRepeatableItemActions";
 
 /* -------------------------------------------------------------------------------------------------
@@ -208,12 +209,22 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   // Get block definition
   const blockDef = block ? camoxApp.getBlockById(block.type) : null;
 
-  // A placed collection record is edited only while the reference still links it.
+  // A placed collection record is edited only while the reference still links it. The block,
+  // or the repeatable item when one places the record, owns that reference.
+  const placerItem = currentItemId != null ? itemsMap.get(currentItemId) : undefined;
+  const placer = React.useMemo<RecordPlacer | null>(() => {
+    if (!block || !blockDef) return null;
+    if (currentItemId == null) return { ...block, contentSchema: blockDef._internal.contentSchema };
+    if (!placerItem) return null;
+    return {
+      ...placerItem,
+      contentSchema: getSchemaForItem(blockDef._internal.contentSchema, currentItemId, itemsMap),
+    };
+  }, [block, blockDef, currentItemId, placerItem, itemsMap]);
   const { recordView, viewSelection, recordCrumbs } = useRecordView({
     owner,
     selection,
-    block,
-    contentSchema: blockDef?._internal.contentSchema,
+    placer,
   });
 
   const selectedField =
@@ -242,8 +253,8 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   // Only records reached through a reference list get the shared header.
   const recordInList =
     recordView != null &&
-    contentFieldSchema(blockDef?._internal.contentSchema, recordView.selection.fieldName)
-      ?.fieldType === "ReferenceList";
+    contentFieldSchema(placer?.contentSchema, recordView.selection.fieldName)?.fieldType ===
+      "ReferenceList";
   const currentSchema = React.useMemo(() => {
     if (recordSchema) return recordSchema;
     if (!blockDef) return null;
@@ -445,6 +456,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
         isCurrent:
           ancestor.id === currentItemId &&
           !fieldHasOwnView &&
+          !recordView &&
           ancestor.id === ancestorChain[ancestorChain.length - 1]?.id,
         onClick: () =>
           previewStore.send({
@@ -556,7 +568,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
             </div>
           ) : (
             <>
-              {!fieldHasOwnView && currentItemId != null && currentItem && (
+              {!fieldHasOwnView && !recordView && currentItemId != null && currentItem && (
                 <SidebarSection divider="bottom" aria-label="List actions">
                   <SidebarSectionHeader>List actions</SidebarSectionHeader>
                   <SidebarSectionContent>
@@ -693,82 +705,89 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                     </SidebarSectionContent>
                   </SidebarSection>
                 )}
-              {currentItemId != null && !fieldHasOwnView && itemSettingsFields.length > 0 && (
-                <SidebarSection divider="bottom" aria-label="Item settings">
-                  <SidebarSectionHeader>Settings</SidebarSectionHeader>
-                  <SidebarSectionContent>
-                    {itemSettingsFields.map((field) => {
-                      const label = field.label ?? formatFieldName(field.name);
-                      const itemSettingsValues = (currentItem?.settings ?? {}) as Record<
-                        string,
-                        unknown
-                      >;
-                      const itemSettingsSchemaProps = (itemArraySchema as any)?.itemSettingsSchema
-                        ?.properties as Record<string, any> | undefined;
+              {currentItemId != null &&
+                !recordView &&
+                !fieldHasOwnView &&
+                itemSettingsFields.length > 0 && (
+                  <SidebarSection divider="bottom" aria-label="Item settings">
+                    <SidebarSectionHeader>Settings</SidebarSectionHeader>
+                    <SidebarSectionContent>
+                      {itemSettingsFields.map((field) => {
+                        const label = field.label ?? formatFieldName(field.name);
+                        const itemSettingsValues = (currentItem?.settings ?? {}) as Record<
+                          string,
+                          unknown
+                        >;
+                        const itemSettingsSchemaProps = (itemArraySchema as any)?.itemSettingsSchema
+                          ?.properties as Record<string, any> | undefined;
 
-                      if (field.fieldType === "Enum") {
-                        const value =
-                          (itemSettingsValues[field.name] as string | undefined) ??
-                          (itemSettingsSchemaProps?.[field.name]?.default as string | undefined) ??
-                          "";
+                        if (field.fieldType === "Enum") {
+                          const value =
+                            (itemSettingsValues[field.name] as string | undefined) ??
+                            (itemSettingsSchemaProps?.[field.name]?.default as
+                              | string
+                              | undefined) ??
+                            "";
 
-                        return (
-                          <div key={field.name} className="space-y-2">
-                            <Label htmlFor={`item-setting-${field.name}`}>{label}</Label>
-                            <Select
-                              value={value}
-                              onValueChange={(newValue) => {
-                                if (!requireDraft()) return;
-                                updateRepeatableSettings.mutate({
-                                  id: currentItemId,
-                                  settings: { [field.name]: newValue },
-                                });
-                              }}
-                            >
-                              <SelectTrigger id={`item-setting-${field.name}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {field.enumValues?.map((enumValue) => (
-                                  <SelectItem key={enumValue} value={enumValue}>
-                                    {field.enumLabels?.[enumValue] ?? enumValue}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        );
-                      }
+                          return (
+                            <div key={field.name} className="space-y-2">
+                              <Label htmlFor={`item-setting-${field.name}`}>{label}</Label>
+                              <Select
+                                value={value}
+                                onValueChange={(newValue) => {
+                                  if (!requireDraft()) return;
+                                  updateRepeatableSettings.mutate({
+                                    id: currentItemId,
+                                    settings: { [field.name]: newValue },
+                                  });
+                                }}
+                              >
+                                <SelectTrigger id={`item-setting-${field.name}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {field.enumValues?.map((enumValue) => (
+                                    <SelectItem key={enumValue} value={enumValue}>
+                                      {field.enumLabels?.[enumValue] ?? enumValue}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          );
+                        }
 
-                      if (field.fieldType === "Boolean") {
-                        const checked =
-                          (itemSettingsValues[field.name] as boolean | undefined) ??
-                          (itemSettingsSchemaProps?.[field.name]?.default as boolean | undefined) ??
-                          false;
+                        if (field.fieldType === "Boolean") {
+                          const checked =
+                            (itemSettingsValues[field.name] as boolean | undefined) ??
+                            (itemSettingsSchemaProps?.[field.name]?.default as
+                              | boolean
+                              | undefined) ??
+                            false;
 
-                        return (
-                          <div key={field.name} className="flex items-center justify-between">
-                            <Label htmlFor={`item-setting-${field.name}`}>{label}</Label>
-                            <Switch
-                              id={`item-setting-${field.name}`}
-                              checked={checked}
-                              onCheckedChange={(newValue) => {
-                                if (!requireDraft()) return;
-                                updateRepeatableSettings.mutate({
-                                  id: currentItemId,
-                                  settings: { [field.name]: newValue },
-                                });
-                              }}
-                            />
-                          </div>
-                        );
-                      }
+                          return (
+                            <div key={field.name} className="flex items-center justify-between">
+                              <Label htmlFor={`item-setting-${field.name}`}>{label}</Label>
+                              <Switch
+                                id={`item-setting-${field.name}`}
+                                checked={checked}
+                                onCheckedChange={(newValue) => {
+                                  if (!requireDraft()) return;
+                                  updateRepeatableSettings.mutate({
+                                    id: currentItemId,
+                                    settings: { [field.name]: newValue },
+                                  });
+                                }}
+                              />
+                            </div>
+                          );
+                        }
 
-                      return null;
-                    })}
-                  </SidebarSectionContent>
-                </SidebarSection>
-              )}
+                        return null;
+                      })}
+                    </SidebarSectionContent>
+                  </SidebarSection>
+                )}
               {isViewingAsset && assetFieldName && isMultipleAsset && (
                 <MultipleAssetFieldEditor
                   fieldName={assetFieldName}
@@ -822,16 +841,8 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   postToIframe={postToIframe}
                   filesMap={filesMap}
                   itemsMap={itemsMap}
-                  references={currentItemId == null && !recordView ? block.references : undefined}
-                  placement={
-                    recordView
-                      ? {
-                          blockId: block.id,
-                          fieldName: recordView.selection.fieldName,
-                          recordId: recordView.record.id,
-                        }
-                      : undefined
-                  }
+                  references={recordView ? undefined : (currentItem ?? block).references}
+                  placement={recordView ? recordPlacement(recordView.selection) : undefined}
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}

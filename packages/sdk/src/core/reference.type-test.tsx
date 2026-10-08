@@ -123,3 +123,60 @@ const logoGrid = createBlock({
   },
 });
 void logoGrid;
+
+const logoWall = createBlock({
+  id: "logo-wall",
+  title: "Logo wall",
+  description: "",
+  content: (field) => ({
+    logos: field.repeater({
+      content: (field) => ({
+        customer: field.reference(customers),
+        partners: field.referenceList(customers),
+        caption: field.string({ default: "" }),
+      }),
+      settings: (setting) => ({ emphasized: setting.boolean({ default: false }) }),
+      minItems: 1,
+      maxItems: 6,
+      toMarkdown: (c) => {
+        // @ts-expect-error Unknown collection field.
+        void c.customer.missing;
+        return [c.customer.name, c.partners];
+      },
+    }),
+  }),
+  component: () => null,
+  toMarkdown: (c) => [c.logos],
+});
+
+function ItemTypeChecks() {
+  return (
+    <logoWall.Repeater name="logos">
+      {(logo) => (
+        <>
+          <logo.Reference name="customer">
+            {(customer) => (
+              <customer.Field name="name">{(props) => <h2 {...props} />}</customer.Field>
+            )}
+          </logo.Reference>
+          <logo.ReferenceList name="partners">
+            {(partner) => (
+              <partner.Image name="logo">{(props) => <img {...props} />}</partner.Image>
+            )}
+          </logo.ReferenceList>
+          {/* @ts-expect-error Only an item's Reference fields can be a reference scope. */}
+          <logo.Reference name="caption">{() => null}</logo.Reference>
+          {/* @ts-expect-error A reference list is not a single reference. */}
+          <logo.Reference name="partners">{() => null}</logo.Reference>
+          {/* @ts-expect-error A single reference is not a list. */}
+          <logo.ReferenceList name="customer">{() => null}</logo.ReferenceList>
+          {/* @ts-expect-error A reference list is not a nested repeater. */}
+          <logo.Repeater name="partners">{() => null}</logo.Repeater>
+          {/* @ts-expect-error The UUID selection is not inline text. */}
+          <logo.Field name="customer">{() => null}</logo.Field>
+        </>
+      )}
+    </logoWall.Repeater>
+  );
+}
+void ItemTypeChecks;

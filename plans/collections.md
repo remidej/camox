@@ -181,6 +181,49 @@ depth and cycles, and query-backed lists (slice 6) remain open.
   records.
 - The playground logo grid links customers shared with the testimonial.
 
+## Slice 5 decision: references in repeatable items
+
+Recorded from the second half of slice 5. Repeatable item content accepts the same
+`field.reference` and `field.referenceList` builders as block content, at any repeater
+depth. Item settings, block settings and nested objects still reject them.
+
+- An item stores and validates its references exactly like a block: UUIDs (or null) and
+  ordered distinct id lists, checked in scope by the shared services on every write path
+  (item create with nested seeds, item edits, block create/edit with inline items, layout
+  and project bootstrap). Errors name the item path, e.g. `logos[0].customer`.
+- `required` keeps its block meaning: a required item reference may be unset in drafts,
+  but page/layout publication reports it missing (`block.item.field`) and rejects it, and
+  a required live item reference cannot be unpublished.
+- Reads hydrate each item's own `references`, resolved against its item schema (found by
+  walking its repeater path); live reads resolve published records only, from checkpoints
+  and shared synced data alike. The SDK records map includes records linked only by items.
+- The dependency index gains item placements (migration `0031_repeater_references`):
+  draft items from `repeatable_items`, live items from checkpoints and synced data. D1
+  caps compound SELECTs at five terms, so block and item placements are separate views.
+  Item writes get the same missing-record race guards as block writes.
+- Publication review deduplicates item-linked records with block-linked ones.
+- Item Markdown resolves `{{customer.name}}` and reference lists through the item's own
+  references, in the repeater's per-item `toMarkdown`.
+- Item scopes expose `Reference` and `ReferenceList` with the same typed record scope.
+  Placements carry the item: overlay IDs are `block__item__field__record`, selections add
+  `itemId`, and stepping up from an item's record leads to the item's reference field,
+  then the item. The sidebar drills Block › Repeater › Item › Reference field › Record.
+- Per-placement presentation lives on the item (for example an `emphasized` setting next
+  to the customer reference); the record stays shared.
+- The playground's customer highlights block demonstrates item references.
+
+### Agreed for collection-to-collection references (not yet implemented)
+
+- Collection schemas accept `field.reference` and `field.referenceList`, with no
+  `required`: an unpublished target resolves empty live, never as a draft.
+- Resolution is normalized: each record resolves once into the shared records map by id,
+  following at most two hops from a block or item (block → article → author). Deeper
+  references render empty. A record visited once is never expanded again, so cycles
+  terminate.
+- Records reached within those hops join the deduplicated publication review as
+  independent switches, defaulting on when changed. Deleting a record still linked from
+  any record draft or revision is refused.
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.

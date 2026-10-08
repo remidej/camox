@@ -1,10 +1,10 @@
 import type { SnapshotRepeatableItem } from "./snapshot-schemas";
 
 /** Restore repeater markers stripped from persisted checkpoint snapshots. */
-export function injectRepeatableItemMarkers<TBlock extends { id: number; content: unknown }>(
-  block: TBlock,
-  blockItems: SnapshotRepeatableItem[],
-) {
+export function injectRepeatableItemMarkers<
+  TBlock extends { id: number; content: unknown },
+  TItem extends SnapshotRepeatableItem,
+>(block: TBlock, blockItems: TItem[]) {
   const childrenByParent = new Map<number | null, Map<string, typeof blockItems>>();
   for (const item of blockItems) {
     let fieldMap = childrenByParent.get(item.parentItemId);

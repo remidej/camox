@@ -58,11 +58,26 @@ export function resolvedReferenceList(references: ResolvedReferences | undefined
   return Array.isArray(value) ? value : [];
 }
 
-/** Only top-level references and reference lists are supported; fail closed for other shapes. */
+/** A content schema's repeater fields, whose items hold their own content schema. */
+function repeaterFields(schema: unknown): [string, Field][] {
+  const properties = (schema as { properties?: Record<string, Field> } | null)?.properties;
+  return Object.entries(properties ?? {}).filter(([, field]) => field.fieldType === "Repeater");
+}
+
+/**
+ * References and reference lists are supported at the top level of block content and of
+ * repeatable item content, at any repeater depth. Fail closed for other shapes, such as
+ * settings, item settings or nested objects.
+ */
 export function validateReferenceSchema(schema: unknown, allow = true) {
-  const allowed = new Set(
-    [...referenceFields(schema), ...referenceListFields(schema)].map(([, field]) => field),
-  );
+  const allowed = new Set<Field>();
+  const collect = (content: unknown) => {
+    for (const [, field] of [...referenceFields(content), ...referenceListFields(content)]) {
+      allowed.add(field);
+    }
+    for (const [, repeater] of repeaterFields(content)) collect(repeater.items);
+  };
+  if (allow) collect(schema);
   function visit(value: unknown): InvalidInputError | undefined {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
@@ -75,9 +90,9 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
     const field = value as Field;
     const kind = field.kind ?? field.fieldType;
     if (kind === "ReferenceList" || kind === "Reference") {
-      if (!allow || field.fieldType !== kind || !allowed.has(field)) {
+      if (field.fieldType !== kind || !allowed.has(field)) {
         return new InvalidInputError({
-          message: "Only top-level block references and reference lists are supported",
+          message: "References and reference lists are only supported in block and item content",
         });
       }
       if (typeof field.collectionId !== "string" || !field.collectionId) {
@@ -91,6 +106,32 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
   }
   const error = visit(schema);
   return error ? Effect.fail(error) : Effect.void;
+}
+
+type ItemRow = { id: number; parentItemId: number | null; fieldName: string };
+
+/**
+ * Each repeatable item's content schema, found by walking its repeater path from the block's
+ * content schema. Items whose path no longer matches the schema have none.
+ */
+export function itemSchemas(blockSchema: unknown, items: readonly ItemRow[]) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const schemas = new Map<number, unknown>();
+  const schemaOf = (item: ItemRow, seen: Set<number>): unknown => {
+    if (schemas.has(item.id)) return schemas.get(item.id);
+    if (seen.has(item.id)) return undefined;
+    seen.add(item.id);
+    const parent = item.parentItemId === null ? null : byId.get(item.parentItemId);
+    const container =
+      item.parentItemId === null ? blockSchema : parent ? schemaOf(parent, seen) : undefined;
+    const repeater = (container as { properties?: Record<string, Field> } | undefined)
+      ?.properties?.[item.fieldName];
+    const schema = repeater?.fieldType === "Repeater" ? repeater.items : undefined;
+    schemas.set(item.id, schema);
+    return schema;
+  };
+  for (const item of items) schemaOf(item, new Set());
+  return schemas;
 }
 
 export const resolveReferences = Effect.fn("collections.resolveReferences")(function* (
@@ -206,15 +247,11 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
   } satisfies ResolvedReference;
 });
 
-export const hydrateReferences = Effect.fn("collections.hydrateReferences")(function* <
-  T extends { type: string; content: unknown },
->(
+const blockDefinitionsIn = Effect.fn("collections.blockDefinitionsIn")(function* (
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
-  values: T[],
-  source: "draft" | "live",
-): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
-  const definitions = yield* Effect.promise(() =>
+) {
+  return yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(blockDefinitions)
@@ -225,6 +262,17 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
         ),
       ),
   );
+});
+
+export const hydrateReferences = Effect.fn("collections.hydrateReferences")(function* <
+  T extends { type: string; content: unknown },
+>(
+  ctx: ServiceContext,
+  scope: { projectId: number; environmentId: number },
+  values: T[],
+  source: "draft" | "live",
+): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
+  const definitions = yield* blockDefinitionsIn(ctx, scope);
   return yield* Effect.forEach(
     values,
     (block) =>
@@ -239,30 +287,80 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
   );
 });
 
+/**
+ * Resolves the references of repeatable items, like `hydrateReferences` does for blocks.
+ * Each item's schema comes from its block's type and its repeater path.
+ */
+export const hydrateItemReferences = Effect.fn("collections.hydrateItemReferences")(function* <
+  T extends ItemRow & { blockId: number; content: unknown },
+>(
+  ctx: ServiceContext,
+  scope: { projectId: number; environmentId: number },
+  blocks: readonly { id: number; type: string }[],
+  items: T[],
+  source: "draft" | "live",
+): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
+  if (!items.length) return [];
+  const definitions = yield* blockDefinitionsIn(ctx, scope);
+  const schemas = new Map<number, unknown>();
+  for (const block of blocks) {
+    const blockSchema = definitions.find(
+      (definition) => definition.blockId === block.type,
+    )?.contentSchema;
+    const blockItems = items.filter((item) => item.blockId === block.id);
+    for (const [id, schema] of itemSchemas(blockSchema, blockItems)) schemas.set(id, schema);
+  }
+  return yield* Effect.forEach(
+    items,
+    (item) =>
+      resolveReferences(ctx, scope, schemas.get(item.id), item.content, source).pipe(
+        Effect.map((references) => ({ ...item, references })),
+      ),
+    { concurrency: "unbounded" },
+  );
+});
+
+/**
+ * Validates reference values in scope: in `content` itself and, for inline repeatable items
+ * (block patches and bundles reconstructed from item seeds), in each item's content too.
+ * Item markers (`{ _itemId }`) carry no content of their own here.
+ */
 export const validateReferenceValues = Effect.fn("collections.validateReferenceValues")(function* (
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
   schema: unknown,
   content: unknown,
-) {
+  path = "",
+): Effect.fn.Return<void, InvalidInputError> {
   const values = content as Record<string, unknown> | null;
   for (const [name, field] of referenceFields(schema)) {
     const value = values?.[name];
     if (value === undefined || value === null) continue;
-    if (!(yield* recordInScope(ctx, scope, field, value))) return yield* missingReference(name);
+    if (!(yield* recordInScope(ctx, scope, field, value)))
+      return yield* missingReference(path + name);
   }
   for (const [name, field] of referenceListFields(schema)) {
     const value = values?.[name];
     if (value === undefined) continue;
-    if (!Array.isArray(value)) return yield* invalidList(name, "must be an array of record ids");
+    if (!Array.isArray(value))
+      return yield* invalidList(path + name, "must be an array of record ids");
     if (new Set(value).size !== value.length) {
-      return yield* invalidList(name, "links the same record more than once");
+      return yield* invalidList(path + name, "links the same record more than once");
     }
     if (typeof field.maxItems === "number" && value.length > field.maxItems) {
-      return yield* invalidList(name, `links more than ${field.maxItems} records`);
+      return yield* invalidList(path + name, `links more than ${field.maxItems} records`);
     }
     for (const id of value) {
-      if (!(yield* recordInScope(ctx, scope, field, id))) return yield* missingReference(name);
+      if (!(yield* recordInScope(ctx, scope, field, id)))
+        return yield* missingReference(path + name);
+    }
+  }
+  for (const [name, repeater] of repeaterFields(schema)) {
+    const items = values?.[name];
+    if (!Array.isArray(items)) continue;
+    for (const [index, item] of items.entries()) {
+      if (!item || typeof item !== "object") continue;
+      yield* validateReferenceValues(ctx, scope, repeater.items, item, `${path}${name}[${index}].`);
     }
   }
 });

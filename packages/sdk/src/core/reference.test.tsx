@@ -269,6 +269,98 @@ void test("reference lists render each resolved record in stored order and nothi
   assert.match(render([id], [{ ...record, collectionId: "other" }]), /<ul><\/ul>/);
 });
 
+void test("repeatable items render the records they link, at any repeater depth", () => {
+  const block = createBlock({
+    id: "logo-wall",
+    title: "",
+    description: "",
+    content: (field) => ({
+      logos: field.repeater({
+        content: (field) => ({
+          customer: field.reference(customers),
+          quotes: field.repeater({
+            content: (field) => ({ speakers: field.referenceList(customers) }),
+            minItems: 1,
+            maxItems: 3,
+            toMarkdown: () => [],
+          }),
+        }),
+        minItems: 1,
+        maxItems: 6,
+        toMarkdown: () => [],
+      }),
+    }),
+    toMarkdown: () => [],
+    component: () => (
+      <block.Repeater name="logos">
+        {(logo) => (
+          <article>
+            <logo.Reference name="customer">
+              {(customer) => <h2 aria-label={customer.label}>{customer.id}</h2>}
+            </logo.Reference>
+            <logo.Repeater name="quotes">
+              {(quote) => (
+                <quote.ReferenceList name="speakers">
+                  {(speaker) => <i>{speaker.label}</i>}
+                </quote.ReferenceList>
+              )}
+            </logo.Repeater>
+          </article>
+        )}
+      </block.Repeater>
+    ),
+  });
+  const item = (itemId: number, parentItemId: number | null, content: object, references = {}) => ({
+    id: itemId,
+    blockId: 1,
+    parentItemId,
+    fieldName: parentItemId === null ? "logos" : "quotes",
+    content,
+    settings: null,
+    summary: "",
+    position: "a0",
+    createdAt: 0,
+    updatedAt: 0,
+    references,
+  });
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>
+      <AuthContext.Provider
+        value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+      >
+        <NavigationProvider>
+          <NormalizedDataProvider
+            files={[]}
+            blocks={[]}
+            repeatableItems={[
+              item(1, null, { customer: id, quotes: [{ _itemId: 2 }] }, { customer: record }),
+              item(2, 1, { speakers: [id] }, { speakers: [record] }),
+              item(3, null, { customer: null, quotes: [] }),
+            ]}
+          >
+            <block._internal.Component
+              mode="site"
+              blockData={{
+                _id: 1,
+                type: "logo-wall",
+                position: "a0",
+                content: { logos: [{ _itemId: 1 }, { _itemId: 3 }] } as never,
+              }}
+            />
+          </NormalizedDataProvider>
+        </NavigationProvider>
+      </AuthContext.Provider>
+    </QueryClientProvider>,
+  );
+  assert.match(
+    html,
+    new RegExp(
+      `<article><h2 aria-label="Source label">${id}</h2><i>Source label</i></article>` +
+        "<article></article>",
+    ),
+  );
+});
+
 void test("placement identity is separate from source identity and resolution validates collection", () => {
   const placement = { blockId: 1, fieldName: "customer", recordId: id };
   assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: 2 }));

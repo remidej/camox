@@ -475,7 +475,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   for (const block of preparedBlocks) {
     const scope = { projectId: project.id, environmentId: environment.id };
     const schema = definitionsByType.get(block.type)?.contentSchema;
-    yield* validateReferenceValues(ctx, scope, schema, block.content);
+    yield* validateReferenceValues(ctx, scope, schema, block.bundle);
     const live = yield* resolveReferences(ctx, scope, schema, block.content, "live");
     if (referenceFields(schema).some(([name, field]) => field.required === true && !live[name])) {
       return yield* new InvalidInputError({
