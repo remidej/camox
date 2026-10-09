@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.45.0](https://github.com/remidej/camox/compare/camox-v0.44.0...@camox/cli-v0.45.0) (2026-10-09)
+
+
+### Features
+
+* **cli:** expose layout-owned block discovery ([975bf9a](https://github.com/remidej/camox/commit/975bf9a8056810272f24864ade2b87fbaf148418))
+* **dev:** isolate worktree sessions and open playground sign-in ([e5615b6](https://github.com/remidej/camox/commit/e5615b64c679404cd9ba0f360e5aa3e1df4c1f4f))
+* **sdk:** print authenticated development links ([20cbdb8](https://github.com/remidej/camox/commit/20cbdb8b77fd948dc5531fe7986a9240fc453f57))
+
+
+### Bug Fixes
+
+* lint errors ([8ca7cee](https://github.com/remidej/camox/commit/8ca7cee221965a4cd2090c69da863d15163fde09))
+
+
+### Refactoring
+
+* align terminology across the platform ([5c68704](https://github.com/remidej/camox/commit/5c687042a3fe9892c9faaaa560d567fabd9acdfa))
+
+
+### Miscellaneous
+
+* merge main for collections landing ([c3237cb](https://github.com/remidej/camox/commit/c3237cb474543dac3c4fb042417ddfef5824ef2e))
+* merge main into canvas landing ([6eb58c6](https://github.com/remidej/camox/commit/6eb58c6b36332a982b0330c45c26c0795c5e1112))
+* merge main into schema validation landing ([21f15da](https://github.com/remidej/camox/commit/21f15da740dfdd991d50d0b194b31f51f941af8f))
+
 ## [0.44.0](https://github.com/remidej/camox/compare/camox-v0.43.0...@camox/cli-v0.44.0) (2026-09-24)
 
 
