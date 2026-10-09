@@ -246,8 +246,8 @@ Recorded from the last part of slice 5. Collection schemas accept `field.referen
 
 ## Slice 6 decision: query-backed reference lists
 
-Recorded from #142 (core in #143; the editor's reference field view follows in #144). This
-settles the query and ordering part of remaining decision #4.
+Recorded from #142 (core in #143, editor in #144). This settles the query and ordering part
+of remaining decision #4.
 
 - `field.referenceList(collection, { query: { orderBy?, limit? } })` declares a query-backed
   list. `orderBy` is a single-key object `{ [key]: "asc" | "desc" }` whose key is a `String`
@@ -293,6 +293,18 @@ not written`.
   (blocks by id, items through the items map), not from stored content. In edit mode an empty
   result renders nothing: there is no "Add" placeholder.
 - Per-use `toMarkdown` runs per resolved record; live Markdown uses live resolution.
+- Editor (#144): the sidebar reads the field's `query` from the block or item schema. The field
+  list summarizes the list as "{n} results" ("1 result"), counting the owner's resolved records.
+  The reference field view shows a summary line derived from the query, then the results as
+  read-only record cards in result order, each opening its record view and highlighting its
+  entry in the preview on hover. There is no Unlink, drag handle, record picker, Create item
+  or limit message, and an empty result shows only the summary. Summaries: dates read
+  "Newest 3 by published date" / "Oldest 5 by creation date" ("Newest first …" without a
+  limit); text fields read "First 2 by {field title}, A to Z" ("All by …" without a limit,
+  "Z to A" descending); without `orderBy`, "Oldest first by creation date". A record or
+  record-field selection stays valid while the record is among the owner's resolved results
+  (a query-backed list stores nothing to check), and falls back to the list view once it
+  leaves them.
 - Agent tools share the validation and resolution services; their reference guidance says
   never to write query-backed lists.
 - The playground's recent articles (`publishedAt` desc, limit 3) and article list (`title`

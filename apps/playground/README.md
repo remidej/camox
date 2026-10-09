@@ -174,9 +174,12 @@ membership and order, and the block stores nothing. Both blocks render with the 
 3. Click an article title in either list to edit it inline: the edit changes the shared
    article, so the other list and the author bio update too. A draft title change re-sorts
    the preview list, never the live one.
-4. Publish the pages. The publication review lists no articles for these blocks: query
+4. Select the recent articles block in the sidebar: its Articles row reads "3 results".
+   Drill in to see "Newest 3 by published date" above read-only article cards. There is
+   no Unlink, reordering or picker; click a card to edit that article.
+5. Publish the pages. The publication review lists no articles for these blocks: query
    results are not owned by the page, and editing a queried article never marks it Modified.
-5. Publish a fourth article from Content → Articles. The live recent list and article list
+6. Publish a fourth article from Content → Articles. The live recent list and article list
    include it without republishing either page. Republishing an older article keeps its
    place, because `publishedAt` is its first publication. These lists never block
    unpublishing or deleting an article.

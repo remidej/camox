@@ -17,6 +17,7 @@ import {
 import * as React from "react";
 
 import { SidebarLexicalEditor } from "@/core/components/lexical/SidebarLexicalEditor";
+import type { ReferenceQuery } from "@/core/lib/contentType";
 import type { FieldType } from "@/core/lib/fieldTypes";
 import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import {
@@ -52,6 +53,8 @@ export interface SchemaField {
   maxItems?: number;
   collectionId?: string;
   required?: boolean;
+  /** Query-backed reference lists: the query that defines their records. */
+  query?: ReferenceQuery<any>;
 }
 
 export const formatFieldName = (fieldName: string): string => {
@@ -78,6 +81,7 @@ const getSchemaFieldsInOrder = (schema: unknown): SchemaField[] => {
       maxItems: prop.maxItems as number | undefined,
       collectionId: prop.collectionId as string | undefined,
       required: prop.required === true,
+      query: prop.query as ReferenceQuery<any> | undefined,
     };
   });
 };
@@ -285,6 +289,7 @@ const ItemFieldsEditor = ({
                 fieldId={fieldId}
                 value={data[field.name]}
                 maxItems={field.maxItems}
+                query={field.query}
                 records={referenceList(references, field.name)}
                 onChange={(ids) => onFieldChange(field.name, ids)}
                 onOpenRecord={
