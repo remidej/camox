@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -131,7 +132,11 @@ const plan = Effect.fn("collections.plan")(function* (
       });
     }
   }
-  for (const { path, schema, content } of placements) {
+  for (const placement of placements) {
+    const { path, content } = placement;
+    // Query results are resolved content the page does not own, so they are never publication
+    // targets: query-backed lists are dropped before anything resolves.
+    const schema = withoutQueryBackedLists(placement.schema);
     const draft = yield* resolveReferences(ctx, scope.owner, schema, content, "draft");
     const live = yield* resolveReferences(ctx, scope.owner, schema, content, "live");
     for (const [field, reference] of referenceFields(schema)) {
@@ -171,6 +176,18 @@ const plan = Effect.fn("collections.plan")(function* (
   }
   return { targets: [...targets.values()], missingRequired };
 });
+
+/** A content schema without its query-backed reference lists. */
+function withoutQueryBackedLists(schema: unknown) {
+  const properties = (schema as { properties?: Record<string, object> } | null)?.properties;
+  if (!properties) return schema;
+  return {
+    ...(schema as object),
+    properties: Object.fromEntries(
+      Object.entries(properties).filter(([, field]) => !isQueryBacked(field)),
+    ),
+  };
+}
 
 export const referenceTargets = Effect.fn("collections.referenceTargets")(function* (
   ctx: ServiceContext,

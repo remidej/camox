@@ -1,3 +1,4 @@
+import { referenceQueryProblem, type SystemOrderKey } from "@camox/api-contract";
 import {
   Type as TypeBoxType,
   type TSchema,
@@ -19,6 +20,52 @@ export type ReferenceSchema<T extends Record<string, TSchema>> = TUnsafe<string 
 export type ReferenceListSchema<T extends Record<string, TSchema>> = TUnsafe<string[]> & {
   readonly [ReferenceContentBrand]: T;
   fieldType: "ReferenceList";
+};
+
+/* -------------------------------------------------------------------------------------------------
+ * Query-backed reference lists
+ * -----------------------------------------------------------------------------------------------*/
+
+/** A collection's content field named `key`, if it has one. */
+export function collectionField(
+  collection: Collection<any> | undefined,
+  key: string,
+): TSchema | undefined {
+  const properties = collection?._internal.contentSchema.properties;
+  return properties && Object.hasOwn(properties, key) ? properties[key] : undefined;
+}
+
+/** The keys a query can order a collection's records by: its text fields and system metadata. */
+export type OrderableKeys<T extends Record<string, TSchema>> =
+  | {
+      [K in keyof T & string]: T[K] extends { fieldType: "String" } ? K : never;
+    }[keyof T & string]
+  | SystemOrderKey;
+
+/** A single-key ordering: `{ title: "asc" }`. */
+export type QueryOrderBy<K extends string> = {
+  [P in K]: { [Q in P]: "asc" | "desc" } & { [Q in Exclude<K, P>]?: never };
+}[K];
+
+type Range<N extends number, Acc extends number[] = []> = Acc["length"] extends N
+  ? Acc[number]
+  : Range<N, [...Acc, Acc["length"]]>;
+/** 1 to 100: literal limits outside it are rejected; computed `number` limits are checked on sync. */
+type QueryLimit = Exclude<Range<101>, 0>;
+export type ValidQueryLimit<L extends number> = number extends L
+  ? number
+  : L extends QueryLimit
+    ? L
+    : never;
+
+/**
+ * Defines a query-backed list's membership and order in code: optionally one ordering key and a
+ * limit (at most, and by default, 100 records). Live pages list published records ordered by
+ * their published content; the preview lists drafts too. Ties break by record id.
+ */
+export type ReferenceQuery<T extends Record<string, TSchema>, L extends number = number> = {
+  orderBy?: QueryOrderBy<OrderableKeys<T>>;
+  limit?: L & ValidQueryLimit<L>;
 };
 
 declare const __CAMOX_ICON_IDS__: readonly string[];
@@ -431,15 +478,20 @@ export interface ContentFieldBuilder {
    * `toMarkdown` renders each linked record (one list item per record, in stored order);
    * the block's own `toMarkdown` includes the whole list through its token.
    *
+   * With `query`, the list is query-backed: code defines its membership and order, editors
+   * cannot pick, remove or reorder records, and nothing is stored on the block.
+   *
    * @example
    * field.referenceList(customers, { maxItems: 6, toMarkdown: (c) => [c.name] })
+   * field.referenceList(articles, { query: { orderBy: { publishedAt: "desc" }, limit: 3 } })
    */
-  referenceList: <T extends Record<string, TSchema>>(
+  referenceList: <T extends Record<string, TSchema>, const L extends number = number>(
     collection: Collection<T>,
     options?: {
       title?: string;
       description?: string;
       maxItems?: number;
+      query?: ReferenceQuery<T, L>;
       toMarkdown?: ToMarkdownBuilder<T>;
     },
   ) => ReferenceListSchema<T>;
@@ -506,8 +558,24 @@ export interface SettingBuilder {
  */
 export interface CollectionFieldBuilder extends Pick<
   ContentFieldBuilder,
-  "image" | "imageList" | "file" | "fileList" | "embed" | "referenceList"
+  "image" | "imageList" | "file" | "fileList" | "embed"
 > {
+  /**
+   * An ordered list of distinct records of another collection, e.g. an article's co-authors.
+   * Collections hold manual lists only: a query would fan out across a whole collection.
+   *
+   * @example
+   * field.referenceList(authors, { title: "Co-authors" })
+   */
+  referenceList: <T extends Record<string, TSchema>>(
+    collection: Collection<T>,
+    options?: {
+      title?: string;
+      description?: string;
+      maxItems?: number;
+      toMarkdown?: ToMarkdownBuilder<T>;
+    },
+  ) => ReferenceListSchema<T>;
   /**
    * Selects a record of another collection by identity, e.g. an article's author. Never
    * required: an unpublished record resolves empty on the live site.
@@ -540,6 +608,19 @@ export interface CollectionFieldBuilder extends Pick<
    * field.boolean({ default: false, title: "Featured" })
    */
   boolean: SettingBuilder["boolean"];
+}
+
+/**
+ * Checks a query against its collection, for callers that bypass the types (computed limits
+ * included); definition sync applies the same rules.
+ */
+function validateQuery(query: ReferenceQuery<any>, collection: Collection<any>) {
+  const problem = referenceQueryProblem(
+    query,
+    (key) => collectionField(collection, key)?.fieldType,
+  );
+  if (problem) throw new Error(`Query on "${collection._internal.id}": ${problem}`);
+  return query;
 }
 
 const settingKinds = new Set<string>(["Enum", "Boolean"]);
@@ -665,6 +746,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       title?: string;
       description?: string;
       maxItems?: number;
+      query?: ReferenceQuery<T, any>;
       toMarkdown?: ToMarkdownBuilder<T>;
     } = {},
   ) =>
@@ -676,6 +758,10 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       title: options.title ?? collection._internal.title,
       ...(options.description === undefined ? {} : { description: options.description }),
       ...(options.maxItems === undefined ? {} : { maxItems: options.maxItems }),
+      // A query-backed list stores nothing, so it has no default; editors never write it.
+      ...(options.query === undefined
+        ? { default: [] }
+        : { query: validateQuery(options.query, collection) }),
       ...(options.toMarkdown === undefined
         ? {}
         : {
@@ -686,7 +772,6 @@ export const contentFieldBuilder: ContentFieldBuilder = {
               collection._internal.contentSchema.properties as T,
             ),
           }),
-      default: [],
       // Used by the typed child scope, not a copy of a record's content.
       referenceSchema: collection._internal.contentSchema,
       labelField: collection._internal.label,
@@ -759,7 +844,12 @@ export const collectionFieldBuilder: CollectionFieldBuilder = {
   embed: contentFieldBuilder.embed,
   reference: (collection, options = {}) =>
     contentFieldBuilder.reference(collection, { title: options.title }),
-  referenceList: contentFieldBuilder.referenceList,
+  referenceList: (collection, options = {}) => {
+    if ("query" in options) {
+      throw new Error("Collections cannot hold query-backed reference lists");
+    }
+    return contentFieldBuilder.referenceList(collection, options);
+  },
 };
 
 /** Runs a block's builders so the rest of its definition works with plain schemas. */

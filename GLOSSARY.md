@@ -135,7 +135,7 @@ A field that selects a collection record by identity instead of copying its cont
 _Avoid_: Relation, link, foreign key
 
 **Reference List**:
-A field that selects an ordered list of distinct collection records by identity. The order belongs to the placement, not the records.
+A field that selects an ordered list of distinct collection records by identity. In a manual reference list, editors choose the records and the order belongs to the placement, not the records. In a query-backed reference list, code defines membership and order, and the records are resolved rather than chosen.
 _Avoid_: Relation list, multi-reference, collection field
 
 **Placement**:

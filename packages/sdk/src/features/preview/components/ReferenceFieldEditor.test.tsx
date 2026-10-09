@@ -8,6 +8,7 @@ import { act } from "react";
 
 import { createApp } from "@/core/createApp";
 import { createCollection } from "@/core/createCollection";
+import type { ReferenceQuery } from "@/core/lib/contentType";
 import {
   CollectionItemModalProvider,
   useCollectionItemModal,
@@ -73,6 +74,8 @@ async function renderReference(
     record?: NormalizedCollectionRecord | null;
     modal?: React.ReactNode;
     fieldId?: string;
+    /** Renders a query-backed reference list resolved to `record` instead of a reference. */
+    query?: ReferenceQuery<any>;
   } = {},
 ) {
   const window = new Window();
@@ -98,6 +101,7 @@ async function renderReference(
   });
   const { createRoot } = await import("react-dom/client");
   const { ReferenceFieldEditor } = await import("./ReferenceFieldEditor");
+  const { ReferenceListFieldEditor } = await import("./ReferenceListFieldEditor");
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
@@ -118,6 +122,17 @@ async function renderReference(
   let modal!: ReturnType<typeof useCollectionItemModal>;
   function Editor() {
     const [value, setValue] = React.useState<string | null>(options.value ?? null);
+    if (options.query) {
+      return (
+        <ReferenceListFieldEditor
+          collectionId="customers"
+          value={undefined}
+          query={options.query}
+          records={options.record ? [options.record] : []}
+          onOpenRecord={(id) => opened.push(id)}
+        />
+      );
+    }
     return (
       <ReferenceFieldEditor
         collectionId="customers"
@@ -424,6 +439,48 @@ void test("selecting an unset reference from the preview placeholder focuses its
     );
     await view.search("gra");
     assert.deepEqual(view.options(), ["GraceDraft"]);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+void test("a query-backed list summarizes how its query picks records", async () => {
+  const cases: { query: ReferenceQuery<any>; expected: string }[] = [
+    {
+      query: { orderBy: { publishedAt: "desc" }, limit: 3 },
+      expected: "Newest 3 by published date",
+    },
+    { query: { orderBy: { createdAt: "asc" }, limit: 5 }, expected: "Oldest 5 by creation date" },
+    { query: { orderBy: { publishedAt: "desc" } }, expected: "Newest first by published date" },
+    { query: { orderBy: { company: "asc" }, limit: 2 }, expected: "First 2 by Company, A to Z" },
+    { query: { orderBy: { name: "desc" } }, expected: "All by Name, Z to A" },
+    { query: {}, expected: "Oldest first by creation date" },
+  ];
+  for (const { query, expected } of cases) {
+    const view = await renderReference({ query });
+    try {
+      const summary = view.host.querySelector("[data-query-summary]")?.textContent;
+      assert.equal(summary, expected, JSON.stringify(query));
+    } finally {
+      await view.cleanup();
+    }
+  }
+});
+
+void test("a query-backed list shows its results as cards that open, with no list controls", async () => {
+  const view = await renderReference({
+    query: { orderBy: { name: "asc" } },
+    record: adaRecord,
+  });
+  try {
+    const card = view.host.querySelector<HTMLElement>("[data-record-card]");
+    assert.ok(card);
+    assert.match(card.textContent ?? "", /Ada\s*Published\s*Customers/);
+    for (const control of ["Unlink", "Reorder", "Select item", "Create item"]) {
+      assert.ok(!view.find(control), `no ${control} control`);
+    }
+    await view.click("Open Ada");
+    assert.deepEqual(view.opened, [ADA]);
   } finally {
     await view.cleanup();
   }

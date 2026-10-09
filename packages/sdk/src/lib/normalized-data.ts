@@ -33,6 +33,7 @@ export type NormalizedReferences = Record<
 
 /** A block or repeatable item, with the records its reference fields link. */
 type ReferenceBlock = {
+  id?: number;
   references?: NormalizedReferences;
 };
 const EMPTY_REFERENCE_BLOCKS: ReferenceBlock[] = [];
@@ -78,13 +79,32 @@ interface NormalizedDataContextValue {
   filesMap: Map<number, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
   recordsMap: Map<string, NormalizedCollectionRecord>;
+  /** Each block's resolved references, by block id. */
+  blockReferences: Map<number, NormalizedReferences>;
 }
 
 const NormalizedDataContext = React.createContext<NormalizedDataContextValue>({
   filesMap: new Map(),
   itemsMap: new Map(),
   recordsMap: new Map(),
+  blockReferences: new Map(),
 });
+
+/**
+ * The record ids a query-backed list resolved to on the server, in order. The block or item
+ * stores no value for it: its owner's resolved references carry the results.
+ */
+export function queryResultIds(
+  data: NormalizedDataContextValue,
+  owner: { blockId: number; itemId?: number },
+  fieldName: string,
+) {
+  const references =
+    owner.itemId == null
+      ? data.blockReferences.get(owner.blockId)
+      : (data.itemsMap.get(owner.itemId) as ReferenceBlock | undefined)?.references;
+  return referenceList(references, fieldName).map((record) => record.id);
+}
 
 export const NormalizedDataProvider = ({
   files,
@@ -107,6 +127,11 @@ export const NormalizedDataProvider = ({
           linkedRecords((owner as ReferenceBlock).references).map(
             (record) => [record.id, record] as const,
           ),
+        ),
+      ),
+      blockReferences: new Map(
+        blocks.flatMap((block) =>
+          block.id == null ? [] : [[block.id, block.references ?? {}] as const],
         ),
       ),
     }),

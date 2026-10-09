@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import {
   Type as TypeBoxType,
   type TArray,
@@ -38,7 +39,12 @@ import {
 } from "../../features/preview/previewStore";
 import { referencePickerFocus } from "../../features/preview/referencePickerFocus";
 import { useOptionalCamoxApp } from "../../features/provider/components/CamoxAppContext";
-import { useNormalizedData, isItemMarker, resolveAssetValue } from "../../lib/normalized-data";
+import {
+  useNormalizedData,
+  isItemMarker,
+  queryResultIds,
+  resolveAssetValue,
+} from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
 import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
@@ -2521,7 +2527,9 @@ export function createEditableBlock<
     );
   };
 
-  // An empty list shows a placeholder in edit mode that opens the sidebar's record picker.
+  // An empty manual list shows a placeholder in edit mode that opens the sidebar's record
+  // picker. A query-backed list renders the records its query resolved to, and nothing when
+  // there are none: editors cannot add to it.
   const ReferenceList = <K extends ReferenceListKeys<TSchemaShape>>({
     name,
     children,
@@ -2530,7 +2538,8 @@ export function createEditableBlock<
     children: (scope: ReferenceScope<ReferenceContent<TSchemaShape[K]>>) => React.ReactNode;
   }): React.ReactNode => {
     const block = React.use(Context);
-    const { recordsMap } = useNormalizedData();
+    const normalizedData = useNormalizedData();
+    const { recordsMap } = normalizedData;
     const { window: iframeWindow } = useFrame();
     if (!block) throw new Error("ReferenceList must be used within a Block Component");
     const editable = useIsEditable(block.mode);
@@ -2546,9 +2555,13 @@ export function createEditableBlock<
       { fieldId },
     );
     const placeholderOverlay = useOverlayState(listHovered);
-    const records = resolveReferenceList(stored, field.collectionId, recordsMap);
+    const queryBacked = isQueryBacked(field);
+    const ids = queryBacked
+      ? queryResultIds(normalizedData, { blockId: block.blockId, itemId: owner.itemId }, fieldName)
+      : stored;
+    const records = resolveReferenceList(ids, field.collectionId, recordsMap);
     if (records.length === 0) {
-      if (!editable) return null;
+      if (!editable || queryBacked) return null;
       return (
         <ReferencePlaceholder
           fieldId={fieldId}

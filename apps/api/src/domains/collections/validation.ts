@@ -1,3 +1,4 @@
+import { isQueryBacked, isSystemOrderKey } from "@camox/api-contract";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -49,6 +50,8 @@ const property = z
     required: z.literal(false).optional(),
     referenceSchema: z.unknown().optional(),
     labelField: z.string().optional(),
+    // Parsed only to reject it by name: collections never hold query-backed lists.
+    query: z.unknown().optional(),
   })
   .strict();
 
@@ -72,8 +75,16 @@ export const contentSchemaInput = z
       ctx.addIssue({ code: "custom", message: "All collection fields must be required" });
     }
     for (const [key, field] of Object.entries(schema.properties)) {
-      if (["__proto__", "constructor", "prototype"].includes(key)) {
+      // `createdAt` and `publishedAt` name record metadata in query-backed lists' `orderBy`.
+      if (["__proto__", "constructor", "prototype"].includes(key) || isSystemOrderKey(key)) {
         ctx.addIssue({ code: "custom", message: `${key}: reserved field name` });
+      }
+      // Second-hop resolution never fans out across a whole collection.
+      if (isQueryBacked(field)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `${key}: query-backed reference lists are not supported in collections`,
+        });
       }
       let expected: string | undefined = "object";
       if (["String", "Enum", "Embed"].includes(field.fieldType)) expected = "string";

@@ -22,6 +22,7 @@ import { useQuery } from "@tanstack/react-query";
 import { GripVertical, ListOrdered, X } from "lucide-react";
 import * as React from "react";
 
+import { collectionField, type ReferenceQuery } from "@/core/lib/contentType";
 import { referenceListIds } from "@/core/lib/reference";
 import { useCollectionItemModal } from "@/features/content/CollectionItemModalContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
@@ -39,6 +40,63 @@ import { RecordCombobox } from "./RecordCombobox";
 const sameIds = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((id, index) => id === b[index]);
 
+type EntryHover = { fieldId: string; postToIframe: (message: OverlayMessage) => void };
+type RecordHover = {
+  fieldId: (recordId: string) => string;
+  postToIframe: (message: OverlayMessage) => void;
+};
+
+/** The hover for one record's card, when the list highlights entries in the preview. */
+function entryHover(recordHover: RecordHover | undefined, recordId: string) {
+  if (!recordHover) return undefined;
+  return { fieldId: recordHover.fieldId(recordId), postToIframe: recordHover.postToIframe };
+}
+
+/** Highlights a record's entry in the preview while its card is hovered. */
+function useEntryHover(hover: EntryHover | undefined) {
+  const [isHovered, setIsHovered] = React.useState(false);
+  const hoverFieldId = hover?.fieldId;
+  const postToIframe = hover?.postToIframe;
+
+  // Opening the record unmounts the card without a mouseleave; pair the messages on cleanup.
+  React.useEffect(() => {
+    if (!isHovered || hoverFieldId === undefined || !postToIframe) return;
+    postToIframe({ type: "CAMOX_HOVER_FIELD", fieldId: hoverFieldId });
+    return () => postToIframe({ type: "CAMOX_HOVER_FIELD_END", fieldId: hoverFieldId });
+  }, [isHovered, hoverFieldId, postToIframe]);
+
+  return { onMouseEnter: () => setIsHovered(true), onMouseLeave: () => setIsHovered(false) };
+}
+
+/**
+ * How a query picks its records, for editors: "Newest 3 by published date",
+ * "First 3 by Title, A to Z". Without `orderBy`, records come in creation order.
+ */
+function describeQuery(query: ReferenceQuery<any>, fieldTitle: (key: string) => string) {
+  const [key, direction] = Object.entries(query.orderBy ?? { createdAt: "asc" })[0]!;
+  const { limit } = query;
+  if (key === "createdAt" || key === "publishedAt") {
+    const head = direction === "desc" ? "Newest" : "Oldest";
+    const date = key === "publishedAt" ? "published date" : "creation date";
+    return `${head} ${limit ?? "first"} by ${date}`;
+  }
+  const head = limit === undefined ? "All" : `First ${limit}`;
+  return `${head} by ${fieldTitle(key)}, ${direction === "desc" ? "Z to A" : "A to Z"}`;
+}
+
+/** A query result: it can be opened, never unlinked or moved. */
+function QueryResultCard({
+  hover,
+  ...card
+}: React.ComponentProps<typeof RecordCard> & { hover?: EntryHover }) {
+  const hoverHandlers = useEntryHover(hover);
+  return (
+    <li {...hoverHandlers} className="min-w-0">
+      <RecordCard {...card} />
+    </li>
+  );
+}
+
 function SortableRecordCard({
   id,
   label,
@@ -54,27 +112,17 @@ function SortableRecordCard({
   status?: PublicationStatus;
   onOpen?: () => void;
   onUnlink: () => void;
-  hover?: { fieldId: string; postToIframe: (message: OverlayMessage) => void };
+  hover?: EntryHover;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
   });
-  const [isHovered, setIsHovered] = React.useState(false);
-  const hoverFieldId = hover?.fieldId;
-  const postToIframe = hover?.postToIframe;
-
-  // Opening the record unmounts the card without a mouseleave; pair the messages on cleanup.
-  React.useEffect(() => {
-    if (!isHovered || hoverFieldId === undefined || !postToIframe) return;
-    postToIframe({ type: "CAMOX_HOVER_FIELD", fieldId: hoverFieldId });
-    return () => postToIframe({ type: "CAMOX_HOVER_FIELD_END", fieldId: hoverFieldId });
-  }, [isHovered, hoverFieldId, postToIframe]);
+  const hoverHandlers = useEntryHover(hover);
 
   return (
     <li
       ref={setNodeRef}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      {...hoverHandlers}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -133,6 +181,7 @@ export function ReferenceListFieldEditor({
   fieldId,
   value,
   maxItems,
+  query,
   records: hydratedRecords = [],
   onChange,
   onOpenRecord,
@@ -145,16 +194,18 @@ export function ReferenceListFieldEditor({
   fieldId?: string;
   value: unknown;
   maxItems?: number;
+  /**
+   * Makes the list query-backed: its records are the query's resolved results (`records`),
+   * shown read-only, since code defines their membership and order.
+   */
+  query?: ReferenceQuery<any>;
   /** Hydrated records from the block bundle, used for card labels before records load. */
   records?: readonly NormalizedCollectionRecord[];
   onChange?: (ids: string[]) => void | Promise<void>;
   /** Opens a linked record's view, where its fields are edited. */
   onOpenRecord?: (id: string) => void;
   /** Highlights a linked record's entry in the preview while its card is hovered. */
-  recordHover?: {
-    fieldId: (recordId: string) => string;
-    postToIframe: (message: OverlayMessage) => void;
-  };
+  recordHover?: RecordHover;
   drill?: {
     label: string;
     fieldId: string;
@@ -194,6 +245,20 @@ export function ReferenceListFieldEditor({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  if (drill && query) {
+    const count = hydratedRecords.length;
+    return (
+      <DrillRow
+        label={drill.label}
+        preview={`${count} ${count === 1 ? "result" : "results"}`}
+        Icon={ListOrdered}
+        onClick={drill.onClick}
+        hover={{ variant: "field", fieldId: drill.fieldId }}
+        postToIframe={drill.postToIframe}
+      />
+    );
+  }
+
   if (drill) {
     return (
       <DrillRow
@@ -206,6 +271,31 @@ export function ReferenceListFieldEditor({
         hover={{ variant: "field", fieldId: drill.fieldId }}
         postToIframe={drill.postToIframe}
       />
+    );
+  }
+
+  if (query) {
+    const fieldTitle = (key: string) => collectionField(collection, key)?.title ?? key;
+    return (
+      <div className="min-w-0 space-y-3">
+        <p data-query-summary className="text-muted-foreground px-1 text-xs">
+          {describeQuery(query, fieldTitle)}
+        </p>
+        {hydratedRecords.length > 0 && (
+          <ul className="flex min-w-0 flex-col gap-2">
+            {hydratedRecords.map((record) => (
+              <QueryResultCard
+                key={record.id}
+                label={record.label}
+                collectionTitle={collectionTitle}
+                status={records.data?.find((option) => option.id === record.id)?.status}
+                onOpen={onOpenRecord ? () => onOpenRecord(record.id) : undefined}
+                hover={entryHover(recordHover, record.id)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
     );
   }
 
@@ -263,12 +353,7 @@ export function ReferenceListFieldEditor({
                     status={summary?.status}
                     onOpen={onOpenRecord ? () => onOpenRecord(id) : undefined}
                     onUnlink={() => change(ids.filter((linked) => linked !== id))}
-                    hover={
-                      recordHover && {
-                        fieldId: recordHover.fieldId(id),
-                        postToIframe: recordHover.postToIframe,
-                      }
-                    }
+                    hover={entryHover(recordHover, id)}
                   />
                 );
               })}

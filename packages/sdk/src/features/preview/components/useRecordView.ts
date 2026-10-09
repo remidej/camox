@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
@@ -5,6 +6,7 @@ import { referenceListIds } from "@/core/lib/reference";
 import { useProjectSlug } from "@/lib/auth";
 import {
   placedRecords,
+  referenceList,
   type NormalizedCollectionRecord,
   type NormalizedReferences,
 } from "@/lib/normalized-data";
@@ -12,7 +14,7 @@ import { collectionQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore, recordPlacement, type EditingOwner, type Selection } from "../previewStore";
-import { contentFieldSchema } from "./contentFieldSchema";
+import { contentFieldSchema, type ContentFieldSchema } from "./contentFieldSchema";
 import { formatFieldName } from "./ItemFieldsEditor";
 import type { PublicationStatus } from "./PageStatusBadge";
 
@@ -40,11 +42,20 @@ export type RecordView = {
 };
 
 /**
- * Whether a reference field's stored value still links the record: the id a reference stores,
- * or any id a reference list contains.
+ * Whether a reference field still links the record: the id a reference stores, any id a
+ * reference list contains, or any record a query-backed list resolved to (it stores nothing).
  */
-function linksRecord(fieldType: string | undefined, stored: unknown, recordId: string) {
-  if (fieldType === "ReferenceList") return referenceListIds(stored).includes(recordId);
+function linksRecord(
+  field: ContentFieldSchema | undefined,
+  owner: { content: unknown; references?: NormalizedReferences },
+  fieldName: string,
+  recordId: string,
+) {
+  if (isQueryBacked(field)) {
+    return referenceList(owner.references, fieldName).some((record) => record.id === recordId);
+  }
+  const stored = (owner.content as Record<string, unknown> | undefined)?.[fieldName];
+  if (field?.fieldType === "ReferenceList") return referenceListIds(stored).includes(recordId);
   return stored === recordId;
 }
 
@@ -90,11 +101,7 @@ export function useRecordView({
   const outerStale =
     recordSelection != null &&
     placer != null &&
-    !linksRecord(
-      referenceField?.fieldType,
-      (placer.content as Record<string, unknown> | undefined)?.[recordSelection.fieldName],
-      recordSelection.recordId,
-    );
+    !linksRecord(referenceField, placer, recordSelection.fieldName, recordSelection.recordId);
   // A record the field just linked shows once the placer's hydrated records include it.
   const outerRecord =
     recordSelection && !outerStale
@@ -113,7 +120,7 @@ export function useRecordView({
   const nestedStale =
     nested != null &&
     outerRecord != null &&
-    !linksRecord(nestedField?.fieldType, outerRecord.content[nested.fieldName], nested.recordId);
+    !linksRecord(nestedField, outerRecord, nested.fieldName, nested.recordId);
   const nestedRecord =
     nested && outerRecord && !nestedStale
       ? placedRecords(outerRecord.references, nested.fieldName).find(

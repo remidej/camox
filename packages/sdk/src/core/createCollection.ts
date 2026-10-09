@@ -1,3 +1,4 @@
+import { SYSTEM_ORDER_KEYS, type SystemOrderKey } from "@camox/api-contract";
 import { Type as TypeBox, type TObject, type TSchema } from "@sinclair/typebox";
 
 import {
@@ -7,6 +8,9 @@ import {
 } from "./lib/contentType";
 
 export type { CollectionFieldBuilder };
+
+/** Record metadata names, reserved so query `orderBy` keys stay unambiguous. */
+type ReservedFieldNames = { [K in SystemOrderKey]?: never };
 
 type TextKey<T extends Record<string, TSchema>> = {
   [K in keyof T & string]: T[K] extends { fieldType: "String" } ? K : never;
@@ -18,7 +22,7 @@ type TextKey<T extends Record<string, TSchema>> = {
  * `T` before the `content` callback is inferred.
  */
 export function createCollection<
-  const T extends Record<string, TSchema>,
+  const T extends Record<string, TSchema> & ReservedFieldNames,
   const L extends string,
 >(options: {
   id: string;
@@ -29,6 +33,11 @@ export function createCollection<
 }): Collection<T> {
   if (!options.id.trim()) throw new Error("Collection id is required");
   const content: T = options.content(collectionFieldBuilder);
+  for (const key of SYSTEM_ORDER_KEYS) {
+    if (Object.hasOwn(content, key)) {
+      throw new Error(`Collection "${options.id}" field "${key}": reserved field name`);
+    }
+  }
   const supported = new Set([
     "String",
     "Boolean",
