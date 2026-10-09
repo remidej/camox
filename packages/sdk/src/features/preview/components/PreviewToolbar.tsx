@@ -31,7 +31,7 @@ export const PreviewToolbar = ({
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
   const { data: comments } = usePageComments(pageId);
-  const commentCount = comments?.length ?? 0;
+  const hasComments = comments?.some((comment) => !comment.resolved) ?? false;
 
   if (isToolbarHidden) return null;
 
@@ -75,12 +75,18 @@ export const PreviewToolbar = ({
                   previewStore.send({ type: "setCommentMode", enabled });
                 }}
                 variant="outline"
+                className="relative"
               />
             }
           >
             <MessageCircle />
             Feedback
-            {commentCount > 0 && <span className="text-muted-foreground">({commentCount})</span>}
+            {hasComments && (
+              <span
+                aria-hidden
+                className="absolute -top-1 -right-1 size-2.5 rounded-full bg-blue-500"
+              />
+            )}
           </Tooltip.TooltipTrigger>
           <Tooltip.TooltipContent>Leave feedback for agents</Tooltip.TooltipContent>
         </Tooltip.Tooltip>
