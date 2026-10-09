@@ -90,15 +90,18 @@ export function revealCommentTarget(pageId: number, target: CommentTarget, field
   });
 }
 
+const initialCommentsContext = {
+  draft: null as CommentDraft | null,
+  activeId: null as string | null,
+  focusTarget: null as CommentTarget | null,
+  popover: null as CommentPopover | null,
+};
+
 /** Server comments belong to the query cache; this store holds composer UI only. */
 export const previewCommentsStore = createStore({
-  context: {
-    draft: null as CommentDraft | null,
-    activeId: null as string | null,
-    focusTarget: null as CommentTarget | null,
-    popover: null as CommentPopover | null,
-  },
+  context: initialCommentsContext,
   on: {
+    reset: () => initialCommentsContext,
     openPopover: (context, event: CommentPopover) => ({
       ...context,
       popover: { pageId: event.pageId, target: event.target, anchor: event.anchor },

@@ -7,12 +7,13 @@ interface CanvasView {
   fitted: boolean;
 }
 
-/** Session-only workspace views. Module lifetime outlives canvas route mounts. */
+/** Workspace views outlive canvas mounts, but not the preview that hosts them. */
 export const canvasStore = createStore({
   context: {
     views: {} as Partial<Record<string, CanvasView>>,
   },
   on: {
+    reset: () => ({ views: {} }),
     rememberView: (context, event: { workspaceKey: string; view: CanvasView }) => {
       const previous = context.views[event.workspaceKey];
       const { camera, fitted } = event.view;

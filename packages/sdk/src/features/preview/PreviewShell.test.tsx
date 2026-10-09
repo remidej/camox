@@ -202,6 +202,8 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
 
     await t.test("shared chrome has no duplicate navbar or toolbar", async () => {
       for (const commenting of [false, true]) {
+        // Unmounting the previous shell resets the mode, so set it afterwards.
+        await dom.render(null);
         await React.act(async () => {
           store.send({ type: "enterEditMode" });
           store.send({ type: "setCommentMode", enabled: commenting });
@@ -243,6 +245,46 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
   } finally {
     await dom.close();
     reset();
+  }
+});
+
+void test("leaving the preview resets preview, comment and canvas state", async () => {
+  const dom = await setup();
+  const { PreviewShell } = await import("./CamoxPreview");
+  const { previewStore } = await import("./previewStore");
+  const { previewCommentsStore } = await import("./previewCommentsStore");
+  const { canvasStore } = await import("../canvas/canvasStore");
+  const pageData = {
+    page: { id: 3, status: "draft", livePublishedCheckpointId: 1 },
+    projectName: "Test",
+  } as React.ComponentProps<typeof PreviewShell>["pageData"];
+  const initialPreview = previewStore.getSnapshot().context;
+  const initialComments = previewCommentsStore.getSnapshot().context;
+  try {
+    await dom.render(
+      <PreviewShell pageData={pageData}>
+        <p data-content>Site content</p>
+      </PreviewShell>,
+    );
+    await React.act(async () => {
+      previewStore.send({ type: "enterEditMode" });
+      previewStore.send({ type: "setViewportMode", mode: "mobile" });
+      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 9 });
+      previewCommentsStore.send({ type: "selectComment", id: "comment" });
+      canvasStore.send({
+        type: "rememberView",
+        workspaceKey: "workspace",
+        view: { camera: { x: 1, y: 2, scale: 0.5 }, fitted: false },
+      });
+    });
+    assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
+
+    await dom.render(null);
+    assert.deepEqual(previewStore.getSnapshot().context, initialPreview);
+    assert.deepEqual(previewCommentsStore.getSnapshot().context, initialComments);
+    assert.deepEqual(canvasStore.getSnapshot().context.views, {});
+  } finally {
+    await dom.close();
   }
 });
 

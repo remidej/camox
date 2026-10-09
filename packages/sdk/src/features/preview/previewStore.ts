@@ -158,18 +158,22 @@ interface PreviewContext {
   iframeElement: HTMLIFrameElement | null;
 }
 
+const initialPreviewContext: PreviewContext = {
+  mode: "previewing-draft",
+  isToolbarHidden: false,
+  addBlockDialog: null,
+  isCreatePageModalOpen: false,
+  editingPageId: null,
+  viewportMode: "full",
+  editingContext: null,
+  iframeElement: null,
+};
+
 export const previewStore = createStore({
-  context: {
-    mode: "previewing-draft",
-    isToolbarHidden: false,
-    addBlockDialog: null,
-    isCreatePageModalOpen: false,
-    editingPageId: null,
-    viewportMode: "full",
-    editingContext: null,
-    iframeElement: null,
-  } as PreviewContext,
+  context: initialPreviewContext,
   on: {
+    /** Leaving the preview discards its session; returning starts fresh. */
+    reset: () => initialPreviewContext,
     setCommentMode: (context, event: { enabled: boolean }) => {
       if (!selectIsEditMode({ context })) return context;
       const commenting = event.enabled;

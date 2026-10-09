@@ -13,6 +13,7 @@ import { NormalizedDataProvider, seedBlockCaches, usePageBlocks } from "@/lib/no
 import { blockQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { canvasStore } from "../canvas/canvasStore";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
@@ -28,6 +29,7 @@ import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbar } from "./components/PreviewToolbar";
+import { previewCommentsStore } from "./previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
 import {
@@ -375,6 +377,16 @@ export const PreviewShell = ({
   const hasLiveCheckpoint = pageData
     ? pageData.page.livePublishedCheckpointId != null
     : hasLiveVersion;
+
+  // Stores outlive this component; studio routes unmount it, so start over on return.
+  React.useEffect(
+    () => () => {
+      previewStore.send({ type: "reset" });
+      previewCommentsStore.send({ type: "reset" });
+      canvasStore.send({ type: "reset" });
+    },
+    [],
+  );
 
   React.useEffect(() => {
     if (!isMobileStudio) return;
