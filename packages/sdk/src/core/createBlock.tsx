@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import { Type as TypeBoxType } from "@sinclair/typebox";
 import { useQuery } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
@@ -362,10 +363,9 @@ function createViewBlock(options: EditableOptions) {
     const schema = useReferenceField(name);
     const stored = useValue(name);
     // A query-backed list stores nothing: the server resolved its records for the owner.
-    const ids =
-      schema.query === undefined
-        ? stored
-        : queryResultIds(normalizedData, { blockId: block.blockId, itemId: item?.itemId }, name);
+    const ids = isQueryBacked(schema)
+      ? queryResultIds(normalizedData, { blockId: block.blockId, itemId: item?.itemId }, name)
+      : stored;
     const { recordsMap } = normalizedData;
     return resolveReferenceList(ids, schema.collectionId, recordsMap).map((record) => (
       <RecordScope

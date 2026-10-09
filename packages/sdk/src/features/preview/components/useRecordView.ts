@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
@@ -50,7 +51,7 @@ function linksRecord(
   fieldName: string,
   recordId: string,
 ) {
-  if (field?.query !== undefined) {
+  if (isQueryBacked(field)) {
     return referenceList(owner.references, fieldName).some((record) => record.id === recordId);
   }
   const stored = (owner.content as Record<string, unknown> | undefined)?.[fieldName];

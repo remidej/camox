@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import { Validator, type Schema } from "@cfworker/json-schema";
 import { Effect } from "effect";
 
@@ -170,7 +171,7 @@ function adaptSchema(
     out.required = schema.required.filter((key) => {
       const property = schema.properties?.[key];
       if (typeof property !== "object") return true;
-      if (property.fieldType === "ReferenceList" && property.query !== undefined) return false;
+      if (property.fieldType === "ReferenceList" && isQueryBacked(property)) return false;
       return !assetTypes.has(property.fieldType);
     });
   }

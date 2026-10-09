@@ -256,7 +256,9 @@ of remaining decision #4.
   `limit` is an integer from 1 to 100 and defaults to the hard cap of 100. There is no
   `where` filtering in v1. Types reject unknown keys, several keys and literal limits outside
   1–100; the builder and definition sync (`validateReferenceSchema`, checking keys against the
-  `referenceSchema` the field carries) reject the same, computed limits included.
+  `referenceSchema` the field carries) reject the same, computed limits included. Both apply
+  the rules `@camox/api-contract` shares (`referenceQueryProblem`, `QUERY_LIMIT_CAP`,
+  `SYSTEM_ORDER_KEYS`, `isQueryBacked`).
 - `createdAt` and `publishedAt` are reserved collection field names, in types, in
   `createCollection` and at collection sync.
 - The query is part of the definition. A query-backed list has no `default` and stores
@@ -267,20 +269,24 @@ not written`.
 - Lists are accepted in block content and repeatable item content at any repeater depth.
   Settings, nested objects and single references reject a query; collection schemas reject
   query-backed lists, so second-hop resolution never fans out across a collection.
-- Resolution (`resolveReferences`) loads the collection's records and orders them in memory:
+- Resolution (`resolveReferences`) picks the result ids first, then resolves only those:
   - draft reads every record by its draft content; live reads published records only, by
     their published revision's content, so a draft title change never re-sorts a live list;
-  - `publishedAt` is the earliest `auto-publish` revision (falling back to the current
-    published revision), so republishing never bumps a record; in preview, never-published
-    records sort as published now;
-  - text compares the plain text with the ICU English collation, numbers by value
-    (`Intl.Collator("en", { numeric: true })`): case-insensitive, "Article 2" before
-    "Article 10". Missing or empty values sort last in either direction;
-  - ties break by record id, ascending. Without `orderBy`, records keep creation order
-    (`createdAt` ascending);
+  - `createdAt` and `publishedAt` order, tie-break and limit in SQL, so only `limit` ids load.
+    `publishedAt` is the earliest `auto-publish` revision (falling back to the current
+    published revision), grouped once per query rather than looked up per record, so
+    republishing never bumps a record; in preview, never-published records sort as published
+    now;
+  - text fields order in memory, since the collation is ICU's, not SQLite's: one query loads
+    each candidate's id and raw field value (never whole records), and the plain text compares
+    with the ICU English collation, numbers by value
+    (`Intl.Collator("en", { numeric: true, sensitivity: "accent" })`): case-insensitive,
+    "Article 2" before "Article 10". Missing or empty values sort last in either direction;
+  - ties break by record id, ascending, so text differing only by case stays deterministic.
+    Without `orderBy`, records keep creation order (`createdAt` ascending);
   - results are first-hop records and resolve their own references (the two-hop rule).
-    No stored first-publication column was added; revisit if large collections make in-memory
-    ordering slow.
+    No stored first-publication column or text sort key was added; revisit if large
+    collections make text ordering slow.
 - Query results are resolved content, not placements. Migration `0033_query_reference_lists`
   redefines `collection_reference_uses` to skip list fields carrying a `query`, so they never
   block deleting or unpublishing a record and never mark a page or layout Modified. The

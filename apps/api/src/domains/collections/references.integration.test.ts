@@ -1535,6 +1535,9 @@ async function queryFixture() {
     byTitleDesc: queryList({ orderBy: { title: "desc" } }),
     byCreation: queryList({ orderBy: { createdAt: "asc" } }),
     unordered: queryList({}),
+    firstByTitle: queryList({ orderBy: { title: "asc" }, limit: 2 }),
+    newest: queryList({ orderBy: { createdAt: "desc" }, limit: 2 }),
+    firstPublished: queryList({ orderBy: { publishedAt: "asc" }, limit: 4 }),
     recent: queryList({ orderBy: { publishedAt: "desc" }, limit: 3 }, [
       "## {{title}}",
       "{{excerpt}}",
@@ -1776,6 +1779,42 @@ describe("query-backed reference lists", () => {
     const tied = [alpha, late].sort((a, b) => (a.id < b.id ? -1 : 1));
     expect((await f.bundle("live")).block.references.recent).toMatchObject(
       [...tied, charlie].map(({ id }) => ({ id })),
+    );
+  });
+
+  it("compares text case-insensitively, breaking equal text by id in either direction", async () => {
+    const f = await queryFixture();
+    const lower = await f.create("echo", 6000);
+    const upper = await f.create("Echo", 7000);
+    const tied = [lower, upper].map(({ id }) => id).sort();
+    const ids = async (field: "byTitle" | "byTitleDesc") =>
+      ((await f.bundle("draft")).block.references[field] as ResolvedReference[])
+        .map(({ id }) => id)
+        .filter((id) => tied.includes(id));
+    expect(await ids("byTitle")).toEqual(tied);
+    expect(await ids("byTitleDesc")).toEqual(tied);
+  });
+
+  it("applies limits after ordering by text, creation or first publication, draft and live", async () => {
+    const f = await queryFixture();
+    const { delta, untitled } = f.records;
+    expect(await f.titles("firstByTitle", "draft")).toEqual(["alpha", "Bravo"]);
+    expect(await f.titles("firstByTitle", "live")).toEqual(["alpha", "Bravo"]);
+    expect(await f.titles("newest", "draft")).toEqual(["", "Delta"]);
+    expect(await f.titles("newest", "live")).toEqual(["Charlie", "alpha"]);
+    // Never-published drafts sort as published now, after every published record.
+    expect(await f.titles("firstPublished", "live")).toEqual(["Bravo", "Charlie", "alpha"]);
+    const [firstDraft] = [delta, untitled].sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect((await f.bundle("draft")).block.references.firstPublished).toMatchObject(
+      [f.records.bravo, f.records.charlie, f.records.alpha, firstDraft].map(({ id }) => ({ id })),
+    );
+    // Equal creation times break by id ascending, whatever the direction.
+    const twins = [await f.create("Twin", 9000), await f.create("Twin", 9000)];
+    expect((await f.bundle("draft")).block.references.newest).toMatchObject(
+      twins
+        .map(({ id }) => id)
+        .sort()
+        .map((id) => ({ id })),
     );
   });
 

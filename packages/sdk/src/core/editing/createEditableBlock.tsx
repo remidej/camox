@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import {
   Type as TypeBoxType,
   type TArray,
@@ -2554,13 +2555,13 @@ export function createEditableBlock<
       { fieldId },
     );
     const placeholderOverlay = useOverlayState(listHovered);
-    const queried = field.query !== undefined;
-    const ids = queried
+    const queryBacked = isQueryBacked(field);
+    const ids = queryBacked
       ? queryResultIds(normalizedData, { blockId: block.blockId, itemId: owner.itemId }, fieldName)
       : stored;
     const records = resolveReferenceList(ids, field.collectionId, recordsMap);
     if (records.length === 0) {
-      if (!editable || queried) return null;
+      if (!editable || queryBacked) return null;
       return (
         <ReferencePlaceholder
           fieldId={fieldId}

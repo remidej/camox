@@ -22,7 +22,7 @@ import { useQuery } from "@tanstack/react-query";
 import { GripVertical, ListOrdered, X } from "lucide-react";
 import * as React from "react";
 
-import type { ReferenceQuery } from "@/core/lib/contentType";
+import { collectionField, type ReferenceQuery } from "@/core/lib/contentType";
 import { referenceListIds } from "@/core/lib/reference";
 import { useCollectionItemModal } from "@/features/content/CollectionItemModalContext";
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
@@ -41,6 +41,16 @@ const sameIds = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((id, index) => id === b[index]);
 
 type EntryHover = { fieldId: string; postToIframe: (message: OverlayMessage) => void };
+type RecordHover = {
+  fieldId: (recordId: string) => string;
+  postToIframe: (message: OverlayMessage) => void;
+};
+
+/** The hover for one record's card, when the list highlights entries in the preview. */
+function entryHover(recordHover: RecordHover | undefined, recordId: string) {
+  if (!recordHover) return undefined;
+  return { fieldId: recordHover.fieldId(recordId), postToIframe: recordHover.postToIframe };
+}
 
 /** Highlights a record's entry in the preview while its card is hovered. */
 function useEntryHover(hover: EntryHover | undefined) {
@@ -195,10 +205,7 @@ export function ReferenceListFieldEditor({
   /** Opens a linked record's view, where its fields are edited. */
   onOpenRecord?: (id: string) => void;
   /** Highlights a linked record's entry in the preview while its card is hovered. */
-  recordHover?: {
-    fieldId: (recordId: string) => string;
-    postToIframe: (message: OverlayMessage) => void;
-  };
+  recordHover?: RecordHover;
   drill?: {
     label: string;
     fieldId: string;
@@ -268,12 +275,7 @@ export function ReferenceListFieldEditor({
   }
 
   if (query) {
-    const fieldTitle = (key: string) => {
-      const field = collection?._internal.contentSchema.properties[key] as
-        | { title?: string }
-        | undefined;
-      return field?.title ?? key;
-    };
+    const fieldTitle = (key: string) => collectionField(collection, key)?.title ?? key;
     return (
       <div className="min-w-0 space-y-3">
         <p data-query-summary className="text-muted-foreground px-1 text-xs">
@@ -288,12 +290,7 @@ export function ReferenceListFieldEditor({
                 collectionTitle={collectionTitle}
                 status={records.data?.find((option) => option.id === record.id)?.status}
                 onOpen={onOpenRecord ? () => onOpenRecord(record.id) : undefined}
-                hover={
-                  recordHover && {
-                    fieldId: recordHover.fieldId(record.id),
-                    postToIframe: recordHover.postToIframe,
-                  }
-                }
+                hover={entryHover(recordHover, record.id)}
               />
             ))}
           </ul>
@@ -356,12 +353,7 @@ export function ReferenceListFieldEditor({
                     status={summary?.status}
                     onOpen={onOpenRecord ? () => onOpenRecord(id) : undefined}
                     onUnlink={() => change(ids.filter((linked) => linked !== id))}
-                    hover={
-                      recordHover && {
-                        fieldId: recordHover.fieldId(id),
-                        postToIframe: recordHover.postToIframe,
-                      }
-                    }
+                    hover={entryHover(recordHover, id)}
                   />
                 );
               })}

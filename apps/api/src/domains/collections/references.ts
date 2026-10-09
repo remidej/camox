@@ -1,4 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { isQueryBacked, QUERY_LIMIT_CAP, referenceQueryProblem } from "@camox/api-contract";
+import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -85,11 +87,12 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
     for (const [, repeater] of repeaterFields(content)) collect(repeater.items);
   };
   if (allow) collect(schema);
-  function visit(value: unknown, name: string): InvalidInputError | undefined {
+  /** `parentKey` is the key holding `value`, named in query errors. */
+  function visit(value: unknown, parentKey: string): InvalidInputError | undefined {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
       for (const child of value) {
-        const error = visit(child, name);
+        const error = visit(child, parentKey);
         if (error) return error;
       }
       return;
@@ -105,10 +108,10 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
       if (typeof field.collectionId !== "string" || !field.collectionId) {
         return new InvalidInputError({ message: "Reference requires collectionId" });
       }
-      if (field.query !== undefined) {
+      if (isQueryBacked(field)) {
         const problem =
           kind === "Reference" ? "only reference lists take a query" : queryProblem(field);
-        if (problem) return new InvalidInputError({ message: `${name}: ${problem}` });
+        if (problem) return new InvalidInputError({ message: `${parentKey}: ${problem}` });
       }
     }
     for (const [key, child] of Object.entries(field)) {
@@ -123,14 +126,8 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
   return error ? Effect.fail(error) : Effect.void;
 }
 
-/** The hard cap on a query-backed list's records, and its default `limit`. */
-export const QUERY_LIMIT_CAP = 100;
-
-/** Record metadata a query can order by, besides the collection's text fields. */
-const SYSTEM_ORDER_KEYS = new Set(["createdAt", "publishedAt"]);
-
 /** A query-backed list's normalized query: an optional ordering key and a capped limit. */
-export type ReferenceQuery = {
+export type NormalizedReferenceQuery = {
   orderBy?: { key: string; direction: "asc" | "desc" };
   limit: number;
 };
@@ -139,32 +136,16 @@ export type ReferenceQuery = {
  * Why a reference list's query is invalid, if it is. Ordering keys must name a text field of
  * the collection (from the content schema the field carries) or system metadata.
  */
-function queryProblem(field: Field): string | undefined {
-  const query = field.query;
-  if (!query || typeof query !== "object" || Array.isArray(query)) return "query must be an object";
-  const { orderBy, limit, ...rest } = query as Record<string, unknown>;
-  if (Object.keys(rest).length) return "query only supports orderBy and limit";
-  const validLimit =
-    typeof limit === "number" && Number.isInteger(limit) && limit >= 1 && limit <= QUERY_LIMIT_CAP;
-  if (limit !== undefined && !validLimit) {
-    return `limit must be an integer from 1 to ${QUERY_LIMIT_CAP}`;
-  }
-  if (orderBy === undefined) return;
-  const entries =
-    orderBy && typeof orderBy === "object" && !Array.isArray(orderBy)
-      ? Object.entries(orderBy)
-      : [];
-  if (entries.length !== 1) return "orderBy takes a single key";
-  const [[key, direction]] = entries;
-  if (direction !== "asc" && direction !== "desc") return 'order must be "asc" or "desc"';
-  if (SYSTEM_ORDER_KEYS.has(key)) return;
+function queryProblem(field: Field) {
   const properties = (field.referenceSchema as { properties?: Record<string, Field> } | undefined)
     ?.properties;
-  if (properties?.[key]?.fieldType !== "String") return `cannot order by "${key}"`;
+  return referenceQueryProblem(field.query, (key) =>
+    properties && Object.hasOwn(properties, key) ? properties[key]?.fieldType : undefined,
+  );
 }
 
 /** A reference list field's normalized query; manual lists have none. */
-export function referenceQuery(field: Field): ReferenceQuery | null {
+export function referenceQuery(field: Field): NormalizedReferenceQuery | null {
   const query = field.query as
     | { orderBy?: Record<string, "asc" | "desc">; limit?: number }
     | undefined;
@@ -250,8 +231,14 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
   return result;
 });
 
-/** Text order for query-backed lists: English collation, case-insensitive, numbers by value. */
-const textOrder = new Intl.Collator("en", { numeric: true });
+/**
+ * Text order for query-backed lists: English collation, case-insensitive, numbers by value.
+ * Text differing only by case compares equal, so the id tie-break keeps the order deterministic.
+ */
+const textOrder = new Intl.Collator("en", { numeric: true, sensitivity: "accent" });
+
+type Definition = typeof collectionDefinitions.$inferSelect;
+type Direction = "asc" | "desc";
 
 /**
  * The records a query-backed list resolves to, in order. Draft queries every record and orders
@@ -260,64 +247,125 @@ const textOrder = new Intl.Collator("en", { numeric: true });
  * sorts never-published records as published now. Empty text sorts last in either direction,
  * and ties break by record id. Without `orderBy`, records keep their creation order.
  */
-const queryRecordIds = Effect.fn("collections.queryRecordIds")(function* (
+function queryRecordIds(
   ctx: ServiceContext,
-  definition: typeof collectionDefinitions.$inferSelect,
-  query: ReferenceQuery,
+  definition: Definition,
+  query: NormalizedReferenceQuery,
   source: "draft" | "live",
 ) {
+  const { key, direction } = query.orderBy ?? { key: "createdAt", direction: "asc" };
+  if (key === "createdAt" || key === "publishedAt") {
+    return recordIdsByMetadata(ctx, definition, key, direction, query.limit, source);
+  }
+  return recordIdsByText(ctx, definition, key, direction, query.limit, source);
+}
+
+/** A record's published revision, joined next to the record. */
+const publishedRevisions = alias(collectionRevisions, "published_revisions");
+
+/**
+ * Orders by record metadata in SQL, so only `limit` ids load. First publications are grouped
+ * once for the collection rather than looked up per record.
+ */
+const recordIdsByMetadata = Effect.fn("collections.recordIdsByMetadata")(function* (
+  ctx: ServiceContext,
+  definition: Definition,
+  key: "createdAt" | "publishedAt",
+  direction: Direction,
+  limit: number,
+  source: "draft" | "live",
+) {
+  const firstPublications = ctx.db
+    .select({
+      recordId: collectionRevisions.recordId,
+      at: sql<number>`min(${collectionRevisions.createdAt})`.as("first_published_at"),
+    })
+    .from(collectionRevisions)
+    .innerJoin(collectionRecords, eq(collectionRecords.id, collectionRevisions.recordId))
+    .where(
+      and(
+        eq(collectionRecords.definitionId, definition.id),
+        eq(collectionRevisions.kind, "auto-publish"),
+      ),
+    )
+    .groupBy(collectionRevisions.recordId)
+    .as("first_publications");
+  // Falls back to the published revision, then, for never-published drafts, to now.
+  const publishedAt = sql`coalesce(${firstPublications.at}, ${publishedRevisions.createdAt}, ${Date.now()})`;
+  const sortKey = key === "createdAt" ? collectionRecords.createdAt : publishedAt;
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: collectionRecords.id })
+      .from(collectionRecords)
+      .leftJoin(
+        publishedRevisions,
+        eq(publishedRevisions.id, collectionRecords.publishedRevisionId),
+      )
+      .leftJoin(firstPublications, eq(firstPublications.recordId, collectionRecords.id))
+      .where(
+        and(
+          eq(collectionRecords.definitionId, definition.id),
+          source === "live" ? isNotNull(publishedRevisions.id) : undefined,
+        ),
+      )
+      .orderBy(direction === "asc" ? asc(sortKey) : desc(sortKey), asc(collectionRecords.id))
+      .limit(limit),
+  );
+  return rows.map((row) => row.id);
+});
+
+/**
+ * Orders by a text field in memory, since the collation is ICU's, not SQLite's. One query loads
+ * each candidate's id and raw field value only, never whole records.
+ */
+const recordIdsByText = Effect.fn("collections.recordIdsByText")(function* (
+  ctx: ServiceContext,
+  definition: Definition,
+  key: string,
+  direction: Direction,
+  limit: number,
+  source: "draft" | "live",
+) {
+  const content = source === "live" ? publishedRevisions.content : collectionRecords.draft;
+  const path = `$.${JSON.stringify(key)}`;
   const rows = yield* Effect.promise(() =>
     ctx.db
       .select({
         id: collectionRecords.id,
-        createdAt: collectionRecords.createdAt,
-        draft: collectionRecords.draft,
-        published: collectionRevisions.content,
-        publishedRevisionAt: collectionRevisions.createdAt,
-        firstPublishedAt: sql<number | null>`(select min(first.created_at)
-          from collection_revisions first
-          where first.record_id = ${collectionRecords.id} and first.kind = 'auto-publish')`,
+        value: sql<string | null>`case when json_type(${content}, ${path}) = 'text'
+          then json_extract(${content}, ${path}) end`,
       })
       .from(collectionRecords)
       .leftJoin(
-        collectionRevisions,
-        eq(collectionRevisions.id, collectionRecords.publishedRevisionId),
+        publishedRevisions,
+        eq(publishedRevisions.id, collectionRecords.publishedRevisionId),
       )
-      .where(eq(collectionRecords.definitionId, definition.id)),
+      .where(
+        and(
+          eq(collectionRecords.definitionId, definition.id),
+          source === "live" ? isNotNull(publishedRevisions.id) : undefined,
+        ),
+      ),
   );
-  const now = Date.now();
-  const candidates = rows.flatMap((row) => {
-    const content = source === "draft" ? row.draft : row.published;
-    if (!content) return [];
-    const publishedAt =
-      row.firstPublishedAt ?? row.publishedRevisionAt ?? (source === "draft" ? now : null);
-    return [{ ...row, content, publishedAt }];
-  });
-  const { key, direction } = query.orderBy ?? { key: "createdAt", direction: "asc" };
   const sign = direction === "asc" ? 1 : -1;
-  const sortKey = (candidate: (typeof candidates)[number]): string | number | null => {
-    if (key === "createdAt") return candidate.createdAt;
-    if (key === "publishedAt") return candidate.publishedAt;
-    const value = candidate.content[key];
-    const text = typeof value === "string" ? lexicalStateToPlainText(value) : "";
-    return text === "" ? null : text;
-  };
-  const keyed = candidates.map((candidate) => ({ id: candidate.id, key: sortKey(candidate) }));
-  keyed.sort((a, b) => {
-    // Missing values sort last in either direction.
-    if (a.key === null || b.key === null) {
-      if (a.key !== b.key) return a.key === null ? 1 : -1;
-    } else {
-      const order =
-        typeof a.key === "number" && typeof b.key === "number"
-          ? a.key - b.key
-          : textOrder.compare(String(a.key), String(b.key));
-      if (order !== 0) return order * sign;
-    }
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  const keyed = rows.map((row) => {
+    const text = row.value === null ? "" : lexicalStateToPlainText(row.value);
+    return { id: row.id, key: text === "" ? null : text };
   });
-  return keyed.slice(0, query.limit).map((candidate) => candidate.id);
+  keyed.sort((a, b) => compareTextKeys(a, b, sign));
+  return keyed.slice(0, limit).map((candidate) => candidate.id);
 });
+
+type TextKey = { id: string; key: string | null };
+
+/** Missing text sorts last in either direction; equal text breaks by id, ascending. */
+function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1) {
+  const byId = a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  if (a.key === null && b.key === null) return byId;
+  if (a.key === null) return 1;
+  if (b.key === null) return -1;
+  return textOrder.compare(a.key, b.key) * sign || byId;
+}
 
 function activeDefinition(
   ctx: ServiceContext,
@@ -502,7 +550,7 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
   for (const [name, field] of referenceListFields(schema)) {
     const value = values?.[name];
     if (value === undefined) continue;
-    if (field.query !== undefined) {
+    if (isQueryBacked(field)) {
       return yield* new InvalidInputError({
         message: `${path}${name}: query-backed reference lists are resolved, not written`,
       });

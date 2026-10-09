@@ -1,11 +1,10 @@
+import { SYSTEM_ORDER_KEYS, type SystemOrderKey } from "@camox/api-contract";
 import { Type as TypeBox, type TObject, type TSchema } from "@sinclair/typebox";
 
 import {
   collectionFieldBuilder,
-  SYSTEM_ORDER_KEYS,
   type CollectionFieldBuilder,
   type StringField,
-  type SystemOrderKey,
 } from "./lib/contentType";
 
 export type { CollectionFieldBuilder };

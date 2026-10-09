@@ -1,3 +1,4 @@
+import { referenceQueryProblem, type SystemOrderKey } from "@camox/api-contract";
 import {
   Type as TypeBoxType,
   type TSchema,
@@ -25,12 +26,14 @@ export type ReferenceListSchema<T extends Record<string, TSchema>> = TUnsafe<str
  * Query-backed reference lists
  * -----------------------------------------------------------------------------------------------*/
 
-/** Record metadata a query can order by. Collections cannot name fields after them. */
-export type SystemOrderKey = "createdAt" | "publishedAt";
-export const SYSTEM_ORDER_KEYS: readonly SystemOrderKey[] = ["createdAt", "publishedAt"];
-
-/** The most records a query-backed list resolves to, and its default `limit`. */
-export const QUERY_LIMIT_CAP = 100;
+/** A collection's content field named `key`, if it has one. */
+export function collectionField(
+  collection: Collection<any> | undefined,
+  key: string,
+): TSchema | undefined {
+  const properties = collection?._internal.contentSchema.properties;
+  return properties && Object.hasOwn(properties, key) ? properties[key] : undefined;
+}
 
 /** The keys a query can order a collection's records by: its text fields and system metadata. */
 export type OrderableKeys<T extends Record<string, TSchema>> =
@@ -612,24 +615,11 @@ export interface CollectionFieldBuilder extends Pick<
  * included); definition sync applies the same rules.
  */
 function validateQuery(query: ReferenceQuery<any>, collection: Collection<any>) {
-  const where = `Query on "${collection._internal.id}"`;
-  const unsupported = Object.keys(query).filter((key) => key !== "orderBy" && key !== "limit");
-  if (unsupported.length) throw new Error(`${where} only supports orderBy and limit`);
-  const { limit, orderBy } = query;
-  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= QUERY_LIMIT_CAP)) {
-    throw new Error(`${where}: limit must be an integer from 1 to ${QUERY_LIMIT_CAP}`);
-  }
-  if (orderBy === undefined) return query;
-  const entries = Object.entries(orderBy);
-  if (entries.length !== 1) throw new Error(`${where}: orderBy takes a single key`);
-  const [[key, direction]] = entries;
-  if (direction !== "asc" && direction !== "desc") {
-    throw new Error(`${where}: order must be "asc" or "desc"`);
-  }
-  const field = collection._internal.contentSchema.properties[key] as TSchema | undefined;
-  if (!SYSTEM_ORDER_KEYS.includes(key as SystemOrderKey) && field?.fieldType !== "String") {
-    throw new Error(`${where}: cannot order by "${key}"`);
-  }
+  const problem = referenceQueryProblem(
+    query,
+    (key) => collectionField(collection, key)?.fieldType,
+  );
+  if (problem) throw new Error(`Query on "${collection._internal.id}": ${problem}`);
   return query;
 }
 

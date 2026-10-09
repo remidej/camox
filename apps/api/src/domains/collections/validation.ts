@@ -1,3 +1,4 @@
+import { isQueryBacked, isSystemOrderKey } from "@camox/api-contract";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -75,11 +76,11 @@ export const contentSchemaInput = z
     }
     for (const [key, field] of Object.entries(schema.properties)) {
       // `createdAt` and `publishedAt` name record metadata in query-backed lists' `orderBy`.
-      if (["__proto__", "constructor", "prototype", "createdAt", "publishedAt"].includes(key)) {
+      if (["__proto__", "constructor", "prototype"].includes(key) || isSystemOrderKey(key)) {
         ctx.addIssue({ code: "custom", message: `${key}: reserved field name` });
       }
       // Second-hop resolution never fans out across a whole collection.
-      if (field.query !== undefined) {
+      if (isQueryBacked(field)) {
         ctx.addIssue({
           code: "custom",
           message: `${key}: query-backed reference lists are not supported in collections`,
