@@ -1441,3 +1441,437 @@ describe("references between collections", () => {
     expect(record.draft).toMatchObject({ author: f.jane.id, editor: null });
   });
 });
+
+/** A query-backed list of articles; `orderBy` keys are checked against `referenceSchema`. */
+const articleSchema = {
+  type: "object" as const,
+  properties: {
+    title: { type: "string", fieldType: "String" as const },
+    excerpt: { type: "string", fieldType: "String" as const },
+    cover: { type: "object", fieldType: "Image" as const },
+  },
+  required: ["title", "excerpt", "cover"],
+  additionalProperties: false as const,
+};
+const queryList = (query: unknown, toMarkdown?: string[]) => ({
+  type: "array",
+  items: { type: "string", format: "uuid" },
+  fieldType: "ReferenceList",
+  collectionId: "articles",
+  title: "Articles",
+  query,
+  referenceSchema: articleSchema,
+  ...(toMarkdown ? { toMarkdown } : {}),
+});
+
+/** Runs `run` with the clock at `time`, so records get known creation and publication times. */
+async function at<T>(time: number, run: () => Promise<T>) {
+  const clock = vi.spyOn(Date, "now").mockReturnValue(time);
+  try {
+    return await run();
+  } finally {
+    clock.mockRestore();
+  }
+}
+
+/**
+ * Five articles: three published (Bravo first, then Charlie, then alpha) and two drafts, one
+ * untitled. A page holds one block whose query-backed lists order them in different ways.
+ */
+async function queryFixture() {
+  const f = await createProjectFixture(`queries-${crypto.randomUUID()}`);
+  const ctx = createServiceContext(f.db, f.memberUser);
+  const publicCtx = createServiceContext(f.db, null);
+  const scope = { projectSlug: f.project.slug, collectionId: "articles" };
+  await runService(
+    syncCollectionDefinitions(publicCtx, {
+      projectSlug: f.project.slug,
+      deployToken: "test-deploy-token",
+      autoCreate: false,
+      definitions: [
+        {
+          collectionId: "articles",
+          title: "Articles",
+          description: "",
+          label: "title",
+          contentSchema: articleSchema,
+        },
+      ],
+    }),
+  );
+  const create = (title: string, time: number) =>
+    at(time, () =>
+      runService(
+        createRecord(ctx, { ...scope, content: { title, excerpt: `About ${title}`, cover: null } }),
+      ),
+    );
+  const bravo = await create("Bravo", 1000);
+  const alpha = await create("alpha", 2000);
+  const charlie = await create("Charlie", 3000);
+  const delta = await create("Delta", 4000);
+  const untitled = await create("", 5000);
+  const publish = (record: { id: string }, expectedVersion: number, time: number) =>
+    at(time, () => runService(publishRecord(ctx, { ...scope, id: record.id, expectedVersion })));
+  await publish(bravo, 1, 10_000);
+  await publish(charlie, 1, 20_000);
+  await publish(alpha, 1, 30_000);
+  const page = await f.db
+    .insert(pages)
+    .values({
+      projectId: f.project.id,
+      environmentId: f.environment.id,
+      layoutId: f.layout.id,
+      pathSegment: "articles",
+      fullPath: "/articles",
+      nickname: "",
+      createdAt: 1,
+      updatedAt: 1,
+      contentUpdatedAt: 1,
+    })
+    .returning()
+    .get();
+  const lists = {
+    byTitle: queryList({ orderBy: { title: "asc" } }),
+    byTitleDesc: queryList({ orderBy: { title: "desc" } }),
+    byCreation: queryList({ orderBy: { createdAt: "asc" } }),
+    unordered: queryList({}),
+    recent: queryList({ orderBy: { publishedAt: "desc" }, limit: 3 }, [
+      "## {{title}}",
+      "{{excerpt}}",
+    ]),
+  };
+  await f.db.insert(blockDefinitions).values({
+    projectId: f.project.id,
+    environmentId: f.environment.id,
+    blockId: "article-index",
+    title: "Article index",
+    description: "",
+    contentSchema: {
+      type: "object",
+      properties: {
+        ...lists,
+        features: {
+          type: "array",
+          fieldType: "Repeater",
+          items: {
+            type: "object",
+            properties: { latest: queryList({ orderBy: { publishedAt: "desc" }, limit: 1 }) },
+            required: ["latest"],
+          },
+          toMarkdown: ["Latest: {{latest}}"],
+        },
+      },
+      // Like the SDK, every field is listed as required; query-backed lists hold no value.
+      required: [...Object.keys(lists), "features"],
+      additionalProperties: false,
+      toMarkdown: ["Recent:", "{{recent}}"],
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const block = await runService(
+    createBlock(ctx, {
+      pageId: page.id,
+      type: "article-index",
+      content: { features: [{}] },
+    }),
+  );
+  await runService(publishPage(ctx, { id: page.id, alsoPublishLayout: true }));
+  const bundle = (source: "draft" | "live") =>
+    runService(getBlock(source === "draft" ? ctx : publicCtx, { id: block.id, source }));
+  /** The titles a list resolves to, in order. */
+  const titles = async (field: keyof typeof lists, source: "draft" | "live") =>
+    ((await bundle(source)).block.references[field] as ResolvedReference[]).map((r) => r.label);
+  const markdown = async (source: "draft" | "live") =>
+    (
+      await runService(
+        getPageMarkdown(source === "draft" ? ctx : publicCtx, { pageId: page.id, source }),
+      )
+    ).markdown;
+  return {
+    ...f,
+    ctx,
+    publicCtx,
+    scope,
+    page,
+    block,
+    records: { alpha, bravo, charlie, delta, untitled },
+    create,
+    publish,
+    bundle,
+    titles,
+    markdown,
+  };
+}
+
+describe("query-backed reference lists", () => {
+  it("accepts typed orderBy keys and capped limits in block and item content only", () => {
+    const accepted = (query: unknown) => ({ properties: { articles: queryList(query) } });
+    const rejected = (schema: unknown, allow = true) =>
+      Effect.runSync(Effect.flip(validateReferenceSchema(schema, allow))).message;
+    for (const query of [
+      {},
+      { orderBy: { title: "asc" } },
+      { orderBy: { excerpt: "desc" }, limit: 1 },
+      { orderBy: { createdAt: "asc" } },
+      { orderBy: { publishedAt: "desc" }, limit: 100 },
+    ]) {
+      expect(() => Effect.runSync(validateReferenceSchema(accepted(query)))).not.toThrow();
+    }
+    expect(() =>
+      Effect.runSync(
+        validateReferenceSchema({
+          properties: {
+            items: { fieldType: "Repeater", items: accepted({ orderBy: { title: "asc" } }) },
+          },
+        }),
+      ),
+    ).not.toThrow();
+    for (const [query, message] of [
+      [{ orderBy: { cover: "asc" } }, 'articles: cannot order by "cover"'],
+      [{ orderBy: { missing: "asc" } }, 'articles: cannot order by "missing"'],
+      [{ orderBy: { title: "asc", excerpt: "asc" } }, "articles: orderBy takes a single key"],
+      [{ orderBy: {} }, "articles: orderBy takes a single key"],
+      [{ orderBy: { title: "up" } }, 'articles: order must be "asc" or "desc"'],
+      [{ limit: 101 }, "articles: limit must be an integer from 1 to 100"],
+      [{ limit: 0 }, "articles: limit must be an integer from 1 to 100"],
+      [{ limit: 2.5 }, "articles: limit must be an integer from 1 to 100"],
+      [{ where: { title: "x" } }, "articles: query only supports orderBy and limit"],
+      ["recent", "articles: query must be an object"],
+    ] as const) {
+      expect(rejected(accepted(query))).toBe(message);
+    }
+    // Settings and single references never carry a query.
+    expect(rejected(accepted({}), false)).toBe(
+      "References and reference lists are only supported in block and item content",
+    );
+    expect(
+      rejected({
+        properties: { article: { ...queryList({}), fieldType: "Reference", type: undefined } },
+      }),
+    ).toBe("article: only reference lists take a query");
+  });
+
+  it("rejects query lists and reserved system field names in collection schemas", async () => {
+    const f = await relationFixture();
+    const issue = (message: string) => ({
+      code: "BAD_REQUEST",
+      data: { issues: expect.arrayContaining([expect.objectContaining({ message })]) },
+    });
+    await expect(
+      f.sync([
+        f.authorsDefinition,
+        f.definition("articles", { latest: { ...collectionReferenceList("authors"), query: {} } }),
+      ]),
+    ).rejects.toMatchObject(
+      issue("latest: query-backed reference lists are not supported in collections"),
+    );
+    for (const name of ["createdAt", "publishedAt"]) {
+      await expect(
+        f.sync([
+          f.authorsDefinition,
+          f.definition("articles", { [name]: { type: "string", fieldType: "String" } }),
+        ]),
+      ).rejects.toMatchObject(issue(`${name}: reserved field name`));
+    }
+  });
+
+  it("stores nothing on the block or item and rejects content writes to query-backed lists", async () => {
+    const f = await queryFixture();
+    const draft = await f.bundle("draft");
+    expect(draft.block.content).not.toHaveProperty("recent");
+    const item = draft.repeatableItems[0];
+    expect(item.content).not.toHaveProperty("latest");
+    const ids = [f.records.alpha.id];
+    const rejection = (name: string) => ({
+      code: "BAD_REQUEST",
+      message: `${name}: query-backed reference lists are resolved, not written`,
+    });
+    await expect(
+      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: ids } })),
+    ).rejects.toMatchObject(rejection("recent"));
+    await expect(
+      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: [] } })),
+    ).rejects.toMatchObject(rejection("recent"));
+    await expect(
+      runService(
+        createBlock(f.ctx, { pageId: f.page.id, type: "article-index", content: { byTitle: ids } }),
+      ),
+    ).rejects.toMatchObject(rejection("byTitle"));
+    await expect(
+      runService(
+        createBlock(f.ctx, {
+          pageId: f.page.id,
+          type: "article-index",
+          content: { features: [{ latest: ids }] },
+        }),
+      ),
+    ).rejects.toMatchObject(rejection("features[0].latest"));
+    await expect(
+      runService(updateRepeatableItemContent(f.ctx, { id: item.id, content: { latest: ids } })),
+    ).rejects.toMatchObject(rejection("latest"));
+    await expect(
+      runService(
+        createRepeatableItem(f.ctx, {
+          blockId: f.block.id,
+          fieldName: "features",
+          content: { latest: ids },
+        }),
+      ),
+    ).rejects.toMatchObject(rejection("latest"));
+  });
+
+  it("orders draft records by draft content and live records by published content", async () => {
+    const f = await queryFixture();
+    // Case-insensitive text order; empty text sorts last in either direction.
+    expect(await f.titles("byTitle", "draft")).toEqual(["alpha", "Bravo", "Charlie", "Delta", ""]);
+    expect(await f.titles("byTitleDesc", "draft")).toEqual([
+      "Delta",
+      "Charlie",
+      "Bravo",
+      "alpha",
+      "",
+    ]);
+    expect(await f.titles("byCreation", "draft")).toEqual([
+      "Bravo",
+      "alpha",
+      "Charlie",
+      "Delta",
+      "",
+    ]);
+    // Without orderBy, records keep creation order.
+    expect(await f.titles("unordered", "draft")).toEqual(await f.titles("byCreation", "draft"));
+    // Live resolves published records only.
+    expect(await f.titles("byTitle", "live")).toEqual(["alpha", "Bravo", "Charlie"]);
+    expect(await f.titles("byCreation", "live")).toEqual(["Bravo", "alpha", "Charlie"]);
+
+    // A draft title change re-sorts the preview, never the live list.
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: f.records.bravo.id,
+        expectedVersion: 2,
+        content: { title: "Zulu", excerpt: "", cover: null },
+      }),
+    );
+    expect(await f.titles("byTitle", "draft")).toEqual(["alpha", "Charlie", "Delta", "Zulu", ""]);
+    expect(await f.titles("byTitle", "live")).toEqual(["alpha", "Bravo", "Charlie"]);
+  });
+
+  it("orders by first publication, with never-published drafts as now in preview", async () => {
+    const f = await queryFixture();
+    const { alpha, bravo, charlie, delta, untitled } = f.records;
+    expect(await f.titles("recent", "live")).toEqual(["alpha", "Charlie", "Bravo"]);
+    // Never-published drafts sort as published now; equal times break by id.
+    const drafts = [delta, untitled].sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect((await f.bundle("draft")).block.references.recent).toMatchObject(
+      [...drafts, alpha].map(({ id }) => ({ id })),
+    );
+    // Republishing keeps the first publication time.
+    await f.publish(bravo, 2, 40_000);
+    expect(await f.titles("recent", "live")).toEqual(["alpha", "Charlie", "Bravo"]);
+    // Equal publication times break by id.
+    const late = await f.create("Late", 6000);
+    await f.publish(late, 1, 30_000);
+    const tied = [alpha, late].sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect((await f.bundle("live")).block.references.recent).toMatchObject(
+      [...tied, charlie].map(({ id }) => ({ id })),
+    );
+  });
+
+  it("applies limit and caps lists without one at 100 records", async () => {
+    const f = await queryFixture();
+    expect(await f.titles("recent", "draft")).toHaveLength(3);
+    for (let index = 0; index < 96; index++) await f.create(`Extra ${index}`, 10 + index);
+    // 101 records exist; the list without a limit stops at the cap.
+    expect(await f.titles("byCreation", "draft")).toHaveLength(100);
+    expect((await f.titles("byCreation", "draft"))[0]).toBe("Extra 0");
+    // Numbers within text sort by value.
+    const extras = (await f.titles("byTitle", "draft")).filter((title) => title.startsWith("E"));
+    expect(extras.slice(0, 3)).toEqual(["Extra 0", "Extra 1", "Extra 2"]);
+    expect(extras.at(-1)).toBe("Extra 95");
+  });
+
+  it("updates live membership when a record is published, unpublished or deleted, without republishing the page", async () => {
+    const f = await queryFixture();
+    await f.publish(f.records.delta, 1, 40_000);
+    expect(await f.titles("recent", "live")).toEqual(["Delta", "alpha", "Charlie"]);
+    await runService(
+      unpublishRecord(f.ctx, { ...f.scope, id: f.records.delta.id, expectedVersion: 2 }),
+    );
+    expect(await f.titles("recent", "live")).toEqual(["alpha", "Charlie", "Bravo"]);
+    // Query membership never blocks deleting or unpublishing a record.
+    await runService(
+      unpublishRecord(f.ctx, { ...f.scope, id: f.records.alpha.id, expectedVersion: 2 }),
+    );
+    await runService(
+      deleteRecord(f.ctx, { ...f.scope, id: f.records.alpha.id, expectedVersion: 3 }),
+    );
+    expect(await f.titles("byTitle", "live")).toEqual(["Bravo", "Charlie"]);
+    expect(await f.titles("byTitle", "draft")).toEqual(["Bravo", "Charlie", "Delta", ""]);
+    const live = await runService(
+      getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/articles" }),
+    );
+    const block = live.blocks.find((candidate) => candidate.id === f.block.id)!;
+    expect((block.references.byTitle as ResolvedReference[]).map((r) => r.label)).toEqual([
+      "Bravo",
+      "Charlie",
+    ]);
+  });
+
+  it("keeps query results out of the publication review, the dependency index and Modified", async () => {
+    const f = await queryFixture();
+    const review = await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"));
+    expect(review).toEqual({ targets: [], missingRequired: [] });
+
+    const status = async () =>
+      (await runService(listPages(f.ctx, { projectId: f.project.id }))).find(
+        (page) => page.id === f.page.id,
+      )?.status;
+    expect(await status()).toBe("published");
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: f.records.alpha.id,
+        expectedVersion: 2,
+        content: { title: "Changed", excerpt: "", cover: null },
+      }),
+    );
+    expect(await status()).toBe("published");
+
+    // A value stored before the list became query-backed is ignored, and never protects a record.
+    await f.db
+      .update(blocks)
+      .set({ content: { recent: [f.records.delta.id] } })
+      .where(eq(blocks.id, f.block.id));
+    await runService(publishPage(f.ctx, { id: f.page.id }));
+    expect(await f.titles("recent", "live")).toEqual(["alpha", "Charlie", "Bravo"]);
+    await runService(
+      deleteRecord(f.ctx, { ...f.scope, id: f.records.delta.id, expectedVersion: 1 }),
+    );
+    expect(await f.titles("byCreation", "draft")).toEqual(["Bravo", "Changed", "Charlie", ""]);
+  });
+
+  it("resolves query-backed lists in repeatable items, draft and live", async () => {
+    const f = await queryFixture();
+    const latest = async (source: "draft" | "live") =>
+      ((await f.bundle(source)).repeatableItems[0].references.latest as ResolvedReference[]).map(
+        (record) => record.label,
+      );
+    expect(await latest("live")).toEqual(["alpha"]);
+    expect(await latest("draft")).toHaveLength(1);
+    expect(await latest("draft")).not.toEqual(["alpha"]);
+    await f.publish(f.records.delta, 1, 40_000);
+    expect(await latest("live")).toEqual(["Delta"]);
+  });
+
+  it("renders each resolved record through the per-use Markdown, draft and live", async () => {
+    const f = await queryFixture();
+    expect(await f.markdown("live")).toContain(
+      "Recent:\n\n- ## alpha\n  About alpha\n- ## Charlie\n  About Charlie\n- ## Bravo\n  About Bravo",
+    );
+    const draft = await f.markdown("draft");
+    expect(draft).toContain("- ## Delta\n  About Delta");
+    expect(draft).not.toContain("About Charlie");
+  });
+});

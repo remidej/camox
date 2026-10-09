@@ -5,7 +5,12 @@ import * as React from "react";
 
 import { useLocation } from "../features/navigation/navigation";
 import { useProjectSlug } from "../lib/auth";
-import { isItemMarker, resolveAssetValue, useNormalizedData } from "../lib/normalized-data";
+import {
+  isItemMarker,
+  queryResultIds,
+  resolveAssetValue,
+  useNormalizedData,
+} from "../lib/normalized-data";
 import { type Page, viewPageQueries, viewProjectQueries } from "../lib/view-queries";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import {
@@ -351,10 +356,18 @@ function createViewBlock(options: EditableOptions) {
     if (editingRuntime)
       return editingRuntime.renderPrimitive(options, "ReferenceList", { name, children });
     const block = React.use(Context);
-    const { recordsMap } = useNormalizedData();
+    const item = React.use(RepeaterContext);
+    const normalizedData = useNormalizedData();
     if (!block) throw new Error("ReferenceList must be used within a Block Component");
     const schema = useReferenceField(name);
-    return resolveReferenceList(useValue(name), schema.collectionId, recordsMap).map((record) => (
+    const stored = useValue(name);
+    // A query-backed list stores nothing: the server resolved its records for the owner.
+    const ids =
+      schema.query === undefined
+        ? stored
+        : queryResultIds(normalizedData, { blockId: block.blockId, itemId: item?.itemId }, name);
+    const { recordsMap } = normalizedData;
+    return resolveReferenceList(ids, schema.collectionId, recordsMap).map((record) => (
       <RecordScope
         key={record.id}
         block={block}

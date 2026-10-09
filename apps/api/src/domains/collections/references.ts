@@ -85,11 +85,11 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
     for (const [, repeater] of repeaterFields(content)) collect(repeater.items);
   };
   if (allow) collect(schema);
-  function visit(value: unknown): InvalidInputError | undefined {
+  function visit(value: unknown, name: string): InvalidInputError | undefined {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
       for (const child of value) {
-        const error = visit(child);
+        const error = visit(child, name);
         if (error) return error;
       }
       return;
@@ -105,16 +105,75 @@ export function validateReferenceSchema(schema: unknown, allow = true) {
       if (typeof field.collectionId !== "string" || !field.collectionId) {
         return new InvalidInputError({ message: "Reference requires collectionId" });
       }
+      if (field.query !== undefined) {
+        const problem =
+          kind === "Reference" ? "only reference lists take a query" : queryProblem(field);
+        if (problem) return new InvalidInputError({ message: `${name}: ${problem}` });
+      }
     }
     for (const [key, child] of Object.entries(field)) {
       // A reference carries its collection's schema, which collection sync validates.
       if (key === "referenceSchema" && (kind === "Reference" || kind === "ReferenceList")) continue;
-      const error = visit(child);
+      if (key === "query" && (kind === "Reference" || kind === "ReferenceList")) continue;
+      const error = visit(child, key);
       if (error) return error;
     }
   }
-  const error = visit(schema);
+  const error = visit(schema, "");
   return error ? Effect.fail(error) : Effect.void;
+}
+
+/** The hard cap on a query-backed list's records, and its default `limit`. */
+export const QUERY_LIMIT_CAP = 100;
+
+/** Record metadata a query can order by, besides the collection's text fields. */
+const SYSTEM_ORDER_KEYS = new Set(["createdAt", "publishedAt"]);
+
+/** A query-backed list's normalized query: an optional ordering key and a capped limit. */
+export type ReferenceQuery = {
+  orderBy?: { key: string; direction: "asc" | "desc" };
+  limit: number;
+};
+
+/**
+ * Why a reference list's query is invalid, if it is. Ordering keys must name a text field of
+ * the collection (from the content schema the field carries) or system metadata.
+ */
+function queryProblem(field: Field): string | undefined {
+  const query = field.query;
+  if (!query || typeof query !== "object" || Array.isArray(query)) return "query must be an object";
+  const { orderBy, limit, ...rest } = query as Record<string, unknown>;
+  if (Object.keys(rest).length) return "query only supports orderBy and limit";
+  const validLimit =
+    typeof limit === "number" && Number.isInteger(limit) && limit >= 1 && limit <= QUERY_LIMIT_CAP;
+  if (limit !== undefined && !validLimit) {
+    return `limit must be an integer from 1 to ${QUERY_LIMIT_CAP}`;
+  }
+  if (orderBy === undefined) return;
+  const entries =
+    orderBy && typeof orderBy === "object" && !Array.isArray(orderBy)
+      ? Object.entries(orderBy)
+      : [];
+  if (entries.length !== 1) return "orderBy takes a single key";
+  const [[key, direction]] = entries;
+  if (direction !== "asc" && direction !== "desc") return 'order must be "asc" or "desc"';
+  if (SYSTEM_ORDER_KEYS.has(key)) return;
+  const properties = (field.referenceSchema as { properties?: Record<string, Field> } | undefined)
+    ?.properties;
+  if (properties?.[key]?.fieldType !== "String") return `cannot order by "${key}"`;
+}
+
+/** A reference list field's normalized query; manual lists have none. */
+export function referenceQuery(field: Field): ReferenceQuery | null {
+  const query = field.query as
+    | { orderBy?: Record<string, "asc" | "desc">; limit?: number }
+    | undefined;
+  if (!query || typeof query !== "object") return null;
+  const [entry] = Object.entries(query.orderBy ?? {});
+  return {
+    ...(entry ? { orderBy: { key: entry[0], direction: entry[1] } } : {}),
+    limit: Math.min(query.limit ?? QUERY_LIMIT_CAP, QUERY_LIMIT_CAP),
+  };
 }
 
 type ItemRow = { id: number; parentItemId: number | null; fieldName: string };
@@ -177,13 +236,87 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
     result[name] = records;
     const definition = yield* activeDefinition(ctx, scope, field);
     if (!definition) continue;
+    // A query-backed list ignores any stored value: code defines its membership and order.
+    const query = referenceQuery(field);
+    const ids = query
+      ? yield* queryRecordIds(ctx, definition, query, source)
+      : referenceListIds(values?.[name]);
     // Draft resolves every linked record; live only published ones. Missing records are skipped.
-    for (const id of referenceListIds(values?.[name])) {
+    for (const id of ids) {
       const record = yield* resolveRecord(ctx, definition, id, source, hop);
       if (record) records.push(record);
     }
   }
   return result;
+});
+
+/** Text order for query-backed lists: English collation, case-insensitive, numbers by value. */
+const textOrder = new Intl.Collator("en", { numeric: true });
+
+/**
+ * The records a query-backed list resolves to, in order. Draft queries every record and orders
+ * by draft content; live queries published records only and orders by their published content.
+ * `publishedAt` is a record's first publication, so republishing never reorders it; preview
+ * sorts never-published records as published now. Empty text sorts last in either direction,
+ * and ties break by record id. Without `orderBy`, records keep their creation order.
+ */
+const queryRecordIds = Effect.fn("collections.queryRecordIds")(function* (
+  ctx: ServiceContext,
+  definition: typeof collectionDefinitions.$inferSelect,
+  query: ReferenceQuery,
+  source: "draft" | "live",
+) {
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select({
+        id: collectionRecords.id,
+        createdAt: collectionRecords.createdAt,
+        draft: collectionRecords.draft,
+        published: collectionRevisions.content,
+        publishedRevisionAt: collectionRevisions.createdAt,
+        firstPublishedAt: sql<number | null>`(select min(first.created_at)
+          from collection_revisions first
+          where first.record_id = ${collectionRecords.id} and first.kind = 'auto-publish')`,
+      })
+      .from(collectionRecords)
+      .leftJoin(
+        collectionRevisions,
+        eq(collectionRevisions.id, collectionRecords.publishedRevisionId),
+      )
+      .where(eq(collectionRecords.definitionId, definition.id)),
+  );
+  const now = Date.now();
+  const candidates = rows.flatMap((row) => {
+    const content = source === "draft" ? row.draft : row.published;
+    if (!content) return [];
+    const publishedAt =
+      row.firstPublishedAt ?? row.publishedRevisionAt ?? (source === "draft" ? now : null);
+    return [{ ...row, content, publishedAt }];
+  });
+  const { key, direction } = query.orderBy ?? { key: "createdAt", direction: "asc" };
+  const sign = direction === "asc" ? 1 : -1;
+  const sortKey = (candidate: (typeof candidates)[number]): string | number | null => {
+    if (key === "createdAt") return candidate.createdAt;
+    if (key === "publishedAt") return candidate.publishedAt;
+    const value = candidate.content[key];
+    const text = typeof value === "string" ? lexicalStateToPlainText(value) : "";
+    return text === "" ? null : text;
+  };
+  const keyed = candidates.map((candidate) => ({ id: candidate.id, key: sortKey(candidate) }));
+  keyed.sort((a, b) => {
+    // Missing values sort last in either direction.
+    if (a.key === null || b.key === null) {
+      if (a.key !== b.key) return a.key === null ? 1 : -1;
+    } else {
+      const order =
+        typeof a.key === "number" && typeof b.key === "number"
+          ? a.key - b.key
+          : textOrder.compare(String(a.key), String(b.key));
+      if (order !== 0) return order * sign;
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return keyed.slice(0, query.limit).map((candidate) => candidate.id);
 });
 
 function activeDefinition(
@@ -369,6 +502,11 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
   for (const [name, field] of referenceListFields(schema)) {
     const value = values?.[name];
     if (value === undefined) continue;
+    if (field.query !== undefined) {
+      return yield* new InvalidInputError({
+        message: `${path}${name}: query-backed reference lists are resolved, not written`,
+      });
+    }
     if (!Array.isArray(value))
       return yield* invalidList(path + name, "must be an array of record ids");
     if (new Set(value).size !== value.length) {

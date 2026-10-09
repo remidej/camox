@@ -156,3 +156,27 @@ articles, the second hop. Records at the second hop link nothing further.
 3. The publish review lists the author and each changed article once. Articles left
    unpublished are skipped on the live site.
 4. Deleting an article that any author links is rejected; unpublishing it is allowed.
+
+## Recent articles and article list (slice 6, query-backed reference lists)
+
+`field.referenceList(articles, { query })` declares a query-backed list: code defines its
+membership and order, and the block stores nothing. Both blocks render with the same
+`ReferenceList` scope as the logo grid, and each declares per-use Markdown for its records.
+
+- **Recent articles** orders by first publication, newest first, with `limit: 3`.
+- **Article list** orders every article by title, ascending (up to the cap of 100).
+
+1. In Content → Articles, create at least four articles and publish three of them.
+2. Add a recent articles block to an existing page, and an article list block to another.
+   The preview lists drafts too: never-published articles sort first in the recent list,
+   as if published now. In edit mode an empty result renders nothing; there is no "Add"
+   placeholder.
+3. Click an article title in either list to edit it inline: the edit changes the shared
+   article, so the other list and the author bio update too. A draft title change re-sorts
+   the preview list, never the live one.
+4. Publish the pages. The publication review lists no articles for these blocks: query
+   results are not owned by the page, and editing a queried article never marks it Modified.
+5. Publish a fourth article from Content → Articles. The live recent list and article list
+   include it without republishing either page. Republishing an older article keeps its
+   place, because `publishedAt` is its first publication. These lists never block
+   unpublishing or deleting an article.

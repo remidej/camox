@@ -142,8 +142,10 @@ const plan = Effect.fn("collections.plan")(function* (
       }
       addTarget(record, resolvedReference(live, field) ?? undefined, reference.required === true);
     }
-    // List entries are never required: unpublished ones are skipped live.
-    for (const [field] of referenceListFields(schema)) {
+    // List entries are never required: unpublished ones are skipped live. Query results are
+    // resolved content the page does not own, so they are never publication targets.
+    for (const [field, list] of referenceListFields(schema)) {
+      if (list.query !== undefined) continue;
       const published = resolvedReferenceList(live, field);
       for (const record of resolvedReferenceList(draft, field)) {
         addTarget(
