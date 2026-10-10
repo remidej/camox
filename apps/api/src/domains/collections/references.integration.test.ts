@@ -1829,7 +1829,8 @@ describe("query-backed reference lists", () => {
     const extras = (await f.titles("byTitle", "draft")).filter((title) => title.startsWith("E"));
     expect(extras.slice(0, 3)).toEqual(["Extra 0", "Extra 1", "Extra 2"]);
     expect(extras.at(-1)).toBe("Extra 95");
-  });
+    // Creates 96 records one at a time (each mocks the clock), which exceeds the default on CI.
+  }, 30_000);
 
   it("updates live membership when a record is published, unpublished or deleted, without republishing the page", async () => {
     const f = await queryFixture();
