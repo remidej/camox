@@ -206,6 +206,10 @@ _Avoid_: Editing state, design mode
 A studio view that shows many pages side by side at once.
 _Avoid_: Board, overview, sitemap view
 
+**Shelf Marker**:
+A labelled vertical divider separating areas of the canvas, such as the area holding its pages.
+_Avoid_: Separator, section header, divider
+
 **Dashboard**:
 The hosted interface for managing organizations, projects, and members, outside any one website.
 _Avoid_: Admin, console

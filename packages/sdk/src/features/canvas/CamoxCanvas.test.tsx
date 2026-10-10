@@ -61,6 +61,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const frames = new Map<string, { onActivate: (owner: never, source: string) => void }>();
   const headers = new Map<string, { onSelect: () => void; onChange: (path: string) => void }>();
   let snap!: (key: string) => void;
+  let snapTargets: { key: string }[] = [];
   const flyToPage = (key: string) => flights.push(key);
   const cancelFlight = () => actions.push("cancel");
   const globals = {
@@ -84,8 +85,13 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         source: options.source,
       };
     },
-    CanvasCameraProbe: (_key: string, _page: unknown, options: { onSelect: typeof snap }) => {
+    CanvasCameraProbe: (
+      _key: string,
+      _page: unknown,
+      options: { onSelect: typeof snap; pages: { key: string }[] },
+    ) => {
       snap = options.onSelect;
+      snapTargets = options.pages;
       return { viewportRef: null, contentRef: null, flyToPage, cancelFlight };
     },
     CanvasHeaderProbe: (props: {
@@ -209,6 +215,35 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         }
       });
     }
+    await t.test("Pages Shelf Marker renders before the first Page", async () => {
+      scenario = "";
+      includeNewPage = false;
+      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+      Object.assign(globalThis, globals);
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      try {
+        await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+        const row = host.querySelector("[data-canvas-items]")!;
+        const items = [...row.children].map((child) =>
+          child.hasAttribute("data-canvas-shelf-marker")
+            ? `marker:${child.getAttribute("data-canvas-shelf-marker")}`
+            : `page:${child.querySelector("[data-canvas-pathname]")?.getAttribute("data-canvas-pathname")}`,
+        );
+        assert.deepEqual(items, ["marker:pages", "page:/about", "page:/contact"]);
+        const label = host.querySelector('[data-canvas-shelf-marker-label="pages"]');
+        assert.equal(label?.textContent, "Pages");
+        assert.deepEqual(
+          snapTargets.map(({ key }) => key),
+          [...headers.keys()],
+          "only Page frames are snap targets",
+        );
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+      }
+    });
     for (const commentMode of [false, true]) {
       await t.test(`navigation flight wiring (comment mode: ${commentMode})`, async () => {
         scenario = "";
@@ -230,7 +265,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           const header = host.querySelector("[data-canvas-header]") as unknown as HTMLElement;
           assert.equal(
             header.style.transform,
-            "translate(calc(var(--canvas-x, 64px) + 0px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
+            "translate(calc(var(--canvas-x, 64px) + 244px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
           );
           assert.equal(header.style.width, "calc(1366px * var(--canvas-zoom, .4))");
           assert.equal(header.style.willChange, "transform");
