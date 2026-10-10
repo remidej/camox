@@ -17,11 +17,13 @@ import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
 import {
   CANVAS_ITEM_GAP,
   CANVAS_SLOT_WIDTH,
+  canvasRowWidth,
+  canvasShelfAreas,
   canvasSnapTargets,
   getCanvasItems,
+  isCanvasPage,
+  isCanvasShelfMarker,
   positionCanvasItems,
-  type CanvasPageItem,
-  type PositionedCanvasItem,
 } from "./canvasItems";
 import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
 import { CanvasPageFrame } from "./CanvasPageFrame";
@@ -33,8 +35,14 @@ import {
   type CanvasPage,
 } from "./canvasPages";
 import { CanvasRightSidebar } from "./CanvasRightSidebar";
+import {
+  CANVAS_WORLD_TRANSFORM,
+  canvasScreenLength,
+  canvasScreenAbove,
+  canvasScreenX,
+} from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
-import { CanvasShelfMarkerLabel, CanvasShelfMarkerLine } from "./CanvasShelfMarker";
+import { CanvasShelfMarker, CanvasShelfMarkerSpace } from "./CanvasShelfMarker";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 
@@ -204,31 +212,34 @@ function CanvasWorkspace({
     environmentName ?? "production",
     runtimeBasePath,
   ]);
-  const selectedIndex = pages.findIndex((page) => page.key === selectedPage?.key);
   // Keep other derived layout previews visible; selection itself is always read from the URL.
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
   );
   const items = positionCanvasItems(getCanvasItems(pages));
-  const positionedPages = items
-    .filter((item): item is PositionedCanvasItem<CanvasPageItem> => item.kind === "page")
-    .map(({ page, left }) => ({
-      page,
-      pathname:
-        page.key === selectedPage?.key
-          ? selectedPath
-          : (previewPathnames[page.key] ?? page.pathname),
-      left,
-    }));
-  const pathnameByKey = new Map(positionedPages.map(({ page, pathname }) => [page.key, pathname]));
+  // Each Page in the row, keyed like its item, with the pathname its frame previews.
+  const pageSlots = new Map(
+    items.filter(isCanvasPage).map((item) => [
+      item.key,
+      {
+        ...item,
+        pathname:
+          item.key === selectedPage?.key
+            ? selectedPath
+            : (previewPathnames[item.key] ?? item.page.pathname),
+      },
+    ]),
+  );
+  const selectedKey = selectedPage && pageSlots.has(selectedPage.key) ? selectedPage.key : null;
   const snapTargets = canvasSnapTargets(items);
-  const { viewportRef, contentRef, flyToPage, cancelFlight, zoomAt } = useCanvasCamera(
+  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt } = useCanvasCamera(
     workspaceKey,
-    snapTargets.find(({ key }) => key === selectedPage?.key),
+    snapTargets.find(({ key }) => key === selectedKey),
     {
-      pages: snapTargets,
+      targets: snapTargets,
+      width: canvasRowWidth(items),
       onSelect: (key) => {
-        const pathname = positionedPages.find(({ page }) => page.key === key)?.pathname;
+        const pathname = pageSlots.get(key)?.pathname;
         if (pathname) selectPage(pathname);
       },
     },
@@ -238,11 +249,11 @@ function CanvasWorkspace({
   React.useEffect(() => {
     if (previousPath.current === selectedPath) return;
     // A newly created page can arrive in the route before the page list refresh.
-    if (location.source !== "canvas" && selectedIndex < 0) return;
+    if (location.source !== "canvas" && !selectedKey) return;
     previousPath.current = selectedPath;
-    if (location.source === "canvas") return;
-    flyToPage(pages[selectedIndex]!.key);
-  }, [selectedPath, location.source, selectedIndex, pages, flyToPage]);
+    if (location.source === "canvas" || !selectedKey) return;
+    flyTo(selectedKey);
+  }, [selectedPath, location.source, selectedKey, flyTo]);
 
   return (
     <div
@@ -266,17 +277,17 @@ function CanvasWorkspace({
           className="absolute top-0 left-0 flex w-max items-start"
           style={{
             gap: CANVAS_ITEM_GAP,
-            transform:
-              "translate(var(--canvas-x, 64px), var(--canvas-y, 112px)) scale(var(--canvas-zoom, .4))",
+            transform: CANVAS_WORLD_TRANSFORM,
             transformOrigin: "0 0",
             willChange: "transform",
           }}
         >
           {items.map((item) => {
-            if (item.kind === "shelf-marker")
-              return <CanvasShelfMarkerLine key={item.key} marker={item} />;
-            const { page } = item;
-            const pathname = pathnameByKey.get(page.key) ?? null;
+            if (isCanvasShelfMarker(item))
+              return <CanvasShelfMarkerSpace key={item.key} marker={item} />;
+            const slot = pageSlots.get(item.key);
+            if (!slot) return null;
+            const { page, pathname } = slot;
             return (
               <div
                 key={page.key}
@@ -317,20 +328,18 @@ function CanvasWorkspace({
           })}
         </div>
       </CanvasWorkspaceContext>
-      {items.map((item) =>
-        item.kind === "shelf-marker" ? (
-          <CanvasShelfMarkerLabel key={item.key} marker={item} />
-        ) : null,
-      )}
-      {positionedPages.map(({ page, pathname, left }) => (
+      {canvasShelfAreas(items).map((area) => (
+        <CanvasShelfMarker key={area.marker.key} area={area} />
+      ))}
+      {[...pageSlots.values()].map(({ page, pathname, left }) => (
         <div
           key={page.key}
           data-canvas-header={page.key}
           className="@container/canvas-header absolute top-0 left-0 pb-3"
           style={{
             height: CANVAS_HEADER_HEIGHT,
-            transform: `translate(calc(var(--canvas-x, 64px) + ${left}px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - ${CANVAS_HEADER_HEIGHT}px))`,
-            width: `calc(${CANVAS_SLOT_WIDTH}px * var(--canvas-zoom, .4))`,
+            transform: `translate(${canvasScreenX(left)}, ${canvasScreenAbove(CANVAS_HEADER_HEIGHT)})`,
+            width: canvasScreenLength(CANVAS_SLOT_WIDTH),
             willChange: "transform",
           }}
         >

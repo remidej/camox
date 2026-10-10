@@ -62,7 +62,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const headers = new Map<string, { onSelect: () => void; onChange: (path: string) => void }>();
   let snap!: (key: string) => void;
   let snapTargets: { key: string }[] = [];
-  const flyToPage = (key: string) => flights.push(key);
+  const flyTo = (key: string) => flights.push(key);
   const cancelFlight = () => actions.push("cancel");
   const globals = {
     React,
@@ -88,11 +88,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     CanvasCameraProbe: (
       _key: string,
       _page: unknown,
-      options: { onSelect: typeof snap; pages: { key: string }[] },
+      options: { onSelect: typeof snap; targets: { key: string }[] },
     ) => {
       snap = options.onSelect;
-      snapTargets = options.pages;
-      return { viewportRef: null, contentRef: null, flyToPage, cancelFlight };
+      snapTargets = options.targets;
+      return { viewportRef: null, contentRef: null, flyTo, cancelFlight };
     },
     CanvasHeaderProbe: (props: {
       page: { key: string };
@@ -231,13 +231,16 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             ? `marker:${child.getAttribute("data-canvas-shelf-marker")}`
             : `page:${child.querySelector("[data-canvas-pathname]")?.getAttribute("data-canvas-pathname")}`,
         );
-        assert.deepEqual(items, ["marker:pages", "page:/about", "page:/contact"]);
-        const label = host.querySelector('[data-canvas-shelf-marker-label="pages"]');
+        assert.deepEqual(items, ["marker:shelf:pages", "page:/about", "page:/contact"]);
+        const label = host.querySelector('[data-canvas-shelf-marker-label="shelf:pages"]');
         assert.equal(label?.textContent, "Pages");
+        const line = host.querySelector('[data-canvas-shelf-marker-line="shelf:pages"]');
+        assert.ok(line, "the marker draws its line");
+        assert.ok(!row.contains(line), "the line spans the workspace, not just the tallest Page");
         assert.deepEqual(
           snapTargets.map(({ key }) => key),
           [...headers.keys()],
-          "only Page frames are snap targets",
+          "only Pages are snap targets",
         );
       } finally {
         await React.act(async () => root.unmount());
@@ -265,7 +268,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           const header = host.querySelector("[data-canvas-header]") as unknown as HTMLElement;
           assert.equal(
             header.style.transform,
-            "translate(calc(var(--canvas-x, 64px) + 244px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
+            "translate(calc(var(--canvas-x, 64px) + 248px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
           );
           assert.equal(header.style.width, "calc(1366px * var(--canvas-zoom, .4))");
           assert.equal(header.style.willChange, "transform");

@@ -14,28 +14,28 @@ export interface CanvasSize {
   height: number;
 }
 
-export interface CanvasSnapPage {
+export interface CanvasSnapTarget {
   key: string;
   left: number;
   width: number;
 }
 
 /** Require 80% horizontal visibility; stable input order breaks center-distance ties. */
-export function canvasSnapPage<T extends CanvasSnapPage>(
+export function findCanvasSnapTarget<T extends CanvasSnapTarget>(
   camera: CanvasCamera,
   viewport: CanvasSize,
-  pages: readonly T[],
+  targets: readonly T[],
 ): T | undefined {
   let closest: T | undefined;
   let distance = Infinity;
-  for (const page of pages) {
-    const left = camera.x + page.left * camera.scale;
-    const right = left + page.width * camera.scale;
+  for (const target of targets) {
+    const left = camera.x + target.left * camera.scale;
+    const right = left + target.width * camera.scale;
     const visible = Math.max(0, Math.min(right, viewport.width) - Math.max(left, 0));
     if (visible + 1e-8 < (right - left) * 0.8) continue;
     const nextDistance = Math.abs((left + right - viewport.width) / 2);
     if (nextDistance >= distance) continue;
-    closest = page;
+    closest = target;
     distance = nextDistance;
   }
   return closest;

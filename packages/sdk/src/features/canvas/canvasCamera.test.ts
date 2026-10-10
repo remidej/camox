@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   canvasBounds,
   canvasInsets,
-  canvasSnapPage,
+  findCanvasSnapTarget,
   canvasVerticalRail,
   canvasWheelDelta,
   constrainCanvasCamera,
@@ -25,14 +25,14 @@ void test("snap candidates require 80% horizontal visibility and choose the near
     { key: "second", left: 400, width: 300 },
     { key: "third", left: 800, width: 300 },
   ];
-  assert.equal(canvasSnapPage({ x: 0, y: -90000, scale: 1 }, viewport, pages), pages[1]);
-  assert.equal(canvasSnapPage({ x: 0, y: 90000, scale: 1 }, viewport, pages), pages[1]);
-  assert.equal(canvasSnapPage({ x: 100, y: 0, scale: 1 }, viewport, pages), pages[0]);
-  assert.equal(canvasSnapPage({ x: -61, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
-  assert.equal(canvasSnapPage({ x: -60, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
-  assert.equal(canvasSnapPage({ x: 661, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
-  assert.equal(canvasSnapPage({ x: 660, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
-  assert.equal(canvasSnapPage({ x: 0, y: 0, scale: 4 }, viewport, pages), undefined);
+  assert.equal(findCanvasSnapTarget({ x: 0, y: -90000, scale: 1 }, viewport, pages), pages[1]);
+  assert.equal(findCanvasSnapTarget({ x: 0, y: 90000, scale: 1 }, viewport, pages), pages[1]);
+  assert.equal(findCanvasSnapTarget({ x: 100, y: 0, scale: 1 }, viewport, pages), pages[0]);
+  assert.equal(findCanvasSnapTarget({ x: -61, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
+  assert.equal(findCanvasSnapTarget({ x: -60, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
+  assert.equal(findCanvasSnapTarget({ x: 661, y: 0, scale: 1 }, viewport, [pages[0]]), undefined);
+  assert.equal(findCanvasSnapTarget({ x: 660, y: 0, scale: 1 }, viewport, [pages[0]]), pages[0]);
+  assert.equal(findCanvasSnapTarget({ x: 0, y: 0, scale: 4 }, viewport, pages), undefined);
 });
 
 void test("page zoom detent captures from either side with a wider release band", () => {

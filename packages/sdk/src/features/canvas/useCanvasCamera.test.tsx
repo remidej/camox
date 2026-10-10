@@ -55,7 +55,7 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
   let unmounted = false;
   function Fixture() {
     controls = useCanvasCamera("navigation-flight", initial, {
-      pages: flightPages,
+      targets: flightPages,
       onSelect: (key) => selections.push(key),
     });
     return (
@@ -101,10 +101,10 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     const start = read();
     assert.deepEqual(start, fit(initial), "initial mount does not fly");
     assert.equal(callbacks.size, 0);
-    const fly = controls.flyToPage;
+    const fly = controls.flyTo;
     await act(async () => root.render(<Fixture />));
-    assert.equal(controls.flyToPage, fly, "navigation callback is stable across renders");
-    controls.flyToPage(destination.key);
+    assert.equal(controls.flyTo, fly, "navigation callback is stable across renders");
+    controls.flyTo(destination.key);
     assert.deepEqual(read(), start, "flight starts from the painted camera without jumping");
     let minimumScale = start.scale;
     flush(() => {
@@ -120,17 +120,17 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
       "arrival is remembered",
     );
 
-    controls.flyToPage(initial.key);
+    controls.flyTo(initial.key);
     tick();
     tick(250);
     const halfway = read();
-    controls.flyToPage(middle.key);
+    controls.flyTo(middle.key);
     assert.deepEqual(read(), halfway, "new navigation retargets from the current painted view");
     flush();
     assert.deepEqual(read(), fit({ left: 3212, width: 1366 }));
 
     for (const input of ["wheel", "keyboard", "pointer", "canvas selection"] as const) {
-      controls.flyToPage(destination.key);
+      controls.flyTo(destination.key);
       tick();
       tick(250);
       const before = read();
@@ -164,7 +164,7 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
       assert.notDeepEqual(read(), fit(destination));
     }
 
-    controls.flyToPage(destination.key);
+    controls.flyTo(destination.key);
     tick();
     tick(200);
     size.width = 1000;
@@ -174,7 +174,7 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     flush();
     assert.deepEqual(read(), fit(destination), "flight adapts to viewport and iframe sizing");
 
-    controls.flyToPage(initial.key);
+    controls.flyTo(initial.key);
     tick();
     tick(200);
     const mobileInitial = { ...initial, left: 630, width: 390 };
@@ -183,7 +183,7 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     flush();
     assert.deepEqual(read(), fit(mobileInitial), "flight follows device changes without a new URL");
 
-    controls.flyToPage(destination.key);
+    controls.flyTo(destination.key);
     tick();
     tick(200);
     const beforeRemoval = read();
@@ -198,7 +198,7 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     content.width = 2972;
     content.height = 900;
     resize();
-    controls.flyToPage(initial.key);
+    controls.flyTo(initial.key);
     assert.deepEqual(read(), fit(initial), "reduced motion arrives immediately");
     assert.equal(callbacks.size, 0);
 
@@ -206,7 +206,7 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     content.width = 4578;
     flightPages = [...flightPages, appended];
     await act(async () => root.render(<Fixture />));
-    controls.flyToPage(appended.key);
+    controls.flyTo(appended.key);
     assert.deepEqual(
       read(),
       fit(appended),
@@ -219,14 +219,14 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     content.height = 14000;
     resize();
     media.matches = false;
-    controls.flyToPage(destination.key);
+    controls.flyTo(destination.key);
     tick();
     media.matches = true;
     tick();
     assert.deepEqual(read(), fit(destination), "reduced motion can interrupt an active flight");
     assert.equal(callbacks.size, 0);
     media.matches = false;
-    controls.flyToPage(middle.key);
+    controls.flyTo(middle.key);
     flush();
     const beforeProgrammaticZoom = read();
     const zoomPoint = { x: 450, y: 400 };
@@ -251,12 +251,12 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
       ) < 1e-8,
     );
 
-    controls.flyToPage(initial.key);
+    controls.flyTo(initial.key);
     assert.equal(callbacks.size, 1);
     await act(async () => root.unmount());
     unmounted = true;
     assert.equal(callbacks.size, 0, "unmount cancels flight animation");
-    controls.flyToPage(destination.key);
+    controls.flyTo(destination.key);
     assert.equal(
       callbacks.size,
       0,
@@ -311,7 +311,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
   const selections: string[] = [];
   function Fixture() {
     const { viewportRef, contentRef } = useCanvasCamera("page-fit-gestures", page, {
-      pages: [
+      targets: [
         { ...page, key: "page" },
         { ...sibling, key: "sibling" },
       ],
@@ -778,6 +778,78 @@ void test("the default camera fits the selected page through loading and viewpor
     resize();
     assertCamera();
     assert.equal(canvasStore.getSnapshot().context.views["initial-selected-page"], undefined);
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("the overview fits the Canvas row width given by its items, with measured frame heights", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  let resize = () => {};
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    cancelAnimationFrame: () => {},
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 900, height: 800 };
+  let height = 900;
+  function Fixture() {
+    const { viewportRef, contentRef } = useCanvasCamera("row-width-from-items", undefined, {
+      targets: [{ key: "page:1", left: 248, width: 1366 }],
+      width: 1614,
+      onSelect: () => {},
+    });
+    return (
+      <div ref={viewportRef}>
+        <div ref={contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+    });
+    // The DOM row can be wider than its items (e.g. a stray overflow); bounds must not follow it.
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 9000 },
+      offsetHeight: { get: () => height },
+    });
+    const assertOverview = () => {
+      const expected = fitCanvas(size, { width: 1614, height });
+      assert.equal(parseFloat(viewport.style.getPropertyValue("--canvas-x")), expected.x);
+      assert.equal(parseFloat(viewport.style.getPropertyValue("--canvas-y")), expected.y);
+      assert.equal(Number(viewport.style.getPropertyValue("--canvas-zoom")), expected.scale);
+    };
+    resize();
+    assertOverview();
+    height = 4000;
+    resize();
+    assertOverview();
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();

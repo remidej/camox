@@ -208,7 +208,7 @@ _Avoid_: Board, overview, sitemap view
 
 **Shelf Marker**:
 A labelled vertical divider separating areas of the canvas, such as the area holding its pages.
-_Avoid_: Separator, section header, divider
+_Avoid_: Separator, section header
 
 **Dashboard**:
 The hosted interface for managing organizations, projects, and members, outside any one website.

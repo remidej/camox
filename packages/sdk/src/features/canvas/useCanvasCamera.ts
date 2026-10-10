@@ -7,7 +7,7 @@ import {
   type ViewportAnchor,
 } from "../preview/viewportContinuity";
 import {
-  canvasSnapPage,
+  findCanvasSnapTarget,
   canvasVerticalRail,
   canvasWheelDelta,
   constrainCanvasCamera,
@@ -21,7 +21,7 @@ import {
   zoomCanvasAt,
   type CanvasCamera,
   type CanvasPoint,
-  type CanvasSnapPage,
+  type CanvasSnapTarget,
   type CanvasVerticalRail,
 } from "./canvasCamera";
 import { createCanvasFlight } from "./canvasFlight";
@@ -45,25 +45,36 @@ function isOverlayScroll(event: WheelEvent) {
   return event.target instanceof Element && !!event.target.closest("[data-canvas-overlay-scroll]");
 }
 
+/**
+ * The Canvas row as the camera sees it: its snap targets and, when known from
+ * the Canvas items, its world-space width. Heights are always measured, since
+ * frames size themselves to their content.
+ */
+export interface CanvasCameraRow {
+  targets: readonly CanvasSnapTarget[];
+  width?: number;
+  onSelect: (key: string) => void;
+}
+
 /** Animate only the camera's CSS properties; page trees never rerender on pan/zoom. */
 export function useCanvasCamera(
   workspaceKey: string,
-  initialPage?: { left: number; width: number },
-  snapping?: { pages: readonly CanvasSnapPage[]; onSelect: (key: string) => void },
+  initialTarget?: { left: number; width: number },
+  row?: CanvasCameraRow,
 ) {
   const continuity = React.useContext(ViewportContinuityContext);
   const viewportRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
-  const initialPageRef = React.useRef(initialPage);
-  const snappingRef = React.useRef(snapping);
+  const initialTargetRef = React.useRef(initialTarget);
+  const rowRef = React.useRef(row);
   const flightControls = React.useRef<{
-    flyToPage: (key: string) => void;
+    flyTo: (key: string) => void;
     cancelFlight: () => void;
     refreshFlight: () => void;
     zoomAt: (point: CanvasPoint, scale: number) => void;
   } | null>(null);
-  const flyToPage = React.useCallback((key: string) => {
-    flightControls.current?.flyToPage(key);
+  const flyTo = React.useCallback((key: string) => {
+    flightControls.current?.flyTo(key);
   }, []);
   const cancelFlight = React.useCallback(() => {
     flightControls.current?.cancelFlight();
@@ -72,7 +83,7 @@ export function useCanvasCamera(
     flightControls.current?.zoomAt(point, scale);
   }, []);
   React.useLayoutEffect(() => {
-    snappingRef.current = snapping;
+    rowRef.current = row;
     flightControls.current?.refreshFlight();
   });
 
@@ -100,11 +111,15 @@ export function useCanvasCamera(
     ownerWindow.addEventListener("wheel", preventHistorySwipe, { capture: true, passive: false });
 
     let viewportSize = { width: viewport.clientWidth, height: viewport.clientHeight };
-    let contentSize = { width: content.offsetWidth, height: content.offsetHeight };
+    const measureContent = () => ({
+      width: rowRef.current?.width ?? content.offsetWidth,
+      height: content.offsetHeight,
+    });
+    let contentSize = measureContent();
     let minimumScale = fitCanvas(viewportSize, contentSize).scale;
     const updateGeometry = (
       nextViewport = { width: viewport.clientWidth, height: viewport.clientHeight },
-      nextContent = { width: content.offsetWidth, height: content.offsetHeight },
+      nextContent = measureContent(),
     ) => {
       // Cache dimensions and their zoom floor together: synchronous measurements
       // can consume a resize before ResizeObserver delivers the same dimensions.
@@ -116,7 +131,7 @@ export function useCanvasCamera(
     // Clamping against their temporary placeholder sizes must not overwrite it.
     const saved = canvasStore.getSnapshot().context.views[workspaceKey];
     let restoredCamera = saved && !saved.fitted ? saved.camera : undefined;
-    const page = initialPageRef.current;
+    const page = initialTargetRef.current;
     let fittingInitialPage = !saved && !!page;
     const initialCamera = () =>
       fittingInitialPage && page
@@ -130,7 +145,7 @@ export function useCanvasCamera(
     let previousTime = 0;
     let flight:
       | {
-          page: CanvasSnapPage;
+          page: CanvasSnapTarget;
           path: ReturnType<typeof createCanvasFlight>;
           startedAt?: number;
         }
@@ -147,12 +162,12 @@ export function useCanvasCamera(
           source: "wheel" | "pointer" | "keyboard";
         }
       | undefined;
-    const pages = () => snappingRef.current?.pages ?? (page ? [{ ...page, key: "initial" }] : []);
+    const targets = () => rowRef.current?.targets ?? (page ? [{ ...page, key: "initial" }] : []);
     let snappedKey = fittingInitialPage
-      ? pages().find((candidate) => candidate.left === page?.left)?.key
+      ? targets().find((candidate) => candidate.left === page?.left)?.key
       : undefined;
     const pageScale = () => {
-      const railPage = pages().find((candidate) =>
+      const railPage = targets().find((candidate) =>
         isCanvasPageScale(target.scale, fitCanvasPage(viewportSize, candidate).scale),
       );
       if (!railPage) return undefined;
@@ -175,10 +190,10 @@ export function useCanvasCamera(
       gesture = { kind: "zoom", time, intendedScale };
       // Check both the painted view and the pending camera: animation must not
       // let an offscreen page attract the next wheel event.
-      const eligible = pages().filter((candidate) =>
-        canvasSnapPage(base, viewportSize, [candidate]),
+      const eligible = targets().filter((candidate) =>
+        findCanvasSnapTarget(base, viewportSize, [candidate]),
       );
-      const candidate = canvasSnapPage(camera, viewportSize, eligible);
+      const candidate = findCanvasSnapTarget(camera, viewportSize, eligible);
       const fit = candidate && fitCanvasPage(viewportSize, candidate);
       const nextScale = snapCanvasZoom(
         scale,
@@ -197,7 +212,7 @@ export function useCanvasCamera(
       }
       if (snappedKey === candidate.key && isCanvasPageScale(scale, fit.scale)) return next;
       snappedKey = candidate.key;
-      snappingRef.current?.onSelect(candidate.key);
+      rowRef.current?.onSelect(candidate.key);
       // Keep the zoom anchor vertically, rather than jumping back to page top.
       return { ...next, x: fit.x };
     };
@@ -223,7 +238,7 @@ export function useCanvasCamera(
       );
       gesture = { kind: "pan", time, rail, intendedX: intended.x, source };
       if (!delta.x) return { ...intended, x: base.x };
-      const candidate = canvasSnapPage(intended, viewportSize, pages());
+      const candidate = findCanvasSnapTarget(intended, viewportSize, targets());
       const fit = candidate && fitCanvasPage(viewportSize, candidate);
       if (!candidate || !fit || !isNearCanvasPageScale(base.scale, fit.scale)) {
         snappedKey = undefined;
@@ -239,7 +254,7 @@ export function useCanvasCamera(
         snappedKey = undefined;
         return intended;
       }
-      if (snappedKey !== candidate.key) snappingRef.current?.onSelect(candidate.key);
+      if (snappedKey !== candidate.key) rowRef.current?.onSelect(candidate.key);
       snappedKey = candidate.key;
       return { ...intended, x: centeredX };
     };
@@ -324,7 +339,7 @@ export function useCanvasCamera(
     };
     const startFlight = (key: string) => {
       cancelCameraFlight();
-      const destination = pages().find((candidate) => candidate.key === key);
+      const destination = targets().find((candidate) => candidate.key === key);
       if (!destination) return;
       cancelAnimationFrame(animation);
       animation = 0;
@@ -352,11 +367,11 @@ export function useCanvasCamera(
       animation = requestAnimationFrame(animate);
     };
     flightControls.current = {
-      flyToPage: startFlight,
+      flyTo: startFlight,
       cancelFlight: cancelCameraFlight,
       refreshFlight: () => {
         if (!flight) return;
-        const destination = pages().find((candidate) => candidate.key === flight?.page.key);
+        const destination = targets().find((candidate) => candidate.key === flight?.page.key);
         if (!destination) {
           cancelCameraFlight();
           return;
@@ -385,10 +400,10 @@ export function useCanvasCamera(
       // Any new camera interaction takes precedence over the remembered view.
       restoredCamera = undefined;
       fittingInitialPage = false;
-      const snapped = pages().find((candidate) => candidate.key === snappedKey);
+      const snapped = targets().find((candidate) => candidate.key === snappedKey);
       if (
         snapped &&
-        (!canvasSnapPage(next, viewportSize, [snapped]) ||
+        (!findCanvasSnapTarget(next, viewportSize, [snapped]) ||
           !isNearCanvasPageScale(next.scale, fitCanvasPage(viewportSize, snapped).scale))
       )
         snappedKey = undefined;
@@ -396,7 +411,7 @@ export function useCanvasCamera(
     };
     const continuityBinding = {
       capture: () => {
-        const snapped = pages().find((candidate) => candidate.key === snappedKey);
+        const snapped = targets().find((candidate) => candidate.key === snappedKey);
         // A detent can be the animation target before the painted view arrives.
         const held =
           snapped &&
@@ -434,8 +449,8 @@ export function useCanvasCamera(
         previous: CanvasCamera | undefined,
         previousSnap?: string,
       ) => {
-        const selected = initialPageRef.current;
-        const destination = pages().find((candidate) => candidate.left === selected?.left);
+        const selected = initialTargetRef.current;
+        const destination = targets().find((candidate) => candidate.left === selected?.left);
         if (!destination) return;
         const frame = Array.from(content.querySelectorAll<HTMLElement>("[data-canvas-page]"))
           .find((element) => element.dataset.canvasPage === destination.key)
@@ -469,7 +484,7 @@ export function useCanvasCamera(
     if (continuity) continuity.canvas = continuityBinding;
     const resize = new ResizeObserver(() => {
       const nextViewport = { width: viewport.clientWidth, height: viewport.clientHeight };
-      const nextContent = { width: content.offsetWidth, height: content.offsetHeight };
+      const nextContent = measureContent();
       if (
         nextViewport.width === viewportSize.width &&
         nextViewport.height === viewportSize.height &&
@@ -493,7 +508,7 @@ export function useCanvasCamera(
       }
       if (fittingInitialPage) {
         applyCamera(initialCamera(), true);
-        snappedKey = pages().find((candidate) => candidate.left === page?.left)?.key;
+        snappedKey = targets().find((candidate) => candidate.left === page?.left)?.key;
         return;
       }
       // Stay in overview while pages finish loading. Once zoomed in, preserve
@@ -683,5 +698,5 @@ export function useCanvasCamera(
     };
   }, [workspaceKey, continuity]);
 
-  return { viewportRef, contentRef, flyToPage, cancelFlight, zoomAt };
+  return { viewportRef, contentRef, flyTo, cancelFlight, zoomAt };
 }
