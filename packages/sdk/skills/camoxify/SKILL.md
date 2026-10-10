@@ -7,6 +7,14 @@ description: Turn an existing website, screenshot, or design into an editable Ca
 
 Work in the existing Camox project; project creation and authentication are onboarding prerequisites. Match the reference while making the result reusable and easy to edit.
 
+## Scope the run
+
+Take the scope from the request. A first run usually covers the shell and the homepage; a later run may cover the whole site, reusing what earlier runs built.
+
+For multi-page runs, build the page list before coding: read the sitemap (`/sitemap.xml`, or the one named in `/robots.txt`) and follow navigation and footer links. Group pages that share one structure, such as blog posts, case studies, or docs articles, into a **page family**: one layout and set of blocks, built and verified on a representative page, then repeated for the rest through the CLI. Confirm the list and its families with the user before building.
+
+Track progress in `camoxify-progress.md` at the project root: one line per page with its status (pending, built, populated, verified) and any new definitions it introduced. Update it as each page advances. When resuming, start from that file and the project's current definitions.
+
 ## Inspect and decompose
 
 Inspect the source URL with available browsing tools, or use the supplied screenshot/design. If the URL is inaccessible, ask for screenshots. Check multiple pages and viewport sizes when available; don't infer a whole site's structure from one crop.
@@ -16,7 +24,10 @@ For URL references, use a browser when available to explore interactive states: 
 Before coding, map the reference to:
 
 - **Layout:** the consistent shell across pages, such as navigation and footer. Editable shell content still lives in blocks, placed by the layout.
-- **Page blocks:** independently useful sections such as a hero, feature grid, testimonials, or pricing. Reuse existing definitions where they fit. Avoid both a monolithic page block and separate blocks for every heading or card.
+- **Page blocks:** independently useful sections such as a hero, feature grid, testimonials, or pricing. Avoid both a monolithic page block and separate blocks for every heading or card.
+
+Reuse before creating. When a section matches an existing definition's content shape and visual treatment, use it, adding a setting for a small variation. Create a new definition when the visual treatment or the content shape is meaningfully different; distinct designs for the same job keep pages varied. A new definition's `description` says when to choose it over similar existing blocks.
+
 - **Fields and repeaters:** editable content within each section, grouped by meaning rather than visual position.
 
 Read [Block Definitions](../camox/references/block-definitions.md) and, when creating or changing a shell, [Layout Definitions](../camox/references/layout-definitions.md).
@@ -64,3 +75,5 @@ Use inline formatting and `textStyle`, including highlights, instead of fields s
 Follow the [Camox CLI workflow](../camox/SKILL.md#content-and-cli) to assign layouts, place blocks, and populate content, including shared navigation/footer content. Don't publish unless asked.
 
 Compare the rendered site with the reference at desktop and mobile sizes. Verify that fields remain editable and that longer text and different repeater counts still work. Fix the reusable implementation, not just the one captured arrangement.
+
+In multi-page runs, give this full check to every page that introduced or changed a definition, and to each page family's representative page. Compare the remaining pages with their source at desktop size. The run is complete when every page in `camoxify-progress.md` is verified.
