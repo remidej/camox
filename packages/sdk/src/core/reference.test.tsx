@@ -269,6 +269,114 @@ void test("reference lists render each resolved record in stored order and nothi
   assert.match(render([id], [{ ...record, collectionId: "other" }]), /<ul><\/ul>/);
 });
 
+void test("query-backed lists store nothing and render their resolved records in query order", () => {
+  const second: ReferenceRecord = { ...record, id: "beta", label: "Beta label" };
+  const query = { orderBy: { name: "asc" }, limit: 3 } as const;
+  const recent = contentFieldBuilder.referenceList(customers, {
+    query,
+    toMarkdown: (c) => [c.name],
+  });
+  assert.deepEqual(recent.query, query);
+  assert.equal("default" in recent, false);
+  assert.throws(
+    () => contentFieldBuilder.referenceList(customers, { query: { limit: Number("101") } }),
+    /limit must be an integer from 1 to 100/,
+  );
+  assert.throws(
+    () =>
+      contentFieldBuilder.referenceList(customers, {
+        query: { orderBy: { logo: "asc" } as never },
+      }),
+    /cannot order by "logo"/,
+  );
+  assert.throws(
+    () =>
+      createCollection({
+        id: "reserved",
+        title: "",
+        description: "",
+        label: "name",
+        content: (field) => ({ name: field.string(), publishedAt: field.string() }) as never,
+      }),
+    /"publishedAt": reserved field name/,
+  );
+  const block = createBlock({
+    id: "recent-customers",
+    title: "",
+    description: "",
+    content: (field) => ({
+      customers: field.referenceList(customers, { query }),
+      rows: field.repeater({
+        content: (field) => ({ customers: field.referenceList(customers, { query }) }),
+        minItems: 1,
+        maxItems: 2,
+        toMarkdown: () => [],
+      }),
+    }),
+    toMarkdown: () => [],
+    component: () => (
+      <>
+        <ul>
+          <block.ReferenceList name="customers">
+            {(customer) => <li aria-label={customer.label}>{customer.id}</li>}
+          </block.ReferenceList>
+        </ul>
+        <block.Repeater name="rows">
+          {(row) => (
+            <ol>
+              <row.ReferenceList name="customers">
+                {(customer) => <li aria-label={customer.label}>{customer.id}</li>}
+              </row.ReferenceList>
+            </ol>
+          )}
+        </block.Repeater>
+      </>
+    ),
+  });
+  assert.deepEqual(block._internal.getInitialContent(), {});
+  assert.deepEqual(block._internal.getInitialBundle().content, {});
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>
+      <NormalizedDataProvider
+        files={[]}
+        repeatableItems={[
+          {
+            id: 30,
+            blockId: 3,
+            parentItemId: null,
+            fieldName: "rows",
+            content: {},
+            settings: null,
+            summary: "",
+            position: "a0",
+            createdAt: 0,
+            updatedAt: 0,
+            references: { customers: [record] },
+          } as never,
+        ]}
+        blocks={[{ id: 3, references: { customers: [second, record] } }]}
+      >
+        <block._internal.Component
+          mode="site"
+          blockData={{
+            _id: 3,
+            type: "recent-customers",
+            position: "a0",
+            content: { customers: [id], rows: [{ _itemId: 30 }] } as never,
+          }}
+        />
+      </NormalizedDataProvider>
+    </QueryClientProvider>,
+  );
+  assert.match(
+    html,
+    new RegExp(
+      `<ul><li aria-label="Beta label">beta</li><li aria-label="Source label">${id}</li></ul>` +
+        `<ol><li aria-label="Source label">${id}</li></ol>`,
+    ),
+  );
+});
+
 void test("repeatable items render the records they link, at any repeater depth", () => {
   const block = createBlock({
     id: "logo-wall",

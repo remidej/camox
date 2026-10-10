@@ -144,6 +144,8 @@ async function renderSidebar(
     /** The repeater item's own reference and reference list. */
     sponsor?: string | null;
     partners?: string[];
+    /** The records the block's query-backed list resolved to, in result order. */
+    recent?: string[];
   } = {},
 ) {
   const window = new Window({ url: "http://localhost/" });
@@ -215,6 +217,10 @@ async function renderSidebar(
       logo: field.image({ title: "Logo" }),
       company: field.reference(customers, { title: "Company", required: true }),
       logos: field.referenceList(customers, { title: "Logos", maxItems: 3 }),
+      recent: field.referenceList(customers, {
+        title: "Recent",
+        query: { orderBy: { name: "asc" }, limit: 3 },
+      }),
       people: field.repeater({
         title: "People",
         content: (field) => ({
@@ -256,6 +262,7 @@ async function renderSidebar(
       references: {
         company: company === ACME ? acme : null,
         logos: linked(logos),
+        recent: linked(options.recent ?? []),
       },
     },
     repeatableItems: [
@@ -1422,4 +1429,116 @@ void test("a linked record's selection falls back to the placed record's field o
     recordFieldType: "Reference",
   });
   assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Company", "Acme", "Contact"]);
+});
+
+void test("the block field list summarizes a query-backed reference list by its result count", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "block", blockId: BLOCK_ID },
+    { recent: [ACME, GLOBEX] },
+  );
+  assert.match(sidebar.text(), /Recent\s*2 results/);
+});
+
+const recentField = {
+  type: "block-field",
+  blockId: BLOCK_ID,
+  fieldName: "recent",
+  fieldType: "ReferenceList",
+} as const;
+
+void test("a query-backed list shows its results as read-only cards under a summary of its query", async (t) => {
+  const sidebar = await renderSidebar(t, recentField, { recent: [ACME, GLOBEX, INITECH] });
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Recent"]);
+  assert.match(sidebar.text(), /First 3 by Name, A to Z/);
+  const shown = cards(sidebar.host);
+  assert.deepEqual(
+    shown.map((card) => card.label),
+    ["Open Acme", "Open Globex", "Open Initech"],
+    "cards follow the query's result order",
+  );
+  assert.match(shown[1]!.text, /Globex\s*Draft\s*Customers/);
+  assert.ok(
+    shown.every((card) => !card.dragHandle),
+    "results cannot be reordered",
+  );
+  assert.ok(!sidebar.hasButton("Unlink"), "results cannot be unlinked");
+  assert.ok(!sidebar.host.querySelector("button[aria-haspopup]"), "no record picker");
+  assert.ok(!sidebar.hasButton("Create item"));
+  assert.doesNotMatch(sidebar.text(), /Limit of/);
+  assert.deepEqual(sidebar.writes, []);
+});
+
+void test("an empty query result offers nothing to add", async (t) => {
+  const fieldList = await renderSidebar(t, { type: "block", blockId: BLOCK_ID });
+  assert.match(fieldList.text(), /Recent\s*0 results/);
+  const sidebar = await renderSidebar(t, recentField);
+  assert.match(sidebar.text(), /First 3 by Name, A to Z/);
+  assert.equal(cards(sidebar.host).length, 0);
+  assert.ok(!sidebar.host.querySelector("button[aria-haspopup]"), "no record picker");
+  assert.ok(!sidebar.hasButton("Create item"));
+});
+
+void test("clicking a query result card opens its record view, whose field edits save to the record", async (t) => {
+  const sidebar = await renderSidebar(t, recentField, { recent: [ACME, GLOBEX] });
+  await sidebar.click("Open Acme");
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), {
+    type: "record",
+    blockId: BLOCK_ID,
+    fieldName: "recent",
+    recordId: ACME,
+  });
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Recent", "Acme"]);
+  assert.ok(sidebar.host.querySelector("[data-shared-record]"));
+  await act(async () =>
+    sidebar.previewStore.send({
+      type: "selectRecordField",
+      ...owner,
+      blockId: BLOCK_ID,
+      fieldName: "recent",
+      recordId: ACME,
+      recordFieldName: "quote",
+      recordFieldType: "String",
+    }),
+  );
+  await sidebar.settle();
+  await sidebar.typeText("Superb");
+  assert.deepEqual(sidebar.writes, [
+    {
+      procedure: "collectionDefinitions/editRecord",
+      input: {
+        projectSlug: "site",
+        collectionId: "customers",
+        id: ACME,
+        expectedVersion: 3,
+        content: { ...acmeContent, quote: "Superb" },
+      },
+    },
+  ]);
+});
+
+void test("a selection on a record that left the query's results falls back to the list view", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "record", blockId: BLOCK_ID, fieldName: "recent", recordId: ACME },
+    { recent: [ACME, GLOBEX] },
+  );
+  assert.ok(sidebar.host.querySelector("[data-shared-record]"));
+  await act(async () => {
+    sidebar.client.setQueryData(blockQueries.get(BLOCK_ID).queryKey, (bundle: any) => ({
+      ...bundle,
+      block: {
+        ...bundle.block,
+        references: { ...bundle.block.references, recent: [bundle.block.references.recent[1]] },
+      },
+    }));
+  });
+  await sidebar.settle();
+  assert.deepEqual(sidebar.selection(), recentField);
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Recent"]);
+  assert.deepEqual(
+    cards(sidebar.host).map((card) => card.label),
+    ["Open Globex"],
+  );
 });

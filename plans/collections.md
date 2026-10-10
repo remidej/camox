@@ -244,6 +244,78 @@ Recorded from the last part of slice 5. Collection schemas accept `field.referen
 - Not covered: a page's derived Modified status does not yet reflect second-hop record edits;
   the publication review still lists them.
 
+## Slice 6 decision: query-backed reference lists
+
+Recorded from #142 (core in #143, editor in #144). This settles the query and ordering part
+of remaining decision #4.
+
+- `field.referenceList(collection, { query: { orderBy?, limit? } })` declares a query-backed
+  list. `orderBy` is a single-key object `{ [key]: "asc" | "desc" }` whose key is a `String`
+  field of the collection (the label included) or the system key `createdAt` or
+  `publishedAt`; images, references, enums, booleans and multi-key orderings are rejected.
+  `limit` is an integer from 1 to 100 and defaults to the hard cap of 100. There is no
+  `where` filtering in v1. Types reject unknown keys, several keys and literal limits outside
+  1–100; the builder and definition sync (`validateReferenceSchema`, checking keys against the
+  `referenceSchema` the field carries) reject the same, computed limits included. Both apply
+  the rules `@camox/api-contract` shares (`referenceQueryProblem`, `QUERY_LIMIT_CAP`,
+  `SYSTEM_ORDER_KEYS`, `isQueryBacked`).
+- `createdAt` and `publishedAt` are reserved collection field names, in types, in
+  `createCollection` and at collection sync.
+- The query is part of the definition. A query-backed list has no `default` and stores
+  nothing: a value stored on the block or item is ignored, the field is never required, and
+  every content write naming it (block or item create, block or item edit, inline items) is
+  rejected by `validateReferenceValues` as `{path}: query-backed reference lists are resolved,
+not written`.
+- Lists are accepted in block content and repeatable item content at any repeater depth.
+  Settings, nested objects and single references reject a query; collection schemas reject
+  query-backed lists, so second-hop resolution never fans out across a collection.
+- Resolution (`resolveReferences`) picks the result ids first, then resolves only those:
+  - draft reads every record by its draft content; live reads published records only, by
+    their published revision's content, so a draft title change never re-sorts a live list;
+  - `createdAt` and `publishedAt` order, tie-break and limit in SQL, so only `limit` ids load.
+    `publishedAt` is the earliest `auto-publish` revision (falling back to the current
+    published revision), grouped once per query rather than looked up per record, so
+    republishing never bumps a record; in preview, never-published records sort as published
+    now;
+  - text fields order in memory, since the collation is ICU's, not SQLite's: one query loads
+    each candidate's id and raw field value (never whole records), and the plain text compares
+    with the ICU English collation, numbers by value
+    (`Intl.Collator("en", { numeric: true, sensitivity: "accent" })`): case-insensitive,
+    "Article 2" before "Article 10". Missing or empty values sort last in either direction;
+  - ties break by record id, ascending, so text differing only by case stays deterministic.
+    Without `orderBy`, records keep creation order (`createdAt` ascending);
+  - results are first-hop records and resolve their own references (the two-hop rule).
+    No stored first-publication column or text sort key was added; revisit if large
+    collections make text ordering slow.
+- Query results are resolved content, not placements. Migration `0033_query_reference_lists`
+  redefines `collection_reference_uses` to skip list fields carrying a `query`, so they never
+  block deleting or unpublishing a record and never mark a page or layout Modified. The
+  publication review skips them, including the records they would reach at the second hop.
+- Invalidation needs nothing new: every record write (edit, publish, unpublish, delete)
+  already invalidates block, page and layout reads, so preview and live lists refresh, and
+  live membership changes on record publication without republishing the page.
+- The SDK renders results through the same `ReferenceList` scope, overlays, selection shapes
+  and placement ids as a manual list. Results come from the owner's resolved `references`
+  (blocks by id, items through the items map), not from stored content. In edit mode an empty
+  result renders nothing: there is no "Add" placeholder.
+- Per-use `toMarkdown` runs per resolved record; live Markdown uses live resolution.
+- Editor (#144): the sidebar reads the field's `query` from the block or item schema. The field
+  list summarizes the list as "{n} results" ("1 result"), counting the owner's resolved records.
+  The reference field view shows a summary line derived from the query, then the results as
+  read-only record cards in result order, each opening its record view and highlighting its
+  entry in the preview on hover. There is no Unlink, drag handle, record picker, Create item
+  or limit message, and an empty result shows only the summary. Summaries: dates read
+  "Newest 3 by published date" / "Oldest 5 by creation date" ("Newest first …" without a
+  limit); text fields read "First 2 by {field title}, A to Z" ("All by …" without a limit,
+  "Z to A" descending); without `orderBy`, "Oldest first by creation date". A record or
+  record-field selection stays valid while the record is among the owner's resolved results
+  (a query-backed list stores nothing to check), and falls back to the list view once it
+  leaves them.
+- Agent tools share the validation and resolution services; their reference guidance says
+  never to write query-backed lists.
+- The playground's recent articles (`publishedAt` desc, limit 3) and article list (`title`
+  asc) blocks demonstrate both. The `/articles` singleton index stays with slice 8.
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.
@@ -442,7 +514,7 @@ content: (field) => ({
 - Record fields remain editable through the same scoped primitives.
 - Query membership and ordering are not manually editable selections. The editor must not offer drag-to-reorder or removal controls that contradict the query.
 - Manual lists store ordered references. Query results are resolved content, not block-owned copied items.
-- The exact query operator set and ordering on system metadata remain to be specified. New date/number field APIs are not introduced by this document.
+- The query operator set (`orderBy`, `limit`) and ordering on system metadata (`createdAt`, `publishedAt`) are settled in "Slice 6 decision". New date/number field APIs are not introduced by this document.
 
 This is the declarative integration for list/index/recent-content use cases; no public ORM or block loader is required.
 
@@ -734,7 +806,8 @@ These are not permission to expand v1 into the explicitly deferred features:
 1. Atomic dependency publication planning implementing the slice 3 policy, before references are exposed.
 2. Checkpoint representation and historical/restore semantics for referenced record revisions.
 3. Delete/unpublish policy for referenced items, including references held by other collections and published snapshots.
-4. Query operator set, system-metadata ordering, and relation-resolution depth/cycle handling.
+4. ~~Query operator set, system-metadata ordering~~ (settled in "Slice 6 decision"), and
+   relation-resolution depth/cycle handling.
 5. Route-discovery pagination details and route-collision behavior relative to existing curated pages.
 6. Per-use nested reference Markdown behavior and final layout Markdown/metadata callback signatures.
 7. How reference field empty/optional states and collection schemas reuse existing field primitives without inheriting inappropriate block-preview/rendering requirements.

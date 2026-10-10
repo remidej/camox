@@ -6,6 +6,8 @@ export type ContentFieldSchema = {
   title?: string;
   /** Reference fields: the collection whose records they link. */
   collectionId?: string;
+  /** Query-backed reference lists: the query whose results they list. */
+  query?: unknown;
   /** File fields: accepted MIME types (list fields keep them on `items`). */
   accept?: string[];
   items?: { accept?: string[] };

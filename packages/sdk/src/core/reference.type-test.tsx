@@ -244,3 +244,91 @@ function NestedTypeChecks() {
   );
 }
 void NestedTypeChecks;
+
+// Query-backed reference lists: code defines membership and order.
+const recentArticles = createBlock({
+  id: "recent-articles",
+  title: "Recent articles",
+  description: "",
+  content: (field) => ({
+    recent: field.referenceList(articles, {
+      query: { orderBy: { publishedAt: "desc" }, limit: 3 },
+      toMarkdown: (article) => [`## ${article.title}`],
+    }),
+    alphabetical: field.referenceList(articles, { query: { orderBy: { title: "asc" } } }),
+    created: field.referenceList(articles, { query: { orderBy: { createdAt: "asc" } } }),
+    all: field.referenceList(articles, { query: {} }),
+    capped: field.referenceList(articles, { query: { limit: 100 } }),
+    computed: field.referenceList(articles, { query: { limit: Number("3") } }),
+    // @ts-expect-error Only text fields and system metadata are orderable.
+    byAuthor: field.referenceList(articles, { query: { orderBy: { author: "asc" } } }),
+    // @ts-expect-error Unknown ordering key.
+    byMissing: field.referenceList(articles, { query: { orderBy: { missing: "asc" } } }),
+    // @ts-expect-error Order is "asc" or "desc".
+    byUp: field.referenceList(articles, { query: { orderBy: { title: "up" } } }),
+    byTwo: field.referenceList(articles, {
+      // @ts-expect-error orderBy takes a single key.
+      query: { orderBy: { title: "asc", createdAt: "desc" } },
+    }),
+    // @ts-expect-error Limits above the cap of 100 are rejected.
+    overCap: field.referenceList(articles, { query: { limit: 101 } }),
+    // @ts-expect-error Limits are positive.
+    zero: field.referenceList(articles, { query: { limit: 0 } }),
+    // @ts-expect-error There is no where filtering.
+    filtered: field.referenceList(articles, { query: { where: { title: "x" } } }),
+  }),
+  component: () => null,
+  toMarkdown: (c) => [c.recent],
+});
+
+function QueryTypeChecks() {
+  return (
+    <recentArticles.ReferenceList name="recent">
+      {(article) => (
+        <>
+          <article.Field name="title">{(props) => <h3 {...props} />}</article.Field>
+          <article.Reference name="author">
+            {(author) => <author.Field name="name">{(props) => <i {...props} />}</author.Field>}
+          </article.Reference>
+          {/* @ts-expect-error Unknown collection field. */}
+          <article.Field name="missing">{() => null}</article.Field>
+        </>
+      )}
+    </recentArticles.ReferenceList>
+  );
+}
+void QueryTypeChecks;
+
+createCollection({
+  id: "reserved",
+  title: "Reserved",
+  description: "",
+  label: "title",
+  content: (field) => ({
+    title: field.string(),
+    // @ts-expect-error Reserved for record metadata in query orderBy.
+    publishedAt: field.string(),
+  }),
+});
+createCollection({
+  id: "reserved-created",
+  title: "Reserved",
+  description: "",
+  label: "title",
+  content: (field) => ({
+    title: field.string(),
+    // @ts-expect-error Reserved for record metadata in query orderBy.
+    createdAt: field.boolean({ default: false }),
+  }),
+});
+createCollection({
+  id: "queries",
+  title: "Queries",
+  description: "",
+  label: "title",
+  content: (field) => ({
+    title: field.string(),
+    // @ts-expect-error Collections never hold query-backed lists.
+    latest: field.referenceList(articles, { query: {} }),
+  }),
+});

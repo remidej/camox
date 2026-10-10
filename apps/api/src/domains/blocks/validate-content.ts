@@ -1,3 +1,4 @@
+import { isQueryBacked } from "@camox/api-contract";
 import { Validator, type Schema } from "@cfworker/json-schema";
 import { Effect } from "effect";
 
@@ -166,9 +167,12 @@ function adaptSchema(
   if (partial) {
     delete out.required;
   } else if (schema.required) {
+    // Query-backed reference lists are resolved, never stored, so they are never required.
     out.required = schema.required.filter((key) => {
       const property = schema.properties?.[key];
-      return typeof property !== "object" || !assetTypes.has(property.fieldType);
+      if (typeof property !== "object") return true;
+      if (property.fieldType === "ReferenceList" && isQueryBacked(property)) return false;
+      return !assetTypes.has(property.fieldType);
     });
   }
 

@@ -703,6 +703,108 @@ void test("editable reference lists render their linked records in stored order"
   assert.equal(requests.length, writesBefore);
 });
 
+void test("editable query-backed lists render resolved records with the same scope, overlays and placement ids", () => {
+  const customers = createCollection({
+    id: "customers",
+    title: "Customers",
+    description: "",
+    label: "name",
+    content: (field) => ({ name: field.string({ default: "" }) }),
+  });
+  const records: ReferenceRecord[] = ["Acme", "Beta"].map((name) => ({
+    id: `${name.toLowerCase()}-id`,
+    collectionId: "customers",
+    label: `${name} label`,
+    content: { name },
+    version: 1,
+  }));
+  const list = (scope: { ReferenceList: typeof block.ReferenceList }) => (
+    <scope.ReferenceList name="customers">
+      {(customer) => (
+        <li aria-label={customer.label}>
+          <customer.Field name="name">{(props) => <b {...props} />}</customer.Field>
+        </li>
+      )}
+    </scope.ReferenceList>
+  );
+  const query = { orderBy: { name: "desc" } } as const;
+  const block = createEditableBlock({
+    id: "recent-customers",
+    title: "",
+    description: "",
+    content: (field) => ({
+      customers: field.referenceList(customers, { query }),
+      rows: field.repeater({
+        content: (field) => ({ customers: field.referenceList(customers, { query }) }),
+        minItems: 1,
+        maxItems: 2,
+        toMarkdown: () => [],
+      }),
+    }),
+    toMarkdown: () => [],
+    component: () => (
+      <>
+        <ul>{list(block)}</ul>
+        <block.Repeater name="rows">{(row) => <ol>{list(row as never)}</ol>}</block.Repeater>
+      </>
+    ),
+  });
+  const render = (mode: "site" | "peek", resolved: ReferenceRecord[]) =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <NormalizedDataProvider
+          files={[]}
+          repeatableItems={[
+            {
+              id: 70,
+              blockId: 7,
+              parentItemId: null,
+              fieldName: "rows",
+              content: {},
+              settings: null,
+              summary: "",
+              position: "a0",
+              createdAt: 0,
+              updatedAt: 0,
+              references: { customers: [...resolved].reverse() },
+            } as never,
+          ]}
+          blocks={[{ id: 7, references: { customers: resolved } }]}
+        >
+          <block._internal.Component
+            mode={mode}
+            blockData={{
+              _id: 7,
+              type: "recent-customers",
+              position: "a0",
+              // A stale stored value is ignored: the query owns membership and order.
+              content: { customers: ["acme-id"], rows: [{ _itemId: 70 }] } as never,
+            }}
+          />
+        </NormalizedDataProvider>
+      </QueryClientProvider>,
+    );
+  const html = render("site", [records[1], records[0]]);
+  const labels = (markup: string, tag: string) =>
+    [
+      ...(markup.match(new RegExp(`<${tag}>.*?</${tag}>`, "s"))?.[0] ?? "").matchAll(
+        /<li aria-label="([^"]+)">/g,
+      ),
+    ].map((match) => match[1]);
+  assert.deepEqual(labels(html, "ul"), ["Beta label", "Acme label"]);
+  assert.deepEqual(labels(html, "ol"), ["Acme label", "Beta label"]);
+  // Each result is a placement like a manual list's entry, with purple record overlays.
+  assert.match(html, /data-camox-field-id="7__customers__beta-id"/);
+  assert.match(html, /data-camox-field-id="7__customers__beta-id__name"/);
+  assert.match(html, /data-camox-field-id="7__70__customers__acme-id"/);
+  assert.match(html, /data-camox-overlay-mode="reference"/);
+  // An empty result renders nothing, even in edit mode: there is nothing to add.
+  const empty = render("site", []);
+  assert.doesNotMatch(empty, /<li|data-camox-reference-placeholder/);
+  assert.match(empty, /<ul><\/ul>/);
+  assert.deepEqual(labels(render("peek", [records[0]]), "ul"), ["Acme label"]);
+});
+
 void test("an empty reference list shows an add placeholder in edit mode that focuses the sidebar picker", async () => {
   const customers = createCollection({
     id: "customers",
