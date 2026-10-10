@@ -16,26 +16,46 @@ export default defineConfig({
       ),
     },
   },
-  plugins: [
-    cloudflareTest({
-      // Tests must not inherit production-backed bindings (such as EMAIL).
-      remoteBindings: false,
-      wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: {
-        bindings: {
-          BETTER_AUTH_SECRET: "test-secret",
-          GITHUB_CLIENT_ID: "test-client-id",
-          GITHUB_CLIENT_SECRET: "test-client-secret",
-          GOOGLE_CLIENT_ID: "test-client-id",
-          GOOGLE_CLIENT_SECRET: "test-client-secret",
-          OPEN_ROUTER_API_KEY: "test-api-key",
-          TEST_MIGRATIONS: migrations,
+  test: {
+    projects: [
+      {
+        // Pure logic runs in Node: booting workerd and migrating D1 per file
+        // dominates the runtime of the integration project.
+        extends: true,
+        test: {
+          name: "unit",
+          include: ["src/**/*.test.ts"],
+          exclude: ["src/**/*.integration.test.ts"],
+          environment: "node",
         },
       },
-    }),
-  ],
-  test: {
-    setupFiles: ["./test/apply-migrations.ts"],
+      {
+        extends: true,
+        plugins: [
+          cloudflareTest({
+            // Tests must not inherit production-backed bindings (such as EMAIL).
+            remoteBindings: false,
+            wrangler: { configPath: "./wrangler.jsonc" },
+            miniflare: {
+              bindings: {
+                BETTER_AUTH_SECRET: "test-secret",
+                GITHUB_CLIENT_ID: "test-client-id",
+                GITHUB_CLIENT_SECRET: "test-client-secret",
+                GOOGLE_CLIENT_ID: "test-client-id",
+                GOOGLE_CLIENT_SECRET: "test-client-secret",
+                OPEN_ROUTER_API_KEY: "test-api-key",
+                TEST_MIGRATIONS: migrations,
+              },
+            },
+          }),
+        ],
+        test: {
+          name: "integration",
+          include: ["src/**/*.integration.test.ts"],
+          setupFiles: ["./test/apply-migrations.ts"],
+        },
+      },
+    ],
   },
   lint: {
     rules: {

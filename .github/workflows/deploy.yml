@@ -30,6 +30,14 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # Each run saves a fresh entry and restores the newest one from this
+      # branch or main; Nx hashes decide which cached tasks are still valid.
+      - uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ github.sha }}
+          restore-keys: nx-${{ runner.os }}-
+
       - name: Validate deployment credentials
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
