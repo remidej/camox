@@ -2,7 +2,15 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type Plugin, type ResolvedConfig, type ViteDevServer, createServer } from "vite-plus";
+import {
+  type Logger,
+  type Plugin,
+  type ResolvedConfig,
+  type ViteDevServer,
+  createServer,
+} from "vite-plus";
+
+import { type ServerApiClient, createServerApiClient } from "../../lib/api-client-server";
 
 const pluginDir = dirname(fileURLToPath(import.meta.url));
 const sdkRoot = resolve(pluginDir, "../../..");
@@ -76,6 +84,15 @@ function writeRuntimeSidecar(
   writeFileSync(join(dir, "runtime.json"), `${JSON.stringify(data, null, 2)}\n`);
 }
 
+/** What `_internal.afterSync` receives: an API client authenticated as the dev user. */
+export interface CamoxAfterSyncContext {
+  /** Sends the dev session and targets the dev environment. */
+  client: ServerApiClient;
+  projectSlug: string;
+  environmentName: string;
+  logger: Logger;
+}
+
 export interface CamoxPluginOptions {
   /** Stable, human-readable slug identifying this project (e.g. "prestigious-impala-84") */
   projectSlug: string;
@@ -103,6 +120,11 @@ export interface CamoxPluginOptions {
       /** Empty marker file shared across restarts of one dev invocation. */
       openOnceFile?: string;
     };
+    /**
+     * Dev-only: runs once per dev server start, after the initial definition sync
+     * succeeds. A failure is logged as a warning and never breaks dev.
+     */
+    afterSync?: (context: CamoxAfterSyncContext) => void | Promise<void>;
   };
 }
 
@@ -387,12 +409,27 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
 
       server.httpServer?.once("listening", () => {
         if (!localAuth) return;
+        const authToken = localAuth.token;
         void syncDefinitions(server, {
           projectSlug: options.projectSlug,
           apiUrl,
           environmentName,
           autoCreate: true,
-          authToken: localAuth?.token,
+          authToken,
+        }).then(async (synced) => {
+          const afterSync = options._internal?.afterSync;
+          if (!synced || !afterSync) return;
+          const logger = server.config.logger;
+          try {
+            await afterSync({
+              client: createServerApiClient(apiUrl, environmentName, authToken),
+              projectSlug: options.projectSlug,
+              environmentName,
+              logger,
+            });
+          } catch (error) {
+            logger.warn(`[camox] afterSync failed: ${String(error)}`, { timestamp: true });
+          }
         });
       });
     },
