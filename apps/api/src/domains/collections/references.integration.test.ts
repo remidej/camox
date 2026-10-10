@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -1821,7 +1821,23 @@ describe("query-backed reference lists", () => {
   it("applies limit and caps lists without one at 100 records", async () => {
     const f = await queryFixture();
     expect(await f.titles("recent", "draft")).toHaveLength(3);
-    for (let index = 0; index < 96; index++) await f.create(`Extra ${index}`, 10 + index);
+    // Seed the 96 extra drafts in one statement: going through createRecord one at a time
+    // (each mocking the clock) takes seconds, and record creation is covered elsewhere.
+    const { definitionId } = await f.db
+      .select({ definitionId: collectionRecords.definitionId })
+      .from(collectionRecords)
+      .where(eq(collectionRecords.id, f.records.bravo.id))
+      .get()
+      .then((row) => row!);
+    await f.db.run(sql`
+      WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 95)
+      INSERT INTO collection_records (id, definition_id, draft, version, created_at, updated_at)
+      SELECT lower(printf('%s-%s-4%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
+          substr(hex(randomblob(2)), 2), substr(hex(randomblob(2)), 2), hex(randomblob(6)))),
+        ${definitionId},
+        json_object('title', 'Extra ' || i, 'excerpt', '', 'cover', json('null')), 1, 10 + i, 10 + i
+      FROM n
+    `);
     // 101 records exist; the list without a limit stops at the cap.
     expect(await f.titles("byCreation", "draft")).toHaveLength(100);
     expect((await f.titles("byCreation", "draft"))[0]).toBe("Extra 0");
@@ -1829,8 +1845,7 @@ describe("query-backed reference lists", () => {
     const extras = (await f.titles("byTitle", "draft")).filter((title) => title.startsWith("E"));
     expect(extras.slice(0, 3)).toEqual(["Extra 0", "Extra 1", "Extra 2"]);
     expect(extras.at(-1)).toBe("Extra 95");
-    // Creates 96 records one at a time (each mocks the clock), which exceeds the default on CI.
-  }, 30_000);
+  });
 
   it("updates live membership when a record is published, unpublished or deleted, without republishing the page", async () => {
     const f = await queryFixture();
