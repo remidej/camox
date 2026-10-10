@@ -9,7 +9,8 @@
     "build": "vp build",
     "serve": "vp preview",
     "lint": "vp lint",
-    "check": "vp check"
+    "check": "vp check",
+    "test": "node --test demoArticles.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

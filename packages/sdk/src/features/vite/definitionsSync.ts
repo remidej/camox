@@ -286,10 +286,11 @@ async function ssrLoadModule(
   }
 }
 
+/** Resolves once the initial sync settles: `true` if definitions reached the API. */
 export async function syncDefinitions(
   server: ViteDevServer,
   options: SyncDefinitionsOptions,
-): Promise<void> {
+): Promise<boolean> {
   const { projectSlug, apiUrl, environmentName, autoCreate, authToken, deployToken } = options;
   const blocksDirs = [
     path.resolve(server.config.root, "src/blocks"),
@@ -301,7 +302,7 @@ export async function syncDefinitions(
   ];
   const client = createServerApiClient(apiUrl, environmentName, authToken);
 
-  async function performInitialSync(): Promise<void> {
+  async function performInitialSync(): Promise<boolean> {
     // The SSR runner caches the resolved `camoxApp`. Without invalidation,
     // re-importing returns the stale object with pre-change layout/block
     // references, so layout reconciliation would be a no-op until the dev
@@ -322,7 +323,7 @@ export async function syncDefinitions(
       server.config.logger.warn(`[camox] No camoxApp export found in ${CAMOX_APP_PATH}`, {
         timestamp: true,
       });
-      return;
+      return false;
     }
 
     await syncDefinitionsToApi({
@@ -335,6 +336,7 @@ export async function syncDefinitions(
       deployToken,
       logger: server.config.logger,
     });
+    return true;
   }
 
   async function upsertBlock(filePath: string): Promise<void> {
@@ -413,8 +415,9 @@ export async function syncDefinitions(
   }
 
   // Initial sync from files to API
+  let synced = false;
   try {
-    await performInitialSync();
+    synced = await performInitialSync();
   } catch (error) {
     server.config.logger.error(`[camox] Failed to sync block definitions: ${String(error)}`, {
       timestamp: true,
@@ -513,4 +516,5 @@ export async function syncDefinitions(
   server.watcher.on("add", handleLayoutFileChange);
   server.watcher.on("unlink", handleBlockFileDelete);
   server.watcher.on("unlink", handleLayoutFileChange);
+  return synced;
 }

@@ -13,6 +13,21 @@ src/
 
 Camox owns page routing, SSR, hydration, client navigation, Studio, sitemap, markdown, and OG responses. The app does not define TanStack Start or TanStack Router entries.
 
+## Demo content
+
+No manual step is needed. On a fresh clone or worktree, `scripts/prepare.sh` migrates and
+seeds the local database, and the first `pnpm dev` creates your environment. Once the
+definitions are synced, `demoArticles.ts` fills the **Articles** collection: five
+articles with distinct titles, slugs, excerpts and bodies, no cover, four published one
+after another and the last one, "Notes on our next release (draft)", left as a draft.
+
+Seeding runs only when the environment has no articles, so restarting dev never duplicates
+them, and articles you create or delete are left alone. To start over, run `pnpm seed` at
+the repository root, which resets the whole local database, then `pnpm dev` again.
+
+The seeder runs as the dev user through the camox plugin's dev-only `_internal.afterSync`
+hook in `vite.config.ts`. If it fails, dev logs a warning and keeps running.
+
 ## External-data loader example
 
 The Pokémon layouts exercise the ordinary loader contract: `{ kind: "data", data }`.
@@ -149,7 +164,8 @@ The Authors collection links the articles each author wrote with
 `field.reference(authors)`; inside its scope, `author.ReferenceList` renders the author's
 articles, the second hop. Records at the second hop link nothing further.
 
-1. In Content → Authors, create an author and pick a few articles in the Articles field.
+1. In Content → Authors, create an author and pick a few of the seeded demo articles
+   (see [Demo content](#demo-content)) in the Articles field.
 2. Add an author bio to a draft page and select the author. Each article renders inside the
    block; click an article title to edit it inline, or open it from the sidebar:
    Author bio › Author › the author › Articles › the article.

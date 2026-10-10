@@ -8,6 +8,7 @@ import { defineConfig } from "vite-plus";
 
 import { camox } from "../../packages/sdk/src/features/vite/vite";
 import { checkoutHostname } from "../../scripts/dev-hostname";
+import { seedDemoArticles } from "./demoArticles";
 
 const config = defineConfig({
   server: {
@@ -93,6 +94,7 @@ const config = defineConfig({
           open: Boolean(process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE),
           openOnceFile: process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE,
         },
+        afterSync: seedDemoArticles,
       },
     }),
     react(),
