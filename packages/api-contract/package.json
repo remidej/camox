@@ -30,20 +30,27 @@
     }
   },
   "scripts": {
-    "build": "node build.mjs"
+    "build": "vp pack"
   },
   "dependencies": {
     "@iconify/types": "^2.0.0",
     "@iconify/utils": "^3.1.7",
     "zod": "^4.4.3"
   },
-  "devDependencies": {
-    "dts-bundle-generator": "^9.5.1",
-    "esbuild": "^0.25.12"
-  },
   "nx": {
     "tags": [
       "type:pkg"
-    ]
+    ],
+    "targets": {
+      "build": {
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/apps/api/src/**/*",
+          "{workspaceRoot}/packages/ai-tools/src/**/*",
+          "!{workspaceRoot}/**/*.test.ts"
+        ]
+      }
+    }
   }
 }

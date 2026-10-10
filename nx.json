@@ -46,6 +46,7 @@
       "cache": true
     }
   },
+  "maxCacheSize": "500MB",
   "tui": {
     "enabled": false
   },

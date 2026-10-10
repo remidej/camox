@@ -53,6 +53,16 @@
   "nx": {
     "tags": [
       "type:app"
-    ]
+    ],
+    "targets": {
+      "test": {
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/apps/playground/src/collections/**/*",
+          "{workspaceRoot}/packages/sdk/src/**/*"
+        ]
+      }
+    }
   }
 }
