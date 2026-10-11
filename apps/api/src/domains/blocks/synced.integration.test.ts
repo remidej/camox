@@ -18,6 +18,7 @@ import {
   deleteBlock,
   duplicateBlock,
   getBlock,
+  getSyncedBlockContent,
   updateBlockContent,
   updateBlockSettings,
 } from "./service";
@@ -276,5 +277,38 @@ describe("synced blocks", () => {
     expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
       title: "New draft",
     });
+  });
+});
+
+describe("getSyncedBlockContent", () => {
+  it("returns a Synced Block's shared draft content", async () => {
+    const { ctx, project, second } = await fixture("synced-content", true);
+    await runService(
+      updateBlockContent(ctx, { id: second.id, content: { title: "Shared title" } }),
+    );
+
+    const shared = await runService(
+      getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }),
+    );
+
+    expect(shared?.block).toMatchObject({ type: "navbar", content: { title: "Shared title" } });
+    expect(shared?.block.settings).toEqual({ sticky: true });
+    expect(shared?.repeatableItems.map((item) => item.content)).toEqual([
+      expect.objectContaining({ label: "Home" }),
+      expect.objectContaining({ label: "Nested" }),
+    ]);
+  });
+
+  it("returns nothing for a block that isn't synced or isn't placed", async () => {
+    const { ctx, project } = await fixture("synced-content-none");
+
+    expect(
+      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" })),
+      "placed, but not synced",
+    ).toBeNull();
+    expect(
+      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "hero" })),
+      "never placed",
+    ).toBeNull();
   });
 });

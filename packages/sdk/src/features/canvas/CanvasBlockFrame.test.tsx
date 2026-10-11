@@ -26,12 +26,12 @@ type Observer = {
   disconnected: boolean;
 };
 
-void test("Block Catalog frames mount near the viewport and render a live, non-editable block", async () => {
+/** A Canvas in a DOM whose frame nearness the test controls through `observers`. */
+function setUpCanvasDom() {
   const dom = new Window({ url: "http://localhost/about" });
   // happy-dom loads srcdoc frames on its own animation frame, then discards
-  // their document on removal. The test loads frames itself, into `frame`.
+  // their document on removal. Tests load frames themselves.
   Object.assign(dom, { requestAnimationFrame: () => 1 });
-  const frame = new Window({ url: "http://localhost/" });
   const observers: Observer[] = [];
   class TestIntersectionObserver {
     observer: Observer;
@@ -57,11 +57,28 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     requestAnimationFrame: () => 1,
     cancelAnimationFrame: () => {},
     IS_REACT_ACT_ENVIRONMENT: true,
+    __CAMOX_TELEMETRY_DISABLED__: true,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
   );
   Object.assign(globalThis, globals);
+  const canvas = dom.document.createElement("div");
+  canvas.setAttribute("data-camox-canvas", "");
+  dom.document.body.append(canvas);
+  const restore = async () => {
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  };
+  return { dom, observers, canvas, restore };
+}
+
+void test("Block Catalog frames mount near the viewport and render a live, non-editable block", async () => {
+  const { dom, observers, canvas, restore } = setUpCanvasDom();
+  const frame = new Window({ url: "http://localhost/" });
   const { createRoot } = await import("react-dom/client");
   const { createBlock } = await import("../../core/createBlock");
   const { BlockEditingRuntimeProvider } = await import("../../core/editing/BlockEditingRuntime");
@@ -101,11 +118,8 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     `<!doctype html><html><head><title>${page}</title>${styles}<script>window.boot = true</script></head><body><div id="root" data-camox-preview-root>${page} server HTML</div></body></html>`;
   const client = new QueryClient();
   let selections = 0;
-  const canvas = dom.document.createElement("div");
-  canvas.setAttribute("data-camox-canvas", "");
   const host = dom.document.createElement("div");
   canvas.append(host);
-  dom.document.body.append(canvas);
   const root = createRoot(host as unknown as HTMLElement);
   const render = (previewDocument: string) =>
     React.act(async () => {
@@ -115,6 +129,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
             <PreviewDocumentContext.Provider value={previewDocument}>
               <CanvasBlockFrame
                 block={block as unknown as Block}
+                projectId={1}
                 runtimeBasePath=""
                 width={1000}
                 viewportHeight={800}
@@ -245,6 +260,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
               <PreviewDocumentContext.Provider value={siteDocument("Home")}>
                 <CanvasBlockFrame
                   block={block as unknown as Block}
+                  projectId={1}
                   runtimeBasePath=""
                   width={1000}
                   viewportHeight={800}
@@ -274,10 +290,176 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     client.clear();
     previewStore.send({ type: "exitEditMode" });
     await frame.happyDOM.close();
-    await dom.happyDOM.close();
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else Reflect.deleteProperty(globalThis, key);
-    }
+    await restore();
+  }
+});
+
+void test("Synced Blocks show the environment's shared content in their Block Catalog frame, and defaults without it", async () => {
+  const { dom, observers, canvas, restore } = setUpCanvasDom();
+  const { createRoot } = await import("react-dom/client");
+  const { createBlock } = await import("../../core/createBlock");
+  const { BlockEditingRuntimeProvider } = await import("../../core/editing/BlockEditingRuntime");
+  const { initApiClient } = await import("../../lib/api-client");
+  const { blockQueries } = await import("../../lib/queries");
+  const { PreviewDocumentContext } = await import("../runtime/PreviewDocumentContext");
+  const { previewStore } = await import("../preview/previewStore");
+  const { CanvasBlockFrame } = await import("./CanvasBlockFrame");
+  initApiClient("https://api.example.test");
+
+  const projectId = 7;
+  const defineBlock = (id: string, synced: boolean) => {
+    const block = createBlock({
+      id,
+      title: id,
+      description: `The ${id}`,
+      synced,
+      content: (field) => ({ title: field.string({ default: `Default ${id} title` }) }),
+      settings: (setting) => ({ dark: setting.boolean({ default: false }) }),
+      component: function Shelf({ content }) {
+        const dark = block.useSetting("dark");
+        return (
+          <nav data-theme={dark ? "dark" : "light"}>
+            <a href="/">{content.title}</a>
+          </nav>
+        );
+      },
+      toMarkdown: (content) => [content.title],
+    });
+    return block as unknown as Block;
+  };
+  const navbar = defineBlock("navbar", true);
+  const footer = defineBlock("footer", true);
+  const banner = defineBlock("banner", false);
+  const sharedContent = (type: string, title: string) => ({
+    block: {
+      id: 41,
+      pageId: null,
+      layoutId: 3,
+      type,
+      content: { title },
+      settings: { dark: true },
+      slot: "before",
+      summary: title,
+      position: "a0",
+      createdAt: 0,
+      updatedAt: 0,
+      references: {},
+    },
+    repeatableItems: [],
+    files: [],
+  });
+  const client = new QueryClient();
+  // The environment has shared content for the navbar, none yet for the footer.
+  client.setQueryData(
+    blockQueries.getSyncedContent(projectId, "navbar").queryKey,
+    sharedContent("navbar", "Shared navbar title") as never,
+  );
+  client.setQueryData(blockQueries.getSyncedContent(projectId, "footer").queryKey, null as never);
+  // Placements of a block that isn't synced have their own content, never shared.
+  client.setQueryData(
+    blockQueries.getSyncedContent(projectId, "banner").queryKey,
+    sharedContent("banner", "Placed banner title") as never,
+  );
+  const editingRenders: unknown[] = [];
+  const editingRuntime = {
+    useSetting: () => undefined,
+    renderBlock: (_options: object, props: object) => {
+      editingRenders.push(props);
+      return <div>Editable block</div>;
+    },
+    renderPrimitive: () => null,
+  };
+  const siteDocument =
+    "<!doctype html><html><head><title>Home</title></head><body><div data-camox-preview-root></div></body></html>";
+  const roots: Array<ReturnType<typeof createRoot>> = [];
+  const frames: Window[] = [];
+  /** Mounts a block's catalog frame near the viewport and loads its document. */
+  const showFrame = async (block: Block) => {
+    const host = dom.document.createElement("div");
+    canvas.append(host);
+    const root = createRoot(host as unknown as HTMLElement);
+    roots.push(root);
+    await React.act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <BlockEditingRuntimeProvider runtime={editingRuntime}>
+            <PreviewDocumentContext.Provider value={siteDocument}>
+              <CanvasBlockFrame
+                block={block}
+                projectId={projectId}
+                runtimeBasePath=""
+                width={1000}
+                viewportHeight={800}
+                onSelect={() => {}}
+              />
+            </PreviewDocumentContext.Provider>
+          </BlockEditingRuntimeProvider>
+        </QueryClientProvider>,
+      ),
+    );
+    await React.act(async () => observers.at(-1)!.callback([{ isIntersecting: true }]));
+    const frame = new Window({ url: "http://localhost/" });
+    frames.push(frame);
+    frame.document.body.innerHTML = "<div data-camox-preview-root></div>";
+    const iframe = host.querySelector("iframe")!;
+    Object.defineProperty(iframe, "contentDocument", { value: frame.document });
+    await React.act(async () => iframe.dispatchEvent(new dom.Event("load")));
+    return frame;
+  };
+  previewStore.send({ type: "enterEditMode" });
+  try {
+    const sharedFrame = await showFrame(navbar);
+    const shared = sharedFrame.document;
+    assert.equal(
+      shared.querySelector("a")?.textContent,
+      "Shared navbar title",
+      "a Synced Block shows the environment's shared content",
+    );
+    assert.equal(
+      shared.querySelector("nav")?.getAttribute("data-theme"),
+      "dark",
+      "a Synced Block shows the environment's shared settings",
+    );
+
+    const unshared = (await showFrame(footer)).document;
+    assert.equal(
+      unshared.querySelector("a")?.textContent,
+      "Default footer title",
+      "a Synced Block without shared content shows its defaults",
+    );
+    assert.equal(unshared.querySelector("nav")?.getAttribute("data-theme"), "light");
+
+    const independent = (await showFrame(banner)).document;
+    assert.equal(
+      independent.querySelector("a")?.textContent,
+      "Default banner title",
+      "a block that isn't synced shows its defaults",
+    );
+
+    // Shared content is shown, never edited.
+    const link = shared.querySelector("a")!;
+    await React.act(async () => {
+      link.dispatchEvent(new sharedFrame.PointerEvent("pointerdown", { bubbles: true }));
+      link.dispatchEvent(new sharedFrame.MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    assert.deepEqual(
+      editingRenders,
+      [],
+      "shared content renders through the non-editing view path",
+    );
+    assert.equal(previewStore.getSnapshot().context.editingContext, null);
+    assert.equal(
+      shared.querySelector(
+        "[data-camox-block-id], [data-camox-field-id], [data-camox-overlay-mode], [contenteditable]",
+      ),
+      null,
+      "shared content has no editable fields or Synced Block overlays",
+    );
+  } finally {
+    for (const root of roots) await React.act(async () => root.unmount());
+    client.clear();
+    previewStore.send({ type: "exitEditMode" });
+    for (const frame of frames) await frame.happyDOM.close();
+    await restore();
   }
 });

@@ -51,7 +51,7 @@ import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
 import { type FieldSchema } from "./normalize-content";
 import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
-import { syncBlockData } from "./synced";
+import { sharedPlacementId, syncBlockData } from "./synced";
 import { resolveSyncedLiveData } from "./synced-live";
 import { validateContent } from "./validate-content";
 
@@ -78,6 +78,7 @@ export const getPageMarkdownInput = z.object({
 });
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
 export const getPagesUsingBlockInput = z.object({ projectId: z.number(), type: z.string() });
+export const getSyncedBlockContentInput = z.object({ projectId: z.number(), type: z.string() });
 export const createBlockInput = z.object({
   pageId: z.number(),
   type: z.string(),
@@ -1122,6 +1123,21 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
       .where(and(eq(blocks.type, type), eq(pages.environmentId, environment.id)))
       .orderBy(pages.fullPath),
   );
+});
+
+/**
+ * A Synced Block's shared draft content in the current environment, as a
+ * block bundle. Null when the block isn't synced or has no placement yet.
+ */
+export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getSyncedBlockContentInput>,
+) {
+  const { projectId, type } = yield* decodeInput(getSyncedBlockContentInput, rawInput);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  const id = yield* sharedPlacementId(ctx, environment.id, type);
+  if (id === null) return null;
+  return yield* getBlock(ctx, { id, source: "draft" });
 });
 
 // --- Writes ---

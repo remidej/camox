@@ -411,6 +411,7 @@ function CanvasWorkspace({
                           <CanvasFrameBoundary subject="block">
                             <CanvasBlockFrame
                               block={item.block}
+                              projectId={projectId}
                               runtimeBasePath={runtimeBasePath}
                               width={viewport.width}
                               viewportHeight={viewport.height}

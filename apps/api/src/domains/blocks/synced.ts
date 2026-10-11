@@ -1,4 +1,4 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -99,6 +99,30 @@ export const reconcileSyncedDefinition = Effect.fn("blocks.reconcileSyncedDefini
 });
 
 /**
+ * A placement holding a Synced Block's shared data in an environment. Every
+ * placement shares the same data, so any of them does. Nothing when the block
+ * isn't synced or isn't placed.
+ */
+export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function* (
+  ctx: ServiceContext,
+  environmentId: number,
+  type: string,
+) {
+  const definition = yield* Effect.promise(() =>
+    ctx.db
+      .select({ synced: blockDefinitions.synced })
+      .from(blockDefinitions)
+      .where(
+        and(eq(blockDefinitions.environmentId, environmentId), eq(blockDefinitions.blockId, type)),
+      )
+      .get(),
+  );
+  if (!definition?.synced) return null;
+  const [first] = yield* placements(ctx, environmentId, type);
+  return first?.block.id ?? null;
+});
+
+/**
  * Fan out a data edit, or seed a newly created placement from existing data.
  * This deliberately doesn't copy page/layout IDs, layout slot or block position.
  * Published checkpoints remain immutable; edits still require publishing.
@@ -133,10 +157,21 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
   );
   if (!definition?.synced) return;
 
+  // Every shared data change refreshes the shared content shown in the Block Catalog.
+  const invalidate = (targets: QueryKey[]) =>
+    broadcastInvalidation({
+      waitUntil: ctx.waitUntil,
+      projectRoomNamespace: ctx.env.ProjectRoom,
+      projectId: owner.projectId,
+      targets: [queryKeys.blocks.getSyncedContent(row.block.type), ...targets],
+    });
   const peers = (yield* placements(ctx, owner.environmentId, row.block.type))
     .map(({ block }) => block)
     .filter((block) => block.id !== blockId);
-  if (peers.length === 0) return;
+  if (peers.length === 0) {
+    invalidate([]);
+    return;
+  }
   // Prefer another owner when restoring a page: its other restored placements
   // may still contain historical data until their turn in the restore loop.
   const existing =
@@ -165,17 +200,12 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
     ctx.db,
     targets.map((block) => block.id),
   );
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId: owner.projectId,
-    targets: [
-      queryKeys.pages.getByPathAll,
-      queryKeys.pages.list,
-      queryKeys.layouts.all,
-      ["camox", "blocks", "getPageMarkdown"],
-      ["camox", "repeatableItems", "get"],
-      ...targets.map((block) => queryKeys.blocks.get(block.id, "draft")),
-    ],
-  });
+  invalidate([
+    queryKeys.pages.getByPathAll,
+    queryKeys.pages.list,
+    queryKeys.layouts.all,
+    ["camox", "blocks", "getPageMarkdown"],
+    ["camox", "repeatableItems", "get"],
+    ...targets.map((block) => queryKeys.blocks.get(block.id, "draft")),
+  ]);
 });
