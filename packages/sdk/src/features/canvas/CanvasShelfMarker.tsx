@@ -131,7 +131,9 @@ function CanvasShelfMarker({
   }
 
   // Clipping the label to the rest of the bar pushes it out at the area's end.
-  const labelStart = `max(${start}, ${CANVAS_PAGE_FIT_PADDING}px)`;
+  // Zoomed far out, the bar may start past its area, or overhang it less: the
+  // label then keeps the full overhang as its inset in the bar.
+  const labelStart = `max(${start}, calc(${bar.left} + ${CANVAS_SHELF_MARKER_OVERHANG}px), ${CANVAS_PAGE_FIT_PADDING}px)`;
   return (
     <>
       <button

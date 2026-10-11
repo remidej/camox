@@ -111,6 +111,11 @@ void test("Shelf Marker bars never overlap and collapsed bars keep their thickne
       const bars = [...mount.querySelectorAll("[data-canvas-shelf-marker]")].map((bar) => ({
         collapsed: bar.getAttribute("aria-expanded") === "false",
         style: (bar as unknown as HTMLElement).style,
+        label: (
+          mount.querySelector(
+            `[data-canvas-shelf-marker-label="${bar.getAttribute("data-canvas-shelf-marker")}"]`,
+          ) as unknown as HTMLElement
+        ).style,
       }));
       assert.equal(bars.length, 2, scenario);
       const thickness = (style: CSSStyleDeclaration, zoom: number) =>
@@ -133,6 +138,15 @@ void test("Shelf Marker bars never overlap and collapsed bars keep their thickne
           first!.right < second!.left,
           `${scenario} at zoom ${zoom}: ${first!.right} overlaps ${second!.left}`,
         );
+        for (const [index, { collapsed, label }] of bars.entries()) {
+          if (collapsed) continue;
+          const labelLeft = evaluateCss(translateX(label.transform), camera);
+          const bar = [first, second][index]!;
+          assert.ok(
+            labelLeft > bar.left,
+            `${scenario} at zoom ${zoom}: the label at ${labelLeft} starts outside its bar at ${bar.left}`,
+          );
+        }
       }
     }
   } finally {
