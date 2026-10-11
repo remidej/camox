@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { Window } from "happy-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
 
+import type { Block } from "../../core/createBlock";
 import type { Layout } from "../../core/createLayout";
+import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import type { EditingOwner } from "../preview/previewStore";
 import { getCanvasPages } from "./canvasPages";
 import { selectedCanvasPage } from "./canvasSelection";
@@ -37,6 +40,11 @@ registerHooks({
         `;
       }
     }
+    if (context.parentURL?.endsWith("/CanvasRightSidebar.tsx") && specifier.endsWith("/queries"))
+      source = `export const blockQueries = {getPagesUsing: (projectId, type) => ({
+        queryKey: ["blockPages", projectId, type],
+        queryFn: () => globalThis.canvasBlockPages[type] ?? [],
+      })};`;
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     return nextResolve(specifier, context);
@@ -68,6 +76,12 @@ async function setup() {
     Element: dom.Element,
     HTMLElement: dom.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
+    canvasBlockPages: {
+      hero: [
+        { id: 7, nickname: "Home", fullPath: "/" },
+        { id: 83, nickname: "Special article", fullPath: "/articles/special" },
+      ],
+    } as Record<string, { id: number; nickname: string; fullPath: string }[]>,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -80,22 +94,45 @@ async function setup() {
   const mount = dom.document.createElement("div");
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const navigations: NavigateOptions[] = [];
   return {
     mount,
     store,
-    async render(url: string, owner?: EditingOwner) {
+    navigations,
+    async render(url: string, owner?: EditingOwner, block?: Block) {
       await React.act(async () =>
         root.render(
           <React.StrictMode>
-            <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
-              <CanvasRightSidebar page={select(url)} owner={owner} />
-            </PreviewEditingOwnerContext>
+            <QueryClientProvider client={client}>
+              <NavigationProvider
+                location={{ pathname: url, href: url, search: "", hash: "" }}
+                navigate={(options) => {
+                  navigations.push(options);
+                }}
+              >
+                <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
+                  <CanvasRightSidebar
+                    page={block ? undefined : select(url)}
+                    block={block}
+                    projectId={1}
+                    owner={owner}
+                  />
+                </PreviewEditingOwnerContext>
+              </NavigationProvider>
+            </QueryClientProvider>
           </React.StrictMode>,
         ),
       );
     },
+    async settle() {
+      await React.act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    },
     async close() {
       await React.act(async () => root.unmount());
+      client.clear();
       store.send({ type: "activatePage", pageId: null });
       store.send({ type: "exitEditMode" });
       await dom.happyDOM.close();
@@ -202,6 +239,46 @@ void test("comment mode targets the selected persisted page and keeps code layou
     await dom.render("/missing");
     assert.equal(dom.mount.innerHTML, "");
     assert.equal(dom.store.getSnapshot(), snapshot);
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("a selected block shows its description and the Pages using it, which select the Page", async () => {
+  const dom = await setup();
+  const block = (id: string) =>
+    ({
+      _internal: { id, title: id, description: `${id} description`, layoutOnly: false },
+    }) as Block;
+  try {
+    await dom.render("/camox/blocks/hero", undefined, block("hero"));
+    await dom.settle();
+    assert.match(dom.mount.textContent, /hero description/);
+    assert.equal(dom.mount.querySelector("[data-editor]"), null, "no Page sidebar");
+    const pages = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
+    assert.deepEqual(
+      pages.map((page) => page.textContent),
+      ["Home/", "Special article/articles/special"],
+    );
+    await React.act(async () => pages[1]!.click());
+    assert.deepEqual(
+      dom.navigations,
+      [{ to: "/articles/special" }],
+      "a sidebar selection isn't canvas-sourced, so the camera flies to the Page",
+    );
+
+    await dom.render("/camox/blocks/tabs", undefined, block("tabs"));
+    await dom.settle();
+    assert.match(dom.mount.textContent, /tabs description/);
+    assert.equal(dom.mount.querySelector("aside li"), null);
+    assert.match(dom.mount.textContent, /No pages use this block/);
+
+    await dom.render("/");
+    assert.equal(
+      dom.mount.querySelector("[data-editor]")?.getAttribute("data-editor"),
+      "PageInfoSidebar",
+      "a Page restores its sidebar",
+    );
   } finally {
     await dom.close();
   }

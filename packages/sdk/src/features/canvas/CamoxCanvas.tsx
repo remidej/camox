@@ -30,6 +30,7 @@ import {
   CANVAS_SLOT_WIDTH,
   canvasBlockKey,
   canvasSnapTargets,
+  getBlockCatalog,
   getCanvasShelves,
   isCanvasBlock,
   isCanvasShelfShown,
@@ -652,12 +653,17 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       {selectedPage?.pageId != null && !isCommentMode && <CuratedBlockShortcuts />}
-      <CanvasLeftSidebar page={selectedPage} owner={editingOwner} />
+      <CanvasLeftSidebar
+        page={selectedPage}
+        block={selectedBlock}
+        blocks={getBlockCatalog(app.getBlocks())}
+        owner={editingOwner}
+      />
       <CanvasWorkspace
         key={project.data.id}
         projectId={project.data.id}
         pages={canvasPages}
-        blocks={app.getBlocks()}
+        blocks={getBlockCatalog(app.getBlocks())}
         statuses={statuses}
         selectedPage={selectedPage}
         selectedBlock={selectedBlock}
@@ -665,7 +671,12 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         viewport={viewport}
         onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
       />
-      <CanvasRightSidebar page={selectedPage} owner={editingOwner} />
+      <CanvasRightSidebar
+        page={selectedPage}
+        block={selectedBlock}
+        projectId={project.data.id}
+        owner={editingOwner}
+      />
     </div>
   );
 }
