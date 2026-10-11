@@ -82,6 +82,7 @@ function LayoutSidebar({ layoutId }: { layoutId: string }) {
  * through regular navigation, so the camera flies to it.
  */
 function BlockCatalogSidebar({ block, blocks }: { block: Block; blocks: readonly Block[] }) {
+  const { search, hash } = useLocation();
   const navigate = useNavigate();
   return (
     <aside
@@ -99,7 +100,7 @@ function BlockCatalogSidebar({ block, blocks }: { block: Block; blocks: readonly
                 type="button"
                 aria-current={selected ? "true" : undefined}
                 className={`hover:bg-accent focus-visible:ring-ring w-full truncate rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 ${selected ? "bg-accent font-medium" : ""}`}
-                onClick={() => void navigate({ to: blockCatalogPath(id) })}
+                onClick={() => void navigate({ to: `${blockCatalogPath(id)}${search}${hash}` })}
               >
                 {title}
               </button>
@@ -113,20 +114,17 @@ function BlockCatalogSidebar({ block, blocks }: { block: Block; blocks: readonly
 
 export function CanvasLeftSidebar({
   page,
-  block,
-  blocks = [],
+  catalog,
   owner = null,
 }: {
   page: CanvasPage | undefined;
-  /** The selected block of the Block Catalog, if any. */
-  block?: Block;
-  /** The Block Catalog, in Canvas order. */
-  blocks?: readonly Block[];
+  /** The selected block of the Block Catalog, if any, with the Block Catalog in Canvas order. */
+  catalog?: { block: Block; blocks: readonly Block[] };
   owner?: EditingOwner | null;
 }) {
   const { pathname } = useLocation();
   const source = useSelector(previewStore, selectPreviewSource);
-  if (block) return <BlockCatalogSidebar block={block} blocks={blocks} />;
+  if (catalog) return <BlockCatalogSidebar block={catalog.block} blocks={catalog.blocks} />;
   if (!page) return null;
 
   return (

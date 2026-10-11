@@ -650,20 +650,20 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       </CanvasMessage>
     );
   const editingOwner = activeFrame?.pathname === selectedPath ? activeFrame.owner : null;
+  const blockCatalog = getBlockCatalog(app.getBlocks());
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       {selectedPage?.pageId != null && !isCommentMode && <CuratedBlockShortcuts />}
       <CanvasLeftSidebar
         page={selectedPage}
-        block={selectedBlock}
-        blocks={getBlockCatalog(app.getBlocks())}
+        catalog={selectedBlock && { block: selectedBlock, blocks: blockCatalog }}
         owner={editingOwner}
       />
       <CanvasWorkspace
         key={project.data.id}
         projectId={project.data.id}
         pages={canvasPages}
-        blocks={getBlockCatalog(app.getBlocks())}
+        blocks={blockCatalog}
         statuses={statuses}
         selectedPage={selectedPage}
         selectedBlock={selectedBlock}
@@ -673,8 +673,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       />
       <CanvasRightSidebar
         page={selectedPage}
-        block={selectedBlock}
-        projectId={project.data.id}
+        catalog={selectedBlock && { block: selectedBlock, projectId: project.data.id }}
         owner={editingOwner}
       />
     </div>

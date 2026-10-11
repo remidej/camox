@@ -151,21 +151,22 @@ async function setup() {
     navigations,
     store,
     async render(
-      pathname: string,
+      url: string,
       page: CanvasPage | undefined,
       catalog?: { block: Block; blocks: Block[] },
     ) {
+      const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
         root.render(
           <QueryClientProvider client={client}>
             <NavigationProvider
-              location={{ pathname, href: pathname, search: "", hash: "" }}
+              location={{ pathname, href: url, search, hash }}
               navigate={(options) => {
                 navigations.push(options);
               }}
             >
               <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
-                <CanvasLeftSidebar page={page} {...catalog} />
+                <CanvasLeftSidebar page={page} catalog={catalog} />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
             </NavigationProvider>
@@ -311,18 +312,18 @@ void test("loading and failed sidebar requests leave the canvas visible; another
   }
 });
 
-void test("a selected block lists the Block Catalog in Canvas order and selects the clicked block", async () => {
+void test("a selected block lists the Block Catalog and selects the clicked block", async () => {
   const dom = await setup();
   const block = (id: string, title: string) =>
     ({ _internal: { id, title, description: "", layoutOnly: false } }) as Block;
   const blocks = [block("faq", "FAQ"), block("hero", "Hero"), block("tabs", "Tabs")];
   try {
-    await dom.render("/camox/blocks/hero", undefined, { block: blocks[1]!, blocks });
+    await dom.render("/camox/blocks/hero?zoom=2#top", undefined, { block: blocks[1]!, blocks });
     const entries = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
     assert.deepEqual(
       entries.map((entry) => entry.textContent),
       ["FAQ", "Hero", "Tabs"],
-      "the list follows the Canvas order",
+      "every block of the Block Catalog is listed",
     );
     assert.deepEqual(
       entries.map((entry) => entry.getAttribute("aria-current")),
@@ -333,8 +334,8 @@ void test("a selected block lists the Block Catalog in Canvas order and selects 
     await React.act(async () => entries[2]!.click());
     assert.deepEqual(
       dom.navigations,
-      [{ to: "/camox/blocks/tabs" }],
-      "a sidebar selection isn't canvas-sourced, so the camera flies to the block",
+      [{ to: "/camox/blocks/tabs?zoom=2#top" }],
+      "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the block",
     );
 
     await dom.render("/", home);

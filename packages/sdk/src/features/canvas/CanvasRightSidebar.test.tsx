@@ -101,23 +101,23 @@ async function setup() {
     store,
     navigations,
     async render(url: string, owner?: EditingOwner, block?: Block) {
+      const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () =>
         root.render(
           <React.StrictMode>
             <QueryClientProvider client={client}>
               <NavigationProvider
-                location={{ pathname: url, href: url, search: "", hash: "" }}
+                location={{ pathname, href: url, search, hash }}
                 navigate={(options) => {
                   navigations.push(options);
                 }}
               >
                 <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
-                  <CanvasRightSidebar
-                    page={block ? undefined : select(url)}
-                    block={block}
-                    projectId={1}
-                    owner={owner}
-                  />
+                  {block ? (
+                    <CanvasRightSidebar page={undefined} catalog={{ block, projectId: 1 }} />
+                  ) : (
+                    <CanvasRightSidebar page={select(pathname)} owner={owner} />
+                  )}
                 </PreviewEditingOwnerContext>
               </NavigationProvider>
             </QueryClientProvider>
@@ -246,12 +246,10 @@ void test("comment mode targets the selected persisted page and keeps code layou
 
 void test("a selected block shows its description and the Pages using it, which select the Page", async () => {
   const dom = await setup();
-  const block = (id: string) =>
-    ({
-      _internal: { id, title: id, description: `${id} description`, layoutOnly: false },
-    }) as Block;
+  const block = (id: string, description = `${id} description`) =>
+    ({ _internal: { id, title: id, description, layoutOnly: false } }) as Block;
   try {
-    await dom.render("/camox/blocks/hero", undefined, block("hero"));
+    await dom.render("/camox/blocks/hero?zoom=2#top", undefined, block("hero"));
     await dom.settle();
     assert.match(dom.mount.textContent, /hero description/);
     assert.equal(dom.mount.querySelector("[data-editor]"), null, "no Page sidebar");
@@ -263,8 +261,8 @@ void test("a selected block shows its description and the Pages using it, which 
     await React.act(async () => pages[1]!.click());
     assert.deepEqual(
       dom.navigations,
-      [{ to: "/articles/special" }],
-      "a sidebar selection isn't canvas-sourced, so the camera flies to the Page",
+      [{ to: "/articles/special?zoom=2#top" }],
+      "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the Page",
     );
 
     await dom.render("/camox/blocks/tabs", undefined, block("tabs"));
@@ -272,6 +270,14 @@ void test("a selected block shows its description and the Pages using it, which 
     assert.match(dom.mount.textContent, /tabs description/);
     assert.equal(dom.mount.querySelector("aside li"), null);
     assert.match(dom.mount.textContent, /No pages use this block/);
+
+    await dom.render("/camox/blocks/faq", undefined, block("faq", ""));
+    await dom.settle();
+    assert.equal(
+      [...dom.mount.querySelectorAll("aside p")].filter((p) => p.textContent === "").length,
+      0,
+      "an empty description leaves no empty paragraph",
+    );
 
     await dom.render("/");
     assert.equal(

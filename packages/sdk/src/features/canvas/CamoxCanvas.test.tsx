@@ -82,9 +82,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const blockFrames = new Map<string, { onSelect: () => void }>();
   type SidebarProps = {
     page?: { key: string };
-    block?: { _internal: { id: string } };
-    blocks?: { _internal: { id: string } }[];
-    projectId?: number;
+    catalog?: {
+      block: { _internal: { id: string } };
+      blocks?: { _internal: { id: string } }[];
+      projectId?: number;
+    };
   };
   const sidebars = new Map<string, SidebarProps>();
   const flyTo = (key: string) => flights.push(key);
@@ -531,12 +533,12 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
       };
       const shown = (side: string) => {
-        const { page, block, blocks, projectId } = sidebars.get(side)!;
+        const { page, catalog } = sidebars.get(side)!;
         return {
           page: page?.key,
-          block: block?._internal.id,
-          blocks: blocks?.map(({ _internal }) => _internal.id),
-          projectId,
+          block: catalog?.block._internal.id,
+          blocks: catalog?.blocks?.map(({ _internal }) => _internal.id),
+          projectId: catalog?.projectId,
         };
       };
       try {
@@ -551,7 +553,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.deepEqual(
           { block: shown("Right").block, projectId: shown("Right").projectId },
           { block: "hero", projectId: 1 },
-          "the right sidebar shows the selected block's usage",
+          "the right sidebar shows the Pages holding the selected block's placements",
         );
         assert.equal(shown("Right").page, undefined);
 
@@ -562,7 +564,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.equal(shown("Left").block, "tabs");
         assert.equal(shown("Right").block, "tabs");
 
-        // Picking a Page in the right sidebar's usage list selects it the same way.
+        // Picking a Page in the right sidebar's list of placements selects it the same way.
         globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
         await render();
         const contact = [...headers.keys()][1]!;
