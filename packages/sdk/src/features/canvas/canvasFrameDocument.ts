@@ -78,16 +78,29 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
 
+/**
+ * How a frame sizes itself: a Page fills at least the viewport height, like a
+ * browser window, while a block is only as tall as its content.
+ */
+export type CanvasDocumentFit = "page" | "content";
+
 export function measureCanvasDocument(
   iframe: HTMLIFrameElement,
   root: HTMLElement,
   baseline: number,
+  fit: CanvasDocumentFit = "page",
 ) {
   const doc = root.ownerDocument;
   adaptCanvasStyleSheets(doc);
   iframe.style.height = `${baseline}px`;
   const bodyRect = doc.body.getBoundingClientRect();
   const rootRect = root.getBoundingClientRect();
+  if (fit === "content") {
+    // The document's own heights are at least the frame's, so only the root's count.
+    const height = Math.max(rootRect.bottom, root.scrollHeight + rootRect.top);
+    iframe.style.height = `${Math.max(1, Math.ceil(height))}px`;
+    return;
+  }
   iframe.style.height = `${Math.ceil(
     Math.max(
       baseline,
@@ -107,6 +120,7 @@ export function observeCanvasDocument(
   iframe: HTMLIFrameElement,
   root: HTMLElement,
   viewportHeight: number,
+  fit: CanvasDocumentFit = "page",
 ) {
   const doc = root.ownerDocument;
   const baseline = Math.max(1, viewportHeight);
@@ -125,7 +139,7 @@ export function observeCanvasDocument(
   });
   function measure() {
     frame = 0;
-    measureCanvasDocument(iframe, root, baseline);
+    measureCanvasDocument(iframe, root, baseline, fit);
     // Record the *final* geometry to ignore ResizeObserver notifications caused by our sizing.
     const elements = new Set<Element>([doc.body, root, ...root.querySelectorAll("*")]);
     for (const element of sizes.keys()) {

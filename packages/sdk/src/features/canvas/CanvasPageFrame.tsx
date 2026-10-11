@@ -24,6 +24,7 @@ import {
   observeCanvasDocument,
 } from "./canvasFrameDocument";
 import { CanvasOverlays } from "./CanvasOverlays";
+import { useCanvasFrameInput } from "./useCanvasFrameInput";
 
 const noNavigation = () => {};
 
@@ -99,58 +100,11 @@ function PageFrame({
     if (!iframe || !mount) return;
     return observeCanvasDocument(iframe, mount, viewportHeight);
   }, [mount, viewportHeight, width]);
+  useCanvasFrameInput(iframeRef, mount);
   React.useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe || !mount) return;
-    const doc = mount.ownerDocument;
-    // Native wheel events do not bubble out of a document. Keep the existing
-    // camera behavior over interactive frames, using host-space coordinates.
-    const forwardWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const rect = iframe.getBoundingClientRect();
-      const scale = rect.width / iframe.offsetWidth;
-      iframe.dispatchEvent(
-        new WheelEvent("wheel", {
-          bubbles: true,
-          cancelable: true,
-          clientX: rect.left + event.clientX * scale,
-          clientY: rect.top + event.clientY * scale,
-          deltaX: event.deltaX,
-          deltaY: event.deltaY,
-          deltaMode: event.deltaMode,
-          ctrlKey: event.ctrlKey,
-          metaKey: event.metaKey,
-          shiftKey: event.shiftKey,
-        }),
-      );
-    };
-    // Space arms the canvas hand tool even while focus is inside the frame, but
-    // never while typing into page content.
-    const forwardSpace = (event: KeyboardEvent) => {
-      if (event.code !== "Space") return;
-      const target = event.target as HTMLElement | null;
-      if (target?.isContentEditable || target?.closest?.("input, select, textarea")) return;
-      const forwarded = new KeyboardEvent(event.type, {
-        bubbles: true,
-        cancelable: true,
-        code: event.code,
-        key: event.key,
-        repeat: event.repeat,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-      });
-      iframe.dispatchEvent(forwarded);
-      if (forwarded.defaultPrevented) event.preventDefault();
-    };
-    doc.addEventListener("wheel", forwardWheel, { passive: false });
-    doc.addEventListener("keydown", forwardSpace);
-    doc.addEventListener("keyup", forwardSpace);
     return () => {
-      doc.removeEventListener("wheel", forwardWheel);
-      doc.removeEventListener("keydown", forwardSpace);
-      doc.removeEventListener("keyup", forwardSpace);
       if (previewStore.getSnapshot().context.iframeElement !== iframe) return;
       previewStore.send({ type: "clearSelection" });
       previewStore.send({ type: "setIframeElement", element: null });

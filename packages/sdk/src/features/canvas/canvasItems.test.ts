@@ -15,12 +15,16 @@ const pages: CanvasPage[] = [
 ];
 
 void test("the Pages Shelf Marker spans every Page", () => {
-  const { markers, width } = positionCanvasShelves(getCanvasShelves(pages));
+  const { markers } = positionCanvasShelves(getCanvasShelves(pages));
   // Page (1366) + gap (240) + Page (1366).
-  assert.equal(width, 2972);
-  assert.deepEqual(markers, [
-    { key: "shelf:pages", label: "Pages", count: 2, start: 0, end: 2972, collapsed: false },
-  ]);
+  assert.deepEqual(markers[0], {
+    key: "shelf:pages",
+    label: "Pages",
+    count: 2,
+    start: 0,
+    end: 2972,
+    collapsed: false,
+  });
 });
 
 void test("each Shelf Marker spans only its own area", () => {
@@ -44,10 +48,13 @@ void test("Pages are snap targets", () => {
   ]);
 });
 
-void test("an empty area has no Shelf Marker", () => {
+void test("an empty area keeps its Shelf Marker in a zero-width slot", () => {
   const { markers, width } = positionCanvasShelves(getCanvasShelves([]));
-  assert.equal(width, 0);
-  assert.deepEqual(markers, []);
+  assert.deepEqual(markers, [
+    { key: "shelf:pages", label: "Pages", count: 0, start: 0, end: 0, collapsed: true },
+    { key: "shelf:blocks", label: "Blocks", count: 0, start: 240, end: 240, collapsed: true },
+  ]);
+  assert.equal(width, 240);
 });
 
 void test("a collapsed shelf hides its items and keeps a zero-width slot for its marker", () => {
@@ -71,8 +78,9 @@ void test("a collapsed shelf hides its items and keeps a zero-width slot for its
   assert.equal(width, 3212);
 });
 
-void test("collapsing the only shelf leaves an empty row", () => {
+void test("collapsing every shelf leaves only marker slots", () => {
   const { items, width } = positionCanvasShelves(getCanvasShelves(pages), new Set(["shelf:pages"]));
   assert.deepEqual(items, []);
-  assert.equal(width, 0);
+  // The collapsed Pages slot, a gap, then the empty Blocks slot.
+  assert.equal(width, 240);
 });

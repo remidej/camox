@@ -1,3 +1,4 @@
+import type { Block } from "../../core/createBlock";
 import type { CanvasSnapTarget } from "./canvasCamera";
 import { CANVAS_DEVICES, type CanvasPage } from "./canvasPages";
 
@@ -6,9 +7,10 @@ export const CANVAS_ITEM_GAP = 240;
 export const CANVAS_SLOT_WIDTH = CANVAS_DEVICES.desktop.width;
 
 export type CanvasPageItem = { kind: "page"; key: string; page: CanvasPage };
+export type CanvasBlockItem = { kind: "block"; key: string; block: Block };
 
-/** One entry in the Canvas row: a Page that can be selected. */
-export type CanvasItem = CanvasPageItem;
+/** One entry in the Canvas row: a Page that can be selected, or a block of the Block Catalog. */
+export type CanvasItem = CanvasPageItem | CanvasBlockItem;
 
 /** An area of the Canvas row, labelled by its Shelf Marker. */
 export type CanvasShelf = { key: string; label: string; items: CanvasItem[] };
@@ -35,9 +37,20 @@ export type CanvasShelfMarker = {
 /** Per-kind layout and camera behavior. */
 const CANVAS_ITEM_KINDS: Record<CanvasItem["kind"], { width: number; snappable: boolean }> = {
   page: { width: CANVAS_SLOT_WIDTH, snappable: true },
+  block: { width: CANVAS_SLOT_WIDTH, snappable: true },
 };
 
-export function getCanvasShelves(pages: readonly CanvasPage[]): CanvasShelf[] {
+/** Every page-content Block Definition, alphabetically by title. */
+function getBlockCatalog(blocks: readonly Block[]) {
+  return blocks
+    .filter((block) => !block._internal.layoutOnly)
+    .sort((a, b) => a._internal.title.localeCompare(b._internal.title));
+}
+
+export function getCanvasShelves(
+  pages: readonly CanvasPage[],
+  blocks: readonly Block[] = [],
+): CanvasShelf[] {
   return [
     {
       // Prefixed so shelf keys can never collide with item keys.
@@ -45,13 +58,21 @@ export function getCanvasShelves(pages: readonly CanvasPage[]): CanvasShelf[] {
       label: "Pages",
       items: pages.map((page): CanvasPageItem => ({ kind: "page", key: page.key, page })),
     },
+    {
+      key: "shelf:blocks",
+      label: "Blocks",
+      items: getBlockCatalog(blocks).map(
+        (block): CanvasBlockItem => ({ kind: "block", key: `block:${block._internal.id}`, block }),
+      ),
+    },
   ];
 }
 
 /**
  * World-space positions of the Canvas row, matching its flex layout, and the
  * markers above it. Items of collapsed shelves are left out of the row; each
- * collapsed shelf takes a zero-width slot instead, so its marker keeps a place.
+ * collapsed or empty shelf takes a zero-width slot instead, so its marker keeps
+ * a place and shows as collapsed.
  */
 export function positionCanvasShelves(
   shelves: readonly CanvasShelf[],
@@ -61,11 +82,9 @@ export function positionCanvasShelves(
   const markers: CanvasShelfMarker[] = [];
   let left = 0;
   for (const shelf of shelves) {
-    // An empty area has nothing to label.
-    if (shelf.items.length === 0) continue;
     const start = left;
     const marker = { key: shelf.key, label: shelf.label, count: shelf.items.length };
-    if (collapsed.has(shelf.key)) {
+    if (collapsed.has(shelf.key) || shelf.items.length === 0) {
       markers.push({ ...marker, start, end: start, collapsed: true });
       left += CANVAS_ITEM_GAP;
       continue;
@@ -87,6 +106,12 @@ export function isCanvasPage(
   item: PositionedCanvasItem,
 ): item is PositionedCanvasItem<CanvasPageItem> {
   return item.kind === "page";
+}
+
+export function isCanvasBlock(
+  item: PositionedCanvasItem,
+): item is PositionedCanvasItem<CanvasBlockItem> {
+  return item.kind === "block";
 }
 
 export function canvasSnapTargets(items: readonly PositionedCanvasItem[]): CanvasSnapTarget[] {

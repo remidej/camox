@@ -42,6 +42,8 @@ export function CanvasShelfMarker({
     "data-canvas-shelf-marker": marker.key,
     "aria-expanded": !marker.collapsed,
     "aria-label": `${marker.collapsed ? "Expand" : "Collapse"} ${marker.label}`,
+    // An empty area stays collapsed: there is nothing to expand.
+    disabled: marker.count === 0,
     onClick: onToggle,
   };
 
