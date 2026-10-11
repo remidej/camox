@@ -8,7 +8,8 @@ import { canvasScreenAbove, canvasScreenX } from "./canvasScreenSpace";
 
 const BAR_SIZE = 24;
 // The bar overhangs its area so the label, flush with the area's start, lines up with Page headers.
-const BAR_OVERHANG = 12;
+// A collapsed bar is centered on its area's start, so it starts the same distance before it.
+export const CANVAS_SHELF_MARKER_OVERHANG = 12;
 const LABEL_CLASS_NAME =
   "text-muted-foreground text-xs font-medium tracking-wider whitespace-nowrap uppercase";
 const BAR_CLASS_NAME =
@@ -45,7 +46,7 @@ export function CanvasShelfMarker({
   };
 
   if (marker.collapsed) {
-    const left = `calc(${start} - ${BAR_SIZE / 2}px)`;
+    const left = `calc(${start} - ${CANVAS_SHELF_MARKER_OVERHANG}px)`;
     return (
       <>
         <button
@@ -87,8 +88,8 @@ export function CanvasShelfMarker({
         className={BAR_CLASS_NAME}
         style={{
           height: BAR_SIZE,
-          width: `calc(${end} - ${start} + ${BAR_OVERHANG * 2}px)`,
-          transform: `translate(calc(${start} - ${BAR_OVERHANG}px), ${y})`,
+          width: `calc(${end} - ${start} + ${CANVAS_SHELF_MARKER_OVERHANG * 2}px)`,
+          transform: `translate(calc(${start} - ${CANVAS_SHELF_MARKER_OVERHANG}px), ${y})`,
           willChange: "transform",
         }}
       />

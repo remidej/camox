@@ -39,7 +39,7 @@ import {
   canvasScreenX,
 } from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
-import { CanvasShelfMarker } from "./CanvasShelfMarker";
+import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarker } from "./CanvasShelfMarker";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 
@@ -249,7 +249,7 @@ function CanvasWorkspace({
       collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedPage?.key),
   )?.key;
   const snapTargets = canvasSnapTargets(items);
-  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt } = useCanvasCamera(
+  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView } = useCanvasCamera(
     workspaceKey,
     snapTargets.find(({ key }) => key === selectedKey),
     {
@@ -261,6 +261,14 @@ function CanvasWorkspace({
       },
     },
   );
+  // A collapsing marker's area may start off-screen. Its vertical bar should take
+  // the place of the marker's visible part, so pan before the collapse paints.
+  const collapsingShelf = React.useRef<string | null>(null);
+  React.useLayoutEffect(() => {
+    const marker = markers.find(({ key }) => key === collapsingShelf.current);
+    collapsingShelf.current = null;
+    if (marker) keepInView(marker.start, CANVAS_SHELF_MARKER_OVERHANG);
+  });
   const instructionsId = React.useId();
   const previousPath = React.useRef(selectedPath);
   React.useEffect(() => {
@@ -373,7 +381,10 @@ function CanvasWorkspace({
         <CanvasShelfMarker
           key={marker.key}
           marker={marker}
-          onToggle={() => toggleShelf(marker.key)}
+          onToggle={() => {
+            if (!marker.collapsed) collapsingShelf.current = marker.key;
+            toggleShelf(marker.key);
+          }}
         />
       ))}
       {[...pageSlots.values()].map(({ page, pathname, left }) =>

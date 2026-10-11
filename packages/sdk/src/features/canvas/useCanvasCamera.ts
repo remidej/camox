@@ -72,6 +72,7 @@ export function useCanvasCamera(
     cancelFlight: () => void;
     refreshFlight: () => void;
     zoomAt: (point: CanvasPoint, scale: number) => void;
+    keepInView: (worldX: number, screenX: number) => void;
   } | null>(null);
   const flyTo = React.useCallback((key: string) => {
     flightControls.current?.flyTo(key);
@@ -81,6 +82,10 @@ export function useCanvasCamera(
   }, []);
   const zoomAt = React.useCallback((point: CanvasPoint, scale: number) => {
     flightControls.current?.zoomAt(point, scale);
+  }, []);
+  /** Pan immediately so a world x sits at or right of a screen x; never pans otherwise. */
+  const keepInView = React.useCallback((worldX: number, screenX: number) => {
+    flightControls.current?.keepInView(worldX, screenX);
   }, []);
   React.useLayoutEffect(() => {
     rowRef.current = row;
@@ -369,6 +374,16 @@ export function useCanvasCamera(
     flightControls.current = {
       flyTo: startFlight,
       cancelFlight: cancelCameraFlight,
+      keepInView: (worldX, screenX) => {
+        const x = screenX - worldX * camera.scale;
+        if (camera.x >= x) return;
+        cancelCameraFlight();
+        restoredCamera = undefined;
+        fittingInitialPage = false;
+        gesture = undefined;
+        snappedKey = undefined;
+        applyCamera({ ...camera, x }, true);
+      },
       refreshFlight: () => {
         if (!flight) return;
         const destination = targets().find((candidate) => candidate.key === flight?.page.key);
@@ -698,5 +713,5 @@ export function useCanvasCamera(
     };
   }, [workspaceKey, continuity]);
 
-  return { viewportRef, contentRef, flyTo, cancelFlight, zoomAt };
+  return { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView };
 }

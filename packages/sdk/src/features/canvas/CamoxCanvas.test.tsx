@@ -64,6 +64,8 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let snapTargets: { key: string }[] = [];
   let cameraWidth: number | undefined;
   const flyTo = (key: string) => flights.push(key);
+  const keptInView: [number, number][] = [];
+  const keepInView = (worldX: number, screenX: number) => keptInView.push([worldX, screenX]);
   const cancelFlight = () => actions.push("cancel");
   const globals = {
     React,
@@ -94,7 +96,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       snap = options.onSelect;
       snapTargets = options.targets;
       cameraWidth = options.width;
-      return { viewportRef: null, contentRef: null, flyTo, cancelFlight };
+      return { viewportRef: null, contentRef: null, flyTo, cancelFlight, keepInView };
     },
     CanvasHeaderProbe: (props: {
       page: { key: string };
@@ -272,6 +274,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         const frame = host.querySelector('[data-canvas-pathname="/about"]');
         await toggle();
         assert.equal(marker().getAttribute("aria-expanded"), "false");
+        assert.deepEqual(
+          keptInView.splice(0),
+          [[0, 12]],
+          "the collapsed bar takes the place of the marker's visible start",
+        );
         assert.equal(host.querySelectorAll("[data-canvas-header]").length, 0, "headers hide");
         assert.deepEqual(snapTargets, [], "hidden Pages are not snap targets");
         assert.equal(
@@ -283,6 +290,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.equal(cameraWidth, 2972, "the Canvas keeps its expanded bounds");
         await toggle();
         assert.equal(marker().getAttribute("aria-expanded"), "true");
+        assert.deepEqual(keptInView, [], "expanding does not pan");
         assert.equal(host.querySelectorAll("[data-canvas-header]").length, 2);
         assert.equal(host.querySelector('[data-canvas-pathname="/about"]'), frame);
         assert.ok(!frame!.closest('[data-canvas-shelf="shelf:pages"]')!.hasAttribute("inert"));

@@ -860,6 +860,92 @@ void test("the overview fits the Canvas row width given by its items, with measu
   }
 });
 
+void test("keepInView pans only to bring a world x to a screen x", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  let resize = () => {};
+  const frames: ((time: number) => void)[] = [];
+  let time = 0;
+  const settle = () => {
+    for (let i = 0; i < 1000 && frames.length; i++) frames.shift()!((time += 16));
+  };
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: (time: number) => void) => frames.push(callback),
+    cancelAnimationFrame: () => {},
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 900, height: 800 };
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("keep-in-view", undefined, {
+      targets: [
+        { key: "page:1", left: 0, width: 1366 },
+        { key: "page:2", left: 1606, width: 1366 },
+      ],
+      width: 2972,
+      onSelect: () => {},
+    });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 2972 },
+      offsetHeight: { get: () => 900 },
+    });
+    resize();
+    const camera = () => ({
+      x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      y: parseFloat(viewport.style.getPropertyValue("--canvas-y")),
+      scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
+    });
+    const overview = camera();
+    controls.keepInView(0, 12);
+    assert.deepEqual(camera(), overview, "a visible world x does not pan");
+
+    // Zoom in on the second Page so the row's start is far off-screen.
+    controls.zoomAt({ x: size.width, y: 0 }, 1);
+    settle();
+    const zoomed = camera();
+    assert.ok(zoomed.x < 12, "the row starts off-screen");
+    controls.keepInView(0, 12);
+    assert.deepEqual(camera(), { ...zoomed, x: 12 }, "pans only horizontally, to the screen x");
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
 void test("canvas gestures own the camera, reveal keyboard controls, and clean up animation", async () => {
   const dom = new Window({ url: "http://localhost/camox/canvas" });
   const callbacks = new Map<number, FrameRequestCallback>();
