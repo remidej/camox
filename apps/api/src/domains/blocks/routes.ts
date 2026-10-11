@@ -16,6 +16,10 @@ const getUsageCounts = pub
   .input(service.getBlocksUsageCountsInput)
   .handler(({ context, input }) => runService(service.getBlocksUsageCounts(context, input)));
 
+const getPagesUsing = pub
+  .input(service.getPagesUsingBlockInput)
+  .handler(({ context, input }) => runService(service.getPagesUsingBlock(context, input)));
+
 // Protected procedures
 
 const create = authed
@@ -55,6 +59,7 @@ export const blockProcedures = {
   get,
   getPageMarkdown,
   getUsageCounts,
+  getPagesUsing,
   create,
   updateContent,
   updateSettings,

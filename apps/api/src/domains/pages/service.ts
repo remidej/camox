@@ -145,7 +145,12 @@ function invalidatePage(ctx: ServiceContext, projectId: number, pageId: number) 
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId,
-    targets: [queryKeys.pages.list, queryKeys.pages.getById(pageId)],
+    // Pages using a block change with page creation, renames and deletion.
+    targets: [
+      queryKeys.pages.list,
+      queryKeys.pages.getById(pageId),
+      queryKeys.blocks.getUsageCounts,
+    ],
   });
 }
 
@@ -1400,6 +1405,7 @@ export const discardPageChanges = Effect.fn("pages.discardPageChanges")(function
       queryKeys.pages.getById(id),
       ...affectedPaths.map((path) => queryKeys.pages.getByPath(path)),
       ...affectedBlockIds.map((blockId) => queryKeys.blocks.get(blockId, "draft")),
+      queryKeys.blocks.getUsageCounts,
     ],
   });
 

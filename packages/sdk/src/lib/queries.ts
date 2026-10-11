@@ -189,6 +189,15 @@ export const blockQueries = {
     },
   }),
 
+  // The distinct Pages placing a Block Definition, unlike usage counts.
+  getPagesUsing: (projectId: number, type: string) => ({
+    ...getOrpc().blocks.getPagesUsing.queryOptions({
+      input: { projectId, type },
+      staleTime: Infinity,
+    }),
+    queryKey: queryKeys.blocks.getPagesUsing(type),
+  }),
+
   getPageMarkdown: (pageId: number) => ({
     ...getOrpc().blocks.getPageMarkdown.queryOptions({
       input: { pageId },

@@ -4,7 +4,13 @@ import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
-import { layoutQueries, pageMutations, pageQueries, projectQueries } from "../../lib/queries";
+import {
+  blockQueries,
+  layoutQueries,
+  pageMutations,
+  pageQueries,
+  projectQueries,
+} from "../../lib/queries";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { PageStatusBadge } from "../preview/components/PageStatusBadge";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
@@ -196,12 +202,19 @@ function CanvasHeaderSlot({
   );
 }
 
+/** A block header with the number of Pages placing the block. */
+function CanvasBlockUsageHeader({ projectId, block }: { projectId: number; block: Block }) {
+  const pages = useQuery(blockQueries.getPagesUsing(projectId, block._internal.id));
+  return <CanvasBlockHeader block={block} pageCount={pages.data?.length} />;
+}
+
 type CanvasPageStatus = Pick<
   React.ComponentProps<typeof PageStatusBadge>,
   "status" | "modifiedReason"
 >;
 
 function CanvasWorkspace({
+  projectId,
   pages,
   blocks,
   statuses,
@@ -210,6 +223,7 @@ function CanvasWorkspace({
   viewport,
   onActivate,
 }: {
+  projectId: number;
   pages: CanvasPage[];
   blocks: Block[];
   statuses: Map<string, CanvasPageStatus>;
@@ -493,7 +507,7 @@ function CanvasWorkspace({
       )}
       {items.filter(isCanvasBlock).map(({ key, left, block }) => (
         <CanvasHeaderSlot key={key} itemKey={key} left={left}>
-          <CanvasBlockHeader block={block} />
+          <CanvasBlockUsageHeader projectId={projectId} block={block} />
         </CanvasHeaderSlot>
       ))}
       {!pages.length && <CanvasMessage>No pages to preview yet.</CanvasMessage>}
@@ -606,6 +620,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       <CanvasLeftSidebar page={selectedPage} owner={editingOwner} />
       <CanvasWorkspace
         key={project.data.id}
+        projectId={project.data.id}
         pages={canvasPages}
         blocks={app.getBlocks()}
         statuses={statuses}
