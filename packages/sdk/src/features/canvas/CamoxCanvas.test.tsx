@@ -215,7 +215,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         }
       });
     }
-    await t.test("Pages Shelf Marker renders before the first Page", async () => {
+    await t.test("Pages Shelf Marker spans the Pages above their headers", async () => {
       scenario = "";
       includeNewPage = false;
       globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
@@ -226,21 +226,23 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       try {
         await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
         const row = host.querySelector("[data-canvas-items]")!;
-        const items = [...row.children].map((child) =>
-          child.hasAttribute("data-canvas-shelf-marker")
-            ? `marker:${child.getAttribute("data-canvas-shelf-marker")}`
-            : `page:${child.querySelector("[data-canvas-pathname]")?.getAttribute("data-canvas-pathname")}`,
+        assert.deepEqual(
+          [...row.children].map((child) =>
+            child.querySelector("[data-canvas-pathname]")?.getAttribute("data-canvas-pathname"),
+          ),
+          ["/about", "/contact"],
+          "the marker takes no slot in the row",
         );
-        assert.deepEqual(items, ["marker:shelf:pages", "page:/about", "page:/contact"]);
         const label = host.querySelector('[data-canvas-shelf-marker-label="shelf:pages"]');
         assert.equal(label?.textContent, "Pages");
-        const line = host.querySelector('[data-canvas-shelf-marker-line="shelf:pages"]');
-        assert.ok(line, "the marker draws its line");
-        assert.ok(!row.contains(line), "the line spans the workspace, not just the tallest Page");
+        const bar = host.querySelector('[data-canvas-shelf-marker="shelf:pages"]');
+        assert.ok(bar, "the marker draws its bar");
+        assert.ok(!row.contains(bar), "the bar keeps a constant on-screen height");
+        assert.match(bar.getAttribute("style") ?? "", /2972px/, "the bar spans both Pages");
         assert.deepEqual(
           snapTargets.map(({ key }) => key),
           [...headers.keys()],
-          "only Pages are snap targets",
+          "Pages are snap targets",
         );
       } finally {
         await React.act(async () => root.unmount());
@@ -268,7 +270,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           const header = host.querySelector("[data-canvas-header]") as unknown as HTMLElement;
           assert.equal(
             header.style.transform,
-            "translate(calc(var(--canvas-x, 64px) + 248px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
+            "translate(calc(var(--canvas-x, 64px) + 0px * var(--canvas-zoom, .4)), calc(var(--canvas-y, 112px) - 52px))",
           );
           assert.equal(header.style.width, "calc(1366px * var(--canvas-zoom, .4))");
           assert.equal(header.style.willChange, "transform");

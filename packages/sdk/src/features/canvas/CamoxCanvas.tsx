@@ -18,12 +18,10 @@ import {
   CANVAS_ITEM_GAP,
   CANVAS_SLOT_WIDTH,
   canvasRowWidth,
-  canvasShelfAreas,
   canvasSnapTargets,
-  getCanvasItems,
+  getCanvasShelves,
   isCanvasPage,
-  isCanvasShelfMarker,
-  positionCanvasItems,
+  positionCanvasShelves,
 } from "./canvasItems";
 import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
 import { CanvasPageFrame } from "./CanvasPageFrame";
@@ -42,7 +40,7 @@ import {
   canvasScreenX,
 } from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
-import { CanvasShelfMarker, CanvasShelfMarkerSpace } from "./CanvasShelfMarker";
+import { CanvasShelfMarker } from "./CanvasShelfMarker";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 
@@ -216,7 +214,7 @@ function CanvasWorkspace({
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
   );
-  const items = positionCanvasItems(getCanvasItems(pages));
+  const { items, markers } = positionCanvasShelves(getCanvasShelves(pages));
   // Each Page in the row, keyed like its item, with the pathname its frame previews.
   const pageSlots = new Map(
     items.filter(isCanvasPage).map((item) => [
@@ -283,8 +281,6 @@ function CanvasWorkspace({
           }}
         >
           {items.map((item) => {
-            if (isCanvasShelfMarker(item))
-              return <CanvasShelfMarkerSpace key={item.key} marker={item} />;
             const slot = pageSlots.get(item.key);
             if (!slot) return null;
             const { page, pathname } = slot;
@@ -328,8 +324,8 @@ function CanvasWorkspace({
           })}
         </div>
       </CanvasWorkspaceContext>
-      {canvasShelfAreas(items).map((area) => (
-        <CanvasShelfMarker key={area.marker.key} area={area} />
+      {markers.map((marker) => (
+        <CanvasShelfMarker key={marker.key} marker={marker} />
       ))}
       {[...pageSlots.values()].map(({ page, pathname, left }) => (
         <div

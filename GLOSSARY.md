@@ -207,7 +207,7 @@ A studio view that shows many pages side by side at once.
 _Avoid_: Board, overview, sitemap view
 
 **Shelf Marker**:
-A labelled vertical divider separating areas of the canvas, such as the area holding its pages.
+A labelled horizontal bar above the page headers, spanning the area of the canvas it names, such as the area holding its pages.
 _Avoid_: Separator, section header
 
 **Dashboard**:

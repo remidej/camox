@@ -173,7 +173,7 @@ void test("the initial page view fits its width with 24px padding, regardless of
     const camera = fitCanvasPage(viewport, page);
     assert.equal(camera.scale, (900 - 48) / 1366);
     assert.ok(Math.abs(camera.x + left * camera.scale - 24) < 1e-8);
-    assert.equal(camera.y, 76);
+    assert.equal(camera.y, 108);
     for (const height of [900, 30000])
       assert.deepEqual(constrainCanvasCamera(camera, viewport, { width: 4578, height }), camera);
   }
