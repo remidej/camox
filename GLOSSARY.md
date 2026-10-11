@@ -222,6 +222,10 @@ _Avoid_: Board, overview, sitemap view
 A labelled horizontal bar above the page headers, spanning the area of the canvas it names, such as the area holding its pages.
 _Avoid_: Separator, section header
 
+**Block Catalog**:
+The area of the canvas showing every page-content block definition with its default content, as live blocks to the right of all pages.
+_Avoid_: Block library, component gallery, storybook
+
 **Dashboard**:
 The hosted interface for managing organizations, projects, and members, outside any one website.
 _Avoid_: Admin, console

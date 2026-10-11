@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
+import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
 import { layoutQueries, pageMutations, pageQueries, projectQueries } from "../../lib/queries";
 import { useLocation, useNavigate } from "../navigation/navigation";
@@ -12,14 +13,19 @@ import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
+import { CanvasBlockFrame } from "./CanvasBlockFrame";
+import { CanvasBlockHeader } from "./CanvasBlockHeader";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
 import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
 import {
   CANVAS_ITEM_GAP,
+  CANVAS_SHELF_GAP,
   CANVAS_SLOT_WIDTH,
   canvasSnapTargets,
   getCanvasShelves,
+  isCanvasBlock,
   isCanvasPage,
+  isCanvasShelfShown,
   positionCanvasShelves,
 } from "./canvasItems";
 import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
@@ -39,7 +45,7 @@ import {
   canvasScreenX,
 } from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
-import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarker } from "./CanvasShelfMarker";
+import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 
@@ -65,8 +71,9 @@ function CanvasMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
-class CanvasPageBoundary extends React.Component<
-  { children: React.ReactNode; selected: boolean },
+/** A per-card error boundary, so a failing frame never takes the Canvas down. */
+class CanvasFrameBoundary extends React.Component<
+  { children: React.ReactNode; subject: "page" | "block"; selected?: boolean },
   { error: Error | null }
 > {
   state = { error: null as Error | null };
@@ -79,9 +86,9 @@ class CanvasPageBoundary extends React.Component<
     if (!this.state.error) return this.props.children;
     return (
       <CanvasMessage>
-        <PreparationFailure error={this.state.error} selected={this.props.selected} />
+        <PreparationFailure error={this.state.error} selected={this.props.selected ?? false} />
         <div role="alert">
-          <p>This page could not be rendered.</p>
+          <p>This {this.props.subject} could not be rendered.</p>
           <p className="mt-2">{this.state.error.message}</p>
           <button className="mt-4 underline" onClick={() => this.setState({ error: null })}>
             Try again
@@ -163,6 +170,32 @@ function CanvasPagePreview({
   );
 }
 
+/** A frame header above an item's slot, at a constant on-screen height. */
+function CanvasHeaderSlot({
+  itemKey,
+  left,
+  children,
+}: {
+  itemKey: string;
+  left: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-canvas-header={itemKey}
+      className="@container/canvas-header absolute top-0 left-0 pb-3"
+      style={{
+        height: CANVAS_HEADER_HEIGHT,
+        transform: `translate(${canvasScreenX(left)}, ${canvasScreenAbove(CANVAS_HEADER_HEIGHT)})`,
+        width: canvasScreenLength(CANVAS_SLOT_WIDTH),
+        willChange: "transform",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 type CanvasPageStatus = Pick<
   React.ComponentProps<typeof PageStatusBadge>,
   "status" | "modifiedReason"
@@ -170,6 +203,7 @@ type CanvasPageStatus = Pick<
 
 function CanvasWorkspace({
   pages,
+  blocks,
   statuses,
   selectedPage,
   runtimeBasePath,
@@ -177,6 +211,7 @@ function CanvasWorkspace({
   onActivate,
 }: {
   pages: CanvasPage[];
+  blocks: Block[];
   statuses: Map<string, CanvasPageStatus>;
   selectedPage: CanvasPage | undefined;
   runtimeBasePath: string;
@@ -221,7 +256,7 @@ function CanvasWorkspace({
       return next;
     });
   };
-  const shelves = getCanvasShelves(pages);
+  const shelves = getCanvasShelves(pages, blocks);
   const { items, markers } = positionCanvasShelves(shelves, collapsedShelves);
   // Collapsing only hides items: the Canvas keeps its expanded bounds, so the camera stays put.
   const { width } = positionCanvasShelves(shelves);
@@ -229,19 +264,17 @@ function CanvasWorkspace({
   // Each Page, keyed like its item, with the pathname its frame previews and
   // its place in the row; Pages of collapsed shelves have none.
   const pageSlots = new Map(
-    shelves.flatMap((shelf) =>
-      shelf.items.map((item) => [
-        item.key,
-        {
-          page: item.page,
-          left: positions.get(item.key),
-          pathname:
-            item.key === selectedPage?.key
-              ? selectedPath
-              : (previewPathnames[item.key] ?? item.page.pathname),
-        },
-      ]),
-    ),
+    pages.map((page) => [
+      page.key,
+      {
+        page,
+        left: positions.get(page.key),
+        pathname:
+          page.key === selectedPage?.key
+            ? selectedPath
+            : (previewPathnames[page.key] ?? page.pathname),
+      },
+    ]),
   );
   const selectedKey = selectedPage && positions.has(selectedPage.key) ? selectedPage.key : null;
   const hiddenSelectedShelf = shelves.find(
@@ -307,19 +340,19 @@ function CanvasWorkspace({
           data-canvas-items
           className="absolute top-0 left-0 flex w-max items-start"
           style={{
-            gap: CANVAS_ITEM_GAP,
+            gap: CANVAS_SHELF_GAP,
             transform: CANVAS_WORLD_TRANSFORM,
             transformOrigin: "0 0",
             willChange: "transform",
           }}
         >
           {shelves.map((shelf) => {
-            // An empty shelf has no marker and no place in the row.
-            if (shelf.items.length === 0) return null;
-            const collapsed = collapsedShelves.has(shelf.key);
+            // An empty shelf that isn't shown has no marker and no place in the row.
+            if (!isCanvasShelfShown(shelf)) return null;
+            const collapsed = collapsedShelves.has(shelf.key) || shelf.items.length === 0;
             return (
-              // A collapsed shelf shrinks to a zero-width slot under its marker. Its
-              // Pages stay mounted in place, so expanding never reloads them, and
+              // A collapsed or empty shelf shrinks to a zero-width slot under its marker.
+              // Its items stay mounted in place, so expanding never reloads them, and
               // keep their height, so the Canvas bounds and camera don't move.
               <div
                 key={shelf.key}
@@ -329,6 +362,31 @@ function CanvasWorkspace({
                 style={{ gap: CANVAS_ITEM_GAP }}
               >
                 {shelf.items.map((item) => {
+                  if (item.kind === "block") {
+                    return (
+                      <div
+                        key={item.key}
+                        data-canvas-slot={item.key}
+                        className="flex shrink-0 justify-start"
+                        style={{ width: CANVAS_SLOT_WIDTH }}
+                      >
+                        <div
+                          data-canvas-block={item.block._internal.id}
+                          className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
+                          style={{ width: viewport.width }}
+                        >
+                          <CanvasFrameBoundary subject="block">
+                            <CanvasBlockFrame
+                              block={item.block}
+                              runtimeBasePath={runtimeBasePath}
+                              width={viewport.width}
+                              viewportHeight={viewport.height}
+                            />
+                          </CanvasFrameBoundary>
+                        </div>
+                      </div>
+                    );
+                  }
                   const slot = pageSlots.get(item.key);
                   if (!slot) return null;
                   const { page, pathname } = slot;
@@ -345,8 +403,9 @@ function CanvasWorkspace({
                         className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
                         style={{ width: viewport.width, minHeight: viewport.height }}
                       >
-                        <CanvasPageBoundary
+                        <CanvasFrameBoundary
                           key={pathname}
+                          subject="page"
                           selected={page.key === selectedPage?.key}
                         >
                           {pathname ? (
@@ -368,7 +427,7 @@ function CanvasWorkspace({
                               Choose a page path above to preview this layout.
                             </CanvasMessage>
                           )}
-                        </CanvasPageBoundary>
+                        </CanvasFrameBoundary>
                       </div>
                     </div>
                   );
@@ -378,29 +437,16 @@ function CanvasWorkspace({
           })}
         </div>
       </CanvasWorkspaceContext>
-      {markers.map((marker) => (
-        <CanvasShelfMarker
-          key={marker.key}
-          marker={marker}
-          onToggle={() => {
-            if (!marker.collapsed) collapsingShelf.current = marker.key;
-            toggleShelf(marker.key);
-          }}
-        />
-      ))}
+      <CanvasShelfMarkers
+        markers={markers}
+        onToggle={(marker) => {
+          if (!marker.collapsed) collapsingShelf.current = marker.key;
+          toggleShelf(marker.key);
+        }}
+      />
       {[...pageSlots.values()].map(({ page, pathname, left }) =>
         left === undefined ? null : (
-          <div
-            key={page.key}
-            data-canvas-header={page.key}
-            className="@container/canvas-header absolute top-0 left-0 pb-3"
-            style={{
-              height: CANVAS_HEADER_HEIGHT,
-              transform: `translate(${canvasScreenX(left)}, ${canvasScreenAbove(CANVAS_HEADER_HEIGHT)})`,
-              width: canvasScreenLength(CANVAS_SLOT_WIDTH),
-              willChange: "transform",
-            }}
-          >
+          <CanvasHeaderSlot key={page.key} itemKey={page.key} left={left}>
             <CanvasPageHeader
               page={page}
               pathname={pathname}
@@ -442,9 +488,14 @@ function CanvasWorkspace({
                 selectPage(path);
               }}
             />
-          </div>
+          </CanvasHeaderSlot>
         ),
       )}
+      {items.filter(isCanvasBlock).map(({ key, left, block }) => (
+        <CanvasHeaderSlot key={key} itemKey={key} left={left}>
+          <CanvasBlockHeader block={block} />
+        </CanvasHeaderSlot>
+      ))}
       {!pages.length && <CanvasMessage>No pages to preview yet.</CanvasMessage>}
       <p id={instructionsId} className="sr-only">
         Scroll, or hold Space and drag, to pan. Pinch or Ctrl/⌘ + scroll to zoom. Click a page to
@@ -556,6 +607,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       <CanvasWorkspace
         key={project.data.id}
         pages={canvasPages}
+        blocks={app.getBlocks()}
         statuses={statuses}
         selectedPage={selectedPage}
         runtimeBasePath={runtimeBasePath}
