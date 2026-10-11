@@ -223,7 +223,7 @@ A labelled horizontal bar above the page headers, spanning the area of the canva
 _Avoid_: Separator, section header
 
 **Block Catalog**:
-The area of the canvas showing every page-content block definition with its default content, as live blocks to the right of all pages.
+The area of the canvas showing every page-content block definition as live blocks to the right of all pages: each with its default content, or for a Synced Block placed in the environment, its shared content.
 _Avoid_: Block library, component gallery, storybook
 
 **Dashboard**:
