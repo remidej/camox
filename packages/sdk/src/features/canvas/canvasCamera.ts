@@ -43,6 +43,8 @@ export function findCanvasSnapTarget<T extends CanvasSnapTarget>(
 
 export const CANVAS_PADDING = 64;
 export const CANVAS_HEADER_HEIGHT = 52;
+/** Screen-space inset of a Page snapped to fit the viewport's width. */
+export const CANVAS_PAGE_FIT_PADDING = 24;
 /** Shelf Marker bar plus its gap above the Page headers. */
 export const CANVAS_SHELF_MARKER_HEIGHT = 32;
 /** Unscaled chrome above the row: Shelf Markers, then Page headers. */
@@ -124,14 +126,14 @@ export function fitCanvasPage(
   viewport: CanvasSize,
   page: { left: number; width: number },
 ): CanvasCamera {
-  const padding = Math.min(24, viewport.width / 4);
+  const padding = Math.min(CANVAS_PAGE_FIT_PADDING, viewport.width / 4);
   const scale = Math.max(
     Number.EPSILON,
     Math.min(MAX_CANVAS_ZOOM, (viewport.width - padding * 2) / Math.max(1, page.width)),
   );
   return {
     x: (viewport.width - page.width * scale) / 2 - page.left * scale,
-    y: Math.min(24 + CANVAS_CHROME_HEIGHT, viewport.height / 3),
+    y: Math.min(CANVAS_PAGE_FIT_PADDING + CANVAS_CHROME_HEIGHT, viewport.height / 3),
     scale,
   };
 }
