@@ -77,8 +77,8 @@ export const getPageMarkdownInput = z.object({
   source: pageSourceSchema.optional().default("draft"),
 });
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
-export const getPagesUsingBlockInput = z.object({ projectId: z.number(), type: z.string() });
-export const getSyncedBlockContentInput = z.object({ projectId: z.number(), type: z.string() });
+// A Block Definition within a project's current environment.
+export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });
 export const createBlockInput = z.object({
   pageId: z.number(),
   type: z.string(),
@@ -1111,9 +1111,9 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
  */
 export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof getPagesUsingBlockInput>,
+  rawInput: z.input<typeof blockTypeInput>,
 ) {
-  const { projectId, type } = yield* decodeInput(getPagesUsingBlockInput, rawInput);
+  const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
@@ -1131,9 +1131,9 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
  */
 export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof getSyncedBlockContentInput>,
+  rawInput: z.input<typeof blockTypeInput>,
 ) {
-  const { projectId, type } = yield* decodeInput(getSyncedBlockContentInput, rawInput);
+  const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   const id = yield* sharedPlacementId(ctx, environment.id, type);
   if (id === null) return null;
