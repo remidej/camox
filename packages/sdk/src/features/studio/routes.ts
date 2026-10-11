@@ -28,3 +28,20 @@ export function matchCollectionContentPath(pathname: string) {
     return null;
   }
 }
+
+export const STUDIO_BLOCKS_PATH = `${STUDIO_BASE_PATH}/blocks`;
+
+/** The Studio URL of a block of the Block Catalog. */
+export const blockCatalogPath = (blockId: string) =>
+  `${STUDIO_BLOCKS_PATH}/${encodeURIComponent(blockId)}`;
+
+/** The id of the Block Catalog block a pathname selects, if any. */
+export function matchBlockCatalogPath(pathname: string) {
+  const match = /^\/camox\/blocks\/([^/]+)$/.exec(pathname);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]) || null;
+  } catch {
+    return null;
+  }
+}

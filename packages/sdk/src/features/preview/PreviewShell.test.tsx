@@ -24,7 +24,7 @@ registerHooks({
     if (context.parentURL?.endsWith("/CamoxPreview.tsx")) {
       const stubs: Record<string, string> = {
         "@/features/navigation/navigation":
-          "export const useLocation = () => ({pathname: '/'}); export const useNavigate = () => () => {}",
+          "export const useLocation = () => ({pathname: '/'}); export const useNavigate = () => (options) => { globalThis.testNavigations?.push(options) }",
         "@/hooks/use-page-destinations": "export const usePageDestinations = () => []",
         "@/lib/api-client": `export const getApiClient = () => ({
           pages: { getByPath: () => Promise.reject(new Error("No refetch in shell test")) },
@@ -306,10 +306,11 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
   client.setQueryData(queryKeys.pages.getByPath("/", "draft"), {
     page: { id: 3, status: "draft", livePublishedCheckpointId: 1 },
   });
-  const render = (derived?: React.ComponentProps<typeof CamoxPreview>["derived"]) =>
+  type Props = React.ComponentProps<typeof CamoxPreview>;
+  const render = (derived?: Props["derived"], catalogBlock?: Props["catalogBlock"]) =>
     dom.render(
       <QueryClientProvider client={client}>
-        <CamoxPreview derived={derived} source="draft">
+        <CamoxPreview derived={derived} catalogBlock={catalogBlock} source="draft">
           <p data-content>Site content</p>
         </CamoxPreview>
       </QueryClientProvider>,
@@ -323,10 +324,60 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
     await render();
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
+    await render(undefined, { blockId: "hero" });
+    assert.equal(dom.host.querySelector("[data-canvas]"), canvas, "selecting a block keeps it");
+    await render();
+    assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
   } finally {
     await dom.close();
     client.clear();
     previewStore.send({ type: "exitEditMode" });
     Reflect.deleteProperty(globalThis, "testPreviewLayout");
+  }
+});
+
+void test("a Block Catalog block opens in Edit Mode, and goes home without the Canvas", async (t) => {
+  const dom = await setup();
+  const { PreviewShell } = await import("./CamoxPreview");
+  const { previewStore } = await import("./previewStore");
+  const navigations: { to: string; replace?: boolean }[] = [];
+  Object.assign(globalThis, { testNavigations: navigations });
+  const shell = (
+    <PreviewShell catalogBlock={{ blockId: "hero" }} runtimeBasePath="/nested/studio">
+      {null}
+    </PreviewShell>
+  );
+  const home = [{ to: "/", replace: true }];
+  try {
+    await t.test("a block link enters Edit Mode on the Canvas", async () => {
+      await dom.render(shell);
+      assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
+      assert.ok(dom.host.querySelector("[data-canvas]"));
+      assert.deepEqual(navigations, []);
+    });
+
+    await t.test("leaving Edit Mode on a block goes home", async () => {
+      await React.act(async () => previewStore.send({ type: "exitEditMode" }));
+      assert.deepEqual(navigations.splice(0), home);
+    });
+
+    await t.test("mobile Studio goes home", async () => {
+      await dom.render(null);
+      const matchMedia = window.matchMedia;
+      Object.assign(window, {
+        matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
+      });
+      try {
+        await dom.render(shell);
+        assert.deepEqual(navigations.splice(0), home);
+        assert.equal(dom.host.querySelector("[data-canvas]"), null);
+      } finally {
+        Object.assign(window, { matchMedia });
+      }
+    });
+  } finally {
+    await dom.close();
+    previewStore.send({ type: "exitEditMode" });
+    Reflect.deleteProperty(globalThis, "testNavigations");
   }
 });

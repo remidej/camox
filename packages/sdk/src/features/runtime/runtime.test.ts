@@ -313,3 +313,74 @@ void test("anonymous studio navigation never validates a missing cookie or grant
   assert.equal(input.presentation, "public");
   assert.equal(input.project, undefined);
 });
+
+void test("Block Catalog routes open the page app on the block, or redirect home", async (t) => {
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith("/getBySlug")) return Response.json({ json: project });
+    throw new Error(`Unexpected API request ${path}`);
+  });
+  const blocks = [
+    { _internal: { id: "hero", title: "Hero", layoutOnly: false } },
+    { _internal: { id: "navbar", title: "Navbar", layoutOnly: true } },
+  ];
+  const options: RuntimeOptions = {
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectSlug: "test",
+    runtimeBasePath: "/site",
+    pageClientEntryUrl: "/page-client.js",
+    studioClientEntryUrl: "/studio-client.js",
+    stylesheetUrl: "/site.css",
+    studioStylesheetUrl: "/studio.css",
+    getCamoxApp: async () =>
+      ({
+        ...app,
+        getBlockById: (id: string) => blocks.find((block) => block._internal.id === id),
+      }) as unknown as CamoxApp,
+    getDocument: async () => ({ htmlAttrs: { class: "dark" } }),
+    renderPage: async (input) =>
+      input.presentation === "public" ? "<main>Site content</main>" : "<nav>Studio</nav>",
+  };
+  const request = (path: string) =>
+    handleCamoxRequest(
+      new Request(`https://site.test/site${path}`, {
+        headers: { Cookie: "camox_auth_cookie=token%3Dtest" },
+      }),
+      options,
+    );
+
+  await t.test("a block opens Edit Mode's page app with the block selected", async () => {
+    const response = await request("/_camox/data?path=/camox/blocks/hero");
+    assert.equal(response?.status, 200);
+    assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
+    const input = (await response!.json()) as PageRenderInput;
+    assert.deepEqual(input.catalogBlock, { blockId: "hero" });
+    assert.equal(input.pathname, "/camox/blocks/hero");
+    assert.equal(input.presentation, "studio");
+    assert.equal(input.routeKind, undefined, "the Canvas stays mounted, not a Studio page");
+    assert.ok(input.dehydratedState);
+    assert.match(input.previewDocument!, /href="\/site.css"/, "block frames get the site head");
+    assert.doesNotMatch(input.previewDocument!, /Site content/);
+
+    const html = await (await request("/camox/blocks/hero"))!.text();
+    assert.match(html, /page-client.js/);
+    assert.doesNotMatch(html, /studio-client.js/);
+    assert.match(html, /href="\/studio.css"/);
+    assert.match(html, /<title>Hero<\/title>/);
+  });
+
+  for (const [name, path] of [
+    ["an unknown block", "/camox/blocks/missing"],
+    ["a Layout-only Block", "/camox/blocks/navbar"],
+  ]) {
+    await t.test(`${name} redirects home`, async () => {
+      const response = await request(path);
+      assert.equal(response?.status, 302);
+      assert.equal(response?.headers.get("Location"), "https://site.test/site/");
+      // Client navigation falls back to loading the document, which redirects.
+      const data = await request(`/_camox/data?path=${path}`);
+      assert.equal(data?.status, 404);
+    });
+  }
+});

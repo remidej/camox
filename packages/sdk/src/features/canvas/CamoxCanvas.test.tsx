@@ -30,7 +30,7 @@ registerHooks({
         export const useNavigate = () => globalThis.CanvasNavigate;`;
     if (specifier.endsWith("/CamoxAppContext"))
       source =
-        "export const useCamoxApp = () => ({getLayouts: () => [], getBlocks: () => globalThis.CanvasBlocks})";
+        "export const useCamoxApp = () => ({getLayouts: () => [], getBlocks: () => globalThis.CanvasBlocks, getBlockById: (id) => globalThis.CanvasBlocks.find((block) => block._internal.id === id)})";
     if (specifier === "@xstate/store-react")
       source =
         "export const useSelector = (_, selector) => selector({context: {viewportMode: 'full'}})";
@@ -76,6 +76,8 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let cameraWidth: number | undefined;
   let failingBlock: string | undefined;
   let blockPages: Record<string, { id: number }[]> = {};
+  let initialTarget: { left: number } | undefined;
+  const blockFrames = new Map<string, { onSelect: () => void }>();
   const flyTo = (key: string) => flights.push(key);
   const keptInView: [number, number][] = [];
   const keepInView = (worldX: number, screenX: number) => keptInView.push([worldX, screenX]);
@@ -95,7 +97,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     },
     CanvasCommentMode: false,
     CanvasBlocks: [] as unknown[],
-    CanvasBlockFrameProbe: (props: { block: { _internal: { id: string } } }) => {
+    CanvasBlockFrameProbe: (props: {
+      block: { _internal: { id: string } };
+      onSelect: () => void;
+    }) => {
+      blockFrames.set(props.block._internal.id, props);
       if (props.block._internal.id === failingBlock) throw failure;
       return <div>Block {props.block._internal.id}</div>;
     },
@@ -110,9 +116,10 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     },
     CanvasCameraProbe: (
       _key: string,
-      _page: unknown,
+      target: { left: number } | undefined,
       options: { onSelect: typeof snap; targets: { key: string }[]; width?: number },
     ) => {
+      initialTarget = target;
       snap = options.onSelect;
       snapTargets = options.targets;
       cameraWidth = options.width;
@@ -358,10 +365,6 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             headerLefts[4]! + CANVAS_SLOT_WIDTH,
             "the Canvas bounds cover Pages and blocks",
           );
-          const actionCount = actions.length;
-          await React.act(async () => snap("block:hero"));
-          assert.equal(actions.length, actionCount, "snapping to a block does not select it yet");
-
           globals.CanvasBlocks = [block("navbar", "Navbar", true)];
           Object.assign(globalThis, globals);
           await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
@@ -381,6 +384,113 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         }
       },
     );
+    await t.test("blocks are selected by click, header or snap, and by URL", async () => {
+      scenario = "";
+      includeNewPage = false;
+      flights.length = 0;
+      actions.length = 0;
+      const block = (id: string, title: string, layoutOnly = false) => ({
+        _internal: { id, title, description: "", layoutOnly },
+      });
+      globals.CanvasBlocks = [
+        block("faq", "FAQ"),
+        block("hero", "Hero"),
+        block("nav", "Nav", true),
+      ];
+      globals.CanvasLocation = {
+        pathname: "/camox/blocks/hero",
+        search: "",
+        hash: "",
+        source: undefined,
+      };
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const signals: string[] = [];
+      const render = async () => {
+        Object.assign(globalThis, globals);
+        await React.act(async () =>
+          root.render(
+            <PreviewPreparationContext
+              value={{
+                ready: () => signals.push("ready"),
+                fail: (error) => signals.push(error.message),
+              }}
+            >
+              <CamoxCanvas runtimeBasePath="" />
+            </PreviewPreparationContext>,
+          ),
+        );
+      };
+      const headerLeft = (key: string) =>
+        worldXs(
+          (host.querySelector(`[data-canvas-header="${key}"]`) as unknown as HTMLElement).style
+            .transform,
+        )[0];
+      try {
+        await render();
+        assert.deepEqual(signals, ["ready"], "a block link prepares the Canvas");
+        assert.equal(
+          initialTarget?.left,
+          headerLeft("block:hero"),
+          "a block link opens the Canvas on the block",
+        );
+        assert.equal(flights.length, 0, "mount does not fly");
+
+        for (const [select, path] of [
+          [() => blockFrames.get("faq")!.onSelect(), "/camox/blocks/faq"],
+          [
+            () =>
+              (
+                host.querySelector(
+                  '[data-canvas-header="block:hero"] button',
+                ) as unknown as HTMLElement
+              ).click(),
+            "/camox/blocks/hero",
+          ],
+          [() => snap("block:faq"), "/camox/blocks/faq"],
+          [() => snap([...headers.keys()][0]!), "/about"],
+        ] as const) {
+          await React.act(async () => select());
+          assert.deepEqual(actions.splice(0), ["cancel", "navigate"]);
+          assert.equal(globals.CanvasLocation.pathname, path);
+          await render();
+          assert.equal(flights.length, 0, "canvas selections do not fly");
+        }
+
+        globals.CanvasLocation = {
+          pathname: "/camox/blocks/hero",
+          search: "",
+          hash: "",
+          source: undefined,
+        };
+        await render();
+        assert.deepEqual(flights, ["block:hero"], "back/forward to a block flies to it");
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        await render();
+        assert.deepEqual(flights, ["block:hero", [...headers.keys()][0]], "and back to a Page");
+
+        signals.length = 0;
+        globals.CanvasLocation = {
+          pathname: "/camox/blocks/nav",
+          search: "",
+          hash: "",
+          source: undefined,
+        };
+        await render();
+        assert.match(
+          signals.join(),
+          /No canvas page matches/,
+          "Layout-only Blocks aren't selectable",
+        );
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+        globals.CanvasBlocks = [];
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        Object.assign(globalThis, globals);
+      }
+    });
     await t.test("a failing block frame stays in its own slot", async () => {
       scenario = "";
       includeNewPage = false;

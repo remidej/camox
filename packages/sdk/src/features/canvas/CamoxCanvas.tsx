@@ -19,6 +19,7 @@ import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
+import { blockCatalogPath, matchBlockCatalogPath } from "../studio/routes";
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
 import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
@@ -27,10 +28,10 @@ import {
   CANVAS_ITEM_GAP,
   CANVAS_SHELF_GAP,
   CANVAS_SLOT_WIDTH,
+  canvasBlockKey,
   canvasSnapTargets,
   getCanvasShelves,
   isCanvasBlock,
-  isCanvasPage,
   isCanvasShelfShown,
   positionCanvasShelves,
 } from "./canvasItems";
@@ -203,9 +204,17 @@ function CanvasHeaderSlot({
 }
 
 /** A block header with the number of Pages placing the block. */
-function CanvasBlockUsageHeader({ projectId, block }: { projectId: number; block: Block }) {
+function CanvasBlockUsageHeader({
+  projectId,
+  block,
+  onSelect,
+}: {
+  projectId: number;
+  block: Block;
+  onSelect: () => void;
+}) {
   const pages = useQuery(blockQueries.getPagesUsing(projectId, block._internal.id));
-  return <CanvasBlockHeader block={block} pageCount={pages.data?.length} />;
+  return <CanvasBlockHeader block={block} pageCount={pages.data?.length} onSelect={onSelect} />;
 }
 
 type CanvasPageStatus = Pick<
@@ -219,6 +228,7 @@ function CanvasWorkspace({
   blocks,
   statuses,
   selectedPage,
+  selectedBlock,
   runtimeBasePath,
   viewport,
   onActivate,
@@ -228,6 +238,7 @@ function CanvasWorkspace({
   blocks: Block[];
   statuses: Map<string, CanvasPageStatus>;
   selectedPage: CanvasPage | undefined;
+  selectedBlock: Block | undefined;
   runtimeBasePath: string;
   viewport: CanvasViewport;
   onActivate: (pathname: string, owner: EditingOwner) => void;
@@ -252,6 +263,7 @@ function CanvasWorkspace({
     cancelFlight();
     void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
   };
+  const selectBlock = (block: Block) => selectPage(blockCatalogPath(block._internal.id));
   const workspaceKey = JSON.stringify([
     apiUrl,
     projectSlug,
@@ -274,7 +286,8 @@ function CanvasWorkspace({
   const { items, markers } = positionCanvasShelves(shelves, collapsedShelves);
   // Collapsing only hides items: the Canvas keeps its expanded bounds, so the camera stays put.
   const { width } = positionCanvasShelves(shelves);
-  const positions = new Map(items.filter(isCanvasPage).map((item) => [item.key, item.left]));
+  const positions = new Map(items.map((item) => [item.key, item.left]));
+  const blocksByKey = new Map(items.filter(isCanvasBlock).map((item) => [item.key, item.block]));
   // Each Page, keyed like its item, with the pathname its frame previews and
   // its place in the row; Pages of collapsed shelves have none.
   const pageSlots = new Map(
@@ -290,10 +303,13 @@ function CanvasWorkspace({
       },
     ]),
   );
-  const selectedKey = selectedPage && positions.has(selectedPage.key) ? selectedPage.key : null;
+  // The selected Page or block, keyed like its item.
+  const selectedItemKey =
+    selectedPage?.key ?? (selectedBlock && canvasBlockKey(selectedBlock._internal.id));
+  const selectedKey = selectedItemKey && positions.has(selectedItemKey) ? selectedItemKey : null;
   const hiddenSelectedShelf = shelves.find(
     (shelf) =>
-      collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedPage?.key),
+      collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedItemKey),
   )?.key;
   const snapTargets = canvasSnapTargets(items);
   const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView } = useCanvasCamera(
@@ -303,6 +319,8 @@ function CanvasWorkspace({
       targets: snapTargets,
       width,
       onSelect: (key) => {
+        const block = blocksByKey.get(key);
+        if (block) return selectBlock(block);
         const pathname = pageSlots.get(key)?.pathname;
         if (pathname) selectPage(pathname);
       },
@@ -395,6 +413,7 @@ function CanvasWorkspace({
                               runtimeBasePath={runtimeBasePath}
                               width={viewport.width}
                               viewportHeight={viewport.height}
+                              onSelect={() => selectBlock(item.block)}
                             />
                           </CanvasFrameBoundary>
                         </div>
@@ -507,7 +526,11 @@ function CanvasWorkspace({
       )}
       {items.filter(isCanvasBlock).map(({ key, left, block }) => (
         <CanvasHeaderSlot key={key} itemKey={key} left={left}>
-          <CanvasBlockUsageHeader projectId={projectId} block={block} />
+          <CanvasBlockUsageHeader
+            projectId={projectId}
+            block={block}
+            onSelect={() => selectBlock(block)}
+          />
         </CanvasHeaderSlot>
       ))}
       {!pages.length && <CanvasMessage>No pages to preview yet.</CanvasMessage>}
@@ -571,14 +594,25 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     const status = page.layoutId && layoutStatusById.get(page.layoutId);
     if (status) statuses.set(page.key, { status });
   }
-  const selectedPage = selectedCanvasPage(canvasPages, app.getLayouts(), location.pathname);
+  const selectedBlockId = matchBlockCatalogPath(location.pathname);
+  const catalogBlock = selectedBlockId ? app.getBlockById(selectedBlockId) : undefined;
+  const selectedBlock =
+    catalogBlock && !catalogBlock._internal.layoutOnly ? catalogBlock : undefined;
+  const selectedPage = selectedBlockId
+    ? undefined
+    : selectedCanvasPage(canvasPages, app.getLayouts(), location.pathname);
   usePreparationFailure(
     (!project.isFetching ? project.error : null) ?? (!pages.isFetching ? pages.error : null),
   );
   const preparation = React.useContext(PreviewPreparationContext);
   React.useEffect(() => {
-    if (project.isPending || pages.isPending || project.error || pages.error || selectedPage)
+    if (project.isPending || pages.isPending || project.error || pages.error) return;
+    // A selected block's frame needn't load first: the Canvas is ready once laid out.
+    if (selectedBlock) {
+      preparation?.ready();
       return;
+    }
+    if (selectedPage) return;
     preparation?.fail(new Error(`No canvas page matches ${location.pathname}.`));
   }, [
     project.isPending,
@@ -586,6 +620,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     project.error,
     pages.error,
     selectedPage,
+    selectedBlock,
     location.pathname,
     preparation,
   ]);
@@ -625,6 +660,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         blocks={app.getBlocks()}
         statuses={statuses}
         selectedPage={selectedPage}
+        selectedBlock={selectedBlock}
         runtimeBasePath={runtimeBasePath}
         viewport={viewport}
         onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
