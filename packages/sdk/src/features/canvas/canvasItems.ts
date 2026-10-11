@@ -27,6 +27,8 @@ export type CanvasShelfMarker = {
   label: string;
   start: number;
   end: number;
+  /** How many items the shelf holds, collapsed or not. */
+  count: number;
   collapsed: boolean;
 };
 
@@ -62,8 +64,9 @@ export function positionCanvasShelves(
     // An empty area has nothing to label.
     if (shelf.items.length === 0) continue;
     const start = left;
+    const marker = { key: shelf.key, label: shelf.label, count: shelf.items.length };
     if (collapsed.has(shelf.key)) {
-      markers.push({ key: shelf.key, label: shelf.label, start, end: start, collapsed: true });
+      markers.push({ ...marker, start, end: start, collapsed: true });
       left += CANVAS_ITEM_GAP;
       continue;
     }
@@ -73,7 +76,7 @@ export function positionCanvasShelves(
       left += width + CANVAS_ITEM_GAP;
     }
     const end = left - CANVAS_ITEM_GAP;
-    markers.push({ key: shelf.key, label: shelf.label, start, end, collapsed: false });
+    markers.push({ ...marker, start, end, collapsed: false });
   }
   // The world-space width of the whole row; the horizontal extent of the Canvas bounds.
   const width = Math.max(0, left - CANVAS_ITEM_GAP);

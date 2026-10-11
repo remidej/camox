@@ -71,7 +71,7 @@ export function CanvasShelfMarker({
           }}
         >
           <span className={`${LABEL_CLASS_NAME} rotate-180 [writing-mode:vertical-rl]`}>
-            {marker.label}
+            {marker.label} ({marker.count})
           </span>
         </div>
       </>
@@ -103,7 +103,9 @@ export function CanvasShelfMarker({
           willChange: "transform",
         }}
       >
-        <span className={LABEL_CLASS_NAME}>{marker.label}</span>
+        <span className={LABEL_CLASS_NAME}>
+          {marker.label} ({marker.count})
+        </span>
       </div>
     </>
   );

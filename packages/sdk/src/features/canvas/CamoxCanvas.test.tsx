@@ -238,7 +238,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           "the marker takes no slot in the row",
         );
         const label = host.querySelector('[data-canvas-shelf-marker-label="shelf:pages"]');
-        assert.equal(label?.textContent, "Pages");
+        assert.equal(label?.textContent, "Pages (2)", "the label counts the Pages");
         const bar = host.querySelector('[data-canvas-shelf-marker="shelf:pages"]');
         assert.ok(bar, "the marker draws its bar");
         assert.ok(!row.contains(bar), "the bar keeps a constant on-screen height");

@@ -19,7 +19,7 @@ void test("the Pages Shelf Marker spans every Page", () => {
   // Page (1366) + gap (240) + Page (1366).
   assert.equal(width, 2972);
   assert.deepEqual(markers, [
-    { key: "shelf:pages", label: "Pages", start: 0, end: 2972, collapsed: false },
+    { key: "shelf:pages", label: "Pages", count: 2, start: 0, end: 2972, collapsed: false },
   ]);
 });
 
