@@ -8,7 +8,7 @@ import { act } from "react";
 import type { Block } from "../../core/createBlock";
 import { getCanvasShelves, positionCanvasShelves } from "./canvasItems";
 import type { CanvasPage } from "./canvasPages";
-import { CanvasShelfMarker } from "./CanvasShelfMarker";
+import { CanvasShelfMarkers } from "./CanvasShelfMarker";
 
 const pages: CanvasPage[] = [
   { key: "page:1", title: "Home", pathname: "/", pageId: 1 },
@@ -73,7 +73,7 @@ function translateX(transform: string) {
   throw new Error(`Not a translate: ${transform}`);
 }
 
-void test("Shelf Marker bars never overlap, at any zoom", async () => {
+void test("Shelf Marker bars never overlap and collapsed bars keep their thickness, at any zoom", async () => {
   const dom = new Window({ url: "http://localhost/camox" });
   const globals = {
     React,
@@ -99,24 +99,33 @@ void test("Shelf Marker bars never overlap, at any zoom", async () => {
         getCanvasShelves(pages, blocks),
         new Set(["shelf:pages"]),
       ),
+      "a collapsed Pages area and an empty Blocks area": positionCanvasShelves(
+        getCanvasShelves(pages, []),
+        new Set(["shelf:pages"]),
+      ),
     };
     for (const [scenario, { markers }] of Object.entries(rows)) {
       await act(async () =>
-        root.render(
-          <>
-            {markers.map((marker) => (
-              <CanvasShelfMarker key={marker.key} marker={marker} onToggle={() => {}} />
-            ))}
-          </>,
-        ),
+        root.render(<CanvasShelfMarkers markers={markers} onToggle={() => {}} />),
       );
-      const bars = [...mount.querySelectorAll("[data-canvas-shelf-marker]")].map(
-        (bar) => (bar as unknown as HTMLElement).style,
-      );
+      const bars = [...mount.querySelectorAll("[data-canvas-shelf-marker]")].map((bar) => ({
+        collapsed: bar.getAttribute("aria-expanded") === "false",
+        style: (bar as unknown as HTMLElement).style,
+      }));
       assert.equal(bars.length, 2, scenario);
+      const thickness = (style: CSSStyleDeclaration, zoom: number) =>
+        evaluateCss(style.width, { x: 64, zoom });
       for (const zoom of [0.01, 0.03, 0.05, 0.1, 0.4, 1, 2]) {
         const camera = { x: 64, zoom };
-        const [first, second] = bars.map((style) => {
+        for (const { collapsed, style } of bars) {
+          if (!collapsed) continue;
+          assert.equal(
+            thickness(style, zoom),
+            thickness(style, 1),
+            `${scenario}: a collapsed bar keeps its thickness at zoom ${zoom}`,
+          );
+        }
+        const [first, second] = bars.map(({ style }) => {
           const left = evaluateCss(translateX(style.transform), camera);
           return { left, right: left + evaluateCss(style.width, camera) };
         });

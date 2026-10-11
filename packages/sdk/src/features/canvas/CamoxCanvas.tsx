@@ -45,7 +45,7 @@ import {
   canvasScreenX,
 } from "./canvasScreenSpace";
 import { selectedCanvasPage } from "./canvasSelection";
-import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarker } from "./CanvasShelfMarker";
+import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
 
@@ -437,16 +437,13 @@ function CanvasWorkspace({
           })}
         </div>
       </CanvasWorkspaceContext>
-      {markers.map((marker) => (
-        <CanvasShelfMarker
-          key={marker.key}
-          marker={marker}
-          onToggle={() => {
-            if (!marker.collapsed) collapsingShelf.current = marker.key;
-            toggleShelf(marker.key);
-          }}
-        />
-      ))}
+      <CanvasShelfMarkers
+        markers={markers}
+        onToggle={(marker) => {
+          if (!marker.collapsed) collapsingShelf.current = marker.key;
+          toggleShelf(marker.key);
+        }}
+      />
       {[...pageSlots.values()].map(({ page, pathname, left }) =>
         left === undefined ? null : (
           <CanvasHeaderSlot key={page.key} itemKey={page.key} left={left}>

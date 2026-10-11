@@ -10,14 +10,59 @@ const BAR_SIZE = 24;
 // The bar overhangs its area so the label, flush with the area's start, lines up with Page headers.
 // A collapsed bar is centered on its area's start, so it starts the same distance before it.
 export const CANVAS_SHELF_MARKER_OVERHANG = 12;
-// Zoomed far out, the gap between areas gets narrower than two overhangs. The overhang
-// then shrinks, so neighbouring bars always keep this much space between them.
+// Neighbouring bars always keep this much space between them.
 const MIN_BAR_SEPARATION = 8;
+// Zoomed far out, the gap between areas gets narrower than two overhangs, so they shrink.
 const OVERHANG = `clamp(0px, ${canvasScreenLength(CANVAS_SHELF_GAP)} / 2 - ${MIN_BAR_SEPARATION / 2}px, ${CANVAS_SHELF_MARKER_OVERHANG}px)`;
 const LABEL_CLASS_NAME =
   "text-muted-foreground text-xs font-medium tracking-wider whitespace-nowrap uppercase";
 const BAR_CLASS_NAME =
   "bg-foreground/10 hover:bg-foreground/15 focus-visible:ring-ring absolute top-0 left-0 cursor-pointer rounded-sm outline-none focus-visible:ring-2";
+
+/** The bar of each marker, as on-screen x expressions. */
+type CanvasShelfMarkerBar = { left: string; right: string };
+
+/**
+ * Each marker's bar, from its area's on-screen extent. A collapsed bar keeps its
+ * thickness at every zoom, so when it no longer fits in the gap next to its
+ * area, it moves right, after the previous bar.
+ */
+function getCanvasShelfMarkerBars(markers: readonly CanvasShelfMarkerData[]) {
+  let previousRight: string | undefined;
+  return markers.map((marker): CanvasShelfMarkerBar => {
+    const start = canvasScreenX(marker.start);
+    const ownLeft = marker.collapsed
+      ? `calc(${start} - ${BAR_SIZE / 2}px)`
+      : `calc(${start} - ${OVERHANG})`;
+    const left = previousRight
+      ? `max(${ownLeft}, calc(${previousRight} + ${MIN_BAR_SEPARATION}px))`
+      : ownLeft;
+    const right = marker.collapsed
+      ? `calc(${left} + ${BAR_SIZE}px)`
+      : `max(calc(${canvasScreenX(marker.end)} + ${OVERHANG}), ${left})`;
+    previousRight = right;
+    return { left, right };
+  });
+}
+
+/** The Shelf Markers of the Canvas row, in row order. */
+export function CanvasShelfMarkers({
+  markers,
+  onToggle,
+}: {
+  markers: readonly CanvasShelfMarkerData[];
+  onToggle: (marker: CanvasShelfMarkerData) => void;
+}) {
+  const bars = getCanvasShelfMarkerBars(markers);
+  return markers.map((marker, index) => (
+    <CanvasShelfMarker
+      key={marker.key}
+      marker={marker}
+      bar={bars[index]!}
+      onToggle={() => onToggle(marker)}
+    />
+  ));
+}
 
 /**
  * A labelled bar naming an area of the Canvas. Clicking it collapses or expands the area.
@@ -32,11 +77,13 @@ const BAR_CLASS_NAME =
  * place, running from the header row to the bottom of the viewport. It is the
  * horizontal bar rotated, so its label reads upwards and sits at the top.
  */
-export function CanvasShelfMarker({
+function CanvasShelfMarker({
   marker,
+  bar,
   onToggle,
 }: {
   marker: CanvasShelfMarkerData;
+  bar: CanvasShelfMarkerBar;
   onToggle: () => void;
 }) {
   const start = canvasScreenX(marker.start);
@@ -52,7 +99,6 @@ export function CanvasShelfMarker({
   };
 
   if (marker.collapsed) {
-    const left = `calc(${start} - ${BAR_SIZE / 2}px)`;
     return (
       <>
         <button
@@ -60,9 +106,9 @@ export function CanvasShelfMarker({
           {...button}
           className={BAR_CLASS_NAME}
           style={{
-            width: `calc(${OVERHANG} * 2)`,
+            width: BAR_SIZE,
             height: `calc(100% - ${y})`,
-            transform: `translate(calc(${start} - ${OVERHANG}), ${y})`,
+            transform: `translate(${bar.left}, ${y})`,
             willChange: "transform",
           }}
         />
@@ -72,7 +118,7 @@ export function CanvasShelfMarker({
           style={{
             width: BAR_SIZE,
             // Stick to the top of the viewport while the bar runs past it.
-            transform: `translate(${left}, max(${y}, 0px))`,
+            transform: `translate(${bar.left}, max(${y}, 0px))`,
             willChange: "transform",
           }}
         >
@@ -94,8 +140,8 @@ export function CanvasShelfMarker({
         className={BAR_CLASS_NAME}
         style={{
           height: BAR_SIZE,
-          width: `calc(${end} - ${start} + ${OVERHANG} * 2)`,
-          transform: `translate(calc(${start} - ${OVERHANG}), ${y})`,
+          width: `calc(${bar.right} - ${bar.left})`,
+          transform: `translate(${bar.left}, ${y})`,
           willChange: "transform",
         }}
       />
