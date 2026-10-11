@@ -357,11 +357,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             "the Blocks area ends with the last block",
           );
           assert.deepEqual(
-            [...host.querySelectorAll("[data-canvas-header] h2 > :first-child")].map(
+            [...host.querySelectorAll("[data-canvas-header] h2 > :last-child")].map(
               (title) => title.textContent,
             ),
             ["FAQ", "Hero", "Tabs"],
-            "block headers show the block title",
+            "block headers show the block title below the usage",
           );
           assert.deepEqual(
             [...host.querySelectorAll("[data-canvas-block-usage]")].map(

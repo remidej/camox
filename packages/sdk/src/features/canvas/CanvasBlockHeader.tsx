@@ -11,7 +11,7 @@ export function formatCanvasBlockUsage(pageCount: number) {
 /**
  * The header above a block of the Block Catalog. Its title sits on the line of
  * Page nicknames, shows the description in a tooltip, and selects the block.
- * Its usage sits on the right once known.
+ * Its usage sits above the title once known, like a Page header's path.
  */
 export function CanvasBlockHeader({
   block,
@@ -24,7 +24,15 @@ export function CanvasBlockHeader({
 }) {
   const { title, description } = block._internal;
   return (
-    <h2 className="text-foreground flex h-10 w-full min-w-0 items-end justify-between gap-3 text-left">
+    <h2 className="text-foreground flex h-10 w-full min-w-0 flex-col items-start justify-end gap-1 text-left">
+      {pageCount !== undefined && (
+        <span
+          data-canvas-block-usage
+          className="text-muted-foreground w-full min-w-0 truncate text-left text-xs font-normal"
+        >
+          {formatCanvasBlockUsage(pageCount)}
+        </span>
+      )}
       <Tooltip>
         <TooltipTrigger
           render={
@@ -41,11 +49,6 @@ export function CanvasBlockHeader({
           {description}
         </TooltipContent>
       </Tooltip>
-      {pageCount !== undefined && (
-        <span data-canvas-block-usage className="text-muted-foreground shrink-0 text-sm">
-          {formatCanvasBlockUsage(pageCount)}
-        </span>
-      )}
     </h2>
   );
 }
