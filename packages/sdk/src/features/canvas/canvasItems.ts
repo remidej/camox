@@ -12,8 +12,17 @@ export type CanvasBlockItem = { kind: "block"; key: string; block: Block };
 /** One entry in the Canvas row: a Page that can be selected, or a block of the Block Catalog. */
 export type CanvasItem = CanvasPageItem | CanvasBlockItem;
 
-/** An area of the Canvas row, labelled by its Shelf Marker. */
-export type CanvasShelf = { key: string; label: string; items: CanvasItem[] };
+/**
+ * An area of the Canvas row, labelled by its Shelf Marker. An empty area has no
+ * marker and no place in the row, unless it is `shownWhenEmpty`: its marker then
+ * stands collapsed in a zero-width slot, since there is nothing to expand.
+ */
+export type CanvasShelf = {
+  key: string;
+  label: string;
+  items: CanvasItem[];
+  shownWhenEmpty?: boolean;
+};
 
 export type PositionedCanvasItem<T extends CanvasItem = CanvasItem> = T & {
   left: number;
@@ -49,7 +58,7 @@ function getBlockCatalog(blocks: readonly Block[]) {
 
 export function getCanvasShelves(
   pages: readonly CanvasPage[],
-  blocks: readonly Block[] = [],
+  blocks: readonly Block[],
 ): CanvasShelf[] {
   return [
     {
@@ -61,6 +70,8 @@ export function getCanvasShelves(
     {
       key: "shelf:blocks",
       label: "Blocks",
+      // The Block Catalog always has its place on the Canvas.
+      shownWhenEmpty: true,
       items: getBlockCatalog(blocks).map(
         (block): CanvasBlockItem => ({ kind: "block", key: `block:${block._internal.id}`, block }),
       ),
@@ -71,8 +82,8 @@ export function getCanvasShelves(
 /**
  * World-space positions of the Canvas row, matching its flex layout, and the
  * markers above it. Items of collapsed shelves are left out of the row; each
- * collapsed or empty shelf takes a zero-width slot instead, so its marker keeps
- * a place and shows as collapsed.
+ * collapsed shelf, or empty one that is still shown, takes a zero-width slot
+ * instead, so its marker keeps a place and shows as collapsed.
  */
 export function positionCanvasShelves(
   shelves: readonly CanvasShelf[],
@@ -82,6 +93,7 @@ export function positionCanvasShelves(
   const markers: CanvasShelfMarker[] = [];
   let left = 0;
   for (const shelf of shelves) {
+    if (!isCanvasShelfShown(shelf)) continue;
     const start = left;
     const marker = { key: shelf.key, label: shelf.label, count: shelf.items.length };
     if (collapsed.has(shelf.key) || shelf.items.length === 0) {
@@ -100,6 +112,11 @@ export function positionCanvasShelves(
   // The world-space width of the whole row; the horizontal extent of the Canvas bounds.
   const width = Math.max(0, left - CANVAS_ITEM_GAP);
   return { items, markers, width };
+}
+
+/** Whether a shelf has a marker and a place in the row. */
+export function isCanvasShelfShown(shelf: CanvasShelf) {
+  return shelf.items.length > 0 || shelf.shownWhenEmpty === true;
 }
 
 export function isCanvasPage(

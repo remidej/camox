@@ -24,6 +24,7 @@ import {
   getCanvasShelves,
   isCanvasBlock,
   isCanvasPage,
+  isCanvasShelfShown,
   positionCanvasShelves,
 } from "./canvasItems";
 import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
@@ -69,8 +70,9 @@ function CanvasMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
-class CanvasPageBoundary extends React.Component<
-  { children: React.ReactNode; selected: boolean },
+/** A per-card error boundary, so a failing frame never takes the Canvas down. */
+class CanvasFrameBoundary extends React.Component<
+  { children: React.ReactNode; subject: "page" | "block"; selected?: boolean },
   { error: Error | null }
 > {
   state = { error: null as Error | null };
@@ -83,9 +85,9 @@ class CanvasPageBoundary extends React.Component<
     if (!this.state.error) return this.props.children;
     return (
       <CanvasMessage>
-        <PreparationFailure error={this.state.error} selected={this.props.selected} />
+        <PreparationFailure error={this.state.error} selected={this.props.selected ?? false} />
         <div role="alert">
-          <p>This page could not be rendered.</p>
+          <p>This {this.props.subject} could not be rendered.</p>
           <p className="mt-2">{this.state.error.message}</p>
           <button className="mt-4 underline" onClick={() => this.setState({ error: null })}>
             Try again
@@ -344,6 +346,8 @@ function CanvasWorkspace({
           }}
         >
           {shelves.map((shelf) => {
+            // An empty shelf that isn't shown has no marker and no place in the row.
+            if (!isCanvasShelfShown(shelf)) return null;
             const collapsed = collapsedShelves.has(shelf.key) || shelf.items.length === 0;
             return (
               // A collapsed or empty shelf shrinks to a zero-width slot under its marker.
@@ -370,12 +374,14 @@ function CanvasWorkspace({
                           className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
                           style={{ width: viewport.width }}
                         >
-                          <CanvasBlockFrame
-                            block={item.block}
-                            runtimeBasePath={runtimeBasePath}
-                            width={viewport.width}
-                            viewportHeight={viewport.height}
-                          />
+                          <CanvasFrameBoundary subject="block">
+                            <CanvasBlockFrame
+                              block={item.block}
+                              runtimeBasePath={runtimeBasePath}
+                              width={viewport.width}
+                              viewportHeight={viewport.height}
+                            />
+                          </CanvasFrameBoundary>
                         </div>
                       </div>
                     );
@@ -396,8 +402,9 @@ function CanvasWorkspace({
                         className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
                         style={{ width: viewport.width, minHeight: viewport.height }}
                       >
-                        <CanvasPageBoundary
+                        <CanvasFrameBoundary
                           key={pathname}
+                          subject="page"
                           selected={page.key === selectedPage?.key}
                         >
                           {pathname ? (
@@ -419,7 +426,7 @@ function CanvasWorkspace({
                               Choose a page path above to preview this layout.
                             </CanvasMessage>
                           )}
-                        </CanvasPageBoundary>
+                        </CanvasFrameBoundary>
                       </div>
                     </div>
                   );
