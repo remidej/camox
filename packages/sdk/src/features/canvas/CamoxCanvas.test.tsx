@@ -62,6 +62,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const headers = new Map<string, { onSelect: () => void; onChange: (path: string) => void }>();
   let snap!: (key: string) => void;
   let snapTargets: { key: string }[] = [];
+  let cameraWidth: number | undefined;
   const flyTo = (key: string) => flights.push(key);
   const cancelFlight = () => actions.push("cancel");
   const globals = {
@@ -88,10 +89,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     CanvasCameraProbe: (
       _key: string,
       _page: unknown,
-      options: { onSelect: typeof snap; targets: { key: string }[] },
+      options: { onSelect: typeof snap; targets: { key: string }[]; width?: number },
     ) => {
       snap = options.onSelect;
       snapTargets = options.targets;
+      cameraWidth = options.width;
       return { viewportRef: null, contentRef: null, flyTo, cancelFlight };
     },
     CanvasHeaderProbe: (props: {
@@ -227,8 +229,8 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
         const row = host.querySelector("[data-canvas-items]")!;
         assert.deepEqual(
-          [...row.children].map((child) =>
-            child.querySelector("[data-canvas-pathname]")?.getAttribute("data-canvas-pathname"),
+          [...row.querySelectorAll("[data-canvas-pathname]")].map((frame) =>
+            frame.getAttribute("data-canvas-pathname"),
           ),
           ["/about", "/contact"],
           "the marker takes no slot in the row",
@@ -272,18 +274,18 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.equal(marker().getAttribute("aria-expanded"), "false");
         assert.equal(host.querySelectorAll("[data-canvas-header]").length, 0, "headers hide");
         assert.deepEqual(snapTargets, [], "hidden Pages are not snap targets");
-        assert.ok(host.querySelector('[data-canvas-shelf-slot="shelf:pages"]'));
         assert.equal(
           host.querySelector('[data-canvas-pathname="/about"]'),
           frame,
           "hidden Pages stay mounted",
         );
-        assert.ok(frame!.closest("[data-canvas-slot]")!.hasAttribute("inert"));
+        assert.ok(frame!.closest('[data-canvas-shelf="shelf:pages"]')!.hasAttribute("inert"));
+        assert.equal(cameraWidth, 2972, "the Canvas keeps its expanded bounds");
         await toggle();
         assert.equal(marker().getAttribute("aria-expanded"), "true");
         assert.equal(host.querySelectorAll("[data-canvas-header]").length, 2);
         assert.equal(host.querySelector('[data-canvas-pathname="/about"]'), frame);
-        assert.ok(!frame!.closest("[data-canvas-slot]")!.hasAttribute("inert"));
+        assert.ok(!frame!.closest('[data-canvas-shelf="shelf:pages"]')!.hasAttribute("inert"));
 
         await toggle();
         globals.CanvasLocation.pathname = "/contact";

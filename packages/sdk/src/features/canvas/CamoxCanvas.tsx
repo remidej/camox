@@ -222,7 +222,9 @@ function CanvasWorkspace({
     });
   };
   const shelves = getCanvasShelves(pages);
-  const { items, markers, width } = positionCanvasShelves(shelves, collapsedShelves);
+  const { items, markers } = positionCanvasShelves(shelves, collapsedShelves);
+  // Collapsing only hides items: the Canvas keeps its expanded bounds, so the camera stays put.
+  const { width } = positionCanvasShelves(shelves);
   const positions = new Map(items.filter(isCanvasPage).map((item) => [item.key, item.left]));
   // Each Page, keyed like its item, with the pathname its frame previews and
   // its place in the row; Pages of collapsed shelves have none.
@@ -302,59 +304,69 @@ function CanvasWorkspace({
             willChange: "transform",
           }}
         >
-          {shelves.map((shelf) => (
-            <React.Fragment key={shelf.key}>
-              {collapsedShelves.has(shelf.key) && (
-                // Holds the collapsed shelf's place in the row, under its marker.
-                <div data-canvas-shelf-slot={shelf.key} className="shrink-0" />
-              )}
-              {shelf.items.map((item) => {
-                const slot = pageSlots.get(item.key);
-                if (!slot) return null;
-                const { page, pathname } = slot;
-                // Hidden Pages stay mounted, out of the row, so expanding never reloads them.
-                const hidden = slot.left === undefined;
-                return (
-                  <div
-                    key={page.key}
-                    data-canvas-slot={page.key}
-                    inert={hidden}
-                    className={`flex shrink-0 justify-start ${hidden ? "invisible absolute top-0 left-0" : ""}`}
-                    style={{ width: CANVAS_SLOT_WIDTH }}
-                  >
+          {shelves.map((shelf) => {
+            // An empty shelf has no marker and no place in the row.
+            if (shelf.items.length === 0) return null;
+            const collapsed = collapsedShelves.has(shelf.key);
+            return (
+              // A collapsed shelf shrinks to a zero-width slot under its marker. Its
+              // Pages stay mounted in place, so expanding never reloads them, and
+              // keep their height, so the Canvas bounds and camera don't move.
+              <div
+                key={shelf.key}
+                data-canvas-shelf={shelf.key}
+                inert={collapsed}
+                className={`flex shrink-0 items-start ${collapsed ? "invisible w-0" : ""}`}
+                style={{ gap: CANVAS_ITEM_GAP }}
+              >
+                {shelf.items.map((item) => {
+                  const slot = pageSlots.get(item.key);
+                  if (!slot) return null;
+                  const { page, pathname } = slot;
+                  return (
                     <div
-                      data-canvas-page={page.key}
-                      data-canvas-pathname={pathname}
-                      className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
-                      style={{ width: viewport.width, minHeight: viewport.height }}
+                      key={page.key}
+                      data-canvas-slot={page.key}
+                      className="flex shrink-0 justify-start"
+                      style={{ width: CANVAS_SLOT_WIDTH }}
                     >
-                      <CanvasPageBoundary key={pathname} selected={page.key === selectedPage?.key}>
-                        {pathname ? (
-                          <CanvasPagePreview
-                            hovered={hoveredPageKey === page.key}
-                            pathname={pathname}
-                            runtimeBasePath={runtimeBasePath}
-                            derivedLayoutId={page.derivedLayoutId}
-                            pageId={page.pageId}
-                            viewport={viewport}
-                            selected={page.key === selectedPage?.key}
-                            onActivate={(owner, source) => {
-                              onActivate(pathname, owner);
-                              if (source === "interaction") selectPage(pathname);
-                            }}
-                          />
-                        ) : (
-                          <CanvasMessage>
-                            Choose a page path above to preview this layout.
-                          </CanvasMessage>
-                        )}
-                      </CanvasPageBoundary>
+                      <div
+                        data-canvas-page={page.key}
+                        data-canvas-pathname={pathname}
+                        className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
+                        style={{ width: viewport.width, minHeight: viewport.height }}
+                      >
+                        <CanvasPageBoundary
+                          key={pathname}
+                          selected={page.key === selectedPage?.key}
+                        >
+                          {pathname ? (
+                            <CanvasPagePreview
+                              hovered={hoveredPageKey === page.key}
+                              pathname={pathname}
+                              runtimeBasePath={runtimeBasePath}
+                              derivedLayoutId={page.derivedLayoutId}
+                              pageId={page.pageId}
+                              viewport={viewport}
+                              selected={page.key === selectedPage?.key}
+                              onActivate={(owner, source) => {
+                                onActivate(pathname, owner);
+                                if (source === "interaction") selectPage(pathname);
+                              }}
+                            />
+                          ) : (
+                            <CanvasMessage>
+                              Choose a page path above to preview this layout.
+                            </CanvasMessage>
+                          )}
+                        </CanvasPageBoundary>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </React.Fragment>
-          ))}
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       </CanvasWorkspaceContext>
       {markers.map((marker) => (
