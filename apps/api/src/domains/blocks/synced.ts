@@ -86,24 +86,8 @@ const copyItems = Effect.fn("copyItems")(function* (
   }
 });
 
-/** Enable syncing deterministically: the oldest existing placement wins. */
-export const reconcileSyncedDefinition = Effect.fn("blocks.reconcileSyncedDefinition")(function* (
-  ctx: ServiceContext,
-  environmentId: number,
-  type: string,
-) {
-  yield* initializeSyncedLiveData(ctx, environmentId, type);
-  const rows = yield* placements(ctx, environmentId, type);
-  if (rows.length < 2) return;
-  yield* syncBlockData(ctx, rows[0].block.id);
-});
-
-/**
- * A placement holding a Synced Block's shared data in an environment. Every
- * placement shares the same data, so any of them does. Nothing when the block
- * isn't synced or isn't placed.
- */
-export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function* (
+/** Whether a block definition is synced in an environment. */
+const isSynced = Effect.fn("isSynced")(function* (
   ctx: ServiceContext,
   environmentId: number,
   type: string,
@@ -117,7 +101,53 @@ export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function*
       )
       .get(),
   );
-  if (!definition?.synced) return null;
+  return definition?.synced ?? false;
+});
+
+/**
+ * Apply a change to a definition's synced flag. Enabling reconciles
+ * deterministically: the oldest existing placement wins. Either way the Block
+ * Catalog's shared content for the type is refreshed, since it only exists
+ * while the definition is synced.
+ */
+export const applySyncedFlagChange = Effect.fn("blocks.applySyncedFlagChange")(function* (
+  ctx: ServiceContext,
+  {
+    projectId,
+    environmentId,
+    type,
+    synced,
+  }: {
+    projectId: number;
+    environmentId: number;
+    type: string;
+    synced: boolean;
+  },
+) {
+  if (synced) {
+    yield* initializeSyncedLiveData(ctx, environmentId, type);
+    const rows = yield* placements(ctx, environmentId, type);
+    if (rows.length >= 2) yield* syncBlockData(ctx, rows[0].block.id);
+  }
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    projectId,
+    targets: [queryKeys.blocks.getSyncedContent(type)],
+  });
+});
+
+/**
+ * A placement holding a Synced Block's shared data in an environment. Every
+ * placement shares the same data, so any of them does. Nothing when the block
+ * isn't synced or isn't placed.
+ */
+export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function* (
+  ctx: ServiceContext,
+  environmentId: number,
+  type: string,
+) {
+  if (!(yield* isSynced(ctx, environmentId, type))) return null;
   const [first] = yield* placements(ctx, environmentId, type);
   return first?.block.id ?? null;
 });
@@ -143,22 +173,10 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
   );
   const owner = row?.page ?? row?.layout;
   if (!row || !owner) return;
-  const definition = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.environmentId, owner.environmentId),
-          eq(blockDefinitions.blockId, row.block.type),
-        ),
-      )
-      .get(),
-  );
-  if (!definition?.synced) return;
+  if (!(yield* isSynced(ctx, owner.environmentId, row.block.type))) return;
 
   // Every shared data change refreshes the shared content shown in the Block Catalog.
-  const invalidate = (targets: QueryKey[]) =>
+  const broadcastSharedDataChange = (targets: QueryKey[]) =>
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
@@ -169,7 +187,7 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
     .map(({ block }) => block)
     .filter((block) => block.id !== blockId);
   if (peers.length === 0) {
-    invalidate([]);
+    broadcastSharedDataChange([]);
     return;
   }
   // Prefer another owner when restoring a page: its other restored placements
@@ -200,7 +218,7 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
     ctx.db,
     targets.map((block) => block.id),
   );
-  invalidate([
+  broadcastSharedDataChange([
     queryKeys.pages.getByPathAll,
     queryKeys.pages.list,
     queryKeys.layouts.all,
