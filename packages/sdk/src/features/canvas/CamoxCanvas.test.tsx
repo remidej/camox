@@ -43,8 +43,10 @@ registerHooks({
       source = "export const CanvasPageFrame = (props) => globalThis.CanvasFrameProbe(props)";
     if (specifier.endsWith("/CanvasBlockFrame"))
       source = "export const CanvasBlockFrame = (props) => globalThis.CanvasBlockFrameProbe(props)";
-    for (const name of ["FieldToolbar", "CanvasLeftSidebar", "CanvasRightSidebar"]) {
-      if (specifier.endsWith(`/${name}`)) source = `export const ${name} = () => null`;
+    if (specifier.endsWith("/FieldToolbar")) source = "export const FieldToolbar = () => null";
+    for (const side of ["Left", "Right"]) {
+      if (specifier.endsWith(`/Canvas${side}Sidebar`))
+        source = `export const Canvas${side}Sidebar = (props) => globalThis.CanvasSidebarProbe("${side}", props)`;
     }
     if (specifier.endsWith("/CanvasPageHeader"))
       source = "export const CanvasPageHeader = (props) => globalThis.CanvasHeaderProbe(props)";
@@ -78,6 +80,15 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let blockPages: Record<string, { id: number }[]> = {};
   let initialTarget: { left: number } | undefined;
   const blockFrames = new Map<string, { onSelect: () => void }>();
+  type SidebarProps = {
+    page?: { key: string };
+    catalog?: {
+      block: { _internal: { id: string } };
+      blocks?: { _internal: { id: string } }[];
+      projectId?: number;
+    };
+  };
+  const sidebars = new Map<string, SidebarProps>();
   const flyTo = (key: string) => flights.push(key);
   const keptInView: [number, number][] = [];
   const keepInView = (worldX: number, screenX: number) => keptInView.push([worldX, screenX]);
@@ -97,6 +108,10 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     },
     CanvasCommentMode: false,
     CanvasBlocks: [] as unknown[],
+    CanvasSidebarProbe: (side: string, props: SidebarProps) => {
+      sidebars.set(side, props);
+      return null;
+    },
     CanvasBlockFrameProbe: (props: {
       block: { _internal: { id: string } };
       onSelect: () => void;
@@ -342,11 +357,11 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             "the Blocks area ends with the last block",
           );
           assert.deepEqual(
-            [...host.querySelectorAll("[data-canvas-header] h2 > :first-child")].map(
+            [...host.querySelectorAll("[data-canvas-header] h2 > :last-child")].map(
               (title) => title.textContent,
             ),
             ["FAQ", "Hero", "Tabs"],
-            "block headers show the block title",
+            "block headers show the block title below the usage",
           );
           assert.deepEqual(
             [...host.querySelectorAll("[data-canvas-block-usage]")].map(
@@ -483,6 +498,81 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           /No canvas page matches/,
           "Layout-only Blocks aren't selectable",
         );
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+        globals.CanvasBlocks = [];
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        Object.assign(globalThis, globals);
+      }
+    });
+    await t.test("a selected block switches the sidebars to the Block Catalog", async () => {
+      scenario = "";
+      includeNewPage = false;
+      flights.length = 0;
+      const block = (id: string, title: string, layoutOnly = false) => ({
+        _internal: { id, title, description: "", layoutOnly },
+      });
+      globals.CanvasBlocks = [
+        block("tabs", "Tabs"),
+        block("nav", "Nav", true),
+        block("faq", "FAQ"),
+        block("hero", "Hero"),
+      ];
+      globals.CanvasLocation = {
+        pathname: "/camox/blocks/hero",
+        search: "",
+        hash: "",
+        source: undefined,
+      };
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const render = async () => {
+        Object.assign(globalThis, globals);
+        await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+      };
+      const shown = (side: string) => {
+        const { page, catalog } = sidebars.get(side)!;
+        return {
+          page: page?.key,
+          block: catalog?.block._internal.id,
+          blocks: catalog?.blocks?.map(({ _internal }) => _internal.id),
+          projectId: catalog?.projectId,
+        };
+      };
+      try {
+        await render();
+        assert.deepEqual(
+          shown("Left").blocks,
+          ["faq", "hero", "tabs"],
+          "the left sidebar lists the Block Catalog in Canvas order",
+        );
+        assert.equal(shown("Left").block, "hero");
+        assert.equal(shown("Left").page, undefined);
+        assert.deepEqual(
+          { block: shown("Right").block, projectId: shown("Right").projectId },
+          { block: "hero", projectId: 1 },
+          "the right sidebar shows the Pages holding the selected block's placements",
+        );
+        assert.equal(shown("Right").page, undefined);
+
+        // Picking a block in the left sidebar navigates without the canvas source.
+        globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/camox/blocks/tabs" };
+        await render();
+        assert.deepEqual(flights, ["block:tabs"], "the camera flies to the picked block");
+        assert.equal(shown("Left").block, "tabs");
+        assert.equal(shown("Right").block, "tabs");
+
+        // Picking a Page in the right sidebar's list of placements selects it the same way.
+        globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
+        await render();
+        const contact = [...headers.keys()][1]!;
+        assert.deepEqual(flights, ["block:tabs", contact], "the camera flies to the Page");
+        for (const side of ["Left", "Right"]) {
+          assert.equal(shown(side).page, contact, `the ${side} sidebar shows the Page again`);
+          assert.equal(shown(side).block, undefined);
+        }
       } finally {
         await React.act(async () => root.unmount());
         host.remove();

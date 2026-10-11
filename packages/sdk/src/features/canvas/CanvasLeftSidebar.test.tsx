@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
 
+import type { Block } from "../../core/createBlock";
 import { NavigationProvider } from "../navigation/navigation";
 import type { CanvasPage } from "./canvasPages";
 
@@ -149,18 +150,23 @@ async function setup() {
     mount,
     navigations,
     store,
-    async render(pathname: string, page: CanvasPage | undefined) {
+    async render(
+      url: string,
+      page: CanvasPage | undefined,
+      catalog?: { block: Block; blocks: Block[] },
+    ) {
+      const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
         root.render(
           <QueryClientProvider client={client}>
             <NavigationProvider
-              location={{ pathname, href: pathname, search: "", hash: "" }}
+              location={{ pathname, href: url, search, hash }}
               navigate={(options) => {
                 navigations.push(options);
               }}
             >
               <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
-                <CanvasLeftSidebar page={page} />
+                <CanvasLeftSidebar page={page} catalog={catalog} />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
             </NavigationProvider>
@@ -301,6 +307,41 @@ void test("loading and failed sidebar requests leave the canvas visible; another
     await dom.settle();
     assert.equal(dom.mount.querySelector('[role="alert"]'), null);
     assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-id"), "about");
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("a selected block lists the Block Catalog and selects the clicked block", async () => {
+  const dom = await setup();
+  const block = (id: string, title: string) =>
+    ({ _internal: { id, title, description: "", layoutOnly: false } }) as Block;
+  const blocks = [block("faq", "FAQ"), block("hero", "Hero"), block("tabs", "Tabs")];
+  try {
+    await dom.render("/camox/blocks/hero?zoom=2#top", undefined, { block: blocks[1]!, blocks });
+    const entries = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
+    assert.deepEqual(
+      entries.map((entry) => entry.textContent),
+      ["FAQ", "Hero", "Tabs"],
+      "every block of the Block Catalog is listed",
+    );
+    assert.deepEqual(
+      entries.map((entry) => entry.getAttribute("aria-current")),
+      [null, "true", null],
+      "the selected block is marked",
+    );
+    assert.equal(dom.mount.querySelector("[data-sidebar]"), null, "no Page sidebar");
+    await React.act(async () => entries[2]!.click());
+    assert.deepEqual(
+      dom.navigations,
+      [{ to: "/camox/blocks/tabs?zoom=2#top" }],
+      "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the block",
+    );
+
+    await dom.render("/", home);
+    await dom.settle();
+    assert.equal(dom.mount.querySelector("aside li button"), null, "a Page restores its sidebar");
+    assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-id"), "7");
   } finally {
     await dom.close();
   }

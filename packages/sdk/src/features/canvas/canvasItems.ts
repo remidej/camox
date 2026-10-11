@@ -56,8 +56,8 @@ export function canvasBlockKey(blockId: string) {
   return `block:${blockId}`;
 }
 
-/** Every page-content Block Definition, alphabetically by title. */
-function getBlockCatalog(blocks: readonly Block[]) {
+/** The Block Catalog: every page-content Block Definition, alphabetically by title. */
+export function getBlockCatalog(blocks: readonly Block[]) {
   return blocks
     .filter((block) => !block._internal.layoutOnly)
     .sort((a, b) => a._internal.title.localeCompare(b._internal.title));
