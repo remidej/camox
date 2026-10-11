@@ -65,8 +65,20 @@ One named entry in a settings schema: a boolean or an enum, edited outside the r
 _Avoid_: Option, toggle, variant
 
 **Field**:
-One named entry in a content schema, of a kind such as string, image, link, icon, embed, repeater, or reference. Booleans and enums are settings on blocks and repeatable items, but fields on collection records.
+One named entry in a content schema, of a kind such as string, image, link, icon, embed, artifact, repeater, or reference. Booleans and enums are settings on blocks and repeatable items, but fields on collection records.
 _Avoid_: Property, attribute
+
+**Artifact**:
+A field whose content is a self-contained web page, usually written by an agent, shown isolated from the rest of the website. Used for visuals and interactions that blocks can't express, such as animations, 3D scenes, and interactive widgets. Unlike an embed, which points to someone else's page, an artifact's page is the content itself.
+_Avoid_: Snippet, custom code, HTML embed, widget
+
+**Artifact Source**:
+The web page an artifact holds, stored as content.
+_Avoid_: Artifact document, artifact code, artifact HTML
+
+**Artifact Data**:
+The values of sibling fields and settings that a block shares with its artifact, so editors can change what an artifact shows without changing its source.
+_Avoid_: Artifact props, artifact inputs, parameters
 
 **Layout**:
 A code-owned page frame that wraps pages and owns the blocks rendered before and after their content.
