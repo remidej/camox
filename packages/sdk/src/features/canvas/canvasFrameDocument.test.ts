@@ -102,6 +102,8 @@ void test("document retains site theme/styles, resolves relative URLs, and remov
   assert.ok(doc.querySelector("style"));
   assert.equal(doc.documentElement.inert, false);
   assert.equal(doc.body.inert, false);
+  assert.equal(doc.documentElement.style.getPropertyValue("overscroll-behavior"), "none");
+  assert.equal(doc.body.style.getPropertyValue("overscroll-behavior"), "none");
   void window.happyDOM.close();
 });
 
