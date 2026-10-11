@@ -17,7 +17,6 @@ import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
 import {
   CANVAS_ITEM_GAP,
   CANVAS_SLOT_WIDTH,
-  canvasRowWidth,
   canvasSnapTargets,
   getCanvasShelves,
   isCanvasPage,
@@ -214,28 +213,46 @@ function CanvasWorkspace({
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
   );
-  const { items, markers } = positionCanvasShelves(getCanvasShelves(pages));
-  // Each Page in the row, keyed like its item, with the pathname its frame previews.
+  const [collapsedShelves, setCollapsedShelves] = React.useState<ReadonlySet<string>>(new Set());
+  const toggleShelf = (key: string) => {
+    setCollapsedShelves((collapsed) => {
+      const next = new Set(collapsed);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  };
+  const shelves = getCanvasShelves(pages);
+  const { items, markers, width } = positionCanvasShelves(shelves, collapsedShelves);
+  const positions = new Map(items.filter(isCanvasPage).map((item) => [item.key, item.left]));
+  // Each Page, keyed like its item, with the pathname its frame previews and
+  // its place in the row; Pages of collapsed shelves have none.
   const pageSlots = new Map(
-    items.filter(isCanvasPage).map((item) => [
-      item.key,
-      {
-        ...item,
-        pathname:
-          item.key === selectedPage?.key
-            ? selectedPath
-            : (previewPathnames[item.key] ?? item.page.pathname),
-      },
-    ]),
+    shelves.flatMap((shelf) =>
+      shelf.items.map((item) => [
+        item.key,
+        {
+          page: item.page,
+          left: positions.get(item.key),
+          pathname:
+            item.key === selectedPage?.key
+              ? selectedPath
+              : (previewPathnames[item.key] ?? item.page.pathname),
+        },
+      ]),
+    ),
   );
-  const selectedKey = selectedPage && pageSlots.has(selectedPage.key) ? selectedPage.key : null;
+  const selectedKey = selectedPage && positions.has(selectedPage.key) ? selectedPage.key : null;
+  const hiddenSelectedShelf = shelves.find(
+    (shelf) =>
+      collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedPage?.key),
+  )?.key;
   const snapTargets = canvasSnapTargets(items);
   const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt } = useCanvasCamera(
     workspaceKey,
     snapTargets.find(({ key }) => key === selectedKey),
     {
       targets: snapTargets,
-      width: canvasRowWidth(items),
+      width,
       onSelect: (key) => {
         const pathname = pageSlots.get(key)?.pathname;
         if (pathname) selectPage(pathname);
@@ -246,12 +263,17 @@ function CanvasWorkspace({
   const previousPath = React.useRef(selectedPath);
   React.useEffect(() => {
     if (previousPath.current === selectedPath) return;
+    // Selecting a hidden Page from outside the Canvas reveals it; the flight follows.
+    if (location.source !== "canvas" && hiddenSelectedShelf) {
+      toggleShelf(hiddenSelectedShelf);
+      return;
+    }
     // A newly created page can arrive in the route before the page list refresh.
     if (location.source !== "canvas" && !selectedKey) return;
     previousPath.current = selectedPath;
     if (location.source === "canvas" || !selectedKey) return;
     flyTo(selectedKey);
-  }, [selectedPath, location.source, selectedKey, flyTo]);
+  }, [selectedPath, location.source, selectedKey, hiddenSelectedShelf, flyTo]);
 
   return (
     <div
@@ -280,108 +302,125 @@ function CanvasWorkspace({
             willChange: "transform",
           }}
         >
-          {items.map((item) => {
-            const slot = pageSlots.get(item.key);
-            if (!slot) return null;
-            const { page, pathname } = slot;
-            return (
-              <div
-                key={page.key}
-                data-canvas-slot={page.key}
-                className="flex shrink-0 justify-start"
-                style={{ width: CANVAS_SLOT_WIDTH }}
-              >
-                <div
-                  data-canvas-page={page.key}
-                  data-canvas-pathname={pathname}
-                  className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
-                  style={{ width: viewport.width, minHeight: viewport.height }}
-                >
-                  <CanvasPageBoundary key={pathname} selected={page.key === selectedPage?.key}>
-                    {pathname ? (
-                      <CanvasPagePreview
-                        hovered={hoveredPageKey === page.key}
-                        pathname={pathname}
-                        runtimeBasePath={runtimeBasePath}
-                        derivedLayoutId={page.derivedLayoutId}
-                        pageId={page.pageId}
-                        viewport={viewport}
-                        selected={page.key === selectedPage?.key}
-                        onActivate={(owner, source) => {
-                          onActivate(pathname, owner);
-                          if (source === "interaction") selectPage(pathname);
-                        }}
-                      />
-                    ) : (
-                      <CanvasMessage>
-                        Choose a page path above to preview this layout.
-                      </CanvasMessage>
-                    )}
-                  </CanvasPageBoundary>
-                </div>
-              </div>
-            );
-          })}
+          {shelves.map((shelf) => (
+            <React.Fragment key={shelf.key}>
+              {collapsedShelves.has(shelf.key) && (
+                // Holds the collapsed shelf's place in the row, under its marker.
+                <div data-canvas-shelf-slot={shelf.key} className="shrink-0" />
+              )}
+              {shelf.items.map((item) => {
+                const slot = pageSlots.get(item.key);
+                if (!slot) return null;
+                const { page, pathname } = slot;
+                // Hidden Pages stay mounted, out of the row, so expanding never reloads them.
+                const hidden = slot.left === undefined;
+                return (
+                  <div
+                    key={page.key}
+                    data-canvas-slot={page.key}
+                    inert={hidden}
+                    className={`flex shrink-0 justify-start ${hidden ? "invisible absolute top-0 left-0" : ""}`}
+                    style={{ width: CANVAS_SLOT_WIDTH }}
+                  >
+                    <div
+                      data-canvas-page={page.key}
+                      data-canvas-pathname={pathname}
+                      className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
+                      style={{ width: viewport.width, minHeight: viewport.height }}
+                    >
+                      <CanvasPageBoundary key={pathname} selected={page.key === selectedPage?.key}>
+                        {pathname ? (
+                          <CanvasPagePreview
+                            hovered={hoveredPageKey === page.key}
+                            pathname={pathname}
+                            runtimeBasePath={runtimeBasePath}
+                            derivedLayoutId={page.derivedLayoutId}
+                            pageId={page.pageId}
+                            viewport={viewport}
+                            selected={page.key === selectedPage?.key}
+                            onActivate={(owner, source) => {
+                              onActivate(pathname, owner);
+                              if (source === "interaction") selectPage(pathname);
+                            }}
+                          />
+                        ) : (
+                          <CanvasMessage>
+                            Choose a page path above to preview this layout.
+                          </CanvasMessage>
+                        )}
+                      </CanvasPageBoundary>
+                    </div>
+                  </div>
+                );
+              })}
+            </React.Fragment>
+          ))}
         </div>
       </CanvasWorkspaceContext>
       {markers.map((marker) => (
-        <CanvasShelfMarker key={marker.key} marker={marker} />
+        <CanvasShelfMarker
+          key={marker.key}
+          marker={marker}
+          onToggle={() => toggleShelf(marker.key)}
+        />
       ))}
-      {[...pageSlots.values()].map(({ page, pathname, left }) => (
-        <div
-          key={page.key}
-          data-canvas-header={page.key}
-          className="@container/canvas-header absolute top-0 left-0 pb-3"
-          style={{
-            height: CANVAS_HEADER_HEIGHT,
-            transform: `translate(${canvasScreenX(left)}, ${canvasScreenAbove(CANVAS_HEADER_HEIGHT)})`,
-            width: canvasScreenLength(CANVAS_SLOT_WIDTH),
-            willChange: "transform",
-          }}
-        >
-          <CanvasPageHeader
-            page={page}
-            pathname={pathname}
-            onRename={
-              page.pageId != null ? (nickname) => renamePage(page.pageId!, nickname) : undefined
-            }
-            status={
-              statuses.has(page.key) ? (
-                <PageStatusBadge size="sm" {...statuses.get(page.key)!} />
-              ) : null
-            }
-            comments={
-              page.pageId != null && pathname ? (
-                <CanvasPageCommentIndicators
-                  pageId={page.pageId}
-                  targets={[]}
-                  placement="header"
-                  activate={() => {
-                    previewStore.send({ type: "activatePage", pageId: page.pageId! });
-                    onActivate(pathname, { kind: "page", pageId: page.pageId! });
-                    selectPage(pathname);
-                  }}
-                />
-              ) : null
-            }
-            selected={page.key === selectedPage?.key}
-            onHoverChange={(hovered) => setHoveredPageKey(hovered ? page.key : null)}
-            onSelect={(commenting) => {
-              if (!pathname) return;
-              // Keep the clicked page's ownership through URL navigation, just
-              // like an interaction inside its frame.
-              if (commenting && page.pageId != null) {
-                onActivate(pathname, { kind: "page", pageId: page.pageId });
+      {[...pageSlots.values()].map(({ page, pathname, left }) =>
+        left === undefined ? null : (
+          <div
+            key={page.key}
+            data-canvas-header={page.key}
+            className="@container/canvas-header absolute top-0 left-0 pb-3"
+            style={{
+              height: CANVAS_HEADER_HEIGHT,
+              transform: `translate(${canvasScreenX(left)}, ${canvasScreenAbove(CANVAS_HEADER_HEIGHT)})`,
+              width: canvasScreenLength(CANVAS_SLOT_WIDTH),
+              willChange: "transform",
+            }}
+          >
+            <CanvasPageHeader
+              page={page}
+              pathname={pathname}
+              onRename={
+                page.pageId != null ? (nickname) => renamePage(page.pageId!, nickname) : undefined
               }
-              selectPage(pathname);
-            }}
-            onChange={(path) => {
-              setPreviewPathnames((current) => ({ ...current, [page.key]: path }));
-              selectPage(path);
-            }}
-          />
-        </div>
-      ))}
+              status={
+                statuses.has(page.key) ? (
+                  <PageStatusBadge size="sm" {...statuses.get(page.key)!} />
+                ) : null
+              }
+              comments={
+                page.pageId != null && pathname ? (
+                  <CanvasPageCommentIndicators
+                    pageId={page.pageId}
+                    targets={[]}
+                    placement="header"
+                    activate={() => {
+                      previewStore.send({ type: "activatePage", pageId: page.pageId! });
+                      onActivate(pathname, { kind: "page", pageId: page.pageId! });
+                      selectPage(pathname);
+                    }}
+                  />
+                ) : null
+              }
+              selected={page.key === selectedPage?.key}
+              onHoverChange={(hovered) => setHoveredPageKey(hovered ? page.key : null)}
+              onSelect={(commenting) => {
+                if (!pathname) return;
+                // Keep the clicked page's ownership through URL navigation, just
+                // like an interaction inside its frame.
+                if (commenting && page.pageId != null) {
+                  onActivate(pathname, { kind: "page", pageId: page.pageId });
+                }
+                selectPage(pathname);
+              }}
+              onChange={(path) => {
+                setPreviewPathnames((current) => ({ ...current, [page.key]: path }));
+                selectPage(path);
+              }}
+            />
+          </div>
+        ),
+      )}
       {!pages.length && <CanvasMessage>No pages to preview yet.</CanvasMessage>}
       <p id={instructionsId} className="sr-only">
         Drag the background or scroll to pan. Pinch or Ctrl/⌘ + scroll to zoom. Click a page to edit

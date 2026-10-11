@@ -249,6 +249,56 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         host.remove();
       }
     });
+    await t.test("clicking a Shelf Marker collapses and expands its area", async () => {
+      scenario = "";
+      includeNewPage = false;
+      flights.length = 0;
+      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const render = async () => {
+        Object.assign(globalThis, globals);
+        await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+      };
+      const marker = () =>
+        host.querySelector('[data-canvas-shelf-marker="shelf:pages"]') as unknown as HTMLElement;
+      const toggle = () => React.act(async () => marker().click());
+      try {
+        await render();
+        assert.equal(marker().getAttribute("aria-expanded"), "true");
+        const frame = host.querySelector('[data-canvas-pathname="/about"]');
+        await toggle();
+        assert.equal(marker().getAttribute("aria-expanded"), "false");
+        assert.equal(host.querySelectorAll("[data-canvas-header]").length, 0, "headers hide");
+        assert.deepEqual(snapTargets, [], "hidden Pages are not snap targets");
+        assert.ok(host.querySelector('[data-canvas-shelf-slot="shelf:pages"]'));
+        assert.equal(
+          host.querySelector('[data-canvas-pathname="/about"]'),
+          frame,
+          "hidden Pages stay mounted",
+        );
+        assert.ok(frame!.closest("[data-canvas-slot]")!.hasAttribute("inert"));
+        await toggle();
+        assert.equal(marker().getAttribute("aria-expanded"), "true");
+        assert.equal(host.querySelectorAll("[data-canvas-header]").length, 2);
+        assert.equal(host.querySelector('[data-canvas-pathname="/about"]'), frame);
+        assert.ok(!frame!.closest("[data-canvas-slot]")!.hasAttribute("inert"));
+
+        await toggle();
+        globals.CanvasLocation.pathname = "/contact";
+        await render();
+        assert.equal(
+          marker().getAttribute("aria-expanded"),
+          "true",
+          "selecting a hidden Page from outside the Canvas reveals it",
+        );
+        assert.deepEqual(flights, [[...headers.keys()][1]], "and flies to it");
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+      }
+    });
     for (const commentMode of [false, true]) {
       await t.test(`navigation flight wiring (comment mode: ${commentMode})`, async () => {
         scenario = "";

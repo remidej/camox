@@ -18,8 +18,17 @@ export type PositionedCanvasItem<T extends CanvasItem = CanvasItem> = T & {
   width: number;
 };
 
-/** A Shelf Marker spanning its area, in world-space x. */
-export type CanvasShelfMarker = { key: string; label: string; start: number; end: number };
+/**
+ * A Shelf Marker spanning its area, in world-space x. A collapsed shelf hides
+ * its items and its marker stands alone at `start`, where `end` equals `start`.
+ */
+export type CanvasShelfMarker = {
+  key: string;
+  label: string;
+  start: number;
+  end: number;
+  collapsed: boolean;
+};
 
 /** Per-kind layout and camera behavior. */
 const CANVAS_ITEM_KINDS: Record<CanvasItem["kind"], { width: number; snappable: boolean }> = {
@@ -37,8 +46,15 @@ export function getCanvasShelves(pages: readonly CanvasPage[]): CanvasShelf[] {
   ];
 }
 
-/** World-space positions of the Canvas row, matching its flex layout, and the markers above it. */
-export function positionCanvasShelves(shelves: readonly CanvasShelf[]) {
+/**
+ * World-space positions of the Canvas row, matching its flex layout, and the
+ * markers above it. Items of collapsed shelves are left out of the row; each
+ * collapsed shelf takes a zero-width slot instead, so its marker keeps a place.
+ */
+export function positionCanvasShelves(
+  shelves: readonly CanvasShelf[],
+  collapsed: ReadonlySet<string> = new Set(),
+) {
   const items: PositionedCanvasItem[] = [];
   const markers: CanvasShelfMarker[] = [];
   let left = 0;
@@ -46,20 +62,22 @@ export function positionCanvasShelves(shelves: readonly CanvasShelf[]) {
     // An empty area has nothing to label.
     if (shelf.items.length === 0) continue;
     const start = left;
+    if (collapsed.has(shelf.key)) {
+      markers.push({ key: shelf.key, label: shelf.label, start, end: start, collapsed: true });
+      left += CANVAS_ITEM_GAP;
+      continue;
+    }
     for (const item of shelf.items) {
       const { width } = CANVAS_ITEM_KINDS[item.kind];
       items.push({ ...item, left, width });
       left += width + CANVAS_ITEM_GAP;
     }
-    markers.push({ key: shelf.key, label: shelf.label, start, end: left - CANVAS_ITEM_GAP });
+    const end = left - CANVAS_ITEM_GAP;
+    markers.push({ key: shelf.key, label: shelf.label, start, end, collapsed: false });
   }
-  return { items, markers };
-}
-
-/** World-space width of the whole row; the horizontal extent of the Canvas bounds. */
-export function canvasRowWidth(items: readonly PositionedCanvasItem[]) {
-  const last = items.at(-1);
-  return last ? last.left + last.width : 0;
+  // The world-space width of the whole row; the horizontal extent of the Canvas bounds.
+  const width = Math.max(0, left - CANVAS_ITEM_GAP);
+  return { items, markers, width };
 }
 
 export function isCanvasPage(
