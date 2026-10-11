@@ -45,7 +45,7 @@ void test("real camera handoffs use held snaps, preserve exact overview returns,
   const contentSize = { width: 1366, height: 8000 };
   function Canvas() {
     const { viewportRef, contentRef } = useCanvasCamera("continuity-test", page, {
-      pages: [page],
+      targets: [page],
       onSelect: () => {},
     });
     return (
