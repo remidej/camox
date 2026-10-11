@@ -4,19 +4,15 @@ import { createPortal } from "react-dom";
 import type { Block } from "../../core/createBlock";
 import { BlockEditingRuntimeProvider } from "../../core/editing/BlockEditingRuntime";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
-import { NavigationProvider } from "../navigation/navigation";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
-import { FrameContext } from "../preview/components/Frame";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
-import { canvasPageHref, createCanvasDocument, observeCanvasDocument } from "./canvasFrameDocument";
-import { useCanvasFrameInput } from "./useCanvasFrameInput";
+import { canvasDocumentStyles, canvasPageHref } from "./canvasFrameDocument";
+import { CanvasFrameProviders, preventLinkNavigation, useCanvasFrame } from "./useCanvasFrame";
 
 /** Frames mount this far outside the Canvas viewport, relative to its size. */
 const MOUNT_MARGIN = "100%";
 /** World-space height reserved for a frame until it mounts and measures its block. */
 const PLACEHOLDER_HEIGHT = 400;
-
-const noNavigation = () => {};
 
 export interface CanvasBlockFrameProps {
   block: Block;
@@ -32,22 +28,30 @@ export interface CanvasBlockFrameProps {
  */
 export function CanvasBlockFrame(props: CanvasBlockFrameProps) {
   const placeholderRef = React.useRef<HTMLDivElement>(null);
-  const [near, setNear] = React.useState(false);
+  const [hasNearedViewport, setHasNearedViewport] = React.useState(false);
+  const previewDocument = React.useContext(PreviewDocumentContext);
+  // The site document is that of the selected Page, so it changes on every
+  // navigation. Only a change of the site's styles rebuilds the frame, which
+  // reloads it and resets the block's state.
+  const styles = React.useMemo(
+    () => (hasNearedViewport ? canvasDocumentStyles(previewDocument) : ""),
+    [hasNearedViewport, previewDocument],
+  );
   React.useEffect(() => {
     const placeholder = placeholderRef.current;
-    if (near || !placeholder) return;
+    if (hasNearedViewport || !placeholder) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
-        setNear(true);
+        setHasNearedViewport(true);
       },
       { root: placeholder.closest("[data-camox-canvas]"), rootMargin: MOUNT_MARGIN },
     );
     observer.observe(placeholder);
     return () => observer.disconnect();
-  }, [near]);
-  if (!near) {
+  }, [hasNearedViewport]);
+  if (!hasNearedViewport) {
     return (
       <div
         ref={placeholderRef}
@@ -56,95 +60,69 @@ export function CanvasBlockFrame(props: CanvasBlockFrameProps) {
       />
     );
   }
-  return <BlockFrame {...props} />;
+  return <BlockFrame key={styles} {...props} previewDocument={previewDocument} />;
 }
 
-function BlockFrame({ block, runtimeBasePath, width, viewportHeight }: CanvasBlockFrameProps) {
-  const previewDocument = React.useContext(PreviewDocumentContext);
+function BlockFrame({
+  block,
+  runtimeBasePath,
+  width,
+  viewportHeight,
+  previewDocument,
+}: CanvasBlockFrameProps & { previewDocument: string | undefined }) {
+  // Kept for the frame's lifetime: the parent rebuilds the frame when the site's styles change.
+  const [initialPreviewDocument] = React.useState(previewDocument);
   const [href] = React.useState(() =>
     canvasPageHref({ runtimeBasePath, pathname: "/", href: window.location.href }),
   );
-  // Built once: the site head is shared by every page, and rebuilding would
-  // reload the frame and reset the block's state.
-  const [srcDoc] = React.useState(() => createCanvasDocument(previewDocument, href));
+  const { iframeRef, mount, iframeProps } = useCanvasFrame({
+    previewDocument: initialPreviewDocument,
+    href,
+    width,
+    viewportHeight,
+    fit: "content",
+    subject: "block",
+  });
   const bundle = React.useMemo(() => block._internal.getPeekBundle(), [block]);
-  const [mount, setMount] = React.useState<HTMLElement | null>(null);
-  const [failure, setFailure] = React.useState<Error | null>(null);
-  const iframeRef = React.useRef<HTMLIFrameElement>(null);
-  React.useLayoutEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !mount) return;
-    return observeCanvasDocument(iframe, mount, viewportHeight, "content");
-  }, [mount, viewportHeight, width]);
-  useCanvasFrameInput(iframeRef, mount);
-  if (failure) throw failure;
   const { id, title, Component } = block._internal;
 
   return (
     <>
-      <iframe
-        ref={iframeRef}
-        title={`Block preview: ${title}`}
-        srcDoc={srcDoc}
-        style={{ display: "block", width, height: viewportHeight, border: 0 }}
-        onLoad={() => {
-          const root = iframeRef.current?.contentDocument?.querySelector<HTMLElement>(
-            "[data-camox-preview-root]",
-          );
-          if (!root) {
-            setFailure(new Error("The block preview document has no content root."));
-            return;
-          }
-          if (root === mount) return;
-          root.replaceChildren();
-          setMount(root);
-        }}
-        onError={() => setFailure(new Error("The block preview document could not load."))}
-      />
+      {iframeProps.srcDoc && (
+        <iframe
+          {...iframeProps}
+          title={`Block preview: ${title}`}
+          style={{ display: "block", width, height: viewportHeight, border: 0 }}
+        />
+      )}
       {mount &&
         createPortal(
           // The Canvas runs inside the editing runtime; catalog blocks render
           // as on the live website instead, with no editing affordances.
           <BlockEditingRuntimeProvider runtime={null}>
-            <NavigationProvider
-              location={{ pathname: "/", href, hash: "", search: "" }}
-              navigate={noNavigation}
-            >
-              <FrameContext.Provider
-                value={{
-                  window: mount.ownerDocument.defaultView,
-                  iframeElement: iframeRef.current,
-                }}
-              >
-                <div
-                  style={{ display: "flow-root" }}
-                  onClick={(event) => {
-                    // Keep the frame on its portal; catalog links lead nowhere.
-                    if ((event.target as Element).closest("a")) event.preventDefault();
-                  }}
-                >
-                  <BlockErrorBoundary blockId={0} blockType={id}>
-                    <React.Suspense fallback={<div role="status">Loading block…</div>}>
-                      <NormalizedDataProvider
-                        files={bundle.files}
-                        repeatableItems={bundle.repeatableItems}
-                      >
-                        <Component
-                          blockData={{
-                            _id: 0,
-                            type: id,
-                            content: bundle.block.content as Record<string, unknown>,
-                            settings: bundle.block.settings as Record<string, unknown> | undefined,
-                            position: "",
-                          }}
-                          mode="peek"
-                        />
-                      </NormalizedDataProvider>
-                    </React.Suspense>
-                  </BlockErrorBoundary>
-                </div>
-              </FrameContext.Provider>
-            </NavigationProvider>
+            <CanvasFrameProviders pathname="/" href={href} mount={mount} iframe={iframeRef.current}>
+              <div style={{ display: "flow-root" }} onClick={preventLinkNavigation}>
+                <BlockErrorBoundary blockId={bundle.block.id} blockType={id}>
+                  <React.Suspense fallback={<div role="status">Loading block…</div>}>
+                    <NormalizedDataProvider
+                      files={bundle.files}
+                      repeatableItems={bundle.repeatableItems}
+                    >
+                      <Component
+                        blockData={{
+                          _id: bundle.block.id,
+                          type: bundle.block.type,
+                          content: bundle.block.content,
+                          settings: bundle.block.settings,
+                          position: bundle.block.position,
+                        }}
+                        mode="peek"
+                      />
+                    </NormalizedDataProvider>
+                  </React.Suspense>
+                </BlockErrorBoundary>
+              </div>
+            </CanvasFrameProviders>
           </BlockEditingRuntimeProvider>,
           mount,
         )}

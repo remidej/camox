@@ -4,9 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import overlayStyles from "virtual:camox-overlay-css";
 
-import { NavigationProvider } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
-import { FrameContext } from "../preview/components/Frame";
 import { Overlays } from "../preview/components/Overlays";
 import { PreviewComments } from "../preview/components/PreviewComments";
 import { PreviewFrameEffects } from "../preview/components/PreviewPanel";
@@ -17,16 +15,9 @@ import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
-import {
-  canvasPageHref,
-  createCanvasDocument,
-  measureCanvasDocument,
-  observeCanvasDocument,
-} from "./canvasFrameDocument";
+import { canvasPageHref, measureCanvasDocument } from "./canvasFrameDocument";
 import { CanvasOverlays } from "./CanvasOverlays";
-import { useCanvasFrameInput } from "./useCanvasFrameInput";
-
-const noNavigation = () => {};
+import { CanvasFrameProviders, preventLinkNavigation, useCanvasFrame } from "./useCanvasFrame";
 
 function PageContentCommitted({
   selected,
@@ -84,23 +75,14 @@ function PageFrame({
     if (pageId != null) return { kind: "page", pageId };
     return null;
   }, [layoutId, pageId]);
-  const [srcDoc, setSrcDoc] = React.useState<string>();
-  const [mount, setMount] = React.useState<HTMLElement | null>(null);
-  const [failure, setFailure] = React.useState<Error | null>(null);
-  const iframeRef = React.useRef<HTMLIFrameElement>(null);
-  React.useEffect(() => {
-    try {
-      setSrcDoc(createCanvasDocument(input.previewDocument, href));
-    } catch (error) {
-      setFailure(error instanceof Error ? error : new Error(String(error)));
-    }
-  }, [input.previewDocument, href]);
-  React.useLayoutEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !mount) return;
-    return observeCanvasDocument(iframe, mount, viewportHeight);
-  }, [mount, viewportHeight, width]);
-  useCanvasFrameInput(iframeRef, mount);
+  const { iframeRef, mount, iframeProps } = useCanvasFrame({
+    previewDocument: input.previewDocument,
+    href,
+    width,
+    viewportHeight,
+    fit: "page",
+    subject: "page",
+  });
   React.useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe || !mount) return;
@@ -125,106 +107,76 @@ function PageFrame({
     // or store updates must not steal it back during another frame's navigation.
     activateSelected();
   }, [selected, mount, owner]);
-  if (failure) throw failure;
 
   return (
     <PreviewEditingOwnerContext value={owner}>
       <HydrationBoundary state={input.dehydratedState as DehydratedState}>
-        <NavigationProvider
-          location={{ pathname: input.pathname, href, hash: "", search: "" }}
-          navigate={noNavigation}
+        <CanvasFrameProviders
+          pathname={input.pathname}
+          href={href}
+          mount={mount}
+          iframe={iframeRef.current}
         >
           <PreviewDocumentContext.Provider value={input.previewDocument}>
-            <FrameContext.Provider
-              value={{
-                window: mount?.ownerDocument.defaultView ?? null,
-                iframeElement: iframeRef.current,
-              }}
+            <CanvasOverlays
+              document={mount?.ownerDocument ?? null}
+              activate={activate}
+              pageHovered={hovered}
+              pageId={owner?.kind === "page" ? owner.pageId : undefined}
+              canAddBlocks={owner?.kind === "page"}
             >
-              <CanvasOverlays
-                document={mount?.ownerDocument ?? null}
-                activate={activate}
-                pageHovered={hovered}
-                pageId={owner?.kind === "page" ? owner.pageId : undefined}
-                canAddBlocks={owner?.kind === "page"}
-              >
-                <style>{overlayStyles}</style>
-                {srcDoc && (
-                  <iframe
-                    ref={iframeRef}
-                    title={`Page preview: ${input.pathname}`}
-                    srcDoc={srcDoc}
-                    style={{
-                      display: "block",
-                      width,
-                      height: viewportHeight,
-                      border: 0,
-                    }}
-                    onLoad={() => {
-                      try {
-                        const doc = iframeRef.current?.contentDocument;
-                        const root = doc?.querySelector<HTMLElement>("[data-camox-preview-root]");
-                        if (!root)
-                          throw new Error("The page preview document has no content root.");
-                        if (root === mount) return;
-                        root.replaceChildren();
-                        setMount(root);
-                      } catch (error) {
-                        setFailure(error instanceof Error ? error : new Error(String(error)));
-                      }
-                    }}
-                    onError={() =>
-                      setFailure(new Error("The page preview document could not load."))
-                    }
-                  />
-                )}
-                {mount &&
-                  createPortal(
-                    <React.Suspense fallback={<div role="status">Loading page…</div>}>
-                      <div
-                        style={{ display: "contents" }}
-                        onPointerDownCapture={activate}
-                        onFocusCapture={activate}
-                        onClickCapture={activate}
-                        onClick={(event) => {
-                          // Selecting/editing must not navigate the iframe away from its portal.
-                          if ((event.target as Element).closest("a")) event.preventDefault();
-                        }}
-                      >
-                        {input.derived ? (
-                          <DerivedPageContent
-                            camoxApp={camoxApp}
-                            derived={input.derived}
-                            source={input.source}
-                          />
-                        ) : (
-                          <EditablePageContent />
-                        )}
-                        <PreviewFrameEffects />
-                        {owner?.kind === "page" && (
-                          <PreviewComments iframeElement={iframeRef.current} />
-                        )}
-                        {!isCommentMode && (
-                          <Overlays
-                            iframeElement={iframeRef.current}
-                            owner={owner}
-                            canAddBlocks={owner?.kind === "page"}
-                          />
-                        )}
-                        {/* This commits only after onLoad and the portal's content resolves. */}
-                        <PageContentCommitted
-                          selected={selected}
-                          frame={iframeRef}
-                          viewportHeight={viewportHeight}
+              <style>{overlayStyles}</style>
+              {iframeProps.srcDoc && (
+                <iframe
+                  {...iframeProps}
+                  title={`Page preview: ${input.pathname}`}
+                  style={{ display: "block", width, height: viewportHeight, border: 0 }}
+                />
+              )}
+              {mount &&
+                createPortal(
+                  <React.Suspense fallback={<div role="status">Loading page…</div>}>
+                    <div
+                      style={{ display: "contents" }}
+                      onPointerDownCapture={activate}
+                      onFocusCapture={activate}
+                      onClickCapture={activate}
+                      // Selecting/editing must not navigate the iframe away from its portal.
+                      onClick={preventLinkNavigation}
+                    >
+                      {input.derived ? (
+                        <DerivedPageContent
+                          camoxApp={camoxApp}
+                          derived={input.derived}
+                          source={input.source}
                         />
-                      </div>
-                    </React.Suspense>,
-                    mount,
-                  )}
-              </CanvasOverlays>
-            </FrameContext.Provider>
+                      ) : (
+                        <EditablePageContent />
+                      )}
+                      <PreviewFrameEffects />
+                      {owner?.kind === "page" && (
+                        <PreviewComments iframeElement={iframeRef.current} />
+                      )}
+                      {!isCommentMode && (
+                        <Overlays
+                          iframeElement={iframeRef.current}
+                          owner={owner}
+                          canAddBlocks={owner?.kind === "page"}
+                        />
+                      )}
+                      {/* This commits only after onLoad and the portal's content resolves. */}
+                      <PageContentCommitted
+                        selected={selected}
+                        frame={iframeRef}
+                        viewportHeight={viewportHeight}
+                      />
+                    </div>
+                  </React.Suspense>,
+                  mount,
+                )}
+            </CanvasOverlays>
           </PreviewDocumentContext.Provider>
-        </NavigationProvider>
+        </CanvasFrameProviders>
       </HydrationBoundary>
     </PreviewEditingOwnerContext>
   );

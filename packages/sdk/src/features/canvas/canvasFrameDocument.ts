@@ -79,6 +79,19 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
 }
 
 /**
+ * The stylesheets of a site document's head, which shape how any content
+ * renders in it. Pages of a site share them, while their titles, metadata and
+ * preloads differ.
+ */
+export function canvasDocumentStyles(previewDocument: string | undefined) {
+  if (!previewDocument) return "";
+  const doc = new DOMParser().parseFromString(previewDocument, "text/html");
+  return Array.from(doc.head.querySelectorAll('style, link[rel="stylesheet"]'))
+    .map((style) => style.outerHTML)
+    .join("\n");
+}
+
+/**
  * How a frame sizes itself: a Page fills at least the viewport height, like a
  * browser window, while a block is only as tall as its content.
  */
