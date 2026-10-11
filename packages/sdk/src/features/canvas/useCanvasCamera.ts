@@ -16,6 +16,8 @@ import {
   isCanvasPageScale,
   isNearCanvasPageScale,
   MAX_CANVAS_ZOOM,
+  PAN_SNAP_CAPTURE,
+  PAN_SNAP_RELEASE,
   placeCanvasPageAnchor,
   snapCanvasZoom,
   zoomCanvasAt,
@@ -29,14 +31,19 @@ import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
 const MIN_OVERLAY_ZOOM = 0.3;
-// Fractions of viewport width: acquire near center, then hold a wider detent.
-const PAN_SNAP_CAPTURE = 0.07;
-const PAN_SNAP_RELEASE = 0.12;
 
 function isControl(target: EventTarget | null) {
   return (
     target instanceof Element &&
     !!target.closest("input, select, button, a, textarea, [data-canvas-overlay-control]")
+  );
+}
+
+function isTextEntry(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    (!!target.closest("input, select, textarea") ||
+      (target instanceof HTMLElement && target.isContentEditable))
   );
 }
 
@@ -264,6 +271,14 @@ export function useCanvasCamera(
       return { ...intended, x: centeredX };
     };
     const pointers = new Map<number, CanvasPoint>();
+    // Like Figma, holding Space arms the hand tool; the background is otherwise
+    // an ordinary surface. Middle-button and touch drags always move the camera.
+    let spaceHeld = false;
+    const paintPanState = () => {
+      if (pointers.size) viewport.dataset.canvasPan = "dragging";
+      else if (spaceHeld) viewport.dataset.canvasPan = "ready";
+      else delete viewport.dataset.canvasPan;
+    };
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     const remember = () => {
@@ -579,14 +594,16 @@ export function useCanvasCamera(
       );
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (isControl(event.target) || (event.button !== 0 && event.button !== 1)) return;
+      const pans =
+        event.button === 1 || (event.button === 0 && (spaceHeld || event.pointerType === "touch"));
+      if (!pans || (!spaceHeld && isControl(event.target))) return;
       gesture = undefined;
       event.preventDefault();
       viewport.focus({ preventScroll: true });
       move(camera, true);
       pointers.set(event.pointerId, localPoint(event.clientX, event.clientY));
       viewport.setPointerCapture(event.pointerId);
-      viewport.style.cursor = "grabbing";
+      paintPanState();
     };
     const onPointerMove = (event: PointerEvent) => {
       const previous = pointers.get(event.pointerId);
@@ -620,7 +637,34 @@ export function useCanvasCamera(
       gesture = undefined;
       pointers.delete(event.pointerId);
       if (pointers.size) return;
-      viewport.style.cursor = "grab";
+      paintPanState();
+    };
+    const ownsSpace = (target: EventTarget | null) => {
+      const doc = viewport.ownerDocument;
+      if (target === doc.body || target === doc.documentElement) return true;
+      if (!(target instanceof Node) || !viewport.contains(target) || isTextEntry(target))
+        return false;
+      // Keyboard users still activate a focused canvas control with Space.
+      return !(isControl(target) && (target as Element).matches(":focus-visible"));
+    };
+    const onSpaceDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (!spaceHeld && !ownsSpace(event.target)) return;
+      // Also stops the page from scrolling and a mouse-focused button from clicking.
+      event.preventDefault();
+      if (spaceHeld) return;
+      spaceHeld = true;
+      paintPanState();
+    };
+    const onSpaceUp = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || !spaceHeld) return;
+      event.preventDefault();
+      spaceHeld = false;
+      paintPanState();
+    };
+    const releaseSpace = () => {
+      spaceHeld = false;
+      paintPanState();
     };
     const onFocusIn = (event: FocusEvent) => {
       if (!isControl(event.target)) return;
@@ -692,6 +736,9 @@ export function useCanvasCamera(
     viewport.addEventListener("lostpointercapture", onPointerEnd);
     viewport.addEventListener("keydown", onKeyDown);
     viewport.addEventListener("focusin", onFocusIn);
+    ownerWindow.addEventListener("keydown", onSpaceDown);
+    ownerWindow.addEventListener("keyup", onSpaceUp);
+    ownerWindow.addEventListener("blur", releaseSpace);
     return () => {
       if (continuity?.canvas === continuityBinding) continuity.canvas = null;
       flightControls.current = null;
@@ -710,6 +757,10 @@ export function useCanvasCamera(
       viewport.removeEventListener("lostpointercapture", onPointerEnd);
       viewport.removeEventListener("keydown", onKeyDown);
       viewport.removeEventListener("focusin", onFocusIn);
+      ownerWindow.removeEventListener("keydown", onSpaceDown);
+      ownerWindow.removeEventListener("keyup", onSpaceUp);
+      ownerWindow.removeEventListener("blur", releaseSpace);
+      delete viewport.dataset.canvasPan;
     };
   }, [workspaceKey, continuity]);
 

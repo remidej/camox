@@ -70,6 +70,11 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   // React owns preview content through the portal. Excluding the server snapshot
   // keeps the iframe document stable when realtime data changes only its body.
   doc.querySelector("[data-camox-preview-root]")?.replaceChildren();
+  // Wheel events inside the frame never reach the host window. Until the frame's
+  // forwarding listener attaches (first load, or a reload after srcDoc changes),
+  // its own root must refuse trackpad swipes as browser Back/Forward gestures.
+  doc.documentElement.style.setProperty("overscroll-behavior", "none");
+  doc.body.style.setProperty("overscroll-behavior", "none");
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
 

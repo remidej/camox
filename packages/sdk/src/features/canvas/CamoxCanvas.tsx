@@ -293,9 +293,10 @@ function CanvasWorkspace({
       aria-describedby={instructionsId}
       tabIndex={0}
       data-camox-canvas
-      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none"
+      // While Space arms the hand tool, the whole canvas (page frames and their
+      // controls included) shows the hand and hands the drag to the camera.
+      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
       style={{
-        cursor: "grab",
         userSelect: "none",
         overscrollBehavior: "none",
       }}
@@ -446,9 +447,9 @@ function CanvasWorkspace({
       )}
       {!pages.length && <CanvasMessage>No pages to preview yet.</CanvasMessage>}
       <p id={instructionsId} className="sr-only">
-        Drag the background or scroll to pan. Pinch or Ctrl/⌘ + scroll to zoom. Click a page to edit
-        it. Focus the canvas and use plus or minus to zoom, arrow keys to pan, 0 for 100%, or Home /
-        Shift+1 to fit all pages.
+        Scroll, or hold Space and drag, to pan. Pinch or Ctrl/⌘ + scroll to zoom. Click a page to
+        edit it. Focus the canvas and use plus or minus to zoom, arrow keys to pan, 0 for 100%, or
+        Home / Shift+1 to fit all pages.
       </p>
     </div>
   );

@@ -6,7 +6,15 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 
-import { constrainCanvasCamera, fitCanvas, fitCanvasPage } from "./canvasCamera";
+import {
+  constrainCanvasCamera,
+  fitCanvas,
+  fitCanvasPage,
+  PAN_SNAP_CAPTURE,
+  PAN_SNAP_RELEASE,
+  ZOOM_SNAP_CAPTURE,
+  ZOOM_SNAP_RELEASE,
+} from "./canvasCamera";
 import { canvasStore } from "./canvasStore";
 import { useCanvasCamera } from "./useCanvasCamera";
 
@@ -155,8 +163,24 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
         expected = constrainCanvasCamera({ ...before, y: before.y - 100 }, size, content);
       }
       if (input === "pointer") {
-        viewport.dispatchEvent(new dom.PointerEvent("pointerdown", { pointerId: 1, button: 0 }));
-        viewport.dispatchEvent(new dom.PointerEvent("pointerup", { pointerId: 1, button: 0 }));
+        const space = (type: string) =>
+          dom.document.body.dispatchEvent(
+            new dom.KeyboardEvent(type, { code: "Space", key: " ", bubbles: true }),
+          );
+        const press = () => {
+          viewport.dispatchEvent(new dom.PointerEvent("pointerdown", { pointerId: 1, button: 0 }));
+          viewport.dispatchEvent(new dom.PointerEvent("pointerup", { pointerId: 1, button: 0 }));
+        };
+        press();
+        tick(400);
+        assert.notDeepEqual(read(), before, "a plain click on the background is not a drag");
+        assert.equal(viewport.dataset.canvasPan, undefined);
+        space("keydown");
+        assert.equal(viewport.dataset.canvasPan, "ready", "Space arms the hand tool");
+        press();
+        space("keyup");
+        assert.equal(viewport.dataset.canvasPan, undefined);
+        expected = read();
       }
       if (input === "canvas selection") controls.cancelFlight();
       flush();
@@ -391,7 +415,13 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     };
     const fitted = read();
     const pointer = (type: string, pointerId: number, clientX: number, clientY: number) => {
-      const event = new dom.PointerEvent(type, { pointerId, button: 0, clientX, clientY });
+      const event = new dom.PointerEvent(type, {
+        pointerId,
+        button: 0,
+        clientX,
+        clientY,
+        pointerType: "touch",
+      });
       time += 16;
       Object.defineProperty(event, "timeStamp", { value: time });
       viewport.dispatchEvent(event);
@@ -405,30 +435,42 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     };
     const assertX = (x: number, message: string) =>
       assert.ok(Math.abs(read().x - x) < 1e-8, message);
+    // Horizontal offsets from a centered page, derived from the tuned bands.
+    const capture = size.width * PAN_SNAP_CAPTURE;
+    const release = size.width * PAN_SNAP_RELEASE;
+    const margin = 10;
+    const outside = release + 40;
+    // Wheel deltas that move the zoom by a log-scale distance.
+    const zoomDelta = (distance: number) => distance / 0.008;
 
     for (const shiftKey of [false, true]) {
       for (const direction of [-1, 1]) {
-        moveTo(fitted.x + direction * 200);
+        moveTo(fitted.x + direction * outside);
         selections.length = 0;
         const horizontal = (delta: number) => {
           wheel(shiftKey ? 0 : delta, shiftKey ? delta : 0, { shiftKey });
           flush();
         };
-        horizontal(direction * 130);
+        // Between the bands, the outcome depends on whether the page is already held.
+        const between = (capture + release) / 2;
+        horizontal(direction * (outside - between));
         assertX(
-          fitted.x + direction * 70,
+          fitted.x + direction * between,
           "the narrower capture band leaves nearby scrolling free",
         );
         assert.deepEqual(selections, []);
-        horizontal(direction * 10);
-        assertX(fitted.x, "wheel captures immediately within 7% of viewport width");
+        horizontal(direction * (between - capture + margin));
+        assertX(fitted.x, "wheel captures immediately within the capture band");
         assert.deepEqual(selections, ["page"], "entry selects without waiting for idle");
-        horizontal(-direction * 30);
-        assertX(fitted.x, "the wider 12% release band holds beyond the capture band");
-        horizontal(-direction * 10);
+        horizontal(-direction * (between - capture + margin));
+        assertX(fitted.x, "the wider release band holds where capture would not");
+        horizontal(-direction * (release - margin - between));
         assertX(fitted.x, "small movements accumulate while held");
-        horizontal(-direction * 20);
-        assertX(fitted.x + direction * 120, "accumulated intent escapes in either direction");
+        horizontal(-direction * 2 * margin);
+        assertX(
+          fitted.x + direction * (release + margin),
+          "accumulated intent escapes in either direction",
+        );
         assert.deepEqual(selections, ["page"], "holding and releasing never reselect");
         const released = read();
         t.mock.timers.tick(1000);
@@ -438,36 +480,41 @@ void test("page-fit gestures capture horizontal detents during input and retain 
       }
     }
 
-    moveTo(fitted.x + 200);
+    moveTo(fitted.x + outside);
     selections.length = 0;
-    wheel(140, 0);
+    wheel(outside - capture + margin, 0);
     flush();
-    wheel(-40, 0);
+    wheel(-(release - capture), 0);
     flush();
-    assertX(fitted.x, "gesture holds 100px of raw offset");
+    assertX(fitted.x, "gesture holds raw offset up to the release band");
     time += 200;
-    wheel(-40, 0);
+    wheel(-(release - margin), 0);
     flush();
     assertX(fitted.x, "a new gesture starts from the visible camera, not old intended x");
-    wheel(-100, 0);
+    wheel(-2 * margin, 0);
     flush();
-    assertX(fitted.x + 140, "new gesture still accumulates enough intent to escape");
+    assertX(fitted.x + release + margin, "new gesture still accumulates enough intent to escape");
 
     for (const direction of [-1, 1]) {
-      moveTo(fitted.x + direction * 200);
+      moveTo(fitted.x + direction * outside);
       selections.length = 0;
+      const dragTo = (offset: number, y: number) =>
+        pointer("pointermove", 1, 400 - direction * (outside - offset), y);
       pointer("pointerdown", 1, 400, 300);
-      pointer("pointermove", 1, 400 - direction * 140, 280);
+      dragTo(capture - margin, 280);
       assertX(fitted.x, "drag captures before pointerup");
       const capturedY = read().y;
       assert.deepEqual(selections, ["page"]);
-      pointer("pointermove", 1, 400 - direction * 100, 260);
+      dragTo(release - margin, 260);
       assertX(fitted.x, "drag holds within release band");
       assert.equal(read().y, capturedY - 20, "horizontal detent never blocks vertical reading");
-      pointer("pointermove", 1, 400 - direction * 60, 260);
-      assertX(fitted.x + direction * 140, "drag retains raw intent instead of sticking forever");
+      dragTo(release + margin, 260);
+      assertX(
+        fitted.x + direction * (release + margin),
+        "drag retains raw intent instead of sticking forever",
+      );
       const released = read();
-      pointer("pointerup", 1, 400 - direction * 60, 260);
+      pointer("pointerup", 1, 400 - direction * (outside - release - margin), 260);
       t.mock.timers.tick(1000);
       flush();
       assert.deepEqual(read(), released, "pointer release cannot initiate snapping");
@@ -482,23 +529,27 @@ void test("page-fit gestures capture horizontal detents during input and retain 
       flush();
     };
     for (const direction of [-1, 1]) {
-      moveTo(fitted.x + direction * 160);
+      // Arrow keys pan 100px per press.
+      let intended = capture - margin;
+      moveTo(fitted.x + direction * (intended + 100));
       selections.length = 0;
       key(direction > 0 ? "ArrowRight" : "ArrowLeft");
       assertX(fitted.x, "arrow input captures within the same horizontal band");
       assert.deepEqual(selections, ["page"]);
+      for (intended -= 100; Math.abs(intended) <= release; intended -= 100) {
+        key(direction > 0 ? "ArrowRight" : "ArrowLeft");
+        assertX(fitted.x, "repeated arrow input is held within the release band");
+      }
       key(direction > 0 ? "ArrowRight" : "ArrowLeft");
-      assertX(fitted.x, "repeated arrow input is initially held");
-      key(direction > 0 ? "ArrowRight" : "ArrowLeft");
-      assertX(fitted.x - direction * 140, "repeated arrows escape using intended position");
+      assertX(fitted.x + direction * intended, "repeated arrows escape using intended position");
       assert.deepEqual(selections, ["page"]);
     }
 
-    moveTo(fitted.x + 200);
+    moveTo(fitted.x + outside);
     selections.length = 0;
-    wheel(400, 0);
+    wheel(2 * outside, 0);
     flush();
-    assertX(fitted.x - 200, "strong movement passes through without capture");
+    assertX(fitted.x - outside, "strong movement passes through without capture");
     assert.deepEqual(selections, []);
 
     // Exercise the vertical rail away from horizontal detents so each rule is observable.
@@ -553,7 +604,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     flush();
     assert.ok(Math.abs(read().scale - fitted.scale) < 1e-8);
     pointer("pointerdown", 1, 400, 300);
-    pointer("pointermove", 1, 400 + fitted.x + 100 - read().x, 300);
+    pointer("pointermove", 1, 400 + fitted.x + capture + margin - read().x, 300);
     pointer("pointerup", 1, 400, 300);
     const beforeSnap = read();
     wheel(0, -1, { ctrlKey: true });
@@ -571,42 +622,45 @@ void test("page-fit gestures capture horizontal detents during input and retain 
         Math.abs((300 - next.y) / next.scale - (300 - beforeZoom.y) / beforeZoom.scale) < 1e-8,
       );
     };
-    for (let count = 0; count < 8; count++) wheel(0, -1, { ctrlKey: true });
+    const heldSteps = Math.floor(zoomDelta(ZOOM_SNAP_RELEASE)) - 1;
+    for (let count = 0; count < heldSteps; count++) wheel(0, -1, { ctrlKey: true });
     flush(checkAnchor);
     assert.deepEqual(read(), beforeZoom, "small zoom input is held without recentering");
     assert.deepEqual(selections, ["page"], "held snap never repeats selection");
-    for (let count = 0; count < 8; count++) wheel(0, -1, { ctrlKey: true });
+    for (let count = 0; count < 2; count++) wheel(0, -1, { ctrlKey: true });
     flush(checkAnchor);
     assert.ok(read().scale > fitted.scale, "accumulated gentle input escapes");
     pan(10, 90, 10, 90); // Outside snap, even overwhelmingly vertical motion is free.
 
-    wheel(0, 14, { ctrlKey: true }); // 80% visibility allows capture from above too.
+    // 80% visibility allows capture from above too.
+    const above = Math.log(read().scale / fitted.scale);
+    wheel(0, zoomDelta(above - ZOOM_SNAP_CAPTURE / 2), { ctrlKey: true });
     flush();
     assert.equal(read().scale, fitted.scale);
     assert.deepEqual(selections, ["page", "page"]);
-    wheel(0, 40, { ctrlKey: true });
+    const strongZoom = zoomDelta(ZOOM_SNAP_RELEASE + 0.1);
+    wheel(0, strongZoom, { ctrlKey: true });
     flush();
     assert.ok(read().scale < fitted.scale, "strong input passes through the detent");
     time += 200;
-    wheel(0, -40, { ctrlKey: true });
+    wheel(0, -strongZoom, { ctrlKey: true });
     flush();
     assert.equal(read().scale, fitted.scale, "capture also works from below");
     assert.equal(read().x, fitted.x);
     assert.deepEqual(selections, ["page", "page", "page"]);
 
     const beforeSibling = read();
-    pan(
-      (sibling.left - page.left) * fitted.scale - 150,
-      0,
-      (sibling.left - page.left) * fitted.scale - 150,
-      0,
-    );
+    const toSibling = (sibling.left - page.left) * fitted.scale - (capture + margin);
+    pan(toSibling, 0, toSibling, 0);
     const beforePanSelections = selections.length;
     t.mock.timers.tick(1000);
     flush();
     assert.equal(selections.length, beforePanSelections, "idle cannot select a nearby sibling");
-    assertX(fitCanvasPage(size, sibling).x + 150, "idle cannot center a nearby sibling");
-    wheel(90, 0);
+    assertX(
+      fitCanvasPage(size, sibling).x + capture + margin,
+      "idle cannot center a nearby sibling",
+    );
+    wheel(2 * margin, 0);
     flush();
     assert.equal(read().x, fitCanvasPage(size, sibling).x);
     assert.equal(read().y, beforeSibling.y);
@@ -617,7 +671,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     assert.equal(selections.length, beforePanSelections + 1, "aligned scrolling does not reselect");
 
     // Stop outside the horizontal capture band to test pinch entry independently.
-    moveTo(fitted.x + 100);
+    moveTo(fitted.x + capture + margin);
     const beforeTouchSnap = read();
     pointer("pointerdown", 1, 300, 300);
     pointer("pointerdown", 2, 500, 300);
@@ -631,9 +685,12 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     const beforePinch = read();
     pointer("pointerdown", 1, 300, 300);
     pointer("pointerdown", 2, 500, 300);
-    for (let step = 1; step <= 14; step++) {
+    // Fingers start 200px apart; each step spreads them by 2px.
+    const spread = (step: number) => Math.log((200 + step * 2) / 200);
+    let step = 1;
+    for (; spread(step - 1) <= ZOOM_SNAP_RELEASE; step++) {
       pointer("pointermove", 2, 500 + step * 2, 300);
-      if (step < 12) assert.equal(read().scale, fitted.scale);
+      if (spread(step) < ZOOM_SNAP_RELEASE - 1e-6) assert.equal(read().scale, fitted.scale);
       const next = read();
       assert.ok(
         Math.abs((400 + step - next.x) / next.scale - (400 - beforePinch.x) / beforePinch.scale) <
@@ -645,7 +702,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     }
     assert.ok(read().scale > fitted.scale, "touch pinch accumulates small movements too");
     pointer("pointerup", 1, 300, 300);
-    pointer("pointerup", 2, 528, 300);
+    pointer("pointerup", 2, 500 + (step - 1) * 2, 300);
 
     wheel(0, -10000, { ctrlKey: true });
     flush();
@@ -661,7 +718,12 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     assert.deepEqual(read(), unsnapped, "horizontal snap is disabled away from page-fit zoom");
     assert.equal(selections.length, selectionCount);
 
-    for (const offset of [-0.08, 0.08, -0.1, 0.1]) {
+    for (const offset of [
+      -(ZOOM_SNAP_CAPTURE - 0.02),
+      ZOOM_SNAP_CAPTURE - 0.02,
+      -(ZOOM_SNAP_CAPTURE + 0.02),
+      ZOOM_SNAP_CAPTURE + 0.02,
+    ]) {
       // Zoom with the page mostly out of view to reach a non-detented scale.
       const centerAt = (scale: number) => size.width / 2 - (page.left + page.width / 2) * scale;
       moveTo(centerAt(read().scale) + 600);
@@ -672,28 +734,31 @@ void test("page-fit gestures capture horizontal detents during input and retain 
       assert.ok(Math.abs(read().scale - requestedScale) < 1e-8);
       const scale = read().scale;
       const centeredX = centerAt(scale);
-      moveTo(centeredX + 200);
+      moveTo(centeredX + outside);
       selections.length = 0;
       const before = read();
-      wheel(140, 0);
+      wheel(outside - capture + margin, 0);
       flush();
       assert.equal(read().scale, scale, "horizontal snapping must never change zoom");
       assert.equal(read().y, before.y, "horizontal snapping retains vertical position");
-      if (Math.abs(offset) > 0.09) {
-        assertX(centeredX + 60, "outside the zoom capture range horizontal motion stays free");
+      if (Math.abs(offset) > ZOOM_SNAP_CAPTURE) {
+        assertX(
+          centeredX + capture - margin,
+          "outside the zoom capture range horizontal motion stays free",
+        );
         assert.deepEqual(selections, []);
         continue;
       }
       assertX(centeredX, "near-fit snapping centers at the actual scale on either side of fit");
       assert.deepEqual(selections, ["page"]);
-      wheel(-40, 0);
+      wheel(-(release - capture), 0);
       flush();
       assertX(centeredX, "near-fit detent holds accumulated intent");
       assert.deepEqual(selections, ["page"], "holding near fit must not repeatedly select");
-      wheel(-20, 0);
+      wheel(-2 * margin, 0);
       flush();
-      assertX(centeredX + 120, "near-fit detent can still be escaped");
-      wheel(60, 0);
+      assertX(centeredX + release + margin, "near-fit detent can still be escaped");
+      wheel(release - capture + 2 * margin, 0);
       flush();
       assertX(centeredX, "reversing into the detent reacquires it");
       const beforeZoom = read();

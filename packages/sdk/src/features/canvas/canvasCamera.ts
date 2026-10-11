@@ -52,8 +52,11 @@ const CANVAS_CHROME_HEIGHT = CANVAS_HEADER_HEIGHT + CANVAS_SHELF_MARKER_HEIGHT;
 export const MAX_CANVAS_ZOOM = 2;
 
 /** Relative (log-scale) bands make the detent feel the same at every page width. */
-const ZOOM_SNAP_CAPTURE = 0.09;
-const ZOOM_SNAP_RELEASE = 0.12;
+export const ZOOM_SNAP_CAPTURE = 0.14;
+export const ZOOM_SNAP_RELEASE = 0.18;
+/** Fractions of viewport width: acquire near center, then hold a wider detent. */
+export const PAN_SNAP_CAPTURE = 0.12;
+export const PAN_SNAP_RELEASE = 0.18;
 
 export function isCanvasPageScale(scale: number, pageScale: number | undefined) {
   return pageScale !== undefined && Math.abs(Math.log(scale / pageScale)) < 1e-8;

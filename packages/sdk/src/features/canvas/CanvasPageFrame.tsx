@@ -124,9 +124,33 @@ function PageFrame({
         }),
       );
     };
+    // Space arms the canvas hand tool even while focus is inside the frame, but
+    // never while typing into page content.
+    const forwardSpace = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || target?.closest?.("input, select, textarea")) return;
+      const forwarded = new KeyboardEvent(event.type, {
+        bubbles: true,
+        cancelable: true,
+        code: event.code,
+        key: event.key,
+        repeat: event.repeat,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+      });
+      iframe.dispatchEvent(forwarded);
+      if (forwarded.defaultPrevented) event.preventDefault();
+    };
     doc.addEventListener("wheel", forwardWheel, { passive: false });
+    doc.addEventListener("keydown", forwardSpace);
+    doc.addEventListener("keyup", forwardSpace);
     return () => {
       doc.removeEventListener("wheel", forwardWheel);
+      doc.removeEventListener("keydown", forwardSpace);
+      doc.removeEventListener("keyup", forwardSpace);
       if (previewStore.getSnapshot().context.iframeElement !== iframe) return;
       previewStore.send({ type: "clearSelection" });
       previewStore.send({ type: "setIframeElement", element: null });
