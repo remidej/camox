@@ -22,6 +22,7 @@ import {
   loadCamoxPageForRequest,
 } from "../routes/pageRuntime";
 import {
+  matchBlockCatalogPath,
   matchCollectionContentPath,
   STUDIO_ASSETS_PATH,
   STUDIO_CONTENT_PATH,
@@ -34,6 +35,7 @@ const RUNTIME_HEALTH_PATH = "/_camox/health";
 const RUNTIME_REGISTRY_PATH = "/_camox/registry";
 
 export type RuntimeRouteKind =
+  | "block"
   | "data"
   | "health"
   | "og"
@@ -61,6 +63,8 @@ export interface PageRenderInput {
   previewHandoff?: boolean;
   previewDocument?: string;
   routeKind?: "studio" | "studio-content" | "studio-nested";
+  /** A block of the Block Catalog, selected on the Canvas in Edit Mode instead of a Page. */
+  catalogBlock?: { blockId: string };
   project?: Awaited<ReturnType<ReturnType<typeof createServerApiClient>["projects"]["getBySlug"]>>;
   presentation?: "public" | "studio";
   derived?: {
@@ -160,6 +164,7 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   if (pathname === RUNTIME_REGISTRY_PATH) return { kind: "registry", pathname };
   if (pathname === "/_camox/data") return { kind: "data", pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
+  if (matchBlockCatalogPath(pathname)) return { kind: "block", pathname };
   if (
     pathname === STUDIO_CONTENT_PATH ||
     pathname === `${STUDIO_CONTENT_PATH}/` ||
@@ -690,6 +695,103 @@ ${renderClientEntryScript(options.studioClientEntryUrl)}
   );
 }
 
+/**
+ * A block of the Block Catalog renders the page app, like a Page, so selecting
+ * it keeps the Canvas mounted. Without a page-content block of that id, it
+ * redirects home.
+ */
+async function createBlockCatalogResponse({
+  options,
+  pathname,
+  request,
+  dataOnly = false,
+}: {
+  options: RuntimeOptions;
+  pathname: string;
+  request: Request;
+  dataOnly?: boolean;
+}): Promise<Response> {
+  const blockId = matchBlockCatalogPath(pathname)!;
+  const app = await options.getCamoxApp?.();
+  const block = app?.getBlockById(blockId);
+  if (!block || block._internal.layoutOnly) {
+    if (dataOnly)
+      return Response.json(
+        { kind: "block", message: "No block of the Block Catalog on this path", pathname },
+        { status: 404 },
+      );
+    return Response.redirect(
+      new URL(withRuntimeBasePath("/", options.runtimeBasePath), request.url),
+      302,
+    );
+  }
+  if (
+    !options.apiUrl ||
+    !options.authenticationUrl ||
+    !options.projectSlug ||
+    (!dataOnly && !options.renderPage)
+  ) {
+    return Response.json(
+      { message: "Camox page renderer is not configured.", kind: "block", pathname },
+      { status: 500 },
+    );
+  }
+
+  // As for Studio routes, a successful protected project lookup proves access.
+  const authCookieHeader = getServerAuthCookieHeader(request.headers);
+  let project: PageRenderInput["project"];
+  let clearAuthCookie = false;
+  if (authCookieHeader) {
+    try {
+      project = await createServerApiClient(options.apiUrl, options.environmentName, {
+        authCookieHeader,
+      }).projects.getBySlug({ slug: options.projectSlug });
+    } catch (error) {
+      if (!isAuthSessionError(error)) throw error;
+      clearAuthCookie = true;
+    }
+  }
+  const studio = project !== undefined;
+  const title = block._internal.title;
+  const input: PageRenderInput = {
+    project,
+    presentation: studio ? "studio" : "public",
+    source: studio ? "draft" : "live",
+    apiUrl: options.apiUrl,
+    authenticationUrl: options.authenticationUrl,
+    environmentName: options.environmentName,
+    projectSlug: options.projectSlug,
+    runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    href: request.url,
+    pathname,
+    head: { meta: [{ title }] },
+    layoutIdentity: null,
+    loaderData: null,
+    dehydratedState: dehydrate(new QueryClient()),
+    catalogBlock: { blockId },
+  };
+  // Block frames build their documents from the site head; there is no page content.
+  const document = (await options.getDocument?.()) ?? {};
+  await preparePreviewDocument(input, options, document, "");
+  const headers = {
+    "Cache-Control": "private, no-store",
+    Vary: "Cookie",
+    ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+  };
+  if (dataOnly) return Response.json(input, { headers });
+  const html = await options.renderPage!(input);
+  const head = renderHead(
+    {},
+    { title },
+    undefined,
+    studio ? options.studioStylesheetUrl : undefined,
+  );
+  return new Response(
+    `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+    { headers: { "Content-Type": "text/html; charset=utf-8", ...headers } },
+  );
+}
+
 async function createPageDataResponse({
   options,
   pathname,
@@ -804,6 +906,14 @@ export async function handleCamoxRequest(
     const url = new URL(request.url);
     const targetPathname = normalizePagePath(url.searchParams.get("path"));
     const targetMatch = matchRuntimeRoute(targetPathname);
+    if (targetMatch.kind === "block") {
+      return createBlockCatalogResponse({
+        options,
+        pathname: targetPathname,
+        request,
+        dataOnly: true,
+      });
+    }
     if (targetMatch.kind.startsWith("studio")) {
       return createStudioHtmlResponse({ match: targetMatch, options, request, dataOnly: true });
     }
@@ -817,6 +927,10 @@ export async function handleCamoxRequest(
     match.kind === "studio-nested"
   ) {
     return createStudioHtmlResponse({ match, options, request });
+  }
+
+  if (match.kind === "block") {
+    return createBlockCatalogResponse({ options, pathname: match.pathname, request });
   }
 
   if (match.kind === "page") {

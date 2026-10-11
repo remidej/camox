@@ -51,6 +51,11 @@ const CANVAS_ITEM_KINDS: Record<CanvasItem["kind"], { width: number; snappable: 
   block: { width: CANVAS_SLOT_WIDTH, snappable: true },
 };
 
+/** The key of a block's item in the Canvas row. */
+export function canvasBlockKey(blockId: string) {
+  return `block:${blockId}`;
+}
+
 /** Every page-content Block Definition, alphabetically by title. */
 function getBlockCatalog(blocks: readonly Block[]) {
   return blocks
@@ -75,7 +80,11 @@ export function getCanvasShelves(
       // The Block Catalog always has its place on the Canvas.
       shownWhenEmpty: true,
       items: getBlockCatalog(blocks).map(
-        (block): CanvasBlockItem => ({ kind: "block", key: `block:${block._internal.id}`, block }),
+        (block): CanvasBlockItem => ({
+          kind: "block",
+          key: canvasBlockKey(block._internal.id),
+          block,
+        }),
       ),
     },
   ];

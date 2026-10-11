@@ -100,6 +100,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   const siteDocument = (page: string, styles = "<style>.site { color: red; }</style>") =>
     `<!doctype html><html><head><title>${page}</title>${styles}<script>window.boot = true</script></head><body><div id="root" data-camox-preview-root>${page} server HTML</div></body></html>`;
   const client = new QueryClient();
+  let selections = 0;
   const canvas = dom.document.createElement("div");
   canvas.setAttribute("data-camox-canvas", "");
   const host = dom.document.createElement("div");
@@ -117,6 +118,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
                 runtimeBasePath=""
                 width={1000}
                 viewportHeight={800}
+                onSelect={() => selections++}
               />
             </PreviewDocumentContext.Provider>
           </BlockEditingRuntimeProvider>
@@ -166,6 +168,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
       tabButton.click();
     });
     assert.equal(frame.document.querySelector("[data-tab]")?.textContent, "Second tab");
+    assert.ok(selections > 0, "interacting with the block selects it");
 
     const link = frame.document.querySelector("a")!;
     const click = new frame.MouseEvent("click", { bubbles: true, cancelable: true });
@@ -245,6 +248,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
                   runtimeBasePath=""
                   width={1000}
                   viewportHeight={800}
+                  onSelect={() => {}}
                 />
               </PreviewDocumentContext.Provider>
             </Boundary>

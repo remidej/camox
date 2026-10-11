@@ -19,6 +19,8 @@ export interface CanvasBlockFrameProps {
   runtimeBasePath: string;
   width: number;
   viewportHeight: number;
+  /** Interacting with the block selects it. */
+  onSelect: () => void;
 }
 
 /**
@@ -68,6 +70,7 @@ function BlockFrame({
   runtimeBasePath,
   width,
   viewportHeight,
+  onSelect,
   previewDocument,
 }: CanvasBlockFrameProps & { previewDocument: string | undefined }) {
   // Kept for the frame's lifetime: the parent rebuilds the frame when the site's styles change.
@@ -101,7 +104,12 @@ function BlockFrame({
           // as on the live website instead, with no editing affordances.
           <BlockEditingRuntimeProvider runtime={null}>
             <CanvasFrameProviders pathname="/" href={href} mount={mount} iframe={iframeRef.current}>
-              <div style={{ display: "flow-root" }} onClick={preventLinkNavigation}>
+              <div
+                style={{ display: "flow-root" }}
+                onPointerDownCapture={onSelect}
+                onFocusCapture={onSelect}
+                onClick={preventLinkNavigation}
+              >
                 <BlockErrorBoundary blockId={bundle.block.id} blockType={id}>
                   <React.Suspense fallback={<div role="status">Loading block…</div>}>
                     <NormalizedDataProvider
