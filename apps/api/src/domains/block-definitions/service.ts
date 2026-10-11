@@ -7,7 +7,7 @@ import { decodeInput } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { blockDefinitions, blocks, layouts, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { reconcileSyncedDefinition } from "../blocks/synced";
+import { applySyncedFlagChange } from "../blocks/synced";
 import { validateReferenceSchema } from "../collections/references";
 
 // --- Input Schemas ---
@@ -126,8 +126,13 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
           .returning()
           .get(),
       );
-      if (updated.synced && !existing.synced) {
-        yield* reconcileSyncedDefinition(ctx, environment.id, def.blockId);
+      if (updated.synced !== existing.synced) {
+        yield* applySyncedFlagChange(ctx, {
+          projectId,
+          environmentId: environment.id,
+          type: def.blockId,
+          synced: updated.synced,
+        });
       }
       results.push(updated);
       continue;
@@ -154,7 +159,14 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
         .returning()
         .get(),
     );
-    if (created.synced) yield* reconcileSyncedDefinition(ctx, environment.id, def.blockId);
+    if (created.synced) {
+      yield* applySyncedFlagChange(ctx, {
+        projectId,
+        environmentId: environment.id,
+        type: def.blockId,
+        synced: true,
+      });
+    }
     results.push(created);
   }
 
@@ -275,8 +287,13 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
         .returning()
         .get(),
     );
-    if (result.synced && !existing.synced) {
-      yield* reconcileSyncedDefinition(ctx, environment.id, body.blockId);
+    if (result.synced !== existing.synced) {
+      yield* applySyncedFlagChange(ctx, {
+        projectId,
+        environmentId: environment.id,
+        type: body.blockId,
+        synced: result.synced,
+      });
     }
     return { ...result, action: "updated" as const };
   }
@@ -299,7 +316,14 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
       .returning()
       .get(),
   );
-  if (result.synced) yield* reconcileSyncedDefinition(ctx, environment.id, body.blockId);
+  if (result.synced) {
+    yield* applySyncedFlagChange(ctx, {
+      projectId,
+      environmentId: environment.id,
+      type: body.blockId,
+      synced: true,
+    });
+  }
   return { ...result, action: "created" as const };
 });
 

@@ -1,9 +1,11 @@
+import { useSuspenseQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
 import type { Block } from "../../core/createBlock";
 import { BlockEditingRuntimeProvider } from "../../core/editing/BlockEditingRuntime";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
+import { blockQueries } from "../../lib/queries";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import { canvasDocumentStyles, canvasPageHref } from "./canvasFrameDocument";
@@ -16,6 +18,8 @@ const PLACEHOLDER_HEIGHT = 400;
 
 export interface CanvasBlockFrameProps {
   block: Block;
+  /** The project whose shared content Synced Blocks show. */
+  projectId: number;
   runtimeBasePath: string;
   width: number;
   viewportHeight: number;
@@ -24,8 +28,9 @@ export interface CanvasBlockFrameProps {
 }
 
 /**
- * A live frame of the Block Catalog: one block with its default content, bare
- * and interactive, but with no editing. It mounts once it comes near the
+ * A live frame of the Block Catalog: one block with its default content, or a
+ * Synced Block's shared content when the environment has some, bare and
+ * interactive, but with no editing. It mounts once it comes near the
  * Canvas viewport and stays mounted, so its state survives panning away.
  */
 export function CanvasBlockFrame(props: CanvasBlockFrameProps) {
@@ -67,6 +72,7 @@ export function CanvasBlockFrame(props: CanvasBlockFrameProps) {
 
 function BlockFrame({
   block,
+  projectId,
   runtimeBasePath,
   width,
   viewportHeight,
@@ -86,8 +92,7 @@ function BlockFrame({
     fit: "content",
     subject: "block",
   });
-  const bundle = React.useMemo(() => block._internal.getPeekBundle(), [block]);
-  const { id, title, Component } = block._internal;
+  const { title, synced } = block._internal;
 
   return (
     <>
@@ -110,30 +115,81 @@ function BlockFrame({
                 onFocusCapture={onSelect}
                 onClick={preventLinkNavigation}
               >
-                <BlockErrorBoundary blockId={bundle.block.id} blockType={id}>
-                  <React.Suspense fallback={<div role="status">Loading block…</div>}>
-                    <NormalizedDataProvider
-                      files={bundle.files}
-                      repeatableItems={bundle.repeatableItems}
-                    >
-                      <Component
-                        blockData={{
-                          _id: bundle.block.id,
-                          type: bundle.block.type,
-                          content: bundle.block.content,
-                          settings: bundle.block.settings,
-                          position: bundle.block.position,
-                        }}
-                        mode="peek"
-                      />
-                    </NormalizedDataProvider>
-                  </React.Suspense>
-                </BlockErrorBoundary>
+                <React.Suspense fallback={<div role="status">Loading block…</div>}>
+                  {synced ? (
+                    <SyncedBlockContent block={block} projectId={projectId} />
+                  ) : (
+                    <DefaultBlockContent block={block} />
+                  )}
+                </React.Suspense>
               </div>
             </CanvasFrameProviders>
           </BlockEditingRuntimeProvider>,
           mount,
         )}
     </>
+  );
+}
+
+function DefaultBlockContent({ block }: { block: Block }) {
+  const bundle = React.useMemo(() => block._internal.getPeekBundle(), [block]);
+  return (
+    <BlockContent
+      block={block}
+      files={bundle.files}
+      repeatableItems={bundle.repeatableItems}
+      blockData={{
+        _id: bundle.block.id,
+        type: bundle.block.type,
+        content: bundle.block.content,
+        settings: bundle.block.settings,
+        position: bundle.block.position,
+      }}
+    />
+  );
+}
+
+/** A Synced Block shows the environment's shared content, or its defaults until it has some. */
+function SyncedBlockContent({ block, projectId }: { block: Block; projectId: number }) {
+  const { data: shared } = useSuspenseQuery(
+    blockQueries.getSyncedContent(projectId, block._internal.id),
+  );
+  if (!shared) return <DefaultBlockContent block={block} />;
+  return (
+    <BlockContent
+      block={block}
+      files={shared.files}
+      repeatableItems={shared.repeatableItems}
+      references={[shared.block]}
+      blockData={{
+        _id: shared.block.id,
+        type: shared.block.type,
+        content: shared.block.content as Record<string, unknown>,
+        settings: shared.block.settings as Record<string, unknown> | undefined,
+        position: shared.block.position,
+      }}
+    />
+  );
+}
+
+function BlockContent({
+  block,
+  files,
+  repeatableItems,
+  references,
+  blockData,
+}: {
+  block: Block;
+  /** Blocks whose resolved references the content links to. */
+  references?: React.ComponentProps<typeof NormalizedDataProvider>["blocks"];
+  blockData: React.ComponentProps<Block["_internal"]["Component"]>["blockData"];
+} & Pick<React.ComponentProps<typeof NormalizedDataProvider>, "files" | "repeatableItems">) {
+  const { id, Component } = block._internal;
+  return (
+    <BlockErrorBoundary blockId={blockData._id} blockType={id}>
+      <NormalizedDataProvider files={files} repeatableItems={repeatableItems} blocks={references}>
+        <Component blockData={blockData} mode="peek" />
+      </NormalizedDataProvider>
+    </BlockErrorBoundary>
   );
 }

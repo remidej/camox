@@ -78,6 +78,8 @@ export const queryKeys = {
     getUsageCounts: ["camox", "blocks", "getUsageCounts"],
     // Under the usage counts prefix, so every usage invalidation refreshes it too.
     getPagesUsing: (type: string) => ["camox", "blocks", "getUsageCounts", "pages", type],
+    // Also under that prefix, so placing or removing the block refreshes it.
+    getSyncedContent: (type: string) => ["camox", "blocks", "getUsageCounts", "synced", type],
     getPageMarkdown: (pageId: number) => ["camox", "blocks", "getPageMarkdown", pageId],
   },
   repeatableItems: {

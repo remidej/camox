@@ -198,6 +198,15 @@ export const blockQueries = {
     queryKey: queryKeys.blocks.getPagesUsing(type),
   }),
 
+  // A Synced Block's shared content, or null when it has none yet.
+  getSyncedContent: (projectId: number, type: string) => ({
+    ...getOrpc().blocks.getSyncedContent.queryOptions({
+      input: { projectId, type },
+      staleTime: Infinity,
+    }),
+    queryKey: queryKeys.blocks.getSyncedContent(type),
+  }),
+
   getPageMarkdown: (pageId: number) => ({
     ...getOrpc().blocks.getPageMarkdown.queryOptions({
       input: { pageId },
