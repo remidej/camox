@@ -3,13 +3,17 @@ import {
   CANVAS_PAGE_FIT_PADDING,
   CANVAS_SHELF_MARKER_HEIGHT,
 } from "./canvasCamera";
-import type { CanvasShelfMarker as CanvasShelfMarkerData } from "./canvasItems";
-import { canvasScreenAbove, canvasScreenX } from "./canvasScreenSpace";
+import { CANVAS_SHELF_GAP, type CanvasShelfMarker as CanvasShelfMarkerData } from "./canvasItems";
+import { canvasScreenAbove, canvasScreenLength, canvasScreenX } from "./canvasScreenSpace";
 
 const BAR_SIZE = 24;
 // The bar overhangs its area so the label, flush with the area's start, lines up with Page headers.
 // A collapsed bar is centered on its area's start, so it starts the same distance before it.
 export const CANVAS_SHELF_MARKER_OVERHANG = 12;
+// Zoomed far out, the gap between areas gets narrower than two overhangs. The overhang
+// then shrinks, so neighbouring bars always keep this much space between them.
+const MIN_BAR_SEPARATION = 8;
+const OVERHANG = `clamp(0px, ${canvasScreenLength(CANVAS_SHELF_GAP)} / 2 - ${MIN_BAR_SEPARATION / 2}px, ${CANVAS_SHELF_MARKER_OVERHANG}px)`;
 const LABEL_CLASS_NAME =
   "text-muted-foreground text-xs font-medium tracking-wider whitespace-nowrap uppercase";
 const BAR_CLASS_NAME =
@@ -48,7 +52,7 @@ export function CanvasShelfMarker({
   };
 
   if (marker.collapsed) {
-    const left = `calc(${start} - ${CANVAS_SHELF_MARKER_OVERHANG}px)`;
+    const left = `calc(${start} - ${BAR_SIZE / 2}px)`;
     return (
       <>
         <button
@@ -56,9 +60,9 @@ export function CanvasShelfMarker({
           {...button}
           className={BAR_CLASS_NAME}
           style={{
-            width: BAR_SIZE,
+            width: `calc(${OVERHANG} * 2)`,
             height: `calc(100% - ${y})`,
-            transform: `translate(${left}, ${y})`,
+            transform: `translate(calc(${start} - ${OVERHANG}), ${y})`,
             willChange: "transform",
           }}
         />
@@ -90,8 +94,8 @@ export function CanvasShelfMarker({
         className={BAR_CLASS_NAME}
         style={{
           height: BAR_SIZE,
-          width: `calc(${end} - ${start} + ${CANVAS_SHELF_MARKER_OVERHANG * 2}px)`,
-          transform: `translate(calc(${start} - ${CANVAS_SHELF_MARKER_OVERHANG}px), ${y})`,
+          width: `calc(${end} - ${start} + ${OVERHANG} * 2)`,
+          transform: `translate(calc(${start} - ${OVERHANG}), ${y})`,
           willChange: "transform",
         }}
       />

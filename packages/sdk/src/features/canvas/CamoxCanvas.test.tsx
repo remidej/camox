@@ -311,11 +311,13 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             (header) => worldXs((header as unknown as HTMLElement).style.transform)[0]!,
           );
           const pitches = headerLefts.slice(1).map((left, index) => left - headerLefts[index]!);
+          const [pagePitch, shelfPitch, ...blockPitches] = pitches;
           assert.deepEqual(
-            pitches,
-            pitches.map(() => pitches[0]),
+            blockPitches,
+            blockPitches.map(() => pagePitch),
             "block slots have the width and gap of Page slots",
           );
+          assert.ok(shelfPitch! > pagePitch!, "the Pages and Blocks areas are further apart");
           const blocksBar = host.querySelector(
             '[data-canvas-shelf-marker="shelf:blocks"]',
           ) as unknown as HTMLElement;

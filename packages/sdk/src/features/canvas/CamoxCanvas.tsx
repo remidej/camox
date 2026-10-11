@@ -19,6 +19,7 @@ import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
 import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
 import {
   CANVAS_ITEM_GAP,
+  CANVAS_SHELF_GAP,
   CANVAS_SLOT_WIDTH,
   canvasSnapTargets,
   getCanvasShelves,
@@ -339,7 +340,7 @@ function CanvasWorkspace({
           data-canvas-items
           className="absolute top-0 left-0 flex w-max items-start"
           style={{
-            gap: CANVAS_ITEM_GAP,
+            gap: CANVAS_SHELF_GAP,
             transform: CANVAS_WORLD_TRANSFORM,
             transformOrigin: "0 0",
             willChange: "transform",

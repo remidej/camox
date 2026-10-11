@@ -3,6 +3,8 @@ import type { CanvasSnapTarget } from "./canvasCamera";
 import { CANVAS_DEVICES, type CanvasPage } from "./canvasPages";
 
 export const CANVAS_ITEM_GAP = 240;
+// Wider than the gap between items, so areas read as separate shelves.
+export const CANVAS_SHELF_GAP = CANVAS_ITEM_GAP * 2;
 // Device selection resizes previews, not their reserved space in the canvas.
 export const CANVAS_SLOT_WIDTH = CANVAS_DEVICES.desktop.width;
 
@@ -98,7 +100,7 @@ export function positionCanvasShelves(
     const marker = { key: shelf.key, label: shelf.label, count: shelf.items.length };
     if (collapsed.has(shelf.key) || shelf.items.length === 0) {
       markers.push({ ...marker, start, end: start, collapsed: true });
-      left += CANVAS_ITEM_GAP;
+      left += CANVAS_SHELF_GAP;
       continue;
     }
     for (const item of shelf.items) {
@@ -108,9 +110,10 @@ export function positionCanvasShelves(
     }
     const end = left - CANVAS_ITEM_GAP;
     markers.push({ ...marker, start, end, collapsed: false });
+    left = end + CANVAS_SHELF_GAP;
   }
   // The world-space width of the whole row; the horizontal extent of the Canvas bounds.
-  const width = Math.max(0, left - CANVAS_ITEM_GAP);
+  const width = Math.max(0, left - CANVAS_SHELF_GAP);
   return { items, markers, width };
 }
 
