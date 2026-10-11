@@ -23,7 +23,8 @@ registerHooks({
       source = `export const projectQueries = {getBySlug: () => ({queryKey: ["project"]})};
         export const pageMutations = {update: () => ({})};
         export const pageQueries = {list: () => ({queryKey: ["pages"]})};
-        export const layoutQueries = {list: () => ({queryKey: ["layouts"]})};`;
+        export const layoutQueries = {list: () => ({queryKey: ["layouts"]})};
+        export const blockQueries = {getPagesUsing: (_, type) => ({queryKey: ["blockPages", type]})};`;
     if (specifier.endsWith("/navigation"))
       source = `export const useLocation = () => globalThis.CanvasLocation;
         export const useNavigate = () => globalThis.CanvasNavigate;`;
@@ -74,6 +75,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let snapTargets: { key: string }[] = [];
   let cameraWidth: number | undefined;
   let failingBlock: string | undefined;
+  let blockPages: Record<string, { id: number }[]> = {};
   const flyTo = (key: string) => flights.push(key);
   const keptInView: [number, number][] = [];
   const keepInView = (worldX: number, screenX: number) => keptInView.push([worldX, screenX]);
@@ -145,7 +147,9 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
               ]
             : key === "layouts"
               ? []
-              : { pathname };
+              : key === "blockPages"
+                ? (blockPages[queryKey[1] as string] ?? [])
+                : { pathname };
       return {
         data,
         error,
@@ -279,6 +283,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         const block = (id: string, title: string, layoutOnly = false) => ({
           _internal: { id, title, description: `${title} description`, layoutOnly },
         });
+        blockPages = { hero: [{ id: 1 }, { id: 2 }], tabs: [{ id: 2 }] };
         globals.CanvasBlocks = [
           block("tabs", "Tabs"),
           block("navbar", "Navbar", true),
@@ -330,9 +335,18 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
             "the Blocks area ends with the last block",
           );
           assert.deepEqual(
-            [...host.querySelectorAll("[data-canvas-header]")].map((header) => header.textContent),
-            ["", "", "FAQ", "Hero", "Tabs"],
+            [...host.querySelectorAll("[data-canvas-header] h2 > :first-child")].map(
+              (title) => title.textContent,
+            ),
+            ["FAQ", "Hero", "Tabs"],
             "block headers show the block title",
+          );
+          assert.deepEqual(
+            [...host.querySelectorAll("[data-canvas-block-usage]")].map(
+              (usage) => usage.textContent,
+            ),
+            ["Unused", "Used on 2 pages", "Used on 1 page"],
+            "block headers show how many Pages use the block",
           );
           assert.deepEqual(
             snapTargets.map(({ key }) => key),
@@ -361,6 +375,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         } finally {
           await React.act(async () => root.unmount());
           host.remove();
+          blockPages = {};
           globals.CanvasBlocks = [];
           Object.assign(globalThis, globals);
         }

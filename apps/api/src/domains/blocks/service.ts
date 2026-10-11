@@ -77,6 +77,7 @@ export const getPageMarkdownInput = z.object({
   source: pageSourceSchema.optional().default("draft"),
 });
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
+export const getPagesUsingBlockInput = z.object({ projectId: z.number(), type: z.string() });
 export const createBlockInput = z.object({
   pageId: z.number(),
   type: z.string(),
@@ -1099,6 +1100,27 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
       .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
       .where(or(eq(pages.environmentId, environment.id), eq(layouts.environmentId, environment.id)))
       .groupBy(blocks.type),
+  );
+});
+
+/**
+ * The distinct Pages of the current environment that place a Block Definition.
+ * Unlike usage counts, several placements on one Page count once, and layout
+ * placements don't count, since they aren't on a Page.
+ */
+export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getPagesUsingBlockInput>,
+) {
+  const { projectId, type } = yield* decodeInput(getPagesUsingBlockInput, rawInput);
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  return yield* Effect.promise(() =>
+    ctx.db
+      .selectDistinct({ id: pages.id, nickname: pages.nickname, fullPath: pages.fullPath })
+      .from(blocks)
+      .innerJoin(pages, eq(blocks.pageId, pages.id))
+      .where(and(eq(blocks.type, type), eq(pages.environmentId, environment.id)))
+      .orderBy(pages.fullPath),
   );
 });
 

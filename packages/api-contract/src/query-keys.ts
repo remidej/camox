@@ -76,6 +76,8 @@ export const queryKeys = {
     get: (id: number, source?: ReadSource) =>
       source ? ["camox", "blocks", "get", id, source] : ["camox", "blocks", "get", id],
     getUsageCounts: ["camox", "blocks", "getUsageCounts"],
+    // Under the usage counts prefix, so every usage invalidation refreshes it too.
+    getPagesUsing: (type: string) => ["camox", "blocks", "getUsageCounts", "pages", type],
     getPageMarkdown: (pageId: number) => ["camox", "blocks", "getPageMarkdown", pageId],
   },
   repeatableItems: {
