@@ -16,3 +16,8 @@ Pages, layouts, synced blocks, and collection records used to publish independen
 - Files belong to drafts like any other content.
 - Agents work only in Live's definitions, never changing them. Definition changes happen in development drafts, which replace development environments and stay out of the production studio. A development draft can only be published once a release has given Live the same definitions, the same rule push follows today.
 - The first version doesn't merge. When a draft changed something that Live also changed since, publishing overwrites Live's version after the editor confirms. Field-level merging and AI-assisted resolution can come later without changing the model.
+
+## Research
+
+- [Prior art for parallel content changes](../research/prior-art-parallel-content-changes.md): how Sanity, Contentful, Storyblok and Prismic run parallel sets of changes, which they call releases.
+- [D1 limits for publishing](../research/d1-limits-for-publishing.md): whether a draft can be applied to Live atomically on Cloudflare D1.
