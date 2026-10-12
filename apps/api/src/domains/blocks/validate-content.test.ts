@@ -385,4 +385,22 @@ describe("validateContent", () => {
       expect(() => Effect.runSync(validateContent(value, composed))).toThrow();
     }
   });
+
+  it("reports the field inside an item that may reference a stored item, not the whole item", () => {
+    const error = errorFor({ items: [{ title: "x" }] }, schema, { allowItemReferences: true });
+    expect(error.data.field).toBe("content.items[0].title");
+    expect(error.data.errors.map((entry) => entry.message)).not.toContainEqual(
+      expect.stringMatching(/"(then|else)" schema/),
+    );
+  });
+
+  it("explains oversized artifact sources, but no other strings, in terms of esm.sh imports", () => {
+    const artifact = { type: "string", fieldType: "Artifact", maxLength: 2048, size: "fill" };
+    const artifacts = { properties: { visual: artifact, title: string } };
+    const tooLarge = errorFor({ visual: "x".repeat(2049) }, artifacts).data.errors[0].message;
+    expect(tooLarge).toMatch(/2 KB/);
+    expect(tooLarge).toMatch(/esm\.sh/);
+    const tooLong = errorFor({ title: "too many characters" }, artifacts).data.errors[0].message;
+    expect(tooLong).not.toMatch(/esm\.sh|Artifact/);
+  });
 });

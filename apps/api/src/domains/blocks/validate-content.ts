@@ -1,5 +1,5 @@
 import { isQueryBacked } from "@camox/api-contract";
-import { Validator, type Schema } from "@cfworker/json-schema";
+import { Validator, type OutputUnit, type Schema } from "@cfworker/json-schema";
 import { Effect } from "effect";
 
 import { InvalidInputError } from "../../lib/errors";
@@ -82,18 +82,58 @@ export const validateContent = Effect.fn("validateContent")(function* (
   const result = new Validator(adapted, "2019-09", false).validate(project(value, source));
   if (result.valid) return;
 
-  // Applicators emit summary errors before their actionable leaf errors.
-  const errors = result.errors.filter(
-    (error) =>
-      !result.errors.some((other) => other.keywordLocation.startsWith(`${error.keywordLocation}/`)),
-  );
+  // Applicators emit summary errors before their actionable leaf errors. An `if` summary's
+  // leaves live under its sibling `then` or `else` keyword.
+  const leafPrefixes = (error: OutputUnit) =>
+    error.keyword === "if"
+      ? ["then", "else"].map((branch) => error.keywordLocation.replace(/if$/, `${branch}/`))
+      : [`${error.keywordLocation}/`];
+  const errors = result.errors.filter((error) => {
+    const prefixes = leafPrefixes(error);
+    return !result.errors.some((other) =>
+      prefixes.some((prefix) => other.keywordLocation.startsWith(prefix)),
+    );
+  });
   return yield* invalid(
     errors.map((error) => ({
       path: instancePath(path, error.instanceLocation, value),
-      message: error.error,
+      message: errorMessage(error, adapted),
     })),
   );
 });
+
+/** Oversized artifact sources get advice on how to shrink them instead of a bare length. */
+function errorMessage(error: OutputUnit, schema: ContentSchema | boolean): string {
+  if (error.keyword !== "maxLength") return error.error;
+  const owner = schemaAt(schema, error.keywordLocation.split("/").slice(1, -1));
+  if (typeof owner !== "object" || owner.fieldType !== "Artifact") return error.error;
+  const maxLength = Number(owner.maxLength);
+  const limit = maxLength % 1024 === 0 ? `${maxLength / 1024} KB` : `${maxLength} characters`;
+  return (
+    `Artifact source is larger than ${limit}. ` +
+    "Import libraries from esm.sh (with exact pinned versions) instead of inlining them."
+  );
+}
+
+/** Follows a keyword location through the validated schema, including local `$ref`s. */
+function schemaAt(
+  root: ContentSchema | boolean,
+  segments: string[],
+): ContentSchema | boolean | undefined {
+  let current: unknown = root;
+  for (const segment of segments) {
+    if (!isObject(current) && !Array.isArray(current)) return undefined;
+    if (segment === "$ref" && isObject(current) && typeof current.$ref === "string") {
+      current = resolveLocalReference(root, current.$ref);
+      continue;
+    }
+    const key = decodeURIComponent(segment).replace(/~1/g, "/").replace(/~0/g, "~");
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "boolean" || isObject(current)
+    ? (current as ContentSchema | boolean)
+    : undefined;
+}
 
 function invalid(errors: { path: string; message: string }[]) {
   const first = errors[0];
