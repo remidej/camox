@@ -6,7 +6,14 @@ export type ArtifactWindow = Window & {
     readonly studio: { editMode: boolean; canvas: boolean } | null;
     readonly data: Record<string, unknown>;
     onData(callback: (data: Record<string, unknown>) => void): () => void;
+    readonly theme: ArtifactTheme;
+    onTheme(callback: (theme: ArtifactTheme) => void): () => void;
   };
+};
+
+type ArtifactTheme = {
+  tokens: Record<string, string>;
+  colors: Record<string, { r: number; g: number; b: number }>;
 };
 
 /**
@@ -20,6 +27,7 @@ export function createArtifactPage() {
   const studio = new Window();
   Object.assign(globalThis, { window: studio, document: studio.document });
   const page = new Window();
+  inheritCustomProperties(page);
 
   return {
     page,
@@ -48,5 +56,24 @@ export function createArtifactPage() {
         await new Promise((resolve) => setTimeout(resolve));
       }
     },
+  };
+}
+
+/**
+ * happy-dom computes custom properties only on the elements that declare them, while browsers
+ * inherit them. Emulate inheritance in `getComputedStyle`, so a `.dark` section's tokens reach
+ * the frames inside it as they do in a browser.
+ */
+function inheritCustomProperties(window: Window) {
+  const getComputedStyle = window.getComputedStyle.bind(window);
+  window.getComputedStyle = (element) => {
+    const style = getComputedStyle(element);
+    const getPropertyValue = style.getPropertyValue.bind(style);
+    style.getPropertyValue = (name) => {
+      const value = getPropertyValue(name);
+      if (value || !name.startsWith("--") || !element.parentElement) return value;
+      return window.getComputedStyle(element.parentElement).getPropertyValue(name);
+    };
+    return style;
   };
 }

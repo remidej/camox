@@ -1,4 +1,5 @@
 import type { ArtifactData } from "./artifactData";
+import { observeArtifactTheme, readArtifactTheme } from "./artifactTheme";
 
 /** The studio context an artifact sees as `camox.studio`; `null` on the website. */
 export type ArtifactStudio = { editMode: boolean; canvas: boolean };
@@ -53,6 +54,14 @@ export function connectArtifactHost(
   };
   const sendStudio = () => post("studio", { studio: state.studio });
   const sendData = () => post("data", { data: state.data ?? {} });
+  let sentTheme: string | null = null;
+  const sendTheme = (force: boolean) => {
+    const tokens = readArtifactTheme(frame);
+    const serialized = JSON.stringify(tokens);
+    if (!force && serialized === sentTheme) return;
+    sentTheme = serialized;
+    post("theme", { tokens });
+  };
 
   const onMessage = (event: MessageEvent) => {
     const message: unknown = event.data;
@@ -68,10 +77,14 @@ export function connectArtifactHost(
       sendStudio();
       // The data may have changed since the `srcDoc` was rendered; the runtime skips equal data.
       sendData();
+      sendTheme(true);
     }
   };
 
   page.addEventListener("message", onMessage);
+  const stopObservingTheme = observeArtifactTheme(frame, () => {
+    if (ready) sendTheme(false);
+  });
   // The runtime may already be running, if the frame loaded before the host connected.
   post("connect");
 
@@ -85,6 +98,7 @@ export function connectArtifactHost(
     },
     disconnect() {
       page.removeEventListener("message", onMessage);
+      stopObservingTheme();
     },
   };
 }

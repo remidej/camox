@@ -5,6 +5,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import { useLocation } from "../features/navigation/navigation";
+import { useOptionalCamoxApp } from "../features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "../lib/auth";
 import {
   isItemMarker,
@@ -273,8 +274,9 @@ function createViewBlock(options: EditableOptions) {
     const data = useArtifactData(name);
     const ref = useArtifactHost(React.use(ArtifactStudioContext), data);
     const initialData = useInitialArtifactData(value, data);
+    const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
     if (!isArtifactSource(value)) return null;
-    return children({ ...artifactFrameProps(value, initialData), ref });
+    return children({ ...artifactFrameProps(value, { fontLinks, data: initialData }), ref });
   };
 
   /** An artifact's Artifact Data, from its block's or item's content and settings. */

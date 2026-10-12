@@ -102,7 +102,7 @@ async function loadWithData(data: Record<string, unknown>) {
   const harness = createArtifactPage();
   const frame = harness.addFrame();
   const host = connectArtifactHost(frame, { studio: editing, data });
-  const artifact = harness.load(frame, artifactFrameProps(source, data).srcDoc);
+  const artifact = harness.load(frame, artifactFrameProps(source, { data }).srcDoc);
   // Subscribed as the source loads, before the frame connects.
   const seen: unknown[] = [];
   const unsubscribe = artifact.camox.onData((next) => seen.push(JSON.parse(JSON.stringify(next))));
@@ -136,7 +136,10 @@ void test("an unsubscribed onData callback no longer runs", async () => {
 void test("Artifact Data that changed before the frame connected reaches the artifact", async () => {
   const harness = createArtifactPage();
   const frame = harness.addFrame();
-  const artifact = harness.load(frame, artifactFrameProps(source, { label: "Old" }).srcDoc);
+  const artifact = harness.load(
+    frame,
+    artifactFrameProps(source, { data: { label: "Old" } }).srcDoc,
+  );
   connectArtifactHost(frame, { studio: null, data: { label: "New" } });
   await harness.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(artifact.camox.data)), { label: "New" });

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cpSync, rmSync, watch } from "node:fs";
+import { cpSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,6 +41,37 @@ function syncOne(srcRel, destRel) {
       return !EXCLUDED_PATHS.has(rel);
     },
   });
+  resolveCatalogVersions(path.join(dest, "package.json"));
+}
+
+// Reads the default `catalog:` map from pnpm-workspace.yaml. Only flat
+// `name: range` entries are supported, which is all the workspace uses.
+function readCatalog() {
+  const lines = readFileSync(path.join(REPO_ROOT, "pnpm-workspace.yaml"), "utf-8").split("\n");
+  const start = lines.indexOf("catalog:");
+  if (start === -1) return {};
+  const catalog = {};
+  for (const line of lines.slice(start + 1)) {
+    const match = /^ {2}("?)([^"]+)\1:\s*(.+)$/.exec(line);
+    if (!match) break;
+    catalog[match[2]] = match[3].trim();
+  }
+  return catalog;
+}
+
+// Scaffolded projects live outside this workspace, so `catalog:` ranges must be
+// replaced with the real ones before the template ships.
+function resolveCatalogVersions(pkgPath) {
+  const catalog = readCatalog();
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+  for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
+    for (const [name, range] of Object.entries(pkg[field] ?? {})) {
+      if (range !== "catalog:") continue;
+      if (!catalog[name]) throw new Error(`[sync-templates] No catalog entry for "${name}".`);
+      pkg[field][name] = catalog[name];
+    }
+  }
+  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
 function syncAll() {

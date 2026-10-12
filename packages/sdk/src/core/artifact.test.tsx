@@ -4,17 +4,22 @@ import { test } from "node:test";
 import * as React from "react";
 
 import { NavigationProvider } from "../features/navigation/navigation";
+import { CamoxAppProvider } from "../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
 import {
   chartBlock,
-  mountArtifactFrames,
-  renderArtifactFrames,
   chartData,
   chartDataSeen,
+  expectedFontLinks,
+  fontDocument,
+  mountArtifactFrames,
+  renderArtifactFrames,
   renderChartFrames,
+  srcDocHead,
 } from "./artifact.fixtures";
 import { createArtifactPage, type ArtifactWindow } from "./artifactProtocol.fixtures";
+import { createApp } from "./createApp";
 import { createBlock } from "./createBlock";
 import { ArtifactStudioContext } from "./hooks/useArtifactHost";
 import type { ArtifactStudio } from "./lib/artifactHost";
@@ -190,4 +195,47 @@ void test("an artifact's definition describes its Artifact Data as JSON Schema",
     required: ["label", "highlighted"],
     additionalProperties: false,
   });
+});
+
+void test("an artifact loads the document's font links, and no other head entries", () => {
+  const app = createApp({ blocks: [], document: fontDocument });
+  const frames = renderArtifactFrames(
+    { visual: source, slides: [{ scene: "<title>Scene</title>" }] },
+    ({ children }) => (
+      <Website>
+        <CamoxAppProvider app={app}>{children}</CamoxAppProvider>
+      </Website>
+    ),
+  );
+  assert.equal(frames.length, 2);
+  for (const frame of frames) {
+    const head = srcDocHead(frame);
+    assert.deepEqual(head.links, expectedFontLinks);
+    assert.equal(head.otherEntries, 0);
+    assert.notEqual(head.title, "Website");
+  }
+});
+
+void test("an artifact's document holds the runtime, font links, Artifact Data, then its source", () => {
+  const app = createApp({ blocks: [], document: fontDocument });
+  const [frame] = renderChartFrames(chartData, ({ children }) => (
+    <Website>
+      <CamoxAppProvider app={app}>{children}</CamoxAppProvider>
+    </Website>
+  ));
+  const srcDoc = frame.getAttribute("srcdoc") ?? "";
+  const positions = [
+    srcDoc.indexOf("<script>"),
+    srcDoc.indexOf("<link"),
+    srcDoc.indexOf('<script type="application/json" data-camox-data>'),
+    srcDoc.indexOf(chartData.content.chart),
+  ];
+  assert.ok(positions.every((position) => position >= 0));
+  assert.deepEqual(
+    positions,
+    [...positions].sort((a, b) => a - b),
+  );
+  assert.deepEqual(srcDocHead(frame).links, expectedFontLinks);
+  const artifact = createArtifactPage().load(createArtifactPage().addFrame(), srcDoc);
+  assert.deepEqual(dataOf(artifact), chartDataSeen);
 });
