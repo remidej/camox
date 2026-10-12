@@ -14,7 +14,7 @@ import {
   bumpContentUpdatedAt,
   bumpContentUpdatedAtForBlocks,
 } from "../../lib/bump-content-updated-at";
-import { contentToMarkdown } from "../../lib/content-markdown";
+import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import { decodeInput, InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
@@ -47,6 +47,7 @@ import {
 } from "../collections/references";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
+import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
 import { type FieldSchema } from "./normalize-content";
@@ -418,7 +419,7 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
       ? contentToMarkdown(contentSchema.toMarkdown, contentSchema.properties, content, {
           settings: block.settings as Record<string, unknown> | null | undefined,
         })
-      : JSON.stringify(content);
+      : JSON.stringify(stripArtifactSources(contentSchema?.properties, content));
 
   const summary = yield* generateObjectSummary(
     apiKey,
@@ -1042,7 +1043,11 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const renderBlock = (block: RenderableBlock, items: RenderableItem[]) => {
     const schema = schemaByType.get(block.type);
-    if (!schema?.toMarkdown) return JSON.stringify(block.content);
+    if (!schema?.toMarkdown) {
+      return JSON.stringify(
+        stripArtifactSources(schema?.properties, block.content as Record<string, unknown>),
+      );
+    }
     const content = { ...(block.content as Record<string, unknown>) };
     for (const fieldName of new Set(items.map((i) => i.fieldName))) {
       content[fieldName] = items.filter((i) => i.fieldName === fieldName);
@@ -1296,9 +1301,10 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     ],
   });
 
-  return (yield* Effect.promise(() =>
+  const created = (yield* Effect.promise(() =>
     ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get(),
   ))!;
+  return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 });
 
 /** CLI/AI edits may submit both fields; reject either invalid patch before writing either. */
@@ -1311,18 +1317,18 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
   if (input.content === undefined && input.settings === undefined) {
     return yield* new InvalidInputError({ message: "Provide content or settings" });
   }
+  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id);
   if (input.settings !== undefined) {
-    const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id);
     yield* validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
   }
-  let result: unknown;
+  let result: object = {};
   if (input.content !== undefined) {
     result = yield* updateBlockContent(ctx, { id: input.id, content: input.content });
   }
   if (input.settings !== undefined) {
     result = yield* updateBlockSettings(ctx, { id: input.id, settings: input.settings });
   }
-  return result;
+  return withWarnings(result, artifactWarnings(schemas?.contentSchema, input.content));
 });
 
 export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (

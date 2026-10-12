@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@camox/ui/switch";
 import { useForm } from "@tanstack/react-form";
 import {
+  AppWindow,
   Link2 as Link2Icon,
   Images as ImagesIcon,
   ImageIcon,
@@ -17,6 +18,7 @@ import {
 import * as React from "react";
 
 import { SidebarLexicalEditor } from "@/core/components/lexical/SidebarLexicalEditor";
+import { artifactTitle, isArtifactSource } from "@/core/lib/artifact";
 import type { ReferenceQuery } from "@/core/lib/contentType";
 import type { FieldType } from "@/core/lib/fieldTypes";
 import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
@@ -314,6 +316,42 @@ const ItemFieldsEditor = ({
                       }
                 }
               />
+            );
+          }
+          if (field.fieldType === "Artifact") {
+            const value = data[field.name];
+            // Only the title: the source is agent-managed and never shown or edited here.
+            const title = isArtifactSource(value) ? artifactTitle(value) : null;
+            if (!selectedFieldName) {
+              return (
+                <DrillRow
+                  key={field.name}
+                  label={label}
+                  preview={title ?? "Empty"}
+                  Icon={AppWindow}
+                  onClick={() => selectField(field.name, field.fieldType)}
+                  hover={{ variant: "field", fieldId }}
+                  postToIframe={postToIframe}
+                />
+              );
+            }
+            return (
+              <div
+                key={field.name}
+                className="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
+                onMouseEnter={() => postToIframe({ type: "CAMOX_HOVER_FIELD", fieldId })}
+                onMouseLeave={() => postToIframe({ type: "CAMOX_HOVER_FIELD_END", fieldId })}
+              >
+                <AppWindow className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0" />
+                {title === null ? (
+                  <p className="text-muted-foreground">Empty</p>
+                ) : (
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="truncate font-medium">{title}</p>
+                    <p className="text-muted-foreground text-xs">Created and edited by agents</p>
+                  </div>
+                )}
+              </div>
             );
           }
           if (

@@ -1,3 +1,5 @@
+import { artifactTitle } from "@camox/api-contract";
+
 import type { ResolvedReferences } from "../domains/collections/references";
 import { transformImageUrl } from "./image-transform";
 import { lexicalStateToPlainText } from "./lexical-state";
@@ -140,6 +142,49 @@ function toListItem(markdown: string): string {
   return [`- ${lines[0]}`, ...lines.slice(1).map((l) => `  ${l}`)].join("\n");
 }
 
+/** An artifact's Markdown Representation is its title; its source stays opaque (ADR 0002). */
+function artifactMarkdown(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  return artifactTitle(value);
+}
+
+/**
+ * `content` with every artifact source, including those in repeatable items, replaced by its
+ * Markdown Representation. Fallbacks that serialize raw content for an LLM use it so that
+ * artifact sources are never sent.
+ */
+export function stripArtifactSources(
+  schemaProperties: Record<string, any> | null | undefined,
+  content: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!schemaProperties) return content;
+  const result = { ...content };
+  for (const [key, schema] of Object.entries(schemaProperties)) {
+    const value = content[key];
+    if (schema?.fieldType === "Artifact") {
+      if (typeof value === "string") result[key] = artifactMarkdown(value) ?? "";
+      continue;
+    }
+    if (schema?.fieldType !== "Repeater" || !Array.isArray(value)) continue;
+    const itemProperties = schema.items?.properties;
+    result[key] = value.map((item) => stripItemArtifactSources(itemProperties, item));
+  }
+  return result;
+}
+
+function stripItemArtifactSources(itemProperties: Record<string, any> | undefined, item: unknown) {
+  if (!item || typeof item !== "object") return item;
+  // DB-backed items hold their fields under `content`; inline items are the content itself.
+  const record = item as Record<string, unknown>;
+  if (record.content && typeof record.content === "object" && !Array.isArray(record.content)) {
+    return {
+      ...record,
+      content: stripArtifactSources(itemProperties, record.content as Record<string, unknown>),
+    };
+  }
+  return stripArtifactSources(itemProperties, record);
+}
+
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -200,6 +245,8 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
     const url = asString(value);
     return url || undefined;
   }
+
+  if (fieldType === "Artifact") return artifactMarkdown(value);
 
   if (fieldType === "ImageList" || fieldType === "FileList") {
     if (!Array.isArray(value)) return undefined;
