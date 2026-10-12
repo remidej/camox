@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 
 import {
+  CANVAS_WHEEL_ZOOM_RATE,
   constrainCanvasCamera,
   fitCanvas,
   fitCanvasPage,
@@ -441,7 +442,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     const margin = 10;
     const outside = release + 40;
     // Wheel deltas that move the zoom by a log-scale distance.
-    const zoomDelta = (distance: number) => distance / 0.008;
+    const zoomDelta = (distance: number) => distance / CANVAS_WHEEL_ZOOM_RATE;
 
     for (const shiftKey of [false, true]) {
       for (const direction of [-1, 1]) {
@@ -611,7 +612,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     flush();
     assert.deepEqual(selections, ["page"]);
     assert.equal(read().x, fitted.x, "snap entry centers horizontally");
-    assert.equal(read().y, beforeSnap.y, "entry retains vertical reading position");
+    assert.ok(Math.abs(read().y - beforeSnap.y) < 1e-8, "entry retains vertical reading position");
     const beforeZoom = read();
     const checkAnchor = () => {
       const next = read();
@@ -729,7 +730,9 @@ void test("page-fit gestures capture horizontal detents during input and retain 
       moveTo(centerAt(read().scale) + 600);
       time += 200;
       const requestedScale = fitted.scale * Math.exp(offset);
-      wheel(0, -Math.log(requestedScale / read().scale) / 0.008, { ctrlKey: true });
+      wheel(0, -Math.log(requestedScale / read().scale) / CANVAS_WHEEL_ZOOM_RATE, {
+        ctrlKey: true,
+      });
       flush();
       assert.ok(Math.abs(read().scale - requestedScale) < 1e-8);
       const scale = read().scale;
@@ -771,6 +774,146 @@ void test("page-fit gestures capture horizontal detents during input and retain 
         "zoom keeps its vertical anchor",
       );
     }
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("snapping keeps items clear of the sidebars, and zooming out past it deselects", async () => {
+  const dom = new Window({ url: "http://localhost/about" });
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let resize = () => {};
+  let sequence = 0;
+  let time = 1000;
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  // Flights arrive at once, so each step reads its destination.
+  Object.defineProperty(dom, "matchMedia", { value: () => ({ matches: true }) });
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 1600, height: 900 };
+  // Uneven, so the left and right sidebars can't be mistaken for each other.
+  const insets = { left: 250, right: 300 };
+  const pages = [
+    { key: "first", left: 0, width: 1366 },
+    { key: "middle", left: 1606, width: 1366 },
+    { key: "last", left: 3212, width: 1366 },
+  ];
+  const content = { width: 4578, height: 2000 };
+  let selected = "middle";
+  let deselections = 0;
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("sidebar-insets", pages[1], {
+      targets: pages,
+      onSelect: () => {},
+      selected,
+      onDeselect: () => deselections++,
+      insets,
+    });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => content.width },
+      offsetHeight: { get: () => content.height },
+    });
+    resize();
+    const read = () => ({
+      x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
+    });
+    const flush = () => {
+      for (let count = 0; callbacks.size && count < 100; count++) {
+        const batch = [...callbacks.values()];
+        callbacks.clear();
+        batch.forEach((callback) => callback(time));
+      }
+      assert.equal(callbacks.size, 0);
+    };
+    const wheel = (dx: number, dy: number, ctrlKey = false) => {
+      const event = new dom.MouseEvent("wheel", { clientX: 800, clientY: 300, ctrlKey });
+      time += 16;
+      Object.defineProperties(event, {
+        deltaX: { value: dx },
+        deltaY: { value: dy },
+        deltaMode: { value: 0 },
+        timeStamp: { value: time },
+      });
+      viewport.dispatchEvent(event);
+      flush();
+    };
+    const assertBetweenSidebars = (page: (typeof pages)[number], message: string) => {
+      const { x, scale } = read();
+      const left = x + page.left * scale;
+      const right = left + page.width * scale;
+      assert.ok(left > insets.left && right < size.width - insets.right, message);
+      const center = (insets.left + size.width - insets.right) / 2;
+      assert.ok(Math.abs((left + right) / 2 - center) < 1e-6, `${message}, centered`);
+    };
+
+    assertBetweenSidebars(pages[1]!, "the selected item opens between the sidebars");
+    controls.flyTo("first");
+    assertBetweenSidebars(pages[0]!, "the first item pans out from under the left sidebar");
+    controls.flyTo("last");
+    assertBetweenSidebars(pages[2]!, "the last item pans out from under the right sidebar");
+    controls.flyTo("middle");
+    wheel(40, 0);
+    assertBetweenSidebars(pages[1]!, "a horizontal detent centers between the sidebars");
+
+    const pageScale = read().scale;
+    wheel(0, -100, true);
+    assert.ok(read().scale > pageScale);
+    assert.equal(deselections, 0, "zooming in from a page fit keeps the selection");
+    wheel(0, 200, true);
+    assert.ok(read().scale < pageScale);
+    assert.equal(deselections, 1, "zooming out past the page fit leaves the selection");
+    wheel(0, 50, true);
+    assert.equal(deselections, 1, "zooming out further doesn't leave it again");
+
+    selected = "";
+    await act(async () => root.render(<Fixture />));
+    wheel(0, -1000, true);
+    wheel(0, 1000, true);
+    assert.equal(deselections, 1, "without a selection, there is nothing to leave");
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();

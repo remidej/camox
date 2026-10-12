@@ -32,12 +32,12 @@ export function EditablePageExperience({
         ) : (
           <CamoxPreview
             derived={input.derived}
-            catalogBlock={input.catalogBlock}
+            canvasOnly={input.canvasOnly}
             source={input.source}
             runtimeBasePath={input.runtimeBasePath}
           >
-            {/* A Block Catalog block only shows on the Canvas. */}
-            {input.catalogBlock ? null : <EditablePageContent />}
+            {/* A Canvas-only location has no page content. */}
+            {input.canvasOnly ? null : <EditablePageContent />}
           </CamoxPreview>
         )}
       </CompleteBlockEditingRuntimeProvider>

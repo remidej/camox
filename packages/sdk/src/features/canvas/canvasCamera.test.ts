@@ -37,6 +37,23 @@ void test("snap candidates require 80% horizontal visibility and choose the near
   assert.equal(findCanvasSnapTarget({ x: 0, y: 0, scale: 4 }, viewport, pages), undefined);
 });
 
+void test("snap candidates are measured between the sidebars", () => {
+  const viewport = { width: 900, height: 800 };
+  const insets = { left: 200, right: 100 };
+  const page = { key: "page", left: 0, width: 300 };
+  const camera = (x: number) => ({ x, y: 0, scale: 1 });
+  // Fully on screen, but more than 20% under a sidebar.
+  assert.equal(findCanvasSnapTarget(camera(139), viewport, [page]), page);
+  assert.equal(findCanvasSnapTarget(camera(139), viewport, [page], insets), undefined);
+  assert.equal(findCanvasSnapTarget(camera(140), viewport, [page], insets), page);
+  assert.equal(findCanvasSnapTarget(camera(561), viewport, [page], insets), undefined);
+  assert.equal(findCanvasSnapTarget(camera(560), viewport, [page], insets), page);
+  const pages = [page, { key: "next", left: 330, width: 300 }];
+  // The nearest to the center between the sidebars, not the viewport's center.
+  assert.equal(findCanvasSnapTarget(camera(170), viewport, pages), pages[0]);
+  assert.equal(findCanvasSnapTarget(camera(170), viewport, pages, insets), pages[1]);
+});
+
 void test("page zoom detent captures from either side with a wider release band", () => {
   const at = (pageScale: number, distance: number) => pageScale * Math.exp(distance);
   for (const pageScale of [0.3, 0.8, 1.5]) {
