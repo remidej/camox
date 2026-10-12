@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import type { Block } from "../../core/createBlock";
 import { BlockEditingRuntimeProvider } from "../../core/editing/BlockEditingRuntime";
+import { ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import { blockQueries } from "../../lib/queries";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
@@ -15,6 +16,8 @@ import { CanvasFrameProviders, preventLinkNavigation, useCanvasFrame } from "./u
 const MOUNT_MARGIN = "100%";
 /** World-space height reserved for a frame until it mounts and measures its block. */
 const PLACEHOLDER_HEIGHT = 400;
+/** Block Catalog blocks render as on the website, but on the Canvas and never editable. */
+const CATALOG_ARTIFACT_STUDIO = { editMode: false, canvas: true };
 
 export interface CanvasBlockFrameProps {
   block: Block;
@@ -108,22 +111,29 @@ function BlockFrame({
           // The Canvas runs inside the editing runtime; catalog blocks render
           // as on the live website instead, with no editing affordances.
           <BlockEditingRuntimeProvider runtime={null}>
-            <CanvasFrameProviders pathname="/" href={href} mount={mount} iframe={iframeRef.current}>
-              <div
-                style={{ display: "flow-root" }}
-                onPointerDownCapture={onSelect}
-                onFocusCapture={onSelect}
-                onClick={preventLinkNavigation}
+            <ArtifactStudioContext value={CATALOG_ARTIFACT_STUDIO}>
+              <CanvasFrameProviders
+                pathname="/"
+                href={href}
+                mount={mount}
+                iframe={iframeRef.current}
               >
-                <React.Suspense fallback={<div role="status">Loading block…</div>}>
-                  {synced ? (
-                    <SyncedBlockContent block={block} projectId={projectId} />
-                  ) : (
-                    <DefaultBlockContent block={block} />
-                  )}
-                </React.Suspense>
-              </div>
-            </CanvasFrameProviders>
+                <div
+                  style={{ display: "flow-root" }}
+                  onPointerDownCapture={onSelect}
+                  onFocusCapture={onSelect}
+                  onClick={preventLinkNavigation}
+                >
+                  <React.Suspense fallback={<div role="status">Loading block…</div>}>
+                    {synced ? (
+                      <SyncedBlockContent block={block} projectId={projectId} />
+                    ) : (
+                      <DefaultBlockContent block={block} />
+                    )}
+                  </React.Suspense>
+                </div>
+              </CanvasFrameProviders>
+            </ArtifactStudioContext>
           </BlockEditingRuntimeProvider>,
           mount,
         )}

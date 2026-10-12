@@ -14,6 +14,7 @@ import {
 } from "../lib/normalized-data";
 import { type Page, viewPageQueries, viewProjectQueries } from "../lib/view-queries";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
+import { ArtifactStudioContext, useArtifactHost } from "./hooks/useArtifactHost";
 import { artifactFrameProps, isArtifactSource } from "./lib/artifact";
 import {
   resolveBlockFields,
@@ -264,8 +265,9 @@ function createViewBlock(options: EditableOptions) {
       return editingRuntime.renderPrimitive(options, "Artifact", { name, children });
     }
     const value = useValue(name);
+    const ref = useArtifactHost(React.use(ArtifactStudioContext));
     if (!isArtifactSource(value)) return null;
-    return children(artifactFrameProps(value));
+    return children({ ...artifactFrameProps(value), ref });
   };
 
   const Link = ({ name, children }: any) => {

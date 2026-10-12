@@ -24,6 +24,7 @@ import {
   collectionQueries,
 } from "@/lib/queries";
 
+import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
 import { useFrame } from "../../features/preview/components/Frame";
 import { overlayFieldId, recordPlacementId } from "../../features/preview/overlayMessages";
 import {
@@ -46,6 +47,7 @@ import {
   resolveAssetValue,
 } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
+import { useArtifactHost } from "../hooks/useArtifactHost";
 import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
@@ -1205,9 +1207,13 @@ export function createEditableBlock<
       );
     };
 
-    const frame = children(
-      isArtifactSource(value) ? artifactFrameProps(value) : artifactPlaceholderProps(),
-    );
+    const canvas = React.use(CanvasWorkspaceContext) !== null;
+    const ref = useArtifactHost({ editMode: isContentEditable, canvas });
+
+    const frame = children({
+      ...(isArtifactSource(value) ? artifactFrameProps(value) : artifactPlaceholderProps()),
+      ref,
+    });
     return (
       <div
         style={{ position: "relative", height: "100%" }}

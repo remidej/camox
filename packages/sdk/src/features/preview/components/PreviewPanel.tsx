@@ -5,6 +5,7 @@ import * as React from "react";
 import { checkIfInputFocused, cn } from "@/lib/utils";
 
 import { BlockEditingRuntimeProvider } from "../../../core/editing/BlockEditingRuntime";
+import { ArtifactStudioContext } from "../../../core/hooks/useArtifactHost";
 import { actionsStore } from "../../provider/actionsStore";
 import { SharedChromeContext } from "../../runtime/SharedChromeContext";
 import { PreviewEditingOwnerContext } from "../previewSelection";
@@ -140,6 +141,9 @@ const KeyDownForwarder = () => {
  * PreviewPanel
  * -----------------------------------------------------------------------------------------------*/
 
+/** The preview's read-only tree is never editable, whatever the Edit Mode toggle says. */
+const READ_ONLY_ARTIFACT_STUDIO = { editMode: false, canvas: false };
+
 const viewportClassName: Record<Exclude<ViewportMode, "full">, string> = {
   tablet: "h-[1024px] w-[768px] max-h-full max-w-full",
   mobile: "h-175 w-[393px] max-h-full max-w-full",
@@ -206,7 +210,9 @@ const PreviewPanel = ({
   // Keep the same boundary from the initial render so mode changes never enable
   // editing in this tree or remount the retained page while Canvas prepares.
   const readOnlyChildren = (
-    <BlockEditingRuntimeProvider runtime={null}>{children}</BlockEditingRuntimeProvider>
+    <BlockEditingRuntimeProvider runtime={null}>
+      <ArtifactStudioContext value={READ_ONLY_ARTIFACT_STUDIO}>{children}</ArtifactStudioContext>
+    </BlockEditingRuntimeProvider>
   );
 
   if (isMobileExperience) {
