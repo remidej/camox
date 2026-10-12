@@ -1,10 +1,15 @@
+import type { ArtifactData } from "./artifactData";
 import { observeArtifactTheme, readArtifactTheme } from "./artifactTheme";
 
 /** The studio context an artifact sees as `camox.studio`; `null` on the website. */
 export type ArtifactStudio = { editMode: boolean; canvas: boolean };
 
 /** What the page shares with an artifact through its runtime. */
-export type ArtifactHostState = { studio: ArtifactStudio | null };
+export type ArtifactHostState = {
+  studio: ArtifactStudio | null;
+  /** The artifact's Artifact Data; the frame's `srcDoc` holds its initial value. */
+  data?: ArtifactData;
+};
 
 /** How a block's artifact field sizes its frame, and what the page does for the artifact. */
 export type ArtifactHostOptions = {
@@ -182,6 +187,7 @@ export function connectArtifactHost(
     frame.contentWindow?.postMessage({ ...payload, camox: type, channel }, "*");
   };
   const sendStudio = () => post("studio", { studio: state.studio });
+  const sendData = () => post("data", { data: state.data ?? {} });
   let sentTheme: string | null = null;
   const sendTheme = (force: boolean) => {
     const tokens = readArtifactTheme(frame);
@@ -211,6 +217,8 @@ export function connectArtifactHost(
       // A new runtime starts unsubscribed, whatever the previous one observed.
       observeViewport(false);
       sendStudio();
+      // The data may have changed since the `srcDoc` was rendered; the runtime skips equal data.
+      sendData();
       sendTheme(true);
       if (options.size === "content") post("measure");
       return;
@@ -240,7 +248,9 @@ export function connectArtifactHost(
     update(next) {
       const previous = state;
       state = next;
-      if (ready && !sameStudio(previous.studio, next.studio)) sendStudio();
+      if (!ready) return;
+      if (!sameStudio(previous.studio, next.studio)) sendStudio();
+      if (JSON.stringify(previous.data) !== JSON.stringify(next.data)) sendData();
     },
     disconnect() {
       page.removeEventListener("message", onMessage);

@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import type { ArtifactData } from "../lib/artifactData";
 import {
   connectArtifactHost,
   type ArtifactHost,
@@ -16,6 +17,8 @@ export const ArtifactStudioContext = React.createContext<ArtifactStudio | null>(
 /** What a block shares with the host of its artifact's frame. */
 export type ArtifactHostInput = {
   studio: ArtifactStudio | null;
+  /** The artifact's Artifact Data, from its sibling fields and settings. */
+  data?: ArtifactData;
   /** The artifact field's `size`. */
   size: "fill" | "content";
   /** The client router's navigation, for internal paths. */
@@ -29,18 +32,24 @@ export type ArtifactHostProps = {
 };
 
 /**
- * Connects an artifact's `<iframe>` to the `camox` runtime inside it: keeps sharing `studio` as it
- * changes, sizes frames sized to their content, and routes the artifact's navigation.
+ * Connects an artifact's `<iframe>` to the `camox` runtime inside it: keeps sharing `studio` and
+ * its Artifact Data as they change, sizes frames sized to their content, and routes the
+ * artifact's navigation.
  */
-export function useArtifactHost({ studio, size, navigate }: ArtifactHostInput): ArtifactHostProps {
+export function useArtifactHost({
+  studio,
+  data = {},
+  size,
+  navigate,
+}: ArtifactHostInput): ArtifactHostProps {
   const host = React.useRef<ArtifactHost | null>(null);
-  const latestStudio = React.useRef(studio);
+  const latest = React.useRef({ studio, data });
   const latestNavigate = React.useRef(navigate);
   const [height, setHeight] = React.useState<number | null>(null);
   React.useEffect(() => {
-    latestStudio.current = studio;
+    latest.current = { studio, data };
     latestNavigate.current = navigate;
-    host.current?.update({ studio });
+    host.current?.update({ studio, data });
   });
   const ref = React.useCallback(
     (frame: HTMLIFrameElement | null) => {
@@ -50,7 +59,7 @@ export function useArtifactHost({ studio, size, navigate }: ArtifactHostInput): 
         onHeight: setHeight,
         navigate: (path) => void latestNavigate.current({ to: path }),
       };
-      const connected = connectArtifactHost(frame, { studio: latestStudio.current }, options);
+      const connected = connectArtifactHost(frame, latest.current, options);
       host.current = connected;
       return () => {
         connected.disconnect();
@@ -61,4 +70,16 @@ export function useArtifactHost({ studio, size, navigate }: ArtifactHostInput): 
   );
   if (size !== "content" || height === null) return { ref };
   return { ref, style: { height } };
+}
+
+/**
+ * The Artifact Data to inline in an artifact's `srcDoc`: the data its source first rendered
+ * with. Later changes reach the artifact through its host, so they never reload the frame; a new
+ * source starts again from the current data.
+ */
+export function useInitialArtifactData(source: unknown, data: ArtifactData): ArtifactData {
+  const [initial, setInitial] = React.useState({ source, data });
+  if (initial.source === source) return initial.data;
+  setInitial({ source, data });
+  return data;
 }

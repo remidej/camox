@@ -49,6 +49,100 @@ createCollection({
   label: "name",
 });
 
+// Artifact Data names sibling content fields and settings.
+createBlock({
+  id: "artifact-data",
+  title: "",
+  description: "",
+  component: () => null,
+  content: (field) => ({
+    headline: field.string({ default: "Headline" }),
+    cta: field.link({ default: { text: "Go", href: "/", newTab: false } }),
+    visual: field.artifact({ size: "fill", data: ["headline", "cta", "accent"] }),
+    items: field.repeater({
+      content: (field) => ({
+        label: field.string({ default: "Label" }),
+        scene: field.artifact({ size: "content", data: ["label", "highlighted"] }),
+      }),
+      settings: (setting) => ({ highlighted: setting.boolean({ default: false }) }),
+      minItems: 1,
+      maxItems: 5,
+      toMarkdown: (c) => [c.label],
+    }),
+  }),
+  settings: (setting) => ({
+    accent: setting.enum({ default: "blue", options: { blue: "Blue", red: "Red" } }),
+  }),
+  toMarkdown: (c) => [c.headline],
+});
+
+createBlock({
+  id: "artifact-data-typo",
+  title: "",
+  description: "",
+  component: () => null,
+  content: (field) => ({
+    headline: field.string({ default: "Headline" }),
+    // @ts-expect-error Artifact Data names only sibling fields and settings.
+    visual: field.artifact({ size: "fill", data: ["headlin"] }),
+  }),
+  toMarkdown: (c) => [c.headline],
+});
+
+createBlock({
+  id: "artifact-data-without-settings",
+  title: "",
+  description: "",
+  component: () => null,
+  content: (field) => ({
+    // @ts-expect-error A block without settings shares no settings.
+    visual: field.artifact({ size: "fill", data: ["accent"] }),
+  }),
+  toMarkdown: () => [],
+});
+
+createBlock({
+  id: "artifact-data-not-shared",
+  title: "",
+  description: "",
+  component: () => null,
+  content: (field) => ({
+    other: field.artifact({ size: "fill" }),
+    // @ts-expect-error Artifact sources are not Artifact Data.
+    visual: field.artifact({ size: "fill", data: ["other"] }),
+    items: field.repeater({
+      content: (field) => ({ label: field.string({ default: "Label" }) }),
+      minItems: 1,
+      maxItems: 5,
+      toMarkdown: (c) => [c.label],
+    }),
+    // @ts-expect-error Repeaters are not Artifact Data.
+    list: field.artifact({ size: "fill", data: ["items"] }),
+  }),
+  toMarkdown: () => [],
+});
+
+createBlock({
+  id: "artifact-data-item-scope",
+  title: "",
+  description: "",
+  component: () => null,
+  content: (field) => ({
+    headline: field.string({ default: "Headline" }),
+    items: field.repeater({
+      content: (field) => ({
+        label: field.string({ default: "Label" }),
+        // @ts-expect-error A repeatable item's artifact sees only the item's fields and settings.
+        scene: field.artifact({ size: "content", data: ["headline"] }),
+      }),
+      minItems: 1,
+      maxItems: 5,
+      toMarkdown: (c) => [c.label],
+    }),
+  }),
+  toMarkdown: (c) => [c.headline],
+});
+
 function TypeCheck() {
   const frame = (
     <block.Artifact name="visual">

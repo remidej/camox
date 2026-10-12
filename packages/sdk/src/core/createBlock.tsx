@@ -15,8 +15,13 @@ import {
 } from "../lib/normalized-data";
 import { type Page, viewPageQueries, viewProjectQueries } from "../lib/view-queries";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
-import { ArtifactStudioContext, useArtifactHost } from "./hooks/useArtifactHost";
+import {
+  ArtifactStudioContext,
+  useArtifactHost,
+  useInitialArtifactData,
+} from "./hooks/useArtifactHost";
 import { artifactFrameProps, isArtifactSource } from "./lib/artifact";
+import { artifactData } from "./lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
@@ -266,15 +271,44 @@ function createViewBlock(options: EditableOptions) {
       return editingRuntime.renderPrimitive(options, "Artifact", { name, children });
     }
     const value = useValue(name);
+    const data = useArtifactData(name);
     const hostProps = useArtifactHost({
       studio: React.use(ArtifactStudioContext),
+      data,
       size: useFieldSchema(name)?.size,
       navigate: useNavigate(),
     });
+    const initialData = useInitialArtifactData(value, data);
     const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
     if (!isArtifactSource(value)) return null;
-    return children({ ...artifactFrameProps(value, { fontLinks }), ...hostProps });
+    return children({
+      ...artifactFrameProps(value, { fontLinks, data: initialData }),
+      ...hostProps,
+    });
   };
+
+  /** An artifact's Artifact Data, from its block's or item's content and settings. */
+  function useArtifactData(name: string) {
+    const block = React.use(Context);
+    const item = React.use(RepeaterContext);
+    const { filesMap } = useNormalizedData();
+    const projectSlug = useProjectSlug();
+    const { data: project } = useQuery(viewProjectQueries.getBySlug(projectSlug));
+    const { data: pages } = useQuery({
+      ...viewPageQueries.list(project?.id ?? 0),
+      enabled: !!project,
+    });
+    const pathname = useLocation({ select: (location) => location.pathname });
+    if (!block) throw new Error("Artifact must be used within a Block Component");
+    const field = item ? item.itemSchema?.[name] : typeboxSchema.properties[name];
+    const owner = item
+      ? { content: item.itemContent, settings: item.itemSettings }
+      : { content: block.content, settings: block.settings };
+    return artifactData(field, owner, {
+      linkHref: (link) => resolveLinkHref(normalizeLinkValue(link), pages as Page[], pathname),
+      asset: (value) => resolveAssetValue(value, filesMap) as Record<string, unknown> | null,
+    });
+  }
 
   const Link = ({ name, children }: any) => {
     const editingRuntime = useBlockEditingRuntime();

@@ -2,6 +2,7 @@ import { artifactTitle } from "@camox/api-contract";
 import type * as React from "react";
 
 import type { CamoxDocument } from "../defineDocument";
+import type { ArtifactData } from "./artifactData";
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
 
 /** The frame attributes of an artifact source. */
@@ -27,6 +28,8 @@ export { artifactTitle };
 export type ArtifactDocumentOptions = {
   /** The website's font links as HTML, from `artifactFontLinks`. */
   fontLinks?: string;
+  /** The initial Artifact Data, which the runtime exposes as `camox.data`. */
+  data?: ArtifactData;
 };
 
 const FONT_LINK_RELS = new Set(["stylesheet", "preconnect"]);
@@ -58,6 +61,15 @@ function renderLink(link: Record<string, unknown>) {
 }
 
 /**
+ * The initial Artifact Data as an inert JSON script, which the runtime reads on first access.
+ * `<` is escaped so no value can close the script early.
+ */
+function artifactDataScript(data: ArtifactData) {
+  const json = JSON.stringify(data).replaceAll("<", "\\u003c");
+  return `<script type="application/json" data-camox-data>${json}</script>`;
+}
+
+/**
  * The stylesheet and preconnect links of the project's document definition, as HTML, so artifacts
  * use the website's fonts from their first render. Nothing else from the document's head: its
  * title, meta, scripts and icons belong to the website, not to the artifact.
@@ -77,17 +89,19 @@ export function artifactFontLinks(document: CamoxDocument | undefined) {
 }
 
 /**
- * The document an artifact frame loads: the `camox` runtime, the website's font links, then the
- * stored source. The doctype comes first so the runtime's script never puts the page in quirks
- * mode; the source's own doctype, if any, is then ignored by the parser.
+ * The document an artifact frame loads: the `camox` runtime, the website's font links, the initial
+ * Artifact Data, then the stored source. The doctype comes first so the runtime's script never
+ * puts the page in quirks mode; the source's own doctype, if any, is then ignored by the parser.
  */
-function artifactDocument(source: string, { fontLinks = "" }: ArtifactDocumentOptions) {
-  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${fontLinks}${source}`;
+function artifactDocument(source: string, { fontLinks = "", data = {} }: ArtifactDocumentOptions) {
+  const head = `<script>${ARTIFACT_RUNTIME}</script>${fontLinks}${artifactDataScript(data)}`;
+  return `<!doctype html>${head}${source}`;
 }
 
 /**
- * The frame props for an artifact source. This getter is the boundary that hides how the source
- * reaches the frame (inline `srcdoc` today), so blocks never depend on it.
+ * The frame props for an artifact source, with its initial Artifact Data and the website's font
+ * links. This getter is the boundary that hides how the source reaches the frame (inline `srcdoc`
+ * today), so blocks never depend on it.
  */
 export function artifactFrameProps(
   source: string,

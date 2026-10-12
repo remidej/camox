@@ -199,6 +199,7 @@ A sandboxed web page stored as content, for bespoke visuals and widgets. Read [A
 
 ```tsx
 field.artifact({ size: "fill", title: "Hero visual" });
+field.artifact({ size: "fill", data: ["headline", "variant"] }); // shares sibling fields and settings
 ```
 
 ### field.repeater

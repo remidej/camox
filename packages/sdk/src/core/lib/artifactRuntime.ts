@@ -11,6 +11,9 @@ import { ARTIFACT_RUNTIME_THEME } from "./artifactRuntimeTheme";
  *   so hosts never need `event.source`, which can't be compared across realms.
  * - host → frame: state messages on the channel, such as `studio`, and `theme` with the page's
  *   tokens at the frame's position, sent once ready and again when they change.
+ * - host → frame: `data` with the latest Artifact Data. The initial data is inlined in the
+ *   `srcDoc` as a `<script type="application/json" data-camox-data>` after the runtime and the
+ *   font links, so it is read lazily, on first access.
  * - runtime → page: `observe-viewport` with `observe`, when the artifact's first `onViewport`
  *   subscription starts or its last one ends. While observed, the host sends `viewport` with
  *   `progress` and `visibleRatio` whenever they change.
@@ -27,6 +30,20 @@ export const ARTIFACT_RUNTIME = `(() => {
   const host = window.parent;
   let channel = null;
   let studio = null;
+  let data;
+  let dataJson;
+  const dataListeners = new Set();
+  const readData = () => {
+    if (dataJson !== undefined) return data;
+    const script = document.querySelector("script[data-camox-data]");
+    try {
+      data = script ? JSON.parse(script.textContent) : {};
+    } catch {
+      data = {};
+    }
+    dataJson = JSON.stringify(data);
+    return data;
+  };
   ${ARTIFACT_RUNTIME_THEME}
   const viewportCallbacks = new Set();
   let viewport = null;
@@ -46,6 +63,14 @@ export const ARTIFACT_RUNTIME = `(() => {
     studio(message) {
       const next = message.studio;
       studio = next ? Object.freeze({ editMode: !!next.editMode, canvas: !!next.canvas }) : null;
+    },
+    data(message) {
+      readData();
+      const next = JSON.stringify(message.data ?? {});
+      if (next === dataJson) return;
+      data = JSON.parse(next);
+      dataJson = next;
+      for (const listener of [...dataListeners]) listener(data);
     },
     theme: camoxTheme.receive,
     measure() {
@@ -80,6 +105,15 @@ export const ARTIFACT_RUNTIME = `(() => {
   const camox = Object.freeze({
     get studio() {
       return studio;
+    },
+    get data() {
+      return readData();
+    },
+    onData(callback) {
+      dataListeners.add(callback);
+      return () => {
+        dataListeners.delete(callback);
+      };
     },
     get theme() {
       return camoxTheme.current;

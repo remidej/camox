@@ -51,7 +51,7 @@ import {
   resolveAssetValue,
 } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
-import { useArtifactHost } from "../hooks/useArtifactHost";
+import { useArtifactHost, useInitialArtifactData } from "../hooks/useArtifactHost";
 import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
@@ -62,9 +62,11 @@ import {
   isArtifactSource,
   type ArtifactRenderProps,
 } from "../lib/artifact";
+import { artifactData } from "../lib/artifactData";
 import {
   resolveBlockFields,
   resolveToMarkdown,
+  type ArtifactDataCheck,
   type ArtifactSource,
   type ContentFieldBuilder,
   type SettingBuilder,
@@ -169,7 +171,9 @@ interface CreateBlockOptions<
    *   }),
    * })
    */
-  content: (field: ContentFieldBuilder) => TSchemaShape;
+  content: (
+    field: ContentFieldBuilder,
+  ) => TSchemaShape & NoInfer<ArtifactDataCheck<TSchemaShape, TSettingsShape>>;
   /**
    * Optional presentation options (e.g. layout variant, toggles), built from `setting`.
    * Settings are edited in the sidebar, never inline.
@@ -399,7 +403,7 @@ export function createEditableBlock<
   TSettingsShape extends Record<string, TSchema> = Record<string, never>,
   TLayoutOnly extends boolean = false,
 >(options: CreateBlockOptions<TSchemaShape, TSettingsShape, TLayoutOnly>) {
-  const fields = resolveBlockFields(options);
+  const fields = resolveBlockFields<TSchemaShape, TSettingsShape>(options);
   // Build TypeBox schema for runtime validation and default value creation
   const typeboxSchema = TypeBoxType.Object(fields.content);
 
@@ -1213,20 +1217,43 @@ export function createEditableBlock<
       );
     };
 
+    const { filesMap } = useNormalizedData();
+    const projectSlug = useProjectSlug();
+    const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
+    const { data: pages } = useQuery({
+      ...pageQueries.list(project?.id ?? 0),
+      enabled: !!project,
+    });
+    const currentPathname = useLocation({ select: (l) => l.pathname });
+    const data = artifactData(
+      repeaterContext
+        ? repeaterContext.itemSchema?.[fieldName]
+        : (typeboxSchema.properties as Record<string, TSchema>)[fieldName],
+      repeaterContext
+        ? { content: repeaterContext.itemContent, settings: repeaterContext.itemSettings }
+        : { content, settings: blockContext.settings },
+      {
+        linkHref: (link) => resolveLinkHref(normalizeLinkValue(link), pages, currentPathname),
+        asset: (asset) => resolveAssetValue(asset, filesMap) as Record<string, unknown> | null,
+      },
+    );
+
     const canvas = React.use(CanvasWorkspaceContext) !== null;
     const fieldSchema = repeaterContext
       ? repeaterContext.itemSchema?.[fieldName]
       : (blockContext.sourceSchema ?? typeboxSchema.properties)[fieldName];
     const hostProps = useArtifactHost({
       studio: { editMode: isContentEditable, canvas },
+      data,
       size: fieldSchema?.size,
       navigate: useNavigate(),
     });
+    const initialData = useInitialArtifactData(value, data);
     const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
 
     const frame = children({
       ...(isArtifactSource(value)
-        ? artifactFrameProps(value, { fontLinks })
+        ? artifactFrameProps(value, { fontLinks, data: initialData })
         : artifactPlaceholderProps()),
       ...hostProps,
     });
