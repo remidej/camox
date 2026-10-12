@@ -52,12 +52,16 @@ const publicationScope = Effect.fn("collections.publicationScope")(function* (
         )
       : undefined);
   const owner = page ?? layout!;
+  // A record page can publish its record alone: the layout's blocks then leave the scope.
+  const publishesLayout = !!layout && (kind === "page" || input.includeLayout !== false);
   const pageSnapshot = page ? yield* buildPageSnapshotFromDraft(ctx, page) : undefined;
-  const layoutSnapshot = layout ? yield* buildLayoutSnapshotFromDraft(ctx, layout) : undefined;
+  const layoutSnapshot =
+    layout && publishesLayout ? yield* buildLayoutSnapshotFromDraft(ctx, layout) : undefined;
   return {
     page,
     layout,
     owner,
+    pageRecord: kind === "layout" ? input.pageRecord : undefined,
     pageSnapshot,
     layoutSnapshot,
     blocks: [...(pageSnapshot?.blocks ?? []), ...(layoutSnapshot?.blocks ?? [])],
@@ -158,6 +162,24 @@ const plan = Effect.fn("collections.plan")(function* (
         );
       }
     }
+  }
+  // A record page's record is an optional target like any linked record. It must belong to
+  // the named collection in the layout's environment.
+  if (scope.pageRecord) {
+    const schema = {
+      properties: {
+        record: { fieldType: "Reference", collectionId: scope.pageRecord.collectionId },
+      },
+    };
+    const content = { record: scope.pageRecord.id };
+    const draft = yield* resolveReferences(ctx, scope.owner, schema, content, "draft");
+    const record = resolvedReference(draft, "record");
+    if (!record)
+      return yield* new InvalidInputError({
+        message: `Record "${scope.pageRecord.id}" isn't in collection "${scope.pageRecord.collectionId}" of this environment`,
+      });
+    const live = yield* resolveReferences(ctx, scope.owner, schema, content, "live");
+    addTarget(record, resolvedReference(live, "record") ?? undefined, false);
   }
   // Records reached at the second hop (an article's author) are independent, never required
   // targets. Their live revision is looked up directly: the live first hop may not link them yet.

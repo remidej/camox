@@ -1,3 +1,4 @@
+import type { AnyLayoutLoaderResult } from "@/core/createLayout";
 import type { Layout } from "@/lib/queries";
 
 import type { PreviewedPage } from "./components/PageNavigatorSidebar";
@@ -15,7 +16,18 @@ export type PublicationTarget =
       layout: Pick<Layout, "id" | "status" | "livePublishedCheckpointId"> &
         Partial<Pick<Layout, "kind">>;
       name: string;
+      /** The record a record page renders. It publishes independently of the layout. */
+      record?: PageRecord;
     };
+
+export type PageRecordId = { collectionId: string; id: string };
+export type PageRecord = PageRecordId & { status: "draft" | "modified" | "published" };
+
+/** The record a record page renders, as its loader's collection-item envelope names it. */
+export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRecordId | undefined {
+  if (result?.kind !== "collection-item") return undefined;
+  return { collectionId: result.collectionId, id: result.data.id };
+}
 
 export type PublicationItem = {
   key: string;
@@ -116,6 +128,25 @@ export function buildPublicationPlan(target: PublicationTarget): PublicationPlan
       ],
     };
   }
+  if (target.kind === "layout" && target.record) {
+    // The record joins from the backend's plan. The layout is a switch, only when it changed.
+    return {
+      title: "Publish changes",
+      description: `Publishes the record shown on this page and, if selected, the ${target.name} layout blocks. Each publishes independently.`,
+      items:
+        target.layout.status === "published"
+          ? []
+          : [
+              {
+                key: `layout:${target.layout.id}`,
+                label: `${target.name} layout blocks`,
+                impact:
+                  "Updates the before and after blocks on every page using this layout, including all derived URLs.",
+                optional: true,
+              },
+            ],
+    };
+  }
   if (target.kind === "layout") {
     return {
       title: target.layout.status === "modified" ? "Publish changes" : "Publish layout",
@@ -174,8 +205,10 @@ export function getPublicationCapabilities(
 ) {
   if (!target) return { publish: false, unpublish: false, discard: false };
   const record = target.kind === "page" ? target.page : target.layout;
+  const pageRecordChanged =
+    target.kind === "layout" && !!target.record && target.record.status !== "published";
   return {
-    publish: record.status !== "published" && source === "draft",
+    publish: (record.status !== "published" || pageRecordChanged) && source === "draft",
     unpublish:
       record.livePublishedCheckpointId != null &&
       !(target.kind === "page" && target.page.fullPath === "/"),
@@ -188,7 +221,25 @@ export type PublicationRequest =
       kind: "page";
       input: { id: number; alsoPublishLayout?: true; collections?: CollectionPublicationInput[] };
     }
-  | { kind: "layout"; input: { id: number; collections?: CollectionPublicationInput[] } };
+  | {
+      kind: "layout";
+      input: {
+        id: number;
+        pageRecord?: PageRecordId;
+        includeLayout?: boolean;
+        collections?: CollectionPublicationInput[];
+      };
+    };
+
+/** The scope of a layout's publication: a record page adds its record, and may leave the layout out. */
+export function getLayoutPublicationScope(
+  target: Extract<PublicationTarget, { kind: "layout" }>,
+  includeLayout: boolean,
+) {
+  if (!target.record) return {};
+  const { collectionId, id } = target.record;
+  return { pageRecord: { collectionId, id }, includeLayout };
+}
 
 type CollectionPublicationInput = Pick<
   ReferencePublicationTarget,
@@ -208,10 +259,17 @@ export function getPublicationRequest(
     )
     .map(({ id, collectionId, expectedVersion }) => ({ id, collectionId, expectedVersion }));
   const collectionInput = collections?.length ? { collections } : {};
-  if (target.kind === "layout")
-    return { kind: "layout", input: { id: target.layout.id, ...collectionInput } };
   const optionalLayout = plan.items.find((item) => item.optional && item.key.startsWith("layout:"));
   const alsoPublishLayout = optionalLayout && includedKeys.includes(optionalLayout.key);
+  if (target.kind === "layout")
+    return {
+      kind: "layout",
+      input: {
+        id: target.layout.id,
+        ...getLayoutPublicationScope(target, !!alsoPublishLayout),
+        ...collectionInput,
+      },
+    };
   return {
     kind: "page",
     input: {

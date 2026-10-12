@@ -39,6 +39,7 @@ import {
   selectPreviewSource,
   type EditingOwner,
 } from "./previewStore";
+import { getPageRecord, type PageRecordId } from "./publication";
 import { usePreviewViewportActions } from "./usePreviewViewportActions";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -329,6 +330,7 @@ export const CamoxPreview = ({
       pageData={pageData}
       derivedLayoutId={derived?.layoutId}
       derivedLayout={layout}
+      pageRecord={getPageRecord(derived?.result)}
       hasLiveVersion={layout?.livePublishedCheckpointId != null}
       catalogBlock={catalogBlock}
       runtimeBasePath={runtimeBasePath}
@@ -377,6 +379,7 @@ export const PreviewShell = ({
   hasLiveVersion = false,
   derivedLayoutId,
   derivedLayout,
+  pageRecord,
   catalogBlock,
   runtimeBasePath = "",
 }: {
@@ -385,6 +388,7 @@ export const PreviewShell = ({
   hasLiveVersion?: boolean;
   derivedLayoutId?: string;
   derivedLayout?: DerivedLayoutStructure;
+  pageRecord?: PageRecordId;
   catalogBlock?: PageRenderInput["catalogBlock"];
   runtimeBasePath?: string;
 }) => {
@@ -542,7 +546,11 @@ export const PreviewShell = ({
               {!showCanvas && !isMobileStudio && (pageData || derivedLayoutId) && (
                 // Keep publication actions registered in read-only preview.
                 <div hidden>
-                  <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+                  <LeftSidebar
+                    page={pageData?.page}
+                    derivedLayout={derivedLayout}
+                    pageRecord={pageRecord}
+                  />
                 </div>
               )}
               <PreviewPanel

@@ -1,15 +1,21 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { collection as articles } from "../../../../playground/src/collections/articles";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
+import { blockDefinitions, blocks, layouts, pages } from "../../schema";
+import { createBlock } from "../blocks/service";
+import { publishLayout } from "../layouts/service";
+import { referenceTargets } from "./reference-publication";
 import {
   createRecord,
   editRecord,
   findRecordsByField,
   listRecordPageValues,
   publishRecord,
+  readRecord,
   syncCollectionDefinitions,
 } from "./service";
 import { collectionDefinitionInput } from "./validation";
@@ -196,5 +202,161 @@ describe("listing the records that can have a page", () => {
     expect(await f.list("draft", devCtx)).toEqual([]);
     const other = await fixture("list-auth-other");
     expect(await other.list("live")).toEqual([]);
+  });
+});
+
+describe("publishing a record from its record page", () => {
+  const layoutTargets = (
+    f: Awaited<ReturnType<typeof fixture>>,
+    pageRecord: { collectionId: string; id: string },
+    includeLayout = true,
+  ) =>
+    runService(referenceTargets(f.ctx, { id: f.layout.id, pageRecord, includeLayout }, "layout"));
+  const livePointer = async (f: Awaited<ReturnType<typeof fixture>>) =>
+    (await f.db.select().from(layouts).where(eq(layouts.id, f.layout.id)).get())
+      ?.livePublishedCheckpointId;
+
+  /** A layout block featuring the record, so the layout reaches it on its own. */
+  async function featureInLayout(f: Awaited<ReturnType<typeof fixture>>, recordId: string) {
+    await f.db.insert(blockDefinitions).values({
+      projectId: f.project.id,
+      environmentId: f.environment.id,
+      blockId: "featured-article",
+      title: "Featured article",
+      description: "",
+      contentSchema: {
+        type: "object",
+        properties: {
+          article: {
+            fieldType: "Reference",
+            collectionId: "articles",
+            anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+            default: null,
+          },
+        },
+        required: ["article"],
+        additionalProperties: false,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const page = await f.db
+      .insert(pages)
+      .values({
+        projectId: f.project.id,
+        environmentId: f.environment.id,
+        layoutId: f.layout.id,
+        pathSegment: "host",
+        fullPath: "/host",
+        nickname: "",
+        createdAt: 1,
+        updatedAt: 1,
+        contentUpdatedAt: 1,
+      })
+      .returning()
+      .get();
+    const block = await runService(
+      createBlock(f.ctx, {
+        pageId: page.id,
+        type: "featured-article",
+        content: { article: recordId },
+      }),
+    );
+    await f.db
+      .update(blocks)
+      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
+      .where(eq(blocks.id, block.id));
+  }
+
+  it("lists the page's record as an optional target, once when a layout block also shows it", async () => {
+    const f = await fixture("publish-target");
+    const record = await f.create({ title: "Launch" });
+    const pageRecord = { collectionId: "articles", id: record.id };
+
+    expect(
+      (await runService(referenceTargets(f.ctx, { id: f.layout.id }, "layout"))).targets,
+    ).toEqual([]);
+    expect((await layoutTargets(f, pageRecord)).targets).toEqual([
+      {
+        id: record.id,
+        collectionId: "articles",
+        label: "Launch",
+        expectedVersion: 1,
+        status: "draft",
+        required: false,
+        hasPublishedRevision: false,
+      },
+    ]);
+
+    await featureInLayout(f, record.id);
+    expect((await layoutTargets(f, pageRecord)).targets).toMatchObject([{ id: record.id }]);
+  });
+
+  it("rejects a page record from another collection or environment", async () => {
+    const f = await fixture("publish-scope");
+    const record = await f.create({});
+    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: true,
+        definitions: [definition],
+      }),
+    );
+    const devRecord = await runService(createRecord(devCtx, { ...f.scope, content: article }));
+
+    await expect(
+      layoutTargets(f, { collectionId: "customers", id: record.id }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      layoutTargets(f, { collectionId: "articles", id: devRecord.id }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      runService(
+        publishLayout(f.ctx, {
+          id: f.layout.id,
+          pageRecord: { collectionId: "articles", id: devRecord.id },
+          includeLayout: false,
+          collections: [{ id: devRecord.id, collectionId: "articles", expectedVersion: 1 }],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // Still unpublished in its own environment.
+    expect(await runService(readRecord(devCtx, { ...f.scope, id: devRecord.id }))).toBeNull();
+  });
+
+  it("publishes the record and the layout independently of each other", async () => {
+    const f = await fixture("publish-independent");
+    const record = await f.create({ title: "First take" });
+    const pageRecord = { collectionId: "articles", id: record.id };
+
+    await runService(
+      publishLayout(f.ctx, {
+        id: f.layout.id,
+        pageRecord,
+        includeLayout: false,
+        collections: [{ id: record.id, collectionId: "articles", expectedVersion: 1 }],
+      }),
+    );
+    expect(await livePointer(f)).toBeNull();
+    // The visitor's record page now finds the published content.
+    expect(await f.find("hello", "live")).toEqual([
+      { id: record.id, content: { ...article, title: "First take" } },
+    ]);
+
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: record.id,
+        expectedVersion: 2,
+        content: { ...article, title: "Second take" },
+      }),
+    );
+    expect((await layoutTargets(f, pageRecord, false)).targets).toMatchObject([
+      { id: record.id, status: "modified" },
+    ]);
+    await runService(publishLayout(f.ctx, { id: f.layout.id, pageRecord }));
+    expect(await livePointer(f)).not.toBeNull();
+    expect(await f.find("hello", "live")).toMatchObject([{ content: { title: "First take" } }]);
   });
 });
