@@ -29,6 +29,7 @@ import { type Action, actionsStore } from "../../provider/actionsStore";
 import { previewStore, selectPreviewSource } from "../previewStore";
 import {
   buildPublicationPlan,
+  getLayoutPublicationScope,
   getPublicationCapabilities,
   getPublicationRequest,
   withReferenceTargets,
@@ -40,9 +41,11 @@ import { PublishDialog } from "./PublishDialog";
 type Operation = "publish" | "unpublish" | "discard";
 
 export function PublicationRow({ target }: { target: PublicationTarget | null }) {
-  const identity = target
-    ? `${target.kind}:${target.kind === "page" ? target.page.id : target.layout.id}`
-    : "loading";
+  const identity = !target
+    ? "loading"
+    : target.kind === "page"
+      ? `page:${target.page.id}`
+      : `layout:${target.layout.id}:${target.record?.id ?? ""}`;
   return <PublicationControls key={identity} target={target} />;
 }
 
@@ -280,7 +283,10 @@ function ReferencePublicationDialog({
     const request =
       reviewedTarget.kind === "page"
         ? api.pages.referenceTargets({ id: reviewedTarget.page.id, alsoPublishLayout })
-        : api.layouts.referenceTargets({ id: reviewedTarget.layout.id });
+        : api.layouts.referenceTargets({
+            id: reviewedTarget.layout.id,
+            ...getLayoutPublicationScope(reviewedTarget, alsoPublishLayout),
+          });
     void request.then(
       ({ targets, missingRequired }) => {
         if (!active) return;

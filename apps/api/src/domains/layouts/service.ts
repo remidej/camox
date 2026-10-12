@@ -25,7 +25,7 @@ import { prepareBlockContent } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData } from "../blocks/synced-live";
 import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
-import { collectionSelection } from "../collections/reference-publication-input";
+import { collectionSelection, pageRecordInput } from "../collections/reference-publication-input";
 import {
   hydrateItemReferences,
   hydrateReferences,
@@ -46,7 +46,12 @@ export const getLayoutInput = z.object({
 });
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
-export const publishLayoutInput = z.object({ id: z.number(), collections: collectionSelection });
+export const publishLayoutInput = z.object({
+  id: z.number(),
+  collections: collectionSelection,
+  pageRecord: pageRecordInput.optional(),
+  includeLayout: z.boolean().optional(),
+});
 export const unpublishLayoutInput = z.object({ id: z.number() });
 
 // Snapshot shape version written into `layout_checkpoints.schema_version`.
@@ -744,7 +749,12 @@ export const publishLayout = Effect.fn("layouts.publishLayout")(function* (
   const input = yield* decodeInput(publishLayoutInput, rawInput);
   const { id } = input;
   const references = yield* referenceTargets(ctx, input, "layout");
-  if (input.collections.length || references.targets.length || references.missingRequired.length) {
+  if (
+    input.includeLayout === false ||
+    input.collections.length ||
+    references.targets.length ||
+    references.missingRequired.length
+  ) {
     return (yield* publishWithReferences(ctx, input, "layout")) as typeof layouts.$inferSelect;
   }
   const access = yield* assertLayoutAccess(ctx.db, id, user.id);

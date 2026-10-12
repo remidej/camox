@@ -1,13 +1,17 @@
 import { CMS_SIDEBAR_WIDTH } from "../previewConstants";
+import type { PageRecordId } from "../publication";
 import { DerivedLayoutSidebar, type DerivedLayoutStructure } from "./DerivedLayoutSidebar";
 import { PageNavigatorSidebar, type PreviewedPage } from "./PageNavigatorSidebar";
 
 const LeftSidebar = ({
   page,
   derivedLayout,
+  pageRecord,
 }: {
   page?: PreviewedPage;
   derivedLayout?: DerivedLayoutStructure;
+  /** The record of a record page, published from its layout's sidebar. */
+  pageRecord?: PageRecordId;
 }) => {
   return (
     <aside
@@ -15,7 +19,7 @@ const LeftSidebar = ({
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
       {derivedLayout ? (
-        <DerivedLayoutSidebar layout={derivedLayout} />
+        <DerivedLayoutSidebar layout={derivedLayout} pageRecord={pageRecord} />
       ) : (
         <PageNavigatorSidebar page={page} />
       )}

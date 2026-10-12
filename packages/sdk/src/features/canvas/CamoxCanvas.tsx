@@ -16,9 +16,9 @@ import { PageStatusBadge } from "../preview/components/PageStatusBadge";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
+import { getPageRecord } from "../preview/publication";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
-import type { PageRenderInput } from "../runtime/runtime";
 import { blockCatalogPath, matchBlockCatalogPath } from "../studio/routes";
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
@@ -39,12 +39,7 @@ import {
 import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
 import { CanvasPageFrame } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
-import {
-  CANVAS_DEVICES,
-  getCanvasPages,
-  validateCanvasPageInput,
-  type CanvasPage,
-} from "./canvasPages";
+import { CANVAS_DEVICES, canvasPageQuery, getCanvasPages, type CanvasPage } from "./canvasPages";
 import { CanvasRightSidebar } from "./CanvasRightSidebar";
 import {
   CANVAS_WORLD_TRANSFORM,
@@ -128,20 +123,7 @@ function CanvasPagePreview({
 }) {
   const projectSlug = useProjectSlug();
   const { data, error, isPending, isFetching, refetch } = useQuery({
-    queryKey: ["camox", "canvas", projectSlug, runtimeBasePath, pathname, derivedLayoutId ?? null],
-    queryFn: async ({ signal }) => {
-      const url = new URL(runtimePath("/_camox/data", runtimeBasePath), window.location.origin);
-      url.searchParams.set("path", pathname);
-      const response = await fetch(url, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-        signal,
-      });
-      if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
-      const input = (await response.json()) as PageRenderInput;
-      validateCanvasPageInput(input, pathname, derivedLayoutId);
-      return input;
-    },
+    ...canvasPageQuery(projectSlug, runtimeBasePath, pathname, derivedLayoutId),
     retry: false,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
@@ -631,6 +613,14 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const selectedPage = selectedBlockId
     ? undefined
     : selectedCanvasPage(canvasPages, app.getLayouts(), location.pathname);
+  // The selected frame's data names a record page's record. Its frame loads it; only read here.
+  const { data: selectedFrameInput } = useQuery({
+    ...canvasPageQuery(projectSlug, runtimeBasePath, selectedPath, selectedPage?.derivedLayoutId),
+    enabled: false,
+  });
+  const pageRecord = selectedPage?.derivedLayoutId
+    ? getPageRecord(selectedFrameInput?.derived?.result)
+    : undefined;
   usePreparationFailure(
     (!project.isFetching ? project.error : null) ?? (!pages.isFetching ? pages.error : null),
   );
@@ -687,6 +677,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         page={selectedPage}
         catalog={selectedBlock && { block: selectedBlock, blocks: blockCatalog }}
         owner={editingOwner}
+        pageRecord={pageRecord}
       />
       <CanvasWorkspace
         key={project.data.id}

@@ -14,6 +14,7 @@ import { LeftSidebar } from "../preview/components/LeftSidebar";
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import { previewStore, selectPreviewSource, type EditingOwner } from "../preview/previewStore";
+import type { PageRecordId } from "../preview/publication";
 import { blockCatalogPath } from "../studio/routes";
 import type { CanvasPage } from "./canvasPages";
 
@@ -61,7 +62,7 @@ function CuratedSidebar() {
   );
 }
 
-function LayoutSidebar({ layoutId }: { layoutId: string }) {
+function LayoutSidebar({ layoutId, pageRecord }: { layoutId: string; pageRecord?: PageRecordId }) {
   const projectSlug = useProjectSlug();
   const source = useSelector(previewStore, selectPreviewSource);
   const queryClient = useQueryClient();
@@ -74,7 +75,7 @@ function LayoutSidebar({ layoutId }: { layoutId: string }) {
     },
     staleTime: Infinity,
   });
-  return <LeftSidebar derivedLayout={layout} />;
+  return <LeftSidebar derivedLayout={layout} pageRecord={pageRecord} />;
 }
 
 /**
@@ -116,11 +117,14 @@ export function CanvasLeftSidebar({
   page,
   catalog,
   owner = null,
+  pageRecord,
 }: {
   page: CanvasPage | undefined;
   /** The selected block of the Block Catalog, if any, with the Block Catalog in Canvas order. */
   catalog?: { block: Block; blocks: readonly Block[] };
   owner?: EditingOwner | null;
+  /** The record of the selected record page, if any. */
+  pageRecord?: PageRecordId;
 }) {
   const { pathname } = useLocation();
   const source = useSelector(previewStore, selectPreviewSource);
@@ -134,7 +138,7 @@ export function CanvasLeftSidebar({
           {page.pageId != null ? (
             <CuratedSidebar />
           ) : page.layoutId ? (
-            <LayoutSidebar layoutId={page.layoutId} />
+            <LayoutSidebar layoutId={page.layoutId} pageRecord={pageRecord} />
           ) : (
             <LeftSidebar />
           )}

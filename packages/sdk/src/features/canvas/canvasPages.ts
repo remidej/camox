@@ -1,4 +1,5 @@
 import { getPageDestinations } from "../../core/pageDestinations";
+import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 
 type DestinationLayouts = Parameters<typeof getPageDestinations>[1];
@@ -11,6 +12,31 @@ export interface CanvasPage {
   pattern?: string;
   pageId?: number;
   layoutId?: string;
+}
+
+/** A Canvas frame's page data. The sidebar reads the same query for the selected page. */
+export function canvasPageQuery(
+  projectSlug: string,
+  runtimeBasePath: string,
+  pathname: string,
+  derivedLayoutId: string | undefined,
+) {
+  return {
+    queryKey: ["camox", "canvas", projectSlug, runtimeBasePath, pathname, derivedLayoutId ?? null],
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const url = new URL(runtimePath("/_camox/data", runtimeBasePath), window.location.origin);
+      url.searchParams.set("path", pathname);
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
+      const input = (await response.json()) as PageRenderInput;
+      validateCanvasPageInput(input, pathname, derivedLayoutId);
+      return input;
+    },
+  };
 }
 
 export const CANVAS_DEVICES = {
