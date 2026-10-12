@@ -121,3 +121,27 @@ createLayout("undefined-result")({
   // @ts-expect-error Omit the loader rather than returning no envelope.
   loader: () => undefined,
 });
+
+const derivedOptions = {
+  ...singletonOptions,
+  kind: "derived" as const,
+  loader: async () => ({ kind: "data" as const, data: null }),
+};
+createLayout("articles.$slug")({
+  ...derivedOptions,
+  routes: async () => ({ data: [{ params: { slug: "introducing-collections" } }] }),
+});
+createLayout("articles.$slug")({
+  ...derivedOptions,
+  // @ts-expect-error Discovered params are named by the route.
+  routes: () => ({ data: [{ params: { name: "introducing-collections" } }] }),
+});
+createLayout("articles.$slug")({
+  ...derivedOptions,
+  // @ts-expect-error Every route param needs a value.
+  routes: () => ({ data: [{ params: {} }] }),
+});
+// @ts-expect-error Only derived layouts discover routes.
+createLayout("pokedex")({ ...singletonOptions, kind: "singleton", routes: () => ({ data: [] }) });
+// @ts-expect-error Only derived layouts discover routes.
+createLayout("curated")({ ...singletonOptions, kind: "curated", routes: () => ({ data: [] }) });

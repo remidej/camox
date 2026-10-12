@@ -419,3 +419,64 @@ void test("public Markdown responses read the live page", async (t) => {
     ["live", "live"],
   );
 });
+
+function appWithRoutes(routes: () => unknown) {
+  const discovering = {
+    _internal: { id: "pokemon.$name", kind: "derived", title: "Pokemon", routes },
+  };
+  return {
+    getLayouts: () => [discovering],
+    getLayoutById: (id: string) => (id === discovering._internal.id ? discovering : null),
+  } as unknown as CamoxApp;
+}
+
+void test("sitemaps list the pages derived layouts discover, encoded and without lastmod", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ json: [] }));
+  const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
+    apiUrl: "https://api.test",
+    projectSlug: "test",
+    getCamoxApp: async () =>
+      appWithRoutes(async () => ({
+        data: [{ params: { name: "pikachu" } }, { params: { name: "mr mime" } }],
+      })),
+  });
+  assert.equal(response?.status, 200);
+  const xml = await response!.text();
+  assert.match(xml, /<loc>https:\/\/site.test\/pokemon\/pikachu<\/loc>/);
+  assert.match(xml, /<loc>https:\/\/site.test\/pokemon\/mr%20mime<\/loc>/);
+  assert.doesNotMatch(xml, /<lastmod>/);
+});
+
+void test("sitemaps fail loudly when route discovery fails", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({ json: [] }));
+  t.mock.method(console, "error", () => {});
+  for (const routes of [
+    () => ({ data: [{ params: { name: "a/b" } }] }),
+    async () => {
+      throw new Error("PokéAPI is down");
+    },
+  ]) {
+    const response = await handleCamoxRequest(new Request("https://site.test/sitemap.xml"), {
+      apiUrl: "https://api.test",
+      projectSlug: "test",
+      getCamoxApp: async () => appWithRoutes(routes),
+    });
+    assert.equal(response?.status, 500);
+    assert.match(((await response!.json()) as { message: string }).message, /pokemon|PokéAPI/);
+  }
+});
+
+void test("the routes endpoint returns a derived layout's first discovered page", async () => {
+  const request = (layoutId: string, routes: () => unknown) =>
+    handleCamoxRequest(new Request(`https://site.test/_camox/routes?layoutId=${layoutId}`), {
+      getCamoxApp: async () => appWithRoutes(routes),
+    });
+  const discovered = await request("pokemon.$name", () => ({
+    data: [{ params: { name: "mr mime" } }, { params: { name: "pikachu" } }],
+  }));
+  assert.deepEqual(await discovered?.json(), { path: "/pokemon/mr%20mime" });
+  const empty = await request("pokemon.$name", () => ({ data: [] }));
+  assert.deepEqual(await empty?.json(), { path: null });
+  const unknown = await request("pokedex", () => ({ data: [] }));
+  assert.equal(unknown?.status, 404);
+});

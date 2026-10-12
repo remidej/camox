@@ -73,6 +73,13 @@ export interface LayoutLoaderResult<Data = unknown> {
 }
 
 type LoaderReturn = LayoutLoaderResult | PromiseLike<LayoutLoaderResult>;
+
+/** Route discovery result: the params of each page a derived layout can render. */
+export interface LayoutRoutesResult<Params = Record<string, string>> {
+  data: ReadonlyArray<{ params: Params }>;
+}
+
+type RoutesReturn<Params> = LayoutRoutesResult<Params> | PromiseLike<LayoutRoutesResult<Params>>;
 type LoaderData<Result extends LoaderReturn> = [Result] extends [never]
   ? undefined
   : Awaited<Result>["data"];
@@ -86,6 +93,8 @@ interface CreateLayoutOptions<
   id: string;
   kind?: "curated" | "derived" | "singleton";
   loader?: (context: { params: Record<string, string> }) => Result;
+  /** Lists the pages of a derived layout, for the sitemap and the Canvas. */
+  routes?: () => RoutesReturn<Record<string, string>>;
   title: string;
   description: string;
   blocks: {
@@ -112,6 +121,8 @@ function createLayoutDefinition<
     throw new Error(`Singleton layouts require a fixed file route: ${options.id}`);
   if (options.kind && options.kind !== "curated" && options.blocks.initial)
     throw new Error("Code-owned layouts cannot define initial page blocks");
+  if (options.routes && options.kind !== "derived")
+    throw new Error(`Only derived layouts can define routes: ${options.id}`);
 
   // Each layout gets its own context — avoids cross-module identity issues
   const LayoutContext = React.createContext<{
@@ -266,6 +277,7 @@ function createLayoutDefinition<
       id: options.id,
       kind: options.kind ?? "curated",
       loader: options.loader,
+      routes: options.routes,
       title: options.title,
       description: options.description,
       buildMetaTitle: options.buildMetaTitle,
@@ -288,18 +300,25 @@ type Params<Id extends string> = Id extends `${infer Head}.${infer Tail}`
     ? { [K in Name]: string }
     : {};
 
+type RouteParams<Id extends string> = Id extends keyof LayoutFileRoutes
+  ? LayoutFileRoutes[Id] extends { params: infer P }
+    ? P
+    : Params<Id>
+  : Params<Id>;
+
 type FileOptions<
   Id extends string,
   Result extends LoaderReturn,
   B extends readonly LayoutBlock[],
   A extends readonly LayoutBlock[],
   I extends readonly LayoutBlock[],
-> = Omit<CreateLayoutOptions<B, A, I>, "id" | "kind" | "loader" | "component"> &
+> = Omit<CreateLayoutOptions<B, A, I>, "id" | "kind" | "loader" | "routes" | "component"> &
   (
     | {
         kind: "curated";
         component: React.ComponentType<{ children: React.ReactNode }>;
         loader?: never;
+        routes?: never;
       }
     | {
         kind: "singleton";
@@ -309,6 +328,7 @@ type FileOptions<
           initial?: never;
         };
         loader?: (context: { params: Record<string, never> }) => Result;
+        routes?: never;
         component: React.ComponentType<{ children?: never }>;
       }
     | {
@@ -318,13 +338,8 @@ type FileOptions<
           after: ValidateLayoutOnlyBlocks<A>;
           initial?: never;
         };
-        loader: (context: {
-          params: Id extends keyof LayoutFileRoutes
-            ? LayoutFileRoutes[Id] extends { params: infer P }
-              ? P
-              : Params<Id>
-            : Params<Id>;
-        }) => Result;
+        loader: (context: { params: RouteParams<Id> }) => Result;
+        routes?: () => RoutesReturn<RouteParams<Id>>;
         component: React.ComponentType<{ children?: never }>;
       }
   );

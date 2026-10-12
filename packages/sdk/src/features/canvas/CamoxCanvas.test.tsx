@@ -14,6 +14,7 @@ registerHooks({
     let source: string | undefined;
     if (specifier === "@tanstack/react-query")
       source = `export const useQuery = (options) => globalThis.CanvasQueryProbe(options);
+        export const useQueries = ({ queries, combine }) => combine(queries.map(() => ({})));
         export const useMutation = () => ({});
         export const useQueryClient = () => ({});`;
     if (specifier.endsWith("/auth"))

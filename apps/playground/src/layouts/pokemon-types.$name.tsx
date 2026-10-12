@@ -41,6 +41,12 @@ export const Layout = createLayout("pokemon-types.$name")({
     if (!response.ok) throw new Error(`PokéAPI returned ${response.status}`);
     return { kind: "data", data: await response.json() };
   },
+  routes: async () => {
+    const response = await fetch("https://pokeapi.co/api/v2/type?limit=100");
+    if (!response.ok) throw new Error(`PokéAPI returned ${response.status}`);
+    const list: { results: Array<{ name: string }> } = await response.json();
+    return { data: list.results.map(({ name }) => ({ params: { name } })) };
+  },
   component: TypePage,
 });
 

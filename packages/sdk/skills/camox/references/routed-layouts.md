@@ -51,7 +51,7 @@ function PokedexPage() {
 - For a navbar or footer whose content must stay identical across different layouts, also set `synced: true` in its `createBlock` options. `layoutOnly: true` alone only restricts placement. See [Synced blocks](block-definitions.md#synced-blocks-synced-optional) for sharing and publishing behavior.
 - No `children` slot or `blocks.initial`: editors do not compose or create these pages.
 - No curated page record is created. Do not use the pages CLI to create, duplicate, move, or assign a singleton.
-- Studio lists singletons as directly navigable pages with block editing and layout publishing, without deletion or URL/layout controls. They also appear in link destination pickers (including inline text links), “Go to page” actions, and the runtime sitemap. Derived route families are not enumerated.
+- Studio lists singletons as directly navigable pages with block editing and layout publishing, without deletion or URL/layout controls. They also appear in link destination pickers (including inline text links), “Go to page” actions, and the runtime sitemap. Derived pages appear in the sitemap only when their layout declares `routes` (see [Route discovery](#route-discovery)).
 - Singleton links are saved as fixed internal URLs, not synthetic database page IDs: link fields use `{ type: "external", href: "/pokedex", text: "Pokédex", newTab: false }` (the existing URL representation), while inline text uses `[Pokédex](/pokedex)`. Renaming a code-owned URL requires updating links or adding a redirect. Curated-page links retain their page-ID references.
 - Curated-only mutation surfaces, such as page-parent selectors and the pages record API/CLI, remain separate from the navigable destination list.
 - Publishing exposes the current editable blocks. Unpublishing removes those published blocks, **not** the route or code-rendered UI. Synced blocks retain their existing shared publishing behavior.
@@ -63,15 +63,37 @@ function PokedexPage() {
 
 Use the same file-based form with `kind: "derived"`, for example `createLayout("pokemon.$name")`. Its required `loader: ({ params }) => ...` receives typed `params.name` and returns `{ kind: "data", data }`. Read its unwrapped data through `layout.useData()`. Use `throw notFound()` (imported from `camox/createLayout`) for a missing record; other loader errors remain server errors. Like singletons, derived routes have before/after blocks but no page-owned `children` or `blocks.initial`. Unlike singletons, curated URLs retain precedence over derived routes.
 
+### Route discovery
+
+A derived layout can list the pages it renders with an optional `routes` function, a sibling of `loader`:
+
+```tsx
+export const Layout = createLayout("pokemon.$name")({
+  kind: "derived",
+  // Other options omitted.
+  loader: async ({ params }) => ({ kind: "data", data: await loadPokemon(params.name) }),
+  routes: async () => ({
+    data: (await listPokemon()).map((pokemon) => ({ params: { name: pokemon.name } })),
+  }),
+});
+```
+
+- Return `{ data: [{ params }] }`, synchronously or asynchronously. `params` is typed from the file identity: `pokemon.$name` needs exactly `{ name: string }`. Return raw values; Camox builds and encodes the URL (`mr mime` becomes `/pokemon/mr%20mime`).
+- Only derived layouts accept `routes`; singletons and curated layouts are a type error.
+- The runtime sitemap lists every discovered page, without `<lastmod>`. The Canvas previews the layout's first discovered page until a path is chosen.
+- An invalid entry (missing, extra or empty params, or a value containing `/`) or a throwing `routes` makes `/sitemap.xml` respond 500 with a message naming the layout, rather than silently omitting pages.
+- `routes` lists pages; it does not authorize them. The loader still validates every request, and URLs left out of `routes` keep rendering. A curated page at a discovered URL still takes precedence and may be listed twice.
+- `routes` takes no arguments and returns every page at once.
+
 ## Migrating existing loaders
 
 This is a breaking loader contract: replace `return pokemon` with `return { kind: "data", data: pokemon }`. For asynchronous data, await the payload inside the envelope: `return { kind: "data", data: await loadPokemon() }`, not a promise in `data`. Components using `layout.useData()` do not change. Existing layouts without loaders do not change.
 
 For an explicit return annotation, import `type LayoutLoaderResult` from `camox/createLayout` and use `Promise<LayoutLoaderResult<Pokemon>>` instead of `Promise<Pokemon>`. Inline loaders infer their payload automatically. Standalone loader functions can use `LayoutLoaderResult<Pokemon>` (or `satisfies LayoutLoaderResult<Pokemon>`) to keep `kind` a literal rather than a widened string. Wrappers are ordinary functions returning the same envelope; no attached properties or discovery phase are involved.
 
-The playground's `/pokedex`, `/pokemon/pikachu`, and `/pokemon-types/electric` are working external-data examples. Load a URL directly, follow a Pokémon/type link, and refresh: `useData()` receives the same payload in server rendering, navigation, and hydration. Search and “Show more” still run on client state. A nonexistent Pokémon still returns 404; a PokéAPI failure is still a server error.
+The playground's `/pokedex`, `/pokemon/pikachu`, and `/pokemon-types/electric` are working external-data examples, and both derived layouts declare `routes`, so `/sitemap.xml` lists every Pokémon and type. Load a URL directly, follow a Pokémon/type link, and refresh: `useData()` receives the same payload in server rendering, navigation, and hydration. Search and “Show more” still run on client state. A nonexistent Pokémon still returns 404; a PokéAPI failure is still a server error.
 
-Only `kind: "data"` is supported here. It does not make external data editable. Collection-item results, collection APIs, route discovery, and layout Markdown are separate future capabilities.
+Only `kind: "data"` is supported here. It does not make external data editable. Collection-item results, collection APIs, and layout Markdown are separate future capabilities.
 
 ## File and component conventions
 

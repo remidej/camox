@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
@@ -545,6 +545,31 @@ function CanvasWorkspace({
   );
 }
 
+/** Each derived layout's first discovered page, keyed by layout id. */
+function useDiscoveredPreviewPaths(runtimeBasePath: string) {
+  const projectSlug = useProjectSlug();
+  const layouts = useCamoxApp()
+    .getLayouts()
+    .filter((layout) => layout._internal.kind === "derived" && layout._internal.routes);
+  return useQueries({
+    queries: layouts.map(({ _internal: { id } }) => ({
+      queryKey: ["camox", "canvas", "routes", projectSlug, runtimeBasePath, id],
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        const url = new URL(runtimePath("/_camox/routes", runtimeBasePath), window.location.origin);
+        url.searchParams.set("layoutId", id);
+        const response = await fetch(url, { headers: { Accept: "application/json" }, signal });
+        if (!response.ok) throw new Error(`Could not discover pages of ${id}.`);
+        return [id, ((await response.json()) as { path: string | null }).path] as const;
+      },
+      staleTime: Infinity,
+      retry: false,
+    })),
+    // Without a discovered page, the frame asks for a path, as it does without routes.
+    combine: (results) =>
+      new Map(results.flatMap(({ data }) => (data?.[1] ? [[data[0], data[1]] as const] : []))),
+  });
+}
+
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const app = useCamoxApp();
   const location = useLocation();
@@ -583,7 +608,10 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     ...layoutQueries.list(project.data?.id ?? 0),
     enabled: !!project.data,
   });
-  const canvasPages = pages.data ? getCanvasPages(pages.data, app.getLayouts()) : [];
+  const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
+  const canvasPages = pages.data
+    ? getCanvasPages(pages.data, app.getLayouts(), discoveredPaths)
+    : [];
   const pageById = new Map(pages.data?.map((page) => [page.id, page]));
   const layoutStatusById = new Map(layouts.data?.map((layout) => [layout.layoutId, layout.status]));
   const statuses = new Map<string, CanvasPageStatus>();

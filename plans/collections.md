@@ -316,6 +316,53 @@ not written`.
 - The playground's recent articles (`publishedAt` desc, limit 3) and article list (`title`
   asc) blocks demonstrate both. The `/articles` singleton index stays with slice 8.
 
+## Slice 7 decision: route discovery and layout Markdown
+
+Recorded from grilling the slice in #121. This settles remaining decision #5 and the layout
+parts of #6. The slice ships as two PRs: 7a route discovery, then 7b layout Markdown and
+metadata. Two bugs found on the same paths were fixed first: public Markdown read the draft,
+and the sitemap listed never-published pages.
+
+Route discovery (7a):
+
+- `routes` is an optional sibling of `loader` on derived layouts only. Singletons and curated
+  layouts reject it, in types and in `createLayout`.
+- `routes: () => { data: [{ params }] }`, synchronous or asynchronous, takes no arguments.
+  `params` is typed from the route id, like the loader's. Camox builds and encodes the path.
+- Consumers: the sitemap lists every discovered page, without `<lastmod>`; the Canvas previews
+  a derived layout's first discovered page by default, through `/_camox/routes?layoutId=`,
+  which returns only that path. When `routes` is missing or empty, the Canvas keeps asking
+  for a path. Link pickers, the page picker's derived-path dialog and agent page lists do not
+  use discovery yet.
+- An entry with missing, extra or empty params, or a value containing `/`, and a throwing
+  `routes`, fail the sitemap with a 500 naming the layout rather than omitting pages.
+- Collisions are not handled: runtime precedence is unchanged (singleton, curated page, then
+  the most specific derived layout), so a curated page shadowing a discovered URL may make
+  the sitemap list that URL twice.
+- Pagination is deferred. It is additive: an optional `{ cursor }` argument and an optional
+  `nextCursor` in the result.
+- Draft/live visibility for collection-backed `routes` and `loader` is slice 8's to decide;
+  passing them a context argument later is non-breaking.
+
+Layout Markdown and metadata (7b):
+
+- `toMarkdown: ({ data, params }) => readonly string[]` on derived and singleton layouts
+  (`data` is `undefined` for a singleton without a loader). Empty strings are dropped and the
+  rest joined with blank lines, like block output, but evaluated per request.
+- A Markdown response is the live before-block Markdown, then the layout's output, then the
+  live after-block Markdown. Layout blocks keep their `<!-- Title -->` headers; the layout
+  output has none. Without `toMarkdown` the request falls back to HTML. `notFound()` is a 404.
+  Layout blocks come from a public endpoint that reads live content only.
+- `buildMetaTitle` also receives `data` and `params`. On derived and singleton pages,
+  `pageMetaTitle` is the layout's `title`.
+- New optional `buildMetaDescription({ pageMetaDescription, data, params, projectName,
+pageFullPath })`. Curated pages pass the editor's description and default to it; derived
+  and singleton pages pass `undefined`.
+- Every layout kind uses the same head: title, description, `og:*` tags, the `/og` image URL
+  and the favicon.
+- Playground: both Pokémon layouts declare `routes` (7a), `toMarkdown` and metadata (7b); the
+  Pokédex singleton declares `toMarkdown` (7b).
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.
@@ -661,7 +708,7 @@ Further rules:
 - Public discovery enumerates published records only.
 - Collection loading and discovery use consistent lookup, filtering, and visibility rules.
 - Discovery is not an authorization check or a substitute for the loader validating a request.
-- Large result sets must support pagination rather than requiring every record in one response. `nextCursor` is the proposed envelope field; exact cursor input and termination semantics remain to be specified.
+- Large result sets may need pagination rather than every record in one response. It is deferred and additive (`cursor` in, `nextCursor` out); see "Slice 7 decision".
 - Sitemap enumeration can consume this contract without putting discovery branches into custom loaders.
 
 ## Collection page helper
@@ -808,8 +855,8 @@ These are not permission to expand v1 into the explicitly deferred features:
 3. Delete/unpublish policy for referenced items, including references held by other collections and published snapshots.
 4. ~~Query operator set, system-metadata ordering~~ (settled in "Slice 6 decision"), and
    relation-resolution depth/cycle handling.
-5. Route-discovery pagination details and route-collision behavior relative to existing curated pages.
-6. Per-use nested reference Markdown behavior and final layout Markdown/metadata callback signatures.
+5. ~~Route-discovery pagination details and route-collision behavior relative to existing curated pages~~ (settled in "Slice 7 decision").
+6. Per-use nested reference Markdown behavior. (Layout Markdown and metadata callback signatures are settled in "Slice 7 decision".)
 7. How reference field empty/optional states and collection schemas reuse existing field primitives without inheriting inappropriate block-preview/rendering requirements.
 8. Runtime/type behavior if a custom loader returns different kinds or different collections across branches.
 

@@ -5,7 +5,7 @@ import type { Link, Meta, UseHeadInput } from "unhead/types";
 import type { CamoxApp } from "../../core/createApp";
 import type { LayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
-import { matchDerivedLayout } from "../../core/derivedRoutes";
+import { discoverLayoutPaths, matchDerivedLayout } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
@@ -33,6 +33,7 @@ import type { StudioRenderInput } from "./studioApp";
 const DEFAULT_RUNTIME_BASE_PATH = "";
 const RUNTIME_HEALTH_PATH = "/_camox/health";
 const RUNTIME_REGISTRY_PATH = "/_camox/registry";
+const RUNTIME_ROUTES_PATH = "/_camox/routes";
 
 export type RuntimeRouteKind =
   | "block"
@@ -41,6 +42,7 @@ export type RuntimeRouteKind =
   | "og"
   | "page"
   | "registry"
+  | "routes"
   | "sitemap"
   | "studio"
   | "studio-content"
@@ -162,6 +164,7 @@ function getLayoutIdentity(
 export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   if (pathname === RUNTIME_HEALTH_PATH) return { kind: "health", pathname };
   if (pathname === RUNTIME_REGISTRY_PATH) return { kind: "registry", pathname };
+  if (pathname === RUNTIME_ROUTES_PATH) return { kind: "routes", pathname };
   if (pathname === "/_camox/data") return { kind: "data", pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
   if (matchBlockCatalogPath(pathname)) return { kind: "block", pathname };
@@ -198,20 +201,40 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
     (page) => page.status !== "draft",
   );
   const app = await options.getCamoxApp?.();
-  const destinations = getPageDestinations(pages, app?.getLayouts() ?? []);
+  const layouts = app?.getLayouts() ?? [];
+  const destinations = getPageDestinations(pages, layouts);
+  let discoveredPaths: string[][];
+  try {
+    discoveredPaths = await Promise.all(
+      layouts
+        .filter((layout) => layout._internal.kind === "derived")
+        .map((layout) => discoverLayoutPaths(layout)),
+    );
+  } catch (error) {
+    // A sitemap silently missing pages is worse than one that visibly fails.
+    console.error("[camox] Route discovery failed while building the sitemap.", error);
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json({ message: `Camox sitemap failed: ${message}` }, { status: 500 });
+  }
   const updatedAtById = new Map(pages.map((page) => [page.id, page.updatedAt]));
-  const entries = destinations
-    .map((page) => {
-      const updatedAt = page.kind === "curated" ? updatedAtById.get(page.pageId) : undefined;
-      const lastmod =
-        updatedAt == null
-          ? ""
-          : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
-      return `  <url>
-    <loc>${escapeXml(`${origin}${withRuntimeBasePath(page.fullPath, options.runtimeBasePath)}`)}</loc>${lastmod}
+  const sitemapEntry = (fullPath: string, updatedAt?: string | number) => {
+    const lastmod =
+      updatedAt == null
+        ? ""
+        : `\n    <lastmod>${escapeXml(new Date(updatedAt).toISOString())}</lastmod>`;
+    return `  <url>
+    <loc>${escapeXml(`${origin}${withRuntimeBasePath(fullPath, options.runtimeBasePath)}`)}</loc>${lastmod}
   </url>`;
-    })
-    .join("\n");
+  };
+  const entries = [
+    ...destinations.map((page) =>
+      sitemapEntry(
+        page.fullPath,
+        page.kind === "curated" ? updatedAtById.get(page.pageId) : undefined,
+      ),
+    ),
+    ...discoveredPaths.flat().map((path) => sitemapEntry(path)),
+  ].join("\n");
 
   return new Response(
     `<?xml version="1.0" encoding="UTF-8"?>
@@ -220,6 +243,26 @@ ${entries}
 </urlset>`,
     { headers: { "Content-Type": "application/xml; charset=utf-8" } },
   );
+}
+
+/** The first discovered page of a derived layout, which the Canvas previews by default. */
+async function createRoutesResponse(request: Request, options: RuntimeOptions): Promise<Response> {
+  const camoxApp = await options.getCamoxApp?.();
+  if (!camoxApp) {
+    return Response.json({ message: "Camox app registry is not available." }, { status: 500 });
+  }
+  const layoutId = new URL(request.url).searchParams.get("layoutId") ?? "";
+  const layout = camoxApp.getLayoutById(layoutId);
+  if (layout?._internal.kind !== "derived") return new Response("Not found", { status: 404 });
+  const headers = { "Cache-Control": "private, no-store" };
+  try {
+    const [path = null] = await discoverLayoutPaths(layout);
+    return Response.json({ path }, { headers });
+  } catch (error) {
+    console.error(`[camox] Route discovery failed for layout "${layoutId}".`, error);
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json({ message }, { status: 500, headers });
+  }
 }
 
 async function createOgResponse(request: Request, options: RuntimeOptions): Promise<Response> {
@@ -903,6 +946,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "sitemap") {
     return createSitemapResponse(request, options);
+  }
+
+  if (match.kind === "routes") {
+    return createRoutesResponse(request, options);
   }
 
   if (match.kind === "data") {

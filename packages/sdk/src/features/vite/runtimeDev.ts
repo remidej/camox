@@ -222,7 +222,8 @@ function shouldHandleRequest(request) {
   if (
     pathname === "/_camox/data" ||
     pathname === "/_camox/health" ||
-    pathname === "/_camox/registry"
+    pathname === "/_camox/registry" ||
+    pathname === "/_camox/routes"
   ) {
     return true;
   }
@@ -344,7 +345,8 @@ export function shouldHandleRuntimeRequest(request: Request, runtimeBasePath?: s
   if (
     url.pathname === "/_camox/data" ||
     url.pathname === "/_camox/health" ||
-    url.pathname === "/_camox/registry"
+    url.pathname === "/_camox/registry" ||
+    url.pathname === "/_camox/routes"
   ) {
     return true;
   }
@@ -371,6 +373,7 @@ export function installRuntimeNitroRoutes(
           "/_camox/data",
           "/_camox/health",
           "/_camox/registry",
+          "/_camox/routes",
           "/og",
           "/sitemap.xml",
           "/camox",
