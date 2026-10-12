@@ -122,6 +122,10 @@ _Avoid_: Root layout, shell, head
 A routable piece of the website, belonging to one layout and holding an ordered list of blocks.
 _Avoid_: Route, screen, URL
 
+**Record Page**:
+A page of a derived layout that renders one collection record, found by one of its fields.
+_Avoid_: Item page, detail page, collection page
+
 **Nickname**:
 A page's editor-facing name, distinct from its path and meta title.
 _Avoid_: Page title, name
