@@ -1,5 +1,7 @@
 import { createCollection } from "camox/createCollection";
 
+import { collection as authors } from "./authors";
+
 export const collection = createCollection({
   id: "articles",
   title: "Articles",
@@ -10,6 +12,7 @@ export const collection = createCollection({
     excerpt: field.string(),
     cover: field.image(),
     body: field.string(),
+    author: field.reference(authors, { title: "Author" }),
   }),
   label: "title",
 });

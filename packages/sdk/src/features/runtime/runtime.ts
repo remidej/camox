@@ -7,6 +7,7 @@ import type { AnyLayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { discoverLayoutPaths, matchDerivedLayout } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
+import { recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
 import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
@@ -639,27 +640,43 @@ async function createLayoutMarkdownResponse(
   match: DerivedMatch,
 ): Promise<Response | null> {
   const { toMarkdown, id } = match.layout._internal;
-  if (!toMarkdown || !options.apiUrl || !options.projectSlug) return null;
+  const { apiUrl, projectSlug } = options;
+  if (!toMarkdown || !apiUrl || !projectSlug) return null;
+  const api = createServerApiClient(apiUrl, options.environmentName);
+  const app = await options.getCamoxApp?.();
   let result: AnyLayoutLoaderResult | undefined;
+  let body: readonly string[];
   try {
     // Markdown is a public output: it reads live content whoever asks.
-    result = await loadLayoutResult(
-      await options.getCamoxApp?.(),
-      match,
-      createLayoutRequestContext(options, "live"),
-    );
+    result = await loadLayoutResult(app, match, createLayoutRequestContext(options, "live"));
+    const collection =
+      result?.kind === "collection-item" ? app?.getCollectionById(result.collectionId) : undefined;
+    if (result?.kind === "collection-item" && collection) {
+      const { data } = result;
+      // A record page's fields render like a reference list's records: the API fills them.
+      const template = recordMarkdownTemplate(collection, (item) =>
+        toMarkdown({ data, params: match.params, item }),
+      );
+      body = [
+        await api.collectionDefinitions.recordMarkdown({
+          projectSlug,
+          collectionId: result.collectionId,
+          id: data.id,
+          toMarkdown: template,
+        }),
+      ];
+    } else {
+      body = toMarkdown({ data: result?.data, params: match.params });
+    }
   } catch (error) {
     if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
     throw error;
   }
-  const slots = await createServerApiClient(options.apiUrl, options.environmentName)
-    .blocks.getLayoutMarkdown({ projectSlug: options.projectSlug, layoutId: id })
-    .catch((error) => {
-      // A layout that was never synced has no blocks yet.
-      if (isNotFoundError(error)) return { before: "", after: "" };
-      throw error;
-    });
-  const body = toMarkdown({ data: result?.data, params: match.params });
+  const slots = await api.blocks.getLayoutMarkdown({ projectSlug, layoutId: id }).catch((error) => {
+    // A layout that was never synced has no blocks yet.
+    if (isNotFoundError(error)) return { before: "", after: "" };
+    throw error;
+  });
   const markdown = [slots.before, ...body, slots.after].filter(Boolean).join("\n\n");
   return new Response(markdown, {
     headers: { "Content-Type": "text/markdown; charset=utf-8" },
@@ -711,11 +728,23 @@ async function createDerivedResponse(
           }).projects.getBySlug({ slug: options.projectSlug! })
         : undefined;
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
+    const recordCollection =
+      serializedResult?.kind === "collection-item"
+        ? app.getCollectionById(serializedResult.collectionId)
+        : undefined;
     const pageHead = buildPageHead({
       layout: match.layout._internal,
       pageMetaTitle: match.layout._internal.title,
       pageMetaDescription: undefined,
       data: serializedResult?.data,
+      // A record page's meta callbacks also get its fields as plain text.
+      item:
+        recordCollection && serializedResult
+          ? recordPlainText(
+              recordCollection,
+              (serializedResult.data as { content: Record<string, unknown> }).content,
+            )
+          : undefined,
       params: match.params,
       projectName: shared.projectName,
       pageFullPath: pathname,

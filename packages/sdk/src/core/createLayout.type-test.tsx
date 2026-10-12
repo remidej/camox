@@ -153,6 +153,94 @@ function RecordDataTypeCheck() {
   return [id, title];
 }
 void RecordDataTypeCheck;
+
+// Record layouts render their record through `layout.Item`, and get it as `item` in
+// `toMarkdown` and meta callbacks.
+const authors = createCollection({
+  id: "authors",
+  title: "Authors",
+  description: "",
+  content: (field) => ({ name: field.string(), portrait: field.image() }),
+  label: "name",
+});
+const posts = createCollection({
+  id: "posts",
+  title: "Posts",
+  description: "",
+  content: (field) => ({
+    title: field.string(),
+    slug: field.string(),
+    cover: field.image(),
+    author: field.reference(authors),
+  }),
+  label: "title",
+});
+const postPages = posts.pages({ by: "slug", param: "slug" });
+const PostPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  ...postPages,
+  buildMetaTitle: ({ item, data }) => `${item.title} (${data.id})`,
+  buildMetaDescription: ({ item }) => {
+    // @ts-expect-error Meta callbacks get the record's String fields only.
+    void item.cover;
+    return item.slug;
+  },
+  toMarkdown: ({ item }) => [`# ${item.title}`, `By ${item.author.name}`, item.cover],
+});
+function ItemTypeCheck() {
+  return (
+    <PostPage.Item>
+      {(post) => (
+        <article aria-label={post.label}>
+          <post.Field name="title">{(props) => <h1 {...props} />}</post.Field>
+          {/* @ts-expect-error Field renders String fields only. */}
+          <post.Field name="cover">{(props) => <h1 {...props} />}</post.Field>
+          <post.Image name="cover">{(props) => <img {...props} />}</post.Image>
+          {/* @ts-expect-error Field names belong to the collection. */}
+          <post.Field name="missing">{(props) => <h1 {...props} />}</post.Field>
+          <post.Reference name="author">
+            {(author) => {
+              // @ts-expect-error The second hop links nothing further.
+              void author.Reference;
+              return <author.Field name="name">{(props) => <p {...props} />}</author.Field>;
+            }}
+          </post.Reference>
+        </article>
+      )}
+    </PostPage.Item>
+  );
+}
+void ItemTypeCheck;
+// A wrapper typed as the helper's loader keeps the typed `Item`.
+const WrappedPostPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input): ReturnType<typeof postPages.loader> => postPages.loader(input),
+});
+void WrappedPostPage.Item;
+const MixedPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input) =>
+    input.params.slug === "external"
+      ? { kind: "data" as const, data: { title: "External" } }
+      : postPages.loader(input),
+  // @ts-expect-error Only record layouts get `item`.
+  toMarkdown: ({ item }) => [String(item)],
+});
+// @ts-expect-error A loader that may return external data has no record scope.
+void MixedPage.Item;
+const articleSlugPages = articles.pages({ by: "slug", param: "slug" });
+const TwoCollectionsPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input) =>
+    input.params.slug.startsWith("a-") ? articleSlugPages.loader(input) : postPages.loader(input),
+});
+// @ts-expect-error A loader returning records of two collections has no record scope.
+void TwoCollectionsPage.Item;
+
 // @ts-expect-error Pages are found by a String field only.
 articles.pages({ by: "cover", param: "slug" });
 // @ts-expect-error Pages are found by a field of the collection.
@@ -176,6 +264,8 @@ const WrappedArticlePage = createLayout("articles.$slug")({
 });
 const wrappedTitle: string = WrappedArticlePage.useData().content.title;
 void wrappedTitle;
+// @ts-expect-error An envelope typed without its collection's fields has no record scope.
+void WrappedArticlePage.Item;
 createLayout("undefined-result")({
   ...singletonOptions,
   kind: "singleton",

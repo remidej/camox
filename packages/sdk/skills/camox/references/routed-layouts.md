@@ -5,7 +5,7 @@ Use this reference for code-owned pages in `src/layouts/`. For editor-created pa
 - **`singleton`**: one code-owned page at a fixed file-defined URL. Editors change its blocks, not its existence, URL, or structure.
 - **`derived`**: code-owned routes resolved through a required server-side loader, typically using file parameters such as `$name`.
 
-All editable content lives in blocks. Layouts do not expose editable `content` schemas or `.Field` helpers. Read [Block Definitions](block-definitions.md) when creating or changing those blocks.
+All editable content lives in blocks. Layouts do not expose editable `content` schemas or `.Field` helpers; [record pages](#record-pages) render their collection record through `layout.Item`. Read [Block Definitions](block-definitions.md) when creating or changing those blocks.
 
 ## Singleton pages
 
@@ -103,13 +103,26 @@ export const Layout = createLayout("articles.$slug")({
   description: "One article, found by its slug.",
   blocks: { before: [navbarBlock], after: [footerBlock] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ data }) => String(data.content.title),
+  buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
+  buildMetaDescription: ({ item }) => item.excerpt || undefined,
+  toMarkdown: ({ item }) => [`# ${item.title}`, `By ${item.author.name}`, item.body],
   component: ArticlePage,
 });
 
 function ArticlePage() {
-  const { id, content } = Layout.useData();
-  // Render content.title, content.body, …
+  return (
+    <Layout.Item>
+      {(article) => (
+        <article>
+          <article.Field name="title">{(props) => <h1 {...props} />}</article.Field>
+          <article.Reference name="author">
+            {(author) => <author.Field name="name">{(props) => <p {...props} />}</author.Field>}
+          </article.Reference>
+          <article.Field name="body">{(props) => <p {...props} />}</article.Field>
+        </article>
+      )}
+    </Layout.Item>
+  );
 }
 ```
 
@@ -118,8 +131,12 @@ function ArticlePage() {
 - Several records sharing a value in the same source is a server error naming the collection, field, value and records. Camox does not enforce uniqueness: keep the field unique.
 - The loader returns a `collection-item` envelope, `{ kind: "collection-item", collectionId, data: { id, content } }`, typed as `LayoutCollectionItemResult` from `camox/createLayout`. `layout.useData()` returns the unwrapped record, `{ id, content }`. Camox rejects an envelope naming an unregistered collection or a malformed record id.
 - `routes` lists one entry per record that can have a page, in the request's source: the sitemap lists published records only, even when an editor asks, while the Canvas previews a signed-in editor's first record, draft-only records included. Each entry is `{ params, target: { kind: "collection-item", collectionId, id } }`; `target` names the record independently of its current value. Records whose value is empty or contains `/` are left out. Several records sharing a value fail discovery, so `/sitemap.xml` responds 500 naming the layout and the records. An empty collection returns `{ data: [] }`, and the Canvas asks for a path.
-- Record pages are read-only: `useData()` gives the stored content, not editable fields. Edited String fields may be stored as rich-text state rather than plain strings.
-- To wrap the helper, pass the whole loader input through, `context` included, and return the envelope unchanged:
+- `layout.Item` renders the page's record with the same typed scope as a block's `Reference`: `Field`, `Image`, `File`, `Embed`, `ImageList`, `FileList`, `Reference` and `ReferenceList`, plus `id` and `label`. Field names are checked against the collection. The record is the first hop: `Reference` and `ReferenceList` render the records it links, which link nothing further. Prefer it to `useData()`, whose `content` holds stored values (String fields may be rich-text state).
+- `layout.Item` exists only when every return of the loader is a record of one collection. On a loader that may return external data or records of several collections, using it is a type error. At runtime it renders nothing when the result isn't a record.
+- Record page fields are read-only for now: no overlays, no selection.
+- `toMarkdown` also receives `item`, the same Markdown builder as a reference list's `toMarkdown`: interpolate fields (`item.title`, `item.author.name`, `item.cover`) and Camox fills them with the live record, rich text included. `data` stays the raw record. Markdown always shows live content, whoever asks.
+- `buildMetaTitle` and `buildMetaDescription` also receive `item`: the record's String fields as plain text.
+- To wrap the helper, pass the whole loader input through, `context` included, and return the envelope unchanged. Type it as the helper's loader (`ReturnType<typeof articlePages.loader>`) to keep `layout.Item` and `item` typed:
 
 ```tsx
 const articlePages = articles.pages({ by: "slug", param: "slug" });

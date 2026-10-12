@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { collection as articles } from "../../../../playground/src/collections/articles";
+import { collection as authors } from "../../../../playground/src/collections/authors";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
@@ -16,6 +17,7 @@ import {
   listRecordPageValues,
   publishRecord,
   readRecord,
+  recordMarkdown,
   syncCollectionDefinitions,
 } from "./service";
 import { collectionDefinitionInput } from "./validation";
@@ -25,7 +27,21 @@ const serialized = JSON.parse(JSON.stringify({ ...articleDefinition, collectionI
 // Without the playground's slug pattern, editors can store any value, as in a real project.
 delete serialized.contentSchema.properties.slug.pattern;
 const definition = collectionDefinitionInput.parse(serialized);
-const article = { title: "Hello", slug: "hello", excerpt: "", body: "", cover: null };
+const { id: authorsId, ...authorDefinition } = authors._internal;
+const serializedAuthors = JSON.parse(
+  JSON.stringify({ ...authorDefinition, collectionId: authorsId }),
+);
+// Authors link back to an article here, to show that the second hop links nothing further.
+serializedAuthors.contentSchema.properties.featured = {
+  fieldType: "Reference",
+  collectionId: "articles",
+  anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+  default: null,
+};
+serializedAuthors.contentSchema.required.push("featured");
+const authorsDefinition = collectionDefinitionInput.parse(serializedAuthors);
+const article = { title: "Hello", slug: "hello", excerpt: "", body: "", cover: null, author: null };
+const author = { name: "Ada", bio: "Writes about content.", portrait: null, featured: null };
 
 async function fixture(suffix: string) {
   const base = await createProjectFixture(`record-pages-${suffix}`);
@@ -37,7 +53,7 @@ async function fixture(suffix: string) {
       projectSlug: base.project.slug,
       deployToken: "test-deploy-token",
       autoCreate: false,
-      definitions: [definition],
+      definitions: [definition, authorsDefinition],
     }),
   );
   const create = (content: Record<string, unknown>) =>
@@ -51,7 +67,31 @@ async function fixture(suffix: string) {
   ) => runService(findRecordsByField(context, { ...scope, field: "slug", value, source }));
   const list = (source: "draft" | "live", context = source === "draft" ? ctx : publicCtx) =>
     runService(listRecordPageValues(context, { ...scope, field: "slug", source }));
-  return { ...base, ctx, publicCtx, scope, create, publish, find, list };
+  const createAuthor = (content: Record<string, unknown>) =>
+    runService(
+      createRecord(ctx, { ...scope, collectionId: "authors", content: { ...author, ...content } }),
+    );
+  const publishAuthor = (record: { id: string; version: number }) =>
+    runService(
+      publishRecord(ctx, {
+        ...scope,
+        collectionId: "authors",
+        id: record.id,
+        expectedVersion: record.version,
+      }),
+    );
+  return {
+    ...base,
+    ctx,
+    publicCtx,
+    scope,
+    create,
+    publish,
+    find,
+    list,
+    createAuthor,
+    publishAuthor,
+  };
 }
 
 describe("finding the records a record page renders", () => {
@@ -70,18 +110,59 @@ describe("finding the records a record page renders", () => {
     const draftOnly = await f.create({ title: "Unpublished", slug: "draft-only" });
 
     expect(await f.find("new-slug", "draft")).toEqual([
-      { id: record.id, content: { ...article, title: "Draft title", slug: "new-slug" } },
+      {
+        id: record.id,
+        content: { ...article, title: "Draft title", slug: "new-slug" },
+        references: { author: null },
+      },
     ]);
     expect(await f.find("old-slug", "draft")).toEqual([]);
     expect(await f.find("old-slug", "live")).toEqual([
-      { id: record.id, content: { ...article, title: "Published title", slug: "old-slug" } },
+      {
+        id: record.id,
+        content: { ...article, title: "Published title", slug: "old-slug" },
+        references: { author: null },
+      },
     ]);
     expect(await f.find("new-slug", "live")).toEqual([]);
     expect(await f.find("draft-only", "draft")).toEqual([
-      { id: draftOnly.id, content: { ...article, title: "Unpublished", slug: "draft-only" } },
+      {
+        id: draftOnly.id,
+        content: { ...article, title: "Unpublished", slug: "draft-only" },
+        references: { author: null },
+      },
     ]);
     // A never-published record has no live content.
     expect(await f.find("draft-only", "live")).toEqual([]);
+  });
+
+  it("resolves the record's references as the first hop, in the request's source", async () => {
+    const f = await fixture("references");
+    const other = await f.publish(await f.create({ title: "Other", slug: "other" }));
+    const ada = await f.createAuthor({ featured: other.record.id });
+    const { record: publishedAda } = await f.publishAuthor(ada);
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        collectionId: "authors",
+        id: ada.id,
+        expectedVersion: publishedAda.version,
+        content: { ...author, name: "Ada (draft)", featured: other.record.id },
+      }),
+    );
+    await f.publish(await f.create({ author: ada.id }));
+
+    const [live] = await f.find("hello", "live");
+    expect(live.references.author).toMatchObject({
+      id: ada.id,
+      collectionId: "authors",
+      label: "Ada",
+      content: { ...author, featured: other.record.id },
+    });
+    // The author is the second hop: its own reference stays an unresolved id.
+    expect(live.references.author).not.toHaveProperty("references");
+    const [draft] = await f.find("hello", "draft");
+    expect(draft.references.author).toMatchObject({ id: ada.id, label: "Ada (draft)" });
   });
 
   it("compares the plain text of values stored as rich text", async () => {
@@ -134,7 +215,7 @@ describe("finding the records a record page renders", () => {
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
         autoCreate: true,
-        definitions: [definition],
+        definitions: [definition, authorsDefinition],
       }),
     );
     expect(await f.find("hello", "draft", devCtx)).toEqual([]);
@@ -196,7 +277,7 @@ describe("listing the records that can have a page", () => {
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
         autoCreate: true,
-        definitions: [definition],
+        definitions: [definition, authorsDefinition],
       }),
     );
     expect(await f.list("draft", devCtx)).toEqual([]);
@@ -300,7 +381,7 @@ describe("publishing a record from its record page", () => {
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
         autoCreate: true,
-        definitions: [definition],
+        definitions: [definition, authorsDefinition],
       }),
     );
     const devRecord = await runService(createRecord(devCtx, { ...f.scope, content: article }));
@@ -341,7 +422,11 @@ describe("publishing a record from its record page", () => {
     expect(await livePointer(f)).toBeNull();
     // The visitor's record page now finds the published content.
     expect(await f.find("hello", "live")).toEqual([
-      { id: record.id, content: { ...article, title: "First take" } },
+      {
+        id: record.id,
+        content: { ...article, title: "First take" },
+        references: { author: null },
+      },
     ]);
 
     await runService(
@@ -358,5 +443,39 @@ describe("publishing a record from its record page", () => {
     await runService(publishLayout(f.ctx, { id: f.layout.id, pageRecord }));
     expect(await livePointer(f)).not.toBeNull();
     expect(await f.find("hello", "live")).toMatchObject([{ content: { title: "First take" } }]);
+  });
+});
+
+describe("the Markdown of a record page's record", () => {
+  it("fills the layout's Markdown builder with the record's live fields and its author", async () => {
+    const f = await fixture("markdown");
+    const ada = await f.createAuthor({});
+    await f.publishAuthor(ada);
+    const record = await f.create({
+      title: "Hello",
+      body: plainTextToLexicalState("Rich body"),
+      author: ada.id,
+    });
+    const { record: published } = await f.publish(record);
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: record.id,
+        expectedVersion: published.version,
+        content: { ...article, title: "Draft title", author: ada.id },
+      }),
+    );
+    const markdown = (toMarkdown: string[], context = f.publicCtx, recordId = record.id) =>
+      runService(recordMarkdown(context, { ...f.scope, id: recordId, toMarkdown }));
+
+    expect(
+      await markdown(["# {{title}}", "By {{author.name}}", "{{body}}", "{{excerpt}}", "Fixed"]),
+    ).toBe("# Hello\n\nBy Ada\n\nRich body\n\nFixed");
+    // Markdown is a public output: an editor gets the live record too.
+    expect(await markdown(["# {{title}}"], f.ctx)).toBe("# Hello");
+    const draftOnly = await f.create({ slug: "draft-only" });
+    await expect(markdown(["# {{title}}"], f.ctx, draftOnly.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });

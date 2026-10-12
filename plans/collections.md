@@ -423,7 +423,15 @@ Editing and publication:
 
 Playground: an `/articles/$slug` record page (author through `Reference`, `toMarkdown`, meta)
 and an `/articles` singleton with an article list. List items link to record pages with
-hrefs built from the slug in code.
+hrefs built from the slug in code. Articles link their author, so authors no longer link
+their articles: `field.reference` reads its collection eagerly, so two collections can't
+reference each other.
+
+Read-only `layout.Item` (#188): the record's links travel in the envelope as
+`data.references`, resolved by the API with the record as hop 1. The envelope type carries
+the collection's fields as a type-only, invariant member; an envelope typed without them (a
+wrapper annotated `LayoutCollectionItemResult<Content>`) has no `Item`. Record Markdown is
+filled by the API (`recordMarkdown`), with the same builder and resolver as reference lists.
 
 ## Status and intent
 

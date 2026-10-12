@@ -11,24 +11,19 @@ export const Layout = createLayout("articles.$slug")({
   description: "One article of the Articles collection, found by its slug.",
   blocks: { before: [navbarBlock], after: [footerBlock] },
   ...articles.pages({ by: "slug", param: "slug" }),
-  buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
+  buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
+  buildMetaDescription: ({ item }) => item.excerpt || undefined,
+  toMarkdown: ({ item }) => [
+    `# ${item.title}`,
+    `By ${item.author.name}`,
+    item.cover,
+    item.excerpt,
+    item.body,
+  ],
   component: ArticlePage,
 });
 
-/** Edited String fields are stored as rich-text state; this read-only page shows their text. */
-function plainText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value !== "object" || value === null) return "";
-  const node = value as { text?: unknown; root?: unknown; children?: unknown };
-  if (typeof node.text === "string") return node.text;
-  if (node.root) return plainText(node.root);
-  if (!Array.isArray(node.children)) return "";
-  return node.children.map(plainText).join("");
-}
-
 function ArticlePage() {
-  const { content } = Layout.useData();
-
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
       <Layout.BeforeBlocks />
@@ -36,9 +31,36 @@ function ArticlePage() {
         <a href="/articles" className="text-muted-foreground hover:text-foreground text-sm">
           ← All articles
         </a>
-        <h1 className="mt-6 text-4xl font-bold">{plainText(content.title)}</h1>
-        <p className="text-muted-foreground mt-4 text-lg">{plainText(content.excerpt)}</p>
-        <p className="mt-8 leading-relaxed">{plainText(content.body)}</p>
+        <Layout.Item>
+          {(article) => (
+            <article>
+              <article.Field name="title">
+                {(props) => <h1 {...props} className="mt-6 text-4xl font-bold" />}
+              </article.Field>
+              <article.Reference name="author">
+                {(author) => (
+                  <div className="mt-4 flex items-center gap-3">
+                    <author.Image name="portrait">
+                      {(props) => <img {...props} className="size-10 rounded-full object-cover" />}
+                    </author.Image>
+                    <author.Field name="name">
+                      {(props) => <p {...props} className="text-sm font-medium" />}
+                    </author.Field>
+                  </div>
+                )}
+              </article.Reference>
+              <article.Field name="excerpt">
+                {(props) => <p {...props} className="text-muted-foreground mt-4 text-lg" />}
+              </article.Field>
+              <article.Image name="cover">
+                {(props) => <img {...props} className="mt-8 w-full rounded-lg object-cover" />}
+              </article.Image>
+              <article.Field name="body">
+                {(props) => <p {...props} className="mt-8 leading-relaxed" />}
+              </article.Field>
+            </article>
+          )}
+        </Layout.Item>
       </main>
       <Layout.AfterBlocks />
     </div>

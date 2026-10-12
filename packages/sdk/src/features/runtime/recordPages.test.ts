@@ -4,15 +4,28 @@ import { test } from "node:test";
 import { createApp } from "../../core/createApp";
 import { createCollection } from "../../core/createCollection";
 import { createLayout, type LayoutCollectionItemResult } from "../../core/createLayout";
+import { plainTextToLexicalState } from "../../core/lib/lexicalState";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const VALID_SESSION = "camox_auth_cookie=valid";
+
+const authors = createCollection({
+  id: "authors",
+  title: "Authors",
+  description: "",
+  content: (field) => ({ name: field.string() }),
+  label: "name",
+});
 
 const articles = createCollection({
   id: "articles",
   title: "Articles",
   description: "",
-  content: (field) => ({ title: field.string(), slug: field.string() }),
+  content: (field) => ({
+    title: field.string(),
+    slug: field.string(),
+    author: field.reference(authors),
+  }),
   label: "title",
 });
 
@@ -26,11 +39,19 @@ const layoutOptions = {
 
 const PUBLISHED_ID = "00000000-0000-4000-8000-000000000001";
 const DRAFT_ONLY_ID = "00000000-0000-4000-8000-000000000002";
+const RICH_ID = "00000000-0000-4000-8000-000000000005";
+const LINKED_ID = "00000000-0000-4000-8000-000000000006";
+const AUTHOR = {
+  id: "00000000-0000-4000-8000-000000000007",
+  collectionId: "authors",
+  label: "Ada",
+  content: { name: "Ada" },
+};
 const TWIN_IDS = ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004"];
 
 type RecordsBySource = Record<
   "draft" | "live",
-  Array<{ id: string; content: { title: string; slug: string } }>
+  Array<{ id: string; content: Record<string, unknown>; references?: unknown }>
 >;
 
 /** Records by source, as the API's field lookup returns them for `slug`. */
@@ -43,12 +64,27 @@ const records: RecordsBySource = {
   live: [{ id: PUBLISHED_ID, content: { title: "Published title", slug: "old-slug" } }],
 };
 
+/** Published records whose fields and links layout.Item, Markdown and meta read. */
+const withRenderedRecords: RecordsBySource = {
+  draft: records.draft,
+  live: [
+    ...records.live,
+    { id: RICH_ID, content: { title: plainTextToLexicalState("Rich title"), slug: "rich" } },
+    {
+      id: LINKED_ID,
+      content: { title: "Linked", slug: "linked", author: AUTHOR.id },
+      references: { author: AUTHOR },
+    },
+  ],
+};
+
 /** An API where only the valid session can read drafts, and only of this project. */
 function mockApi(
   t: { mock: { method: typeof test.mock.method } },
   recordsBySource: RecordsBySource = records,
 ) {
   const lookups: Array<{ source: string; session: string | null }> = [];
+  const markdownRequests: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const url = new URL(request.url);
     const session = request.headers.get("Better-Auth-Cookie");
@@ -65,6 +101,14 @@ function mockApi(
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
         { status: 404 },
       );
+    if (url.pathname.endsWith("/getLayoutMarkdown"))
+      return Response.json({ json: { before: "Navbar", after: "Footer" } });
+    if (url.pathname.endsWith("/collectionDefinitions/recordMarkdown")) {
+      const { json: input } = (await request.json()) as { json: { id: string } };
+      markdownRequests.push(input);
+      // The API fills the builder's tokens with the live record, as its own tests show.
+      return Response.json({ json: input.id === PUBLISHED_ID ? "# Published title" : "" });
+    }
     if (url.pathname.endsWith("/layouts/get"))
       return Response.json({
         json: {
@@ -126,7 +170,7 @@ function mockApi(
     }
     throw new Error(`Unexpected request: ${url}`);
   });
-  return lookups;
+  return Object.assign(lookups, { markdownRequests });
 }
 
 function request(
@@ -139,15 +183,20 @@ function request(
     }),
   ],
   cookie?: string,
+  accept?: string,
 ) {
   const options: RuntimeOptions = {
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
     projectSlug: "test",
-    getCamoxApp: async () => createApp({ blocks: [], layouts: layout, collections: [articles] }),
+    getCamoxApp: async () =>
+      createApp({ blocks: [], layouts: layout, collections: [articles, authors] }),
     renderPage: async (input) => `<main>${JSON.stringify(input.derived?.result)}</main>`,
   };
-  const headers: Record<string, string> = cookie ? { Cookie: cookie } : {};
+  const headers: Record<string, string> = {
+    ...(cookie ? { Cookie: cookie } : {}),
+    ...(accept ? { Accept: accept } : {}),
+  };
   return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), options);
 }
 
@@ -186,6 +235,19 @@ void test("editors read the record matching its draft value, visitors its publis
       ["live", null],
     ],
   );
+});
+
+void test("the record's resolved references travel in the envelope, for layout.Item", async (t) => {
+  mockApi(t, withRenderedRecords);
+  assert.deepEqual(await loadedRecord("/articles/linked"), {
+    kind: "collection-item",
+    collectionId: "articles",
+    data: {
+      id: LINKED_ID,
+      content: { title: "Linked", slug: "linked", author: AUTHOR.id },
+      references: { author: AUTHOR },
+    },
+  });
 });
 
 void test("a slug no record has in the request's source is a 404", async (t) => {
@@ -348,4 +410,47 @@ void test("records sharing a value fail discovery, naming the layout and the rec
   }
   const routes = await request("/_camox/routes?layoutId=articles.$slug", undefined, VALID_SESSION);
   assert.equal(routes!.status, 500);
+});
+
+void test("toMarkdown fills the record's fields between the live layout blocks, even for an editor", async (t) => {
+  const lookups = mockApi(t);
+  const layout = createLayout("articles.$slug")({
+    ...layoutOptions,
+    kind: "derived",
+    ...articles.pages({ by: "slug", param: "slug" }),
+    toMarkdown: ({ item, data }) => [`# ${item.title}`, `By ${item.author.name}`, data.id],
+  });
+  const response = await request("/articles/old-slug", [layout], VALID_SESSION, "text/markdown");
+  assert.equal(await response!.text(), "Navbar\n\n# Published title\n\nFooter");
+  assert.deepEqual(lookups.markdownRequests, [
+    {
+      projectSlug: "test",
+      collectionId: "articles",
+      id: PUBLISHED_ID,
+      toMarkdown: ["# {{title}}", "By {{author.name}}", PUBLISHED_ID],
+    },
+  ]);
+  assert.deepEqual(
+    lookups.map(({ source, session }) => [source, session]),
+    [["live", null]],
+  );
+});
+
+void test("meta callbacks get the record's fields as plain text", async (t) => {
+  mockApi(t, withRenderedRecords);
+  const layout = createLayout("articles.$slug")({
+    ...layoutOptions,
+    kind: "derived",
+    ...articles.pages({ by: "slug", param: "slug" }),
+    buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
+    buildMetaDescription: ({ item }) => `About ${item.slug}`,
+  });
+  const response = await request("/_camox/data?path=/articles/rich", [layout]);
+  const { head } = (await response!.json()) as PageRenderInput & {
+    head: { meta?: Array<Record<string, string>> };
+  };
+  assert.deepEqual(head.meta?.slice(0, 2), [
+    { title: "Rich title | Real project" },
+    { name: "description", content: "About rich" },
+  ]);
 });

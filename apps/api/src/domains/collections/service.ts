@@ -6,12 +6,14 @@ import { z } from "zod";
 
 import { assertSyncAccess, getAuthorizedProjectBySlug, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { contentToMarkdown } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
 import { collectionAdditionDefaults } from "./schema-evolution";
 import { collectionDefinitionInput, validateContent } from "./validation";
@@ -466,11 +468,15 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
     return yield* new InvalidInputError({
       message: `${input.collectionId}.${input.field} is not a String field`,
     });
-  if (!definition.active) return [];
+  if (!definition.active) return { definition, records: [] };
   const content = input.source === "live" ? publishedRevisions.content : collectionRecords.draft;
   const rows = yield* Effect.promise(() =>
     ctx.db
-      .select({ id: collectionRecords.id, content })
+      .select({
+        id: collectionRecords.id,
+        content,
+        publishedDefinition: publishedRevisions.definition,
+      })
       .from(collectionRecords)
       .leftJoin(
         publishedRevisions,
@@ -483,10 +489,17 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
         ),
       ),
   );
-  return rows.flatMap((row) => {
+  const records = rows.flatMap((row) => {
     const value = pageValue(row.content, input.field);
-    return value === null ? [] : [{ id: row.id, content: row.content!, value }];
+    if (value === null) return [];
+    // Live records render with the schema they were published with.
+    const schema =
+      input.source === "live"
+        ? (row.publishedDefinition as { contentSchema: unknown }).contentSchema
+        : definition.contentSchema;
+    return [{ id: row.id, content: row.content!, value, schema }];
   });
+  return { definition, records };
 });
 
 /**
@@ -498,10 +511,15 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
   rawInput: z.input<typeof findRecordsByFieldInput>,
 ) {
   const input = yield* decodeInput(findRecordsByFieldInput, rawInput);
-  const records = yield* recordsWithPageValues(ctx, input);
-  return records
-    .filter((record) => record.value === input.value)
-    .map(({ id, content }) => ({ id, content }));
+  const { definition, records } = yield* recordsWithPageValues(ctx, input);
+  // The page's record is the first hop: it resolves the records it links, which link nothing.
+  return yield* Effect.forEach(
+    records.filter((record) => record.value === input.value),
+    ({ id, content, schema }) =>
+      resolveReferences(ctx, definition, schema, content, input.source, 2).pipe(
+        Effect.map((references) => ({ id, content, references })),
+      ),
+  );
 });
 
 /**
@@ -513,8 +531,52 @@ export const listRecordPageValues = Effect.fn("collections.listRecordPageValues"
   rawInput: z.input<typeof listRecordPageValuesInput>,
 ) {
   const input = yield* decodeInput(listRecordPageValuesInput, rawInput);
-  const records = yield* recordsWithPageValues(ctx, input);
+  const { records } = yield* recordsWithPageValues(ctx, input);
   return records.map(({ id, value }) => ({ id, value }));
+});
+
+export const recordMarkdownInput = recordInput.extend({
+  toMarkdown: z.array(z.string().max(10_000)).max(200),
+});
+
+/**
+ * A record page's Markdown: the layout's `toMarkdown` lines, filled with the record's live
+ * fields like a reference list's records. The record is the first hop, so its links resolve.
+ * Markdown is public output: it reads live content whoever asks.
+ */
+export const recordMarkdown = Effect.fn("collections.recordMarkdown")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof recordMarkdownInput>,
+) {
+  const input = yield* decodeInput(recordMarkdownInput, rawInput);
+  const { definition, record } = yield* recordFor(ctx, input, false);
+  if (!definition.active || !record?.publishedRevisionId) return yield* new NotFoundError();
+  const revisionId = record.publishedRevisionId;
+  const revision = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionRevisions)
+      .where(
+        and(eq(collectionRevisions.id, revisionId), eq(collectionRevisions.recordId, record.id)),
+      )
+      .get(),
+  );
+  if (!revision) return yield* new NotFoundError();
+  const { contentSchema } = revision.definition as { contentSchema: { properties?: object } };
+  const references = yield* resolveReferences(
+    ctx,
+    definition,
+    contentSchema,
+    revision.content,
+    "live",
+    2,
+  );
+  return contentToMarkdown(
+    input.toMarkdown,
+    (contentSchema.properties ?? {}) as Record<string, unknown>,
+    revision.content,
+    { references },
+  );
 });
 
 const mutation = Effect.fn("collections.mutation")(function* (
