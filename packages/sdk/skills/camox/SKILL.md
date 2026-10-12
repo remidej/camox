@@ -25,6 +25,8 @@ Read only the references needed for the current task. Do not preload every refer
   Preview DOM lives in an iframe; component globals target the editor.
 - Customize inline text/link formatting or highlights:
   [Field styling](references/field-styling.md).
+- Bespoke visuals or widgets as code (animations, 3D scenes, interactive widgets), declaring `field.artifact` or writing an artifact source:
+  [Artifacts](references/artifacts.md).
 
 For specialized changes to an existing block, read the specialist reference directly. Also read Block Definitions only if creating a block or changing its schema or other field rendering APIs.
 

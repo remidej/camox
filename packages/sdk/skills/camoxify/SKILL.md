@@ -29,6 +29,7 @@ Before coding, map the reference to:
 Reuse before creating. When a section matches an existing definition's content shape and visual treatment, use it, adding a setting for a small variation. Create a new definition when the visual treatment or the content shape is meaningfully different; distinct designs for the same job keep pages varied. A new definition's `description` says when to choose it over similar existing blocks.
 
 - **Fields and repeaters:** editable content within each section, grouped by meaning rather than visual position.
+- **Artifacts:** bespoke visuals found on the reference, such as animated illustrations, 3D scenes, or one-off interactive widgets. Recreate each as an artifact source on a `field.artifact` of the block around it, not as a one-off block. Read [Artifacts](../camox/references/artifacts.md).
 
 Read [Block Definitions](../camox/references/block-definitions.md) and, when creating or changing a shell, [Layout Definitions](../camox/references/layout-definitions.md).
 
