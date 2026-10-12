@@ -125,7 +125,7 @@ While subscribed, the runtime also sets `--camox-progress` on `:root`, so CSS al
 </script>
 ```
 
-Updates arrive at most once per animation frame, only when the values change, so nothing arrives while the frame is far from the viewport. Artifacts that never subscribe get nothing and cost nothing. Don't read the frame's own scroll position or listen to `scroll` inside it: the artifact can't see the page scroll.
+Updates arrive at most once per animation frame, only while the frame is near the viewport, and only when the values change. After the frame leaves the viewport, the last update is `visibleRatio: 0`, with `progress` at `0` or `1`. Artifacts that never subscribe get nothing and cost nothing. Don't read the frame's own scroll position or listen to `scroll` inside it: the artifact can't see the page scroll.
 
 ### Size to the content
 

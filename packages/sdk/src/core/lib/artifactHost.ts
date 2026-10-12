@@ -89,14 +89,18 @@ function viewportOf(frame: HTMLIFrameElement, viewportHeight: number) {
   };
 }
 
+/** How far beyond the viewport a frame counts as near it, so it starts measuring ahead of time. */
+const NEAR_VIEWPORT = "25% 0px";
+
 /**
  * Follows the frame's place in the page's viewport, measuring at most once per animation frame
- * after a scroll or resize anywhere on the page, and reporting only changes. Off-screen frames
- * clamp to the same values, so they report nothing until they come near the viewport again.
+ * after a scroll or resize anywhere on the page, and reporting only changes. An
+ * IntersectionObserver limits this to while the frame is near the viewport: far frames aren't
+ * measured on scroll, and are measured once more as they leave, so they report where they went.
  */
 function trackViewport(
   frame: HTMLIFrameElement,
-  page: Window,
+  page: Window & typeof globalThis,
   report: (viewport: { progress: number; visibleRatio: number }) => void,
 ) {
   let pending = 0;
@@ -112,16 +116,43 @@ function trackViewport(
     if (pending) return;
     pending = page.requestAnimationFrame(measure);
   };
+
   // Capturing catches scrolls of any scroll container, not only the page's.
   const listener = { capture: true, passive: true } as const;
-  page.addEventListener("scroll", schedule, listener);
-  page.addEventListener("resize", schedule, listener);
+  let following = false;
+  const follow = (near: boolean) => {
+    if (near === following) return;
+    following = near;
+    if (near) {
+      page.addEventListener("scroll", schedule, listener);
+      page.addEventListener("resize", schedule, listener);
+      return;
+    }
+    page.removeEventListener("scroll", schedule, listener);
+    page.removeEventListener("resize", schedule, listener);
+  };
+
+  const intersection =
+    "IntersectionObserver" in page
+      ? new page.IntersectionObserver(
+          (entries) => {
+            const entry = entries.at(-1);
+            if (!entry) return;
+            follow(entry.isIntersecting);
+            schedule();
+          },
+          { rootMargin: NEAR_VIEWPORT },
+        )
+      : null;
+  if (intersection) intersection.observe(frame);
+  else follow(true);
   schedule();
+
   return {
     schedule,
     stop() {
-      page.removeEventListener("scroll", schedule, listener);
-      page.removeEventListener("resize", schedule, listener);
+      intersection?.disconnect();
+      follow(false);
       if (pending) page.cancelAnimationFrame(pending);
     },
   };

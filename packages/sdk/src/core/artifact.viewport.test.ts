@@ -87,6 +87,22 @@ void test("an artifact far from the viewport sees no updates while the page scro
   assert.equal(viewport.seen.length, before);
 });
 
+void test("a frame far from the viewport isn't measured while the page scrolls, until it comes near", async () => {
+  const { harness, frame, artifact } = await artifactOnPage(VIEWPORT_HEIGHT * 4);
+  const viewport = watchViewport(artifact);
+  await harness.settle();
+  const before = harness.measurements(frame);
+  harness.scroll(frame, VIEWPORT_HEIGHT * 3);
+  await harness.settle();
+  harness.scroll(frame, VIEWPORT_HEIGHT * 5);
+  await harness.settle();
+  assert.equal(harness.measurements(frame), before, "far frames aren't measured");
+
+  harness.scroll(frame, (VIEWPORT_HEIGHT - FRAME_HEIGHT) / 2);
+  await harness.settle();
+  assert.deepEqual(viewport.latest(), { progress: 0.5, visibleRatio: 1 }, "back in view");
+});
+
 void test("an artifact that never subscribes receives nothing while the page scrolls", async () => {
   const { harness, frame, artifact } = await artifactOnPage(VIEWPORT_HEIGHT);
   let received = 0;
