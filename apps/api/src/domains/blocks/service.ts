@@ -886,6 +886,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   rawInput: z.input<typeof getPageMarkdownInput>,
 ) {
   const { pageId, source } = yield* decodeInput(getPageMarkdownInput, rawInput);
+  if (source === "draft") yield* requireUser(ctx);
 
   const page = yield* Effect.promise(() =>
     ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),

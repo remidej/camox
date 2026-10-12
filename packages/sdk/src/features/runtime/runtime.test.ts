@@ -254,10 +254,25 @@ void test("new unpublished curated pages load with native session cookies but st
   }
 });
 
-void test("sitemaps include singleton destinations with the runtime base path and no invented lastmod", async (t) => {
+void test("sitemaps include published pages and singleton destinations with the runtime base path and no invented lastmod", async (t) => {
   t.mock.method(globalThis, "fetch", async () =>
     Response.json({
-      json: [{ id: 1, nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" }],
+      json: [
+        {
+          id: 1,
+          nickname: "About",
+          fullPath: "/about",
+          updatedAt: "2026-01-01",
+          status: "published",
+        },
+        {
+          id: 2,
+          nickname: "Draft",
+          fullPath: "/draft-only",
+          updatedAt: "2026-01-01",
+          status: "draft",
+        },
+      ],
     }),
   );
   const response = await handleCamoxRequest(new Request("https://site.test/site/sitemap.xml"), {
@@ -273,6 +288,7 @@ void test("sitemaps include singleton destinations with the runtime base path an
   assert.match(xml, /https:\/\/site.test\/site\/about</);
   assert.equal(xml.match(/<lastmod>/g)?.length, 1);
   assert.doesNotMatch(xml, /pokemon|\$name/);
+  assert.doesNotMatch(xml, /draft-only/);
 });
 
 void test("expired studio auth clears the mirrored cookie without granting chrome", async (t) => {
@@ -383,4 +399,23 @@ void test("Block Catalog routes open the page app on the block, or redirect home
       assert.equal(data?.status, 404);
     });
   }
+});
+
+void test("public Markdown responses read the live page", async (t) => {
+  const requested: Array<{ path: string; input: unknown }> = [];
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const path = new URL(request.url).pathname;
+    requested.push({ path, input: ((await request.json()) as { json: unknown }).json });
+    if (path.endsWith("/pages/getByPath")) return Response.json({ json: { page: { id: 7 } } });
+    return Response.json({ json: { markdown: "# Live", blocks: [] } });
+  });
+  const response = await handleCamoxRequest(
+    new Request("https://site.test/about", { headers: { Accept: "text/markdown" } }),
+    { apiUrl: "https://api.test", projectSlug: "test" },
+  );
+  assert.equal(await response?.text(), "# Live");
+  assert.deepEqual(
+    requested.map(({ input }) => (input as { source?: string }).source),
+    ["live", "live"],
+  );
 });
