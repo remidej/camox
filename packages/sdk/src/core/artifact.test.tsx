@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import * as React from "react";
+import { act } from "react";
 
 import { NavigationProvider } from "../features/navigation/navigation";
 import { CamoxAppProvider } from "../features/provider/components/CamoxAppContext";
@@ -126,6 +127,29 @@ void test("an artifact's default source is its block's initial content", () => {
   });
   assert.equal(withDefault._internal.getInitialContent().visual, source);
   assert.equal(withoutDefault._internal.getInitialContent().visual, "");
+});
+
+void test("a frame sized to its content gets the height its artifact reports", async () => {
+  const harness = createArtifactPage();
+  const container = harness.page.document.createElement("div");
+  harness.page.document.body.append(container);
+  const { frames, unmount } = await mountArtifactFrames(
+    { visual: source, slides: [{ scene: source }] },
+    Website,
+    container as unknown as HTMLElement,
+  );
+  const [fill, content] = frames;
+  const visual = harness.load(fill, fill.getAttribute("srcdoc") ?? "");
+  const scene = harness.load(content, content.getAttribute("srcdoc") ?? "");
+  await act(() => harness.settle());
+  await act(async () => {
+    harness.resize(visual, 240);
+    harness.resize(scene, 240);
+    await harness.settle();
+  });
+  assert.equal(content.style.height, "240px");
+  assert.equal(fill.style.height, "", "a frame that fills its container keeps its own size");
+  await unmount();
 });
 
 void test("artifacts rendered as on the website see the studio they're placed in", async () => {

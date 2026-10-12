@@ -14,6 +14,12 @@ import { ARTIFACT_RUNTIME_THEME } from "./artifactRuntimeTheme";
  * - host → frame: `data` with the latest Artifact Data. The initial data is inlined in the
  *   `srcDoc` as a `<script type="application/json" data-camox-data>` after the runtime and the
  *   font links, so it is read lazily, on first access.
+ * - runtime → page: `observe-viewport` with `observe`, when the artifact's first `onViewport`
+ *   subscription starts or its last one ends. While observed, the host sends `viewport` with
+ *   `progress` and `visibleRatio` whenever they change.
+ * - host → frame: `measure`, for frames sized to their content. The runtime then reports the
+ *   document's `height` whenever it changes.
+ * - runtime → page: `navigate` with an `href`. The host acts only with transient user activation.
  *
  * Kept as plain JavaScript in strings (the theme part lives in `artifactRuntimeTheme.ts`): it
  * runs in the artifact's document, not in the SDK's bundle, so it can't share code or build
@@ -39,9 +45,20 @@ export const ARTIFACT_RUNTIME = `(() => {
     return data;
   };
   ${ARTIFACT_RUNTIME_THEME}
+  const viewportCallbacks = new Set();
+  let viewport = null;
+  let heightObserver = null;
+  let height = null;
+  const reportHeight = () => {
+    const next = Math.ceil(document.documentElement.getBoundingClientRect().height);
+    if (next === height) return;
+    height = next;
+    send("height", { height });
+  };
   const send = (type, message) => {
     if (channel) host.postMessage({ ...message, camox: type, channel }, "*");
   };
+  const observeViewport = () => send("observe-viewport", { observe: viewportCallbacks.size > 0 });
   const receivers = {
     studio(message) {
       const next = message.studio;
@@ -56,6 +73,21 @@ export const ARTIFACT_RUNTIME = `(() => {
       for (const listener of [...dataListeners]) listener(data);
     },
     theme: camoxTheme.receive,
+    measure() {
+      height = null;
+      if (!heightObserver) {
+        heightObserver = new ResizeObserver(reportHeight);
+        heightObserver.observe(document.documentElement);
+      }
+      reportHeight();
+    },
+    viewport(message) {
+      const { progress, visibleRatio } = message;
+      if (typeof progress !== "number" || typeof visibleRatio !== "number") return;
+      viewport = Object.freeze({ progress, visibleRatio });
+      document.documentElement.style.setProperty("--camox-progress", String(progress));
+      for (const callback of viewportCallbacks) callback(viewport);
+    },
   };
   window.addEventListener("message", (event) => {
     const message = event.data;
@@ -64,6 +96,7 @@ export const ARTIFACT_RUNTIME = `(() => {
       if (typeof message.channel !== "string" || message.channel === channel) return;
       channel = message.channel;
       send("ready");
+      if (viewportCallbacks.size > 0) observeViewport();
       return;
     }
     if (!channel || message.channel !== channel) return;
@@ -86,6 +119,22 @@ export const ARTIFACT_RUNTIME = `(() => {
       return camoxTheme.current;
     },
     onTheme: camoxTheme.subscribe,
+    navigate(href) {
+      send("navigate", { href: String(href) });
+    },
+    onViewport(callback) {
+      if (typeof callback !== "function") throw new TypeError("camox.onViewport needs a callback");
+      const subscription = (next) => callback(next);
+      viewportCallbacks.add(subscription);
+      if (viewportCallbacks.size === 1) observeViewport();
+      else if (viewport) {
+        queueMicrotask(() => viewportCallbacks.has(subscription) && callback(viewport));
+      }
+      return () => {
+        if (!viewportCallbacks.delete(subscription)) return;
+        if (viewportCallbacks.size === 0) observeViewport();
+      };
+    },
   });
   Object.defineProperty(window, "camox", { value: camox, enumerable: true });
   if (host !== window) host.postMessage({ camox: "hello" }, "*");

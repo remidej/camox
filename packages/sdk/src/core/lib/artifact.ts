@@ -18,6 +18,8 @@ export type ArtifactFrameProps = {
 export type ArtifactRenderProps = ArtifactFrameProps & {
   /** Connects the frame to the `camox` runtime inside it. */
   ref: React.RefCallback<HTMLIFrameElement>;
+  /** For `size: "content"`, the height the artifact's content needs, once it reports it. */
+  style?: React.CSSProperties;
 };
 
 export { artifactTitle };

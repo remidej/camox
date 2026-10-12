@@ -11,7 +11,7 @@ import { useSelector } from "@xstate/store-react";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
-import { useLocation } from "@/features/navigation/navigation";
+import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
@@ -1239,7 +1239,15 @@ export function createEditableBlock<
     );
 
     const canvas = React.use(CanvasWorkspaceContext) !== null;
-    const ref = useArtifactHost({ editMode: isContentEditable, canvas }, data);
+    const fieldSchema = repeaterContext
+      ? repeaterContext.itemSchema?.[fieldName]
+      : (blockContext.sourceSchema ?? typeboxSchema.properties)[fieldName];
+    const hostProps = useArtifactHost({
+      studio: { editMode: isContentEditable, canvas },
+      data,
+      size: fieldSchema?.size,
+      navigate: useNavigate(),
+    });
     const initialData = useInitialArtifactData(value, data);
     const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
 
@@ -1247,7 +1255,7 @@ export function createEditableBlock<
       ...(isArtifactSource(value)
         ? artifactFrameProps(value, { fontLinks, data: initialData })
         : artifactPlaceholderProps()),
-      ref,
+      ...hostProps,
     });
     return (
       <div

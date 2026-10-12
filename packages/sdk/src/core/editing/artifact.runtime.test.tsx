@@ -45,7 +45,8 @@ registerHooks({
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {
       "@/lib/auth": "export const useProjectSlug = () => 'test'",
-      "@/features/navigation/navigation": "export const useLocation = () => '/'",
+      "@/features/navigation/navigation":
+        "export const useLocation = () => '/'; export const useNavigate = () => () => {}",
       "../../features/preview/components/Frame":
         "export const useFrame = () => ({window: globalThis.window ?? null})",
       // Edit Mode comes from the real preview store; only the auth check is left out.
@@ -230,7 +231,7 @@ async function mountInStudio(Providers: (props: { children: React.ReactNode }) =
   );
   const artifacts = frames.map((frame) => harness.load(frame, frame.getAttribute("srcdoc") ?? ""));
   await harness.settle();
-  return { harness, artifacts, unmount };
+  return { harness, frames, artifacts, unmount };
 }
 
 function studioOf(artifact: ArtifactWindow) {
@@ -267,6 +268,21 @@ void test("artifacts on the Canvas know they are on the Canvas", async () => {
   for (const artifact of artifacts) {
     assert.deepEqual(studioOf(artifact), { editMode: true, canvas: true });
   }
+  await unmount();
+});
+
+void test("in the studio preview, a frame sized to its content gets the height its artifact reports", async () => {
+  previewStore.send({ type: "exitEditMode" });
+  const { harness, frames, artifacts, unmount } = await mountInStudio(
+    CompleteBlockEditingRuntimeProvider,
+  );
+  await act(async () => {
+    for (const artifact of artifacts) harness.resize(artifact, 360);
+    await harness.settle();
+  });
+  const [fill, content] = frames;
+  assert.equal(content.style.height, "360px");
+  assert.equal(fill.style.height, "", "a frame that fills its container keeps its own size");
   await unmount();
 });
 
