@@ -67,7 +67,7 @@ export function canvasCommentIndicators(
   const anchors = new Map<string, { target: CanvasOverlayTarget; index: number }[]>();
   targets.forEach((target, index) => {
     if (!target.visible) return;
-    for (const key of overlayTargetKeys(target.element)) {
+    for (const key of overlayTargetKeys(target)) {
       const entries = anchors.get(key) ?? [];
       entries.push({ target, index });
       anchors.set(key, entries);
@@ -88,15 +88,13 @@ export function canvasCommentIndicators(
   });
 }
 
-function overlayTargetKeys(element: Element) {
+function overlayTargetKeys({ element, item }: CanvasOverlayTarget) {
+  if (item) return [`item:${item.blockId}:${item.itemId}`];
   const keys: string[] = [];
   const fieldId = element.getAttribute("data-camox-field-id");
   if (fieldId) keys.push(`field:${fieldId}`);
   const blockId = element.getAttribute("data-camox-block-id");
   if (blockId) keys.push(`block:${blockId}`);
-  const itemId = element.getAttribute("data-camox-repeatable-item-id");
-  const ownerId = element.closest("[data-camox-block-id]")?.getAttribute("data-camox-block-id");
-  if (itemId && ownerId) keys.push(`item:${ownerId}:${itemId}`);
   return keys;
 }
 
@@ -266,8 +264,7 @@ function CanvasCommentPopover({
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const matching = targets.filter(
-    (entry) =>
-      entry.visible && overlayTargetKeys(entry.element).includes(commentTargetKey(popover.target)),
+    (entry) => entry.visible && overlayTargetKeys(entry).includes(commentTargetKey(popover.target)),
   );
   const anchor = matching.find((entry) => entry.element === popover.anchor) ?? matching[0];
   React.useEffect(() => {
