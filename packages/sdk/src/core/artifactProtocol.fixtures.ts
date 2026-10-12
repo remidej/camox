@@ -4,6 +4,8 @@ import { Window } from "happy-dom";
 export type ArtifactWindow = Window & {
   camox: {
     readonly studio: { editMode: boolean; canvas: boolean } | null;
+    readonly data: Record<string, unknown>;
+    onData(callback: (data: Record<string, unknown>) => void): () => void;
     readonly theme: ArtifactTheme;
     onTheme(callback: (theme: ArtifactTheme) => void): () => void;
   };

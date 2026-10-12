@@ -94,3 +94,53 @@ void test("a disconnected host no longer connects its artifact", async () => {
   await harness.settle();
   assert.equal(reloaded.camox.studio, null);
 });
+
+const source = "<!doctype html><title>Gauge</title><svg></svg>";
+
+/** Loads an artifact whose `srcDoc` inlines `data`, and records what its `onData` callback sees. */
+async function loadWithData(data: Record<string, unknown>) {
+  const harness = createArtifactPage();
+  const frame = harness.addFrame();
+  const host = connectArtifactHost(frame, { studio: editing, data });
+  const artifact = harness.load(frame, artifactFrameProps(source, { data }).srcDoc);
+  // Subscribed as the source loads, before the frame connects.
+  const seen: unknown[] = [];
+  const unsubscribe = artifact.camox.onData((next) => seen.push(JSON.parse(JSON.stringify(next))));
+  await harness.settle();
+  return { harness, host, artifact, seen, unsubscribe };
+}
+
+void test("new Artifact Data reaches camox.data and onData callbacks", async () => {
+  const { harness, host, artifact, seen } = await loadWithData({ label: "Speed", value: 3 });
+  host.update({ studio: editing, data: { label: "Speed", value: 7 } });
+  await harness.settle();
+  assert.deepEqual(seen, [{ label: "Speed", value: 7 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.camox.data)), { label: "Speed", value: 7 });
+});
+
+void test("unchanged Artifact Data calls no onData callback", async () => {
+  const { harness, host, seen } = await loadWithData({ label: "Speed" });
+  host.update({ studio: { editMode: false, canvas: false }, data: { label: "Speed" } });
+  await harness.settle();
+  assert.deepEqual(seen, []);
+});
+
+void test("an unsubscribed onData callback no longer runs", async () => {
+  const { harness, host, seen, unsubscribe } = await loadWithData({ label: "Speed" });
+  unsubscribe();
+  host.update({ studio: editing, data: { label: "Torque" } });
+  await harness.settle();
+  assert.deepEqual(seen, []);
+});
+
+void test("Artifact Data that changed before the frame connected reaches the artifact", async () => {
+  const harness = createArtifactPage();
+  const frame = harness.addFrame();
+  const artifact = harness.load(
+    frame,
+    artifactFrameProps(source, { data: { label: "Old" } }).srcDoc,
+  );
+  connectArtifactHost(frame, { studio: null, data: { label: "New" } });
+  await harness.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.camox.data)), { label: "New" });
+});

@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import type { ArtifactData } from "../lib/artifactData";
 import { connectArtifactHost, type ArtifactHost, type ArtifactStudio } from "../lib/artifactHost";
 
 /**
@@ -10,24 +11,37 @@ export const ArtifactStudioContext = React.createContext<ArtifactStudio | null>(
 
 /**
  * A ref for an artifact's `<iframe>` that connects it to the `camox` runtime inside, and keeps
- * sharing `studio` with it as it changes.
+ * sharing `studio` and its Artifact Data with it as they change.
  */
 export function useArtifactHost(
   studio: ArtifactStudio | null,
+  data: ArtifactData = {},
 ): React.RefCallback<HTMLIFrameElement> {
   const host = React.useRef<ArtifactHost | null>(null);
-  const latestStudio = React.useRef(studio);
+  const latest = React.useRef({ studio, data });
   React.useEffect(() => {
-    latestStudio.current = studio;
-    host.current?.update({ studio });
+    latest.current = { studio, data };
+    host.current?.update({ studio, data });
   });
   return React.useCallback((frame: HTMLIFrameElement | null) => {
     if (!frame) return;
-    const connected = connectArtifactHost(frame, { studio: latestStudio.current });
+    const connected = connectArtifactHost(frame, latest.current);
     host.current = connected;
     return () => {
       connected.disconnect();
       if (host.current === connected) host.current = null;
     };
   }, []);
+}
+
+/**
+ * The Artifact Data to inline in an artifact's `srcDoc`: the data its source first rendered
+ * with. Later changes reach the artifact through its host, so they never reload the frame; a new
+ * source starts again from the current data.
+ */
+export function useInitialArtifactData(source: unknown, data: ArtifactData): ArtifactData {
+  const [initial, setInitial] = React.useState({ source, data });
+  if (initial.source === source) return initial.data;
+  setInitial({ source, data });
+  return data;
 }

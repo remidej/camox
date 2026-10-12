@@ -10,6 +10,7 @@ import {
 } from "@sinclair/typebox";
 
 import type { Collection } from "../createCollection";
+import { attachArtifactData } from "./artifactData";
 import type { IconId, IconValue } from "./iconTypes";
 
 export declare const ReferenceContentBrand: unique symbol;
@@ -388,7 +389,12 @@ export type ImageListField = TArray<TUnsafe<ImageValue>>;
 export type FileField = TUnsafe<FileValue>;
 export type FileListField = TArray<TUnsafe<FileValue>>;
 export type EmbedField = TUnsafe<EmbedURL>;
-export type ArtifactField = TUnsafe<ArtifactSource> & { fieldType: "Artifact" };
+declare const ArtifactDataBrand: unique symbol;
+/** An artifact field; `D` carries the names of its Artifact Data at the type level only. */
+export type ArtifactField<D extends string = string> = TUnsafe<ArtifactSource> & {
+  fieldType: "Artifact";
+  readonly [ArtifactDataBrand]?: D;
+};
 export type IconField = TUnsafe<IconValue>;
 export type RepeaterField<
   T extends Record<string, TSchema>,
@@ -475,11 +481,16 @@ export interface ContentFieldBuilder {
    * @example
    * field.artifact({ size: "fill", title: "Hero visual" })
    */
-  artifact: (options: {
+  artifact: <const D extends string = never>(options: {
     size: "fill" | "content";
+    /**
+     * Sibling content fields and settings shared with the artifact as Artifact Data. Inside a
+     * repeater, the siblings are the item's own fields and settings.
+     */
+    data?: readonly D[];
     default?: string;
     title?: string;
-  }) => ArtifactField;
+  }) => ArtifactField<NoInfer<D>>;
   /**
    * An icon from the set configured in `camox()`.
    *
@@ -543,7 +554,7 @@ export interface ContentFieldBuilder {
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,
   >(options: {
-    content: (field: ContentFieldBuilder) => T;
+    content: (field: ContentFieldBuilder) => T & NoInfer<ArtifactDataCheck<T, S>>;
     settings?: (setting: SettingBuilder) => S;
     minItems: number;
     maxItems: number;
@@ -551,6 +562,40 @@ export interface ContentFieldBuilder {
     toMarkdown: ToMarkdownBuilder<T, S>;
   }) => RepeaterField<T, S>;
 }
+
+/** Content fields that can't be Artifact Data: artifact sources, repeaters and references. */
+type UnsharedField =
+  | { fieldType: "Artifact" | "Reference" | "ReferenceList" }
+  | TArray<TObject<any>>;
+
+/** The sibling names an artifact can list in `data`: shared content fields, then settings. */
+export type ArtifactDataName<
+  T extends Record<string, TSchema>,
+  S extends Record<string, TSchema>,
+> =
+  | { [K in keyof T & string]: T[K] extends UnsharedField ? never : K }[keyof T & string]
+  // Without settings, `S` is `Record<string, never>`, whose keys would accept any name.
+  | (string extends keyof S ? never : keyof S & string);
+
+/**
+ * Checks each artifact's `data` against its siblings. Applied to the `content` callback's return
+ * type, because callback parameters are context-sensitive (ADR 0001).
+ */
+export type ArtifactDataCheck<
+  T extends Record<string, TSchema>,
+  S extends Record<string, TSchema>,
+> =
+  true extends HasAnyField<T>
+    ? unknown
+    : { [K in ArtifactKey<T>]: ArtifactField<ArtifactDataName<T, S>> };
+
+/** Shapes with fields that already fail to type check (`any`) are left to that error. */
+type HasAnyField<T extends Record<string, TSchema>> = {
+  [K in keyof T]-?: 0 extends 1 & T[K] ? true : false;
+}[keyof T];
+type ArtifactKey<T extends Record<string, TSchema>> = {
+  [K in keyof T & string]-?: T[K] extends { fieldType: "Artifact" } ? K : never;
+}[keyof T & string];
 
 /**
  * Builds the settings of a block or repeatable item: presentation options edited in the
@@ -741,10 +786,11 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       type: "string",
       maxLength: ARTIFACT_MAX_LENGTH,
       size: options.size,
+      ...(options.data?.length ? { data: [...options.data] } : {}),
       default: options.default ?? "",
       title: options.title,
       fieldType: "Artifact" as const,
-    }) as ArtifactField,
+    }) as ArtifactField<never>,
   icon: (options) => {
     const ids = typeof __CAMOX_ICON_IDS__ === "undefined" ? [] : __CAMOX_ICON_IDS__;
     if (!ids.includes(options.default))
@@ -814,7 +860,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
     T extends Record<string, TSchema>,
     S extends Record<string, TSchema> = Record<string, never>,
   >(options: {
-    content: (field: ContentFieldBuilder) => T;
+    content: (field: ContentFieldBuilder) => T & NoInfer<ArtifactDataCheck<T, S>>;
     settings?: (setting: SettingBuilder) => S;
     minItems: number;
     maxItems: number;
@@ -830,6 +876,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
     const owner = `Repeater${options.title ? ` "${options.title}"` : ""}`;
     assertFieldKinds(content, "content", owner);
     if (settings) assertFieldKinds(settings, "settings", owner);
+    attachArtifactData(content, settings, owner);
 
     const objectSchema = TypeBoxType.Object(content);
     // Value.Create doesn't support Unsafe types, so defaults are read off each field.
@@ -858,7 +905,7 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       defaultItemSettings: settingsObjectSchema
         ? collectSchemaDefaults(settingsObjectSchema.properties)
         : undefined,
-    }) as RepeaterField<T, S>;
+    }) as unknown as RepeaterField<T, S>;
   },
 };
 
@@ -900,5 +947,6 @@ export function resolveBlockFields<
   const owner = `Block "${options.id}"`;
   assertFieldKinds(content, "content", owner);
   if (settings) assertFieldKinds(settings, "settings", owner);
+  attachArtifactData(content, settings, owner);
   return { content, settings };
 }

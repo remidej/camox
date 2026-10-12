@@ -15,10 +15,14 @@ import { initApiClient } from "../../lib/api-client";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
 import {
   artifactBlock,
+  chartData,
+  chartDataSeen,
   expectedFontLinks,
   fontDocument,
   mountArtifactFrames,
+  mountChartFrames,
   renderArtifactFrames,
+  renderChartFrames,
   srcDocHead,
 } from "../artifact.fixtures";
 import { createArtifactPage, type ArtifactWindow } from "../artifactProtocol.fixtures";
@@ -264,4 +268,68 @@ void test("artifacts on the Canvas know they are on the Canvas", async () => {
     assert.deepEqual(studioOf(artifact), { editMode: true, canvas: true });
   }
   await unmount();
+});
+
+/** `camox.data` as seen by the artifact, copied out of its realm for comparison. */
+function dataOf(artifact: ArtifactWindow) {
+  return JSON.parse(JSON.stringify(artifact.camox.data));
+}
+
+void test("the studio preview inlines each artifact's Artifact Data in its frame", () => {
+  const frames = renderChartFrames(chartData, CompleteBlockEditingRuntimeProvider);
+  const harness = createArtifactPage();
+  const [chart, ...bars] = frames.map((frame) =>
+    harness.load(harness.addFrame(), frame.getAttribute("srcdoc") ?? ""),
+  );
+  assert.deepEqual(dataOf(chart), chartDataSeen);
+  assert.deepEqual(bars.map(dataOf), [
+    { label: "Q1", highlighted: true },
+    { label: "Q2", highlighted: false },
+  ]);
+});
+
+void test("editing a listed sibling field or setting updates camox.data without reloading the frame", async () => {
+  previewStore.send({ type: "enterEditMode" });
+  const harness = createArtifactPage();
+  const container = harness.page.document.createElement("div");
+  harness.page.document.body.append(container);
+  const preview = await mountChartFrames(
+    chartData,
+    CompleteBlockEditingRuntimeProvider,
+    container as unknown as HTMLElement,
+  );
+  const [chartFrame, barFrame] = preview.frames();
+  const srcDocs = preview.frames().map((frame) => frame.getAttribute("srcdoc"));
+  const chart = harness.load(chartFrame, srcDocs[0] ?? "");
+  const bar = harness.load(barFrame, srcDocs[1] ?? "");
+  await harness.settle();
+  const seen: { chart: unknown[]; bar: unknown[] } = { chart: [], bar: [] };
+  chart.camox.onData((data) => seen.chart.push(JSON.parse(JSON.stringify(data))));
+  bar.camox.onData((data) => seen.bar.push(JSON.parse(JSON.stringify(data))));
+
+  const [first, second] = chartData.content.bars;
+  const edited = {
+    ...chartData,
+    content: {
+      ...chartData.content,
+      headline: "Profit",
+      bars: [{ ...first, settings: { highlighted: false } }, second],
+    },
+    settings: { accent: "blue" },
+  };
+  await preview.update(edited);
+  await harness.settle();
+  // Re-rendering with the same values notifies nothing.
+  await preview.update(edited);
+  await harness.settle();
+
+  assert.deepEqual(seen.chart, [{ ...chartDataSeen, headline: "Profit", accent: "blue" }]);
+  assert.deepEqual(seen.bar, [{ label: "Q1", highlighted: false }]);
+  assert.equal(dataOf(chart).headline, "Profit");
+  assert.deepEqual(
+    preview.frames().map((frame) => frame.getAttribute("srcdoc")),
+    srcDocs,
+    "the frames keep their documents",
+  );
+  await preview.unmount();
 });
