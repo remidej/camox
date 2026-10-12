@@ -28,8 +28,13 @@ const PUBLISHED_ID = "00000000-0000-4000-8000-000000000001";
 const DRAFT_ONLY_ID = "00000000-0000-4000-8000-000000000002";
 const TWIN_IDS = ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004"];
 
+type RecordsBySource = Record<
+  "draft" | "live",
+  Array<{ id: string; content: { title: string; slug: string } }>
+>;
+
 /** Records by source, as the API's field lookup returns them for `slug`. */
-const records = {
+const records: RecordsBySource = {
   draft: [
     { id: PUBLISHED_ID, content: { title: "Draft title", slug: "new-slug" } },
     { id: DRAFT_ONLY_ID, content: { title: "Draft only", slug: "draft-only" } },
@@ -39,7 +44,10 @@ const records = {
 };
 
 /** An API where only the valid session can read drafts, and only of this project. */
-function mockApi(t: { mock: { method: typeof test.mock.method } }) {
+function mockApi(
+  t: { mock: { method: typeof test.mock.method } },
+  recordsBySource: RecordsBySource = records,
+) {
   const lookups: Array<{ source: string; session: string | null }> = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const url = new URL(request.url);
@@ -87,7 +95,33 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       assert.equal(input.projectSlug, "test");
       assert.equal(input.collectionId, "articles");
       return Response.json({
-        json: records[input.source].filter((record) => record.content[input.field] === input.value),
+        json: recordsBySource[input.source].filter(
+          (record) => record.content[input.field] === input.value,
+        ),
+      });
+    }
+    if (url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) {
+      const { json: input } = (await request.json()) as {
+        json: {
+          projectSlug: string;
+          collectionId: string;
+          field: "slug";
+          source: "draft" | "live";
+        };
+      };
+      lookups.push({ source: input.source, session });
+      if (input.source === "draft" && !session)
+        return Response.json(
+          { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Sign in" } },
+          { status: 401 },
+        );
+      assert.equal(input.projectSlug, "test");
+      assert.equal(input.collectionId, "articles");
+      return Response.json({
+        json: recordsBySource[input.source].map((record) => ({
+          id: record.id,
+          value: record.content[input.field],
+        })),
       });
     }
     throw new Error(`Unexpected request: ${url}`);
@@ -218,4 +252,100 @@ void test("the runtime rejects envelopes naming an unregistered collection or a 
       `${collectionId} ${id}`,
     );
   }
+});
+
+/** The records editors and visitors can reach, without the draft twins. */
+const discoverable: RecordsBySource = {
+  draft: records.draft.filter((record) => !TWIN_IDS.includes(record.id)),
+  live: records.live,
+};
+
+async function sitemapPaths(cookie?: string) {
+  const response = await request("/sitemap.xml", undefined, cookie);
+  assert.equal(response!.status, 200);
+  const xml = await response!.text();
+  return [...xml.matchAll(/<loc>https:\/\/site\.test([^<]*)<\/loc>/g)].map(([, path]) => path);
+}
+
+async function firstDiscoveredPath(cookie?: string) {
+  const response = await request("/_camox/routes?layoutId=articles.$slug", undefined, cookie);
+  assert.equal(response!.status, 200);
+  return ((await response!.json()) as { path: string | null }).path;
+}
+
+void test("the sitemap lists published record pages only, even for an editor", async (t) => {
+  const lookups = mockApi(t, discoverable);
+  assert.deepEqual(await sitemapPaths(), ["/articles/old-slug"]);
+  assert.deepEqual(await sitemapPaths(VALID_SESSION), ["/articles/old-slug"]);
+  assert.deepEqual(
+    lookups.map(({ source, session }) => [source, session]),
+    [
+      ["live", null],
+      ["live", null],
+    ],
+  );
+});
+
+void test("the Canvas opens an editor on a draft-only record, and a visitor on nothing", async (t) => {
+  mockApi(t, { draft: [records.draft[1]!], live: [] });
+  assert.equal(await firstDiscoveredPath(VALID_SESSION), "/articles/draft-only");
+  assert.equal(await firstDiscoveredPath(), null);
+});
+
+void test("an empty collection discovers no pages", async (t) => {
+  mockApi(t, { draft: [], live: [] });
+  assert.deepEqual(await sitemapPaths(), []);
+  assert.equal(await firstDiscoveredPath(VALID_SESSION), null);
+});
+
+void test("every discovered page loads its record in the same source", async (t) => {
+  mockApi(t, discoverable);
+  for (const path of await sitemapPaths())
+    assert.equal(((await loadedRecord(path)) as LayoutCollectionItemResult).data.id, PUBLISHED_ID);
+  const draftPath = await firstDiscoveredPath(VALID_SESSION);
+  assert.equal(draftPath, "/articles/new-slug");
+  const loaded = (await loadedRecord(draftPath!, VALID_SESSION)) as LayoutCollectionItemResult;
+  assert.equal(loaded.data.id, PUBLISHED_ID);
+});
+
+void test("discovered entries name their record", async (t) => {
+  mockApi(t, discoverable);
+  const pages = articles.pages({ by: "slug", param: "slug" });
+  let discovered: unknown;
+  const layout = createLayout("articles.$slug")({
+    ...layoutOptions,
+    kind: "derived",
+    ...pages,
+    routes: async (input) => {
+      discovered = await pages.routes(input);
+      return pages.routes(input);
+    },
+  });
+  await request("/_camox/routes?layoutId=articles.$slug", [layout], VALID_SESSION);
+  assert.deepEqual(discovered, {
+    data: [
+      {
+        params: { slug: "new-slug" },
+        target: { kind: "collection-item", collectionId: "articles", id: PUBLISHED_ID },
+      },
+      {
+        params: { slug: "draft-only" },
+        target: { kind: "collection-item", collectionId: "articles", id: DRAFT_ONLY_ID },
+      },
+    ],
+  });
+});
+
+void test("records sharing a value fail discovery, naming the layout and the records", async (t) => {
+  mockApi(t, { draft: records.draft, live: [...records.live, ...records.draft.slice(2)] });
+  t.mock.method(console, "error", () => {});
+  for (const cookie of [undefined, VALID_SESSION]) {
+    const sitemap = await request("/sitemap.xml", undefined, cookie);
+    assert.equal(sitemap!.status, 500);
+    const { message } = (await sitemap!.json()) as { message: string };
+    for (const part of ["articles.$slug", "slug", "twin", ...TWIN_IDS])
+      assert.ok(message.includes(part), `${message} names ${part}`);
+  }
+  const routes = await request("/_camox/routes?layoutId=articles.$slug", undefined, VALID_SESSION);
+  assert.equal(routes!.status, 500);
 });

@@ -104,9 +104,16 @@ export interface LayoutRoutesContext {
 export type AnyLayoutLoaderResult = LayoutLoaderResult | LayoutCollectionItemResult;
 type LoaderReturn = AnyLayoutLoaderResult | PromiseLike<AnyLayoutLoaderResult>;
 
+/** The record a discovered page renders, independent of its current params. */
+export interface LayoutRouteTarget {
+  kind: "collection-item";
+  collectionId: string;
+  id: string;
+}
+
 /** Route discovery result: the params of each page a derived layout can render. */
 export interface LayoutRoutesResult<Params = Record<string, string>> {
-  data: ReadonlyArray<{ params: Params }>;
+  data: ReadonlyArray<{ params: Params; target?: LayoutRouteTarget }>;
 }
 
 type RoutesReturn<Params> = LayoutRoutesResult<Params> | PromiseLike<LayoutRoutesResult<Params>>;

@@ -587,6 +587,8 @@ function createLayoutRequestContext(
     records: {
       findByField: (input) =>
         api.collectionDefinitions.findRecordsByField({ ...input, projectSlug, source }),
+      listPageValues: (input) =>
+        api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug, source }),
     },
   });
 }

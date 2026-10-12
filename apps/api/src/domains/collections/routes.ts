@@ -20,6 +20,10 @@ export const collectionDefinitionProcedures = {
   findRecordsByField: pub
     .input(service.findRecordsByFieldInput)
     .handler(({ context, input }) => runService(service.findRecordsByField(context, input))),
+  // Public like findRecordsByField: route discovery for record pages.
+  listRecordPageValues: pub
+    .input(service.listRecordPageValuesInput)
+    .handler(({ context, input }) => runService(service.listRecordPageValues(context, input))),
   createRecord: authed
     .input(service.createRecordInput)
     .handler(({ context, input }) => runService(service.createRecord(context, input))),

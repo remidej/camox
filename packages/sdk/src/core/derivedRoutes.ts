@@ -69,7 +69,13 @@ export async function discoverLayoutPaths(
 ): Promise<string[]> {
   const { id, routes } = layout._internal;
   if (!routes) return [];
-  const result = (await routes({ context })) as unknown;
+  let result: unknown;
+  try {
+    result = await routes({ context });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Layout "${id}" routes failed: ${message}`, { cause: error });
+  }
   const entries = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(entries))
     throw new Error(`Layout "${id}" routes must return { data: [{ params }] }`);
