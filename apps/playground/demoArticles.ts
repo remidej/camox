@@ -74,7 +74,7 @@ export async function seedDemoArticles({ client, projectSlug, logger }: DemoArti
     records.push(
       await client.collectionDefinitions.createRecord({
         ...scope,
-        content: { ...article, cover: null },
+        content: { ...article, cover: null, author: null },
       }),
     );
   }

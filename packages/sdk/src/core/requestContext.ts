@@ -1,3 +1,5 @@
+import type { ReferenceRecord } from "./lib/reference";
+
 declare const requestContextBrand: unique symbol;
 
 /**
@@ -12,6 +14,8 @@ export interface LayoutRequestContext {
 export interface LoadedRecord {
   id: string;
   content: Record<string, unknown>;
+  /** The records it links, resolved with the record as the first hop. */
+  references?: ReferenceRecord["references"];
 }
 
 /** Reads records in the request's source, scoped to the project and environment. */

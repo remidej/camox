@@ -29,14 +29,13 @@ import {
 import { collectionDefinitionInput } from "./validation";
 
 const { id, ...articleDefinition } = articles._internal;
-const definition = collectionDefinitionInput.parse(
-  JSON.parse(
-    JSON.stringify({
-      ...articleDefinition,
-      collectionId: id,
-    }),
-  ),
+const serialized = JSON.parse(JSON.stringify({ ...articleDefinition, collectionId: id }));
+// These tests cover one collection on its own, without the authors it links.
+delete serialized.contentSchema.properties.author;
+serialized.contentSchema.required = serialized.contentSchema.required.filter(
+  (key: string) => key !== "author",
 );
+const definition = collectionDefinitionInput.parse(serialized);
 const article = {
   title: "Hello",
   slug: "hello",

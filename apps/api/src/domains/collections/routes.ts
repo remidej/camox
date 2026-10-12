@@ -24,6 +24,10 @@ export const collectionDefinitionProcedures = {
   listRecordPageValues: pub
     .input(service.listRecordPageValuesInput)
     .handler(({ context, input }) => runService(service.listRecordPageValues(context, input))),
+  // Public: a record page's Markdown reads only published content.
+  recordMarkdown: pub
+    .input(service.recordMarkdownInput)
+    .handler(({ context, input }) => runService(service.recordMarkdown(context, input))),
   createRecord: authed
     .input(service.createRecordInput)
     .handler(({ context, input }) => runService(service.createRecord(context, input))),

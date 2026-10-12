@@ -1,17 +1,14 @@
 import { createCollection } from "camox/createCollection";
 
-import { collection as articles } from "./articles";
-
-// Authors link the articles they wrote; blocks placing an author reach those articles too.
+// Articles link their author, so record pages and blocks placing an article reach it too.
 export const collection = createCollection({
   id: "authors",
   title: "Authors",
-  description: "Article authors, each linking the articles they wrote.",
+  description: "Article authors, each with a portrait and a short bio.",
   content: (field) => ({
     name: field.string({ minLength: 1 }),
     bio: field.string(),
     portrait: field.image({ title: "Portrait" }),
-    articles: field.referenceList(articles, { title: "Articles", maxItems: 6 }),
   }),
   label: "name",
 });

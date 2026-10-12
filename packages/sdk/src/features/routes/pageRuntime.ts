@@ -346,6 +346,8 @@ export interface PageHeadInput {
   ogImageTitle?: string;
   customOgImageUrl?: string | null;
   data: unknown;
+  /** On record pages: the record's String fields as plain text. */
+  item?: Record<string, string>;
   params: Record<string, string>;
   projectName: string;
   pageFullPath: string;
@@ -362,6 +364,7 @@ export type PageHead = {
 export function buildPageHead(input: PageHeadInput): PageHead {
   const context = {
     data: input.data,
+    ...(input.item && { item: input.item }),
     params: input.params,
     projectName: input.projectName,
     pageFullPath: input.pageFullPath,

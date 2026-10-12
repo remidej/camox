@@ -89,7 +89,11 @@ export function createCollection<
           return {
             kind: "collection-item",
             collectionId: id,
-            data: { id: record.id, content: record.content as Static<TObject<T>> },
+            data: {
+              id: record.id,
+              content: record.content as Static<TObject<T>>,
+              ...(record.references && { references: record.references }),
+            },
           };
         },
         async routes({ context }) {
@@ -126,7 +130,7 @@ export interface CollectionPages<T extends Record<string, TSchema>, Param extend
   loader: (input: {
     params: { [K in Param]: string };
     context: LayoutRequestContext;
-  }) => Promise<LayoutCollectionItemResult<Static<TObject<T>>>>;
+  }) => Promise<LayoutCollectionItemResult<Static<TObject<T>>, string, T>>;
   routes: (input: {
     context: LayoutRequestContext;
   }) => Promise<LayoutRoutesResult<{ [K in Param]: string }>>;

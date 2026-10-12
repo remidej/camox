@@ -159,19 +159,23 @@ typed scope as `testimonial.Reference`; the note and emphasis belong to the item
 
 ## Author bio (slice 5, references between collections)
 
-The Authors collection links the articles each author wrote with
-`field.referenceList(articles)`. The author bio block places one author with
-`field.reference(authors)`; inside its scope, `author.ReferenceList` renders the author's
-articles, the second hop. Records at the second hop link nothing further.
+Each article links its author with `field.reference(authors)`. The author bio block places
+one author with `field.reference(authors)`. The article's record page renders the author
+inside the article's scope: the article is the first hop and the author the second, which
+links nothing further.
 
-1. In Content → Authors, create an author and pick a few of the seeded demo articles
-   (see [Demo content](#demo-content)) in the Articles field.
-2. Add an author bio to a draft page and select the author. Each article renders inside the
-   block; click an article title to edit it inline, or open it from the sidebar:
-   Author bio › Author › the author › Articles › the article.
-3. The publish review lists the author and each changed article once. Articles left
-   unpublished are skipped on the live site.
-4. Deleting an article that any author links is rejected; unpublishing it is allowed.
+1. In Content → Authors, create and publish an author. In Content → Articles, pick that
+   author on a few of the seeded demo articles (see [Demo content](#demo-content)) and
+   publish them.
+2. Add an author bio to a draft page and select the author. Click the name to edit it
+   inline, or open it from the sidebar: Author bio › Author › the author.
+3. The publish review lists the author once. An author left unpublished is skipped on the
+   live site.
+4. Deleting an author that any article or block links is rejected.
+
+Authors used to link their articles instead. A schema change is rejected while records exist,
+so if your environment still has authors from before, run `pnpm seed` at the repository root
+to start over.
 
 ## Recent articles and article list (slice 6, query-backed reference lists)
 
@@ -204,14 +208,18 @@ membership and order, and the block stores nothing. Both blocks render with the 
 
 `src/layouts/articles.$slug.tsx` is a record page: it spreads
 `articles.pages({ by: "slug", param: "slug" })` into a derived layout, so each article renders
-at `/articles/<its slug>`. `src/layouts/articles.tsx` is the `/articles` singleton. Its
-articles index block lists every article and links each one to its record page, with the href
-built from the slug in code. Record pages are read-only for now.
+at `/articles/<its slug>`. It renders the article through `Layout.Item` and its author
+through `article.Reference`, and declares `toMarkdown`, a title and a description from the
+article's fields. `src/layouts/articles.tsx` is the `/articles` singleton. Its articles index
+block lists every article and links each one to its record page, with the href built from the
+slug in code. Record pages are read-only for now.
 
 After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm dev` running:
 
 1. Open `/articles`, then follow a link, for example `/articles/editing-in-context`. The page
-   shows that article's title, excerpt and body.
+   shows that article's title, excerpt and body, and its author once you pick one (see
+   [Author bio](#author-bio-slice-5-references-between-collections)). The tab title is the
+   article's title.
 2. Signed out, `/articles/next-release-notes` returns 404: that article is a draft. Signed in
    to Studio, the same URL shows the draft.
 3. In Content → Articles, change a published article's slug without publishing. The preview
@@ -220,3 +228,6 @@ After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm
 5. `/sitemap.xml` lists each published article's page, never drafts, even when signed in.
    In Studio, the Canvas opens the Article layout on its first article, draft-only ones
    included.
+6. `curl -H "Accept: text/markdown" http://localhost:3000/articles/editing-in-context` returns
+   the navbar's Markdown, the article's title, author, excerpt and body, then the footer's.
+   It shows the published article even while a draft edit is pending.
