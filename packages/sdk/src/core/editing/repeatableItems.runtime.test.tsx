@@ -32,7 +32,8 @@ registerHooks({
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {
       "@/lib/auth": "export const useProjectSlug = () => 'test'",
-      "@/features/navigation/navigation": "export const useLocation = () => '/'",
+      "@/features/navigation/navigation":
+        "export const useLocation = () => '/'; export const useNavigate = () => () => {}",
       "../../features/preview/components/Frame":
         "export const useFrame = () => ({window: globalThis.window ?? null})",
       "../hooks/useIsEditable.ts": "export const useIsEditable = mode => mode === 'site'",
