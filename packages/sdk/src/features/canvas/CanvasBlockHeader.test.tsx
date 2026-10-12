@@ -41,7 +41,7 @@ void test("a block header shows the title, with the description in a tooltip", a
       "the tooltip starts hidden",
     );
 
-    const title = host.querySelector("h2 > *") as unknown as HTMLElement;
+    const title = host.querySelector("h2 button") as unknown as HTMLElement;
     await React.act(async () => title.focus());
     const tooltip = dom.document.querySelector('[data-slot="tooltip-content"]');
     assert.equal(tooltip?.textContent, "Tabbed content", "the description shows in a tooltip");

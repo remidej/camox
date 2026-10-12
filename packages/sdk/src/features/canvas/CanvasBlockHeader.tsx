@@ -1,6 +1,7 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 
 import type { Block } from "../../core/createBlock";
+import { CanvasHeaderRule } from "./CanvasHeaderRule";
 
 /** How many Pages place a block, as shown in its header. */
 export function formatCanvasBlockUsage(pageCount: number) {
@@ -33,22 +34,25 @@ export function CanvasBlockHeader({
           {formatCanvasBlockUsage(pageCount)}
         </span>
       )}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              className="focus-visible:ring-ring max-w-full min-w-0 truncate text-left text-sm font-medium outline-none focus-visible:ring-2"
-              onClick={onSelect}
-            />
-          }
-        >
-          {title}
-        </TooltipTrigger>
-        <TooltipContent side="top" align="start">
-          {description}
-        </TooltipContent>
-      </Tooltip>
+      <span className="flex w-full min-w-0 items-center gap-3">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className="focus-visible:ring-ring max-w-full min-w-0 truncate text-left text-sm font-medium outline-none focus-visible:ring-2"
+                onClick={onSelect}
+              />
+            }
+          >
+            {title}
+          </TooltipTrigger>
+          <TooltipContent side="top" align="start">
+            {description}
+          </TooltipContent>
+        </Tooltip>
+        <CanvasHeaderRule />
+      </span>
     </h2>
   );
 }

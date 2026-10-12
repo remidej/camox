@@ -50,6 +50,8 @@ export const CANVAS_SHELF_MARKER_HEIGHT = 32;
 /** Unscaled chrome above the row: Shelf Markers, then Page headers. */
 const CANVAS_CHROME_HEIGHT = CANVAS_HEADER_HEIGHT + CANVAS_SHELF_MARKER_HEIGHT;
 export const MAX_CANVAS_ZOOM = 2;
+/** Log-scale zoom per wheel pixel of a pinch, or of Ctrl/⌘ + scroll. */
+export const CANVAS_PINCH_ZOOM_SPEED = 0.012;
 
 /** Relative (log-scale) bands make the detent feel the same at every page width. */
 export const ZOOM_SNAP_CAPTURE = 0.14;

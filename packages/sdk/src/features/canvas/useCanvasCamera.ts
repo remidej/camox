@@ -7,6 +7,7 @@ import {
   type ViewportAnchor,
 } from "../preview/viewportContinuity";
 import {
+  CANVAS_PINCH_ZOOM_SPEED,
   findCanvasSnapTarget,
   canvasVerticalRail,
   canvasWheelDelta,
@@ -566,7 +567,7 @@ export function useCanvasCamera(
       cancelCameraFlight();
       if (event.ctrlKey || event.metaKey) {
         const point = localPoint(event.clientX, event.clientY);
-        move(zoom(target, point, Math.exp(-dy * 0.008), event.timeStamp));
+        move(zoom(target, point, Math.exp(-dy * CANVAS_PINCH_ZOOM_SPEED), event.timeStamp));
         return;
       }
       const previous =

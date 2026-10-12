@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 
 import {
+  CANVAS_PINCH_ZOOM_SPEED,
   constrainCanvasCamera,
   fitCanvas,
   fitCanvasPage,
@@ -441,7 +442,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
     const margin = 10;
     const outside = release + 40;
     // Wheel deltas that move the zoom by a log-scale distance.
-    const zoomDelta = (distance: number) => distance / 0.008;
+    const zoomDelta = (distance: number) => distance / CANVAS_PINCH_ZOOM_SPEED;
 
     for (const shiftKey of [false, true]) {
       for (const direction of [-1, 1]) {
@@ -622,7 +623,8 @@ void test("page-fit gestures capture horizontal detents during input and retain 
         Math.abs((300 - next.y) / next.scale - (300 - beforeZoom.y) / beforeZoom.scale) < 1e-8,
       );
     };
-    const heldSteps = Math.floor(zoomDelta(ZOOM_SNAP_RELEASE)) - 1;
+    // With the entry step, stay strictly inside the release band.
+    const heldSteps = Math.ceil(zoomDelta(ZOOM_SNAP_RELEASE)) - 2;
     for (let count = 0; count < heldSteps; count++) wheel(0, -1, { ctrlKey: true });
     flush(checkAnchor);
     assert.deepEqual(read(), beforeZoom, "small zoom input is held without recentering");
@@ -729,7 +731,9 @@ void test("page-fit gestures capture horizontal detents during input and retain 
       moveTo(centerAt(read().scale) + 600);
       time += 200;
       const requestedScale = fitted.scale * Math.exp(offset);
-      wheel(0, -Math.log(requestedScale / read().scale) / 0.008, { ctrlKey: true });
+      wheel(0, -Math.log(requestedScale / read().scale) / CANVAS_PINCH_ZOOM_SPEED, {
+        ctrlKey: true,
+      });
       flush();
       assert.ok(Math.abs(read().scale - requestedScale) < 1e-8);
       const scale = read().scale;
