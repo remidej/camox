@@ -123,6 +123,8 @@ void test("real rendering, hydration and client navigation preserve loader envel
     if (url.pathname.endsWith("/layouts/get"))
       return Response.json({
         json: {
+          projectName: "Real project",
+          project: { id: 1, updatedAt: 1 },
           layout: {
             id: 2,
             layoutId: "pokemon.$name",
@@ -270,4 +272,146 @@ void test("loader notFound stays 404, other errors and invalid envelopes remain 
       );
     }
   }
+});
+
+function codeOwnedPagesApp() {
+  const pokemon = createLayout("pokemon.$name")({
+    ...options,
+    title: "Pokémon",
+    kind: "derived",
+    loader: async ({ params }) => {
+      if (params.name === "missingno") throw notFound();
+      return { kind: "data", data: { name: params.name, flavor: "Electric mouse" } };
+    },
+    buildMetaTitle: ({ data, pageMetaTitle, projectName }) =>
+      `${data.name} – ${pageMetaTitle} | ${projectName}`,
+    buildMetaDescription: ({ data }) => data.flavor,
+    toMarkdown: ({ data, params }) => [`# ${data.name}`, "", data.flavor, `/${params.name}`],
+    component: () => null,
+  });
+  const types = createLayout("types.$name")({
+    ...options,
+    kind: "derived",
+    loader: async () => ({ kind: "data", data: null }),
+    component: () => null,
+  });
+  const about = createLayout("about")({
+    ...options,
+    kind: "singleton",
+    toMarkdown: ({ data }) => [`# About ${String(data)}`],
+    component: () => null,
+  });
+  return createApp({ blocks: [], layouts: [pokemon, types, about] });
+}
+
+function mockCodeOwnedPagesApi(t: { mock: { method: typeof test.mock.method } }) {
+  const requested: string[] = [];
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const url = new URL(request.url);
+    requested.push(url.pathname);
+    if (url.pathname.endsWith("/getByPath")) {
+      const { json } = (await request.json()) as { json: { path: string } };
+      if (json.path === "/pokemon/curated") return Response.json({ json: { page: { id: 9 } } });
+      return Response.json(
+        { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
+        { status: 404 },
+      );
+    }
+    if (url.pathname.endsWith("/getPageMarkdown"))
+      return Response.json({ json: { markdown: "# Curated", blocks: [] } });
+    if (url.pathname.endsWith("/getLayoutMarkdown"))
+      return Response.json({
+        json: { before: "<!-- Navbar -->\nNav", after: "<!-- Footer -->\nFooter" },
+      });
+    if (url.pathname.endsWith("/layouts/get"))
+      return Response.json({
+        json: {
+          projectName: "Real project",
+          project: { id: 1, updatedAt: 7 },
+          layout: { id: 2, layoutId: "pokemon.$name", beforeBlockIds: [], afterBlockIds: [] },
+          blocks: [],
+          files: [],
+          repeatableItems: [],
+        },
+      });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  return requested;
+}
+
+void test("derived pages get the curated head, built from their loader data", async (t) => {
+  mockCodeOwnedPagesApi(t);
+  const app = codeOwnedPagesApp();
+  const runtimeOptions: RuntimeOptions = {
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectSlug: "test",
+    getCamoxApp: async () => app,
+    renderPage: async () => "<main></main>",
+  };
+  const response = await handleCamoxRequest(
+    new Request("https://site.test/pokemon/pikachu"),
+    runtimeOptions,
+  );
+  const html = await response!.text();
+  assert.match(html, /<title>pikachu – Pokémon \| Real project<\/title>/);
+  assert.match(html, /<meta name="description" content="Electric mouse"/);
+  assert.match(html, /<meta property="og:title" content="pikachu – Pokémon \| Real project"/);
+  assert.match(html, /<meta property="og:description" content="Electric mouse"/);
+  assert.match(
+    html,
+    /og:image" content="https:\/\/site.test\/og\?layoutId=pokemon.%24name&title=pikachu/,
+  );
+  assert.match(html, /<link rel="icon" href="https:\/\/api.test\/favicons\/1\?v=7"/);
+
+  // Client navigation receives the same head.
+  const data = await handleCamoxRequest(
+    new Request("https://site.test/_camox/data?path=/pokemon/pikachu"),
+    runtimeOptions,
+  );
+  const input = (await data!.json()) as PageRenderInput;
+  assert.deepEqual((input.head as { meta: Array<Record<string, string>> }).meta[0], {
+    title: "pikachu – Pokémon | Real project",
+  });
+});
+
+void test("code-owned pages answer Markdown between their live layout blocks", async (t) => {
+  const requested = mockCodeOwnedPagesApi(t);
+  const app = codeOwnedPagesApp();
+  const markdown = (path: string) =>
+    handleCamoxRequest(
+      new Request(`https://site.test${path}`, { headers: { Accept: "text/markdown" } }),
+      {
+        apiUrl: "https://api.test",
+        authenticationUrl: "https://auth.test",
+        projectSlug: "test",
+        getCamoxApp: async () => app,
+        renderPage: async () => "<main>html</main>",
+      },
+    );
+
+  const derived = await markdown("/pokemon/pikachu");
+  assert.equal(derived?.headers.get("Content-Type"), "text/markdown; charset=utf-8");
+  assert.equal(
+    await derived!.text(),
+    "<!-- Navbar -->\nNav\n\n# pikachu\n\nElectric mouse\n\n/pikachu\n\n<!-- Footer -->\nFooter",
+  );
+
+  requested.length = 0;
+  const singleton = await markdown("/about");
+  assert.equal(
+    await singleton!.text(),
+    "<!-- Navbar -->\nNav\n\n# About undefined\n\n<!-- Footer -->\nFooter",
+  );
+  assert.ok(!requested.some((path) => path.endsWith("/getByPath")), "Singletons skip page lookup");
+
+  // A curated page at a derived URL keeps precedence, as for HTML.
+  assert.equal(await (await markdown("/pokemon/curated"))!.text(), "# Curated");
+
+  const missing = await markdown("/pokemon/missingno");
+  assert.equal(missing?.status, 404);
+
+  // Without toMarkdown, the page is HTML only.
+  const html = await markdown("/types/electric");
+  assert.match(await html!.text(), /<main>html<\/main>/);
 });

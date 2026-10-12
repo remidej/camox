@@ -14,12 +14,15 @@ import {
 } from "../../lib/server-auth-cookie";
 import {
   buildCamoxPageHead,
+  buildFaviconUrl,
+  buildPageHead,
   createMarkdownResponse,
   createServerApiClient,
   isNotFoundError,
   isAuthSessionError,
   seedBlockCaches,
   loadCamoxPageForRequest,
+  prefersMarkdown,
 } from "../routes/pageRuntime";
 import {
   matchBlockCatalogPath,
@@ -531,6 +534,57 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
   }
 }
 
+type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
+
+/** Runs a code-owned page's loader. The envelope survives SSR, navigation and hydration. */
+async function loadLayoutResult(match: DerivedMatch): Promise<LayoutLoaderResult | undefined> {
+  const loader = match.layout._internal.loader;
+  const result = await loader?.({ params: match.params });
+  // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
+  const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
+  if (
+    loader &&
+    (!serializedResult ||
+      serializedResult.kind !== "data" ||
+      !Object.hasOwn(serializedResult, "data"))
+  )
+    throw new Error(
+      `Layout "${match.layout._internal.id}" loader must return { kind: "data", data } with JSON-serializable data`,
+    );
+  return serializedResult;
+}
+
+/**
+ * The Markdown of a singleton or derived page: its live before blocks, the layout's
+ * toMarkdown output, then its live after blocks. Without toMarkdown, the page is HTML only.
+ */
+async function createLayoutMarkdownResponse(
+  options: RuntimeOptions,
+  match: DerivedMatch,
+): Promise<Response | null> {
+  const { toMarkdown, id } = match.layout._internal;
+  if (!toMarkdown || !options.apiUrl || !options.projectSlug) return null;
+  let result: LayoutLoaderResult | undefined;
+  try {
+    result = await loadLayoutResult(match);
+  } catch (error) {
+    if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
+    throw error;
+  }
+  const slots = await createServerApiClient(options.apiUrl, options.environmentName)
+    .blocks.getLayoutMarkdown({ projectSlug: options.projectSlug, layoutId: id })
+    .catch((error) => {
+      // A layout that was never synced has no blocks yet.
+      if (isNotFoundError(error)) return { before: "", after: "" };
+      throw error;
+    });
+  const body = toMarkdown({ data: result?.data, params: match.params });
+  const markdown = [slots.before, ...body, slots.after].filter(Boolean).join("\n\n");
+  return new Response(markdown, {
+    headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  });
+}
+
 async function createDerivedResponse(
   options: RuntimeOptions,
   pathname: string,
@@ -543,19 +597,7 @@ async function createDerivedResponse(
   if (!match || (!dataOnly && !options.renderPage)) return null;
   if (singletonOnly && match.layout._internal.kind !== "singleton") return null;
   try {
-    const loader = match.layout._internal.loader;
-    const result = await loader?.({ params: match.params });
-    // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
-    const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
-    if (
-      loader &&
-      (!serializedResult ||
-        serializedResult.kind !== "data" ||
-        !Object.hasOwn(serializedResult, "data"))
-    )
-      throw new Error(
-        `Layout "${match.layout._internal.id}" loader must return { kind: "data", data } with JSON-serializable data`,
-      );
+    const serializedResult = await loadLayoutResult(match);
     const queryClient = new QueryClient();
     const authCookieHeader = getServerAuthCookieHeader(request.headers);
     let source: "live" | "draft" = authCookieHeader ? "draft" : "live";
@@ -581,6 +623,18 @@ async function createDerivedResponse(
             authCookieHeader,
           }).projects.getBySlug({ slug: options.projectSlug! })
         : undefined;
+    // Code-owned pages have no editor metadata: the layout's title stands in for it.
+    const pageHead = buildPageHead({
+      layout: match.layout._internal,
+      pageMetaTitle: match.layout._internal.title,
+      pageMetaDescription: undefined,
+      data: serializedResult?.data,
+      params: match.params,
+      projectName: shared.projectName,
+      pageFullPath: pathname,
+      origin: new URL(request.url).origin,
+      faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
+    });
     const input: PageRenderInput = {
       project,
       presentation: source === "draft" ? "studio" : "public",
@@ -589,7 +643,7 @@ async function createDerivedResponse(
       projectSlug: options.projectSlug!,
       environmentName: options.environmentName,
       dehydratedState: dehydrate(queryClient),
-      head: { meta: [{ title: match.layout._internal.title }] },
+      head: pageHead,
       href: request.url,
       layoutIdentity: getLayoutIdentity(shared.layout, source),
       loaderData: null,
@@ -620,7 +674,7 @@ async function createDerivedResponse(
     const html = await options.renderPage!(input);
     const head = renderHead(
       source === "draft" ? {} : document,
-      { title: match.layout._internal.title },
+      createPageHeadInput(pageHead),
       source === "draft" ? undefined : options.stylesheetUrl,
       source === "draft" ? options.studioStylesheetUrl : undefined,
     );
@@ -984,14 +1038,26 @@ export async function handleCamoxRequest(
   }
 
   if (match.kind === "page") {
-    if (options.apiUrl && options.projectSlug) {
-      const markdownResponse = await createMarkdownResponse({
-        apiUrl: options.apiUrl,
-        environmentName: options.environmentName,
-        pathname: match.pathname,
-        projectSlug: options.projectSlug,
-        request,
-      });
+    if (
+      options.apiUrl &&
+      options.projectSlug &&
+      prefersMarkdown(request.headers.get("Accept") ?? "")
+    ) {
+      // Same precedence as HTML: singleton, curated page, then derived layout.
+      const app = await options.getCamoxApp?.();
+      const layoutMatch = app && matchDerivedLayout(app.getLayouts(), match.pathname);
+      const markdownResponse =
+        layoutMatch?.layout._internal.kind === "singleton"
+          ? await createLayoutMarkdownResponse(options, layoutMatch)
+          : await createMarkdownResponse({
+              apiUrl: options.apiUrl,
+              environmentName: options.environmentName,
+              pathname: match.pathname,
+              projectSlug: options.projectSlug,
+              request,
+              onNotFound: async () =>
+                layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch) : null,
+            });
       if (markdownResponse) return markdownResponse;
     }
 

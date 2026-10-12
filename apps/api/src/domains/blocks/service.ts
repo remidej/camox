@@ -77,6 +77,10 @@ export const getPageMarkdownInput = z.object({
   pageId: z.number(),
   source: pageSourceSchema.optional().default("draft"),
 });
+export const getLayoutMarkdownInput = z.object({
+  projectSlug: z.string(),
+  layoutId: z.string(),
+});
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
 // A Block Definition within a project's current environment.
 export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });
@@ -882,18 +886,21 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   };
 });
 
-export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
+type RenderableBlock = SnapshotBlock;
+type RenderableItem = SnapshotRepeatableItem & { references?: ResolvedReferences };
+
+/**
+ * Renders each block's Markdown Representation, resolving its references and files.
+ * `markdown` is undefined for a block whose definition declares no Markdown; `json` is
+ * its raw content instead, with artifact sources replaced by their titles.
+ */
+const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof getPageMarkdownInput>,
+  scope: { projectId: number; environmentId: number },
+  blockRows: RenderableBlock[],
+  itemRows: RenderableItem[],
+  referenceSource: "draft" | "live",
 ) {
-  const { pageId, source } = yield* decodeInput(getPageMarkdownInput, rawInput);
-  if (source === "draft") yield* requireUser(ctx);
-
-  const page = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
-  );
-  if (!page) return yield* new NotFoundError();
-
   // Get block definitions for content schemas and Markdown representations. Scope
   // by environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
@@ -903,8 +910,8 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
       .from(blockDefinitions)
       .where(
         and(
-          eq(blockDefinitions.projectId, page.projectId),
-          eq(blockDefinitions.environmentId, page.environmentId),
+          eq(blockDefinitions.projectId, scope.projectId),
+          eq(blockDefinitions.environmentId, scope.environmentId),
         ),
       ),
   );
@@ -923,12 +930,97 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     }
   }
 
+  const items: RenderableItem[] = yield* hydrateItemReferences(
+    ctx,
+    scope,
+    blockRows,
+    itemRows,
+    referenceSource,
+  );
+  nestChildItems(items);
+  const itemsByBlock = new Map<number, RenderableItem[]>();
+  for (const item of items) {
+    if (item.parentItemId !== null) continue;
+    const list = itemsByBlock.get(item.blockId) ?? [];
+    list.push(item);
+    itemsByBlock.set(item.blockId, list);
+  }
+
+  const hydrated = yield* hydrateReferences(ctx, scope, blockRows, referenceSource);
+  // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
+  const fileIds = new Set<number>();
+  for (const block of hydrated) {
+    collectFileIds(block.content as Record<string, unknown>, fileIds);
+    collectFileIds(block.references, fileIds);
+  }
+  for (const item of items) {
+    collectFileIds(item.content as Record<string, unknown>, fileIds);
+    collectFileIds(item.references ?? {}, fileIds);
+  }
+  const fileMap = yield* buildFileMap(ctx.db, fileIds);
+
+  const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
+  const json = (block: RenderableBlock) =>
+    JSON.stringify(
+      stripArtifactSources(
+        schemaByType.get(block.type)?.properties,
+        block.content as Record<string, unknown>,
+      ),
+    );
+  const markdown = (block: RenderableBlock): string | undefined => {
+    const schema = schemaByType.get(block.type);
+    if (!schema?.toMarkdown) return undefined;
+    const blockItems = itemsByBlock.get(block.id) ?? [];
+    const content = { ...(block.content as Record<string, unknown>) };
+    for (const fieldName of new Set(blockItems.map((i) => i.fieldName))) {
+      content[fieldName] = blockItems.filter((i) => i.fieldName === fieldName);
+    }
+    return `<!-- ${schema.title} -->\n${contentToMarkdown(
+      schema.toMarkdown,
+      schema.properties,
+      content,
+      {
+        settings: block.settings as Record<string, unknown> | null | undefined,
+        files: fileMap,
+        references: referencesByBlock.get(block.id),
+      },
+    )}`;
+  };
+  return { markdown, json };
+});
+
+/** Joins the Markdown of a layout's before and after slots, skipping blocks without Markdown. */
+function layoutSlotsMarkdown(
+  layoutBlocks: RenderableBlock[],
+  render: (block: RenderableBlock) => string | undefined,
+) {
+  const before: string[] = [];
+  const after: string[] = [];
+  for (const block of layoutBlocks) {
+    const markdown = render(block);
+    if (!markdown) continue;
+    if (block.slot === "before") before.push(markdown);
+    else after.push(markdown);
+  }
+  return { before: before.join("\n\n"), after: after.join("\n\n") };
+}
+
+export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getPageMarkdownInput>,
+) {
+  const { pageId, source } = yield* decodeInput(getPageMarkdownInput, rawInput);
+  if (source === "draft") yield* requireUser(ctx);
+
+  const page = yield* Effect.promise(() =>
+    ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
+  );
+  if (!page) return yield* new NotFoundError();
+
   // Page blocks + their items, sourced from either the live tables (draft) or
   // the published checkpoint (live / pinned). SnapshotBlock and the drizzle
   // row shape are structurally compatible — same columns, same nullability —
   // so the renderer below works against either.
-  type RenderableBlock = SnapshotBlock;
-  type RenderableItem = SnapshotRepeatableItem & { references?: ResolvedReferences };
   let sorted: RenderableBlock[];
   let allItems: RenderableItem[];
   let sortedLayout: RenderableBlock[] = [];
@@ -994,100 +1086,59 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     }
   }
 
-  const referenceSource = source === "draft" ? "draft" : "live";
-  allItems = yield* hydrateItemReferences(ctx, page, sorted, allItems, referenceSource);
-  layoutAllItems = yield* hydrateItemReferences(
-    ctx,
-    page,
-    sortedLayout,
-    layoutAllItems,
-    referenceSource,
-  );
-  nestChildItems(allItems);
-  const itemsByBlock = new Map<number, RenderableItem[]>();
-  for (const item of allItems) {
-    if (item.parentItemId !== null) continue;
-    const list = itemsByBlock.get(item.blockId) ?? [];
-    list.push(item);
-    itemsByBlock.set(item.blockId, list);
-  }
-
-  const layoutItemsByBlock = new Map<number, RenderableItem[]>();
-  if (sortedLayout.length > 0) {
-    nestChildItems(layoutAllItems);
-    for (const item of layoutAllItems) {
-      if (item.parentItemId !== null) continue;
-      const list = layoutItemsByBlock.get(item.blockId) ?? [];
-      list.push(item);
-      layoutItemsByBlock.set(item.blockId, list);
-    }
-  }
-
-  const hydrated = yield* hydrateReferences(
+  const render = yield* renderBlocksMarkdown(
     ctx,
     page,
     [...sorted, ...sortedLayout],
-    referenceSource,
+    [...allItems, ...layoutAllItems],
+    source === "draft" ? "draft" : "live",
   );
-  // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
-  const fileIds = new Set<number>();
-  for (const block of hydrated) {
-    collectFileIds(block.content as Record<string, unknown>, fileIds);
-    collectFileIds(block.references, fileIds);
-  }
-  for (const item of [...allItems, ...layoutAllItems]) {
-    collectFileIds(item.content as Record<string, unknown>, fileIds);
-    collectFileIds(item.references ?? {}, fileIds);
-  }
-  const fileMap = yield* buildFileMap(ctx.db, fileIds);
-
-  const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
-  const renderBlock = (block: RenderableBlock, items: RenderableItem[]) => {
-    const schema = schemaByType.get(block.type);
-    if (!schema?.toMarkdown) {
-      return JSON.stringify(
-        stripArtifactSources(schema?.properties, block.content as Record<string, unknown>),
-      );
-    }
-    const content = { ...(block.content as Record<string, unknown>) };
-    for (const fieldName of new Set(items.map((i) => i.fieldName))) {
-      content[fieldName] = items.filter((i) => i.fieldName === fieldName);
-    }
-    return `<!-- ${schema.title} -->\n${contentToMarkdown(
-      schema.toMarkdown,
-      schema.properties,
-      content,
-      {
-        settings: block.settings as Record<string, unknown> | null | undefined,
-        files: fileMap,
-        references: referencesByBlock.get(block.id),
-      },
-    )}`;
-  };
-
-  const beforeParts: string[] = [];
-  const afterParts: string[] = [];
-  for (const block of sortedLayout) {
-    const schema = schemaByType.get(block.type);
-    if (!schema?.toMarkdown) continue;
-    const md = renderBlock(block, layoutItemsByBlock.get(block.id) ?? []);
-    if (block.slot === "before") beforeParts.push(md);
-    else afterParts.push(md);
-  }
-  const beforeMarkdown = beforeParts.join("\n\n");
-  const afterMarkdown = afterParts.join("\n\n");
+  const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
   // Convert page blocks to markdown
   const blockMarkdowns = sorted.map((block) => ({
     id: block.id,
     position: block.position,
-    markdown: renderBlock(block, itemsByBlock.get(block.id) ?? []),
+    markdown: render.markdown(block) ?? render.json(block),
   }));
 
-  const parts = [beforeMarkdown, ...blockMarkdowns.map((b) => b.markdown), afterMarkdown].filter(
-    Boolean,
-  );
+  const parts = [before, ...blockMarkdowns.map((b) => b.markdown), after].filter(Boolean);
   return { markdown: parts.join("\n\n"), blocks: blockMarkdowns };
+});
+
+/**
+ * The live Markdown of a code-owned layout's before and after slots, for pages
+ * without a page row (singleton and derived layouts). Public, so never the draft.
+ */
+export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getLayoutMarkdownInput>,
+) {
+  const { projectSlug, layoutId } = yield* decodeInput(getLayoutMarkdownInput, rawInput);
+  const project = yield* Effect.promise(() =>
+    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
+  );
+  if (!project) return yield* new NotFoundError();
+  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  const layout = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
+      .get(),
+  );
+  if (!layout) return yield* new NotFoundError();
+  // An unpublished layout has no live blocks, like a curated page's layout side.
+  const snapshot = yield* readLayoutSnapshot(ctx, layout);
+  const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);
+  const render = yield* renderBlocksMarkdown(
+    ctx,
+    layout,
+    layoutBlocks,
+    sortByPosition(snapshot?.repeatableItems ?? []),
+    "live",
+  );
+  return layoutSlotsMarkdown(layoutBlocks, render.markdown);
 });
 
 export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (

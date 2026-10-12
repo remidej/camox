@@ -28,8 +28,10 @@ export const layout = createLayout("pokedex")({
     after: [footerBlock],
   },
   loader: async () => ({ kind: "data", data: await loadPokemon() }),
-  component: PokedexPage,
+  // After the loader: these callbacks' `data` is inferred from it.
   buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
+  toMarkdown: ({ data }) => [`${data.length} Pokémon`, data.map((p) => `- ${p.name}`).join("\n")],
+  component: PokedexPage,
 });
 
 function PokedexPage() {
@@ -57,7 +59,7 @@ function PokedexPage() {
 - Publishing exposes the current editable blocks. Unpublishing removes those published blocks, **not** the route or code-rendered UI. Synced blocks retain their existing shared publishing behavior.
 - Code deployment controls route existence. Removing the definition and syncing releases its reserved URL. Existing curated URL collisions or layouts still assigned to curated pages must be resolved explicitly before sync can succeed.
 - Curated pages cannot claim singleton URLs or use singleton/derived layouts. Literal singleton routes take precedence over parameterized derived routes.
-- Current routed-page HTML titles use the definition's `title`; the required `buildMetaTitle` option is retained for API compatibility, but routed-page metadata callbacks are not yet applied.
+- See [Metadata and Markdown](#metadata-and-markdown) for page titles, descriptions, and the page's Markdown Representation.
 
 ## Derived routes
 
@@ -93,7 +95,28 @@ For an explicit return annotation, import `type LayoutLoaderResult` from `camox/
 
 The playground's `/pokedex`, `/pokemon/pikachu`, and `/pokemon-types/electric` are working external-data examples, and both derived layouts declare `routes`, so `/sitemap.xml` lists every Pokémon and type. Load a URL directly, follow a Pokémon/type link, and refresh: `useData()` receives the same payload in server rendering, navigation, and hydration. Search and “Show more” still run on client state. A nonexistent Pokémon still returns 404; a PokéAPI failure is still a server error.
 
-Only `kind: "data"` is supported here. It does not make external data editable. Collection-item results, collection APIs, and layout Markdown are separate future capabilities.
+Only `kind: "data"` is supported here. It does not make external data editable. Collection-item results and collection APIs are separate future capabilities.
+
+## Metadata and Markdown
+
+Singleton and derived pages get the same head as curated pages: title, description, `og:*` tags, the `/og` image, and the favicon. They have no editor metadata, so the callbacks receive the loader's unwrapped `data` and the route `params` instead:
+
+```tsx
+export const Layout = createLayout("pokemon.$name")({
+  kind: "derived",
+  // Other options omitted.
+  loader: async ({ params }) => ({ kind: "data", data: await loadPokemon(params.name) }),
+  buildMetaTitle: ({ data, pageMetaTitle }) => `${data.name} – ${pageMetaTitle}`,
+  buildMetaDescription: ({ data }) => `${data.name} is a ${data.types.join("/")} type Pokémon.`,
+  toMarkdown: ({ data, params }) => [`# ${data.name}`, `Types: ${data.types.join(", ")}`],
+});
+```
+
+- **Put `loader` before `buildMetaTitle`, `buildMetaDescription`, and `toMarkdown`.** TypeScript infers their `data` from the loader only in that order. Otherwise the loader is inferred as `never` and fails to type-check.
+- `buildMetaTitle` receives `pageMetaTitle` (the layout's `title` on these pages), `projectName`, `pageFullPath`, `data`, and `params`. The `/og` image shows its result.
+- `buildMetaDescription` is optional; without it these pages have no description.
+- `toMarkdown` returns the page's Markdown Representation as a list of strings. Empty strings are dropped and the rest joined with blank lines. A request with `Accept: text/markdown` gets the live before-block Markdown, then this output, then the live after-block Markdown. Without `toMarkdown`, the page answers HTML only. `throw notFound()` in the loader answers 404. Curated layouts cannot declare `toMarkdown`: their Markdown comes from their blocks.
+- The playground's Pokémon, Pokémon type, and Pokédex layouts declare these. Try `curl -H "Accept: text/markdown" http://localhost:3000/pokemon/pikachu`.
 
 ## File and component conventions
 

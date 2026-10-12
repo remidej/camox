@@ -32,7 +32,6 @@ export const Layout = createLayout("pokemon.$name")({
   title: "Pokémon",
   description: "Request-loaded Pokémon from PokéAPI",
   blocks: { before: [navbarBlock], after: [footerBlock] },
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
   loader: async ({ params }): Promise<LayoutLoaderResult<Pokemon>> => {
     const response = await fetch(
       `https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(params.name)}`,
@@ -47,6 +46,19 @@ export const Layout = createLayout("pokemon.$name")({
     const list: { results: Array<{ name: string }> } = await response.json();
     return { data: list.results.map(({ name }) => ({ params: { name } })) };
   },
+  // Metadata and Markdown follow the loader: their `data` is inferred from it.
+  buildMetaTitle: ({ data }) => `${pokemonName(data.name)} ${pokemonNumber(data.id)} – Pokédex`,
+  buildMetaDescription: ({ data }) =>
+    `${pokemonName(data.name)}, a Pokémon of type ${data.types.map(({ type }) => type.name).join(" and ")}.`,
+  toMarkdown: ({ data }) => [
+    `# ${pokemonName(data.name)} ${pokemonNumber(data.id)}`,
+    `Types: ${data.types.map(({ type }) => type.name).join(", ")}`,
+    `Height: ${data.height / 10} m. Weight: ${data.weight / 10} kg.`,
+    `Abilities: ${data.abilities.map(({ ability }) => pokemonName(ability.name)).join(", ")}`,
+    data.stats
+      .map(({ base_stat, stat }) => `- ${statNames[stat.name] ?? stat.name}: ${base_stat}`)
+      .join("\n"),
+  ],
   component: PokemonPage,
 });
 

@@ -365,6 +365,9 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   for (const value of [...hydrated, ...hydratedItems]) collectFileIds(value.references, fileIds);
   const fileRows = yield* buildFileMap(ctx.db, fileIds);
   return {
+    projectName: project.name,
+    // Enough for the SDK to build a cache-busted favicon URL, as for pages.
+    project: { id: project.id, updatedAt: project.updatedAt },
     layout: {
       id: layout.id,
       layoutId: layout.layoutId,

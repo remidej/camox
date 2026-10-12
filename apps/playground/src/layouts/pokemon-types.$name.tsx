@@ -32,7 +32,6 @@ export const Layout = createLayout("pokemon-types.$name")({
   title: "Pokémon types",
   description: "PokéAPI type detail pages",
   blocks: { before: [navbarBlock], after: [footerBlock] },
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
   loader: async ({ params }): Promise<LayoutLoaderResult<PokemonType>> => {
     const response = await fetch(
       `https://pokeapi.co/api/v2/type/${encodeURIComponent(params.name)}`,
@@ -46,6 +45,19 @@ export const Layout = createLayout("pokemon-types.$name")({
     if (!response.ok) throw new Error(`PokéAPI returned ${response.status}`);
     const list: { results: Array<{ name: string }> } = await response.json();
     return { data: list.results.map(({ name }) => ({ params: { name } })) };
+  },
+  buildMetaTitle: ({ data }) => `${pokemonName(data.name)} type – Pokédex`,
+  buildMetaDescription: ({ data }) => `${data.pokemon.length} Pokémon have the ${data.name} type.`,
+  toMarkdown: ({ data }) => {
+    const names = (resources: NamedResource[]) =>
+      resources.map(({ name }) => pokemonName(name)).join(", ") || "None";
+    return [
+      `# ${pokemonName(data.name)} type`,
+      `Super effective against: ${names(data.damage_relations.double_damage_to)}`,
+      `Weak to: ${names(data.damage_relations.double_damage_from)}`,
+      `Immune to: ${names(data.damage_relations.no_damage_from)}`,
+      `${data.pokemon.length} Pokémon: ${data.pokemon.map(({ pokemon }) => pokemonName(pokemon.name)).join(", ")}`,
+    ];
   },
   component: TypePage,
 });

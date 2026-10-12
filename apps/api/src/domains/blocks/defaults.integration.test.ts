@@ -1,10 +1,18 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { pages } from "../../schema";
+import { blocks, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
-import { createBlock, getBlock, getPageMarkdown } from "./service";
+import { publishLayout } from "../layouts/service";
+import {
+  createBlock,
+  getBlock,
+  getLayoutMarkdown,
+  getPageMarkdown,
+  updateBlockContent,
+} from "./service";
 
 async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);
@@ -48,7 +56,7 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  return { ctx, db: base.db, page };
+  return { ctx, db: base.db, layout: base.layout, page, project: base.project };
 }
 
 describe("createBlock defaults", () => {
@@ -78,6 +86,27 @@ describe("createBlock defaults", () => {
     await expect(
       runService(getPageMarkdown(publicCtx, { pageId: page.id, source: "draft" })),
     ).rejects.toThrow();
+  });
+
+  it("reads a layout's live slot Markdown publicly, never its draft", async () => {
+    const { ctx, db, layout, page, project } = await fixture("layout-markdown");
+    const created = await runService(
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "Published" } }),
+    );
+    await db
+      .update(blocks)
+      .set({ pageId: null, layoutId: layout.id, slot: "before" })
+      .where(eq(blocks.id, created.id));
+    await runService(publishLayout(ctx, { id: layout.id }));
+    await runService(updateBlockContent(ctx, { id: created.id, content: { title: "Draft" } }));
+
+    const publicCtx = createServiceContext(db, null);
+    const markdown = await runService(
+      getLayoutMarkdown(publicCtx, { projectSlug: project.slug, layoutId: layout.layoutId }),
+    );
+    expect(markdown.before).toContain("# Published");
+    expect(markdown.before).not.toContain("Draft");
+    expect(markdown.after).toBe("");
   });
 
   it("preserves supplied content but enforces repeater minimums", async () => {

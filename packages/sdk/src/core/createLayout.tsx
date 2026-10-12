@@ -84,6 +84,30 @@ type LoaderData<Result extends LoaderReturn> = [Result] extends [never]
   ? undefined
   : Awaited<Result>["data"];
 
+/** What a page's metadata callbacks know about it. Curated pages have no loader data or params. */
+export interface PageMetaContext<Data = unknown, Params = Record<string, string>> {
+  projectName: string;
+  pageFullPath: string;
+  data: Data;
+  params: Params;
+}
+
+/** On singleton and derived pages, `pageMetaTitle` is the layout's `title`. */
+type BuildMetaTitle<Data, Params> = (
+  params: PageMetaContext<Data, Params> & { pageMetaTitle: string },
+) => string;
+
+/** Without it, curated pages use the editor's description and other pages have none. */
+type BuildMetaDescription<Data, Params> = (
+  params: PageMetaContext<Data, Params> & { pageMetaDescription: string | undefined },
+) => string | undefined;
+
+/** The Markdown Representation of a code-owned page, between its layout blocks. */
+type LayoutToMarkdown<Data, Params> = (context: {
+  data: Data;
+  params: Params;
+}) => readonly string[];
+
 interface CreateLayoutOptions<
   TBefore extends readonly LayoutBlock[],
   TAfter extends readonly LayoutBlock[],
@@ -104,11 +128,10 @@ interface CreateLayoutOptions<
     initial?: ValidatePageContentBlocks<TInitial>;
   };
   component: React.ComponentType<{ children: React.ReactNode }>;
-  buildMetaTitle: (params: {
-    pageMetaTitle: string;
-    projectName: string;
-    pageFullPath: string;
-  }) => string;
+  buildMetaTitle: BuildMetaTitle<LoaderData<Result>, Record<string, string>>;
+  buildMetaDescription?: BuildMetaDescription<LoaderData<Result>, Record<string, string>>;
+  /** Singleton and derived layouts only. */
+  toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, string>>;
   buildOgImage?: (params: OgImageParams) => React.ReactElement;
 }
 
@@ -123,6 +146,8 @@ function createLayoutDefinition<
     throw new Error("Code-owned layouts cannot define initial page blocks");
   if (options.routes && options.kind !== "derived")
     throw new Error(`Only derived layouts can define routes: ${options.id}`);
+  if (options.toMarkdown && (options.kind ?? "curated") === "curated")
+    throw new Error(`Curated layouts cannot define toMarkdown: ${options.id}`);
 
   // Each layout gets its own context — avoids cross-module identity issues
   const LayoutContext = React.createContext<{
@@ -280,7 +305,11 @@ function createLayoutDefinition<
       routes: options.routes,
       title: options.title,
       description: options.description,
-      buildMetaTitle: options.buildMetaTitle,
+      buildMetaTitle: options.buildMetaTitle as BuildMetaTitle<unknown, unknown>,
+      buildMetaDescription: options.buildMetaDescription as
+        | BuildMetaDescription<unknown, unknown>
+        | undefined,
+      toMarkdown: options.toMarkdown as LayoutToMarkdown<unknown, unknown> | undefined,
       buildOgImage,
       blockDefinitions,
       initialBlockBundles,
@@ -312,13 +341,26 @@ type FileOptions<
   B extends readonly LayoutBlock[],
   A extends readonly LayoutBlock[],
   I extends readonly LayoutBlock[],
-> = Omit<CreateLayoutOptions<B, A, I>, "id" | "kind" | "loader" | "routes" | "component"> &
+> = Omit<
+  CreateLayoutOptions<B, A, I>,
+  | "id"
+  | "kind"
+  | "loader"
+  | "routes"
+  | "component"
+  | "buildMetaTitle"
+  | "buildMetaDescription"
+  | "toMarkdown"
+> &
   (
     | {
         kind: "curated";
         component: React.ComponentType<{ children: React.ReactNode }>;
         loader?: never;
         routes?: never;
+        toMarkdown?: never;
+        buildMetaTitle: BuildMetaTitle<undefined, Record<string, never>>;
+        buildMetaDescription?: BuildMetaDescription<undefined, Record<string, never>>;
       }
     | {
         kind: "singleton";
@@ -329,7 +371,10 @@ type FileOptions<
         };
         loader?: (context: { params: Record<string, never> }) => Result;
         routes?: never;
+        toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, never>>;
         component: React.ComponentType<{ children?: never }>;
+        buildMetaTitle: BuildMetaTitle<LoaderData<Result>, Record<string, never>>;
+        buildMetaDescription?: BuildMetaDescription<LoaderData<Result>, Record<string, never>>;
       }
     | {
         kind: "derived";
@@ -340,7 +385,10 @@ type FileOptions<
         };
         loader: (context: { params: RouteParams<Id> }) => Result;
         routes?: () => RoutesReturn<RouteParams<Id>>;
+        toMarkdown?: LayoutToMarkdown<LoaderData<Result>, RouteParams<Id>>;
         component: React.ComponentType<{ children?: never }>;
+        buildMetaTitle: BuildMetaTitle<LoaderData<Result>, RouteParams<Id>>;
+        buildMetaDescription?: BuildMetaDescription<LoaderData<Result>, RouteParams<Id>>;
       }
   );
 
