@@ -33,7 +33,7 @@ Spread the props onto your own `<iframe>`: they carry `srcDoc`, `sandbox="allow-
 
 ## Write a source
 
-Set the source like any other string field through the CLI (see [CLI Content](cli-content.md)); `blocks describe` lists artifact fields with `fieldType: "Artifact"` and their `size`.
+Write the source to a local file and push it with `blocks edit --id <ID> --field-file <NAME>=<PATH>` (or `blocks create`), then check it with `camox preview`; see [Set string fields from files](cli-content.md#set-string-fields-from-files). `blocks describe` lists artifact fields with `fieldType: "Artifact"` and their `size`.
 
 - **Under 256 KB.** Larger writes are rejected. Load libraries from a CDN instead of inlining them.
 - **Import from esm.sh with exact pinned versions**, so the artifact never changes under the website:
