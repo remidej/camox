@@ -770,3 +770,72 @@ void test("records linked by a placed record step up through that record's refer
     { type: "block-field", blockId: 7, fieldName: "article", fieldType: "Reference" },
   ]);
 });
+
+void test("a layout-owned record placement is its own selection target and the root of its path", async () => {
+  const { previewStore: store, samePlacement } = await import("./previewStore");
+  let snapshot = store.getInitialSnapshot();
+  [snapshot] = store.transition(snapshot, {
+    type: "selectRecordField",
+    kind: "layout",
+    layoutId: 5,
+    recordId: "launch",
+    recordFieldName: "title",
+    recordFieldType: "String",
+  });
+  assert.deepEqual(snapshot.context.editingContext, {
+    kind: "layout",
+    layoutId: 5,
+    selection: {
+      type: "record-field",
+      layoutId: 5,
+      recordId: "launch",
+      recordFieldName: "title",
+      recordFieldType: "String",
+    },
+  });
+  const path: Array<Selection | null | undefined> = [];
+  for (let step = 0; step < 2; step++) {
+    [snapshot] = store.transition(snapshot, { type: "selectParent" });
+    path.push(snapshot.context.editingContext?.selection);
+  }
+  assert.deepEqual(path, [
+    { type: "record", layoutId: 5, recordId: "launch" },
+    { type: "record", layoutId: 5, recordId: "launch" },
+  ]);
+
+  const layoutOwned = { layoutId: 5, recordId: "launch" };
+  assert.equal(samePlacement(layoutOwned, { layoutId: 5, recordId: "launch" }), true);
+  assert.equal(samePlacement(layoutOwned, { layoutId: 6, recordId: "launch" }), false);
+  // A layout block placing the same record on the same page is another placement.
+  assert.equal(
+    samePlacement(layoutOwned, { blockId: 5, fieldName: "article", recordId: "launch" }),
+    false,
+  );
+});
+
+void test("a record linked by a layout-owned placement steps up to the page record's reference field", async () => {
+  const { previewStore: store } = await import("./previewStore");
+  let snapshot = store.getInitialSnapshot();
+  [snapshot] = store.transition(snapshot, {
+    type: "selectRecord",
+    kind: "layout",
+    layoutId: 5,
+    recordId: "launch",
+    nested: { fieldName: "author", recordId: "jane" },
+  });
+  const path: Array<Selection | null | undefined> = [];
+  for (let step = 0; step < 2; step++) {
+    [snapshot] = store.transition(snapshot, { type: "selectParent" });
+    path.push(snapshot.context.editingContext?.selection);
+  }
+  assert.deepEqual(path, [
+    {
+      type: "record-field",
+      layoutId: 5,
+      recordId: "launch",
+      recordFieldName: "author",
+      recordFieldType: "Reference",
+    },
+    { type: "record", layoutId: 5, recordId: "launch" },
+  ]);
+});

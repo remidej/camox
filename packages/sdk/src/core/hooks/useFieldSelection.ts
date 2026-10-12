@@ -5,6 +5,7 @@ import { PreviewEditingOwnerContext } from "../../features/preview/previewSelect
 import {
   previewStore,
   samePlacement,
+  selectionBlockId,
   selectionForOwner,
   type RecordPlacement,
 } from "../../features/preview/previewStore";
@@ -24,7 +25,7 @@ export function useFieldSelection(
   const owner = useContext(PreviewEditingOwnerContext);
   return useSelector(previewStore, (state) => {
     const sel = selectionForOwner(state.context, owner);
-    if (!sel || sel.blockId !== blockId) return false;
+    if (!sel || selectionBlockId(sel) !== blockId) return false;
 
     // Check for field-level selections
     if (sel.type === "block-field") {

@@ -159,7 +159,7 @@ A field that selects an ordered list of distinct collection records by identity.
 _Avoid_: Relation list, multi-reference, collection field
 
 **Placement**:
-Where a block or reference occurs; placements keep their own identity and order even when their content is shared.
+Where a block or reference occurs; placements keep their own identity and order even when their content is shared. A collection record is placed by a block's or repeatable item's reference, or by the layout of its record page.
 _Avoid_: Usage, instance, occurrence
 
 **File**:

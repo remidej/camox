@@ -359,7 +359,7 @@ void test("nested preview targets use their containing owner, not the active rou
     const selected = usePreviewTargetSelection();
     return (
       <button
-        data-selected={selected?.blockId === 7}
+        data-selected={selected?.type === "block" && selected.blockId === 7}
         onClick={() => select({ type: "block", blockId: 7 })}
       >
         {name}
