@@ -3,7 +3,7 @@ import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
-import type { LayoutLoaderResult } from "../../core/createLayout";
+import type { AnyLayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { discoverLayoutPaths, matchDerivedLayout } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
@@ -75,7 +75,7 @@ export interface PageRenderInput {
   presentation?: "public" | "studio";
   derived?: {
     layoutId: string;
-    result?: LayoutLoaderResult;
+    result?: AnyLayoutLoaderResult;
     layout: Awaited<
       ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["get"]>
     >["layout"];
@@ -213,7 +213,7 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
       layouts
         .filter((layout) => layout._internal.kind === "derived")
         // Crawlers only ever see live content, even when an editor asks.
-        .map((layout) => discoverLayoutPaths(layout, createRequestContext({ source: "live" }))),
+        .map((layout) => discoverLayoutPaths(layout, createLayoutRequestContext(options, "live"))),
     );
   } catch (error) {
     // A sitemap silently missing pages is worse than one that visibly fails.
@@ -288,7 +288,10 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
     ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
   };
   try {
-    const [path = null] = await discoverLayoutPaths(layout, createRequestContext({ source }));
+    const [path = null] = await discoverLayoutPaths(
+      layout,
+      createLayoutRequestContext(options, source, getServerAuthCookieHeader(request.headers)),
+    );
     return Response.json({ path }, { headers });
   } catch (error) {
     console.error(`[camox] Route discovery failed for layout "${layoutId}".`, error);
@@ -565,23 +568,62 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
 
 type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 
+/**
+ * The context `loader` and `routes` get. Its record lookup reads the request's source; only
+ * draft reads carry the editor's session.
+ */
+function createLayoutRequestContext(
+  options: RuntimeOptions,
+  source: "live" | "draft",
+  authCookieHeader?: string,
+): LayoutRequestContext {
+  const { apiUrl, projectSlug, environmentName } = options;
+  if (!apiUrl || !projectSlug) return createRequestContext({ source });
+  const api = createServerApiClient(apiUrl, environmentName, {
+    authCookieHeader: source === "draft" ? authCookieHeader : undefined,
+  });
+  return createRequestContext({
+    source,
+    records: {
+      findByField: (input) =>
+        api.collectionDefinitions.findRecordsByField({ ...input, projectSlug, source }),
+    },
+  });
+}
+
+const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** An envelope names its record; it doesn't authorize anything, the API does. */
+function isValidCollectionItem(app: CamoxApp | undefined, result: Record<string, unknown>) {
+  const data = result.data as { id?: unknown; content?: unknown } | null;
+  return (
+    typeof result.collectionId === "string" &&
+    !!app?.getCollectionById(result.collectionId) &&
+    typeof data?.id === "string" &&
+    RECORD_ID.test(data.id) &&
+    typeof data.content === "object" &&
+    data.content !== null
+  );
+}
+
 /** Runs a code-owned page's loader. The envelope survives SSR, navigation and hydration. */
 async function loadLayoutResult(
+  app: CamoxApp | undefined,
   match: DerivedMatch,
   context: LayoutRequestContext,
-): Promise<LayoutLoaderResult | undefined> {
-  const loader = match.layout._internal.loader;
-  const result = await loader?.({ params: match.params, context });
+): Promise<AnyLayoutLoaderResult | undefined> {
+  const { loader, id } = match.layout._internal;
+  if (!loader) return undefined;
+  const result = await loader({ params: match.params, context });
   // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
   const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
-  if (
-    loader &&
-    (!serializedResult ||
-      serializedResult.kind !== "data" ||
-      !Object.hasOwn(serializedResult, "data"))
-  )
+  const valid =
+    serializedResult?.kind === "collection-item"
+      ? isValidCollectionItem(app, serializedResult)
+      : serializedResult?.kind === "data" && Object.hasOwn(serializedResult, "data");
+  if (!valid)
     throw new Error(
-      `Layout "${match.layout._internal.id}" loader must return { kind: "data", data } with JSON-serializable data`,
+      `Layout "${id}" loader must return { kind: "data", data } with JSON-serializable data, or a collection-item envelope naming a registered collection and a record id`,
     );
   return serializedResult;
 }
@@ -596,10 +638,14 @@ async function createLayoutMarkdownResponse(
 ): Promise<Response | null> {
   const { toMarkdown, id } = match.layout._internal;
   if (!toMarkdown || !options.apiUrl || !options.projectSlug) return null;
-  let result: LayoutLoaderResult | undefined;
+  let result: AnyLayoutLoaderResult | undefined;
   try {
     // Markdown is a public output: it reads live content whoever asks.
-    result = await loadLayoutResult(match, createRequestContext({ source: "live" }));
+    result = await loadLayoutResult(
+      await options.getCamoxApp?.(),
+      match,
+      createLayoutRequestContext(options, "live"),
+    );
   } catch (error) {
     if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
     throw error;
@@ -649,7 +695,11 @@ async function createDerivedResponse(
       : undefined;
     const source: "live" | "draft" = draft ? "draft" : "live";
     const clearAuthCookie = draft === null;
-    const serializedResult = await loadLayoutResult(match, createRequestContext({ source }));
+    const serializedResult = await loadLayoutResult(
+      app,
+      match,
+      createLayoutRequestContext(options, source, authCookieHeader),
+    );
     const shared = draft ?? (await loadLayout("live"));
     seedBlockCaches(queryClient, shared, source);
     const project =

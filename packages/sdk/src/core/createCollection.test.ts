@@ -23,7 +23,7 @@ void describe("collection definitions", () => {
     assert.deepEqual(serialized.contentSchema.required, ["title", "cover"]);
     assert.equal(serialized.contentSchema.additionalProperties, false);
     assert.equal("default" in serialized.contentSchema.properties.title, false);
-    assert.deepEqual(Object.keys(collection), ["_internal"]);
+    assert.deepEqual(Object.keys(collection), ["pages", "_internal"]);
   });
   void it("rejects duplicate registration and invalid JavaScript labels", () => {
     assert.throws(

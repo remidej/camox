@@ -1,4 +1,9 @@
-import { createLayout, type LayoutRequestContext } from "./createLayout";
+import { createCollection } from "./createCollection";
+import {
+  createLayout,
+  type LayoutCollectionItemResult,
+  type LayoutRequestContext,
+} from "./createLayout";
 
 const Definition = createLayout("pokemon.$name")({
   kind: "derived",
@@ -116,12 +121,61 @@ createLayout("missing-data")({
   // @ts-expect-error Every successful loader result must contain data.
   loader: () => ({ kind: "data" }),
 });
-createLayout("future-result")({
+createLayout("incomplete-record")({
   ...singletonOptions,
   kind: "singleton",
-  // @ts-expect-error Collection-item envelopes are not implemented in this slice.
+  // @ts-expect-error A collection-item envelope names its record.
   loader: () => ({ kind: "collection-item", collectionId: "articles", data: {} }),
 });
+
+// Record pages: `pages()` spreads a loader and routes into a derived layout.
+const articles = createCollection({
+  id: "articles",
+  title: "Articles",
+  description: "",
+  content: (field) => ({ title: field.string(), slug: field.string(), cover: field.image() }),
+  label: "title",
+});
+const ArticlePage = createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  ...articles.pages({ by: "slug", param: "slug" }),
+  buildMetaTitle: ({ data }) => data.content.title,
+  toMarkdown: ({ data }) => [`# ${data.content.title}`],
+});
+function RecordDataTypeCheck() {
+  const { id, content } = ArticlePage.useData();
+  const title: string = content.title;
+  // @ts-expect-error useData returns the record, not the envelope.
+  void ArticlePage.useData().collectionId;
+  // @ts-expect-error Record content is typed by the collection.
+  void content.missing;
+  return [id, title];
+}
+void RecordDataTypeCheck;
+// @ts-expect-error Pages are found by a String field only.
+articles.pages({ by: "cover", param: "slug" });
+// @ts-expect-error Pages are found by a field of the collection.
+articles.pages({ by: "missing", param: "slug" });
+// @ts-expect-error The param must be one of the route's params.
+createLayout("pokemon.$name")({
+  ...singletonOptions,
+  kind: "derived",
+  ...articles.pages({ by: "slug", param: "slug" }),
+});
+// A wrapper passes the context through and returns the exported envelope unchanged.
+const articlePages = articles.pages({ by: "slug", param: "slug" });
+const WrappedArticlePage = createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input): Promise<LayoutCollectionItemResult<{ title: string }>> => {
+    const result = await articlePages.loader(input);
+    return result;
+  },
+  routes: articlePages.routes,
+});
+const wrappedTitle: string = WrappedArticlePage.useData().content.title;
+void wrappedTitle;
 createLayout("undefined-result")({
   ...singletonOptions,
   kind: "singleton",
