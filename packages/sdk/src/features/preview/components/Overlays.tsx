@@ -4,7 +4,12 @@ import * as React from "react";
 import { usePageBlocks } from "@/lib/normalized-data";
 
 import { usePreviewedPage } from "../CamoxPreview";
-import { isOverlayMessage, overlayFieldId, type OverlayMessage } from "../overlayMessages";
+import {
+  isOverlayMessage,
+  overlayFieldId,
+  recordFieldId,
+  type OverlayMessage,
+} from "../overlayMessages";
 import {
   previewStore,
   selectIsEditMode,
@@ -74,17 +79,18 @@ function CuratedAddBlockListener({ iframeElement }: { iframeElement: HTMLIFrameE
 /** The iframe field ID of a selected String field; only those are focused in the iframe. */
 function stringFieldId(selection: Selection | null): string | null {
   if (!selection) return null;
-  const { blockId } = selection;
   switch (selection.type) {
     case "block-field":
-      return selection.fieldType === "String" ? overlayFieldId(blockId, selection.fieldName) : null;
+      return selection.fieldType === "String"
+        ? overlayFieldId(selection.blockId, selection.fieldName)
+        : null;
     case "item-field":
       return selection.fieldType === "String"
-        ? overlayFieldId(blockId, selection.fieldName, { itemId: selection.itemId })
+        ? overlayFieldId(selection.blockId, selection.fieldName, { itemId: selection.itemId })
         : null;
     case "record-field":
       return selection.recordFieldType === "String"
-        ? overlayFieldId(blockId, selection.recordFieldName, { placement: selection })
+        ? recordFieldId(selection, selection.recordFieldName)
         : null;
     default:
       return null;

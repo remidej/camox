@@ -33,7 +33,12 @@ import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import type { OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import { previewStore, selectPreviewSource, selectionForOwner } from "../previewStore";
+import {
+  previewStore,
+  selectPreviewSource,
+  selectionBlockId,
+  selectionForOwner,
+} from "../previewStore";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useUpdateBlockPosition } from "./useUpdateBlockPosition";
 
@@ -48,7 +53,7 @@ function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
   const [ellipsisPopoverOpen, setEllipsisPopoverOpen] = React.useState(false);
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const iframeElement = useSelector(previewStore, (state) => state.context.iframeElement);
-  const isBlockActive = selection?.blockId === block.id;
+  const isBlockActive = selectionBlockId(selection) === block.id;
   const isBlockSelected = selection?.type === "block" && selection.blockId === block.id;
   const shouldShowHover = !isDragging && !isBlockActive;
   const shouldShowActive = isDragging || isBlockActive;

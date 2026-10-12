@@ -410,6 +410,10 @@ Editing and publication:
 
 - A layout-owned placement (layout and record, no block) gives `layout.Item` fields the same
   selection, purple overlays, record sidebar and comments as a single reference.
+- Comments on record page fields are deferred (#185). Comments belong to a page row and anchor
+  to a block, item or block field, and records anchor to their placing reference field; a
+  record page has no page row and its record no reference field. In comment mode, clicking a
+  layout-owned record does nothing.
 - `layout.Item` reads the record from the normalized record cache, seeded by the loader
   result, so edits show everywhere at once. Switching source or publishing re-requests
   `/_camox/data`.

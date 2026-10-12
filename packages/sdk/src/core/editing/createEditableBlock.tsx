@@ -35,6 +35,7 @@ import {
 import {
   previewStore,
   selectIsCommentMode,
+  selectionBlockId,
   type RecordPlacement,
   type Selection as PreviewTarget,
 } from "../../features/preview/previewStore";
@@ -2212,7 +2213,7 @@ export function createEditableBlock<
     // Scroll into view when editing in preview
     const selection = usePreviewTargetSelection();
     const selectTarget = usePreviewSelection();
-    const isBlockSelected = selection?.blockId === blockData._id;
+    const isBlockSelected = selectionBlockId(selection) === blockData._id;
     const overlayState = useOverlayState(isHovered, isBlockSelected);
     const ref = React.useRef<HTMLDivElement>(null);
 
@@ -2815,7 +2816,7 @@ export function createEditableBlock<
 
     const selection = usePreviewTargetSelection();
     const selectTarget = usePreviewSelection();
-    const isBlockSelected = selection?.blockId === blockId;
+    const isBlockSelected = selectionBlockId(selection) === blockId;
     const overlayState = useOverlayState(isHovered, isBlockSelected);
 
     const isHoveredFromSidebar = useOverlayMessage(

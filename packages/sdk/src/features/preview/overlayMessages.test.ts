@@ -104,6 +104,35 @@ const cases: {
     type: "CAMOX_HOVER_FIELD",
     target: { fieldId: "1__article__launch__author__jane" },
   },
+  {
+    name: "record placed by a layout",
+    selection: { type: "record", layoutId: 4, recordId: "launch" },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "layout-4__launch" },
+  },
+  {
+    name: "record field placed by a layout",
+    selection: {
+      type: "record-field",
+      layoutId: 4,
+      recordId: "launch",
+      recordFieldName: "title",
+      recordFieldType: "String",
+    },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "layout-4__launch__title" },
+  },
+  {
+    name: "record linked by a record placed by a layout",
+    selection: {
+      type: "record",
+      layoutId: 4,
+      recordId: "launch",
+      nested: { fieldName: "author", recordId: "jane" },
+    },
+    type: "CAMOX_HOVER_FIELD",
+    target: { fieldId: "layout-4__launch__author__jane" },
+  },
 ];
 
 for (const { name, selection, type, target } of cases) {
@@ -112,3 +141,22 @@ for (const { name, selection, type, target } of cases) {
     assert.deepEqual(selectionHoverMessage(selection, false), { type: `${type}_END`, ...target });
   });
 }
+
+void test("a layout-owned placement and a block-owned placement of the same record are distinct targets", () => {
+  const layoutOwned: Selection = { type: "record", layoutId: 4, recordId: "launch" };
+  const blockOwned: Selection = {
+    type: "record",
+    blockId: 4,
+    fieldName: "article",
+    recordId: "launch",
+  };
+  assert.notDeepEqual(
+    selectionHoverMessage(layoutOwned, true),
+    selectionHoverMessage(blockOwned, true),
+  );
+  const field = { recordFieldName: "title", recordFieldType: "String" } as const;
+  assert.notDeepEqual(
+    selectionHoverMessage({ ...layoutOwned, type: "record-field", ...field }, true),
+    selectionHoverMessage({ ...blockOwned, type: "record-field", ...field }, true),
+  );
+});
