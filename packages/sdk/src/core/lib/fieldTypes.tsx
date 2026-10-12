@@ -7,6 +7,7 @@ const fieldTypesDictionary = {
   Enum: { hasOwnView: true },
   Boolean: { hasOwnView: true },
   Embed: { hasOwnView: true },
+  Artifact: { hasOwnView: true },
   Link: { hasOwnView: true },
   Image: { hasOwnView: true },
   File: { hasOwnView: true },

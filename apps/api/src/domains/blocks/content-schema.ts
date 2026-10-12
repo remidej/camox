@@ -5,10 +5,14 @@ import type { Database } from "../../db";
 import { blockDefinitions, blocks, layouts, pages } from "../../schema";
 import type { FieldSchema } from "./normalize-content";
 
-/** Content writes use the target block's environment, not the caller's default. */
+/**
+ * Content writes use the target block's environment, not the caller's default. Callers without
+ * an authorized project (background jobs) pass `null`: the block's environment alone pins its
+ * definition.
+ */
 export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
   db: Database,
-  projectId: number,
+  projectId: number | null,
   blockId: number,
 ): Effect.fn.Return<{
   contentSchema: FieldSchema | null;
@@ -26,7 +30,7 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
       .innerJoin(
         blockDefinitions,
         and(
-          eq(blockDefinitions.projectId, projectId),
+          projectId == null ? undefined : eq(blockDefinitions.projectId, projectId),
           eq(blockDefinitions.blockId, blocks.type),
           or(
             eq(blockDefinitions.environmentId, pages.environmentId),

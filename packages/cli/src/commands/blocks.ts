@@ -1,4 +1,7 @@
+import { readFile } from "node:fs/promises";
+
 import { object, or } from "@optique/core/constructs";
+import { message } from "@optique/core/message";
 import { multiple, optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
 import { choice, integer, string } from "@optique/core/valueparser";
@@ -12,6 +15,11 @@ const jsonFlag = option("--json");
 const productionFlag = option("--production");
 // `--live` flips read commands from draft (default) to the published snapshot.
 const liveFlag = option("--live");
+const fieldFileFlag = multiple(
+  option("--field-file", string({ metavar: "NAME=PATH" }), {
+    description: message`Set the string field NAME to the raw contents of the file at PATH, without JSON escaping. Repeat to set several fields. Merges with --content; when both set a field, the file wins.`,
+  }),
+);
 
 const types = command(
   "types",
@@ -68,7 +76,8 @@ const create = command(
     command: constant("blocks.create" as const),
     pageId: option("--page-id", integer({ metavar: "ID" })),
     type: option("--type", string({ metavar: "TYPE" })),
-    content: option("--content", string({ metavar: "JSON" })),
+    content: optional(option("--content", string({ metavar: "JSON" }))),
+    fieldFile: fieldFileFlag,
     settings: optional(option("--settings", string({ metavar: "JSON" }))),
     position: optional(
       option("--position", choice(["first", "last"] as const, { metavar: "WHERE" })),
@@ -90,6 +99,7 @@ const edit = command(
     command: constant("blocks.edit" as const),
     id: option("--id", integer({ metavar: "ID" })),
     content: optional(option("--content", string({ metavar: "JSON" }))),
+    fieldFile: fieldFileFlag,
     settings: optional(option("--settings", string({ metavar: "JSON" }))),
     cwd: cwdFlag,
     project: projectFlag,
@@ -150,7 +160,8 @@ type Args =
       command: "blocks.create";
       pageId: number;
       type: string;
-      content: string;
+      content?: string;
+      fieldFile: readonly string[];
       settings?: string;
     } & PositioningFlags &
       CommonFlags)
@@ -158,6 +169,7 @@ type Args =
       command: "blocks.edit";
       id: number;
       content?: string;
+      fieldFile: readonly string[];
       settings?: string;
     } & CommonFlags)
   | ({ command: "blocks.move"; id: number } & PositioningFlags & CommonFlags)
@@ -189,6 +201,45 @@ function collectPositioningArgs(args: PositioningFlags): {
     Object.assign(toolArgs, { [key]: value });
   }
   return { used, toolArgs };
+}
+
+function fail(code: string, message: string): never {
+  throw Object.assign(new Error(message), { __cliError: { code, message } });
+}
+
+/**
+ * Build block content from `--content` and repeated `--field-file NAME=PATH`
+ * flags. Every file is read before anything is sent, so a bad path fails the
+ * whole command without a partial write. Files win over `--content` on conflicts.
+ */
+async function resolveContent(
+  rawContent: string | undefined,
+  fieldFiles: readonly string[],
+): Promise<unknown> {
+  const content = rawContent !== undefined ? parseJsonFlag("--content", rawContent) : undefined;
+  if (fieldFiles.length === 0) return content;
+  if (
+    content !== undefined &&
+    (typeof content !== "object" || content === null || Array.isArray(content))
+  ) {
+    fail("INVALID_ARGS", "--content must be a JSON object when combined with --field-file.");
+  }
+  const merged: Record<string, unknown> = { ...(content as Record<string, unknown> | undefined) };
+  for (const entry of fieldFiles) {
+    const separator = entry.indexOf("=");
+    const name = entry.slice(0, separator);
+    const path = entry.slice(separator + 1);
+    if (separator <= 0 || !path) {
+      fail("INVALID_ARGS", `Invalid --field-file "${entry}". Use --field-file NAME=PATH.`);
+    }
+    try {
+      merged[name] = await readFile(path, "utf8");
+    } catch (err) {
+      const reason = err instanceof Error && "code" in err ? String(err.code) : String(err);
+      fail("FILE_READ_ERROR", `Cannot read --field-file ${name}=${path} (${reason}).`);
+    }
+  }
+  return merged;
 }
 
 export async function handler(args: Args): Promise<never> {
@@ -236,7 +287,11 @@ export async function handler(args: Args): Promise<never> {
           outputMode,
         });
       case "blocks.create": {
-        const content = parseJsonFlag("--content", args.content);
+        if (args.content === undefined && args.fieldFile.length === 0) {
+          printError({ code: "INVALID_ARGS", message: "Pass --content, --field-file, or both." });
+          process.exit(2);
+        }
+        const content = await resolveContent(args.content, args.fieldFile);
         const settings =
           args.settings !== undefined ? parseJsonFlag("--settings", args.settings) : undefined;
         const { used, toolArgs } = collectPositioningArgs(args);
@@ -263,8 +318,7 @@ export async function handler(args: Args): Promise<never> {
         });
       }
       case "blocks.edit": {
-        const content =
-          args.content !== undefined ? parseJsonFlag("--content", args.content) : undefined;
+        const content = await resolveContent(args.content, args.fieldFile);
         const settings =
           args.settings !== undefined ? parseJsonFlag("--settings", args.settings) : undefined;
         return dispatch({

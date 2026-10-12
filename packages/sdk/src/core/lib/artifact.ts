@@ -1,5 +1,7 @@
 import type * as React from "react";
 
+import { artifactTitle } from "@camox/api-contract";
+
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
 
 /** The frame attributes of an artifact source. */
@@ -17,33 +19,7 @@ export type ArtifactRenderProps = ArtifactFrameProps & {
   ref: React.RefCallback<HTMLIFrameElement>;
 };
 
-const UNTITLED = "Untitled artifact";
-const entities: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
-
-function decodeEntities(text: string) {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-    if (entity[0] !== "#") return entities[entity.toLowerCase()] ?? match;
-    const code =
-      entity[1] === "x" || entity[1] === "X"
-        ? Number.parseInt(entity.slice(2), 16)
-        : Number(entity.slice(1));
-    return Number.isNaN(code) ? match : String.fromCodePoint(code);
-  });
-}
-
-/** The artifact's accessible name: its source's `<title>`, or "Untitled artifact". */
-export function artifactTitle(source: string): string {
-  const match = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(source);
-  const title = match ? decodeEntities(match[1]).replace(/\s+/g, " ").trim() : "";
-  return title || UNTITLED;
-}
+export { artifactTitle };
 
 /**
  * The document an artifact frame loads: the `camox` runtime, then the stored source. The doctype

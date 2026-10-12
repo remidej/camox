@@ -6,7 +6,7 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { Database } from "../../db";
-import { contentToMarkdown } from "../../lib/content-markdown";
+import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
 
 // --- AI Executors ---
@@ -160,8 +160,8 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
       content[fieldName] = items.filter((i) => i.fieldName === fieldName);
     }
 
-    const stripped = stripNonSeoFields(content);
     const schema = contentSchemaByType.get(block.type);
+    const stripped = stripNonSeoFields(stripArtifactSources(schema?.properties, content));
 
     return {
       type: block.type,
