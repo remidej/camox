@@ -2,14 +2,10 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Window } from "happy-dom";
 import * as React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 
 import { initApiClient } from "../../lib/api-client";
-import { NormalizedDataProvider } from "../../lib/normalized-data";
-import { createBlock } from "../createBlock";
+import { renderArtifactFrames } from "../artifact.fixtures";
 
 // Render real block definitions through the studio's editing runtime. The harness substitutes
 // only the network, auth, iframe and selection boundaries of the editable block.
@@ -40,46 +36,8 @@ const { CompleteBlockEditingRuntimeProvider } = await import("./CompleteBlockEdi
 
 const source = `<!doctype html><title>Orbiting moons</title><svg></svg>`;
 
-const block = createBlock({
-  id: "visual",
-  title: "Visual",
-  description: "",
-  content: (field) => ({
-    visual: field.artifact({ size: "fill" }),
-    slides: field.repeater({
-      content: (field) => ({ scene: field.artifact({ size: "content" }) }),
-      minItems: 1,
-      maxItems: 3,
-      toMarkdown: () => [],
-    }),
-  }),
-  toMarkdown: () => [],
-  component: () => (
-    <>
-      <block.Artifact name="visual">{(props) => <iframe {...props} />}</block.Artifact>
-      <block.Repeater name="slides">
-        {(item) => <item.Artifact name="scene">{(props) => <iframe {...props} />}</item.Artifact>}
-      </block.Repeater>
-    </>
-  ),
-});
-
 function render(content: Record<string, unknown>) {
-  const html = renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
-      <CompleteBlockEditingRuntimeProvider>
-        <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
-          <block._internal.Component
-            mode="site"
-            blockData={{ _id: 1, type: "visual", position: "a0", content: content as never }}
-          />
-        </NormalizedDataProvider>
-      </CompleteBlockEditingRuntimeProvider>
-    </QueryClientProvider>,
-  );
-  const window = new Window();
-  window.document.body.innerHTML = html;
-  return [...window.document.querySelectorAll("iframe")];
+  return renderArtifactFrames(content, CompleteBlockEditingRuntimeProvider);
 }
 
 void test("the studio preview renders artifacts as sandboxed frames holding their source", () => {
