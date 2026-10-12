@@ -77,3 +77,5 @@ Follow the [Camox CLI workflow](../camox/SKILL.md#content-and-cli) to assign lay
 Compare the rendered site with the reference at desktop and mobile sizes. Verify that fields remain editable and that longer text and different repeater counts still work. Fix the reusable implementation, not just the one captured arrangement.
 
 In multi-page runs, give this full check to every page that introduced or changed a definition, and to each page family's representative page. Compare the remaining pages with their source at desktop size. The run is complete when every page in `camoxify-progress.md` is verified.
+
+Once the run is complete, suggest running `camox-expand` to build blocks for jobs the site will need next.
