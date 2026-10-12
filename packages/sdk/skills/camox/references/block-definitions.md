@@ -193,6 +193,14 @@ field.embed({
 });
 ```
 
+### field.artifact
+
+A sandboxed web page stored as content, for bespoke visuals and widgets. Read [Artifacts](artifacts.md) before declaring one.
+
+```tsx
+field.artifact({ size: "fill", title: "Hero visual" });
+```
+
 ### field.repeater
 
 Structured items with their own content, optional settings, and required `toMarkdown`. `minItems` must be at least 1; repeaters cannot be empty. Nest repeaters in an item's `content` when needed.
@@ -262,7 +270,7 @@ import { Link } from "camox/navigation";
 
 The callback signature is `(item, index) => ReactNode`:
 
-- `item` is an item-scoped API with the same `.Field`, `.Link`, `.Image`, `.File`, `.Embed`, `.ImageList`, `.FileList`, and `.Repeater` methods.
+- `item` is an item-scoped API with the same `.Field`, `.Link`, `.Image`, `.File`, `.Embed`, `.Artifact`, `.ImageList`, `.FileList`, and `.Repeater` methods.
 - `index` is the item's zero-based position in the current repeater. Use it for position-based behavior such as first-item styling, numbering, or matching tabs to panels without comparing editable text. It changes when items are reordered or removed; it is not a stable item ID.
 
 ```tsx

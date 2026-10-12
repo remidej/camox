@@ -14,6 +14,7 @@ import {
 } from "../lib/normalized-data";
 import { type Page, viewPageQueries, viewProjectQueries } from "../lib/view-queries";
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
+import { artifactFrameProps, isArtifactSource } from "./lib/artifact";
 import {
   resolveBlockFields,
   resolveToMarkdown,
@@ -257,6 +258,16 @@ function createViewBlock(options: EditableOptions) {
     return children({ src: value }, { url: value });
   };
 
+  const Artifact = ({ name, children }: any) => {
+    const editingRuntime = useBlockEditingRuntime();
+    if (editingRuntime) {
+      return editingRuntime.renderPrimitive(options, "Artifact", { name, children });
+    }
+    const value = useValue(name);
+    if (!isArtifactSource(value)) return null;
+    return children(artifactFrameProps(value));
+  };
+
   const Link = ({ name, children }: any) => {
     const editingRuntime = useBlockEditingRuntime();
     if (editingRuntime) return editingRuntime.renderPrimitive(options, "Link", { name, children });
@@ -498,6 +509,7 @@ function createViewBlock(options: EditableOptions) {
         Icon,
         Link,
         Embed,
+        Artifact,
         Image,
         File,
         ImageList,
@@ -626,6 +638,7 @@ function createViewBlock(options: EditableOptions) {
     Icon,
     Field,
     Embed,
+    Artifact,
     Link,
     Image,
     File,

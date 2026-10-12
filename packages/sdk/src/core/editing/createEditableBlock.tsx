@@ -51,8 +51,15 @@ import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
 import { useOverlayState } from "../hooks/useOverlayState";
 import {
+  artifactFrameProps,
+  artifactPlaceholderProps,
+  isArtifactSource,
+  type ArtifactRenderProps,
+} from "../lib/artifact";
+import {
   resolveBlockFields,
   resolveToMarkdown,
+  type ArtifactSource,
   type ContentFieldBuilder,
   type SettingBuilder,
   type EmbedURL,
@@ -528,9 +535,9 @@ export function createEditableBlock<
       ? overlayFieldId(blockId, fieldName, { placement: scope.reference.placement })
       : overlayFieldId(blockId, fieldName, { itemId: scope.itemId });
 
-  // Only allow string fields - not objects, arrays, or embed URLs
+  // Only allow string fields - not objects, arrays, embed URLs or artifact sources
   type StringFields = {
-    [K in keyof TContent as TContent[K] extends EmbedURL | IconValue
+    [K in keyof TContent as TContent[K] extends EmbedURL | IconValue | ArtifactSource
       ? never
       : TContent[K] extends string
         ? K
@@ -549,6 +556,10 @@ export function createEditableBlock<
 
   type EmbedFields = {
     [K in keyof TContent as TContent[K] extends EmbedURL ? K : never]: TContent[K];
+  };
+
+  type ArtifactFields = {
+    [K in keyof TContent as TContent[K] extends ArtifactSource ? K : never]: TContent[K];
   };
 
   // Only allow link fields
@@ -618,7 +629,7 @@ export function createEditableBlock<
 
   // Extract string fields from a repeatable item type
   type ItemStringFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends IconValue
+    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends IconValue | ArtifactSource
       ? never
       : RepeatableItemType<K>[F] extends string
         ? F
@@ -635,6 +646,13 @@ export function createEditableBlock<
   // Extract embed URL fields from a repeatable item type
   type ItemEmbedFields<K extends keyof RepeatableFields> = {
     [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends EmbedURL
+      ? F
+      : never]: RepeatableItemType<K>[F];
+  };
+
+  // Extract artifact fields from a repeatable item type
+  type ItemArtifactFields<K extends keyof RepeatableFields> = {
+    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends ArtifactSource
       ? F
       : never]: RepeatableItemType<K>[F];
   };
@@ -1140,6 +1158,26 @@ export function createEditableBlock<
         )}
       </div>
     );
+  };
+
+  /** Renders an artifact's sandboxed frame; an empty artifact shows a placeholder in its place. */
+  const Artifact = <K extends keyof ArtifactFields>({
+    name,
+    children,
+  }: {
+    name: K;
+    children: (props: ArtifactRenderProps) => React.ReactNode;
+  }): React.ReactNode => {
+    const blockContext = React.use(Context);
+    if (!blockContext) {
+      throw new Error("Artifact must be used within a Block Component");
+    }
+    const repeaterContext = React.use(RepeatableItemContext);
+    const value: unknown = repeaterContext
+      ? repeaterContext.itemContent[name]
+      : blockContext.content[name];
+    if (!isArtifactSource(value)) return children(artifactPlaceholderProps());
+    return children(artifactFrameProps(value));
   };
 
   const Link = <K extends keyof LinkFields>({
@@ -1720,6 +1758,10 @@ export function createEditableBlock<
           name: F;
           children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
         }) => React.ReactNode;
+        Artifact: <F extends keyof ItemArtifactFields<K>>(props: {
+          name: F;
+          children: (props: ArtifactRenderProps) => React.ReactNode;
+        }) => React.ReactNode;
         Image: <F extends keyof ItemImageFields<K>>(props: {
           name: F;
           children: (props: ImageRenderProps, data: ImageValue) => React.ReactNode;
@@ -1762,6 +1804,10 @@ export function createEditableBlock<
               Embed: (props: {
                 name: string;
                 children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
+              }) => React.ReactNode;
+              Artifact: (props: {
+                name: string;
+                children: (props: ArtifactRenderProps) => React.ReactNode;
               }) => React.ReactNode;
               Image: (props: {
                 name: string;
@@ -1829,6 +1875,11 @@ export function createEditableBlock<
       children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
     }) => React.ReactNode;
 
+    const ItemArtifact = Artifact as <F extends keyof ItemArtifactFields<K>>(props: {
+      name: F;
+      children: (props: ArtifactRenderProps) => React.ReactNode;
+    }) => React.ReactNode;
+
     const ItemImage = Image as <F extends keyof ItemImageFields<K>>(props: {
       name: F;
       children: (props: ImageRenderProps, data: ImageValue) => React.ReactNode;
@@ -1865,6 +1916,10 @@ export function createEditableBlock<
           Embed: (props: {
             name: string;
             children: (props: EmbedRenderProps, data: EmbedRenderData) => React.ReactNode;
+          }) => React.ReactNode;
+          Artifact: (props: {
+            name: string;
+            children: (props: ArtifactRenderProps) => React.ReactNode;
           }) => React.ReactNode;
           Image: (props: {
             name: string;
@@ -1949,6 +2004,7 @@ export function createEditableBlock<
             Link: ItemLink,
             Icon: Icon as (props: IconProps & { name: keyof ItemIconFields<K> }) => React.ReactNode,
             Embed: ItemEmbed,
+            Artifact: ItemArtifact,
             Image: ItemImage,
             File: ItemFile,
             ImageList: ItemImageList,
@@ -2683,6 +2739,7 @@ export function createEditableBlock<
     Icon,
     Field,
     Embed,
+    Artifact,
     Link,
     Image,
     File,

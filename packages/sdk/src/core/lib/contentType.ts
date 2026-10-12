@@ -229,6 +229,17 @@ declare const EmbedURLBrand: unique symbol;
 export type EmbedURL = string & { readonly [EmbedURLBrand]: true };
 
 /* -------------------------------------------------------------------------------------------------
+ * ArtifactSource branded type
+ * Keeps artifact fields out of the string-field primitives such as `block.Field`.
+ * -----------------------------------------------------------------------------------------------*/
+
+declare const ArtifactSourceBrand: unique symbol;
+export type ArtifactSource = string & { readonly [ArtifactSourceBrand]: true };
+
+/** The longest artifact source content writes accept (256 KB). */
+export const ARTIFACT_MAX_LENGTH = 256 * 1024;
+
+/* -------------------------------------------------------------------------------------------------
  * Repeater settings brand
  * Carries the per-item settings shape on the TArray schema at the type level only,
  * so createBlock can infer a typed `item.useSetting` signature without runtime cost.
@@ -377,6 +388,7 @@ export type ImageListField = TArray<TUnsafe<ImageValue>>;
 export type FileField = TUnsafe<FileValue>;
 export type FileListField = TArray<TUnsafe<FileValue>>;
 export type EmbedField = TUnsafe<EmbedURL>;
+export type ArtifactField = TUnsafe<ArtifactSource> & { fieldType: "Artifact" };
 export type IconField = TUnsafe<IconValue>;
 export type RepeaterField<
   T extends Record<string, TSchema>,
@@ -455,6 +467,19 @@ export interface ContentFieldBuilder {
    * })
    */
   embed: (options: { pattern: string; default: string; title?: string }) => EmbedField;
+  /**
+   * A self-contained web page, usually written by an agent, rendered in a sandboxed frame.
+   * `size: "fill"` fills a container whose size you control; `size: "content"` follows the
+   * page's height. The source is optional: an empty artifact renders nothing on the website.
+   *
+   * @example
+   * field.artifact({ size: "fill", title: "Hero visual" })
+   */
+  artifact: (options: {
+    size: "fill" | "content";
+    default?: string;
+    title?: string;
+  }) => ArtifactField;
   /**
    * An icon from the set configured in `camox()`.
    *
@@ -711,6 +736,15 @@ export const contentFieldBuilder: ContentFieldBuilder = {
       fieldType: "Embed" as const,
     });
   },
+  artifact: (options) =>
+    TypeBoxType.Unsafe<ArtifactSource>({
+      type: "string",
+      maxLength: ARTIFACT_MAX_LENGTH,
+      size: options.size,
+      default: options.default ?? "",
+      title: options.title,
+      fieldType: "Artifact" as const,
+    }) as ArtifactField,
   icon: (options) => {
     const ids = typeof __CAMOX_ICON_IDS__ === "undefined" ? [] : __CAMOX_ICON_IDS__;
     if (!ids.includes(options.default))
