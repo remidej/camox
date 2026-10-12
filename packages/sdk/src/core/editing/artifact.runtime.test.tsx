@@ -10,10 +10,19 @@ import { act } from "react";
 
 import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
 import { previewStore, selectIsEditMode } from "../../features/preview/previewStore";
+import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
-import { artifactBlock, mountArtifactFrames, renderArtifactFrames } from "../artifact.fixtures";
+import {
+  artifactBlock,
+  expectedFontLinks,
+  fontDocument,
+  mountArtifactFrames,
+  renderArtifactFrames,
+  srcDocHead,
+} from "../artifact.fixtures";
 import { createArtifactPage, type ArtifactWindow } from "../artifactProtocol.fixtures";
+import { createApp } from "../createApp";
 
 // Render real block definitions through the studio's editing runtime. The harness substitutes
 // only the network, auth, iframe and selection boundaries of the editable block. Edit Mode comes
@@ -68,6 +77,24 @@ void test("the studio preview renders artifacts as sandboxed frames holding thei
     assert.equal(frame.getAttribute("sandbox"), "allow-scripts");
     assert.equal(frame.getAttribute("allow"), "fullscreen; clipboard-write");
     assert.equal(frame.getAttribute("loading"), "lazy");
+  }
+});
+
+void test("the studio preview loads the document's font links into artifacts", () => {
+  const app = createApp({ blocks: [], document: fontDocument });
+  const frames = renderArtifactFrames(
+    { visual: source, slides: [{ scene: "<title>Scene</title>" }] },
+    ({ children }) => (
+      <CamoxAppProvider app={app}>
+        <CompleteBlockEditingRuntimeProvider>{children}</CompleteBlockEditingRuntimeProvider>
+      </CamoxAppProvider>
+    ),
+  );
+  assert.equal(frames.length, 2);
+  for (const frame of frames) {
+    const head = srcDocHead(frame);
+    assert.deepEqual(head.links, expectedFontLinks);
+    assert.equal(head.otherEntries, 0);
   }
 });
 
