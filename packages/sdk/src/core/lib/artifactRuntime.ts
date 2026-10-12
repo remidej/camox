@@ -8,6 +8,9 @@
  * - runtime → page: `ready` on that channel. Only the host that owns the channel listens to it,
  *   so hosts never need `event.source`, which can't be compared across realms.
  * - host → frame: state messages on the channel, such as `studio`.
+ * - host → frame: `data` with the latest Artifact Data. The initial data is inlined in the
+ *   `srcDoc` as a `<script type="application/json" data-camox-data>` after the runtime, so it is
+ *   read lazily, on first access.
  *
  * Kept as plain JavaScript in a string: it runs in the artifact's document, not in the SDK's
  * bundle, so it can't share code or build helpers with it.
@@ -17,6 +20,20 @@ export const ARTIFACT_RUNTIME = `(() => {
   const host = window.parent;
   let channel = null;
   let studio = null;
+  let data;
+  let dataJson;
+  const dataListeners = new Set();
+  const readData = () => {
+    if (dataJson !== undefined) return data;
+    const script = document.querySelector("script[data-camox-data]");
+    try {
+      data = script ? JSON.parse(script.textContent) : {};
+    } catch {
+      data = {};
+    }
+    dataJson = JSON.stringify(data);
+    return data;
+  };
   const send = (type, message) => {
     if (channel) host.postMessage({ ...message, camox: type, channel }, "*");
   };
@@ -24,6 +41,14 @@ export const ARTIFACT_RUNTIME = `(() => {
     studio(message) {
       const next = message.studio;
       studio = next ? Object.freeze({ editMode: !!next.editMode, canvas: !!next.canvas }) : null;
+    },
+    data(message) {
+      readData();
+      const next = JSON.stringify(message.data ?? {});
+      if (next === dataJson) return;
+      data = JSON.parse(next);
+      dataJson = next;
+      for (const listener of [...dataListeners]) listener(data);
     },
   };
   window.addEventListener("message", (event) => {
@@ -41,6 +66,15 @@ export const ARTIFACT_RUNTIME = `(() => {
   const camox = Object.freeze({
     get studio() {
       return studio;
+    },
+    get data() {
+      return readData();
+    },
+    onData(callback) {
+      dataListeners.add(callback);
+      return () => {
+        dataListeners.delete(callback);
+      };
     },
   });
   Object.defineProperty(window, "camox", { value: camox, enumerable: true });

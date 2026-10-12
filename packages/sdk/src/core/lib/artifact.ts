@@ -1,7 +1,7 @@
+import { artifactTitle } from "@camox/api-contract";
 import type * as React from "react";
 
-import { artifactTitle } from "@camox/api-contract";
-
+import type { ArtifactData } from "./artifactData";
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
 
 /** The frame attributes of an artifact source. */
@@ -22,21 +22,31 @@ export type ArtifactRenderProps = ArtifactFrameProps & {
 export { artifactTitle };
 
 /**
- * The document an artifact frame loads: the `camox` runtime, then the stored source. The doctype
- * comes first so the runtime's script never puts the page in quirks mode; the source's own
- * doctype, if any, is then ignored by the parser.
+ * The initial Artifact Data as an inert JSON script, which the runtime reads on first access.
+ * `<` is escaped so no value can close the script early.
  */
-function artifactDocument(source: string) {
-  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${source}`;
+function artifactDataScript(data: ArtifactData) {
+  const json = JSON.stringify(data).replaceAll("<", "\\u003c");
+  return `<script type="application/json" data-camox-data>${json}</script>`;
 }
 
 /**
- * The frame props for an artifact source. This getter is the boundary that hides how the source
- * reaches the frame (inline `srcdoc` today), so blocks never depend on it.
+ * The document an artifact frame loads: the `camox` runtime, the initial Artifact Data, then the
+ * stored source. The doctype comes first so the runtime's script never puts the page in quirks
+ * mode; the source's own doctype, if any, is then ignored by the parser.
  */
-export function artifactFrameProps(source: string): ArtifactFrameProps {
+function artifactDocument(source: string, data: ArtifactData) {
+  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${artifactDataScript(data)}${source}`;
+}
+
+/**
+ * The frame props for an artifact source and its initial Artifact Data. This getter is the
+ * boundary that hides how the source reaches the frame (inline `srcdoc` today), so blocks never
+ * depend on it.
+ */
+export function artifactFrameProps(source: string, data: ArtifactData = {}): ArtifactFrameProps {
   return {
-    srcDoc: artifactDocument(source),
+    srcDoc: artifactDocument(source, data),
     // Never `allow-same-origin`: the opaque origin keeps the page away from the site and studio.
     sandbox: "allow-scripts",
     allow: "fullscreen; clipboard-write",

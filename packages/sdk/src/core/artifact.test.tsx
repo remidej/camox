@@ -6,8 +6,15 @@ import * as React from "react";
 import { NavigationProvider } from "../features/navigation/navigation";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
-import { mountArtifactFrames, renderArtifactFrames } from "./artifact.fixtures";
-import { createArtifactPage } from "./artifactProtocol.fixtures";
+import {
+  chartBlock,
+  mountArtifactFrames,
+  renderArtifactFrames,
+  chartData,
+  chartDataSeen,
+  renderChartFrames,
+} from "./artifact.fixtures";
+import { createArtifactPage, type ArtifactWindow } from "./artifactProtocol.fixtures";
 import { createBlock } from "./createBlock";
 import { ArtifactStudioContext } from "./hooks/useArtifactHost";
 import type { ArtifactStudio } from "./lib/artifactHost";
@@ -122,4 +129,65 @@ void test("artifacts rendered as on the website see the studio they're placed in
     canvas: true,
   });
   assert.equal(await mountedStudio(null), null);
+});
+
+/** `camox.data` as seen by the artifact, copied out of its realm for comparison. */
+function dataOf(artifact: ArtifactWindow) {
+  return JSON.parse(JSON.stringify(artifact.camox.data));
+}
+
+void test("an artifact sees its Artifact Data from the first render, before any message", () => {
+  const frames = renderChartFrames(chartData, Website);
+  const harness = createArtifactPage();
+  const [chartArtifact, ...barArtifacts] = frames.map((frame) =>
+    harness.load(harness.addFrame(), frame.getAttribute("srcdoc") ?? ""),
+  );
+  assert.deepEqual(dataOf(chartArtifact), chartDataSeen);
+  assert.equal(chartArtifact.document.title, "Revenue </script><p>up");
+  assert.deepEqual(barArtifacts.map(dataOf), [
+    { label: "Q1", highlighted: true },
+    { label: "Q2", highlighted: false },
+  ]);
+});
+
+void test("an artifact without data sees an empty object", () => {
+  const [frame] = render({ visual: source, slides: [] });
+  const harness = createArtifactPage();
+  const artifact = harness.load(harness.addFrame(), frame.getAttribute("srcdoc") ?? "");
+  assert.deepEqual(dataOf(artifact), {});
+});
+
+void test("an artifact's definition describes its Artifact Data as JSON Schema", () => {
+  // Definitions sync as JSON.
+  const { properties } = JSON.parse(JSON.stringify(chartBlock._internal.contentSchema));
+  const text = { type: "string" };
+  assert.deepEqual(properties.chart.data, ["headline", "cta", "photo", "accent"]);
+  assert.deepEqual(properties.chart.dataSchema, {
+    type: "object",
+    properties: {
+      headline: { type: "string", title: "Headline" },
+      cta: {
+        type: "object",
+        properties: { text, href: text, newTab: { type: "boolean" } },
+        required: ["text", "href", "newTab"],
+        additionalProperties: false,
+      },
+      photo: {
+        type: "object",
+        title: "Photo",
+        properties: { url: text, alt: text },
+        required: ["url", "alt"],
+        additionalProperties: false,
+      },
+      accent: { type: "string", enum: ["blue", "red"] },
+    },
+    required: ["headline", "cta", "photo", "accent"],
+    additionalProperties: false,
+  });
+  assert.deepEqual(properties.bars.items.properties.bar.dataSchema, {
+    type: "object",
+    properties: { label: text, highlighted: { type: "boolean" } },
+    required: ["label", "highlighted"],
+    additionalProperties: false,
+  });
 });

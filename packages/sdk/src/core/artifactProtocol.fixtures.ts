@@ -2,7 +2,11 @@ import { Window } from "happy-dom";
 
 /** What an artifact sees of its `camox` runtime. */
 export type ArtifactWindow = Window & {
-  camox: { readonly studio: { editMode: boolean; canvas: boolean } | null };
+  camox: {
+    readonly studio: { editMode: boolean; canvas: boolean } | null;
+    readonly data: Record<string, unknown>;
+    onData(callback: (data: Record<string, unknown>) => void): () => void;
+  };
 };
 
 /**
