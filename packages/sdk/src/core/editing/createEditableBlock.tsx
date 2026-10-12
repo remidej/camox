@@ -1215,9 +1215,12 @@ export function createEditableBlock<
 
     const canvas = React.use(CanvasWorkspaceContext) !== null;
     const ref = useArtifactHost({ editMode: isContentEditable, canvas });
+    const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
 
     const frame = children({
-      ...(isArtifactSource(value) ? artifactFrameProps(value) : artifactPlaceholderProps()),
+      ...(isArtifactSource(value)
+        ? artifactFrameProps(value, { fontLinks })
+        : artifactPlaceholderProps()),
       ref,
     });
     return (

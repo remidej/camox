@@ -67,4 +67,35 @@ const editing = window.camox.studio?.editMode === true;
 
 Read it when you act rather than once at startup: it's `null` until the frame connects, and it changes when the editor toggles Edit Mode. Use it to stay calm while someone is editing, for example by not autoplaying sound.
 
+### Theme: `camox.theme` and `camox.onTheme`
+
+Artifacts match the website automatically. The website's theme tokens (its CSS custom properties, such as `--background` or `--primary`) are applied to the artifact's `:root`, with the values that apply where the artifact sits on the page: inside a `.dark` section, an artifact gets the dark values. When the website's theme changes, for example when a visitor toggles dark mode, the tokens are applied again. Style with the tokens and CSS needs nothing else:
+
+```css
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+```
+
+`camox.theme` holds the same tokens for scripts:
+
+- `tokens`: each token's raw value, such as `{ "--primary": "oklch(0.55 0.2 260)", "--radius": "0.5rem" }`.
+- `colors`: each color token as sRGB channels from 0 to 255, such as `{ "--primary": { r: 37, g: 99, b: 235 } }`, including tokens written in `oklch()`. Use these for canvas, three.js or WebGL, which can't read CSS variables.
+
+`camox.onTheme(callback)` calls `callback(theme)` whenever the tokens change, and returns a function that unsubscribes. It isn't called for the theme the artifact already has, so draw once with `camox.theme`, then on each change:
+
+```js
+const draw = ({ colors }) => {
+  const { r, g, b } = colors["--primary"];
+  material.color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+};
+draw(window.camox.theme);
+window.camox.onTheme(draw);
+```
+
+- **The body starts hidden.** It stays invisible until the first theme arrives, so the artifact never shows in the wrong colors. If no theme comes, it shows after a short timeout. Don't fight this by forcing `visibility` on `body`.
+- **Never use `prefers-color-scheme`** to pick light or dark. Inside the frame it follows the visitor's OS, not the website, which may be dark on a light OS or the reverse. Rely on the tokens.
+- **Fonts.** The website's font stylesheets and preconnect links from its document definition are loaded before your source, so its fonts work from the first render. Use the website's font family names, or the tokens that hold them.
+
 The runtime API has no stability guarantee while Camox is pre-1.0.

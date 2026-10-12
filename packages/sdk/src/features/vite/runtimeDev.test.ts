@@ -11,5 +11,8 @@ void test("the dev runtime app registers collections alongside blocks and layout
   assert.match(app, /"\/src\/collections\/\*\.\{ts,tsx\}"/);
   assert.match(app, /"\/src\/camox\/collections\/\*\.\{ts,tsx\}"/);
   assert.match(app, /mod\.collection/);
-  assert.match(app, /createApp\(\{\s*blocks,\s*layouts,\s*collections\s*\}\)/);
+  assert.match(
+    app,
+    /createApp\(\{\s*blocks,\s*layouts,\s*collections,\s*document: camoxDocument\s*\}\)/,
+  );
 });

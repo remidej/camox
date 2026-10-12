@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { NormalizedDataProvider } from "../lib/normalized-data";
 import { createBlock } from "./createBlock";
+import { defineDocument } from "./defineDocument";
 
 /** A block with a top-level artifact and an artifact in each repeatable item. */
 export const artifactBlock = createBlock({
@@ -94,4 +95,50 @@ export function renderArtifactFrames(
   const window = new Window();
   window.document.body.innerHTML = html;
   return [...window.document.querySelectorAll("iframe")];
+}
+
+/** A document definition with font links among other head entries. */
+export const fontDocument = defineDocument({
+  htmlAttrs: { lang: "en", class: "dark" },
+  title: "Website",
+  meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
+  link: [
+    { rel: "preconnect", href: "https://fonts.googleapis.com" },
+    { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "anonymous" },
+    { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Lato&display=swap" },
+    { rel: "icon", href: "/favicon.png" },
+  ],
+  script: [{ src: "/analytics.js" }],
+});
+
+/** The font links `fontDocument` should bring into every artifact. */
+export const expectedFontLinks = [
+  { rel: "preconnect", href: "https://fonts.googleapis.com", crossorigin: null },
+  { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "anonymous" },
+  {
+    rel: "stylesheet",
+    href: "https://fonts.googleapis.com/css2?family=Lato&display=swap",
+    crossorigin: null,
+  },
+];
+
+/**
+ * The head entries of a frame's `srcdoc`, parsed without loading anything. Searches the whole
+ * document: happy-dom's parser puts everything in the body, where browsers would hoist the head.
+ */
+export function srcDocHead(frame: { getAttribute(name: string): string | null }) {
+  const window = new Window();
+  const parsed = new window.DOMParser().parseFromString(
+    frame.getAttribute("srcdoc") ?? "",
+    "text/html",
+  );
+  return {
+    title: parsed.title,
+    links: [...parsed.querySelectorAll("link")].map((link) => ({
+      rel: link.getAttribute("rel"),
+      href: link.getAttribute("href"),
+      crossorigin: link.getAttribute("crossorigin"),
+    })),
+    otherEntries: parsed.querySelectorAll("meta, base, script[src]").length,
+  };
 }

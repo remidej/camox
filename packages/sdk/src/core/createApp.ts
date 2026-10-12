@@ -1,14 +1,18 @@
 import type { Block } from "./createBlock";
 import type { Collection } from "./createCollection";
 import type { Layout } from "./createLayout";
+import type { CamoxDocument } from "./defineDocument";
+import { artifactFontLinks } from "./lib/artifact";
 
 interface CreateAppOptions {
   blocks: Block[];
   layouts?: Layout[];
   collections?: Collection[];
+  /** The project's document definition (`src/document.ts`). */
+  document?: CamoxDocument;
 }
 
-export function createApp({ blocks, layouts = [], collections = [] }: CreateAppOptions) {
+export function createApp({ blocks, layouts = [], collections = [], document }: CreateAppOptions) {
   const blocksMap = new Map<string, Block>();
   const layoutsMap = new Map<string, Layout>();
   const collectionsMap = new Map<string, Collection>();
@@ -46,7 +50,13 @@ export function createApp({ blocks, layouts = [], collections = [] }: CreateAppO
     );
   }
 
+  const fontLinks = artifactFontLinks(document);
+
   return {
+    /** The document's font links as HTML, for artifacts to load before their source. */
+    getArtifactFontLinks() {
+      return fontLinks;
+    },
     getCollections() {
       return Array.from(collectionsMap.values());
     },
