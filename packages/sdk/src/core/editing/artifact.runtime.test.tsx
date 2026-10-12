@@ -2,14 +2,23 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
+import { useSelector } from "@xstate/store-react";
 import * as React from "react";
+import { act } from "react";
 
+import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
+import { previewStore, selectIsEditMode } from "../../features/preview/previewStore";
 import { initApiClient } from "../../lib/api-client";
-import { renderArtifactFrames } from "../artifact.fixtures";
+import { mountArtifactFrames, renderArtifactFrames } from "../artifact.fixtures";
+import { createArtifactPage, type ArtifactWindow } from "../artifactProtocol.fixtures";
 
 // Render real block definitions through the studio's editing runtime. The harness substitutes
 // only the network, auth, iframe and selection boundaries of the editable block.
-Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
+Object.assign(globalThis, {
+  React,
+  __CAMOX_TELEMETRY_DISABLED__: true,
+  useTestEditMode: () => useSelector(previewStore, selectIsEditMode),
+});
 initApiClient("http://localhost:8788", "development");
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -20,7 +29,9 @@ registerHooks({
       "@/features/navigation/navigation": "export const useLocation = () => '/'",
       "../../features/preview/components/Frame":
         "export const useFrame = () => ({window: globalThis.window ?? null})",
-      "../hooks/useIsEditable.ts": "export const useIsEditable = mode => mode === 'site'",
+      // Edit Mode comes from the real preview store; only the auth check is left out.
+      "../hooks/useIsEditable.ts":
+        "export const useIsEditable = mode => mode === 'site' && globalThis.useTestEditMode()",
       "../../features/preview/previewSelection": `
         export const usePreviewSelection = () => () => {};
         export const usePreviewTargetSelection = () => null;
@@ -43,9 +54,9 @@ function render(content: Record<string, unknown>) {
 void test("the studio preview renders artifacts as sandboxed frames holding their source", () => {
   const frames = render({ visual: source, slides: [{ scene: "<title>Scene</title>" }] });
   assert.equal(frames.length, 2);
-  assert.equal(frames[0].getAttribute("srcdoc"), source);
+  assert.ok(frames[0].getAttribute("srcdoc")?.endsWith(source));
   assert.equal(frames[0].getAttribute("title"), "Orbiting moons");
-  assert.equal(frames[1].getAttribute("srcdoc"), "<title>Scene</title>");
+  assert.ok(frames[1].getAttribute("srcdoc")?.endsWith("<title>Scene</title>"));
   assert.equal(frames[1].getAttribute("title"), "Scene");
   for (const frame of frames) {
     assert.equal(frame.getAttribute("sandbox"), "allow-scripts");
@@ -62,4 +73,56 @@ void test("the studio preview shows a placeholder for empty artifacts", () => {
     assert.match(frame.getAttribute("srcdoc") ?? "", /Empty artifact/);
     assert.equal(frame.getAttribute("sandbox"), "allow-scripts");
   }
+});
+
+/** Mounts the block in a page and loads each frame's document, as a browser would. */
+async function mountInStudio(Providers: (props: { children: React.ReactNode }) => React.ReactNode) {
+  const harness = createArtifactPage();
+  const container = harness.page.document.createElement("div");
+  harness.page.document.body.append(container);
+  const { frames, unmount } = await mountArtifactFrames(
+    { visual: source, slides: [{ scene: "<title>Scene</title>" }] },
+    Providers,
+    container as unknown as HTMLElement,
+  );
+  const artifacts = frames.map((frame) => harness.load(frame, frame.getAttribute("srcdoc") ?? ""));
+  await harness.settle();
+  return { harness, artifacts, unmount };
+}
+
+function studioOf(artifact: ArtifactWindow) {
+  const { studio } = artifact.camox;
+  return studio && { ...studio };
+}
+
+void test("artifacts in the studio preview follow Edit Mode", async () => {
+  previewStore.send({ type: "enterEditMode" });
+  const { harness, artifacts, unmount } = await mountInStudio(CompleteBlockEditingRuntimeProvider);
+  assert.equal(artifacts.length, 2);
+  for (const artifact of artifacts) {
+    assert.deepEqual(studioOf(artifact), { editMode: true, canvas: false });
+  }
+
+  await act(async () => {
+    previewStore.send({ type: "exitEditMode" });
+  });
+  await harness.settle();
+  for (const artifact of artifacts) {
+    assert.deepEqual(studioOf(artifact), { editMode: false, canvas: false });
+  }
+  await unmount();
+});
+
+void test("artifacts on the Canvas know they are on the Canvas", async () => {
+  previewStore.send({ type: "enterEditMode" });
+  const { artifacts, unmount } = await mountInStudio(({ children }) => (
+    <CanvasWorkspaceContext value={{ workspaceKey: "test", zoomAt: () => {} }}>
+      <CompleteBlockEditingRuntimeProvider>{children}</CompleteBlockEditingRuntimeProvider>
+    </CanvasWorkspaceContext>
+  ));
+  assert.equal(artifacts.length, 2);
+  for (const artifact of artifacts) {
+    assert.deepEqual(studioOf(artifact), { editMode: true, canvas: true });
+  }
+  await unmount();
 });

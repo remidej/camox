@@ -24,6 +24,7 @@ import {
   collectionQueries,
 } from "@/lib/queries";
 
+import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
 import { useFrame } from "../../features/preview/components/Frame";
 import { overlayFieldId, recordPlacementId } from "../../features/preview/overlayMessages";
 import {
@@ -46,6 +47,7 @@ import {
   resolveAssetValue,
 } from "../../lib/normalized-data";
 import { InlineLexicalEditor } from "../components/lexical/InlineLexicalEditor";
+import { useArtifactHost } from "../hooks/useArtifactHost";
 import { useFieldSelection, useRecordSelection } from "../hooks/useFieldSelection.ts";
 import { useIsEditable } from "../hooks/useIsEditable.ts";
 import { useOverlayMessage } from "../hooks/useOverlayMessage.ts";
@@ -1176,8 +1178,11 @@ export function createEditableBlock<
     const value: unknown = repeaterContext
       ? repeaterContext.itemContent[name]
       : blockContext.content[name];
-    if (!isArtifactSource(value)) return children(artifactPlaceholderProps());
-    return children(artifactFrameProps(value));
+    const editMode = useIsEditable(blockContext.mode);
+    const canvas = React.use(CanvasWorkspaceContext) !== null;
+    const ref = useArtifactHost({ editMode, canvas });
+    if (!isArtifactSource(value)) return children({ ...artifactPlaceholderProps(), ref });
+    return children({ ...artifactFrameProps(value), ref });
   };
 
   const Link = <K extends keyof LinkFields>({

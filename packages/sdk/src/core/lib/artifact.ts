@@ -1,10 +1,20 @@
-/** What `block.Artifact` passes to its render prop, to spread onto an `<iframe>`. */
-export type ArtifactRenderProps = {
+import type * as React from "react";
+
+import { ARTIFACT_RUNTIME } from "./artifactRuntime";
+
+/** The frame attributes of an artifact source. */
+export type ArtifactFrameProps = {
   srcDoc: string;
   sandbox: string;
   allow: string;
   title: string;
   loading: "lazy";
+};
+
+/** What `block.Artifact` passes to its render prop, to spread onto an `<iframe>`. */
+export type ArtifactRenderProps = ArtifactFrameProps & {
+  /** Connects the frame to the `camox` runtime inside it. */
+  ref: React.RefCallback<HTMLIFrameElement>;
 };
 
 const UNTITLED = "Untitled artifact";
@@ -36,12 +46,21 @@ export function artifactTitle(source: string): string {
 }
 
 /**
+ * The document an artifact frame loads: the `camox` runtime, then the stored source. The doctype
+ * comes first so the runtime's script never puts the page in quirks mode; the source's own
+ * doctype, if any, is then ignored by the parser.
+ */
+function artifactDocument(source: string) {
+  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${source}`;
+}
+
+/**
  * The frame props for an artifact source. This getter is the boundary that hides how the source
  * reaches the frame (inline `srcdoc` today), so blocks never depend on it.
  */
-export function artifactFrameProps(source: string): ArtifactRenderProps {
+export function artifactFrameProps(source: string): ArtifactFrameProps {
   return {
-    srcDoc: source,
+    srcDoc: artifactDocument(source),
     // Never `allow-same-origin`: the opaque origin keeps the page away from the site and studio.
     sandbox: "allow-scripts",
     allow: "fullscreen; clipboard-write",
@@ -73,7 +92,7 @@ const PLACEHOLDER_SOURCE = `<!doctype html>
 </html>`;
 
 /** The frame props of an empty artifact in the studio preview, so it takes the block's frame. */
-export function artifactPlaceholderProps(): ArtifactRenderProps {
+export function artifactPlaceholderProps(): ArtifactFrameProps {
   return artifactFrameProps(PLACEHOLDER_SOURCE);
 }
 
