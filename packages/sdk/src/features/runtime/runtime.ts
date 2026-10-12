@@ -193,7 +193,10 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
 
   const api = createServerApiClient(options.apiUrl, options.environmentName);
   const origin = new URL(request.url).origin;
-  const pages = await api.pages.listBySlug({ projectSlug: options.projectSlug });
+  // Draft-only pages have no live version to serve.
+  const pages = (await api.pages.listBySlug({ projectSlug: options.projectSlug })).filter(
+    (page) => page.status !== "draft",
+  );
   const app = await options.getCamoxApp?.();
   const destinations = getPageDestinations(pages, app?.getLayouts() ?? []);
   const updatedAtById = new Map(pages.map((page) => [page.id, page.updatedAt]));

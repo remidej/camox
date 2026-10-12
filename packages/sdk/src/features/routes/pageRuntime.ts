@@ -315,7 +315,7 @@ export async function createMarkdownResponse({
   const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
     const page = await api.pages.getByPath({ path: requestPathname, projectSlug, source: "live" });
-    const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id });
+    const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id, source: "live" });
     if (!markdown) return null;
 
     return new Response(markdown, {

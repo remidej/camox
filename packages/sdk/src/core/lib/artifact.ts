@@ -1,6 +1,7 @@
 import { artifactTitle } from "@camox/api-contract";
 import type * as React from "react";
 
+import type { CamoxDocument } from "../defineDocument";
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
 
 /** The frame attributes of an artifact source. */
@@ -22,22 +23,78 @@ export type ArtifactRenderProps = ArtifactFrameProps & {
 
 export { artifactTitle };
 
+/** What an artifact's document gets from the website besides its source. */
+export type ArtifactDocumentOptions = {
+  /** The website's font links as HTML, from `artifactFontLinks`. */
+  fontLinks?: string;
+};
+
+const FONT_LINK_RELS = new Set(["stylesheet", "preconnect"]);
+// unhead options on a tag, not HTML attributes.
+const UNHEAD_TAG_OPTIONS = new Set([
+  "key",
+  "tagPriority",
+  "tagPosition",
+  "tagDuplicateStrategy",
+  "processTemplateParams",
+  "innerHTML",
+  "textContent",
+]);
+
+function escapeAttribute(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+}
+
+function renderLink(link: Record<string, unknown>) {
+  let attributes = "";
+  for (const [name, value] of Object.entries(link)) {
+    if (UNHEAD_TAG_OPTIONS.has(name) || !/^[a-z][a-z0-9-]*$/i.test(name)) continue;
+    if (value === true) attributes += ` ${name}`;
+    if (typeof value === "string" || typeof value === "number") {
+      attributes += ` ${name}="${escapeAttribute(String(value))}"`;
+    }
+  }
+  return `<link${attributes}>`;
+}
+
 /**
- * The document an artifact frame loads: the `camox` runtime, then the stored source. The doctype
- * comes first so the runtime's script never puts the page in quirks mode; the source's own
- * doctype, if any, is then ignored by the parser.
+ * The stylesheet and preconnect links of the project's document definition, as HTML, so artifacts
+ * use the website's fonts from their first render. Nothing else from the document's head: its
+ * title, meta, scripts and icons belong to the website, not to the artifact.
  */
-function artifactDocument(source: string) {
-  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${source}`;
+export function artifactFontLinks(document: CamoxDocument | undefined) {
+  const links: unknown = document?.link;
+  if (!Array.isArray(links)) return "";
+  return links
+    .filter((link): link is Record<string, unknown> => {
+      if (typeof link !== "object" || link === null) return false;
+      const rel = (link as { rel?: unknown }).rel;
+      if (typeof rel !== "string") return false;
+      return rel.split(/\s+/).some((token) => FONT_LINK_RELS.has(token.toLowerCase()));
+    })
+    .map(renderLink)
+    .join("");
+}
+
+/**
+ * The document an artifact frame loads: the `camox` runtime, the website's font links, then the
+ * stored source. The doctype comes first so the runtime's script never puts the page in quirks
+ * mode; the source's own doctype, if any, is then ignored by the parser.
+ */
+function artifactDocument(source: string, { fontLinks = "" }: ArtifactDocumentOptions) {
+  return `<!doctype html><script>${ARTIFACT_RUNTIME}</script>${fontLinks}${source}`;
 }
 
 /**
  * The frame props for an artifact source. This getter is the boundary that hides how the source
  * reaches the frame (inline `srcdoc` today), so blocks never depend on it.
  */
-export function artifactFrameProps(source: string): ArtifactFrameProps {
+export function artifactFrameProps(
+  source: string,
+  options: ArtifactDocumentOptions = {},
+): ArtifactFrameProps {
   return {
-    srcDoc: artifactDocument(source),
+    srcDoc: artifactDocument(source, options),
     // Never `allow-same-origin`: the opaque origin keeps the page away from the site and studio.
     sandbox: "allow-scripts",
     allow: "fullscreen; clipboard-write",

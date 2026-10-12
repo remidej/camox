@@ -1,3 +1,5 @@
+import { observeArtifactTheme, readArtifactTheme } from "./artifactTheme";
+
 /** The studio context an artifact sees as `camox.studio`; `null` on the website. */
 export type ArtifactStudio = { editMode: boolean; canvas: boolean };
 
@@ -149,6 +151,14 @@ export function connectArtifactHost(
     frame.contentWindow?.postMessage({ ...payload, camox: type, channel }, "*");
   };
   const sendStudio = () => post("studio", { studio: state.studio });
+  let sentTheme: string | null = null;
+  const sendTheme = (force: boolean) => {
+    const tokens = readArtifactTheme(frame);
+    const serialized = JSON.stringify(tokens);
+    if (!force && serialized === sentTheme) return;
+    sentTheme = serialized;
+    post("theme", { tokens });
+  };
 
   let viewport: ReturnType<typeof trackViewport> | null = null;
   const observeViewport = (observe: boolean) => {
@@ -170,6 +180,7 @@ export function connectArtifactHost(
       // A new runtime starts unsubscribed, whatever the previous one observed.
       observeViewport(false);
       sendStudio();
+      sendTheme(true);
       if (options.size === "content") post("measure");
       return;
     }
@@ -188,6 +199,9 @@ export function connectArtifactHost(
   };
 
   page.addEventListener("message", onMessage);
+  const stopObservingTheme = observeArtifactTheme(frame, () => {
+    if (ready) sendTheme(false);
+  });
   // The runtime may already be running, if the frame loaded before the host connected.
   post("connect");
 
@@ -200,6 +214,7 @@ export function connectArtifactHost(
     disconnect() {
       page.removeEventListener("message", onMessage);
       observeViewport(false);
+      stopObservingTheme();
     },
   };
 }

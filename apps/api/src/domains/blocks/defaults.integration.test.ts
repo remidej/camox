@@ -48,7 +48,7 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  return { ctx, page };
+  return { ctx, db: base.db, page };
 }
 
 describe("createBlock defaults", () => {
@@ -68,6 +68,16 @@ describe("createBlock defaults", () => {
     const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }));
     expect(markdown).toContain("# Welcome");
     expect(markdown).toContain("[Learn more](/about)");
+  });
+
+  it("keeps draft Markdown private", async () => {
+    const { ctx, db, page } = await fixture("draft-markdown-private");
+    await runService(createBlock(ctx, { pageId: page.id, type: "hero", content: {} }));
+    const publicCtx = createServiceContext(db, null);
+    await expect(runService(getPageMarkdown(publicCtx, { pageId: page.id }))).rejects.toThrow();
+    await expect(
+      runService(getPageMarkdown(publicCtx, { pageId: page.id, source: "draft" })),
+    ).rejects.toThrow();
   });
 
   it("preserves supplied content but enforces repeater minimums", async () => {

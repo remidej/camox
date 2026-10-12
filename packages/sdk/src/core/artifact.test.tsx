@@ -5,10 +5,18 @@ import * as React from "react";
 import { act } from "react";
 
 import { NavigationProvider } from "../features/navigation/navigation";
+import { CamoxAppProvider } from "../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
-import { mountArtifactFrames, renderArtifactFrames } from "./artifact.fixtures";
+import {
+  expectedFontLinks,
+  fontDocument,
+  mountArtifactFrames,
+  renderArtifactFrames,
+  srcDocHead,
+} from "./artifact.fixtures";
 import { createArtifactPage } from "./artifactProtocol.fixtures";
+import { createApp } from "./createApp";
 import { createBlock } from "./createBlock";
 import { ArtifactStudioContext } from "./hooks/useArtifactHost";
 import type { ArtifactStudio } from "./lib/artifactHost";
@@ -146,4 +154,23 @@ void test("artifacts rendered as on the website see the studio they're placed in
     canvas: true,
   });
   assert.equal(await mountedStudio(null), null);
+});
+
+void test("an artifact loads the document's font links, and no other head entries", () => {
+  const app = createApp({ blocks: [], document: fontDocument });
+  const frames = renderArtifactFrames(
+    { visual: source, slides: [{ scene: "<title>Scene</title>" }] },
+    ({ children }) => (
+      <Website>
+        <CamoxAppProvider app={app}>{children}</CamoxAppProvider>
+      </Website>
+    ),
+  );
+  assert.equal(frames.length, 2);
+  for (const frame of frames) {
+    const head = srcDocHead(frame);
+    assert.deepEqual(head.links, expectedFontLinks);
+    assert.equal(head.otherEntries, 0);
+    assert.notEqual(head.title, "Website");
+  }
 });

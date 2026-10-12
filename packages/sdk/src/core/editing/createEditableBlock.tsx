@@ -39,6 +39,10 @@ import {
   type Selection as PreviewTarget,
 } from "../../features/preview/previewStore";
 import { referencePickerFocus } from "../../features/preview/referencePickerFocus";
+import {
+  closestRepeatableItem,
+  registerRepeatableItem,
+} from "../../features/preview/repeatableItemTargets";
 import { useOptionalCamoxApp } from "../../features/provider/components/CamoxAppContext";
 import {
   useNormalizedData,
@@ -506,6 +510,8 @@ export function createEditableBlock<
     containerItemId?: number;
     /** The item's field schemas, at any repeater depth. */
     itemSchema?: Record<string, any>;
+    /** Repeatable items enclosing this one. */
+    nesting?: number;
   }
 
   const Context = React.createContext<BlockContextValue | null>(null);
@@ -1216,9 +1222,12 @@ export function createEditableBlock<
       size: fieldSchema?.size,
       navigate: useNavigate(),
     });
+    const fontLinks = useOptionalCamoxApp()?.getArtifactFontLinks();
 
     const frame = children({
-      ...(isArtifactSource(value) ? artifactFrameProps(value) : artifactPlaceholderProps()),
+      ...(isArtifactSource(value)
+        ? artifactFrameProps(value, { fontLinks })
+        : artifactPlaceholderProps()),
       ...hostProps,
     });
     return (
@@ -1704,20 +1713,28 @@ export function createEditableBlock<
     children: (props: FileRenderProps, data: FileValue) => React.ReactNode;
   }) => React.ReactNode;
 
-  // RepeatableItemWrapper - wraps each repeatable item with overlay support
+  /**
+   * Tracks each repeatable item through a Fragment ref rather than a wrapper
+   * element, so editing never changes the page's layout, containing blocks or
+   * child selectors. The item's elements are whatever the author renders.
+   */
   const RepeatableItemWrapper = ({
     itemId,
     blockId,
+    nesting,
     mode,
     children,
   }: {
     itemId: number | undefined;
     blockId: number;
+    nesting: number;
     mode: "site" | "peek" | "layout";
     children: React.ReactNode;
   }) => {
     const isContentEditable = useIsEditable(mode);
     const { window: iframeWindow } = useFrame();
+    const fragmentRef = React.useRef<React.FragmentInstance>(null);
+    const registrationRef = React.useRef<ReturnType<typeof registerRepeatableItem>>(null);
 
     const selectTarget = usePreviewSelection();
     const isCommentMode = useSelector(previewStore, selectIsCommentMode);
@@ -1738,37 +1755,63 @@ export function createEditableBlock<
       { blockId: String(blockId), itemId: String(itemId) },
     );
 
-    const overlayState = useOverlayState(
-      isHovered || hoveredRepeaterGroup !== null || isLocallyHovered,
-      isSelected,
-    );
-
-    const handleClick = (event: React.MouseEvent) => {
-      if (!isContentEditable || !isCommentMode || itemId == null) return;
-      const target = event.target as HTMLElement;
-      if (target.closest("[data-camox-field-id]")) return;
-      if (
-        target.closest(
-          "[data-camox-repeatable-item-id], [data-camox-block-id], [data-camox-comment-block-id]",
-        ) !== event.currentTarget
-      )
-        return;
-      selectTarget({ type: "item", blockId, itemId }, event);
+    const overlayState = {
+      hovered: isHovered || hoveredRepeaterGroup !== null || isLocallyHovered,
+      focused: isSelected,
+      hoverGroup: hoveredRepeaterGroup,
+      synced: !!options.synced,
     };
+    const document = iframeWindow?.document;
+    React.useLayoutEffect(() => {
+      const fragment = fragmentRef.current;
+      if (!isContentEditable || itemId == null || !document || !fragment) return;
+      // The state effect below runs right after, in the same commit.
+      const registration = registerRepeatableItem(document, {
+        hovered: false,
+        focused: false,
+        hoverGroup: null,
+        synced: false,
+        fragment,
+        blockId,
+        itemId,
+        nesting,
+      });
+      registrationRef.current = registration;
+      return () => {
+        registrationRef.current = null;
+        registration.unregister();
+      };
+    }, [isContentEditable, document, blockId, itemId, nesting]);
 
-    return (
-      <div
-        data-camox-repeatable-item-id={isContentEditable ? itemId : undefined}
-        data-camox-hover-group={isContentEditable ? hoveredRepeaterGroup : undefined}
-        onClickCapture={handleClick}
-        onMouseEnter={() => setIsLocallyHovered(true)}
-        onMouseLeave={() => setIsLocallyHovered(false)}
-        {...(isContentEditable ? overlayState : {})}
-        data-camox-overlay-mode={options.synced ? "synced" : undefined}
-      >
-        {children}
-      </div>
-    );
+    React.useLayoutEffect(() => {
+      registrationRef.current?.update(overlayState);
+    });
+
+    React.useEffect(() => {
+      const fragment = fragmentRef.current;
+      if (!isContentEditable || !fragment) return;
+      // Moving between two of the item's elements leaves and enters within one
+      // task, so React batches both updates without rendering the gap.
+      const enter = () => setIsLocallyHovered(true);
+      const leave = () => setIsLocallyHovered(false);
+      const select = (event: Event) => {
+        if (!isCommentMode || itemId == null) return;
+        const target = event.target as Element;
+        if (target.closest("[data-camox-field-id]")) return;
+        if (closestRepeatableItem(target)?.fragment !== fragment) return;
+        selectTarget({ type: "item", blockId, itemId }, event as unknown as SelectionEvent);
+      };
+      fragment.addEventListener("mouseenter", enter);
+      fragment.addEventListener("mouseleave", leave);
+      fragment.addEventListener("click", select, true);
+      return () => {
+        fragment.removeEventListener("mouseenter", enter);
+        fragment.removeEventListener("mouseleave", leave);
+        fragment.removeEventListener("click", select, true);
+      };
+    }, [isContentEditable, isCommentMode, blockId, itemId, selectTarget]);
+
+    return <React.Fragment ref={fragmentRef}>{children}</React.Fragment>;
   };
 
   // RepeaterHoverProvider - provides hover state to child items without adding DOM elements
@@ -2047,6 +2090,8 @@ export function createEditableBlock<
         : (typeboxSchema.properties as Record<string, any>)[fieldName]
     )?.items?.properties as Record<string, any> | undefined;
 
+    const nesting = parentRepeaterContext ? (parentRepeaterContext.nesting ?? 0) + 1 : 0;
+
     return (
       <RepeaterHoverProvider blockId={blockId} fieldName={fieldName}>
         {arrayValue.map((item: any, index: number) => {
@@ -2104,9 +2149,15 @@ export function createEditableBlock<
                 itemId: itemId,
                 containerItemId: itemId ?? parentRepeaterContext?.containerItemId,
                 itemSchema,
+                nesting,
               }}
             >
-              <RepeatableItemWrapper itemId={itemId} blockId={blockId} mode={mode}>
+              <RepeatableItemWrapper
+                itemId={itemId}
+                blockId={blockId}
+                nesting={nesting}
+                mode={mode}
+              >
                 {children(itemApi, index)}
               </RepeatableItemWrapper>
             </RepeatableItemContext.Provider>
@@ -2193,7 +2244,7 @@ export function createEditableBlock<
       // Let fields and commentable items handle their own clicks.
       const target = e.target as HTMLElement;
       if (target.closest("[data-camox-field-id]")) return;
-      if (isCommentMode && target.closest("[data-camox-repeatable-item-id]")) return;
+      if (isCommentMode && closestRepeatableItem(target)) return;
 
       if (
         target.closest("[data-camox-block-id], [data-camox-comment-block-id]") !== e.currentTarget
@@ -2760,11 +2811,7 @@ export function createEditableBlock<
       if (!isContentEditable) return;
       const target = e.target as HTMLElement;
       if (target.closest("[data-camox-field-id]")) return;
-      if (
-        selectIsCommentMode(previewStore.getSnapshot()) &&
-        target.closest("[data-camox-repeatable-item-id]")
-      )
-        return;
+      if (selectIsCommentMode(previewStore.getSnapshot()) && closestRepeatableItem(target)) return;
       if (
         target.closest("[data-camox-block-id], [data-camox-comment-block-id]") !== e.currentTarget
       )
