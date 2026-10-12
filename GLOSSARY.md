@@ -18,24 +18,8 @@ _Avoid_: Collaborator, seat
 One website managed by Camox, owned by an organization.
 _Avoid_: Site, app
 
-**Environment**:
-An isolated copy of a project's content and definitions. Each project has one production environment and per-developer development environments.
-_Avoid_: Stage, branch
-
-**Production Environment**:
-The environment that holds the content served on the live website.
-_Avoid_: Prod site, main
-
-**Development Environment**:
-A developer's personal environment, used while running the website locally.
-_Avoid_: Dev site, sandbox, local environment
-
-**Push / Pull**:
-Replicating one environment's content into another, allowed only when their definitions are compatible.
-_Avoid_: Sync, copy, deploy
-
 **Release**:
-Building the website and syncing its definitions to the production environment.
+Building the website and syncing its definitions to Live.
 _Avoid_: Deploy, ship
 
 **Deploy Token**:
@@ -45,7 +29,7 @@ _Avoid_: Sync secret, API key
 ### Definitions (code-owned)
 
 **Definition**:
-A code-owned description of a kind of content (a block, layout, or collection) that Camox syncs into each environment.
+A code-owned description of a kind of content (a block, layout, or collection), synced into Live by a release and into a development draft by running the website locally.
 _Avoid_: Model, type, template
 
 **Block Definition**:
@@ -131,7 +115,7 @@ One placement of a block definition, on a page or in a layout, with its own cont
 _Avoid_: Section, component, instance
 
 **Synced Block**:
-A block definition whose content and settings are shared by every placement in an environment, and published independently of the pages containing it.
+A block definition whose content and settings are shared by every placement on the website.
 _Avoid_: Global block, shared block, symbol
 
 **Repeatable Item**:
@@ -159,7 +143,7 @@ Where a block or reference occurs; placements keep their own identity and order 
 _Avoid_: Usage, instance, occurrence
 
 **File**:
-An uploaded image, video, or document available to an environment's content. The studio calls files "assets".
+An uploaded image, video, or document available to the website's content. Like any content, files are added, changed, and removed through drafts. The studio calls files "assets".
 _Avoid_: Media, upload
 
 **Summary**:
@@ -172,25 +156,29 @@ _Avoid_: Export, plain text
 
 ### Publishing
 
-**Draft**:
-The current editable state of content, visible only to authorized editors.
-_Avoid_: Working copy, unsaved changes
-
 **Live**:
-The published state of content, served to the public.
-_Avoid_: Production content, public version
+The published state of the website, served to the public. Live only changes when a draft is published.
+_Avoid_: Production, production environment, main
+
+**Draft**:
+A named set of changes to the website's content, kept apart from Live until it is published or discarded. Many drafts can be open at once, each started by an editor or an agent.
+_Avoid_: Branch, environment, changeset, working copy
+
+**Development Draft**:
+A developer's personal draft, whose definitions come from their local code instead of Live. It can only be published once a release has given Live the same definitions.
+_Avoid_: Development environment, code draft, local draft
 
 **Publish**:
-Making a draft live. Pages, layouts, synced blocks, and collection records each publish independently.
-_Avoid_: Deploy, release, save
+Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts.
+_Avoid_: Deploy, release, push, merge
 
-**Unpublish**:
-Removing content from live while keeping its draft and history.
-_Avoid_: Delete, hide, archive
+**Discard**:
+Deleting a draft without publishing it.
+_Avoid_: Revert, undo, discard changes
 
-**Discard Changes**:
-Resetting a draft back to its live state.
-_Avoid_: Revert, undo
+**Conflict**:
+Content that a draft changes and that Live also changed after the draft first changed it.
+_Avoid_: Collision, merge conflict
 
 **Checkpoint**:
 An immutable snapshot of a page's or layout's content at a point in time, created manually, on publish, or automatically while drafting.
@@ -200,10 +188,6 @@ _Avoid_: Version, revision, snapshot, backup
 An immutable snapshot of one collection record's content.
 _Avoid_: Checkpoint, version
 
-**Modified**:
-Status of published content whose draft differs from its live state.
-_Avoid_: Dirty, changed, outdated
-
 ### Editing
 
 **Studio**:
@@ -211,7 +195,7 @@ The in-website editing interface used by editors to change content.
 _Avoid_: Admin, editor, back office, CMS UI
 
 **Preview**:
-The rendered website shown inside the studio, where content is edited in place.
+The rendered website, as Live or as one draft, shown inside the studio, where content is edited in place.
 _Avoid_: Iframe
 
 **Edit Mode**:
@@ -227,7 +211,7 @@ A labelled horizontal bar above the page headers, spanning the area of the canva
 _Avoid_: Separator, section header
 
 **Block Catalog**:
-The area of the canvas showing every page-content block definition as live blocks to the right of all pages: each with its default content, or for a Synced Block placed in the environment, its shared content.
+The area of the canvas showing every page-content block definition as live blocks to the right of all pages: each with its default content, or for a Synced Block placed on the website, its shared content.
 _Avoid_: Block library, component gallery, storybook
 
 **Dashboard**:
@@ -243,5 +227,5 @@ A human who changes content through the studio.
 _Avoid_: Author, admin, content manager
 
 **Agent**:
-A coding agent that manages content through the CLI or AI tools, working alongside editors on the same drafts.
+A coding agent that manages content through the CLI or AI tools, working in drafts alongside editors.
 _Avoid_: Bot, assistant, AI
