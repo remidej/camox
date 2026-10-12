@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { Window } from "happy-dom";
+import type { FragmentInstance } from "react";
 
+import { registerRepeatableItem, type RepeatableItemState } from "../preview/repeatableItemTargets";
 import { observeCanvasOverlays, type CanvasOverlayTarget } from "./canvasOverlayGeometry";
 
 function fixture() {
@@ -35,12 +37,10 @@ void test("measures line fragments, boxes, SVG icons and empty targets in iframe
     <div data-camox-block-id="block" data-camox-overlay-mode="synced">
       <span data-camox-field-id="title">Title</span>
       <svg data-camox-field-id="icon" data-camox-field-type="icon"></svg>
-      <div data-camox-repeatable-item-id="empty"></div>
+      <img data-camox-field-id="empty" data-camox-field-type="Image" />
     </div>`;
   const elements = Array.from(
-    page.document.querySelectorAll(
-      "[data-camox-block-id], [data-camox-field-id], [data-camox-repeatable-item-id]",
-    ),
+    page.document.querySelectorAll("[data-camox-block-id], [data-camox-field-id]"),
   );
   for (const element of elements) {
     element.getBoundingClientRect = () => new page.window.DOMRect(10, 20, 80, 40);
@@ -273,6 +273,126 @@ void test("hidden Detached copies cannot steal navbar highlights from visible co
     assert.deepEqual(highlighted("focused"), ["title"]);
   } finally {
     stop();
+    await page.window.happyDOM.close();
+  }
+});
+
+const idle: RepeatableItemState = {
+  hovered: false,
+  focused: false,
+  hoverGroup: null,
+  synced: false,
+};
+
+/** Mirrors what React 19.3 records for a Fragment ref over `elements`. */
+function fakeFragment(elements: Element[], rects: () => DOMRect[]) {
+  const fragment = { getClientRects: rects } as unknown as FragmentInstance;
+  for (const element of elements) {
+    const owned = element as Element & { reactFragments?: Set<FragmentInstance> };
+    owned.reactFragments ??= new Set();
+    owned.reactFragments.add(fragment);
+  }
+  return fragment;
+}
+
+void test("repeatable items are measured across their elements without a wrapper", async () => {
+  const page = fixture();
+  page.document.body.innerHTML = `
+    <div data-camox-block-id="specs">
+      <dl>
+        <dt id="label" data-camox-field-id="specs__7__label">Weight</dt>
+        <dd id="value">2 kg</dd>
+      </dl>
+    </div>`;
+  const label = page.document.getElementById("label")!;
+  const value = page.document.getElementById("value")!;
+  let fragmentReads = 0;
+  const fragment = fakeFragment([label, value] as unknown as Element[], () => {
+    fragmentReads++;
+    return [
+      new page.window.DOMRect(0, 0, 100, 20),
+      new page.window.DOMRect(120, 0, 80, 20),
+      new page.window.DOMRect(200, 0, 0, 20),
+    ] as unknown as DOMRect[];
+  });
+  const document = page.document as unknown as Document;
+  const registration = registerRepeatableItem(document, {
+    ...idle,
+    fragment,
+    blockId: 3,
+    itemId: 7,
+    nesting: 0,
+  });
+  const stop = page.start();
+  const item = () => page.targets.find((target) => target.item);
+  const field = () => page.targets.find((target) => target.element.id === "label" && !target.item);
+  try {
+    await page.flush();
+    assert.equal(page.document.querySelectorAll("dl > *").length, 2);
+    assert.deepEqual(item()!.item, { blockId: 3, itemId: 7 });
+    assert.equal(item()!.element, label);
+    assert.deepEqual(item()!.rects, [
+      { x: 0, y: 0, width: 100, height: 20 },
+      { x: 120, y: 0, width: 80, height: 20 },
+    ]);
+    assert.deepEqual(item()!.bounds, { x: 0, y: 0, width: 200, height: 20 });
+
+    // Item state changes only rerank cached geometry.
+    registration.update({ ...idle, hovered: true, focused: true });
+    await page.flush();
+    assert.equal(fragmentReads, 1);
+    assert.equal(item()!.hovered, true);
+    assert.equal(item()!.focused, true);
+
+    // A field rendered as the item's own element still outranks the item.
+    label.setAttribute("data-camox-hovered", "");
+    await page.flush();
+    assert.equal(field()!.hovered, true);
+    assert.equal(item()!.hovered, false);
+    assert.equal(item()!.focused, true);
+
+    registration.unregister();
+    await page.flush();
+    assert.equal(item(), undefined);
+  } finally {
+    stop();
+    registration.unregister();
+    await page.window.happyDOM.close();
+  }
+});
+
+void test("a sidebar-hovered repeater highlights every item in its group", async () => {
+  const page = fixture();
+  page.document.body.innerHTML = `
+    <ul data-camox-block-id="links"><li id="first"></li><li id="second"></li></ul>`;
+  const document = page.document as unknown as Document;
+  const registrations = ["first", "second"].map((id, index) => {
+    const element = page.document.getElementById(id)! as unknown as Element;
+    const fragment = fakeFragment([element], () => [
+      new page.window.DOMRect(0, index * 20, 100, 20) as unknown as DOMRect,
+    ]);
+    return registerRepeatableItem(document, {
+      ...idle,
+      fragment,
+      blockId: 1,
+      itemId: index,
+      nesting: 0,
+    });
+  });
+  const stop = page.start();
+  try {
+    await page.flush();
+    for (const registration of registrations) {
+      registration.update({ ...idle, hovered: true, hoverGroup: "links" });
+    }
+    await page.flush();
+    assert.deepEqual(
+      page.targets.filter((target) => target.hovered).map((target) => target.item?.itemId),
+      [0, 1],
+    );
+  } finally {
+    stop();
+    for (const registration of registrations) registration.unregister();
     await page.window.happyDOM.close();
   }
 });
