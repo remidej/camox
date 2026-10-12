@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dotted globe that turns as you scroll</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas aria-hidden="true"></canvas>
+    <script type="module">
+      import * as THREE from "https://esm.sh/three@0.170.0";
+      import { feature } from "https://esm.sh/topojson-client@3.1.0";
+      import { geoContains } from "https://esm.sh/d3-geo@3.1.1";
+
+      const LAND_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json";
+      const DOT_COUNT = 16000;
+      const TILT = 0.4;
+      // Longitude facing the viewer when the frame is centered in the viewport.
+      const REGION_LONGITUDES = { americas: -80, emea: 20, asia: 100, pacific: 160 };
+      // How far the globe turns while the frame scrolls through the whole viewport.
+      const SPEED_TURNS = { slow: Math.PI, fast: Math.PI * 2 };
+      const MARKERS = [
+        [48.86, 2.35],
+        [40.71, -74.01],
+        [35.68, 139.69],
+        [-33.87, 151.21],
+        [-23.55, -46.63],
+        [1.35, 103.82],
+      ];
+
+      const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+      const canvas = document.querySelector("canvas");
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 10);
+      camera.position.z = 4.2;
+
+      const tilt = new THREE.Group();
+      tilt.rotation.x = TILT;
+      scene.add(tilt);
+      const globe = new THREE.Group();
+      tilt.add(globe);
+
+      const toVector = (lat, lon, radius = 1) => {
+        const phi = THREE.MathUtils.degToRad(lat);
+        const lambda = THREE.MathUtils.degToRad(lon);
+        return new THREE.Vector3(
+          radius * Math.cos(phi) * Math.cos(lambda),
+          radius * Math.sin(phi),
+          -radius * Math.cos(phi) * Math.sin(lambda),
+        );
+      };
+
+      // Hides the far side: writes depth only, so dots and lines behind it are culled.
+      const occluder = new THREE.Mesh(
+        new THREE.SphereGeometry(0.985, 64, 64),
+        new THREE.MeshBasicMaterial({ colorWrite: false }),
+      );
+      occluder.renderOrder = -1;
+      globe.add(occluder);
+
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(0.98, 64, 64),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.12, depthWrite: false }),
+      );
+      globe.add(halo);
+
+      const gridPoints = [];
+      for (let lat = -60; lat <= 60; lat += 30) {
+        for (let lon = 0; lon < 360; lon += 4) {
+          gridPoints.push(toVector(lat, lon, 0.99), toVector(lat, lon + 4, 0.99));
+        }
+      }
+      for (let lon = 0; lon < 360; lon += 30) {
+        for (let lat = -90; lat < 90; lat += 4) {
+          gridPoints.push(toVector(lat, lon, 0.99), toVector(lat + 4, lon, 0.99));
+        }
+      }
+      const grid = new THREE.LineSegments(
+        new THREE.BufferGeometry().setFromPoints(gridPoints),
+        new THREE.LineBasicMaterial({ transparent: true, opacity: 0.25 }),
+      );
+      globe.add(grid);
+
+      const dotMaterial = new THREE.PointsMaterial({ size: 0.018, sizeAttenuation: true });
+      const markerMaterial = new THREE.PointsMaterial({ size: 0.07, sizeAttenuation: true });
+      const markers = new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints(
+          MARKERS.map(([lat, lon]) => toVector(lat, lon, 1.01)),
+        ),
+        markerMaterial,
+      );
+      globe.add(markers);
+
+      // Spreads dots evenly over the sphere, then keeps those on land.
+      async function landDots() {
+        const topology = await fetch(LAND_URL).then((response) => response.json());
+        const land = feature(topology, topology.objects.land);
+        const golden = Math.PI * (3 - Math.sqrt(5));
+        const points = [];
+        for (let i = 0; i < DOT_COUNT; i++) {
+          const y = 1 - (2 * (i + 0.5)) / DOT_COUNT;
+          const lat = THREE.MathUtils.radToDeg(Math.asin(y));
+          const lon = THREE.MathUtils.radToDeg(((i * golden) % (2 * Math.PI)) - Math.PI);
+          if (geoContains(land, [lon, lat])) points.push(toVector(lat, lon));
+        }
+        return points;
+      }
+
+      landDots()
+        .then((points) => {
+          globe.add(
+            new THREE.Points(new THREE.BufferGeometry().setFromPoints(points), dotMaterial),
+          );
+          render();
+        })
+        .catch(() => {});
+
+      const setColor = (material, color) => {
+        if (!color) return;
+        material.color.setRGB(color.r / 255, color.g / 255, color.b / 255, THREE.SRGBColorSpace);
+      };
+
+      function applyTheme({ colors }) {
+        setColor(dotMaterial, colors["--foreground"]);
+        setColor(grid.material, colors["--muted-foreground"]);
+        setColor(halo.material, colors["--primary"]);
+        setColor(markerMaterial, colors["--destructive"]);
+        render();
+      }
+
+      function render() {
+        renderer.render(scene, camera);
+      }
+
+      function resize() {
+        const { clientWidth: width, clientHeight: height } = document.documentElement;
+        if (!width || !height) return;
+        renderer.setSize(width, height, false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        render();
+      }
+
+      let data = window.camox.data;
+      let progress = 0.5;
+      // A point at longitude L faces the camera when the globe's rotation is -π/2 - L.
+      function rotationFor() {
+        const longitude = REGION_LONGITUDES[data.initialPosition] ?? REGION_LONGITUDES.emea;
+        const turn = SPEED_TURNS[data.rotationSpeed] ?? SPEED_TURNS.slow;
+        return -Math.PI / 2 - THREE.MathUtils.degToRad(longitude) + (progress - 0.5) * turn;
+      }
+
+      // Eases toward the scroll-driven angle; snaps there when motion is reduced.
+      let targetRotation = rotationFor();
+      globe.rotation.y = targetRotation;
+      let animating = false;
+      function step() {
+        const delta = targetRotation - globe.rotation.y;
+        if (reducedMotion.matches || Math.abs(delta) < 0.0005) {
+          globe.rotation.y = targetRotation;
+          animating = false;
+          render();
+          return;
+        }
+        globe.rotation.y += delta * 0.12;
+        render();
+        requestAnimationFrame(step);
+      }
+
+      function turn() {
+        targetRotation = rotationFor();
+        if (animating) return;
+        animating = true;
+        requestAnimationFrame(step);
+      }
+
+      window.camox.onViewport((viewport) => {
+        progress = viewport.progress;
+        turn();
+      });
+      window.camox.onData((next) => {
+        data = next;
+        turn();
+      });
+
+      applyTheme(window.camox.theme);
+      window.camox.onTheme(applyTheme);
+      new ResizeObserver(resize).observe(document.documentElement);
+      resize();
+    </script>
+  </body>
+</html>

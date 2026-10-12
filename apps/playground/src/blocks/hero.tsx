@@ -19,8 +19,10 @@ const hero = createBlock({
       maxLength: 280,
       title: "Description",
     }),
-    illustration: field.image({
-      title: "Illustration",
+    globe: field.artifact({
+      size: "fill",
+      data: ["rotationSpeed", "initialPosition"],
+      title: "Globe",
     }),
     cta: field.link({
       default: { text: "Start building", href: "/", newTab: false },
@@ -40,9 +42,27 @@ const hero = createBlock({
       default: false,
       title: "Compact",
     }),
+    rotationSpeed: setting.enum({
+      options: {
+        slow: "Slow",
+        fast: "Fast",
+      },
+      default: "slow",
+      title: "Globe rotation speed",
+    }),
+    initialPosition: setting.enum({
+      options: {
+        americas: "Americas",
+        emea: "EMEA",
+        asia: "Asia",
+        pacific: "Pacific",
+      },
+      default: "emea",
+      title: "Globe initial position",
+    }),
   }),
   component: HeroComponent,
-  toMarkdown: (c) => [`# ${c.title}`, c.description, c.illustration, c.cta],
+  toMarkdown: (c) => [`# ${c.title}`, c.description, c.globe, c.cta],
 });
 
 function HeroComponent() {
@@ -104,11 +124,11 @@ function HeroComponent() {
                 </hero.Link>
               </div>
             </div>
-            <hero.Image name="illustration">
-              {(props) => (
-                <img {...props} className="mt-10 w-full max-w-xs rounded-lg lg:mt-0 lg:max-w-sm" />
-              )}
-            </hero.Image>
+            <div className="mt-10 aspect-square w-full max-w-xs lg:mt-0 lg:max-w-sm">
+              <hero.Artifact name="globe">
+                {(props) => <iframe {...props} className="size-full" />}
+              </hero.Artifact>
+            </div>
           </div>
         </div>
       </div>

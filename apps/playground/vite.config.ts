@@ -9,6 +9,7 @@ import { defineConfig } from "vite-plus";
 import { camox } from "../../packages/sdk/src/features/vite/vite";
 import { checkoutHostname } from "../../scripts/dev-hostname";
 import { seedDemoArticles } from "./demoArticles";
+import { seedHeroGlobe } from "./demoGlobe";
 
 const config = defineConfig({
   server: {
@@ -94,7 +95,10 @@ const config = defineConfig({
           open: Boolean(process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE),
           openOnceFile: process.env.CAMOX_DEV_OPEN_PLAYGROUND_ONCE_FILE,
         },
-        afterSync: seedDemoArticles,
+        afterSync: async (context) => {
+          await seedDemoArticles(context);
+          await seedHeroGlobe(context);
+        },
       },
     }),
     react(),
