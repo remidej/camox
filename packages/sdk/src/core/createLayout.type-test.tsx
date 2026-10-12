@@ -192,6 +192,23 @@ createLayout("articles.$slug")({
   ...derivedOptions,
   routes: async () => ({ data: [{ params: { slug: "introducing-collections" } }] }),
 });
+// A collection-backed entry names its record.
+createLayout("articles.$slug")({
+  ...derivedOptions,
+  routes: () => ({
+    data: [
+      {
+        params: { slug: "introducing-collections" },
+        target: { kind: "collection-item" as const, collectionId: "articles", id: "article-1" },
+      },
+    ],
+  }),
+});
+createLayout("articles.$slug")({
+  ...derivedOptions,
+  // @ts-expect-error A target names a collection record.
+  routes: () => ({ data: [{ params: { slug: "a" }, target: { kind: "page", id: "1" } }] }),
+});
 createLayout("articles.$slug")({
   ...derivedOptions,
   // @ts-expect-error Discovered params are named by the route.

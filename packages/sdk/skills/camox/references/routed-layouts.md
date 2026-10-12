@@ -83,6 +83,7 @@ export const Layout = createLayout("pokemon.$name")({
 - Return `{ data: [{ params }] }`, synchronously or asynchronously. `params` is typed from the file identity: `pokemon.$name` needs exactly `{ name: string }`. Return raw values; Camox builds and encodes the URL (`mr mime` becomes `/pokemon/mr%20mime`).
 - Only derived layouts accept `routes`; singletons and curated layouts are a type error.
 - The runtime sitemap lists every discovered page, without `<lastmod>`. The Canvas previews the layout's first discovered page until a path is chosen.
+- Entries may carry an optional `target` naming the collection record they render (see [Record pages](#record-pages)).
 - An invalid entry (missing, extra or empty params, or a value containing `/`) or a throwing `routes` makes `/sitemap.xml` respond 500 with a message naming the layout, rather than silently omitting pages.
 - `routes` lists pages; it does not authorize them. The loader still validates every request, and URLs left out of `routes` keep rendering. A curated page at a discovered URL still takes precedence and may be listed twice.
 - `routes` returns every page at once.
@@ -116,7 +117,7 @@ function ArticlePage() {
 - The loader finds the record whose `by` field's plain text equals the param: the draft value for a signed-in editor previewing, the published value for everyone else. A draft-only record is reachable in preview at its draft value; a never-published or unknown value answers 404. Records whose value is empty or contains `/` never get a page.
 - Several records sharing a value in the same source is a server error naming the collection, field, value and records. Camox does not enforce uniqueness: keep the field unique.
 - The loader returns a `collection-item` envelope, `{ kind: "collection-item", collectionId, data: { id, content } }`, typed as `LayoutCollectionItemResult` from `camox/createLayout`. `layout.useData()` returns the unwrapped record, `{ id, content }`. Camox rejects an envelope naming an unregistered collection or a malformed record id.
-- `routes` returns no entries yet, so the Canvas asks for a path and the sitemap omits record pages.
+- `routes` lists one entry per record that can have a page, in the request's source: the sitemap lists published records only, even when an editor asks, while the Canvas previews a signed-in editor's first record, draft-only records included. Each entry is `{ params, target: { kind: "collection-item", collectionId, id } }`; `target` names the record independently of its current value. Records whose value is empty or contains `/` are left out. Several records sharing a value fail discovery, so `/sitemap.xml` responds 500 naming the layout and the records. An empty collection returns `{ data: [] }`, and the Canvas asks for a path.
 - Record pages are read-only: `useData()` gives the stored content, not editable fields. Edited String fields may be stored as rich-text state rather than plain strings.
 - To wrap the helper, pass the whole loader input through, `context` included, and return the envelope unchanged:
 

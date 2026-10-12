@@ -8,6 +8,7 @@ import {
   createRecord,
   editRecord,
   findRecordsByField,
+  listRecordPageValues,
   publishRecord,
   syncCollectionDefinitions,
 } from "./service";
@@ -42,7 +43,9 @@ async function fixture(suffix: string) {
     source: "draft" | "live",
     context = source === "draft" ? ctx : publicCtx,
   ) => runService(findRecordsByField(context, { ...scope, field: "slug", value, source }));
-  return { ...base, ctx, publicCtx, scope, create, publish, find };
+  const list = (source: "draft" | "live", context = source === "draft" ? ctx : publicCtx) =>
+    runService(listRecordPageValues(context, { ...scope, field: "slug", source }));
+  return { ...base, ctx, publicCtx, scope, create, publish, find, list };
 }
 
 describe("finding the records a record page renders", () => {
@@ -135,5 +138,63 @@ describe("finding the records a record page renders", () => {
     const other = await fixture("isolation-other");
     expect(await other.find("hello", "draft")).toEqual([]);
     expect(await other.find("hello", "live")).toEqual([]);
+  });
+});
+
+describe("listing the records that can have a page", () => {
+  it("lists draft values in preview and published values for visitors", async () => {
+    const f = await fixture("list-sources");
+    const record = await f.create({ slug: "old-slug" });
+    const { record: published } = await f.publish(record);
+    await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: record.id,
+        expectedVersion: published.version,
+        content: { ...article, slug: "new-slug" },
+      }),
+    );
+    const draftOnly = await f.create({ slug: plainTextToLexicalState("draft-only") });
+
+    expect((await f.list("draft")).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
+      { id: draftOnly.id, value: "draft-only" },
+      { id: record.id, value: "new-slug" },
+    ]);
+    expect(await f.list("live")).toEqual([{ id: record.id, value: "old-slug" }]);
+  });
+
+  it("leaves out empty values and values containing a slash, and keeps shared values", async () => {
+    const f = await fixture("list-unroutable");
+    await f.create({ slug: "" });
+    await f.create({ slug: "a/b" });
+    const first = await f.create({ slug: "twin" });
+    const second = await f.create({ slug: "twin" });
+    expect((await f.list("draft")).map((entry) => entry.id).toSorted()).toEqual(
+      [first.id, second.id].toSorted(),
+    );
+  });
+
+  it("returns nothing for an empty collection", async () => {
+    const f = await fixture("list-empty");
+    expect(await f.list("draft")).toEqual([]);
+    expect(await f.list("live")).toEqual([]);
+  });
+
+  it("requires an authorized user for drafts and stays in its environment", async () => {
+    const f = await fixture("list-auth");
+    await f.publish(await f.create({}));
+    await expect(f.list("draft", f.publicCtx)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(f.list("draft", createServiceContext(f.db, f.outsiderUser))).rejects.toThrow();
+    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    await runService(
+      syncCollectionDefinitions(devCtx, {
+        projectSlug: f.project.slug,
+        autoCreate: true,
+        definitions: [definition],
+      }),
+    );
+    expect(await f.list("draft", devCtx)).toEqual([]);
+    const other = await fixture("list-auth-other");
+    expect(await other.list("live")).toEqual([]);
   });
 });

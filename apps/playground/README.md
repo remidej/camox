@@ -217,3 +217,6 @@ After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm
 3. In Content → Articles, change a published article's slug without publishing. The preview
    finds it at the new slug, while visitors keep the old URL until you publish.
 4. An unknown slug, such as `/articles/missing`, returns 404.
+5. `/sitemap.xml` lists each published article's page, never drafts, even when signed in.
+   In Studio, the Canvas opens the Article layout on its first article, draft-only ones
+   included.

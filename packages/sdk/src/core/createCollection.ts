@@ -66,6 +66,9 @@ export function createCollection<
   const id = options.id;
   return {
     pages({ by, param }) {
+      // Uniqueness isn't enforced: a page showing one of several matching records would be wrong.
+      const ambiguousValue = (ids: string[], value: string) =>
+        new Error(`Collection "${id}": records ${ids.join(", ")} all have ${by} "${value}"`);
       return {
         async loader({ params, context }) {
           const value = params[param];
@@ -77,8 +80,9 @@ export function createCollection<
             value,
           });
           if (records.length > 1)
-            throw new Error(
-              `Collection "${id}": records ${records.map((record) => record.id).join(", ")} all have ${by} "${value}"`,
+            throw ambiguousValue(
+              records.map((record) => record.id),
+              value,
             );
           const [record] = records;
           if (!record) throw notFound();
@@ -88,9 +92,22 @@ export function createCollection<
             data: { id: record.id, content: record.content as Static<TObject<T>> },
           };
         },
-        // Route discovery for record pages is not implemented yet.
-        async routes() {
-          return { data: [] };
+        async routes({ context }) {
+          const records = await getRecordLookup(context).listPageValues({
+            collectionId: id,
+            field: by,
+          });
+          const idsByValue = new Map<string, string[]>();
+          for (const record of records)
+            idsByValue.set(record.value, [...(idsByValue.get(record.value) ?? []), record.id]);
+          for (const [value, ids] of idsByValue)
+            if (ids.length > 1) throw ambiguousValue(ids, value);
+          return {
+            data: records.map((record) => ({
+              params: { [param]: record.value } as Record<typeof param, string>,
+              target: { kind: "collection-item", collectionId: id, id: record.id },
+            })),
+          };
         },
       };
     },

@@ -435,22 +435,29 @@ export const readRecord = Effect.fn("collections.readRecord")(function* (
   );
 });
 
-export const findRecordsByFieldInput = scopeInput.extend({
+export const listRecordPageValuesInput = scopeInput.extend({
   field: z.string(),
-  value: z.string(),
   source: z.enum(["live", "draft"]),
 });
+export const findRecordsByFieldInput = listRecordPageValuesInput.extend({ value: z.string() });
+
+/** A record's String field as a path segment, or null when it can't be one. */
+function pageValue(content: Record<string, unknown> | null, field: string) {
+  const value = content?.[field];
+  if (typeof value !== "string" && (typeof value !== "object" || value === null)) return null;
+  const text = lexicalStateToPlainText(value as string | Record<string, unknown>);
+  // Empty values and values containing `/` can't be a path segment.
+  return text && !text.includes("/") ? text : null;
+}
 
 /**
- * The records whose String field's plain text equals `value`: the records a record page could
- * render. Draft matches draft values and needs an authorized user; live matches published values.
- * Empty values and values containing `/` can't be a path segment, so they never match.
+ * Each record in the source with its String field's plain text, when that text can be a path
+ * segment. Draft reads draft values and needs an authorized user; live reads published values.
  */
-export const findRecordsByField = Effect.fn("collections.findRecordsByField")(function* (
+const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof findRecordsByFieldInput>,
+  input: z.infer<typeof listRecordPageValuesInput>,
 ) {
-  const input = yield* decodeInput(findRecordsByFieldInput, rawInput);
   const definition = yield* definitionFor(ctx, input, input.source === "draft");
   const field = (definition.contentSchema.properties as Record<string, { fieldType?: string }>)[
     input.field
@@ -459,7 +466,7 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
     return yield* new InvalidInputError({
       message: `${input.collectionId}.${input.field} is not a String field`,
     });
-  if (!definition.active || !input.value || input.value.includes("/")) return [];
+  if (!definition.active) return [];
   const content = input.source === "live" ? publishedRevisions.content : collectionRecords.draft;
   const rows = yield* Effect.promise(() =>
     ctx.db
@@ -476,13 +483,38 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
         ),
       ),
   );
-  return rows
-    .filter((row) => {
-      const value = row.content?.[input.field];
-      if (typeof value !== "string" && (typeof value !== "object" || value === null)) return false;
-      return lexicalStateToPlainText(value as string | Record<string, unknown>) === input.value;
-    })
-    .map((row) => ({ id: row.id, content: row.content! }));
+  return rows.flatMap((row) => {
+    const value = pageValue(row.content, input.field);
+    return value === null ? [] : [{ id: row.id, content: row.content!, value }];
+  });
+});
+
+/**
+ * The records whose String field's plain text equals `value`: the records a record page could
+ * render. Empty values and values containing `/` never match.
+ */
+export const findRecordsByField = Effect.fn("collections.findRecordsByField")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof findRecordsByFieldInput>,
+) {
+  const input = yield* decodeInput(findRecordsByFieldInput, rawInput);
+  const records = yield* recordsWithPageValues(ctx, input);
+  return records
+    .filter((record) => record.value === input.value)
+    .map(({ id, content }) => ({ id, content }));
+});
+
+/**
+ * The records that can have a record page, with the value of their `field`: route discovery.
+ * Records sharing a value are all listed, so the caller can report the ambiguity.
+ */
+export const listRecordPageValues = Effect.fn("collections.listRecordPageValues")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listRecordPageValuesInput>,
+) {
+  const input = yield* decodeInput(listRecordPageValuesInput, rawInput);
+  const records = yield* recordsWithPageValues(ctx, input);
+  return records.map(({ id, value }) => ({ id, value }));
 });
 
 const mutation = Effect.fn("collections.mutation")(function* (
