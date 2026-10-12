@@ -1,4 +1,5 @@
 import type { Layout } from "./createLayout";
+import type { LayoutRequestContext } from "./requestContext";
 
 export function routeSegments(id: string) {
   return id.split(".");
@@ -62,10 +63,13 @@ export function derivedLayoutPath(layoutId: string, params: unknown) {
 }
 
 /** Runs a derived layout's route discovery; an invalid result throws rather than omitting pages. */
-export async function discoverLayoutPaths(layout: Layout): Promise<string[]> {
+export async function discoverLayoutPaths(
+  layout: Layout,
+  context: LayoutRequestContext,
+): Promise<string[]> {
   const { id, routes } = layout._internal;
   if (!routes) return [];
-  const result = (await routes()) as unknown;
+  const result = (await routes({ context })) as unknown;
   const entries = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(entries))
     throw new Error(`Layout "${id}" routes must return { data: [{ params }] }`);

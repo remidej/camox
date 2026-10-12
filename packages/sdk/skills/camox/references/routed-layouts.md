@@ -85,7 +85,8 @@ export const Layout = createLayout("pokemon.$name")({
 - The runtime sitemap lists every discovered page, without `<lastmod>`. The Canvas previews the layout's first discovered page until a path is chosen.
 - An invalid entry (missing, extra or empty params, or a value containing `/`) or a throwing `routes` makes `/sitemap.xml` respond 500 with a message naming the layout, rather than silently omitting pages.
 - `routes` lists pages; it does not authorize them. The loader still validates every request, and URLs left out of `routes` keep rendering. A curated page at a discovered URL still takes precedence and may be listed twice.
-- `routes` takes no arguments and returns every page at once.
+- `routes` returns every page at once.
+- `loader` receives `{ params, context }` and `routes` receives `{ context }`. `context` is an opaque request context: ignore it, or pass it through unchanged to Camox helpers. The sitemap and Markdown always get live content; HTML and Studio navigation follow the editor's session.
 
 ## Migrating existing loaders
 

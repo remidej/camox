@@ -7,6 +7,7 @@ import type { LayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
 import { discoverLayoutPaths, matchDerivedLayout } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
+import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
@@ -211,7 +212,8 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
     discoveredPaths = await Promise.all(
       layouts
         .filter((layout) => layout._internal.kind === "derived")
-        .map((layout) => discoverLayoutPaths(layout)),
+        // Crawlers only ever see live content, even when an editor asks.
+        .map((layout) => discoverLayoutPaths(layout, createRequestContext({ source: "live" }))),
     );
   } catch (error) {
     // A sitemap silently missing pages is worse than one that visibly fails.
@@ -248,6 +250,28 @@ ${entries}
   );
 }
 
+/**
+ * Draft for a valid editor session, otherwise live. A successful protected project lookup
+ * validates both session and project access; an invalid session falls back to live.
+ */
+async function resolveSessionSource(
+  request: Request,
+  options: RuntimeOptions,
+): Promise<{ source: "live" | "draft"; clearAuthCookie: boolean }> {
+  const authCookieHeader = getServerAuthCookieHeader(request.headers);
+  if (!authCookieHeader || !options.apiUrl || !options.projectSlug)
+    return { source: "live", clearAuthCookie: false };
+  try {
+    await createServerApiClient(options.apiUrl, options.environmentName, {
+      authCookieHeader,
+    }).projects.getBySlug({ slug: options.projectSlug });
+    return { source: "draft", clearAuthCookie: false };
+  } catch (error) {
+    if (!isAuthSessionError(error)) throw error;
+    return { source: "live", clearAuthCookie: true };
+  }
+}
+
 /** The first discovered page of a derived layout, which the Canvas previews by default. */
 async function createRoutesResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
@@ -257,9 +281,14 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   const layoutId = new URL(request.url).searchParams.get("layoutId") ?? "";
   const layout = camoxApp.getLayoutById(layoutId);
   if (layout?._internal.kind !== "derived") return new Response("Not found", { status: 404 });
-  const headers = { "Cache-Control": "private, no-store" };
+  const { source, clearAuthCookie } = await resolveSessionSource(request, options);
+  const headers = {
+    "Cache-Control": "private, no-store",
+    Vary: "Cookie",
+    ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+  };
   try {
-    const [path = null] = await discoverLayoutPaths(layout);
+    const [path = null] = await discoverLayoutPaths(layout, createRequestContext({ source }));
     return Response.json({ path }, { headers });
   } catch (error) {
     console.error(`[camox] Route discovery failed for layout "${layoutId}".`, error);
@@ -537,9 +566,12 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
 type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 
 /** Runs a code-owned page's loader. The envelope survives SSR, navigation and hydration. */
-async function loadLayoutResult(match: DerivedMatch): Promise<LayoutLoaderResult | undefined> {
+async function loadLayoutResult(
+  match: DerivedMatch,
+  context: LayoutRequestContext,
+): Promise<LayoutLoaderResult | undefined> {
   const loader = match.layout._internal.loader;
-  const result = await loader?.({ params: match.params });
+  const result = await loader?.({ params: match.params, context });
   // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
   const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
   if (
@@ -566,7 +598,8 @@ async function createLayoutMarkdownResponse(
   if (!toMarkdown || !options.apiUrl || !options.projectSlug) return null;
   let result: LayoutLoaderResult | undefined;
   try {
-    result = await loadLayoutResult(match);
+    // Markdown is a public output: it reads live content whoever asks.
+    result = await loadLayoutResult(match, createRequestContext({ source: "live" }));
   } catch (error) {
     if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
     throw error;
@@ -597,11 +630,8 @@ async function createDerivedResponse(
   if (!match || (!dataOnly && !options.renderPage)) return null;
   if (singletonOnly && match.layout._internal.kind !== "singleton") return null;
   try {
-    const serializedResult = await loadLayoutResult(match);
     const queryClient = new QueryClient();
     const authCookieHeader = getServerAuthCookieHeader(request.headers);
-    let source: "live" | "draft" = authCookieHeader ? "draft" : "live";
-    let clearAuthCookie = false;
     const loadLayout = (source: "live" | "draft") =>
       createServerApiClient(options.apiUrl!, options.environmentName, {
         authCookieHeader: source === "draft" ? authCookieHeader : undefined,
@@ -610,12 +640,17 @@ async function createDerivedResponse(
         layoutId: match.layout._internal.id,
         source,
       });
-    const shared = await loadLayout(source).catch(async (error) => {
-      if (source !== "draft" || !isAuthSessionError(error)) throw error;
-      source = "live";
-      clearAuthCookie = true;
-      return loadLayout("live");
-    });
+    // The draft layout read validates the session, so it runs before the loader needs the source.
+    const draft = authCookieHeader
+      ? await loadLayout("draft").catch((error) => {
+          if (!isAuthSessionError(error)) throw error;
+          return null;
+        })
+      : undefined;
+    const source: "live" | "draft" = draft ? "draft" : "live";
+    const clearAuthCookie = draft === null;
+    const serializedResult = await loadLayoutResult(match, createRequestContext({ source }));
+    const shared = draft ?? (await loadLayout("live"));
     seedBlockCaches(queryClient, shared, source);
     const project =
       source === "draft"
