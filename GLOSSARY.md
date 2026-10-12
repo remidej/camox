@@ -92,6 +92,10 @@ _Avoid_: Normal layout, editable layout
 A layout whose pages come from a route pattern and data loaded in code, rather than being authored one by one.
 _Avoid_: Template, dynamic layout, generated layout
 
+**Route Discovery**:
+Code listing the pages a derived layout can render, so Camox can enumerate them without visiting each URL. Pages a derived layout does not list still render when requested.
+_Avoid_: Static paths, route generation, prerendering
+
 **Singleton Layout**:
 A layout that renders exactly one page, at a fixed route.
 _Avoid_: Static page, single page
@@ -163,7 +167,7 @@ A short AI-generated description of a block's or repeatable item's content, used
 _Avoid_: Description, label, excerpt
 
 **Markdown Representation**:
-The text a block declares to stand for its content when read by agents.
+The text a block, or a layout rendering loaded data, declares to stand for its content when read by agents.
 _Avoid_: Export, plain text
 
 ### Publishing

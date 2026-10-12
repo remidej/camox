@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Layout } from "./createLayout";
-import { matchDerivedLayout } from "./derivedRoutes.ts";
+import { derivedLayoutPath, discoverLayoutPaths, matchDerivedLayout } from "./derivedRoutes.ts";
 
 function layout(id: string, kind: "curated" | "derived" | "singleton" = "derived") {
   return { _internal: { id, kind } } as Layout;
@@ -38,4 +38,30 @@ void test("static routes take precedence over parameters", () => {
     matchDerivedLayout([layout("pokemon.$name"), specific], "/pokemon/featured")?.layout,
     specific,
   );
+});
+
+void test("discovered params become paths the runtime matches back to the same params", async () => {
+  const params = [
+    { name: "mr mime", form: "galar" },
+    { name: "farfetch'd", form: "100%" },
+  ];
+  const discovering = {
+    _internal: {
+      id: "pokemon.$name.forms.$form",
+      kind: "derived",
+      routes: async () => ({ data: params.map((entry) => ({ params: entry })) }),
+    },
+  } as unknown as Layout;
+  const paths = await discoverLayoutPaths(discovering);
+  assert.deepEqual(
+    paths.map((path) => matchDerivedLayout([discovering], path)?.params),
+    params,
+  );
+});
+
+void test("rejects discovered params the route could not match", async () => {
+  for (const params of [{}, { name: "" }, { name: "a/b" }, { name: 1 }, { name: "a", extra: "b" }])
+    assert.throws(() => derivedLayoutPath("pokemon.$name", params), /pokemon\.\$name/);
+  const invalid = { _internal: { id: "pokemon.$name", kind: "derived", routes: () => ({}) } };
+  await assert.rejects(discoverLayoutPaths(invalid as unknown as Layout), /pokemon\.\$name/);
 });

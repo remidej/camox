@@ -37,3 +37,37 @@ export function matchDerivedLayout(layouts: Layout[], pathname: string) {
   }
   return null;
 }
+
+/** Builds the path of one discovered page, rejecting params the route could not match. */
+export function derivedLayoutPath(layoutId: string, params: unknown) {
+  const segments = routeSegments(layoutId);
+  const names = segments.filter((s) => s.startsWith("$")).map((s) => s.slice(1));
+  if (!params || typeof params !== "object" || Array.isArray(params))
+    throw new Error(`Layout "${layoutId}" routes returned an entry without params`);
+  const values = params as Record<string, unknown>;
+  const extra = Object.keys(values).find((name) => !names.includes(name));
+  if (extra) throw new Error(`Layout "${layoutId}" routes returned an unknown param "${extra}"`);
+  return `/${segments
+    .map((segment) => {
+      if (!segment.startsWith("$")) return encodeURIComponent(segment);
+      const name = segment.slice(1);
+      const value = values[name];
+      if (typeof value !== "string" || !value || value.includes("/"))
+        throw new Error(
+          `Layout "${layoutId}" routes returned an invalid "${name}" param: ${JSON.stringify(value)}`,
+        );
+      return encodeURIComponent(value);
+    })
+    .join("/")}`;
+}
+
+/** Runs a derived layout's route discovery; an invalid result throws rather than omitting pages. */
+export async function discoverLayoutPaths(layout: Layout): Promise<string[]> {
+  const { id, routes } = layout._internal;
+  if (!routes) return [];
+  const result = (await routes()) as unknown;
+  const entries = (result as { data?: unknown } | null)?.data;
+  if (!Array.isArray(entries))
+    throw new Error(`Layout "${id}" routes must return { data: [{ params }] }`);
+  return entries.map((entry) => derivedLayoutPath(id, (entry as { params?: unknown })?.params));
+}

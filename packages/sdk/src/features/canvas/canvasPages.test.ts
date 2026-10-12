@@ -66,3 +66,15 @@ void test("derived layout frames reject curated routes that shadow the route pat
   );
   assert.throws(() => validateCanvasPageInput(input, "/other"), /did not return a page preview/);
 });
+
+void test("derived frames preview their first discovered page until a path is chosen", () => {
+  const layouts = [
+    { _internal: { id: "articles.$slug", kind: "derived" as const, title: "Article" } },
+    { _internal: { id: "pokemon.$name", kind: "derived" as const, title: "Pokemon" } },
+  ];
+  const discovered = new Map([["articles.$slug", "/articles/introducing-collections"]]);
+  assert.deepEqual(
+    getCanvasPages([], layouts, discovered).map((page) => page.pathname),
+    ["/articles/introducing-collections", null],
+  );
+});

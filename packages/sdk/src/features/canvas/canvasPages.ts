@@ -19,10 +19,14 @@ export const CANVAS_DEVICES = {
   mobile: { label: "Mobile", width: 390, height: 844 },
 } as const;
 
-/** Concrete pages plus one frame per derived layout, never every generated URL. */
+/**
+ * Concrete pages plus one frame per derived layout, never every generated URL.
+ * A derived frame previews its layout's first discovered page until a path is chosen.
+ */
 export function getCanvasPages(
   pages: Parameters<typeof getPageDestinations>[0],
   layouts: DestinationLayouts,
+  discoveredPaths?: ReadonlyMap<string, string>,
 ): CanvasPage[] {
   const concrete = getPageDestinations(pages, layouts).map((page) => ({
     key: page.key,
@@ -38,7 +42,9 @@ export function getCanvasPages(
       return {
         key: `derived:${layout.id}`,
         title: layout.title,
-        pathname: segments.some((part) => part.startsWith("$")) ? null : pattern,
+        pathname: segments.some((part) => part.startsWith("$"))
+          ? (discoveredPaths?.get(layout.id) ?? null)
+          : pattern,
         derivedLayoutId: layout.id,
         pattern,
         layoutId: layout.id,
