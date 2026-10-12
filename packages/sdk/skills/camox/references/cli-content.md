@@ -119,6 +119,23 @@ Content patches merge ordinary fields, so send only fields that should change:
 {{CAMOX_CMD}} blocks edit --id 314 --content '{"headline": "New headline"}'
 ```
 
+### Set string fields from files
+
+Use `--field-file <NAME>=<PATH>` on `blocks create` and `blocks edit` to set a top-level string field to a file's raw contents, without escaping it into JSON. It suits long Markdown and [Artifact](artifacts.md) sources. Repeat the flag to set several fields. It merges with `--content`; when both set the same field, the file wins. On `blocks create`, pass `--content`, `--field-file`, or both.
+
+```sh
+{{CAMOX_CMD}} blocks edit --id 314 --content '{"title": "Orbit"}' --field-file source=./orbit.html
+```
+
+Every file is read before anything is written, so a missing or unreadable file fails the command without changing the draft.
+
+To build an Artifact source, loop until it renders correctly:
+
+1. Write the source to a local file, such as `./orbit.html`.
+2. Push it with `blocks edit --id <ID> --field-file <NAME>=./orbit.html` (or `blocks create` for a new Block).
+3. Check the rendered page with `{{CAMOX_CMD}} preview`, following [CLI common guidance](cli-common.md).
+4. Edit the file and push again.
+
 ### Edit repeatable Content safely
 
 A repeatable field's array is replacement-shaped: omitting an existing item deletes it and cascades to its file references, settings, and nested items. Fetch the Block, preserve every existing item with `_itemId`, and add changes only to the intended entries:
