@@ -14,6 +14,7 @@ import {
   bumpContentUpdatedAt,
   bumpContentUpdatedAtForBlock,
 } from "../../lib/bump-content-updated-at";
+import { stripArtifactSources } from "../../lib/content-markdown";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, repeatableItems } from "../../schema";
@@ -285,9 +286,19 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
   );
   if (!block) return null;
 
+  const schema = (yield* loadBlockSchemas(db, null, block.id))?.contentSchema;
+  const itemSchema = yield* Effect.gen(function* () {
+    const path = yield* resolveItemFieldNamePath(db, block.id, item.parentItemId, item.fieldName);
+    return (yield* descendRepeaterSchema(schema, path))?.items;
+  }).pipe(Effect.orElseSucceed(() => undefined));
+  const content = stripArtifactSources(
+    itemSchema?.properties,
+    item.content as Record<string, unknown>,
+  );
+
   const summary = yield* generateObjectSummary(
     apiKey,
-    { type: block.type, markdown: JSON.stringify(item.content), previousSummary: item.summary },
+    { type: block.type, markdown: JSON.stringify(content), previousSummary: item.summary },
     abortController,
   );
 
