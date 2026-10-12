@@ -1,4 +1,4 @@
-import { createLayout } from "./createLayout";
+import { createLayout, type LayoutRequestContext } from "./createLayout";
 
 const Definition = createLayout("pokemon.$name")({
   kind: "derived",
@@ -148,6 +148,27 @@ createLayout("articles.$slug")({
   // @ts-expect-error Every route param needs a value.
   routes: () => ({ data: [{ params: {} }] }),
 });
+// Loader and routes receive the request context, which wrappers pass through unchanged.
+declare function readWithContext(context: LayoutRequestContext): Promise<string[]>;
+createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async ({ params, context }) => {
+    const [title = params.slug] = await readWithContext(context);
+    return { kind: "data", data: { title } };
+  },
+  routes: async ({ context }) => ({
+    data: (await readWithContext(context)).map((slug) => ({ params: { slug } })),
+  }),
+});
+createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  // @ts-expect-error The request context is opaque, not a source to read.
+  loader: async ({ context }) => ({ kind: "data", data: context.source }),
+});
+// @ts-expect-error The request context is opaque: only Camox creates it.
+void readWithContext({});
 // @ts-expect-error Only derived layouts discover routes.
 createLayout("pokedex")({ ...singletonOptions, kind: "singleton", routes: () => ({ data: [] }) });
 // @ts-expect-error Only derived layouts discover routes.

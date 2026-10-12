@@ -3,6 +3,9 @@ import { test } from "node:test";
 
 import type { Layout } from "./createLayout";
 import { derivedLayoutPath, discoverLayoutPaths, matchDerivedLayout } from "./derivedRoutes.ts";
+import { createRequestContext } from "./requestContext";
+
+const liveContext = createRequestContext({ source: "live" });
 
 function layout(id: string, kind: "curated" | "derived" | "singleton" = "derived") {
   return { _internal: { id, kind } } as Layout;
@@ -52,7 +55,7 @@ void test("discovered params become paths the runtime matches back to the same p
       routes: async () => ({ data: params.map((entry) => ({ params: entry })) }),
     },
   } as unknown as Layout;
-  const paths = await discoverLayoutPaths(discovering);
+  const paths = await discoverLayoutPaths(discovering, liveContext);
   assert.deepEqual(
     paths.map((path) => matchDerivedLayout([discovering], path)?.params),
     params,
@@ -63,5 +66,8 @@ void test("rejects discovered params the route could not match", async () => {
   for (const params of [{}, { name: "" }, { name: "a/b" }, { name: 1 }, { name: "a", extra: "b" }])
     assert.throws(() => derivedLayoutPath("pokemon.$name", params), /pokemon\.\$name/);
   const invalid = { _internal: { id: "pokemon.$name", kind: "derived", routes: () => ({}) } };
-  await assert.rejects(discoverLayoutPaths(invalid as unknown as Layout), /pokemon\.\$name/);
+  await assert.rejects(
+    discoverLayoutPaths(invalid as unknown as Layout, liveContext),
+    /pokemon\.\$name/,
+  );
 });

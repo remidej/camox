@@ -2,6 +2,10 @@ import * as React from "react";
 
 import { BlockErrorBoundary } from "@/features/preview/components/BlockErrorBoundary";
 
+import type { LayoutRequestContext } from "./requestContext";
+
+export type { LayoutRequestContext } from "./requestContext";
+
 /* -------------------------------------------------------------------------------------------------
  * createLayout
  * -----------------------------------------------------------------------------------------------*/
@@ -72,6 +76,17 @@ export interface LayoutLoaderResult<Data = unknown> {
   data: Data;
 }
 
+/** What `loader` receives: the page's params and the request context to pass through. */
+export interface LayoutLoaderContext<Params = Record<string, string>> {
+  params: Params;
+  context: LayoutRequestContext;
+}
+
+/** What `routes` receives: the request context to pass through. */
+export interface LayoutRoutesContext {
+  context: LayoutRequestContext;
+}
+
 type LoaderReturn = LayoutLoaderResult | PromiseLike<LayoutLoaderResult>;
 
 /** Route discovery result: the params of each page a derived layout can render. */
@@ -116,9 +131,9 @@ interface CreateLayoutOptions<
 > {
   id: string;
   kind?: "curated" | "derived" | "singleton";
-  loader?: (context: { params: Record<string, string> }) => Result;
+  loader?: (context: LayoutLoaderContext) => Result;
   /** Lists the pages of a derived layout, for the sitemap and the Canvas. */
-  routes?: () => RoutesReturn<Record<string, string>>;
+  routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
   title: string;
   description: string;
   blocks: {
@@ -369,7 +384,7 @@ type FileOptions<
           after: ValidateLayoutOnlyBlocks<A>;
           initial?: never;
         };
-        loader?: (context: { params: Record<string, never> }) => Result;
+        loader?: (context: LayoutLoaderContext<Record<string, never>>) => Result;
         routes?: never;
         toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, never>>;
         component: React.ComponentType<{ children?: never }>;
@@ -383,8 +398,8 @@ type FileOptions<
           after: ValidateLayoutOnlyBlocks<A>;
           initial?: never;
         };
-        loader: (context: { params: RouteParams<Id> }) => Result;
-        routes?: () => RoutesReturn<RouteParams<Id>>;
+        loader: (context: LayoutLoaderContext<RouteParams<Id>>) => Result;
+        routes?: (context: LayoutRoutesContext) => RoutesReturn<RouteParams<Id>>;
         toMarkdown?: LayoutToMarkdown<LoaderData<Result>, RouteParams<Id>>;
         component: React.ComponentType<{ children?: never }>;
         buildMetaTitle: BuildMetaTitle<LoaderData<Result>, RouteParams<Id>>;
