@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import type { Layout, LayoutBlockData, LayoutLoaderResult } from "../../core/createLayout";
+import type { Layout, LayoutBlockData, AnyLayoutLoaderResult } from "../../core/createLayout";
 import {
   NormalizedDataProvider,
   type NormalizedBlock,
@@ -21,7 +21,7 @@ export function SharedLayoutContent({
   blocks: NormalizedBlock[];
   files: NormalizedFile[];
   repeatableItems: NormalizedItem[];
-  result?: LayoutLoaderResult;
+  result?: AnyLayoutLoaderResult;
   children?: React.ReactNode;
 }) {
   const layoutBlocks = React.useMemo(() => {

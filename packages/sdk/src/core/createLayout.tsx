@@ -76,6 +76,19 @@ export interface LayoutLoaderResult<Data = unknown> {
   data: Data;
 }
 
+/**
+ * A loader result rendering one collection record, as `collection.pages()` returns it. Wrappers
+ * keep the page bound to its record by returning it unchanged.
+ */
+export interface LayoutCollectionItemResult<
+  Content = Record<string, unknown>,
+  CollectionId extends string = string,
+> {
+  kind: "collection-item";
+  collectionId: CollectionId;
+  data: { id: string; content: Content };
+}
+
 /** What `loader` receives: the page's params and the request context to pass through. */
 export interface LayoutLoaderContext<Params = Record<string, string>> {
   params: Params;
@@ -87,7 +100,9 @@ export interface LayoutRoutesContext {
   context: LayoutRequestContext;
 }
 
-type LoaderReturn = LayoutLoaderResult | PromiseLike<LayoutLoaderResult>;
+/** Every successful loader result, before `useData` unwraps it. */
+export type AnyLayoutLoaderResult = LayoutLoaderResult | LayoutCollectionItemResult;
+type LoaderReturn = AnyLayoutLoaderResult | PromiseLike<AnyLayoutLoaderResult>;
 
 /** Route discovery result: the params of each page a derived layout can render. */
 export interface LayoutRoutesResult<Params = Record<string, string>> {
@@ -167,7 +182,7 @@ function createLayoutDefinition<
   // Each layout gets its own context — avoids cross-module identity issues
   const LayoutContext = React.createContext<{
     layoutBlocks: Record<string, LayoutBlockData>;
-    result?: LayoutLoaderResult;
+    result?: AnyLayoutLoaderResult;
   } | null>(null);
 
   // Cast away the validation mapped type — once user-side type-checking has passed,
@@ -250,7 +265,7 @@ function createLayoutDefinition<
   }: {
     layoutBlocks: Record<string, LayoutBlockData>;
     children: React.ReactNode;
-    result?: LayoutLoaderResult;
+    result?: AnyLayoutLoaderResult;
   }) => {
     const value = React.useMemo(() => ({ layoutBlocks, result }), [layoutBlocks, result]);
     return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
@@ -433,7 +448,4 @@ export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any,
     createLayoutDefinition({ ...options, id: idOrOptions });
 }
 
-/** Signal a missing derived page; other loader failures remain server errors. */
-export function notFound() {
-  return Object.assign(new Error("Page not found"), { status: 404, code: "NOT_FOUND" });
-}
+export { notFound } from "./notFound";

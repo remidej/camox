@@ -1,5 +1,6 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, desc, eq, exists, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, exists, isNotNull, notInArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -188,6 +189,8 @@ const scopeInput = listCollectionRecordsInput;
 const recordInput = scopeInput.extend({ id: z.uuid() });
 const mutationInput = recordInput.extend({ expectedVersion: z.number().int().positive() });
 export const getCollectionRecordInput = recordInput;
+/** A record's published revision, joined next to the record. */
+const publishedRevisions = alias(collectionRevisions, "published_revisions");
 export const createRecordInput = scopeInput.extend({ content: z.unknown() });
 export const editRecordInput = mutationInput.extend({ content: z.unknown() });
 export const deleteRecordInput = mutationInput;
@@ -430,6 +433,56 @@ export const readRecord = Effect.fn("collections.readRecord")(function* (
         .get(),
     )) ?? null
   );
+});
+
+export const findRecordsByFieldInput = scopeInput.extend({
+  field: z.string(),
+  value: z.string(),
+  source: z.enum(["live", "draft"]),
+});
+
+/**
+ * The records whose String field's plain text equals `value`: the records a record page could
+ * render. Draft matches draft values and needs an authorized user; live matches published values.
+ * Empty values and values containing `/` can't be a path segment, so they never match.
+ */
+export const findRecordsByField = Effect.fn("collections.findRecordsByField")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof findRecordsByFieldInput>,
+) {
+  const input = yield* decodeInput(findRecordsByFieldInput, rawInput);
+  const definition = yield* definitionFor(ctx, input, input.source === "draft");
+  const field = (definition.contentSchema.properties as Record<string, { fieldType?: string }>)[
+    input.field
+  ];
+  if (field?.fieldType !== "String")
+    return yield* new InvalidInputError({
+      message: `${input.collectionId}.${input.field} is not a String field`,
+    });
+  if (!definition.active || !input.value || input.value.includes("/")) return [];
+  const content = input.source === "live" ? publishedRevisions.content : collectionRecords.draft;
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: collectionRecords.id, content })
+      .from(collectionRecords)
+      .leftJoin(
+        publishedRevisions,
+        eq(publishedRevisions.id, collectionRecords.publishedRevisionId),
+      )
+      .where(
+        and(
+          eq(collectionRecords.definitionId, definition.id),
+          input.source === "live" ? isNotNull(publishedRevisions.id) : undefined,
+        ),
+      ),
+  );
+  return rows
+    .filter((row) => {
+      const value = row.content?.[input.field];
+      if (typeof value !== "string" && (typeof value !== "object" || value === null)) return false;
+      return lexicalStateToPlainText(value as string | Record<string, unknown>) === input.value;
+    })
+    .map((row) => ({ id: row.id, content: row.content! }));
 });
 
 const mutation = Effect.fn("collections.mutation")(function* (

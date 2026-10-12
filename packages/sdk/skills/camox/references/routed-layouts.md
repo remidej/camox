@@ -88,6 +88,48 @@ export const Layout = createLayout("pokemon.$name")({
 - `routes` returns every page at once.
 - `loader` receives `{ params, context }` and `routes` receives `{ context }`. `context` is an opaque request context: ignore it, or pass it through unchanged to Camox helpers. The sitemap and Markdown always get live content; HTML and Studio navigation follow the editor's session.
 
+### Record pages
+
+A **Record Page** renders one collection record, found by one of its fields. Spread `collection.pages({ by, param })` into a derived layout instead of writing `loader` and `routes`:
+
+```tsx
+import { createLayout } from "camox/createLayout";
+import { collection as articles } from "../collections/articles";
+
+export const Layout = createLayout("articles.$slug")({
+  kind: "derived",
+  title: "Article",
+  description: "One article, found by its slug.",
+  blocks: { before: [navbarBlock], after: [footerBlock] },
+  ...articles.pages({ by: "slug", param: "slug" }),
+  buildMetaTitle: ({ data }) => String(data.content.title),
+  component: ArticlePage,
+});
+
+function ArticlePage() {
+  const { id, content } = Layout.useData();
+  // Render content.title, content.body, …
+}
+```
+
+- `by` names a String field of the collection; any other field is a type error. `param` names the route parameter holding its value; a layout whose route lacks it fails to type-check.
+- The loader finds the record whose `by` field's plain text equals the param: the draft value for a signed-in editor previewing, the published value for everyone else. A draft-only record is reachable in preview at its draft value; a never-published or unknown value answers 404. Records whose value is empty or contains `/` never get a page.
+- Several records sharing a value in the same source is a server error naming the collection, field, value and records. Camox does not enforce uniqueness: keep the field unique.
+- The loader returns a `collection-item` envelope, `{ kind: "collection-item", collectionId, data: { id, content } }`, typed as `LayoutCollectionItemResult` from `camox/createLayout`. `layout.useData()` returns the unwrapped record, `{ id, content }`. Camox rejects an envelope naming an unregistered collection or a malformed record id.
+- `routes` returns no entries yet, so the Canvas asks for a path and the sitemap omits record pages.
+- Record pages are read-only: `useData()` gives the stored content, not editable fields. Edited String fields may be stored as rich-text state rather than plain strings.
+- To wrap the helper, pass the whole loader input through, `context` included, and return the envelope unchanged:
+
+```tsx
+const articlePages = articles.pages({ by: "slug", param: "slug" });
+// …
+loader: async (input) => {
+  const result = await articlePages.loader(input);
+  return result;
+},
+routes: articlePages.routes,
+```
+
 ## Migrating existing loaders
 
 This is a breaking loader contract: replace `return pokemon` with `return { kind: "data", data: pokemon }`. For asynchronous data, await the payload inside the envelope: `return { kind: "data", data: await loadPokemon() }`, not a promise in `data`. Components using `layout.useData()` do not change. Existing layouts without loaders do not change.
@@ -96,7 +138,7 @@ For an explicit return annotation, import `type LayoutLoaderResult` from `camox/
 
 The playground's `/pokedex`, `/pokemon/pikachu`, and `/pokemon-types/electric` are working external-data examples, and both derived layouts declare `routes`, so `/sitemap.xml` lists every Pokémon and type. Load a URL directly, follow a Pokémon/type link, and refresh: `useData()` receives the same payload in server rendering, navigation, and hydration. Search and “Show more” still run on client state. A nonexistent Pokémon still returns 404; a PokéAPI failure is still a server error.
 
-Only `kind: "data"` is supported here. It does not make external data editable. Collection-item results and collection APIs are separate future capabilities.
+`kind: "data"` does not make external data editable. For collection records, use [Record pages](#record-pages).
 
 ## Metadata and Markdown
 

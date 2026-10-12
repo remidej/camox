@@ -199,3 +199,21 @@ membership and order, and the block stores nothing. Both blocks render with the 
    include it without republishing either page. Republishing an older article keeps its
    place, because `publishedAt` is its first publication. These lists never block
    unpublishing or deleting an article.
+
+## Article record pages (slice 8)
+
+`src/layouts/articles.$slug.tsx` is a record page: it spreads
+`articles.pages({ by: "slug", param: "slug" })` into a derived layout, so each article renders
+at `/articles/<its slug>`. `src/layouts/articles.tsx` is the `/articles` singleton. Its
+articles index block lists every article and links each one to its record page, with the href
+built from the slug in code. Record pages are read-only for now.
+
+After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm dev` running:
+
+1. Open `/articles`, then follow a link, for example `/articles/editing-in-context`. The page
+   shows that article's title, excerpt and body.
+2. Signed out, `/articles/next-release-notes` returns 404: that article is a draft. Signed in
+   to Studio, the same URL shows the draft.
+3. In Content → Articles, change a published article's slug without publishing. The preview
+   finds it at the new slug, while visitors keep the old URL until you publish.
+4. An unknown slug, such as `/articles/missing`, returns 404.
