@@ -5,13 +5,20 @@ const Definition = createLayout("pokemon.$name")({
   title: "Pokemon",
   description: "",
   blocks: { before: [], after: [] },
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
+  // Metadata callbacks and toMarkdown follow the loader, which their data is inferred from.
   loader: async ({ params }) => {
     const name: string = params.name;
     // @ts-expect-error Only parameters named by the file identity exist.
     void params.slug;
     return { kind: "data", data: { name, count: 1 } };
   },
+  buildMetaTitle: ({ data, params, pageMetaTitle }) => {
+    const count: number = data.count;
+    const name: string = params.name;
+    return `${name} (${count}) – ${pageMetaTitle}`;
+  },
+  buildMetaDescription: ({ data, pageMetaDescription }) => pageMetaDescription ?? data.name,
+  toMarkdown: ({ data, params }) => [`# ${data.name}`, `/${params.name}`],
   component: () => null,
 });
 
@@ -145,3 +152,17 @@ createLayout("articles.$slug")({
 createLayout("pokedex")({ ...singletonOptions, kind: "singleton", routes: () => ({ data: [] }) });
 // @ts-expect-error Only derived layouts discover routes.
 createLayout("curated")({ ...singletonOptions, kind: "curated", routes: () => ({ data: [] }) });
+
+createLayout("pokemon.$name")({
+  ...derivedOptions,
+  // @ts-expect-error Layout Markdown is a list of strings.
+  toMarkdown: () => "# Pokemon",
+});
+// @ts-expect-error Curated pages render editor content, not layout Markdown.
+createLayout("curated")({ ...singletonOptions, kind: "curated", toMarkdown: () => [] });
+createLayout("curated")({
+  ...singletonOptions,
+  kind: "curated",
+  // Curated pages have no loader data.
+  buildMetaTitle: ({ data, pageMetaTitle }) => (data satisfies undefined) ?? pageMetaTitle,
+});

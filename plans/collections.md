@@ -358,8 +358,13 @@ Layout Markdown and metadata (7b):
 - New optional `buildMetaDescription({ pageMetaDescription, data, params, projectName,
 pageFullPath })`. Curated pages pass the editor's description and default to it; derived
   and singleton pages pass `undefined`.
+- `data` in these callbacks and in `toMarkdown` is typed from the loader, which makes them
+  order-dependent: TypeScript infers it only when `loader` comes first (TanStack Router's `head`
+  has the same caveat). Layouts declaring `buildMetaTitle` before their loader had to be
+  reordered; typing `data` as `unknown` instead was rejected.
 - Every layout kind uses the same head: title, description, `og:*` tags, the `/og` image URL
-  and the favicon.
+  and the favicon. The `/og` image shows the editor's meta title on curated pages and the
+  built title on code-owned pages.
 - Playground: both Pokémon layouts declare `routes` (7a), `toMarkdown` and metadata (7b); the
   Pokédex singleton declares `toMarkdown` (7b).
 

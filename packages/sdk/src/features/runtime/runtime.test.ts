@@ -12,6 +12,7 @@ const layout = {
   afterBlockIds: [],
   updatedAt: "2026-01-01",
 };
+const buildMetaTitle = ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle;
 const app = {
   getLayouts: () => [
     {
@@ -19,15 +20,17 @@ const app = {
         id: "pokedex",
         kind: "singleton",
         title: "Pokédex",
+        buildMetaTitle,
         loader: async () => ({ kind: "data", data: { count: 12 } }),
       },
     },
-    { _internal: { id: "about-camox", kind: "singleton", title: "About Camox" } },
+    { _internal: { id: "about-camox", kind: "singleton", title: "About Camox", buildMetaTitle } },
     {
       _internal: {
         id: "pokemon.$name",
         kind: "derived",
         title: "Pokemon",
+        buildMetaTitle,
         loader: async ({ params }: { params: { name: string } }) => ({
           kind: "data",
           data: { name: params.name },
@@ -98,7 +101,16 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
       });
     }
     if (path.endsWith("/layouts/get"))
-      return Response.json({ json: { layout, blocks: [], files: [], repeatableItems: [] } });
+      return Response.json({
+        json: {
+          projectName: project.name,
+          project,
+          layout,
+          blocks: [],
+          files: [],
+          repeatableItems: [],
+        },
+      });
     throw new Error(`Unexpected API request ${path}`);
   });
   const options: RuntimeOptions = {

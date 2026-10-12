@@ -6,6 +6,7 @@ import type { RouterClient } from "@orpc/server";
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { CamoxApp } from "../../core/createApp";
+import type { Layout } from "../../core/createLayout";
 
 export type PageSource = "draft" | "live";
 
@@ -240,13 +241,19 @@ async function loadLivePage(
   return loadCamoxPage({ ...options, source: "live" });
 }
 
+export function buildFaviconUrl(
+  apiUrl: string,
+  project: { id: number; updatedAt: number | string },
+) {
+  return `${apiUrl}/favicons/${project.id}?v=${project.updatedAt}`;
+}
+
 export function buildCamoxPageLoaderData(
   apiUrl: string,
   page: PageStructure,
   origin: string,
 ): CamoxPageLoaderData {
-  const faviconUrl = `${apiUrl}/favicons/${page.project.id}?v=${page.project.updatedAt}`;
-  return { page, origin, faviconUrl };
+  return { page, origin, faviconUrl: buildFaviconUrl(apiUrl, page.project) };
 }
 
 export async function loadCamoxPageForRequest({
@@ -301,12 +308,15 @@ export async function createMarkdownResponse({
   pathname,
   projectSlug,
   request,
+  onNotFound,
 }: {
   apiUrl: string;
   environmentName?: string;
   pathname?: string;
   projectSlug: string;
   request: Request;
+  /** Answers for a path without a curated page, such as a derived layout's page. */
+  onNotFound?: () => Promise<Response | null>;
 }): Promise<Response | null> {
   const accept = request.headers.get("Accept") ?? "";
   if (!prefersMarkdown(accept)) return null;
@@ -321,48 +331,61 @@ export async function createMarkdownResponse({
     return new Response(markdown, {
       headers: { "Content-Type": "text/markdown; charset=utf-8" },
     });
-  } catch {
+  } catch (error) {
+    if (onNotFound && isNotFoundError(error)) return onNotFound();
     return null;
   }
 }
 
-export function buildCamoxPageHead(
-  camoxApp: CamoxApp,
-  loaderData?: CamoxPageLoaderData,
-): { meta?: Array<Record<string, string>>; links?: Array<Record<string, string>> } {
-  if (!loaderData) return {};
+export interface PageHeadInput {
+  layout: Pick<Layout["_internal"], "id" | "buildMetaTitle" | "buildMetaDescription"> | undefined;
+  /** The editor's meta title for curated pages, the layout's title for code-owned pages. */
+  pageMetaTitle: string;
+  pageMetaDescription: string | undefined;
+  /** The title the /og image shows; defaults to the built meta title. */
+  ogImageTitle?: string;
+  customOgImageUrl?: string | null;
+  data: unknown;
+  params: Record<string, string>;
+  projectName: string;
+  pageFullPath: string;
+  origin: string;
+  faviconUrl: string;
+}
 
-  const { page, origin, faviconUrl } = loaderData;
-  const pageMetaTitle = page.page.metaTitle ?? page.page.pathSegment;
+export type PageHead = {
+  meta?: Array<Record<string, string>>;
+  links?: Array<Record<string, string>>;
+};
 
-  const meta: Array<Record<string, string>> = [];
-  let title = pageMetaTitle;
+/** The head every page gets, whatever its layout kind. */
+export function buildPageHead(input: PageHeadInput): PageHead {
+  const context = {
+    data: input.data,
+    params: input.params,
+    projectName: input.projectName,
+    pageFullPath: input.pageFullPath,
+  };
+  const title =
+    input.layout?.buildMetaTitle({ ...context, pageMetaTitle: input.pageMetaTitle }) ??
+    input.pageMetaTitle;
+  const description = input.layout?.buildMetaDescription
+    ? input.layout.buildMetaDescription({
+        ...context,
+        pageMetaDescription: input.pageMetaDescription,
+      })
+    : input.pageMetaDescription;
 
-  if (page.layout) {
-    const layout = camoxApp.getLayoutById(page.layout.layoutId);
-    if (layout) {
-      title = layout._internal.buildMetaTitle({
-        pageMetaTitle,
-        projectName: page.projectName,
-        pageFullPath: page.page.fullPath,
-      });
-    }
-  }
-  meta.push({ title });
-
-  if (page.page.metaDescription) {
-    meta.push({ name: "description", content: page.page.metaDescription });
-  }
+  const meta: Array<Record<string, string>> = [{ title }];
+  if (description) meta.push({ name: "description", content: description });
 
   const ogImageParams = new URLSearchParams({
-    ...(page.layout && { layoutId: page.layout.layoutId }),
-    title: pageMetaTitle,
-    ...(page.page.metaDescription && {
-      description: page.page.metaDescription,
-    }),
-    ...(page.projectName && { projectName: page.projectName }),
+    ...(input.layout && { layoutId: input.layout.id }),
+    title: input.ogImageTitle ?? title,
+    ...(description && { description }),
+    ...(input.projectName && { projectName: input.projectName }),
   });
-  const ogImageUrl = page.page.customOgImageUrl ?? `${origin}/og?${ogImageParams.toString()}`;
+  const ogImageUrl = input.customOgImageUrl ?? `${input.origin}/og?${ogImageParams.toString()}`;
 
   meta.push(
     { property: "og:title", content: title },
@@ -370,16 +393,30 @@ export function buildCamoxPageHead(
     { property: "og:image:width", content: "1200" },
     { property: "og:image:height", content: "630" },
   );
-
-  if (page.page.metaDescription) {
-    meta.push({
-      property: "og:description",
-      content: page.page.metaDescription,
-    });
-  }
+  if (description) meta.push({ property: "og:description", content: description });
 
   return {
     meta,
-    links: [{ rel: "icon", href: faviconUrl }],
+    links: [{ rel: "icon", href: input.faviconUrl }],
   };
+}
+
+export function buildCamoxPageHead(camoxApp: CamoxApp, loaderData?: CamoxPageLoaderData): PageHead {
+  if (!loaderData) return {};
+
+  const { page, origin, faviconUrl } = loaderData;
+  const pageMetaTitle = page.page.metaTitle ?? page.page.pathSegment;
+  return buildPageHead({
+    layout: page.layout ? camoxApp.getLayoutById(page.layout.layoutId)?._internal : undefined,
+    pageMetaTitle,
+    pageMetaDescription: page.page.metaDescription ?? undefined,
+    ogImageTitle: pageMetaTitle,
+    customOgImageUrl: page.page.customOgImageUrl,
+    data: undefined,
+    params: {},
+    projectName: page.projectName,
+    pageFullPath: page.page.fullPath,
+    origin,
+    faviconUrl,
+  });
 }

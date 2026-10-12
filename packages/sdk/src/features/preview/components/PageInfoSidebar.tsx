@@ -80,6 +80,8 @@ const usePageMetadataData = (pageId: number) => {
           pageMetaTitle: page.metaTitle ?? "",
           projectName: project?.name ?? "",
           pageFullPath: page.fullPath,
+          data: undefined,
+          params: {},
         })
       : (page?.metaTitle ?? "");
 

@@ -204,7 +204,8 @@ const runtimeBasePath = ${JSON.stringify(normalizeRuntimeBasePath(runtimeBasePat
 
 function isDocumentRequest(request) {
   const accept = request.headers.get("Accept") ?? request.headers.get("accept") ?? "";
-  return accept.includes("text/html") || accept.includes("*/*");
+  // Agents ask for the Markdown Representation of the same page URLs.
+  return accept.includes("text/html") || accept.includes("text/markdown") || accept.includes("*/*");
 }
 
 function getRuntimePathname(pathname) {
@@ -333,7 +334,8 @@ function normalizeRuntimeBasePath(basePath?: string): string {
 
 function isDocumentRequest(request: Request): boolean {
   const accept = request.headers.get("Accept") ?? request.headers.get("accept") ?? "";
-  return accept.includes("text/html") || accept.includes("*/*");
+  // Agents ask for the Markdown Representation of the same page URLs.
+  return accept.includes("text/html") || accept.includes("text/markdown") || accept.includes("*/*");
 }
 
 export function shouldHandleRuntimeRequest(request: Request, runtimeBasePath?: string) {

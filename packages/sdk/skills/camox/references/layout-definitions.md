@@ -44,15 +44,16 @@ export { myLayout as layout };
 
 ## The `createLayout` options
 
-| Option           | Required | Description                                                                       |
-| ---------------- | -------- | --------------------------------------------------------------------------------- |
-| `id`             | yes      | Unique kebab-case identifier matching the filename without extension.             |
-| `title`          | yes      | CMS display name.                                                                 |
-| `description`    | yes      | Guidance for users and agents on which pages suit this layout.                    |
-| `blocks`         | yes      | `before`, `after`, and optional `initial` arrays; see layout slot rules below.    |
-| `component`      | yes      | Named function component receiving `{ children }`.                                |
-| `buildMetaTitle` | yes      | `({ pageMetaTitle, projectName, pageFullPath }) => string` for the browser title. |
-| `buildOgImage`   | no       | `({ title, description, projectName }) => JSX` for a sharing image.               |
+| Option                 | Required | Description                                                                                                                  |
+| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `id`                   | yes      | Unique kebab-case identifier matching the filename without extension.                                                        |
+| `title`                | yes      | CMS display name.                                                                                                            |
+| `description`          | yes      | Guidance for users and agents on which pages suit this layout.                                                               |
+| `blocks`               | yes      | `before`, `after`, and optional `initial` arrays; see layout slot rules below.                                               |
+| `component`            | yes      | Named function component receiving `{ children }`.                                                                           |
+| `buildMetaTitle`       | yes      | `({ pageMetaTitle, projectName, pageFullPath }) => string` for the browser title.                                            |
+| `buildMetaDescription` | no       | `({ pageMetaDescription, projectName, pageFullPath }) => string \| undefined`. Without it, the editor's description is used. |
+| `buildOgImage`         | no       | `({ title, description, projectName }) => JSX` for a sharing image.                                                          |
 
 ## Layout Slots — `before`, `after`, and `initial`
 

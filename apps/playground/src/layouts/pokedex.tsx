@@ -15,7 +15,6 @@ export const Layout = createLayout("pokedex")({
   title: "Pokédex",
   description: "The code-owned Pokémon directory, with an editable introduction.",
   blocks: { before: [navbarBlock, pokedexBlock], after: [footerBlock] },
-  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
   loader: async () => {
     const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=2000");
     if (!response.ok) throw new Error(`PokéAPI returned ${response.status}`);
@@ -28,6 +27,13 @@ export const Layout = createLayout("pokedex")({
       })),
     };
   },
+  buildMetaTitle: ({ pageMetaTitle }) => pageMetaTitle,
+  toMarkdown: ({ data }) => [
+    `${data.length} Pokémon:`,
+    data
+      .map(({ name, id }) => `- [${pokemonName(name)}](/pokemon/${name}) ${pokemonNumber(id)}`)
+      .join("\n"),
+  ],
   component: PokedexPage,
 });
 

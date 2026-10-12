@@ -12,6 +12,10 @@ const getPageMarkdown = pub
   .input(service.getPageMarkdownInput)
   .handler(({ context, input }) => runService(service.getPageMarkdown(context, input)));
 
+const getLayoutMarkdown = pub
+  .input(service.getLayoutMarkdownInput)
+  .handler(({ context, input }) => runService(service.getLayoutMarkdown(context, input)));
+
 const getUsageCounts = pub
   .input(service.getBlocksUsageCountsInput)
   .handler(({ context, input }) => runService(service.getBlocksUsageCounts(context, input)));
@@ -62,6 +66,7 @@ const duplicate = authed
 export const blockProcedures = {
   get,
   getPageMarkdown,
+  getLayoutMarkdown,
   getUsageCounts,
   getPagesUsing,
   getSyncedContent,
