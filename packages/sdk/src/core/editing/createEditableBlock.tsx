@@ -1160,7 +1160,11 @@ export function createEditableBlock<
     );
   };
 
-  /** Renders an artifact's sandboxed frame; an empty artifact shows a placeholder in its place. */
+  /**
+   * Renders an artifact's sandboxed frame; an empty artifact shows a placeholder in its place.
+   * In Edit Mode, a transparent layer covers the frame, so clicks select the artifact field
+   * instead of reaching the page inside it.
+   */
   const Artifact = <K extends keyof ArtifactFields>({
     name,
     children,
@@ -1168,16 +1172,63 @@ export function createEditableBlock<
     name: K;
     children: (props: ArtifactRenderProps) => React.ReactNode;
   }): React.ReactNode => {
+    const selectTarget = usePreviewSelection();
     const blockContext = React.use(Context);
     if (!blockContext) {
       throw new Error("Artifact must be used within a Block Component");
     }
+    const { blockId, content, mode } = blockContext;
+    const isContentEditable = useIsEditable(mode);
+    const { window: iframeWindow } = useFrame();
     const repeaterContext = React.use(RepeatableItemContext);
-    const value: unknown = repeaterContext
-      ? repeaterContext.itemContent[name]
-      : blockContext.content[name];
-    if (!isArtifactSource(value)) return children(artifactPlaceholderProps());
-    return children(artifactFrameProps(value));
+    const value: unknown = repeaterContext ? repeaterContext.itemContent[name] : content[name];
+    const itemId = repeaterContext?.itemId;
+    const fieldName = String(name);
+    const fieldId = getOverlayFieldId(blockId, fieldName, { itemId });
+
+    const [isHovered, setIsHovered] = React.useState(false);
+    const isHoveredFromSidebar = useOverlayMessage(
+      iframeWindow,
+      isContentEditable,
+      "CAMOX_HOVER_FIELD",
+      "CAMOX_HOVER_FIELD_END",
+      { fieldId },
+    );
+    const overlayState = useOverlayState(isHovered || isHoveredFromSidebar);
+
+    const selectField = (event: React.MouseEvent<HTMLDivElement>) => {
+      selectTarget(
+        itemId != null
+          ? { type: "item-field", blockId, itemId, fieldName, fieldType: "Artifact" }
+          : { type: "block-field", blockId, fieldName, fieldType: "Artifact" },
+        event,
+      );
+    };
+
+    const frame = children(
+      isArtifactSource(value) ? artifactFrameProps(value) : artifactPlaceholderProps(),
+    );
+    return (
+      <div
+        style={{ position: "relative", height: "100%" }}
+        onClickCapture={isContentEditable ? selectField : undefined}
+        data-camox-field-id={isContentEditable ? fieldId : undefined}
+        data-camox-field-type={isContentEditable ? "artifact" : undefined}
+        {...(isContentEditable ? overlayState : {})}
+        data-camox-overlay-mode={assetOverlayMode(null)}
+        onMouseEnter={isContentEditable ? () => setIsHovered(true) : undefined}
+        onMouseLeave={isContentEditable ? () => setIsHovered(false) : undefined}
+      >
+        {frame}
+        {isContentEditable && (
+          <div
+            aria-hidden
+            data-camox-artifact-layer=""
+            style={{ position: "absolute", inset: 0, cursor: "pointer" }}
+          />
+        )}
+      </div>
+    );
   };
 
   const Link = <K extends keyof LinkFields>({

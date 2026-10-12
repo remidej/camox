@@ -1,3 +1,5 @@
+import { artifactTitle } from "@camox/api-contract";
+
 /** What `block.Artifact` passes to its render prop, to spread onto an `<iframe>`. */
 export type ArtifactRenderProps = {
   srcDoc: string;
@@ -7,33 +9,7 @@ export type ArtifactRenderProps = {
   loading: "lazy";
 };
 
-const UNTITLED = "Untitled artifact";
-const entities: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
-
-function decodeEntities(text: string) {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-    if (entity[0] !== "#") return entities[entity.toLowerCase()] ?? match;
-    const code =
-      entity[1] === "x" || entity[1] === "X"
-        ? Number.parseInt(entity.slice(2), 16)
-        : Number(entity.slice(1));
-    return Number.isNaN(code) ? match : String.fromCodePoint(code);
-  });
-}
-
-/** The artifact's accessible name: its source's `<title>`, or "Untitled artifact". */
-export function artifactTitle(source: string): string {
-  const match = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(source);
-  const title = match ? decodeEntities(match[1]).replace(/\s+/g, " ").trim() : "";
-  return title || UNTITLED;
-}
+export { artifactTitle };
 
 /**
  * The frame props for an artifact source. This getter is the boundary that hides how the source

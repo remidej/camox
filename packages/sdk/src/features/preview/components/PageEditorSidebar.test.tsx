@@ -75,6 +75,8 @@ const BLOCK_ID = 7;
 const ITEM_ID = 12;
 const FILE_ID = 5;
 const logo = { _fileId: FILE_ID };
+const ARTIFACT_SOURCE =
+  "<!doctype html><title>Orbiting moons</title><script>const secretSource = 1;</script>";
 
 type Write = { procedure: string; input: Record<string, unknown> };
 
@@ -215,6 +217,7 @@ async function renderSidebar(
     content: (field): Record<string, TSchema> => ({
       quote: field.string({ default: "" }),
       logo: field.image({ title: "Logo" }),
+      visual: field.artifact({ size: "fill", title: "Visual" }),
       company: field.reference(customers, { title: "Company", required: true }),
       logos: field.referenceList(customers, { title: "Logos", maxItems: 3 }),
       recent: field.referenceList(customers, {
@@ -226,6 +229,7 @@ async function renderSidebar(
         content: (field) => ({
           name: field.string({ default: "" }),
           photo: field.image({ title: "Photo" }),
+          scene: field.artifact({ size: "content", title: "Scene" }),
           sponsor: field.reference(customers, { title: "Sponsor" }),
           partners: field.referenceList(customers, { title: "Partners", maxItems: 3 }),
         }),
@@ -257,7 +261,14 @@ async function renderSidebar(
     block: {
       id: BLOCK_ID,
       type: "testimonial",
-      content: { quote: "Hello", logo, people: [{ _itemId: ITEM_ID }], company, logos },
+      content: {
+        quote: "Hello",
+        logo,
+        visual: ARTIFACT_SOURCE,
+        people: [{ _itemId: ITEM_ID }],
+        company,
+        logos,
+      },
       settings: {},
       references: {
         company: company === ACME ? acme : null,
@@ -273,7 +284,7 @@ async function renderSidebar(
         parentItemId: null,
         position: "a0",
         summary: "Ada",
-        content: { name: "Ada", photo: logo, sponsor, partners },
+        content: { name: "Ada", photo: logo, scene: "", sponsor, partners },
         settings: {},
         references: {
           sponsor: linked(sponsor ? [sponsor] : [])[0] ?? null,
@@ -588,6 +599,52 @@ void test("field edits are not sent while viewing the live site", async (t) => {
   await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
   await sidebar.unlinkAsset();
   assert.deepEqual(sidebar.writes, []);
+});
+
+/** Whether the sidebar offers any way to type into a field. */
+const hasEditor = (host: HTMLElement) =>
+  host.querySelector("textarea, input, [contenteditable]") != null;
+
+void test("the field list shows an artifact by its title and opens its view", async (t) => {
+  const sidebar = await renderSidebar(t, { type: "block", blockId: BLOCK_ID });
+  assert.match(sidebar.text(), /Visual\s*Orbiting moons/);
+  await sidebar.click("Orbiting moons");
+  assert.deepEqual(sidebar.selection(), {
+    type: "block-field",
+    blockId: BLOCK_ID,
+    fieldName: "visual",
+    fieldType: "Artifact",
+  });
+  assert.match(sidebar.text(), /Orbiting moons/);
+  assert.match(sidebar.text(), /Created and edited by agents/);
+});
+
+void test("an artifact's view never shows or edits its source", async (t) => {
+  const sidebar = await renderSidebar(t, {
+    type: "block-field",
+    blockId: BLOCK_ID,
+    fieldName: "visual",
+    fieldType: "Artifact",
+  });
+  assert.deepEqual(sidebar.crumbs(), ["Page", "Testimonial", "Visual"]);
+  assert.match(sidebar.text(), /Orbiting moons/);
+  assert.doesNotMatch(sidebar.text(), /secretSource|<title>|doctype/);
+  assert.equal(hasEditor(sidebar.host), false);
+});
+
+void test("an empty artifact is shown as Empty, in the field list and in its view", async (t) => {
+  const list = await renderSidebar(t, { type: "item", blockId: BLOCK_ID, itemId: ITEM_ID });
+  assert.match(list.text(), /Scene\s*Empty/);
+  const view = await renderSidebar(t, {
+    type: "item-field",
+    blockId: BLOCK_ID,
+    itemId: ITEM_ID,
+    fieldName: "scene",
+    fieldType: "Artifact",
+  });
+  assert.match(view.text(), /Empty/);
+  assert.doesNotMatch(view.text(), /Created and edited by agents|Untitled artifact/);
+  assert.equal(hasEditor(view.host), false);
 });
 
 const recordField = (
