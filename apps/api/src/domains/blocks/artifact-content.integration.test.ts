@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { blockTypesProvider } from "../../../../../packages/ai-tools/src/providers/block-types";
+import {
+  ARTIFACT_MAX_LENGTH,
+  contentFieldBuilder as field,
+} from "../../../../../packages/sdk/src/core/lib/contentType";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { pages } from "../../schema";
@@ -7,10 +12,8 @@ import { upsertBlockDefinition } from "../block-definitions/service";
 import { createRepeatableItem, updateRepeatableItemContent } from "../repeatable-items/service";
 import { createBlock, updateBlockContent } from "./service";
 
-// The schema an SDK `field.artifact()` syncs: 256 KB of source at most.
-const limit = 256 * 1024;
-const artifact = { type: "string", fieldType: "Artifact", maxLength: limit, size: "fill" };
-const fits = `<title>Fits</title>${"x".repeat(limit - "<title>Fits</title>".length)}`;
+// Validate against the schemas the SDK's `field.artifact()` syncs.
+const fits = `<title>Fits</title>${"x".repeat(ARTIFACT_MAX_LENGTH - "<title>Fits</title>".length)}`;
 const tooLarge = `${fits}x`;
 
 async function fixture(suffix: string) {
@@ -26,11 +29,14 @@ async function fixture(suffix: string) {
       contentSchema: {
         type: "object",
         properties: {
-          visual: artifact,
+          visual: field.artifact({ size: "fill" }),
           scenes: {
             type: "array",
             fieldType: "Repeater",
-            items: { type: "object", properties: { scene: artifact } },
+            items: {
+              type: "object",
+              properties: { scene: field.artifact({ size: "content" }) },
+            },
           },
         },
       },
@@ -52,16 +58,16 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  return { ctx, page };
+  return { ctx, page, projectId: base.project.id };
 }
 
 const tooLargeError = {
   code: "BAD_REQUEST",
-  message: expect.stringMatching(/256 KB[\s\S]*esm\.sh/),
+  message: expect.stringMatching(new RegExp(`${ARTIFACT_MAX_LENGTH / 1024} KB[\\s\\S]*esm\\.sh`)),
 };
 
 describe("artifact content validation", () => {
-  it("accepts sources up to 256 KB and rejects larger ones, pointing to esm.sh", async () => {
+  it("accepts sources up to the artifact limit and rejects larger ones, pointing to esm.sh", async () => {
     const { ctx, page } = await fixture("block");
     await expect(
       runService(
@@ -106,5 +112,20 @@ describe("artifact content validation", () => {
     await expect(
       runService(updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } })),
     ).rejects.toMatchObject(tooLargeError);
+  });
+
+  it("tells agents which fields are artifacts and how each is sized", async () => {
+    const { ctx, projectId } = await fixture("describe");
+    const context = { ...ctx, projectId };
+    const describeBlockTypes = (await blockTypesProvider(context)).find(
+      (tool) => tool.name === "describeBlockTypes",
+    );
+    if (!describeBlockTypes) throw new Error("Missing tool: describeBlockTypes");
+    const { blockTypes } = (await describeBlockTypes.handler({ types: ["visual"] }, context)) as {
+      blockTypes: { contentSchema: { properties: Record<string, any> } }[];
+    };
+    const { visual, scenes } = blockTypes[0].contentSchema.properties;
+    expect(visual).toMatchObject({ fieldType: "Artifact", size: "fill" });
+    expect(scenes.items.properties.scene).toMatchObject({ fieldType: "Artifact", size: "content" });
   });
 });
