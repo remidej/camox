@@ -3,6 +3,10 @@ packages:
   - "packages/*"
   - "packages/cli/template"
 catalog:
+  "@types/react": ^19.3.0
+  "@types/react-dom": ^19.3.0
+  react: ^19.3.0
+  react-dom: ^19.3.0
   vite: npm:@voidzero-dev/vite-plus-core@latest
   vite-plus: ^0.1.21
   vitest: npm:@voidzero-dev/vite-plus-test@latest
