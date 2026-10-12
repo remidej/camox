@@ -1,6 +1,5 @@
-import type * as React from "react";
-
 import { artifactTitle } from "@camox/api-contract";
+import type * as React from "react";
 
 import { ARTIFACT_RUNTIME } from "./artifactRuntime";
 
@@ -17,6 +16,8 @@ export type ArtifactFrameProps = {
 export type ArtifactRenderProps = ArtifactFrameProps & {
   /** Connects the frame to the `camox` runtime inside it. */
   ref: React.RefCallback<HTMLIFrameElement>;
+  /** For `size: "content"`, the height the artifact's content needs, once it reports it. */
+  style?: React.CSSProperties;
 };
 
 export { artifactTitle };

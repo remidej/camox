@@ -17,7 +17,7 @@ content: (field) => ({
 }),
 ```
 
-- `size` (required): `"fill"` fills a container whose size the block controls, for example with an aspect ratio; `"content"` is for frames whose height follows their page, such as calculators.
+- `size` (required): `"fill"` fills a container whose size the block controls, for example with an aspect ratio; `"content"` is for frames whose height follows their page, such as calculators. See [Size to the content](#size-to-the-content).
 - `default` (optional): a starting source. Leave it out; agents write sources as content. An empty artifact renders nothing on the website and a placeholder in the studio preview.
 - Artifacts work in block content and repeater items, so also in layout and synced blocks. Collection records can't hold them.
 
@@ -29,7 +29,7 @@ content: (field) => ({
 </div>
 ```
 
-Spread the props onto your own `<iframe>`: they carry `srcDoc`, `sandbox="allow-scripts"`, `allow="fullscreen; clipboard-write"`, `title`, `loading="lazy"`, and a `ref` that connects the frame to the `camox` runtime. Don't replace the `ref`. Repeater items use `item.Artifact`. `block.Field` rejects artifact fields.
+Spread the props onto your own `<iframe>`: they carry `srcDoc`, `sandbox="allow-scripts"`, `allow="fullscreen; clipboard-write"`, `title`, `loading="lazy"`, a `ref` that connects the frame to the `camox` runtime, and for `size: "content"` a `style` with the frame's height. Don't replace the `ref`, and don't set a height on a `"content"` frame. Repeater items use `item.Artifact`. `block.Field` rejects artifact fields.
 
 ## Write a source
 
@@ -66,5 +66,48 @@ const editing = window.camox.studio?.editMode === true;
 ```
 
 Read it when you act rather than once at startup: it's `null` until the frame connects, and it changes when the editor toggles Edit Mode. Use it to stay calm while someone is editing, for example by not autoplaying sound.
+
+### `camox.onViewport(callback)`
+
+Scroll-driven animations follow where the frame sits in the page's viewport. The first call subscribes; it returns a function that unsubscribes. The callback receives:
+
+- `progress`: `0` when the frame's top enters at the bottom of the viewport, `1` when its bottom leaves at the top, `0.5` when the frame is centered.
+- `visibleRatio`: the share of the frame inside the viewport, from `0` to `1`.
+
+```js
+const stop = window.camox.onViewport(({ progress, visibleRatio }) => {
+  scene.rotation.y = progress * Math.PI * 2;
+  if (visibleRatio === 0) pauseRendering();
+});
+```
+
+While subscribed, the runtime also sets `--camox-progress` on `:root`, so CSS alone can scrub with scroll. Subscribe once, even with an empty callback, to get it:
+
+```html
+<style>
+  .orbit {
+    transform: rotate(calc(var(--camox-progress, 0) * 1turn));
+  }
+</style>
+<script>
+  window.camox.onViewport(() => {});
+</script>
+```
+
+Updates arrive at most once per animation frame, only when the values change, so nothing arrives while the frame is far from the viewport. Artifacts that never subscribe get nothing and cost nothing. Don't read the frame's own scroll position or listen to `scroll` inside it: the artifact can't see the page scroll.
+
+### Size to the content
+
+With `size: "content"`, the runtime measures the height of the artifact's `<html>` element and the frame follows it as the content changes, so the page never shows a scrollbar inside the frame. Let the document grow with its content: never give `html` or `body` a height in viewport or percentage units (`100vh`, `100%`), which would tie the content's height to the frame's. With `size: "fill"`, the block sizes the frame and the artifact never resizes it.
+
+### `camox.navigate(href)`
+
+Navigates the website, for example from a widget's call to action. Internal paths such as `/pricing` go through the website's client router; external URLs open in a new tab. Only `http` and `https` URLs work.
+
+```js
+button.addEventListener("click", () => window.camox.navigate("/pricing?plan=pro"));
+```
+
+It only works right after a real click or key press in the artifact. Calls from timers, scroll callbacks or page load do nothing, so an artifact can't redirect visitors on its own. The sandbox blocks popups and navigating the website: a plain `<a href>` would only load inside the frame, and `window.open` does nothing. Use `camox.navigate` instead.
 
 The runtime API has no stability guarantee while Camox is pre-1.0.

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
-import { useLocation } from "../features/navigation/navigation";
+import { useLocation, useNavigate } from "../features/navigation/navigation";
 import { useProjectSlug } from "../lib/auth";
 import {
   isItemMarker,
@@ -265,9 +265,13 @@ function createViewBlock(options: EditableOptions) {
       return editingRuntime.renderPrimitive(options, "Artifact", { name, children });
     }
     const value = useValue(name);
-    const ref = useArtifactHost(React.use(ArtifactStudioContext));
+    const hostProps = useArtifactHost({
+      studio: React.use(ArtifactStudioContext),
+      size: useFieldSchema(name)?.size,
+      navigate: useNavigate(),
+    });
     if (!isArtifactSource(value)) return null;
-    return children({ ...artifactFrameProps(value), ref });
+    return children({ ...artifactFrameProps(value), ...hostProps });
   };
 
   const Link = ({ name, children }: any) => {
@@ -344,8 +348,8 @@ function createViewBlock(options: EditableOptions) {
   const ReferenceFile = (props: any) => <ReferencePrimitive primitive={File} {...props} />;
   const ReferenceEmbed = (props: any) => <ReferencePrimitive primitive={Embed} {...props} />;
 
-  /** A reference field's schema: in the block, the enclosing item, or the placed record. */
-  function useReferenceField(name: string) {
+  /** A field's schema: in the block, the enclosing item, or the placed record. */
+  function useFieldSchema(name: string) {
     const block = React.use(Context);
     const item = React.use(RepeaterContext);
     if (item) return item.itemSchema?.[name];
@@ -359,7 +363,7 @@ function createViewBlock(options: EditableOptions) {
     const block = React.use(Context);
     const { recordsMap } = useNormalizedData();
     if (!block) throw new Error("Reference must be used within a Block Component");
-    const schema = useReferenceField(name);
+    const schema = useFieldSchema(name);
     const record = resolveReference(useValue(name), schema.collectionId, recordsMap);
     if (!record) return null;
     return <RecordScope block={block} schema={schema} record={record} children={children} />;
@@ -373,7 +377,7 @@ function createViewBlock(options: EditableOptions) {
     const item = React.use(RepeaterContext);
     const normalizedData = useNormalizedData();
     if (!block) throw new Error("ReferenceList must be used within a Block Component");
-    const schema = useReferenceField(name);
+    const schema = useFieldSchema(name);
     const stored = useValue(name);
     // A query-backed list stores nothing: the server resolved its records for the owner.
     const ids = isQueryBacked(schema)
