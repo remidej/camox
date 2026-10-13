@@ -28,7 +28,7 @@ import {
   prefersMarkdown,
 } from "../routes/pageRuntime";
 import {
-  matchBlockCatalogPath,
+  matchCanvasOnlyPath,
   matchCollectionContentPath,
   STUDIO_ASSETS_PATH,
   STUDIO_CONTENT_PATH,
@@ -42,7 +42,7 @@ const RUNTIME_REGISTRY_PATH = "/_camox/registry";
 const RUNTIME_ROUTES_PATH = "/_camox/routes";
 
 export type RuntimeRouteKind =
-  | "block"
+  | "canvas"
   | "data"
   | "health"
   | "og"
@@ -71,8 +71,11 @@ export interface PageRenderInput {
   previewHandoff?: boolean;
   previewDocument?: string;
   routeKind?: "studio" | "studio-content" | "studio-nested";
-  /** A block of the Block Catalog, selected on the Canvas in Edit Mode instead of a Page. */
-  catalogBlock?: { blockId: string };
+  /**
+   * A location only the Canvas shows, in Edit Mode, instead of a Page: the Canvas
+   * with nothing selected, or with a block of the Block Catalog selected.
+   */
+  canvasOnly?: { blockId?: string };
   project?: Awaited<ReturnType<ReturnType<typeof createServerApiClient>["projects"]["getBySlug"]>>;
   presentation?: "public" | "studio";
   derived?: {
@@ -173,7 +176,7 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   if (pathname === RUNTIME_ROUTES_PATH) return { kind: "routes", pathname };
   if (pathname === "/_camox/data") return { kind: "data", pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
-  if (matchBlockCatalogPath(pathname)) return { kind: "block", pathname };
+  if (matchCanvasOnlyPath(pathname)) return { kind: "canvas", pathname };
   if (
     pathname === STUDIO_CONTENT_PATH ||
     pathname === `${STUDIO_CONTENT_PATH}/` ||
@@ -929,11 +932,11 @@ ${renderClientEntryScript(options.studioClientEntryUrl)}
 }
 
 /**
- * A block of the Block Catalog renders the page app, like a Page, so selecting
- * it keeps the Canvas mounted. Without a page-content block of that id, it
- * redirects home.
+ * The Canvas with nothing selected, or a block of the Block Catalog, renders the
+ * page app, like a Page, so selecting it keeps the Canvas mounted. A block path
+ * without a page-content block of that id redirects home.
  */
-async function createBlockCatalogResponse({
+async function createCanvasOnlyResponse({
   options,
   pathname,
   request,
@@ -944,13 +947,13 @@ async function createBlockCatalogResponse({
   request: Request;
   dataOnly?: boolean;
 }): Promise<Response> {
-  const blockId = matchBlockCatalogPath(pathname)!;
-  const app = await options.getCamoxApp?.();
-  const block = app?.getBlockById(blockId);
-  if (!block || block._internal.layoutOnly) {
+  const { blockId } = matchCanvasOnlyPath(pathname)!;
+  const app = blockId ? await options.getCamoxApp?.() : undefined;
+  const block = blockId ? app?.getBlockById(blockId) : undefined;
+  if (blockId && (!block || block._internal.layoutOnly)) {
     if (dataOnly)
       return Response.json(
-        { kind: "block", message: "No block of the Block Catalog on this path", pathname },
+        { kind: "canvas", message: "No block of the Block Catalog on this path", pathname },
         { status: 404 },
       );
     return Response.redirect(
@@ -965,7 +968,7 @@ async function createBlockCatalogResponse({
     (!dataOnly && !options.renderPage)
   ) {
     return Response.json(
-      { message: "Camox page renderer is not configured.", kind: "block", pathname },
+      { message: "Camox page renderer is not configured.", kind: "canvas", pathname },
       { status: 500 },
     );
   }
@@ -985,7 +988,7 @@ async function createBlockCatalogResponse({
     }
   }
   const studio = project !== undefined;
-  const title = block._internal.title;
+  const title = block?._internal.title ?? "Canvas";
   const input: PageRenderInput = {
     project,
     presentation: studio ? "studio" : "public",
@@ -1001,7 +1004,7 @@ async function createBlockCatalogResponse({
     layoutIdentity: null,
     loaderData: null,
     dehydratedState: dehydrate(new QueryClient()),
-    catalogBlock: { blockId },
+    canvasOnly: blockId ? { blockId } : {},
   };
   // Block frames build their documents from the site head; there is no page content.
   const document = (await options.getDocument?.()) ?? {};
@@ -1152,8 +1155,8 @@ export async function handleCamoxRequest(
     const url = new URL(request.url);
     const targetPathname = normalizePagePath(url.searchParams.get("path"));
     const targetMatch = matchRuntimeRoute(targetPathname);
-    if (targetMatch.kind === "block") {
-      return createBlockCatalogResponse({
+    if (targetMatch.kind === "canvas") {
+      return createCanvasOnlyResponse({
         options,
         pathname: targetPathname,
         request,
@@ -1180,8 +1183,8 @@ export async function handleCamoxRequest(
     return createStudioHtmlResponse({ match, options, request });
   }
 
-  if (match.kind === "block") {
-    return createBlockCatalogResponse({ options, pathname: match.pathname, request });
+  if (match.kind === "canvas") {
+    return createCanvasOnlyResponse({ options, pathname: match.pathname, request });
   }
 
   if (match.kind === "page") {

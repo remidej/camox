@@ -109,8 +109,8 @@ function PageExperience({
     () => false,
   );
   const signIn = useSignInRedirect();
-  // A Block Catalog block is a Studio location too, but renders in the page tree.
-  const studioOnly = !!input.routeKind || !!input.catalogBlock;
+  // A Canvas-only location is a Studio location too, but renders in the page tree.
+  const studioOnly = !!input.routeKind || !!input.canvasOnly;
   React.useEffect(() => {
     if (studioOnly && !isAuthenticated && !isLoading) signIn();
   }, [studioOnly, isAuthenticated, isLoading, signIn]);
@@ -118,7 +118,7 @@ function PageExperience({
   const loading = <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>;
   const published = input.routeKind ? (
     loading
-  ) : input.catalogBlock ? null : input.derived ? (
+  ) : input.canvasOnly ? null : input.derived ? (
     <DerivedPageContent camoxApp={camoxApp} derived={input.derived} source={input.source} />
   ) : (
     <PublishedPageExperience source={input.source} />

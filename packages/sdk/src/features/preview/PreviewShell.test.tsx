@@ -313,10 +313,10 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     page: { id: 3, status: "draft", livePublishedCheckpointId: 1 },
   });
   type Props = React.ComponentProps<typeof CamoxPreview>;
-  const render = (derived?: Props["derived"], catalogBlock?: Props["catalogBlock"]) =>
+  const render = (derived?: Props["derived"], canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
       <QueryClientProvider client={client}>
-        <CamoxPreview derived={derived} catalogBlock={catalogBlock} source="draft">
+        <CamoxPreview derived={derived} canvasOnly={canvasOnly} source="draft">
           <p data-content>Site content</p>
         </CamoxPreview>
       </QueryClientProvider>,
@@ -332,6 +332,8 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
     await render(undefined, { blockId: "hero" });
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas, "selecting a block keeps it");
+    await render(undefined, {});
+    assert.equal(dom.host.querySelector("[data-canvas]"), canvas, "selecting nothing keeps it");
     await render();
     assert.equal(dom.host.querySelector("[data-canvas]"), canvas);
   } finally {
@@ -349,7 +351,7 @@ void test("a Block Catalog block opens in Edit Mode, and goes home without the C
   const navigations: { to: string; replace?: boolean }[] = [];
   Object.assign(globalThis, { testNavigations: navigations });
   const shell = (
-    <PreviewShell catalogBlock={{ blockId: "hero" }} runtimeBasePath="/nested/studio">
+    <PreviewShell canvasOnly={{ blockId: "hero" }} runtimeBasePath="/nested/studio">
       {null}
     </PreviewShell>
   );

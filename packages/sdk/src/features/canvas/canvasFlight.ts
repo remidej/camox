@@ -2,6 +2,7 @@ import {
   constrainCanvasCamera,
   fitCanvas,
   type CanvasCamera,
+  type CanvasInsets,
   type CanvasSize,
 } from "./canvasCamera";
 
@@ -47,6 +48,7 @@ export function createCanvasFlight(
   end: CanvasCamera,
   viewport: CanvasSize,
   content: CanvasSize,
+  insets?: CanvasInsets,
 ): { duration: number; at: (progress: number) => CanvasCamera } {
   if (start.x === end.x && start.y === end.y && start.scale === end.scale) {
     return { duration: 0, at: () => ({ ...start }) };
@@ -84,6 +86,7 @@ export function createCanvasFlight(
       },
       viewport,
       content,
+      insets,
     ),
   );
   const distance = Math.hypot(
@@ -111,6 +114,7 @@ export function createCanvasFlight(
         },
         viewport,
         content,
+        insets,
       );
     },
   };

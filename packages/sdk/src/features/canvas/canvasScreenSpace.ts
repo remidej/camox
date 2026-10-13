@@ -7,6 +7,9 @@ const CANVAS_X = "var(--canvas-x, 64px)";
 const CANVAS_Y = "var(--canvas-y, 112px)";
 const CANVAS_ZOOM = "var(--canvas-zoom, .4)";
 
+/** Screen x where the left sidebar's overlay ends, following its slide. */
+export const CANVAS_SIDEBAR_LEFT = "var(--canvas-sidebar-left, 0px)";
+
 /** Places and scales the world-space row. */
 export const CANVAS_WORLD_TRANSFORM = `translate(${CANVAS_X}, ${CANVAS_Y}) scale(${CANVAS_ZOOM})`;
 
