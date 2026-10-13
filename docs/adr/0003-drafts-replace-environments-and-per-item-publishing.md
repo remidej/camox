@@ -10,7 +10,7 @@ Pages, layouts, synced blocks, and collection records used to publish independen
 
 ## Consequences
 
-- Content needs identities that stay the same across Live and every draft, so a draft can be compared with Live and applied to it.
+- Content needs identities that stay the same across Live and every draft, so a draft can be compared with Live and applied to it. See [Stable content identity](0004-stable-content-identity.md).
 - A draft stores only what it changes, on top of Live. Anything it doesn't change always shows the latest Live content, so drafts don't need to be brought up to date by hand.
 - Live is read-only in the studio. Editing while viewing Live starts a draft, so a quick fix is still edit, then publish.
 - Files belong to drafts like any other content.

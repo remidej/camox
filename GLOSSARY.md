@@ -115,7 +115,7 @@ One placement of a block definition, on a page or in a layout, with its own cont
 _Avoid_: Section, component, instance
 
 **Synced Block**:
-A block definition whose content and settings are shared by every placement on the website.
+A block definition whose content and settings are shared by every placement on the website. Like any content, the shared content is changed through drafts, so each draft can hold its own version of it.
 _Avoid_: Global block, shared block, symbol
 
 **Repeatable Item**:
