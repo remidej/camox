@@ -9,6 +9,7 @@ import {
   createCanvasDocument,
   logicalViewportValue,
   observeCanvasDocument,
+  pauseCanvasDocument,
 } from "./canvasFrameDocument";
 
 void test("canonical href combines runtime mount and page pathname, not the canvas route", () => {
@@ -64,6 +65,127 @@ void test("CSSOM rewrite retains responsive conditions, cascade, and importance"
     sheet.cssRules.map((rule) => rule.cssText),
     rewritten,
   );
+  void window.happyDOM.close();
+});
+
+void test("sheets are walked again only once rules are inserted or an import loads", () => {
+  const window = new Window();
+  const doc = window.document;
+  const style = doc.createElement("style");
+  style.textContent = ".a { color: red }";
+  doc.head.append(style);
+  const sheet = style.sheet!;
+  let walks = 0;
+  // Iterating the rules, unlike reading their count, is a walk.
+  const rules = new Proxy(sheet.cssRules, {
+    get: (target, key) => {
+      if (key === Symbol.iterator) walks++;
+      const value = Reflect.get(target, key, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  Object.defineProperty(sheet, "cssRules", { get: () => rules });
+  const pending = { styleSheet: null as unknown, cssText: "@import url(late.css);" };
+  const host = { cssRules: [pending] };
+  const adapt = () =>
+    adaptCanvasStyleSheets({
+      styleSheets: [sheet, host],
+      adoptedStyleSheets: [],
+    } as unknown as Document);
+
+  adapt();
+  assert.equal(walks, 1);
+  adapt();
+  assert.equal(walks, 1, "an unchanged sheet is not walked again");
+  sheet.insertRule(".screen { height: 100vh }", sheet.cssRules.length);
+  adapt();
+  assert.equal(walks, 2);
+  assert.equal(
+    (sheet.cssRules[1] as unknown as CSSStyleRule).style.height,
+    "var(--camox-viewport-height, 100vh)",
+  );
+
+  const late = doc.createElement("style");
+  late.textContent = ".late { min-height: 100svh }";
+  doc.head.append(late);
+  pending.styleSheet = late.sheet;
+  adapt();
+  assert.equal(
+    (late.sheet!.cssRules[0] as unknown as CSSStyleRule).style.minHeight,
+    "var(--camox-viewport-height, 100svh)",
+    "an import still loading leaves its sheet to be walked again",
+  );
+  void window.happyDOM.close();
+});
+
+void test("pausing a frame holds its animations and media, then resumes exactly what it held", async () => {
+  const window = new Window();
+  const doc = window.document;
+  doc.body.innerHTML = "<video></video><audio></audio>";
+  const video = doc.querySelector("video")!;
+  const audio = doc.querySelector("audio")!;
+  await video.play();
+  const animation = (playState: AnimationPlayState, css = false) => {
+    const fake = {
+      playState,
+      pause: () => (fake.playState = "paused"),
+      play: () => (fake.playState = "running"),
+      ...(css && { animationName: "spin" }),
+    };
+    return fake;
+  };
+  const transition = animation("running");
+  const keyframes = animation("running", true);
+  const held = animation("paused");
+  const removed = animation("running");
+  Object.assign(doc, { getAnimations: () => [transition, keyframes, held, removed] });
+
+  const resume = pauseCanvasDocument(doc as unknown as Document);
+  assert.ok(doc.documentElement.hasAttribute("data-camox-paused"));
+  assert.equal(video.paused, true);
+  assert.equal(transition.playState, "paused");
+  assert.equal(keyframes.playState, "running", "CSS animations are left to the paused style");
+  const late = doc.createElement("video");
+  doc.body.append(late);
+  await late.play();
+  await window.happyDOM.waitUntilComplete();
+  assert.equal(late.paused, true, "media starting while paused is held too");
+  // Its element leaves the document while the frame is paused.
+  removed.playState = "idle";
+
+  resume();
+  assert.equal(doc.documentElement.hasAttribute("data-camox-paused"), false);
+  assert.equal(video.paused, false);
+  assert.equal(late.paused, false);
+  assert.equal(audio.paused, true, "media that was not playing stays still");
+  assert.equal(transition.playState, "running");
+  assert.equal(held.playState, "paused", "animations paused before stay paused");
+  assert.equal(removed.playState, "idle", "cancelled animations do not restart");
+  await window.happyDOM.close();
+});
+
+void test("frames hold their CSS animations while paused", (t) => {
+  const window = new Window();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "DOMParser");
+  Object.defineProperty(globalThis, "DOMParser", { configurable: true, value: window.DOMParser });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "DOMParser", original);
+    else Reflect.deleteProperty(globalThis, "DOMParser");
+  });
+  const frame = new window.DOMParser().parseFromString(
+    createCanvasDocument(
+      "<html><head></head><body><div data-camox-preview-root></div></body></html>",
+      "https://example.test/",
+    ),
+    "text/html",
+  );
+  const doc = window.document;
+  doc.documentElement.innerHTML = frame.documentElement.innerHTML;
+  const playState = () =>
+    window.getComputedStyle(doc.body).getPropertyValue("animation-play-state");
+  assert.notEqual(playState(), "paused");
+  doc.documentElement.setAttribute("data-camox-paused", "");
+  assert.equal(playState(), "paused");
   void window.happyDOM.close();
 });
 
@@ -191,22 +313,39 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
     queued = undefined;
     callback?.(0);
   };
+  const mutate = (type: MutationRecordType, target: unknown, attributeName: string | null = null) =>
+    mutationCallback!(
+      [{ type, target, attributeName } as unknown as MutationRecord],
+      {} as MutationObserver,
+    );
+  const contentChanged = () => mutate("childList", root);
   flush();
   assert.equal(iframe.style.height, "1800px");
   contentHeight = 950;
-  mutationCallback!([], {} as MutationObserver);
+  contentChanged();
   const first = queued;
-  mutationCallback!([], {} as MutationObserver);
+  contentChanged();
   assert.equal(queued, first);
   flush();
   assert.equal(iframe.style.height, "950px");
   resizeCallback!([{ target: root } as unknown as ResizeObserverEntry], {} as ResizeObserver);
   assert.equal(queued, undefined, "our final geometry does not trigger another measurement");
   contentHeight = 100;
-  mutationCallback!([], {} as MutationObserver);
+  contentChanged();
   flush();
   assert.equal(iframe.style.height, "800px");
-  mutationCallback!([], {} as MutationObserver);
+  const animated = doc.createElement("div");
+  root.appendChild(animated);
+  mutate("attributes", animated, "style");
+  mutate("attributes", root, "style");
+  assert.equal(queued, undefined, "animated inline styles in the content leave sizing to resizes");
+  mutate("attributes", doc.documentElement, "data-camox-paused");
+  assert.equal(queued, undefined, "pausing the frame does not re-measure it");
+  mutate("attributes", animated, "class");
+  assert.notEqual(queued, undefined, "other content attributes re-measure");
+  flush();
+  mutate("attributes", doc.body, "style");
+  assert.notEqual(queued, undefined, "the document's own inline styles re-measure");
   cleanup();
   assert.equal(disconnected, 2);
   assert.equal(queued, undefined);

@@ -29,6 +29,9 @@ export function matchCollectionContentPath(pathname: string) {
   }
 }
 
+/** The Studio URL of the Canvas with nothing selected. */
+export const STUDIO_CANVAS_PATH = `${STUDIO_BASE_PATH}/canvas`;
+
 export const STUDIO_BLOCKS_PATH = `${STUDIO_BASE_PATH}/blocks`;
 
 /** The Studio URL of a block of the Block Catalog. */
@@ -44,4 +47,14 @@ export function matchBlockCatalogPath(pathname: string) {
   } catch {
     return null;
   }
+}
+
+/**
+ * A location that only exists on the Canvas, in Edit Mode: the Canvas with
+ * nothing selected, or a block of the Block Catalog.
+ */
+export function matchCanvasOnlyPath(pathname: string): { blockId?: string } | null {
+  if (pathname === STUDIO_CANVAS_PATH) return {};
+  const blockId = matchBlockCatalogPath(pathname);
+  return blockId ? { blockId } : null;
 }

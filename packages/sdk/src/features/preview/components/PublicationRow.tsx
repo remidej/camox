@@ -1,4 +1,3 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,8 +28,10 @@ import { type Action, actionsStore } from "../../provider/actionsStore";
 import { previewStore, selectPreviewSource } from "../previewStore";
 import {
   buildPublicationPlan,
+  getLayoutPublicationScope,
   getPublicationCapabilities,
   getPublicationRequest,
+  refreshPublishedViews,
   withReferenceTargets,
   type PublicationPlan,
   type PublicationTarget,
@@ -39,11 +40,15 @@ import { PublishDialog } from "./PublishDialog";
 
 type Operation = "publish" | "unpublish" | "discard";
 
+/** What the controls publish; a new identity remounts them with fresh state. */
+function targetIdentity(target: PublicationTarget | null) {
+  if (!target) return "loading";
+  if (target.kind === "page") return `page:${target.page.id}`;
+  return `layout:${target.layout.id}:${target.record?.id ?? ""}`;
+}
+
 export function PublicationRow({ target }: { target: PublicationTarget | null }) {
-  const identity = target
-    ? `${target.kind}:${target.kind === "page" ? target.page.id : target.layout.id}`
-    : "loading";
-  return <PublicationControls key={identity} target={target} />;
+  return <PublicationControls key={targetIdentity(target)} target={target} />;
 }
 
 function PublicationControls({ target }: { target: PublicationTarget | null }) {
@@ -97,16 +102,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
             ? "Unpublished successfully"
             : "Discarded draft changes",
       );
-      // Publication may affect other pages and layout blocks. Do not rely only
-      // on the realtime broadcast to refresh the initiating client's view.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.layouts.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.pages.list }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.pages.getByPathAll }),
-        queryClient.invalidateQueries({ queryKey: ["camox", "pages", "getById"] }),
-        queryClient.invalidateQueries({ queryKey: ["camox", "blocks", "get"] }),
-        queryClient.invalidateQueries({ queryKey: ["camox", "collections"] }),
-      ]);
+      await refreshPublishedViews(queryClient);
     },
     onError: () => toast.error("Could not complete this action. Please try again."),
   });
@@ -280,7 +276,10 @@ function ReferencePublicationDialog({
     const request =
       reviewedTarget.kind === "page"
         ? api.pages.referenceTargets({ id: reviewedTarget.page.id, alsoPublishLayout })
-        : api.layouts.referenceTargets({ id: reviewedTarget.layout.id });
+        : api.layouts.referenceTargets({
+            id: reviewedTarget.layout.id,
+            ...getLayoutPublicationScope(reviewedTarget, alsoPublishLayout),
+          });
     void request.then(
       ({ targets, missingRequired }) => {
         if (!active) return;

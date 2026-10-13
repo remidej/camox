@@ -9,6 +9,7 @@ import {
   type CommentTarget,
 } from "./previewCommentsStore";
 import {
+  isBlockPlacement,
   previewStore,
   selectIsCommentMode,
   selectIsEditMode,
@@ -30,7 +31,8 @@ export type SelectionEvent = {
   stopPropagation(): void;
 };
 
-function commentTarget(selection: Selection | null): CommentTarget {
+/** Where a comment on the selection anchors; null where comments are not supported yet. */
+function commentTarget(selection: Selection | null): CommentTarget | null {
   if (!selection) return { kind: "page" };
   switch (selection.type) {
     case "block":
@@ -47,8 +49,10 @@ function commentTarget(selection: Selection | null): CommentTarget {
         fieldName: selection.fieldName,
       };
     // Comments on records are out of scope; anchor them to the placing reference field.
+    // A record page's record has none, and comments on its fields are deferred.
     case "record":
     case "record-field":
+      if (!isBlockPlacement(selection)) return null;
       return { kind: "block-field", blockId: selection.blockId, fieldName: selection.fieldName };
   }
 }
@@ -85,6 +89,7 @@ export function selectPreviewTarget(
   if (owner?.kind !== "page") return;
   const { pageId } = owner;
   const target = commentTarget(selection);
+  if (!target) return;
   previewCommentsStore.send({
     type: "startComment",
     pageId,

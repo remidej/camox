@@ -5,7 +5,7 @@ Use this reference for code-owned pages in `src/layouts/`. For editor-created pa
 - **`singleton`**: one code-owned page at a fixed file-defined URL. Editors change its blocks, not its existence, URL, or structure.
 - **`derived`**: code-owned routes resolved through a required server-side loader, typically using file parameters such as `$name`.
 
-All editable content lives in blocks. Layouts do not expose editable `content` schemas or `.Field` helpers. Read [Block Definitions](block-definitions.md) when creating or changing those blocks.
+All editable content lives in blocks. Layouts do not expose editable `content` schemas or `.Field` helpers; [record pages](#record-pages) render their collection record through `layout.Item`. Read [Block Definitions](block-definitions.md) when creating or changing those blocks.
 
 ## Singleton pages
 
@@ -83,9 +83,70 @@ export const Layout = createLayout("pokemon.$name")({
 - Return `{ data: [{ params }] }`, synchronously or asynchronously. `params` is typed from the file identity: `pokemon.$name` needs exactly `{ name: string }`. Return raw values; Camox builds and encodes the URL (`mr mime` becomes `/pokemon/mr%20mime`).
 - Only derived layouts accept `routes`; singletons and curated layouts are a type error.
 - The runtime sitemap lists every discovered page, without `<lastmod>`. The Canvas previews the layout's first discovered page until a path is chosen.
+- Entries may carry an optional `target` naming the collection record they render (see [Record pages](#record-pages)).
 - An invalid entry (missing, extra or empty params, or a value containing `/`) or a throwing `routes` makes `/sitemap.xml` respond 500 with a message naming the layout, rather than silently omitting pages.
 - `routes` lists pages; it does not authorize them. The loader still validates every request, and URLs left out of `routes` keep rendering. A curated page at a discovered URL still takes precedence and may be listed twice.
-- `routes` takes no arguments and returns every page at once.
+- `routes` returns every page at once.
+- `loader` receives `{ params, context }` and `routes` receives `{ context }`. `context` is an opaque request context: ignore it, or pass it through unchanged to Camox helpers. The sitemap and Markdown always get live content; HTML and Studio navigation follow the editor's session.
+
+### Record pages
+
+A **Record Page** renders one collection record, found by one of its fields. Spread `collection.pages({ by, param })` into a derived layout instead of writing `loader` and `routes`:
+
+```tsx
+import { createLayout } from "camox/createLayout";
+import { collection as articles } from "../collections/articles";
+
+export const Layout = createLayout("articles.$slug")({
+  kind: "derived",
+  title: "Article",
+  description: "One article, found by its slug.",
+  blocks: { before: [navbarBlock], after: [footerBlock] },
+  ...articles.pages({ by: "slug", param: "slug" }),
+  buildMetaTitle: ({ item, projectName }) => `${item.title} | ${projectName}`,
+  buildMetaDescription: ({ item }) => item.excerpt || undefined,
+  toMarkdown: ({ item }) => [`# ${item.title}`, `By ${item.author.name}`, item.body],
+  component: ArticlePage,
+});
+
+function ArticlePage() {
+  return (
+    <Layout.Item>
+      {(article) => (
+        <article>
+          <article.Field name="title">{(props) => <h1 {...props} />}</article.Field>
+          <article.Reference name="author">
+            {(author) => <author.Field name="name">{(props) => <p {...props} />}</author.Field>}
+          </article.Reference>
+          <article.Field name="body">{(props) => <p {...props} />}</article.Field>
+        </article>
+      )}
+    </Layout.Item>
+  );
+}
+```
+
+- `by` names a String field of the collection; any other field is a type error. `param` names the route parameter holding its value; a layout whose route lacks it fails to type-check.
+- The loader finds the record whose `by` field's plain text equals the param: the draft value for a signed-in editor previewing, the published value for everyone else. A draft-only record is reachable in preview at its draft value; a never-published or unknown value answers 404. Records whose value is empty or contains `/` never get a page.
+- Several records sharing a value in the same source is a server error naming the collection, field, value and records. Camox does not enforce uniqueness: keep the field unique.
+- The loader returns a `collection-item` envelope, `{ kind: "collection-item", collectionId, data: { id, content } }`, typed as `LayoutCollectionItemResult` from `camox/createLayout`. `layout.useData()` returns the unwrapped record, `{ id, content }`. Camox rejects an envelope naming an unregistered collection or a malformed record id.
+- `routes` lists one entry per record that can have a page, in the request's source: the sitemap lists published records only, even when an editor asks, while the Canvas previews a signed-in editor's first record, draft-only records included. Each entry is `{ params, target: { kind: "collection-item", collectionId, id } }`; `target` names the record independently of its current value. Records whose value is empty or contains `/` are left out. Several records sharing a value fail discovery, so `/sitemap.xml` responds 500 naming the layout and the records. An empty collection returns `{ data: [] }`, and the Canvas asks for a path.
+- `layout.Item` renders the page's record with the same typed scope as a block's `Reference`: `Field`, `Image`, `File`, `Embed`, `ImageList`, `FileList`, `Reference` and `ReferenceList`, plus `id` and `label`. Field names are checked against the collection. The record is the first hop: `Reference` and `ReferenceList` render the records it links, which link nothing further. Prefer it to `useData()`, whose `content` holds stored values (String fields may be rich-text state).
+- `layout.Item` exists only when every return of the loader is a record of one collection. On a loader that may return external data or records of several collections, using it is a type error. At runtime it renders nothing when the result isn't a record.
+- In Studio, editors edit record page fields in place, like a referenced record's: purple overlays, selection, and the record's fields in the sidebar. Edits change the shared record everywhere it appears. Comments can't be left on them yet.
+- `toMarkdown` also receives `item`, the same Markdown builder as a reference list's `toMarkdown`: interpolate fields (`item.title`, `item.author.name`, `item.cover`) and Camox fills them with the live record, rich text included. `data` stays the raw record. Markdown always shows live content, whoever asks.
+- `buildMetaTitle` and `buildMetaDescription` also receive `item`: the record's String fields as plain text.
+- To wrap the helper, pass the whole loader input through, `context` included, and return the envelope unchanged. Type it as the helper's loader (`ReturnType<typeof articlePages.loader>`) to keep `layout.Item` and `item` typed:
+
+```tsx
+const articlePages = articles.pages({ by: "slug", param: "slug" });
+// …
+loader: async (input) => {
+  const result = await articlePages.loader(input);
+  return result;
+},
+routes: articlePages.routes,
+```
 
 ## Migrating existing loaders
 
@@ -95,7 +156,7 @@ For an explicit return annotation, import `type LayoutLoaderResult` from `camox/
 
 The playground's `/pokedex`, `/pokemon/pikachu`, and `/pokemon-types/electric` are working external-data examples, and both derived layouts declare `routes`, so `/sitemap.xml` lists every Pokémon and type. Load a URL directly, follow a Pokémon/type link, and refresh: `useData()` receives the same payload in server rendering, navigation, and hydration. Search and “Show more” still run on client state. A nonexistent Pokémon still returns 404; a PokéAPI failure is still a server error.
 
-Only `kind: "data"` is supported here. It does not make external data editable. Collection-item results and collection APIs are separate future capabilities.
+`kind: "data"` does not make external data editable. For collection records, use [Record pages](#record-pages).
 
 ## Metadata and Markdown
 

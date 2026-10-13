@@ -25,10 +25,14 @@ const CSS_FUNCTIONS: Record<string, (...args: number[]) => number> = {
   clamp: (min, value, max) => Math.max(min!, Math.min(value!, max!)),
 };
 
-/** Evaluates a CSS length expression of the camera variables, in screen px. */
-function evaluateCss(expression: string, camera: { x: number; zoom: number }) {
+/** Evaluates a CSS length expression of the camera and sidebar variables, in screen px. */
+function evaluateCss(
+  expression: string,
+  camera: { x: number; zoom: number; sidebarLeft?: number },
+) {
   const tokens = expression
     .replace(/var\(--canvas-x, [^)]*\)/g, String(camera.x))
+    .replace(/var\(--canvas-sidebar-left, [^)]*\)/g, `${camera.sidebarLeft ?? 0}px`)
     .replace(/var\(--canvas-zoom, [^)]*\)/g, String(camera.zoom))
     .match(/[a-z]+\(|-?[\d.]+(?:px)?|[-+*/(),]/g)!;
   let position = 0;
@@ -149,6 +153,59 @@ void test("Shelf Marker bars never overlap and collapsed bars keep their thickne
         }
       }
     }
+  } finally {
+    await act(async () => root.unmount());
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete (globalThis as Record<string, unknown>)[key];
+    }
+  }
+});
+
+void test("an expanded Shelf Marker's label sticks past the left sidebar", async () => {
+  const dom = new Window({ url: "http://localhost/camox" });
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    HTMLElement: dom.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const { createRoot } = await import("react-dom/client");
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  try {
+    const { markers } = positionCanvasShelves(getCanvasShelves(pages, blocks));
+    await act(async () =>
+      root.render(<CanvasShelfMarkers markers={markers} onToggle={() => {}} />),
+    );
+    const label = mount.querySelector(
+      '[data-canvas-shelf-marker-label="shelf:pages"]',
+    ) as unknown as HTMLElement;
+    const labelLeft = (camera: { x: number; zoom: number; sidebarLeft: number }) =>
+      evaluateCss(translateX(label.style.transform), camera);
+    // Zoomed in on the area's middle: its start is far off to the left.
+    const scrolled = { x: -1000, zoom: 1 };
+    const withoutSidebar = labelLeft({ ...scrolled, sidebarLeft: 0 });
+    for (const sidebarLeft of [120, 250]) {
+      assert.equal(
+        labelLeft({ ...scrolled, sidebarLeft }),
+        withoutSidebar + sidebarLeft,
+        `the label keeps its inset from a ${sidebarLeft}px sidebar's edge`,
+      );
+    }
+    // In view past the sidebar, the label stays at its area's start.
+    const inView = { x: 400, zoom: 1 };
+    assert.equal(
+      labelLeft({ ...inView, sidebarLeft: 250 }),
+      labelLeft({ ...inView, sidebarLeft: 0 }),
+    );
   } finally {
     await act(async () => root.unmount());
     for (const [key, descriptor] of previous) {

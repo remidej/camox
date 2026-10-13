@@ -5,11 +5,12 @@ import { useSelector } from "@xstate/store-react";
 
 import { useProjectSlug } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
-import { layoutQueries, projectQueries } from "@/lib/queries";
+import { collectionQueries, layoutQueries, projectQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import type { PageRenderInput } from "../../runtime/runtime";
 import { previewStore, selectPreviewSource } from "../previewStore";
+import type { PageRecordId, PublicationTarget } from "../publication";
 import { PagePicker } from "./PagePicker";
 import { LayoutBlockItem } from "./PageTree";
 import { PublicationRow } from "./PublicationRow";
@@ -17,7 +18,22 @@ import { PublicationRow } from "./PublicationRow";
 export type DerivedLayoutStructure = NonNullable<PageRenderInput["derived"]>["layout"];
 const EMPTY_PAGE = { blockIds: [] as number[] };
 
-export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructure }) {
+/** Where this page's content is edited, and what its layout's blocks change. */
+function layoutNotice(singleton: boolean, recordPage: boolean) {
+  if (singleton)
+    return "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other placements.";
+  if (recordPage)
+    return "Changes to these blocks apply to every page using this layout. Select this page’s content in the preview to edit its record, shared everywhere it appears.";
+  return "Changes apply to every page using this layout. The generated page content is managed outside the studio.";
+}
+
+export function DerivedLayoutSidebar({
+  layout,
+  pageRecord,
+}: {
+  layout: DerivedLayoutStructure;
+  pageRecord?: PageRecordId;
+}) {
   const source = useSelector(previewStore, selectPreviewSource);
   const { beforeBlocks, afterBlocks } = usePageBlocks({ page: EMPTY_PAGE, layout }, source);
   const app = useCamoxApp();
@@ -31,6 +47,22 @@ export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructur
     enabled: !!project,
   });
   const record = layouts?.find((item) => item.id === layout.id);
+  // Publication refreshes this list, so the switch follows the record's status.
+  const { data: pageRecordStatus } = useQuery({
+    ...collectionQueries.records(projectSlug, pageRecord?.collectionId ?? ""),
+    enabled: !!pageRecord,
+    select: (records) => records.find((item) => item.id === pageRecord?.id)?.status,
+  });
+  const target: PublicationTarget | null = record
+    ? {
+        kind: "layout",
+        layout: record,
+        name: layoutName,
+        ...(pageRecord && pageRecordStatus
+          ? { record: { ...pageRecord, status: pageRecordStatus } }
+          : {}),
+      }
+    : null;
 
   return (
     <>
@@ -38,9 +70,7 @@ export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructur
         <div className="flex w-full">
           <PagePicker />
         </div>
-        <PublicationRow
-          target={record ? { kind: "layout", layout: record, name: layoutName } : null}
-        />
+        <PublicationRow target={target} />
       </PanelHeader>
       <PanelContent className="flex grow basis-0 flex-col gap-4 overflow-auto p-2">
         {(
@@ -64,11 +94,7 @@ export function DerivedLayoutSidebar({ layout }: { layout: DerivedLayoutStructur
         ))}
         <Alert>
           <AlertTitle>{singleton ? "Code-owned page" : "Shared layout blocks"}</AlertTitle>
-          <AlertDescription>
-            {singleton
-              ? "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other placements."
-              : "Changes apply to every page using this layout. The generated page content is managed outside the studio."}
-          </AlertDescription>
+          <AlertDescription>{layoutNotice(singleton, !!pageRecord)}</AlertDescription>
         </Alert>
       </PanelContent>
     </>

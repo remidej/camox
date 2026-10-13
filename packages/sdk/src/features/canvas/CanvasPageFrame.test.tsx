@@ -293,7 +293,15 @@ void test("selected ready frames own editing without a click and follow URL sele
     fail: (error: Error) => assert.fail(error.message),
   };
   const paths = ["/about", "/contact"];
-  function Workspace({ pathname }: { pathname: string }) {
+  function Workspace({
+    pathname,
+    away,
+    paused,
+  }: {
+    pathname: string;
+    away?: string;
+    paused?: string;
+  }) {
     // Activation updates the parent, giving every frame a new callback. This
     // must not trigger another automatic activation or an update-depth loop.
     const [, setActive] = React.useState<unknown>(null);
@@ -316,6 +324,7 @@ void test("selected ready frames own editing without a click and follow URL sele
               }
               pageId={index + 1}
               selected={pathname === path}
+              mode={path === away ? "resting" : path === paused ? "paused" : "live"}
               width={1000}
               viewportHeight={800}
               onActivate={(owner, source) => {
@@ -374,6 +383,26 @@ void test("selected ready frames own editing without a click and follow URL sele
     assert.deepEqual(activations[3], { owner: { kind: "page", pageId: 1 }, source: "selection" });
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[0]);
     assert.equal(activations.length, 4);
+
+    const contentOf = (iframe: (typeof iframes)[number]) =>
+      iframe.contentDocument!.querySelector("[data-camox-preview-root]")!
+        .firstElementChild as unknown as HTMLElement;
+    await React.act(async () => root.render(<Workspace pathname="/about" away="/contact" />));
+    assert.equal(contentOf(iframes[1]!).style.display, "none", "away, a frame's content hides");
+    assert.ok(iframes[1]!.contentDocument!.querySelector("button"), "but is kept");
+    assert.notEqual(contentOf(iframes[0]!).style.display, "none");
+    await React.act(async () => root.render(<Workspace pathname="/about" />));
+    assert.notEqual(contentOf(iframes[1]!).style.display, "none", "and shows again once near");
+
+    const isPaused = (iframe: (typeof iframes)[number]) =>
+      iframe.contentDocument!.documentElement.hasAttribute("data-camox-paused");
+    assert.equal(isPaused(iframes[1]!), false);
+    await React.act(async () => root.render(<Workspace pathname="/about" paused="/contact" />));
+    assert.equal(isPaused(iframes[1]!), true, "a paused frame's document is paused");
+    assert.notEqual(contentOf(iframes[1]!).style.display, "none", "but still shows its content");
+    assert.equal(isPaused(iframes[0]!), false);
+    await React.act(async () => root.render(<Workspace pathname="/about" />));
+    assert.equal(isPaused(iframes[1]!), false, "and resumes once live");
   } finally {
     await React.act(async () => root.unmount());
     client.clear();

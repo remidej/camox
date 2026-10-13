@@ -159,19 +159,23 @@ typed scope as `testimonial.Reference`; the note and emphasis belong to the item
 
 ## Author bio (slice 5, references between collections)
 
-The Authors collection links the articles each author wrote with
-`field.referenceList(articles)`. The author bio block places one author with
-`field.reference(authors)`; inside its scope, `author.ReferenceList` renders the author's
-articles, the second hop. Records at the second hop link nothing further.
+Each article links its author with `field.reference(authors)`. The author bio block places
+one author with `field.reference(authors)`. The article's record page renders the author
+inside the article's scope: the article is the first hop and the author the second, which
+links nothing further.
 
-1. In Content → Authors, create an author and pick a few of the seeded demo articles
-   (see [Demo content](#demo-content)) in the Articles field.
-2. Add an author bio to a draft page and select the author. Each article renders inside the
-   block; click an article title to edit it inline, or open it from the sidebar:
-   Author bio › Author › the author › Articles › the article.
-3. The publish review lists the author and each changed article once. Articles left
-   unpublished are skipped on the live site.
-4. Deleting an article that any author links is rejected; unpublishing it is allowed.
+1. In Content → Authors, create and publish an author. In Content → Articles, pick that
+   author on a few of the seeded demo articles (see [Demo content](#demo-content)) and
+   publish them.
+2. Add an author bio to a draft page and select the author. Click the name to edit it
+   inline, or open it from the sidebar: Author bio › Author › the author.
+3. The publish review lists the author once. An author left unpublished is skipped on the
+   live site.
+4. Deleting an author that any article or block links is rejected.
+
+Authors used to link their articles instead. A schema change is rejected while records exist,
+so if your environment still has authors from before, run `pnpm seed` at the repository root
+to start over.
 
 ## Recent articles and article list (slice 6, query-backed reference lists)
 
@@ -199,3 +203,49 @@ membership and order, and the block stores nothing. Both blocks render with the 
    include it without republishing either page. Republishing an older article keeps its
    place, because `publishedAt` is its first publication. These lists never block
    unpublishing or deleting an article.
+
+## Article record pages (slice 8)
+
+`src/layouts/articles.$slug.tsx` is a record page: it spreads
+`articles.pages({ by: "slug", param: "slug" })` into a derived layout, so each article renders
+at `/articles/<its slug>`. It renders the article through `Layout.Item` and its author
+through `article.Reference`, and declares `toMarkdown`, a title and a description from the
+article's fields. `src/layouts/articles.tsx` is the `/articles` singleton. Its articles index
+block lists every article and links each one to its record page, with the href built from the
+slug in code. In Studio, the article's fields are editable in place, like a referenced record.
+
+After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm dev` running:
+
+1. Open `/articles`, then follow a link, for example `/articles/editing-in-context`. The page
+   shows that article's title, excerpt and body, and its author once you pick one (see
+   [Author bio](#author-bio-slice-5-references-between-collections)). The tab title is the
+   article's title.
+2. Signed out, `/articles/next-release-notes` returns 404: that article is a draft. Signed in
+   to Studio, the same URL shows the draft.
+3. In Content → Articles, change a published article's slug without publishing. The preview
+   finds it at the new slug, while visitors keep the old URL until you publish.
+4. An unknown slug, such as `/articles/missing`, returns 404.
+5. `/sitemap.xml` lists each published article's page, never drafts, even when signed in.
+   In Studio, the Canvas opens the Article layout on its first article, draft-only ones
+   included.
+6. `curl -H "Accept: text/markdown" http://localhost:3000/articles/editing-in-context` returns
+   the navbar's Markdown, the article's title, author, excerpt and body, then the footer's.
+   It shows the published article even while a draft edit is pending.
+
+Editing an article on its page, signed in to Studio:
+
+1. Open `/articles/editing-in-context` in edit mode. The article's fields have purple
+   outlines, like any shared record. Click its title: the sidebar opens the article's fields
+   under Layout → the article's title.
+2. Edit the title inline, or the excerpt in the sidebar. The `/articles` frame's article list
+   shows the new title at once. Editing a title in that list updates the record page too: both
+   edit the same article.
+3. Click the author's name: the sidebar opens the author, one hop further. Pick another
+   author in the article's Author field, and the page shows them.
+4. Change the article's slug in the sidebar. The Studio moves to `/articles/<new slug>`
+   instead of staying on a 404.
+5. Publish from the page's publication modal with the article's switch on, then preview live
+   content: the page shows the published article. Switching between draft and live, and
+   publishing, reload the page's article.
+6. Comments can't be left on the article's fields yet. Signed out, the page still shows only
+   the published article.

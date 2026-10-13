@@ -16,6 +16,18 @@ export const collectionDefinitionProcedures = {
   getRecord: authed
     .input(service.getCollectionRecordInput)
     .handler(({ context, input }) => runService(service.getCollectionRecord(context, input))),
+  // Public: live reads serve visitors' record pages; draft reads require an authorized user.
+  findRecordsByField: pub
+    .input(service.findRecordsByFieldInput)
+    .handler(({ context, input }) => runService(service.findRecordsByField(context, input))),
+  // Public like findRecordsByField: route discovery for record pages.
+  listRecordPageValues: pub
+    .input(service.listRecordPageValuesInput)
+    .handler(({ context, input }) => runService(service.listRecordPageValues(context, input))),
+  // Public: a record page's Markdown reads only published content.
+  recordMarkdown: pub
+    .input(service.recordMarkdownInput)
+    .handler(({ context, input }) => runService(service.recordMarkdown(context, input))),
   createRecord: authed
     .input(service.createRecordInput)
     .handler(({ context, input }) => runService(service.createRecord(context, input))),

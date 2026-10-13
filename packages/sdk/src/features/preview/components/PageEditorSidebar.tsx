@@ -18,8 +18,11 @@ import { cn } from "@/lib/utils";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
+import { usePageRecordPlacer } from "../pageRecord";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
+  isBlockPlacement,
+  NO_BLOCK_ID,
   previewStore,
   recordPlacement,
   selectionBlockId,
@@ -210,9 +213,14 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const blockDef = block ? camoxApp.getBlockById(block.type) : null;
 
   // A placed collection record is edited only while the reference still links it. The block,
-  // or the repeatable item when one places the record, owns that reference.
+  // or the repeatable item when one places the record, owns that reference. A record page's
+  // record is placed by its layout, with no block.
+  const pagePlacer = usePageRecordPlacer();
+  const layoutRecordSelected =
+    (selection?.type === "record" || selection?.type === "record-field") &&
+    !isBlockPlacement(selection);
   const placerItem = currentItemId != null ? itemsMap.get(currentItemId) : undefined;
-  const placer = React.useMemo<RecordPlacer | null>(() => {
+  const blockPlacer = React.useMemo<RecordPlacer | null>(() => {
     if (!block || !blockDef) return null;
     if (currentItemId == null) return { ...block, contentSchema: blockDef._internal.contentSchema };
     if (!placerItem) return null;
@@ -224,7 +232,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const { recordView, viewSelection, recordCrumbs } = useRecordView({
     owner,
     selection,
-    placer,
+    placer: layoutRecordSelected ? pagePlacer : blockPlacer,
   });
 
   const selectedField =
@@ -388,7 +396,8 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     [currentItemId, itemsMap],
   );
 
-  if (!block || !blockDef || !currentSchema) {
+  // A record page's record has no block: its record view is all there is.
+  if (!currentSchema || (!recordView && (!block || !blockDef))) {
     return (
       <div className="text-muted-foreground flex flex-1 items-center justify-center px-2 text-sm">
         <Spinner className="mr-2 size-3.5" /> Loading block...
@@ -397,14 +406,11 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   }
 
   const fieldHasOwnView = fieldInfo ? fieldTypesDictionary[fieldInfo.fieldType].hasOwnView : false;
-  const navigationItems: SelectionCrumb[] = [
-    {
-      key: "page",
-      hoverTarget: null,
-      label: owner.kind === "page" ? "Page" : "Layout",
-      isCurrent: false,
-      onClick: () => previewStore.send({ type: "clearSelection" }),
-    },
+  /** The block and repeatable item crumbs above a selection inside a block. */
+  const blockCrumbs = (
+    block: NonNullable<typeof blockBundle>["block"],
+    blockDef: NonNullable<ReturnType<typeof camoxApp.getBlockById>>,
+  ): SelectionCrumb[] => [
     {
       key: "block",
       label: blockDef._internal.title,
@@ -464,6 +470,16 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
           }),
       },
     ]),
+  ];
+  const navigationItems: SelectionCrumb[] = [
+    {
+      key: "page",
+      hoverTarget: null,
+      label: owner.kind === "page" ? "Page" : "Layout",
+      isCurrent: false,
+      onClick: () => previewStore.send({ type: "clearSelection" }),
+    },
+    ...(block && blockDef ? blockCrumbs(block, blockDef) : []),
     ...recordCrumbs(fieldHasOwnView),
     ...(fieldHasOwnView && fieldInfo
       ? [
@@ -626,7 +642,9 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   </div>
                 </SidebarSection>
               )}
-              {currentItemId == null &&
+              {block &&
+                blockDef &&
+                currentItemId == null &&
                 !recordView &&
                 !fieldHasOwnView &&
                 settingsFields.length > 0 && (
@@ -828,31 +846,32 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
               )}
               {!isViewingAsset && !isViewingLink && (currentItemId == null || currentItem) && (
                 <ItemFieldsEditor
-                  key={`${block.id}-${recordView ? `record-${recordView.record.id}` : (currentItemId ?? "block")}-${fieldInfo?.fieldName ?? "fields"}`}
+                  key={`${block?.id ?? "layout"}-${recordView ? `record-${recordView.record.id}` : (currentItemId ?? "block")}-${fieldInfo?.fieldName ?? "fields"}`}
                   selectedFieldName={fieldInfo?.fieldName}
                   schema={currentSchema}
                   data={currentData}
-                  blockId={block.id}
+                  // A record page's record is placed by no block; its placement names it.
+                  blockId={block?.id ?? NO_BLOCK_ID}
                   itemId={currentItemId ?? undefined}
                   onFieldChange={writeField}
                   postToIframe={postToIframe}
                   filesMap={filesMap}
                   itemsMap={itemsMap}
                   references={
-                    recordView ? recordView.record.references : (currentItem ?? block).references
+                    recordView ? recordView.record.references : (currentItem ?? block)?.references
                   }
                   placement={recordView ? recordPlacement(recordView.selection) : undefined}
                   fieldIdPrefix={fieldIdPrefix}
                 />
               )}
-              {!recordView && !fieldInfo && (currentItemId == null || currentItem) && (
+              {block && !recordView && !fieldInfo && (currentItemId == null || currentItem) && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}
                   itemId={currentItemId ?? undefined}
                 />
               )}
-              {!recordView && fieldInfo && (
+              {block && !recordView && fieldInfo && (
                 <AttachedComments
                   pageId={pageId}
                   blockId={block.id}

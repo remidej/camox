@@ -1,12 +1,15 @@
+import type { ReadSource } from "@camox/api-contract/query-keys";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
-import type { LayoutLoaderResult } from "../../core/createLayout";
+import type { AnyLayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
-import { discoverLayoutPaths, matchDerivedLayout } from "../../core/derivedRoutes";
+import { discoverLayoutPages, matchDerivedLayout } from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
+import { asCollectionItem, recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
+import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
@@ -25,7 +28,7 @@ import {
   prefersMarkdown,
 } from "../routes/pageRuntime";
 import {
-  matchBlockCatalogPath,
+  matchCanvasOnlyPath,
   matchCollectionContentPath,
   STUDIO_ASSETS_PATH,
   STUDIO_CONTENT_PATH,
@@ -39,7 +42,7 @@ const RUNTIME_REGISTRY_PATH = "/_camox/registry";
 const RUNTIME_ROUTES_PATH = "/_camox/routes";
 
 export type RuntimeRouteKind =
-  | "block"
+  | "canvas"
   | "data"
   | "health"
   | "og"
@@ -68,13 +71,16 @@ export interface PageRenderInput {
   previewHandoff?: boolean;
   previewDocument?: string;
   routeKind?: "studio" | "studio-content" | "studio-nested";
-  /** A block of the Block Catalog, selected on the Canvas in Edit Mode instead of a Page. */
-  catalogBlock?: { blockId: string };
+  /**
+   * A location only the Canvas shows, in Edit Mode, instead of a Page: the Canvas
+   * with nothing selected, or with a block of the Block Catalog selected.
+   */
+  canvasOnly?: { blockId?: string };
   project?: Awaited<ReturnType<ReturnType<typeof createServerApiClient>["projects"]["getBySlug"]>>;
   presentation?: "public" | "studio";
   derived?: {
     layoutId: string;
-    result?: LayoutLoaderResult;
+    result?: AnyLayoutLoaderResult;
     layout: Awaited<
       ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["get"]>
     >["layout"];
@@ -90,7 +96,7 @@ export interface PageRenderInput {
   pathname: string;
   projectSlug: string;
   runtimeBasePath: string;
-  source: "live" | "draft";
+  source: ReadSource;
 }
 
 export interface RuntimeOptions {
@@ -170,7 +176,7 @@ export function matchRuntimeRoute(pathname: string): RuntimeRouteMatch {
   if (pathname === RUNTIME_ROUTES_PATH) return { kind: "routes", pathname };
   if (pathname === "/_camox/data") return { kind: "data", pathname };
   if (pathname === "/camox") return { kind: "studio", pathname };
-  if (matchBlockCatalogPath(pathname)) return { kind: "block", pathname };
+  if (matchCanvasOnlyPath(pathname)) return { kind: "canvas", pathname };
   if (
     pathname === STUDIO_CONTENT_PATH ||
     pathname === `${STUDIO_CONTENT_PATH}/` ||
@@ -211,7 +217,14 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
     discoveredPaths = await Promise.all(
       layouts
         .filter((layout) => layout._internal.kind === "derived")
-        .map((layout) => discoverLayoutPaths(layout)),
+        // Crawlers only ever see live content, even when an editor asks.
+        .map(async (layout) => {
+          const discovered = await discoverLayoutPages(
+            layout,
+            createLayoutRequestContext(options, "live"),
+          );
+          return discovered.map((page) => page.path);
+        }),
     );
   } catch (error) {
     // A sitemap silently missing pages is worse than one that visibly fails.
@@ -248,19 +261,55 @@ ${entries}
   );
 }
 
-/** The first discovered page of a derived layout, which the Canvas previews by default. */
+/**
+ * Draft for a valid editor session, otherwise live. A successful protected project lookup
+ * validates both session and project access; an invalid session falls back to live.
+ */
+async function resolveSessionSource(
+  request: Request,
+  options: RuntimeOptions,
+): Promise<{ source: ReadSource; clearAuthCookie: boolean }> {
+  const authCookieHeader = getServerAuthCookieHeader(request.headers);
+  if (!authCookieHeader || !options.apiUrl || !options.projectSlug)
+    return { source: "live", clearAuthCookie: false };
+  try {
+    await createServerApiClient(options.apiUrl, options.environmentName, {
+      authCookieHeader,
+    }).projects.getBySlug({ slug: options.projectSlug });
+    return { source: "draft", clearAuthCookie: false };
+  } catch (error) {
+    if (!isAuthSessionError(error)) throw error;
+    return { source: "live", clearAuthCookie: true };
+  }
+}
+
+/**
+ * The first discovered page of a derived layout, which the Canvas previews by default. With
+ * `recordId`, the page rendering that record, which the Studio follows when its slug changes.
+ */
 async function createRoutesResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
   if (!camoxApp) {
     return Response.json({ message: "Camox app registry is not available." }, { status: 500 });
   }
-  const layoutId = new URL(request.url).searchParams.get("layoutId") ?? "";
+  const { searchParams } = new URL(request.url);
+  const layoutId = searchParams.get("layoutId") ?? "";
+  const recordId = searchParams.get("recordId");
   const layout = camoxApp.getLayoutById(layoutId);
   if (layout?._internal.kind !== "derived") return new Response("Not found", { status: 404 });
-  const headers = { "Cache-Control": "private, no-store" };
+  const { source, clearAuthCookie } = await resolveSessionSource(request, options);
+  const headers = {
+    "Cache-Control": "private, no-store",
+    Vary: "Cookie",
+    ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
+  };
   try {
-    const [path = null] = await discoverLayoutPaths(layout);
-    return Response.json({ path }, { headers });
+    const pages = await discoverLayoutPages(
+      layout,
+      createLayoutRequestContext(options, source, getServerAuthCookieHeader(request.headers)),
+    );
+    const page = recordId ? pages.find((entry) => entry.recordId === recordId) : pages[0];
+    return Response.json({ path: page?.path ?? null }, { headers });
   } catch (error) {
     console.error(`[camox] Route discovery failed for layout "${layoutId}".`, error);
     const message = error instanceof Error ? error.message : String(error);
@@ -409,7 +458,7 @@ async function createPageHtmlResponse({
     !options.projectSlug ||
     !options.renderPage
   ) {
-    return createPageDataResponse({ options, pathname, request });
+    return createPageDataResponse({ options, pathname, request, previewLive: false });
   }
 
   const requestUrl = new URL(request.url);
@@ -444,7 +493,9 @@ async function createPageHtmlResponse({
     );
   }
 
-  const singleton = await createDerivedResponse(options, pathname, request, false, true);
+  const singleton = await createDerivedResponse(options, pathname, request, {
+    singletonOnly: true,
+  });
   if (singleton) return singleton;
 
   const queryClient = new QueryClient();
@@ -536,20 +587,63 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
 
 type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 
+/**
+ * The context `loader` and `routes` get. Its record lookup reads the request's source; only
+ * draft reads carry the editor's session.
+ */
+function createLayoutRequestContext(
+  options: RuntimeOptions,
+  source: ReadSource,
+  authCookieHeader?: string,
+): LayoutRequestContext {
+  const { apiUrl, projectSlug, environmentName } = options;
+  if (!apiUrl || !projectSlug) return createRequestContext({});
+  const api = createServerApiClient(apiUrl, environmentName, {
+    authCookieHeader: source === "draft" ? authCookieHeader : undefined,
+  });
+  return createRequestContext({
+    records: {
+      findByField: (input) =>
+        api.collectionDefinitions.findRecordsByField({ ...input, projectSlug, source }),
+      listPageValues: (input) =>
+        api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug, source }),
+    },
+  });
+}
+
+const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** An envelope names its record; it doesn't authorize anything, the API does. */
+function isValidCollectionItem(app: CamoxApp | undefined, result: Record<string, unknown>) {
+  const data = result.data as { id?: unknown; content?: unknown } | null;
+  return (
+    typeof result.collectionId === "string" &&
+    !!app?.getCollectionById(result.collectionId) &&
+    typeof data?.id === "string" &&
+    RECORD_ID.test(data.id) &&
+    typeof data.content === "object" &&
+    data.content !== null
+  );
+}
+
 /** Runs a code-owned page's loader. The envelope survives SSR, navigation and hydration. */
-async function loadLayoutResult(match: DerivedMatch): Promise<LayoutLoaderResult | undefined> {
-  const loader = match.layout._internal.loader;
-  const result = await loader?.({ params: match.params });
+async function loadLayoutResult(
+  app: CamoxApp | undefined,
+  match: DerivedMatch,
+  context: LayoutRequestContext,
+): Promise<AnyLayoutLoaderResult | undefined> {
+  const { loader, id } = match.layout._internal;
+  if (!loader) return undefined;
+  const result = await loader({ params: match.params, context });
   // Preserve the envelope across SSR, navigation and hydration. Only useData unwraps it.
   const serializedResult = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
-  if (
-    loader &&
-    (!serializedResult ||
-      serializedResult.kind !== "data" ||
-      !Object.hasOwn(serializedResult, "data"))
-  )
+  const record = asCollectionItem(serializedResult);
+  const valid = record
+    ? isValidCollectionItem(app, record)
+    : serializedResult?.kind === "data" && Object.hasOwn(serializedResult, "data");
+  if (!valid)
     throw new Error(
-      `Layout "${match.layout._internal.id}" loader must return { kind: "data", data } with JSON-serializable data`,
+      `Layout "${id}" loader must return { kind: "data", data } with JSON-serializable data, or a collection-item envelope naming a registered collection and a record id`,
     );
   return serializedResult;
 }
@@ -563,46 +657,72 @@ async function createLayoutMarkdownResponse(
   match: DerivedMatch,
 ): Promise<Response | null> {
   const { toMarkdown, id } = match.layout._internal;
-  if (!toMarkdown || !options.apiUrl || !options.projectSlug) return null;
-  let result: LayoutLoaderResult | undefined;
+  const { apiUrl, projectSlug } = options;
+  if (!toMarkdown || !apiUrl || !projectSlug) return null;
+  const api = createServerApiClient(apiUrl, options.environmentName);
+  const app = await options.getCamoxApp?.();
+  /** The layout's own Markdown, between its before and after blocks. */
+  const layoutMarkdown = async (): Promise<readonly string[]> => {
+    // Markdown is a public output: it reads live content whoever asks.
+    const result = await loadLayoutResult(app, match, createLayoutRequestContext(options, "live"));
+    const record = asCollectionItem(result);
+    const collection = record && app?.getCollectionById(record.collectionId);
+    if (!record || !collection) return toMarkdown({ data: result?.data, params: match.params });
+    const { data } = record;
+    // A record page's fields render like a reference list's records: the API fills them.
+    const template = recordMarkdownTemplate(collection, (item) =>
+      toMarkdown({ data, params: match.params, item }),
+    );
+    return [
+      await api.collectionDefinitions.recordMarkdown({
+        projectSlug,
+        collectionId: record.collectionId,
+        id: data.id,
+        toMarkdown: template,
+      }),
+    ];
+  };
+  let body: readonly string[];
   try {
-    result = await loadLayoutResult(match);
+    body = await layoutMarkdown();
   } catch (error) {
     if (isNotFoundError(error)) return new Response("Page not found", { status: 404 });
     throw error;
   }
-  const slots = await createServerApiClient(options.apiUrl, options.environmentName)
-    .blocks.getLayoutMarkdown({ projectSlug: options.projectSlug, layoutId: id })
-    .catch((error) => {
-      // A layout that was never synced has no blocks yet.
-      if (isNotFoundError(error)) return { before: "", after: "" };
-      throw error;
-    });
-  const body = toMarkdown({ data: result?.data, params: match.params });
+  const slots = await api.blocks.getLayoutMarkdown({ projectSlug, layoutId: id }).catch((error) => {
+    // A layout that was never synced has no blocks yet.
+    if (isNotFoundError(error)) return { before: "", after: "" };
+    throw error;
+  });
   const markdown = [slots.before, ...body, slots.after].filter(Boolean).join("\n\n");
   return new Response(markdown, {
     headers: { "Content-Type": "text/markdown; charset=utf-8" },
   });
 }
 
+interface DerivedResponseOptions {
+  /** Respond with the page's JSON data (`/_camox/data`) rather than its HTML. */
+  dataOnly?: boolean;
+  /** Match singleton layouts only, which take precedence over curated pages. */
+  singletonOnly?: boolean;
+  /** An editor previewing live content: the loader reads what visitors see. */
+  previewLive?: boolean;
+}
+
 async function createDerivedResponse(
   options: RuntimeOptions,
   pathname: string,
   request: Request,
-  dataOnly = false,
-  singletonOnly = false,
+  { dataOnly = false, singletonOnly = false, previewLive = false }: DerivedResponseOptions = {},
 ): Promise<Response | null> {
   const app = await options.getCamoxApp?.();
   const match = app && matchDerivedLayout(app.getLayouts(), pathname);
   if (!match || (!dataOnly && !options.renderPage)) return null;
   if (singletonOnly && match.layout._internal.kind !== "singleton") return null;
   try {
-    const serializedResult = await loadLayoutResult(match);
     const queryClient = new QueryClient();
     const authCookieHeader = getServerAuthCookieHeader(request.headers);
-    let source: "live" | "draft" = authCookieHeader ? "draft" : "live";
-    let clearAuthCookie = false;
-    const loadLayout = (source: "live" | "draft") =>
+    const loadLayout = (source: ReadSource) =>
       createServerApiClient(options.apiUrl!, options.environmentName, {
         authCookieHeader: source === "draft" ? authCookieHeader : undefined,
       }).layouts.get({
@@ -610,12 +730,21 @@ async function createDerivedResponse(
         layoutId: match.layout._internal.id,
         source,
       });
-    const shared = await loadLayout(source).catch(async (error) => {
-      if (source !== "draft" || !isAuthSessionError(error)) throw error;
-      source = "live";
-      clearAuthCookie = true;
-      return loadLayout("live");
-    });
+    // The draft layout read validates the session, so it runs before the loader needs the source.
+    const draft = authCookieHeader
+      ? await loadLayout("draft").catch((error) => {
+          if (!isAuthSessionError(error)) throw error;
+          return null;
+        })
+      : undefined;
+    const source: ReadSource = draft ? "draft" : "live";
+    const clearAuthCookie = draft === null;
+    const serializedResult = await loadLayoutResult(
+      app,
+      match,
+      createLayoutRequestContext(options, previewLive ? "live" : source, authCookieHeader),
+    );
+    const shared = draft ?? (await loadLayout("live"));
     seedBlockCaches(queryClient, shared, source);
     const project =
       source === "draft"
@@ -624,11 +753,18 @@ async function createDerivedResponse(
           }).projects.getBySlug({ slug: options.projectSlug! })
         : undefined;
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
+    const record = asCollectionItem(serializedResult);
+    const recordCollection = record && app.getCollectionById(record.collectionId);
     const pageHead = buildPageHead({
       layout: match.layout._internal,
       pageMetaTitle: match.layout._internal.title,
       pageMetaDescription: undefined,
       data: serializedResult?.data,
+      // A record page's meta callbacks also get its fields as plain text.
+      item:
+        record && recordCollection
+          ? recordPlainText(recordCollection, record.data.content)
+          : undefined,
       params: match.params,
       projectName: shared.projectName,
       pageFullPath: pathname,
@@ -796,11 +932,11 @@ ${renderClientEntryScript(options.studioClientEntryUrl)}
 }
 
 /**
- * A block of the Block Catalog renders the page app, like a Page, so selecting
- * it keeps the Canvas mounted. Without a page-content block of that id, it
- * redirects home.
+ * The Canvas with nothing selected, or a block of the Block Catalog, renders the
+ * page app, like a Page, so selecting it keeps the Canvas mounted. A block path
+ * without a page-content block of that id redirects home.
  */
-async function createBlockCatalogResponse({
+async function createCanvasOnlyResponse({
   options,
   pathname,
   request,
@@ -811,13 +947,13 @@ async function createBlockCatalogResponse({
   request: Request;
   dataOnly?: boolean;
 }): Promise<Response> {
-  const blockId = matchBlockCatalogPath(pathname)!;
-  const app = await options.getCamoxApp?.();
-  const block = app?.getBlockById(blockId);
-  if (!block || block._internal.layoutOnly) {
+  const { blockId } = matchCanvasOnlyPath(pathname)!;
+  const app = blockId ? await options.getCamoxApp?.() : undefined;
+  const block = blockId ? app?.getBlockById(blockId) : undefined;
+  if (blockId && (!block || block._internal.layoutOnly)) {
     if (dataOnly)
       return Response.json(
-        { kind: "block", message: "No block of the Block Catalog on this path", pathname },
+        { kind: "canvas", message: "No block of the Block Catalog on this path", pathname },
         { status: 404 },
       );
     return Response.redirect(
@@ -832,7 +968,7 @@ async function createBlockCatalogResponse({
     (!dataOnly && !options.renderPage)
   ) {
     return Response.json(
-      { message: "Camox page renderer is not configured.", kind: "block", pathname },
+      { message: "Camox page renderer is not configured.", kind: "canvas", pathname },
       { status: 500 },
     );
   }
@@ -852,7 +988,7 @@ async function createBlockCatalogResponse({
     }
   }
   const studio = project !== undefined;
-  const title = block._internal.title;
+  const title = block?._internal.title ?? "Canvas";
   const input: PageRenderInput = {
     project,
     presentation: studio ? "studio" : "public",
@@ -868,7 +1004,7 @@ async function createBlockCatalogResponse({
     layoutIdentity: null,
     loaderData: null,
     dehydratedState: dehydrate(new QueryClient()),
-    catalogBlock: { blockId },
+    canvasOnly: blockId ? { blockId } : {},
   };
   // Block frames build their documents from the site head; there is no page content.
   const document = (await options.getDocument?.()) ?? {};
@@ -896,16 +1032,22 @@ async function createPageDataResponse({
   options,
   pathname,
   request,
+  previewLive,
 }: {
   options: RuntimeOptions;
   pathname: string;
   request: Request;
+  previewLive: boolean;
 }): Promise<Response> {
   if (!options.apiUrl || !options.projectSlug) {
     return Response.json({ message: "Camox page loader is not configured." }, { status: 500 });
   }
 
-  const singleton = await createDerivedResponse(options, pathname, request, true, true);
+  const singleton = await createDerivedResponse(options, pathname, request, {
+    dataOnly: true,
+    singletonOnly: true,
+    previewLive,
+  });
   if (singleton) return singleton;
 
   const queryClient = new QueryClient();
@@ -957,7 +1099,10 @@ async function createPageDataResponse({
     return Response.json(input, { headers });
   } catch (error) {
     if (isNotFoundError(error)) {
-      const derived = await createDerivedResponse(options, pathname, request, true);
+      const derived = await createDerivedResponse(options, pathname, request, {
+        dataOnly: true,
+        previewLive,
+      });
       if (derived) return derived;
       return Response.json(
         { kind: "page", message: "No Camox page on this path", pathname },
@@ -1010,8 +1155,8 @@ export async function handleCamoxRequest(
     const url = new URL(request.url);
     const targetPathname = normalizePagePath(url.searchParams.get("path"));
     const targetMatch = matchRuntimeRoute(targetPathname);
-    if (targetMatch.kind === "block") {
-      return createBlockCatalogResponse({
+    if (targetMatch.kind === "canvas") {
+      return createCanvasOnlyResponse({
         options,
         pathname: targetPathname,
         request,
@@ -1022,7 +1167,12 @@ export async function handleCamoxRequest(
       return createStudioHtmlResponse({ match: targetMatch, options, request, dataOnly: true });
     }
     if (targetMatch.kind !== "page") return new Response("Not found", { status: 404 });
-    return createPageDataResponse({ options, pathname: targetPathname, request });
+    return createPageDataResponse({
+      options,
+      pathname: targetPathname,
+      request,
+      previewLive: url.searchParams.get("source") === "live",
+    });
   }
 
   if (
@@ -1033,8 +1183,8 @@ export async function handleCamoxRequest(
     return createStudioHtmlResponse({ match, options, request });
   }
 
-  if (match.kind === "block") {
-    return createBlockCatalogResponse({ options, pathname: match.pathname, request });
+  if (match.kind === "canvas") {
+    return createCanvasOnlyResponse({ options, pathname: match.pathname, request });
   }
 
   if (match.kind === "page") {

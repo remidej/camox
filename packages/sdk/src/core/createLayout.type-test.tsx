@@ -1,4 +1,9 @@
-import { createLayout } from "./createLayout";
+import { createCollection } from "./createCollection";
+import {
+  createLayout,
+  type LayoutCollectionItemResult,
+  type LayoutRequestContext,
+} from "./createLayout";
 
 const Definition = createLayout("pokemon.$name")({
   kind: "derived",
@@ -116,12 +121,151 @@ createLayout("missing-data")({
   // @ts-expect-error Every successful loader result must contain data.
   loader: () => ({ kind: "data" }),
 });
-createLayout("future-result")({
+createLayout("incomplete-record")({
   ...singletonOptions,
   kind: "singleton",
-  // @ts-expect-error Collection-item envelopes are not implemented in this slice.
+  // @ts-expect-error A collection-item envelope names its record.
   loader: () => ({ kind: "collection-item", collectionId: "articles", data: {} }),
 });
+
+// Record pages: `pages()` spreads a loader and routes into a derived layout.
+const articles = createCollection({
+  id: "articles",
+  title: "Articles",
+  description: "",
+  content: (field) => ({ title: field.string(), slug: field.string(), cover: field.image() }),
+  label: "title",
+});
+const ArticlePage = createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  ...articles.pages({ by: "slug", param: "slug" }),
+  buildMetaTitle: ({ data }) => data.content.title,
+  toMarkdown: ({ data }) => [`# ${data.content.title}`],
+});
+function RecordDataTypeCheck() {
+  const { id, content } = ArticlePage.useData();
+  const title: string = content.title;
+  // @ts-expect-error useData returns the record, not the envelope.
+  void ArticlePage.useData().collectionId;
+  // @ts-expect-error Record content is typed by the collection.
+  void content.missing;
+  return [id, title];
+}
+void RecordDataTypeCheck;
+
+// Record layouts render their record through `layout.Item`, and get it as `item` in
+// `toMarkdown` and meta callbacks.
+const authors = createCollection({
+  id: "authors",
+  title: "Authors",
+  description: "",
+  content: (field) => ({ name: field.string(), portrait: field.image() }),
+  label: "name",
+});
+const posts = createCollection({
+  id: "posts",
+  title: "Posts",
+  description: "",
+  content: (field) => ({
+    title: field.string(),
+    slug: field.string(),
+    cover: field.image(),
+    author: field.reference(authors),
+  }),
+  label: "title",
+});
+const postPages = posts.pages({ by: "slug", param: "slug" });
+const PostPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  ...postPages,
+  buildMetaTitle: ({ item, data }) => `${item.title} (${data.id})`,
+  buildMetaDescription: ({ item }) => {
+    // @ts-expect-error Meta callbacks get the record's String fields only.
+    void item.cover;
+    return item.slug;
+  },
+  toMarkdown: ({ item }) => [`# ${item.title}`, `By ${item.author.name}`, item.cover],
+});
+function ItemTypeCheck() {
+  return (
+    <PostPage.Item>
+      {(post) => (
+        <article aria-label={post.label}>
+          <post.Field name="title">{(props) => <h1 {...props} />}</post.Field>
+          {/* @ts-expect-error Field renders String fields only. */}
+          <post.Field name="cover">{(props) => <h1 {...props} />}</post.Field>
+          <post.Image name="cover">{(props) => <img {...props} />}</post.Image>
+          {/* @ts-expect-error Field names belong to the collection. */}
+          <post.Field name="missing">{(props) => <h1 {...props} />}</post.Field>
+          <post.Reference name="author">
+            {(author) => {
+              // @ts-expect-error The second hop links nothing further.
+              void author.Reference;
+              return <author.Field name="name">{(props) => <p {...props} />}</author.Field>;
+            }}
+          </post.Reference>
+        </article>
+      )}
+    </PostPage.Item>
+  );
+}
+void ItemTypeCheck;
+// A wrapper typed as the helper's loader keeps the typed `Item`.
+const WrappedPostPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input): ReturnType<typeof postPages.loader> => postPages.loader(input),
+});
+void WrappedPostPage.Item;
+const MixedPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input) =>
+    input.params.slug === "external"
+      ? { kind: "data" as const, data: { title: "External" } }
+      : postPages.loader(input),
+  // @ts-expect-error Only record layouts get `item`.
+  toMarkdown: ({ item }) => [String(item)],
+});
+// @ts-expect-error A loader that may return external data has no record scope.
+void MixedPage.Item;
+const articleSlugPages = articles.pages({ by: "slug", param: "slug" });
+const TwoCollectionsPage = createLayout("posts.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input) =>
+    input.params.slug.startsWith("a-") ? articleSlugPages.loader(input) : postPages.loader(input),
+});
+// @ts-expect-error A loader returning records of two collections has no record scope.
+void TwoCollectionsPage.Item;
+
+// @ts-expect-error Pages are found by a String field only.
+articles.pages({ by: "cover", param: "slug" });
+// @ts-expect-error Pages are found by a field of the collection.
+articles.pages({ by: "missing", param: "slug" });
+// @ts-expect-error The param must be one of the route's params.
+createLayout("pokemon.$name")({
+  ...singletonOptions,
+  kind: "derived",
+  ...articles.pages({ by: "slug", param: "slug" }),
+});
+// A wrapper passes the context through and returns the exported envelope unchanged.
+const articlePages = articles.pages({ by: "slug", param: "slug" });
+const WrappedArticlePage = createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async (input): Promise<LayoutCollectionItemResult<{ title: string }>> => {
+    const result = await articlePages.loader(input);
+    return result;
+  },
+  routes: articlePages.routes,
+});
+const wrappedTitle: string = WrappedArticlePage.useData().content.title;
+void wrappedTitle;
+// @ts-expect-error An envelope typed without its collection's fields has no record scope.
+void WrappedArticlePage.Item;
 createLayout("undefined-result")({
   ...singletonOptions,
   kind: "singleton",
@@ -138,6 +282,23 @@ createLayout("articles.$slug")({
   ...derivedOptions,
   routes: async () => ({ data: [{ params: { slug: "introducing-collections" } }] }),
 });
+// A collection-backed entry names its record.
+createLayout("articles.$slug")({
+  ...derivedOptions,
+  routes: () => ({
+    data: [
+      {
+        params: { slug: "introducing-collections" },
+        target: { kind: "collection-item" as const, collectionId: "articles", id: "article-1" },
+      },
+    ],
+  }),
+});
+createLayout("articles.$slug")({
+  ...derivedOptions,
+  // @ts-expect-error A target names a collection record.
+  routes: () => ({ data: [{ params: { slug: "a" }, target: { kind: "page", id: "1" } }] }),
+});
 createLayout("articles.$slug")({
   ...derivedOptions,
   // @ts-expect-error Discovered params are named by the route.
@@ -148,6 +309,27 @@ createLayout("articles.$slug")({
   // @ts-expect-error Every route param needs a value.
   routes: () => ({ data: [{ params: {} }] }),
 });
+// Loader and routes receive the request context, which wrappers pass through unchanged.
+declare function readWithContext(context: LayoutRequestContext): Promise<string[]>;
+createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  loader: async ({ params, context }) => {
+    const [title = params.slug] = await readWithContext(context);
+    return { kind: "data", data: { title } };
+  },
+  routes: async ({ context }) => ({
+    data: (await readWithContext(context)).map((slug) => ({ params: { slug } })),
+  }),
+});
+createLayout("articles.$slug")({
+  ...singletonOptions,
+  kind: "derived",
+  // @ts-expect-error The request context is opaque, not a source to read.
+  loader: async ({ context }) => ({ kind: "data", data: context.source }),
+});
+// @ts-expect-error The request context is opaque: only Camox creates it.
+void readWithContext({});
 // @ts-expect-error Only derived layouts discover routes.
 createLayout("pokedex")({ ...singletonOptions, kind: "singleton", routes: () => ({ data: [] }) });
 // @ts-expect-error Only derived layouts discover routes.

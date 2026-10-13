@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# T3 runs this in a hidden terminal, so any prompt would hang worktree creation.
+export CI=true
+
 pnpm install --frozen-lockfile
 
 # Dev servers compile apps on demand; only shared packages need built output.

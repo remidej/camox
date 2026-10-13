@@ -106,6 +106,10 @@ _Avoid_: Root layout, shell, head
 A routable piece of the website, belonging to one layout and holding an ordered list of blocks.
 _Avoid_: Route, screen, URL
 
+**Record Page**:
+A page of a derived layout that renders one collection record, found by one of its fields.
+_Avoid_: Item page, detail page, collection page
+
 **Nickname**:
 A page's editor-facing name, distinct from its path and meta title.
 _Avoid_: Page title, name
@@ -139,7 +143,7 @@ A field that selects an ordered list of distinct collection records by identity.
 _Avoid_: Relation list, multi-reference, collection field
 
 **Placement**:
-Where a block or reference occurs; placements keep their own identity and order even when their content is shared.
+Where a block or reference occurs; placements keep their own identity and order even when their content is shared. A collection record is placed by a block's or repeatable item's reference, or by the layout of its record page.
 _Avoid_: Usage, instance, occurrence
 
 **File**:

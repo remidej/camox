@@ -6,12 +6,12 @@ const authorBio = createBlock({
   id: "author-bio",
   title: "Author bio",
   description:
-    "Introduce an author with their portrait, bio and the articles they wrote. Place it at the end of an article or on an about page. The author and their articles are shared Authors and Articles items, so edits show up everywhere they appear.",
+    "Introduce an author with their portrait and bio. Place it at the end of an article or on an about page. The author is a shared Authors item, so edits show up everywhere it appears.",
   content: (field) => ({
     author: field.reference(authors, { title: "Author" }),
   }),
   component: AuthorBioComponent,
-  toMarkdown: (c) => [`## ${c.author.name}`, c.author.bio, c.author.articles],
+  toMarkdown: (c) => [`## ${c.author.name}`, c.author.bio],
 });
 
 function AuthorBioComponent() {
@@ -31,20 +31,6 @@ function AuthorBioComponent() {
                 <author.Field name="bio">
                   {(props) => <p {...props} className="text-muted-foreground mt-2" />}
                 </author.Field>
-                <ul className="mt-6 space-y-3">
-                  <author.ReferenceList name="articles">
-                    {(article) => (
-                      <li>
-                        <article.Field name="title">
-                          {(props) => <h3 {...props} className="text-foreground font-medium" />}
-                        </article.Field>
-                        <article.Field name="excerpt">
-                          {(props) => <p {...props} className="text-muted-foreground text-sm" />}
-                        </article.Field>
-                      </li>
-                    )}
-                  </author.ReferenceList>
-                </ul>
               </div>
             </div>
           )}

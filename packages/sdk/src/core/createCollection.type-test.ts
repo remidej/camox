@@ -51,8 +51,11 @@ createCollection({ ...options, label: "enabled" });
 createCollection({ ...options, label: "category" });
 // @ts-expect-error Embed is not a text field.
 createCollection({ ...options, label: "embed" });
-// @ts-expect-error No incomplete loader helpers are exposed.
+collection.pages({ by: "title", param: "slug" });
+// @ts-expect-error Record pages need a lookup field and a route param.
 collection.pages();
+// @ts-expect-error Record pages are found by a String field only.
+collection.pages({ by: "category", param: "slug" });
 
 createCollection({
   id: "posts",

@@ -29,6 +29,7 @@ import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbar } from "./components/PreviewToolbar";
+import { PageRecordContext, useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 import { previewCommentsStore } from "./previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
@@ -39,6 +40,7 @@ import {
   selectPreviewSource,
   type EditingOwner,
 } from "./previewStore";
+import { getPageRecord, type PageRecordId } from "./publication";
 import { usePreviewViewportActions } from "./usePreviewViewportActions";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -279,13 +281,13 @@ export const CamoxPreview = ({
   children,
   runtimeBasePath,
   derived,
-  catalogBlock,
+  canvasOnly,
   source,
 }: {
   children: React.ReactNode;
   runtimeBasePath?: string;
   derived?: PageRenderInput["derived"];
-  catalogBlock?: PageRenderInput["catalogBlock"];
+  canvasOnly?: PageRenderInput["canvasOnly"];
   source?: ReadSource;
 }) => {
   const camoxApp = useCamoxApp();
@@ -293,17 +295,17 @@ export const CamoxPreview = ({
   const projectSlug = useProjectSlug();
   const queryClient = useQueryClient();
   const previewSource = useSelector(previewStore, selectPreviewSource);
-  // All route kinds resolve through one component so selecting a layout frame or
-  // a block never remounts the workspace, its camera, or its in-progress selection.
+  // All route kinds resolve through one component so selecting a layout frame, a
+  // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
   const { data } = useSuspenseQuery<PageStructure | DerivedLayoutStructure | null>({
-    queryKey: catalogBlock
-      ? ["camox", "canvas", "catalogBlock"]
+    queryKey: canvasOnly
+      ? ["camox", "canvas", "canvasOnly"]
       : derived
         ? [...queryKeys.layouts.all, "get", projectSlug, derived.layoutId, previewSource]
         : queryKeys.pages.getByPath(pathname, previewSource),
     queryFn: async () => {
-      // A Block Catalog block has no page or layout record.
-      if (catalogBlock) return null;
+      // A Canvas-only location has no page or layout record.
+      if (canvasOnly) return null;
       if (!derived) return pageStructureQueryFn(pathname, projectSlug, previewSource)();
       const result = await getApiClient().layouts.get({
         projectSlug,
@@ -314,60 +316,74 @@ export const CamoxPreview = ({
       return result.layout;
     },
     // Only the server's source has seeded layout blocks.
-    initialData: catalogBlock
+    initialData: canvasOnly
       ? null
       : derived && previewSource === source
         ? derived.layout
         : undefined,
     staleTime: derived ? 0 : Infinity,
   });
-  useHydrateDraftCache(!derived && !catalogBlock);
+  useHydrateDraftCache(!derived && !canvasOnly);
+  // A code-owned page's loader runs again in the preview's source, and after record edits
+  // and publication.
+  const derivedResult = useDerivedPageResult({
+    projectSlug,
+    runtimeBasePath: runtimeBasePath ?? "",
+    pathname,
+    loaded: derived ? { result: derived.result, source: source ?? "draft" } : undefined,
+  });
+  const pageRecord = getPageRecord(derivedResult);
+  useFollowPageRecord({
+    projectSlug,
+    runtimeBasePath: runtimeBasePath ?? "",
+    layoutId: derived?.layoutId,
+    record: pageRecord,
+  });
   const pageData = data && "page" in data ? data : undefined;
   const layout = data && !("page" in data) ? data : undefined;
   return (
-    <PreviewShell
-      pageData={pageData}
-      derivedLayoutId={derived?.layoutId}
-      derivedLayout={layout}
-      hasLiveVersion={layout?.livePublishedCheckpointId != null}
-      catalogBlock={catalogBlock}
-      runtimeBasePath={runtimeBasePath}
-    >
-      {derived && layout ? (
-        <DerivedPageContent
-          camoxApp={camoxApp}
-          derived={{ ...derived, layout }}
-          source={previewSource}
-        />
-      ) : (
-        children
-      )}
-    </PreviewShell>
+    <PageRecordContext value={derivedResult}>
+      <PreviewShell
+        pageData={pageData}
+        derivedLayoutId={derived?.layoutId}
+        derivedLayout={layout}
+        pageRecord={pageRecord}
+        hasLiveVersion={layout?.livePublishedCheckpointId != null}
+        canvasOnly={canvasOnly}
+        runtimeBasePath={runtimeBasePath}
+      >
+        {derived && layout ? (
+          <DerivedPageContent
+            camoxApp={camoxApp}
+            derived={{ ...derived, layout, result: derivedResult }}
+            source={previewSource}
+          />
+        ) : (
+          children
+        )}
+      </PreviewShell>
+    </PageRecordContext>
   );
 };
 
 /**
- * A Block Catalog block only exists on the Canvas, in Edit Mode. Opening one
+ * A Canvas-only location only exists on the Canvas, in Edit Mode. Opening one
  * enters Edit Mode, while leaving Edit Mode, or a Studio without the Canvas,
  * goes home instead, so Preview always shows a real Page.
  */
-function useBlockCatalogEditMode(
-  blockSelected: boolean,
-  isEditMode: boolean,
-  isMobileStudio: boolean,
-) {
+function useCanvasOnlyEditMode(canvasOnly: boolean, isEditMode: boolean, isMobileStudio: boolean) {
   const navigate = useNavigate();
   const wasEditMode = React.useRef(isEditMode);
   React.useEffect(() => {
     const left = wasEditMode.current && !isEditMode;
     wasEditMode.current = isEditMode;
-    if (!blockSelected || isEditMode) return;
+    if (!canvasOnly || isEditMode) return;
     if (isMobileStudio || left) {
       void navigate({ to: "/", replace: true });
       return;
     }
     previewStore.send({ type: "enterEditMode" });
-  }, [blockSelected, isEditMode, isMobileStudio, navigate]);
+  }, [canvasOnly, isEditMode, isMobileStudio, navigate]);
 }
 
 /** Studio chrome is shared; only curated previews require a Camox page record. */
@@ -377,7 +393,8 @@ export const PreviewShell = ({
   hasLiveVersion = false,
   derivedLayoutId,
   derivedLayout,
-  catalogBlock,
+  pageRecord,
+  canvasOnly,
   runtimeBasePath = "",
 }: {
   children: React.ReactNode;
@@ -385,7 +402,8 @@ export const PreviewShell = ({
   hasLiveVersion?: boolean;
   derivedLayoutId?: string;
   derivedLayout?: DerivedLayoutStructure;
-  catalogBlock?: PageRenderInput["catalogBlock"];
+  pageRecord?: PageRecordId;
+  canvasOnly?: PageRenderInput["canvasOnly"];
   runtimeBasePath?: string;
 }) => {
   const isAuthenticated = useIsAuthenticated();
@@ -431,7 +449,7 @@ export const PreviewShell = ({
     previewStore.send({ type: "closeAddBlockDialog" });
   }, [isMobileStudio]);
 
-  useBlockCatalogEditMode(!!catalogBlock && isAuthenticated, isEditMode, isMobileStudio);
+  useCanvasOnlyEditMode(!!canvasOnly && isAuthenticated, isEditMode, isMobileStudio);
 
   React.useEffect(() => {
     const actions = [
@@ -542,7 +560,11 @@ export const PreviewShell = ({
               {!showCanvas && !isMobileStudio && (pageData || derivedLayoutId) && (
                 // Keep publication actions registered in read-only preview.
                 <div hidden>
-                  <LeftSidebar page={pageData?.page} derivedLayout={derivedLayout} />
+                  <LeftSidebar
+                    page={pageData?.page}
+                    derivedLayout={derivedLayout}
+                    pageRecord={pageRecord}
+                  />
                 </div>
               )}
               <PreviewPanel

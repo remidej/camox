@@ -11,9 +11,15 @@ interface CanvasView {
 export const canvasStore = createStore({
   context: {
     views: {} as Partial<Record<string, CanvasView>>,
+    /** Workspaces whose camera is moving, until it has been still for a moment. */
+    moving: {} as Partial<Record<string, boolean>>,
   },
   on: {
-    reset: () => ({ views: {} }),
+    reset: () => ({ views: {}, moving: {} }),
+    setCameraMoving: (context, event: { workspaceKey: string; moving: boolean }) => {
+      if (!!context.moving[event.workspaceKey] === event.moving) return context;
+      return { ...context, moving: { ...context.moving, [event.workspaceKey]: event.moving } };
+    },
     rememberView: (context, event: { workspaceKey: string; view: CanvasView }) => {
       const previous = context.views[event.workspaceKey];
       const { camera, fitted } = event.view;
@@ -26,6 +32,7 @@ export const canvasStore = createStore({
       )
         return context;
       return {
+        ...context,
         views: { ...context.views, [event.workspaceKey]: { camera: { x, y, scale }, fitted } },
       };
     },

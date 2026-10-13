@@ -1,6 +1,17 @@
+import type { TSchema } from "@sinclair/typebox";
 import * as React from "react";
 
 import { BlockErrorBoundary } from "@/features/preview/components/BlockErrorBoundary";
+import { useOptionalCamoxApp } from "@/features/provider/components/CamoxAppContext";
+
+import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
+import type { ContentProxy } from "./lib/contentType";
+import { RecordScope } from "./lib/recordScope";
+import type { ReferenceScope } from "./lib/reference";
+import { asCollectionItem, fieldPlainText } from "./recordItem";
+import type { CollectionRecordId, LayoutRequestContext, LoadedRecord } from "./requestContext";
+
+export type { LayoutRequestContext } from "./requestContext";
 
 /* -------------------------------------------------------------------------------------------------
  * createLayout
@@ -72,17 +83,100 @@ export interface LayoutLoaderResult<Data = unknown> {
   data: Data;
 }
 
-type LoaderReturn = LayoutLoaderResult | PromiseLike<LayoutLoaderResult>;
+declare const collectionFields: unique symbol;
+
+/**
+ * A loader result rendering one collection record, as `collection.pages()` returns it. Wrappers
+ * keep the page bound to its record by returning it unchanged.
+ */
+export interface LayoutCollectionItemResult<
+  Content = Record<string, unknown>,
+  CollectionId extends string = string,
+  Fields extends Record<string, TSchema> = any,
+> {
+  kind: "collection-item";
+  collectionId: CollectionId;
+  data: LoadedRecord<Content>;
+  /**
+   * Type only, never set: the collection's fields, which type `layout.Item`. Invariant, so that
+   * records of two collections never merge into one.
+   */
+  readonly [collectionFields]?: (fields: Fields) => Fields;
+}
+
+/** What `loader` receives: the page's params and the request context to pass through. */
+export interface LayoutLoaderContext<Params = Record<string, string>> {
+  params: Params;
+  context: LayoutRequestContext;
+}
+
+/** What `routes` receives: the request context to pass through. */
+export interface LayoutRoutesContext {
+  context: LayoutRequestContext;
+}
+
+/** Every successful loader result, before `useData` unwraps it. */
+export type AnyLayoutLoaderResult = LayoutLoaderResult | LayoutCollectionItemResult;
+type LoaderReturn = AnyLayoutLoaderResult | PromiseLike<AnyLayoutLoaderResult>;
+
+/** The record a discovered page renders, independent of its current params. */
+export interface LayoutRouteTarget extends CollectionRecordId {
+  kind: "collection-item";
+}
 
 /** Route discovery result: the params of each page a derived layout can render. */
 export interface LayoutRoutesResult<Params = Record<string, string>> {
-  data: ReadonlyArray<{ params: Params }>;
+  data: ReadonlyArray<{ params: Params; target?: LayoutRouteTarget }>;
 }
 
 type RoutesReturn<Params> = LayoutRoutesResult<Params> | PromiseLike<LayoutRoutesResult<Params>>;
 type LoaderData<Result extends LoaderReturn> = [Result] extends [never]
   ? undefined
   : Awaited<Result>["data"];
+
+type ResultFields<R> = R extends LayoutCollectionItemResult<any, any, infer F> ? F : never;
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never;
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/**
+ * The fields of the one collection whose records every loader result renders. `never` for
+ * external data, mixed results, several collections, or an envelope typed without its fields.
+ */
+type RecordFields<Result> = [Awaited<Result>] extends [never]
+  ? never
+  : [Awaited<Result>] extends [LayoutCollectionItemResult<any, any, any>]
+    ? true extends IsUnion<ResultFields<Awaited<Result>>>
+      ? never
+      : IsAny<ResultFields<Awaited<Result>>> extends true
+        ? never
+        : ResultFields<Awaited<Result>>
+    : never;
+
+type StringFieldKeys<F> = {
+  [K in keyof F & string]: F[K] extends { fieldType: "String" } ? K : never;
+}[keyof F & string];
+
+/** Record pages' meta callbacks also get the record's String fields as plain text. */
+type MetaItem<F> = [F] extends [never] ? {} : { item: { [K in StringFieldKeys<F>]: string } };
+
+/** Record pages' `toMarkdown` also gets `item`, the reference-list Markdown builder. */
+type MarkdownItem<F> = [F] extends [never]
+  ? {}
+  : F extends Record<string, TSchema>
+    ? { item: ContentProxy<F> }
+    : {};
+
+/** `layout.Item` exists only on layouts whose loader renders records of one collection. */
+type ItemScope<F> = [F] extends [never]
+  ? {}
+  : F extends Record<string, TSchema>
+    ? {
+        /** The page's record, read-only, with typed fields and the records it links. */
+        Item: (props: {
+          children: (item: ReferenceScope<F>) => React.ReactNode;
+        }) => React.ReactNode;
+      }
+    : {};
 
 /** What a page's metadata callbacks know about it. Curated pages have no loader data or params. */
 export interface PageMetaContext<Data = unknown, Params = Record<string, string>> {
@@ -93,20 +187,21 @@ export interface PageMetaContext<Data = unknown, Params = Record<string, string>
 }
 
 /** On singleton and derived pages, `pageMetaTitle` is the layout's `title`. */
-type BuildMetaTitle<Data, Params> = (
-  params: PageMetaContext<Data, Params> & { pageMetaTitle: string },
+type BuildMetaTitle<Data, Params, F = never> = (
+  params: PageMetaContext<Data, Params> & { pageMetaTitle: string } & MetaItem<F>,
 ) => string;
 
 /** Without it, curated pages use the editor's description and other pages have none. */
-type BuildMetaDescription<Data, Params> = (
-  params: PageMetaContext<Data, Params> & { pageMetaDescription: string | undefined },
+type BuildMetaDescription<Data, Params, F = never> = (
+  params: PageMetaContext<Data, Params> & {
+    pageMetaDescription: string | undefined;
+  } & MetaItem<F>,
 ) => string | undefined;
 
 /** The Markdown Representation of a code-owned page, between its layout blocks. */
-type LayoutToMarkdown<Data, Params> = (context: {
-  data: Data;
-  params: Params;
-}) => readonly string[];
+type LayoutToMarkdown<Data, Params, F = never> = (
+  context: { data: Data; params: Params } & MarkdownItem<F>,
+) => readonly string[];
 
 interface CreateLayoutOptions<
   TBefore extends readonly LayoutBlock[],
@@ -116,9 +211,9 @@ interface CreateLayoutOptions<
 > {
   id: string;
   kind?: "curated" | "derived" | "singleton";
-  loader?: (context: { params: Record<string, string> }) => Result;
+  loader?: (context: LayoutLoaderContext) => Result;
   /** Lists the pages of a derived layout, for the sitemap and the Canvas. */
-  routes?: () => RoutesReturn<Record<string, string>>;
+  routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
   title: string;
   description: string;
   blocks: {
@@ -128,10 +223,14 @@ interface CreateLayoutOptions<
     initial?: ValidatePageContentBlocks<TInitial>;
   };
   component: React.ComponentType<{ children: React.ReactNode }>;
-  buildMetaTitle: BuildMetaTitle<LoaderData<Result>, Record<string, string>>;
-  buildMetaDescription?: BuildMetaDescription<LoaderData<Result>, Record<string, string>>;
+  buildMetaTitle: BuildMetaTitle<LoaderData<Result>, Record<string, string>, RecordFields<Result>>;
+  buildMetaDescription?: BuildMetaDescription<
+    LoaderData<Result>,
+    Record<string, string>,
+    RecordFields<Result>
+  >;
   /** Singleton and derived layouts only. */
-  toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, string>>;
+  toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, string>, RecordFields<Result>>;
   buildOgImage?: (params: OgImageParams) => React.ReactElement;
 }
 
@@ -152,7 +251,7 @@ function createLayoutDefinition<
   // Each layout gets its own context — avoids cross-module identity issues
   const LayoutContext = React.createContext<{
     layoutBlocks: Record<string, LayoutBlockData>;
-    result?: LayoutLoaderResult;
+    result?: AnyLayoutLoaderResult;
   } | null>(null);
 
   // Cast away the validation mapped type — once user-side type-checking has passed,
@@ -235,11 +334,47 @@ function createLayoutDefinition<
   }: {
     layoutBlocks: Record<string, LayoutBlockData>;
     children: React.ReactNode;
-    result?: LayoutLoaderResult;
+    result?: AnyLayoutLoaderResult;
   }) => {
     const value = React.useMemo(() => ({ layoutBlocks, result }), [layoutBlocks, result]);
     return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
   };
+
+  /**
+   * Renders the page's record; nothing when the loader result isn't a record. Visitors get it
+   * read-only; the Studio's editing runtime makes it editable.
+   */
+  const Item = ({ children }: { children: (item: any) => React.ReactNode }) => {
+    const context = React.use(LayoutContext);
+    const app = useOptionalCamoxApp();
+    const editingRuntime = useBlockEditingRuntime();
+    if (!context)
+      throw new Error(`Layout "${options.id}" Item must be rendered inside its Provider`);
+    const result = asCollectionItem(context.result);
+    if (!result) return null;
+    const collection = app?.getCollectionById(result.collectionId);
+    if (!collection) return null;
+    const { contentSchema, label } = collection._internal;
+    const { id, content, references } = result.data;
+    const readOnly = (
+      <RecordScope
+        record={{ id, label: fieldPlainText(content[label]), content, references }}
+        properties={contentSchema.properties}
+        hop={1}
+        children={children}
+      />
+    );
+    if (!editingRuntime?.renderLayoutItem) return readOnly;
+    return editingRuntime.renderLayoutItem({
+      collectionId: result.collectionId,
+      labelField: label,
+      properties: contentSchema.properties,
+      record: result.data,
+      children,
+      fallback: readOnly,
+    });
+  };
+  Item.displayName = `LayoutItem(${options.id})`;
 
   // Build block definitions array for sync
   const blockDefinitions = [
@@ -292,6 +427,7 @@ function createLayoutDefinition<
   return {
     BeforeBlocks,
     AfterBlocks,
+    Item,
     useData() {
       const context = React.use(LayoutContext);
       if (!context)
@@ -309,7 +445,10 @@ function createLayoutDefinition<
       buildMetaDescription: options.buildMetaDescription as
         | BuildMetaDescription<unknown, unknown>
         | undefined,
-      toMarkdown: options.toMarkdown as LayoutToMarkdown<unknown, unknown> | undefined,
+      // Record pages' `toMarkdown` also gets `item`; the runtime passes it only for records.
+      toMarkdown: options.toMarkdown as
+        | ((context: { data: unknown; params: unknown; item?: unknown }) => readonly string[])
+        | undefined,
       buildOgImage,
       blockDefinitions,
       initialBlockBundles,
@@ -319,7 +458,13 @@ function createLayoutDefinition<
   };
 }
 
-export type Layout = ReturnType<typeof createLayoutDefinition>;
+/** Any layout. `Item` is typed per layout, and only exists on record layouts' types. */
+export type Layout = Omit<ReturnType<typeof createLayoutDefinition>, "Item">;
+
+/** A layout typed by its loader: `useData` returns the loaded data, `Item` renders its record. */
+type LayoutFor<Result extends LoaderReturn> = Omit<Layout, "useData" | "Item"> & {
+  useData: () => LoaderData<Result>;
+} & ItemScope<RecordFields<Result>>;
 
 export interface LayoutFileRoutes {}
 
@@ -369,12 +514,24 @@ type FileOptions<
           after: ValidateLayoutOnlyBlocks<A>;
           initial?: never;
         };
-        loader?: (context: { params: Record<string, never> }) => Result;
+        loader?: (context: LayoutLoaderContext<Record<string, never>>) => Result;
         routes?: never;
-        toMarkdown?: LayoutToMarkdown<LoaderData<Result>, Record<string, never>>;
+        toMarkdown?: LayoutToMarkdown<
+          LoaderData<Result>,
+          Record<string, never>,
+          RecordFields<Result>
+        >;
         component: React.ComponentType<{ children?: never }>;
-        buildMetaTitle: BuildMetaTitle<LoaderData<Result>, Record<string, never>>;
-        buildMetaDescription?: BuildMetaDescription<LoaderData<Result>, Record<string, never>>;
+        buildMetaTitle: BuildMetaTitle<
+          LoaderData<Result>,
+          Record<string, never>,
+          RecordFields<Result>
+        >;
+        buildMetaDescription?: BuildMetaDescription<
+          LoaderData<Result>,
+          Record<string, never>,
+          RecordFields<Result>
+        >;
       }
     | {
         kind: "derived";
@@ -383,12 +540,16 @@ type FileOptions<
           after: ValidateLayoutOnlyBlocks<A>;
           initial?: never;
         };
-        loader: (context: { params: RouteParams<Id> }) => Result;
-        routes?: () => RoutesReturn<RouteParams<Id>>;
-        toMarkdown?: LayoutToMarkdown<LoaderData<Result>, RouteParams<Id>>;
+        loader: (context: LayoutLoaderContext<RouteParams<Id>>) => Result;
+        routes?: (context: LayoutRoutesContext) => RoutesReturn<RouteParams<Id>>;
+        toMarkdown?: LayoutToMarkdown<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>;
         component: React.ComponentType<{ children?: never }>;
-        buildMetaTitle: BuildMetaTitle<LoaderData<Result>, RouteParams<Id>>;
-        buildMetaDescription?: BuildMetaDescription<LoaderData<Result>, RouteParams<Id>>;
+        buildMetaTitle: BuildMetaTitle<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>;
+        buildMetaDescription?: BuildMetaDescription<
+          LoaderData<Result>,
+          RouteParams<Id>,
+          RecordFields<Result>
+        >;
       }
   );
 
@@ -397,11 +558,7 @@ export function createLayout<
   const A extends readonly LayoutBlock[],
   const I extends readonly LayoutBlock[] = [],
   Result extends LoaderReturn = never,
->(
-  options: CreateLayoutOptions<B, A, I, Result>,
-): Omit<Layout, "useData"> & {
-  useData: () => LoaderData<Result>;
-};
+>(options: CreateLayoutOptions<B, A, I, Result>): LayoutFor<Result>;
 export function createLayout<const Id extends string>(
   id: Id,
 ): <
@@ -411,14 +568,11 @@ export function createLayout<const Id extends string>(
   const I extends readonly LayoutBlock[] = [],
 >(
   options: FileOptions<Id, Result, B, A, I>,
-) => Omit<Layout, "useData"> & { useData: () => LoaderData<Result> };
+) => LayoutFor<Result>;
 export function createLayout(idOrOptions: string | CreateLayoutOptions<any, any, any>): any {
   if (typeof idOrOptions !== "string") return createLayoutDefinition(idOrOptions);
   return (options: CreateLayoutOptions<any, any, any>) =>
     createLayoutDefinition({ ...options, id: idOrOptions });
 }
 
-/** Signal a missing derived page; other loader failures remain server errors. */
-export function notFound() {
-  return Object.assign(new Error("Page not found"), { status: 404, code: "NOT_FOUND" });
-}
+export { notFound } from "./notFound";

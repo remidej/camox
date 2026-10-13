@@ -234,3 +234,71 @@ void test("capabilities preserve home-page safety, live read-only publication an
     { publish: true, unpublish: false, discard: false },
   );
 });
+
+const recordPageTarget: Extract<PublicationTarget, { kind: "layout" }> = {
+  ...layoutTarget,
+  layout: { ...layoutTarget.layout, status: "published" },
+  record: { collectionId: "articles", id: "article-1", status: "modified" },
+};
+const article: ReferencePublicationTarget = {
+  ...reference,
+  id: "article-1",
+  collectionId: "articles",
+  label: "Launch",
+};
+
+void test("a record page publishes its changed record without republishing an unchanged layout", () => {
+  assert.equal(getPublicationCapabilities(recordPageTarget, "draft").publish, true);
+  assert.equal(getPublicationCapabilities(recordPageTarget, "live").publish, false);
+  const plan = withReferenceTargets(buildPublicationPlan(recordPageTarget), [article]);
+  assert.deepEqual(
+    plan.items.map(({ key, optional }) => ({ key, optional })),
+    [{ key: "collection:articles:article-1", optional: true }],
+  );
+  assert.deepEqual(
+    getPublicationRequest(
+      recordPageTarget,
+      plan.items.map((item) => item.key),
+      plan,
+    ),
+    {
+      kind: "layout",
+      input: {
+        id: 2,
+        pageRecord: { collectionId: "articles", id: "article-1" },
+        includeLayout: false,
+        collections: [{ id: "article-1", collectionId: "articles", expectedVersion: 7 }],
+      },
+    },
+  );
+});
+
+void test("a record page's changed layout is an optional switch, independent of its record", () => {
+  const target: PublicationTarget = {
+    ...recordPageTarget,
+    layout: { ...recordPageTarget.layout, status: "modified" },
+  };
+  const plan = withReferenceTargets(buildPublicationPlan(target), [article]);
+  assert.deepEqual(
+    plan.items.map(({ key, optional }) => ({ key, optional })),
+    [
+      { key: "layout:2", optional: true },
+      { key: "collection:articles:article-1", optional: true },
+    ],
+  );
+  assert.deepEqual(getPublicationRequest(target, ["layout:2"], plan).input, {
+    id: 2,
+    pageRecord: { collectionId: "articles", id: "article-1" },
+    includeLayout: true,
+  });
+});
+
+void test("a record page with nothing unpublished offers no publication", () => {
+  assert.equal(
+    getPublicationCapabilities(
+      { ...recordPageTarget, record: { ...recordPageTarget.record!, status: "published" } },
+      "draft",
+    ).publish,
+    false,
+  );
+});

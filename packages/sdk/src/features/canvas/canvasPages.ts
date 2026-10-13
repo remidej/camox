@@ -1,4 +1,7 @@
+import { queryKeys } from "@camox/api-contract/query-keys";
+
 import { getPageDestinations } from "../../core/pageDestinations";
+import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 
 type DestinationLayouts = Parameters<typeof getPageDestinations>[1];
@@ -11,6 +14,44 @@ export interface CanvasPage {
   pattern?: string;
   pageId?: number;
   layoutId?: string;
+}
+
+/**
+ * A Canvas frame's page data. The sidebar reads the same query for the selected page. A
+ * code-owned page's data is its loader's draft result, which reloads with record edits and
+ * publication, like other draft layout reads.
+ */
+export function canvasPageQuery(
+  projectSlug: string,
+  runtimeBasePath: string,
+  pathname: string,
+  derivedLayoutId: string | undefined,
+) {
+  return {
+    queryKey: derivedLayoutId
+      ? [
+          ...queryKeys.layouts.all,
+          "canvas",
+          projectSlug,
+          runtimeBasePath,
+          pathname,
+          derivedLayoutId,
+          "draft",
+        ]
+      : ["camox", "canvas", projectSlug, runtimeBasePath, pathname, null],
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const response = await fetchRuntimeJson(
+        "/_camox/data",
+        runtimeBasePath,
+        { path: pathname },
+        signal,
+      );
+      if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
+      const input = (await response.json()) as PageRenderInput;
+      validateCanvasPageInput(input, pathname, derivedLayoutId);
+      return input;
+    },
+  };
 }
 
 export const CANVAS_DEVICES = {

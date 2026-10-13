@@ -28,13 +28,17 @@ import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
 import { useFrame } from "../../features/preview/components/Frame";
 import { overlayFieldId, recordPlacementId } from "../../features/preview/overlayMessages";
 import {
+  PreviewEditingOwnerContext,
   usePreviewSelection,
   usePreviewTargetSelection,
   type SelectionEvent,
 } from "../../features/preview/previewSelection";
 import {
+  NO_BLOCK_ID,
   previewStore,
   selectIsCommentMode,
+  selectPreviewSource,
+  selectionBlockId,
   type RecordPlacement,
   type Selection as PreviewTarget,
 } from "../../features/preview/previewStore";
@@ -45,6 +49,7 @@ import {
 } from "../../features/preview/repeatableItemTargets";
 import { useOptionalCamoxApp } from "../../features/provider/components/CamoxAppContext";
 import {
+  LinkedRecordsProvider,
   useNormalizedData,
   isItemMarker,
   queryResultIds,
@@ -97,7 +102,9 @@ import {
   type ReferenceRecord,
   type ReferenceScope,
 } from "../lib/reference";
+import type { LayoutItemProps } from "./BlockEditingRuntime";
 import { referenceWritesFor } from "./referenceWrites";
+import { useLatestRecord } from "./useLatestRecord";
 
 export type { ContentFieldBuilder, SettingBuilder } from "../lib/contentType.ts";
 export type {
@@ -2212,7 +2219,7 @@ export function createEditableBlock<
     // Scroll into view when editing in preview
     const selection = usePreviewTargetSelection();
     const selectTarget = usePreviewSelection();
-    const isBlockSelected = selection?.blockId === blockData._id;
+    const isBlockSelected = selectionBlockId(selection) === blockData._id;
     const overlayState = useOverlayState(isHovered, isBlockSelected);
     const ref = React.useRef<HTMLDivElement>(null);
 
@@ -2389,8 +2396,15 @@ export function createEditableBlock<
   );
   const ReferenceFileList = (props: any) => <ReferencePrimitive primitive={FileList} {...props} />;
 
-  /** Who owns a reference field: the block, a repeatable item, or a placed record (`outer`). */
-  type ReferenceFieldOwner = { itemId: number | undefined; outer: RecordPlacement | null };
+  /**
+   * Who owns a reference field: the block, a repeatable item, or a placed record (`outer`).
+   * A record page's layout (`layoutId`) places its record through no reference field.
+   */
+  type ReferenceFieldOwner = {
+    itemId: number | undefined;
+    outer: RecordPlacement | null;
+    layoutId?: number;
+  };
 
   /** The placement of `recordId` through the owner's reference field. */
   const placementOf = (
@@ -2399,6 +2413,7 @@ export function createEditableBlock<
     fieldName: string,
     recordId: string,
   ): RecordPlacement => {
+    if (owner.layoutId != null) return { layoutId: owner.layoutId, recordId };
     if (owner.outer) return { ...owner.outer, nested: { fieldName, recordId } };
     return {
       blockId: block.blockId,
@@ -2725,6 +2740,83 @@ export function createEditableBlock<
     );
   };
 
+  /**
+   * The record a record page renders, placed by its layout rather than a block: outlined,
+   * selected and written like a single reference's record, and linking the records it links.
+   */
+  const LayoutRecord = ({
+    layoutId,
+    record,
+    properties,
+    children,
+  }: {
+    layoutId: number;
+    record: ReferenceRecord;
+    properties: Record<string, unknown>;
+    children: (scope: any) => React.ReactNode;
+  }) => {
+    const block: BlockContextValue = {
+      blockId: NO_BLOCK_ID,
+      content: record.content as TContent,
+      sourceSchema: properties,
+      settings: {} as TSettings,
+      isHovered: false,
+      setIsHovered: () => {},
+      mode: "layout",
+    };
+    const owner = { itemId: undefined, outer: null, layoutId };
+    const placedRecord = usePlacedRecord(block, owner, "", record);
+    const overlay = useOverlayState(placedRecord.hovered, placedRecord.selected);
+    if (!placedRecord.reference) return null;
+    const rendered = (
+      <LinkedRecordsProvider references={record.references}>
+        <RecordScope
+          block={block}
+          field={{ referenceSchema: { properties } }}
+          record={record}
+          reference={placedRecord.reference}
+        >
+          {children}
+        </RecordScope>
+      </LinkedRecordsProvider>
+    );
+    if (!placedRecord.editable) return rendered;
+    return (
+      <PlacedRecordWrapper
+        fieldId={recordPlacementId(placedRecord.reference.placement)}
+        record={record}
+        placedRecord={placedRecord}
+        overlay={overlay}
+      >
+        {rendered}
+      </PlacedRecordWrapper>
+    );
+  };
+
+  /**
+   * `layout.Item` in the Studio. A layout editing its draft renders the record editable, with
+   * its content from the shared record cache once an edit through any placement is newer than
+   * what the loader returned. Elsewhere, and for live content, it renders read-only.
+   */
+  const LayoutItem = ({
+    collectionId,
+    labelField,
+    properties,
+    record,
+    children,
+    fallback,
+  }: LayoutItemProps) => {
+    const editingOwner = React.use(PreviewEditingOwnerContext);
+    const source = useSelector(previewStore, selectPreviewSource);
+    const latest = useLatestRecord({ collectionId, labelField, loaded: record });
+    if (editingOwner?.kind !== "layout" || source !== "draft" || !latest) return fallback;
+    return (
+      <LayoutRecord layoutId={editingOwner.layoutId} properties={properties} record={latest}>
+        {children}
+      </LayoutRecord>
+    );
+  };
+
   // An empty manual list shows a placeholder in edit mode that opens the sidebar's record
   // picker. A query-backed list renders the records its query resolved to, and nothing when
   // there are none: editors cannot add to it.
@@ -2815,7 +2907,7 @@ export function createEditableBlock<
 
     const selection = usePreviewTargetSelection();
     const selectTarget = usePreviewSelection();
-    const isBlockSelected = selection?.blockId === blockId;
+    const isBlockSelected = selectionBlockId(selection) === blockId;
     const overlayState = useOverlayState(isHovered, isBlockSelected);
 
     const isHoveredFromSidebar = useOverlayMessage(
@@ -2894,6 +2986,8 @@ export function createEditableBlock<
        * capabilities (e.g. delete and reorder blocks).
        */
       Component: BlockComponent,
+      /** Renders a record page's record; see `BlockEditingRuntime.renderLayoutItem`. */
+      LayoutItem,
       id: options.id,
       title: options.title,
       description: options.description,

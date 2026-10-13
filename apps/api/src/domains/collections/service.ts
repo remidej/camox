@@ -1,16 +1,19 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, desc, eq, exists, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, exists, isNotNull, notInArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { assertSyncAccess, getAuthorizedProjectBySlug, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { contentToMarkdown } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
 import { collectionAdditionDefaults } from "./schema-evolution";
 import { collectionDefinitionInput, validateContent } from "./validation";
@@ -188,6 +191,8 @@ const scopeInput = listCollectionRecordsInput;
 const recordInput = scopeInput.extend({ id: z.uuid() });
 const mutationInput = recordInput.extend({ expectedVersion: z.number().int().positive() });
 export const getCollectionRecordInput = recordInput;
+/** A record's published revision, joined next to the record. */
+const publishedRevisions = alias(collectionRevisions, "published_revisions");
 export const createRecordInput = scopeInput.extend({ content: z.unknown() });
 export const editRecordInput = mutationInput.extend({ content: z.unknown() });
 export const deleteRecordInput = mutationInput;
@@ -429,6 +434,155 @@ export const readRecord = Effect.fn("collections.readRecord")(function* (
         )
         .get(),
     )) ?? null
+  );
+});
+
+export const listRecordPageValuesInput = scopeInput.extend({
+  field: z.string(),
+  source: z.enum(["live", "draft"]),
+});
+export const findRecordsByFieldInput = listRecordPageValuesInput.extend({ value: z.string() });
+
+/** A record's String field as a path segment, or null when it can't be one. */
+function pageValue(content: Record<string, unknown> | null, field: string) {
+  const value = content?.[field];
+  if (typeof value !== "string" && (typeof value !== "object" || value === null)) return null;
+  const text = lexicalStateToPlainText(value as string | Record<string, unknown>);
+  // Empty values and values containing `/` can't be a path segment.
+  return text && !text.includes("/") ? text : null;
+}
+
+/**
+ * Each record in the source with its String field's plain text, when that text can be a path
+ * segment. Draft reads draft values and needs an authorized user; live reads published values.
+ */
+const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(function* (
+  ctx: ServiceContext,
+  input: z.infer<typeof listRecordPageValuesInput>,
+) {
+  const definition = yield* definitionFor(ctx, input, input.source === "draft");
+  const field = (definition.contentSchema.properties as Record<string, { fieldType?: string }>)[
+    input.field
+  ];
+  if (field?.fieldType !== "String")
+    return yield* new InvalidInputError({
+      message: `${input.collectionId}.${input.field} is not a String field`,
+    });
+  if (!definition.active) return { definition, records: [] };
+  const content = input.source === "live" ? publishedRevisions.content : collectionRecords.draft;
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select({
+        id: collectionRecords.id,
+        version: collectionRecords.version,
+        content,
+        publishedDefinition: publishedRevisions.definition,
+      })
+      .from(collectionRecords)
+      .leftJoin(
+        publishedRevisions,
+        eq(publishedRevisions.id, collectionRecords.publishedRevisionId),
+      )
+      .where(
+        and(
+          eq(collectionRecords.definitionId, definition.id),
+          input.source === "live" ? isNotNull(publishedRevisions.id) : undefined,
+        ),
+      ),
+  );
+  const records = rows.flatMap((row) => {
+    const value = pageValue(row.content, input.field);
+    if (value === null) return [];
+    // Live records render with the schema they were published with.
+    const schema =
+      input.source === "live"
+        ? (row.publishedDefinition as { contentSchema: unknown }).contentSchema
+        : definition.contentSchema;
+    return [{ id: row.id, version: row.version, content: row.content!, value, schema }];
+  });
+  return { definition, records };
+});
+
+/**
+ * The records whose String field's plain text equals `value`: the records a record page could
+ * render. Empty values and values containing `/` never match.
+ */
+export const findRecordsByField = Effect.fn("collections.findRecordsByField")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof findRecordsByFieldInput>,
+) {
+  const input = yield* decodeInput(findRecordsByFieldInput, rawInput);
+  const { definition, records } = yield* recordsWithPageValues(ctx, input);
+  // The page's record is the first hop: it resolves the records it links, which link nothing.
+  return yield* Effect.forEach(
+    records.filter((record) => record.value === input.value),
+    ({ id, version, content, schema }) =>
+      resolveReferences(ctx, definition, schema, content, input.source, 2).pipe(
+        // Drafts carry their version, which edits from the record page send as expected.
+        Effect.map((references) => ({
+          id,
+          content,
+          references,
+          ...(input.source === "draft" ? { version } : {}),
+        })),
+      ),
+  );
+});
+
+/**
+ * The records that can have a record page, with the value of their `field`: route discovery.
+ * Records sharing a value are all listed, so the caller can report the ambiguity.
+ */
+export const listRecordPageValues = Effect.fn("collections.listRecordPageValues")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof listRecordPageValuesInput>,
+) {
+  const input = yield* decodeInput(listRecordPageValuesInput, rawInput);
+  const { records } = yield* recordsWithPageValues(ctx, input);
+  return records.map(({ id, value }) => ({ id, value }));
+});
+
+export const recordMarkdownInput = recordInput.extend({
+  toMarkdown: z.array(z.string().max(10_000)).max(200),
+});
+
+/**
+ * A record page's Markdown: the layout's `toMarkdown` lines, filled with the record's live
+ * fields like a reference list's records. The record is the first hop, so its links resolve.
+ * Markdown is public output: it reads live content whoever asks.
+ */
+export const recordMarkdown = Effect.fn("collections.recordMarkdown")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof recordMarkdownInput>,
+) {
+  const input = yield* decodeInput(recordMarkdownInput, rawInput);
+  const { definition, record } = yield* recordFor(ctx, input, false);
+  if (!definition.active || !record?.publishedRevisionId) return yield* new NotFoundError();
+  const revisionId = record.publishedRevisionId;
+  const revision = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionRevisions)
+      .where(
+        and(eq(collectionRevisions.id, revisionId), eq(collectionRevisions.recordId, record.id)),
+      )
+      .get(),
+  );
+  if (!revision) return yield* new NotFoundError();
+  const { contentSchema } = revision.definition as { contentSchema: { properties?: object } };
+  const references = yield* resolveReferences(
+    ctx,
+    definition,
+    contentSchema,
+    revision.content,
+    "live",
+    2,
+  );
+  return contentToMarkdown(
+    input.toMarkdown,
+    (contentSchema.properties ?? {}) as Record<string, unknown>,
+    revision.content,
+    { references },
   );
 });
 

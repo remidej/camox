@@ -221,6 +221,26 @@ void test("canvas uses the active frame owner to edit selected page and layout b
   }
 });
 
+void test("a record page's selected record opens the editor, with no block selected", async () => {
+  const dom = await setup();
+  dom.store.send({ type: "enterEditMode" });
+  const owner = { kind: "layout", layoutId: 21 } as const;
+  try {
+    dom.store.send({
+      type: "selectTarget",
+      ...owner,
+      selection: { type: "record", layoutId: 21, recordId: "article" },
+    });
+    await dom.render("/articles/example", owner);
+    assert.ok(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'));
+    dom.store.send({ type: "clearSelection" });
+    await dom.render("/articles/example", owner);
+    assert.ok(dom.mount.querySelector('[data-editor="DerivedPageInfoSidebar"]'));
+  } finally {
+    await dom.close();
+  }
+});
+
 void test("comment mode targets the selected persisted page and keeps code layouts on layout info", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });

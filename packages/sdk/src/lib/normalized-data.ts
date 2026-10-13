@@ -145,6 +145,31 @@ export function useNormalizedData() {
   return React.use(NormalizedDataContext);
 }
 
+/**
+ * Adds the records a record page's record links to the records its fields resolve
+ * references from. A record page places its record through no block, so no block carries them.
+ */
+export const LinkedRecordsProvider = ({
+  references,
+  children,
+}: {
+  references: NormalizedReferences | undefined;
+  children: React.ReactNode;
+}) => {
+  const outer = React.use(NormalizedDataContext);
+  const value = React.useMemo(
+    () => ({
+      ...outer,
+      recordsMap: new Map([
+        ...outer.recordsMap,
+        ...linkedRecords(references).map((record) => [record.id, record] as const),
+      ]),
+    }),
+    [outer, references],
+  );
+  return React.createElement(NormalizedDataContext.Provider, { value }, children);
+};
+
 /* -------------------------------------------------------------------------------------------------
  * Helper: resolve page/layout blocks from individual block caches
  * Uses useQueries to subscribe to each block's cache entry.

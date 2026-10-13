@@ -8,6 +8,7 @@ import { Window } from "happy-dom";
 import * as React from "react";
 import { act } from "react";
 
+import type { AnyLayoutLoaderResult } from "@/core/createLayout";
 import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
 import { blockQueries, collectionQueries, fileQueries, projectQueries } from "@/lib/queries";
@@ -70,7 +71,7 @@ registerHooks({
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("http://localhost:8788", "development");
 
-const owner: EditingOwner = { kind: "page", pageId: 1 };
+const pageOwner: EditingOwner = { kind: "page", pageId: 1 };
 const BLOCK_ID = 7;
 const ITEM_ID = 12;
 const FILE_ID = 5;
@@ -148,8 +149,11 @@ async function renderSidebar(
     partners?: string[];
     /** The records the block's query-backed list resolved to, in result order. */
     recent?: string[];
+    /** The layout editing a record page, and what its loader returned. */
+    recordPage?: { owner: EditingOwner; result: AnyLayoutLoaderResult };
   } = {},
 ) {
+  const owner = options.recordPage?.owner ?? pageOwner;
   const window = new Window({ url: "http://localhost/" });
   Object.assign(globalThis, {
     window,
@@ -176,6 +180,7 @@ async function renderSidebar(
   const { createRoot } = await import("react-dom/client");
   const { PageEditorSidebar } = await import("./PageEditorSidebar");
   const { PreviewEditingOwnerContext } = await import("../previewSelection");
+  const { PageRecordContext } = await import("../pageRecord");
   const { previewStore } = await import("../previewStore");
   const { CamoxAppProvider } = await import("../../provider/components/CamoxAppContext");
   const { createApp } = await import("../../../core/createApp");
@@ -381,7 +386,9 @@ async function renderSidebar(
           >
             <CollectionItemModalProvider onRouteTargetClose={() => {}}>
               <PreviewEditingOwnerContext.Provider value={owner}>
-                <PageEditorSidebar />
+                <PageRecordContext value={options.recordPage?.result}>
+                  <PageEditorSidebar />
+                </PageRecordContext>
               </PreviewEditingOwnerContext.Provider>
               <ModalProbe />
               <ContentCollectionItemModal projectSlug="site" />
@@ -961,7 +968,7 @@ void test("clicking a listed record card opens its record view, whose field edit
   await act(async () =>
     sidebar.previewStore.send({
       type: "selectRecordField",
-      ...owner,
+      ...pageOwner,
       blockId: BLOCK_ID,
       fieldName: "logos",
       recordId: ACME,
@@ -1028,7 +1035,7 @@ void test("a selected record still in the list but not yet loaded keeps its sele
       ...bundle,
       block: { ...bundle.block, content: { ...bundle.block.content, logos: [GLOBEX, INITECH] } },
     }));
-    sidebar.previewStore.send({ type: "selectTarget", ...owner, selection });
+    sidebar.previewStore.send({ type: "selectTarget", ...pageOwner, selection });
   });
   await sidebar.settle();
   assert.deepEqual(sidebar.selection(), selection, "the selection is not bounced to the list");
@@ -1551,7 +1558,7 @@ void test("clicking a query result card opens its record view, whose field edits
   await act(async () =>
     sidebar.previewStore.send({
       type: "selectRecordField",
-      ...owner,
+      ...pageOwner,
       blockId: BLOCK_ID,
       fieldName: "recent",
       recordId: ACME,
@@ -1598,4 +1605,63 @@ void test("a selection on a record that left the query's results falls back to t
     cards(sidebar.host).map((card) => card.label),
     ["Open Globex"],
   );
+});
+
+/** The layout of a record page rendering Acme, as its loader returned it. */
+const acmePage = {
+  owner: { kind: "layout", layoutId: 4 },
+  result: {
+    kind: "collection-item",
+    collectionId: "customers",
+    data: { id: ACME, content: acmeContent, references: { contact: ada }, version: 3 },
+  },
+} as const;
+
+void test("a record page's record field opens the record's fields, saved with its version", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    {
+      type: "record-field",
+      layoutId: 4,
+      recordId: ACME,
+      recordFieldName: "quote",
+      recordFieldType: "String",
+    },
+    { recordPage: acmePage },
+  );
+  // No block or reference field places a record page's record.
+  assert.deepEqual(sidebar.crumbs(), ["Layout", "Acme", "Quote"]);
+  await sidebar.typeText("Superb");
+  assert.deepEqual(sidebar.writes, [
+    {
+      procedure: "collectionDefinitions/editRecord",
+      input: {
+        projectSlug: "site",
+        collectionId: "customers",
+        id: ACME,
+        expectedVersion: 3,
+        content: { ...acmeContent, quote: "Superb" },
+      },
+    },
+  ]);
+
+  await sidebar.click("Acme");
+  assert.deepEqual(sidebar.selection(), { type: "record", layoutId: 4, recordId: ACME });
+  assert.match(sidebar.text(), /Quote\s*Superb/);
+  assert.match(sidebar.text(), /Contact\s*Ada Lovelace/);
+});
+
+void test("a record page's record opens the records it links", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    {
+      type: "record",
+      layoutId: 4,
+      recordId: ACME,
+      nested: { fieldName: "contact", recordId: ADA },
+    },
+    { recordPage: acmePage },
+  );
+  assert.deepEqual(sidebar.crumbs(), ["Layout", "Acme", "Contact", "Ada Lovelace"]);
+  assert.match(sidebar.text(), /Role\s*CTO/);
 });

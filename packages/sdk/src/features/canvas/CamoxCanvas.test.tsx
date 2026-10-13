@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import { CANVAS_SLOT_WIDTH } from "./canvasItems";
+import { CANVAS_SHELF_MARKER_OVERHANG } from "./CanvasShelfMarker";
 
 // Keep the real Canvas query/error/selection orchestration, without loading editors.
 registerHooks({
@@ -28,7 +29,8 @@ registerHooks({
         export const blockQueries = {getPagesUsing: (_, type) => ({queryKey: ["blockPages", type]})};`;
     if (specifier.endsWith("/navigation"))
       source = `export const useLocation = () => globalThis.CanvasLocation;
-        export const useNavigate = () => globalThis.CanvasNavigate;`;
+        export const useNavigate = () => globalThis.CanvasNavigate;
+        export const NavigationProvider = (props) => globalThis.CanvasNavigationProbe(props);`;
     if (specifier.endsWith("/CamoxAppContext"))
       source =
         "export const useCamoxApp = () => ({getLayouts: () => [], getBlocks: () => globalThis.CanvasBlocks, getBlockById: (id) => globalThis.CanvasBlocks.find((block) => block._internal.id === id)})";
@@ -72,7 +74,22 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let includeNewPage = false;
   const flights: string[] = [];
   const actions: string[] = [];
-  const frames = new Map<string, { onActivate: (owner: never, source: string) => void }>();
+  const frames = new Map<
+    string,
+    { mode?: string; onActivate: (owner: never, source: string) => void }
+  >();
+  /** Whether Page frames are near the camera as soon as they are observed. */
+  let nearByDefault = true;
+  const nearness: { element: Element; report: (isIntersecting: boolean) => void }[] = [];
+  class TestIntersectionObserver {
+    constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe(element: Element) {
+      const report = (isIntersecting: boolean) => this.callback([{ isIntersecting }]);
+      nearness.push({ element, report });
+      if (nearByDefault) report(true);
+    }
+    disconnect() {}
+  }
   const headers = new Map<string, { onSelect: () => void; onChange: (path: string) => void }>();
   let snap!: (key: string) => void;
   let snapTargets: { key: string }[] = [];
@@ -80,6 +97,13 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let failingBlock: string | undefined;
   let blockPages: Record<string, { id: number }[]> = {};
   let initialTarget: { left: number } | undefined;
+  let cameraKey = "";
+  let cameraRow!: {
+    selected?: string | null;
+    onDeselect?: () => void;
+    insets?: { left: number; right: number };
+  };
+  let sidebarPathname: string | undefined;
   const blockFrames = new Map<string, { onSelect: () => void }>();
   type SidebarProps = {
     page?: { key: string };
@@ -100,6 +124,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     document: dom.document,
     Element: dom.Element,
     HTMLElement: dom.HTMLElement,
+    IntersectionObserver: TestIntersectionObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
     CanvasLocation: {
       pathname: "/about",
@@ -109,6 +134,13 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     },
     CanvasCommentMode: false,
     CanvasBlocks: [] as unknown[],
+    CanvasNavigationProbe: (props: {
+      location: { pathname: string };
+      children: React.ReactNode;
+    }) => {
+      sidebarPathname = props.location.pathname;
+      return props.children;
+    },
     CanvasSidebarProbe: (side: string, props: SidebarProps) => {
       sidebars.set(side, props);
       return null;
@@ -131,11 +163,17 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       };
     },
     CanvasCameraProbe: (
-      _key: string,
+      key: string,
       target: { left: number } | undefined,
-      options: { onSelect: typeof snap; targets: { key: string }[]; width?: number },
+      options: {
+        onSelect: typeof snap;
+        targets: { key: string }[];
+        width?: number;
+      } & typeof cameraRow,
     ) => {
+      cameraKey = key;
       initialTarget = target;
+      cameraRow = options;
       snap = options.onSelect;
       snapTargets = options.targets;
       cameraWidth = options.width;
@@ -183,6 +221,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     },
     CanvasFrameProbe: (props: {
       selected: boolean;
+      mode?: string;
       input: { pathname: string };
       onActivate: (owner: never, source: string) => void;
     }) => {
@@ -202,6 +241,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
   const { CamoxCanvas } = await import("./CamoxCanvas");
+  const { canvasStore } = await import("./canvasStore");
   const { PreviewPreparationContext } = await import("../preview/previewPreparation");
   try {
     for (const name of [
@@ -582,6 +622,286 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         Object.assign(globalThis, globals);
       }
     });
+    await t.test("Pages load once near the camera, and stay live only while near", async () => {
+      scenario = "";
+      includeNewPage = false;
+      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+      Object.assign(globalThis, globals);
+      nearByDefault = false;
+      nearness.length = 0;
+      frames.clear();
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const reportNear = (pathname: string, near: boolean) => {
+        const slot = host.querySelector(`[data-canvas-pathname="${pathname}"]`)!;
+        const observed = nearness.filter(({ element }) => slot.contains(element as never));
+        assert.equal(observed.length, 1, `${pathname} is observed once`);
+        return React.act(async () => observed[0]!.report(near));
+      };
+      const render = () =>
+        React.act(async () =>
+          root.render(
+            <PreviewPreparationContext value={{ ready: () => {}, fail: () => {} }}>
+              <CamoxCanvas runtimeBasePath="" />
+            </PreviewPreparationContext>,
+          ),
+        );
+      try {
+        await render();
+        const mode = (pathname: string) => frames.get(pathname)?.mode;
+        assert.equal(mode("/about"), "live", "the selected Page loads right away");
+        assert.equal(frames.has("/contact"), false, "other Pages wait for the camera");
+
+        await reportNear("/contact", true);
+        assert.equal(mode("/contact"), "paused", "a Page loads once near, paused");
+        await reportNear("/contact", false);
+        assert.equal(mode("/contact"), "resting", "away, its frame stays but rests");
+        await reportNear("/contact", true);
+        assert.equal(mode("/contact"), "paused");
+
+        const setMoving = (moving: boolean) =>
+          React.act(async () =>
+            canvasStore.send({ type: "setCameraMoving", workspaceKey: cameraKey, moving }),
+          );
+        await setMoving(true);
+        assert.equal(mode("/about"), "paused", "the camera moving pauses even the selection");
+        assert.equal(mode("/contact"), "paused");
+        await setMoving(false);
+        assert.equal(mode("/about"), "live");
+
+        await reportNear("/about", false);
+        assert.equal(mode("/about"), "live", "the selected Page stays live away");
+        globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
+        Object.assign(globalThis, globals);
+        await render();
+        assert.equal(mode("/contact"), "live", "the newly selected Page goes live");
+        frames.clear();
+        await render();
+        assert.equal(mode("/about"), "resting", "the deselected one stays loaded but rests");
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+        nearByDefault = true;
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        Object.assign(globalThis, globals);
+      }
+    });
+    await t.test("the Canvas route opens the Canvas with nothing selected", async () => {
+      scenario = "";
+      includeNewPage = false;
+      flights.length = 0;
+      globals.CanvasLocation = {
+        pathname: "/camox/canvas",
+        search: "",
+        hash: "",
+        source: undefined,
+      };
+      Object.assign(globalThis, globals);
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const signals: string[] = [];
+      try {
+        await React.act(async () =>
+          root.render(
+            <PreviewPreparationContext
+              value={{
+                ready: () => signals.push("ready"),
+                fail: (error) => signals.push(error.message),
+              }}
+            >
+              <CamoxCanvas runtimeBasePath="" />
+            </PreviewPreparationContext>,
+          ),
+        );
+        assert.deepEqual(signals, ["ready"], "no frame needs to load first");
+        assert.equal(initialTarget, undefined, "the camera starts on the overview");
+        assert.equal(cameraRow.selected, null);
+        for (const side of ["left", "right"]) {
+          const panel = host.querySelector(`[data-canvas-sidebar="${side}"]`)!;
+          assert.equal(panel.getAttribute("data-state"), "closed", `the ${side} sidebar is out`);
+          assert.ok(panel.hasAttribute("inert"));
+        }
+        for (const side of ["Left", "Right"]) {
+          assert.equal(sidebars.get(side)!.page, undefined);
+          assert.equal(sidebars.get(side)!.catalog, undefined);
+        }
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        Object.assign(globalThis, globals);
+      }
+    });
+    await t.test(
+      "zooming out of a selection goes to the Canvas route as the sidebars slide out",
+      async () => {
+        scenario = "";
+        includeNewPage = false;
+        flights.length = 0;
+        actions.length = 0;
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        const host = dom.document.createElement("div");
+        dom.document.body.append(host);
+        const root = createRoot(host as unknown as HTMLElement);
+        const signals: string[] = [];
+        const render = async () => {
+          Object.assign(globalThis, globals);
+          await React.act(async () =>
+            root.render(
+              <PreviewPreparationContext
+                value={{
+                  ready: () => signals.push("ready"),
+                  fail: (error) => signals.push(error.message),
+                }}
+              >
+                <CamoxCanvas runtimeBasePath="" />
+              </PreviewPreparationContext>,
+            ),
+          );
+        };
+        const panel = (side: string) =>
+          host.querySelector(`[data-canvas-sidebar="${side}"]`) as unknown as HTMLElement;
+        const assertPanels = (state: "open" | "closed") => {
+          for (const side of ["left", "right"]) {
+            assert.equal(panel(side).getAttribute("data-state"), state, `the ${side} sidebar`);
+            assert.equal(panel(side).hasAttribute("inert"), state === "closed");
+          }
+        };
+        const shownPage = (side: string) => sidebars.get(side)!.page?.key;
+        const committingNavigate = globals.CanvasNavigate;
+        try {
+          await render();
+          const [about, contact] = [...headers.keys()];
+          assert.equal(cameraRow.selected, about);
+          assertPanels("open");
+          const canvasSidebarLeft = () =>
+            (host.firstElementChild as unknown as HTMLElement).style.getPropertyValue(
+              "--canvas-sidebar-left",
+            );
+          assert.equal(
+            canvasSidebarLeft(),
+            panel("left").style.width,
+            "Canvas overlays know where the left sidebar ends",
+          );
+          assert.deepEqual(
+            cameraRow.insets,
+            {
+              left: parseFloat(panel("left").style.width),
+              right: parseFloat(panel("right").style.width),
+            },
+            "snapping leaves room where the sidebars overlay the Canvas",
+          );
+
+          // Navigation commits once the route payload loads; hold it to see what moves first.
+          const navigations: { to: string; source?: "canvas" }[] = [];
+          globals.CanvasNavigate = (options) => {
+            navigations.push(options);
+          };
+          const commit = async () => {
+            committingNavigate(navigations.splice(0).at(-1)!);
+            await render();
+          };
+
+          await render();
+          await React.act(async () => cameraRow.onDeselect!());
+          assert.deepEqual(navigations, [{ to: "/camox/canvas", source: "canvas" }]);
+          assert.equal(cameraRow.selected, null, "the camera has nothing left to deselect");
+          assertPanels("closed");
+          assert.equal(canvasSidebarLeft(), "0px", "and that it slides away");
+          for (const side of ["Left", "Right"]) {
+            assert.equal(shownPage(side), about, "sliding out, the sidebars keep their content");
+          }
+          assert.equal(sidebarPathname, "/about", "as of the location they showed");
+
+          await commit();
+          assert.deepEqual(signals, ["ready"]);
+          assert.equal(flights.length, 0, "deselecting does not fly");
+          assert.equal(cameraRow.selected, null);
+          assertPanels("closed");
+
+          await React.act(async () => {
+            panel("left").dispatchEvent(
+              new dom.Event("transitionend", { bubbles: true }) as unknown as Event,
+            );
+          });
+          for (const side of ["Left", "Right"]) {
+            assert.equal(shownPage(side), undefined, "out of view, they let it go");
+          }
+          assert.equal(sidebarPathname, "/camox/canvas");
+
+          await React.act(async () => snap(contact!));
+          assert.equal(cameraRow.selected, contact);
+          assertPanels("open");
+          for (const side of ["Left", "Right"]) {
+            assert.equal(shownPage(side), contact, "snapping to a Page brings them back at once");
+          }
+          assert.equal(sidebarPathname, "/contact");
+
+          await commit();
+          assertPanels("open");
+          assert.equal(shownPage("Left"), contact);
+          assert.equal(sidebarPathname, "/contact");
+          assert.equal(flights.length, 0, "selecting by snapping does not fly");
+        } finally {
+          globals.CanvasNavigate = committingNavigate;
+          await React.act(async () => root.unmount());
+          host.remove();
+          globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+          Object.assign(globalThis, globals);
+        }
+      },
+    );
+    await t.test("while commenting, the right sidebar keeps the last selection", async () => {
+      scenario = "";
+      includeNewPage = false;
+      actions.length = 0;
+      globals.CanvasCommentMode = true;
+      globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+      const host = dom.document.createElement("div");
+      dom.document.body.append(host);
+      const root = createRoot(host as unknown as HTMLElement);
+      const render = async () => {
+        Object.assign(globalThis, globals);
+        await React.act(async () => root.render(<CamoxCanvas runtimeBasePath="" />));
+      };
+      const panel = (side: string) =>
+        host.querySelector(`[data-canvas-sidebar="${side}"]`) as unknown as HTMLElement;
+      const state = (side: string) => panel(side).getAttribute("data-state");
+      const slideOut = (side: string) =>
+        React.act(async () => {
+          panel(side).dispatchEvent(
+            new dom.Event("transitionend", { bubbles: true }) as unknown as Event,
+          );
+        });
+      try {
+        await render();
+        const [about] = [...headers.keys()];
+        await React.act(async () => cameraRow.onDeselect!());
+        await render();
+        assert.equal(globals.CanvasLocation.pathname, "/camox/canvas");
+        assert.equal(state("left"), "closed", "the left sidebar slides out");
+        assert.equal(state("right"), "open", "the right sidebar stays");
+        assert.ok(!panel("right").hasAttribute("inert"));
+        await slideOut("left");
+        assert.equal(sidebars.get("Right")!.page?.key, about, "with the last selection's feedback");
+        assert.equal(sidebarPathname, "/about");
+
+        globals.CanvasCommentMode = false;
+        await render();
+        assert.equal(state("right"), "closed", "it slides out once commenting ends");
+        assert.equal(sidebars.get("Right")!.page?.key, about);
+        await slideOut("right");
+        assert.equal(sidebars.get("Right")!.page, undefined);
+      } finally {
+        await React.act(async () => root.unmount());
+        host.remove();
+        globals.CanvasCommentMode = false;
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        Object.assign(globalThis, globals);
+      }
+    });
     await t.test("a failing block frame stays in its own slot", async () => {
       scenario = "";
       includeNewPage = false;
@@ -646,12 +966,16 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         assert.equal(marker().getAttribute("aria-expanded"), "true");
         const expandedWidth = cameraWidth;
         const frame = host.querySelector('[data-canvas-pathname="/about"]');
+        const sidebar = host.querySelector(
+          '[data-canvas-sidebar="left"]',
+        ) as unknown as HTMLElement;
+        const sidebarLeft = parseFloat(sidebar.style.width);
         await toggle();
         assert.equal(marker().getAttribute("aria-expanded"), "false");
         assert.deepEqual(
           keptInView.splice(0),
-          [[0, 12]],
-          "the collapsed bar takes the place of the marker's visible start",
+          [[0, sidebarLeft + CANVAS_SHELF_MARKER_OVERHANG]],
+          "the collapsed bar takes the place of the marker's visible start, past the left sidebar",
         );
         assert.equal(host.querySelectorAll("[data-canvas-header]").length, 0, "headers hide");
         assert.deepEqual(snapTargets, [], "hidden Pages are not snap targets");
@@ -678,6 +1002,21 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           "selecting a hidden Page from outside the Canvas reveals it",
         );
         assert.deepEqual(flights, [[...headers.keys()][1]], "and flies to it");
+
+        globals.CanvasLocation = {
+          pathname: "/camox/canvas",
+          search: "",
+          hash: "",
+          source: undefined,
+        };
+        await render();
+        keptInView.length = 0;
+        await toggle();
+        assert.deepEqual(
+          keptInView.splice(0),
+          [[0, CANVAS_SHELF_MARKER_OVERHANG]],
+          "without the left sidebar, it stands at the Canvas's edge",
+        );
       } finally {
         await React.act(async () => root.unmount());
         host.remove();

@@ -4,6 +4,22 @@ export function runtimePath(pathname: string, basePath: string) {
   return `${base}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 }
 
+/** Requests one of the runtime's JSON endpoints (`/_camox/data`, `/_camox/routes`) as the editor. */
+export function fetchRuntimeJson(
+  endpoint: string,
+  runtimeBasePath: string,
+  params: Record<string, string>,
+  signal: AbortSignal,
+) {
+  const url = new URL(runtimePath(endpoint, runtimeBasePath), window.location.origin);
+  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+  return fetch(url, {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+}
+
 export function getNavigationTarget(to: string, currentHref: string, basePath: string) {
   const url = new URL(to, currentHref);
   const current = new URL(currentHref);

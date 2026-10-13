@@ -141,7 +141,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     "/camox/content/collections/articles",
     "/camox/content/collections/articles/new",
     "/camox/content/collections/articles/a6479288-341f-4008-b118-dea6d8dd9158/edit",
-    "/camox/canvas",
+    "/camox/settings",
   ]) {
     const response = await handleCamoxRequest(
       new Request(`https://site.test/_camox/data?path=${encodeURIComponent(path)}`, {
@@ -165,7 +165,10 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     if (path.startsWith("/pokemon/"))
       assert.deepEqual(input.derived?.result, { kind: "data", data: { name: "pikachu" } });
     if (path.startsWith("/camox/"))
-      assert.equal(input.routeKind, path === "/camox/canvas" ? "studio-nested" : "studio-content");
+      assert.equal(
+        input.routeKind,
+        path === "/camox/settings" ? "studio-nested" : "studio-content",
+      );
     if (!path.startsWith("/camox/")) {
       assert.match(input.previewDocument!, /href="\/site.css"/);
       assert.match(input.previewDocument!, /class="dark"/);
@@ -342,7 +345,7 @@ void test("anonymous studio navigation never validates a missing cookie or grant
   assert.equal(input.project, undefined);
 });
 
-void test("Block Catalog routes open the page app on the block, or redirect home", async (t) => {
+void test("Canvas-only routes open the page app on the Canvas or a block, or redirect home", async (t) => {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname;
     if (path.endsWith("/getBySlug")) return Response.json({ json: project });
@@ -383,7 +386,7 @@ void test("Block Catalog routes open the page app on the block, or redirect home
     assert.equal(response?.status, 200);
     assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
     const input = (await response!.json()) as PageRenderInput;
-    assert.deepEqual(input.catalogBlock, { blockId: "hero" });
+    assert.deepEqual(input.canvasOnly, { blockId: "hero" });
     assert.equal(input.pathname, "/camox/blocks/hero");
     assert.equal(input.presentation, "studio");
     assert.equal(input.routeKind, undefined, "the Canvas stays mounted, not a Studio page");
@@ -396,6 +399,22 @@ void test("Block Catalog routes open the page app on the block, or redirect home
     assert.doesNotMatch(html, /studio-client.js/);
     assert.match(html, /href="\/studio.css"/);
     assert.match(html, /<title>Hero<\/title>/);
+  });
+
+  await t.test("the Canvas opens Edit Mode's page app with nothing selected", async () => {
+    const response = await request("/_camox/data?path=/camox/canvas");
+    assert.equal(response?.status, 200);
+    const input = (await response!.json()) as PageRenderInput;
+    assert.deepEqual(input.canvasOnly, {});
+    assert.equal(input.pathname, "/camox/canvas");
+    assert.equal(input.presentation, "studio");
+    assert.equal(input.routeKind, undefined, "the Canvas stays mounted, not a Studio page");
+    assert.match(input.previewDocument!, /href="\/site.css"/, "block frames get the site head");
+
+    const html = await (await request("/camox/canvas"))!.text();
+    assert.match(html, /page-client.js/);
+    assert.doesNotMatch(html, /studio-client.js/);
+    assert.match(html, /<title>Canvas<\/title>/);
   });
 
   for (const [name, path] of [

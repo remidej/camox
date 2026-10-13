@@ -368,6 +368,82 @@ pageFullPath })`. Curated pages pass the editor's description and default to it;
 - Playground: both Pokémon layouts declare `routes` (7a), `toMarkdown` and metadata (7b); the
   Pokédex singleton declares `toMarkdown` (7b).
 
+## Slice 8 decision: record pages
+
+Recorded from grilling the slice in #121. This settles remaining decision #8 and slice 7's
+deferred draft/live question for `routes` and `loader`. The full spec is #183, split into
+#184–#190: read-only record pages land before editing.
+
+Loading and discovery:
+
+- The runtime picks the request's source before calling `loader` and `routes`, and passes
+  both an opaque request context next to `params`. `pages()` uses it for an internal record
+  lookup; a wrapper must pass the context through. This is not a public ORM.
+- New API reads find one record by a field value and list records for discovery. Editors'
+  requests read drafts; everyone else reads live.
+- Preview matches on draft values, live on published values. A draft-only record is reachable
+  in preview at its draft slug. After publishing a new slug, the old URL 404s (no redirects).
+  Editing the `by` field of the record page being previewed navigates the Studio to the new URL.
+- `by` accepts String fields only, compared on extracted plain text. `param` is checked by the
+  layout's route params. Records whose value is empty or contains `/` get no page and are
+  left out of discovery.
+- Known cost: finding a record by its `by` value loads every record of the collection in the
+  source and compares their extracted plain text in memory, with no index. That's fine at
+  current collection sizes; a stored plain-text column could replace it later.
+- Several records matching in the same source is a server error naming the collection, field,
+  value and records; in discovery it fails the sitemap like slice 7's invalid entries.
+  Uniqueness enforcement stays deferred.
+- The sitemap and Markdown always use live content, whoever asks. HTML, `/_camox/data` and
+  `/_camox/routes` follow the editor's session.
+
+Envelopes and types:
+
+- The `collection-item` envelope type is exported. The runtime checks that `collectionId` is a
+  registered collection and `data.id` a record id, then trusts the rendering data; write
+  authorization stays with the API. Wrappers should return the envelope unchanged.
+- `layout.Item` exists only when every return of the loader is a record of one collection;
+  otherwise using it is a type error. At runtime it renders nothing for other results. Unions
+  across kinds or collections are deferred.
+- On record layouts, `toMarkdown` and the meta callbacks also receive `item`: the reference-list
+  Markdown builder in `toMarkdown`, plain text in meta callbacks. `data` stays the raw record.
+- References inside the record resolve under slice 5's two-hop rules, with the page's record
+  as hop 1, and are exposed as `Reference`/`ReferenceList` inside `layout.Item`.
+
+Editing and publication:
+
+- A layout-owned placement (layout and record, no block) gives `layout.Item` fields the same
+  selection, purple overlays and record sidebar as a single reference.
+- Comments on record page fields are deferred (#185). Comments belong to a page row and anchor
+  to a block, item or block field, and records anchor to their placing reference field; a
+  record page has no page row and its record no reference field. In comment mode, clicking a
+  layout-owned record does nothing.
+- `layout.Item` reads the record from the normalized record cache, seeded by the loader
+  result, so edits show everywhere at once. Switching source or publishing re-requests
+  `/_camox/data`.
+- Publication stays minimal, given the planned move to project-wide drafts: the page's record
+  joins the layout's publication modal through the existing reference-target path as an
+  optional switch, deduplicated with records reached through layout blocks.
+
+Playground: an `/articles/$slug` record page (author through `Reference`, `toMarkdown`, meta)
+and an `/articles` singleton with an article list. List items link to record pages with
+hrefs built from the slug in code. Articles link their author, so authors no longer link
+their articles: `field.reference` reads its collection eagerly, so two collections can't
+reference each other.
+
+Read-only `layout.Item` (#188): the record's links travel in the envelope as
+`data.references`, resolved by the API with the record as hop 1. The envelope type carries
+the collection's fields as a type-only, invariant member; an envelope typed without them (a
+wrapper annotated `LayoutCollectionItemResult<Content>`) has no `Item`. Record Markdown is
+filled by the API (`recordMarkdown`), with the same builder and resolver as reference lists.
+
+Editable `layout.Item` (#190): comments stay deferred, as above. The draft envelope carries
+the record's `version`. The "normalized record cache" is the per-record query every record
+save writes: `layout.Item` shows a saved draft once its version is newer than the loader's.
+The page's data reloads with record edits and publication, like other draft layout reads, so
+newly linked records resolve. An editor's `/_camox/data?source=live` runs the loader live.
+Following a slug edit asks route discovery for the record's page
+(`/_camox/routes?recordId=`), using the entries' `target`, since the Studio doesn't know `by`.
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.
@@ -863,7 +939,7 @@ These are not permission to expand v1 into the explicitly deferred features:
 5. ~~Route-discovery pagination details and route-collision behavior relative to existing curated pages~~ (settled in "Slice 7 decision").
 6. Per-use nested reference Markdown behavior. (Layout Markdown and metadata callback signatures are settled in "Slice 7 decision".)
 7. How reference field empty/optional states and collection schemas reuse existing field primitives without inheriting inappropriate block-preview/rendering requirements.
-8. Runtime/type behavior if a custom loader returns different kinds or different collections across branches.
+8. ~~Runtime/type behavior if a custom loader returns different kinds or different collections across branches~~ (settled in "Slice 8 decision").
 
 ## Acceptance criteria
 

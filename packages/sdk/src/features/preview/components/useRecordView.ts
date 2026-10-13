@@ -13,7 +13,14 @@ import {
 import { collectionQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
-import { previewStore, recordPlacement, type EditingOwner, type Selection } from "../previewStore";
+import {
+  isBlockPlacement,
+  previewStore,
+  recordPlacement,
+  type EditingOwner,
+  type RecordPlacement,
+  type Selection,
+} from "../previewStore";
 import { contentFieldSchema, type ContentFieldSchema } from "./contentFieldSchema";
 import { formatFieldName } from "./ItemFieldsEditor";
 import type { PublicationStatus } from "./PageStatusBadge";
@@ -59,17 +66,28 @@ function linksRecord(
   return stored === recordId;
 }
 
+/** What places the selected record: a block or repeatable item, or a record page's layout. */
+export type RecordPlacer = BlockRecordPlacer | LayoutRecordPlacer;
+
 /** The block or repeatable item whose reference field places the selected record. */
-export type RecordPlacer = {
+export type BlockRecordPlacer = {
   content: unknown;
   references?: NormalizedReferences;
   /** Its content schema, which declares its reference fields. */
   contentSchema: unknown;
 };
 
+/** The layout rendering a record page, with the record its loader returned. */
+export type LayoutRecordPlacer = { collectionId: string; record: NormalizedCollectionRecord };
+
+function isLayoutPlacer(placer: RecordPlacer | null): placer is LayoutRecordPlacer {
+  return placer != null && "record" in placer;
+}
+
 /**
  * Resolves a record or record-field selection into the record it shows, while the placer's
- * reference field still links that record, or the reference list still contains it. A record
+ * reference field still links that record, or the reference list still contains it. A layout
+ * places the record its record page loaded, through no reference field. A record
  * linked by a placed record (`nested`) resolves through that record's own links. A stale
  * selection (a field no longer links its record) shows, and then selects, that reference field's
  * view instead.
@@ -90,25 +108,40 @@ export function useRecordView({
     selection?.type === "record" || selection?.type === "record-field" ? selection : null;
   const nested = recordSelection?.nested;
 
-  // First hop: the record the block or item places.
-  const referenceFieldName = recordSelection?.fieldName;
+  // First hop: the record the block or item places, or the record page's record.
+  const blockSelection =
+    recordSelection && isBlockPlacement(recordSelection) ? recordSelection : null;
+  const layoutSelection =
+    recordSelection && !isBlockPlacement(recordSelection) ? recordSelection : null;
+  const blockPlacer = placer && !isLayoutPlacer(placer) ? placer : null;
+  const layoutPlacer = isLayoutPlacer(placer) ? placer : null;
+  const referenceFieldName = blockSelection?.fieldName;
   const referenceField = referenceFieldName
-    ? contentFieldSchema(placer?.contentSchema, referenceFieldName)
+    ? contentFieldSchema(blockPlacer?.contentSchema, referenceFieldName)
     : undefined;
-  const outerCollection = referenceField?.collectionId
-    ? camoxApp.getCollectionById(referenceField.collectionId)
+  const outerCollectionId = layoutSelection
+    ? layoutPlacer?.collectionId
+    : referenceField?.collectionId;
+  const outerCollection = outerCollectionId
+    ? camoxApp.getCollectionById(outerCollectionId)
     : undefined;
-  const outerStale =
-    recordSelection != null &&
-    placer != null &&
-    !linksRecord(referenceField, placer, recordSelection.fieldName, recordSelection.recordId);
+  const outerStale = blockSelection
+    ? blockPlacer != null &&
+      !linksRecord(referenceField, blockPlacer, blockSelection.fieldName, blockSelection.recordId)
+    : layoutSelection != null &&
+      layoutPlacer != null &&
+      layoutPlacer.record.id !== layoutSelection.recordId;
   // A record the field just linked shows once the placer's hydrated records include it.
-  const outerRecord =
-    recordSelection && !outerStale
-      ? placedRecords(placer?.references, recordSelection.fieldName).find(
-          (record) => record.id === recordSelection.recordId,
-        )
-      : undefined;
+  const findOuterRecord = () => {
+    if (outerStale) return undefined;
+    if (blockSelection)
+      return placedRecords(blockPlacer?.references, blockSelection.fieldName).find(
+        (record) => record.id === blockSelection.recordId,
+      );
+    if (layoutSelection) return layoutPlacer?.record;
+    return undefined;
+  };
+  const outerRecord = findOuterRecord();
 
   // Second hop: the record the first one links through its own reference field.
   const nestedField = nested
@@ -133,32 +166,45 @@ export function useRecordView({
   const referenceFieldType = fieldTypeOf(referenceField);
   const nestedFieldType = fieldTypeOf(nestedField);
 
-  const recordBlockId = recordSelection?.blockId;
-  const recordItemId = recordSelection?.itemId;
+  const recordBlockId = blockSelection?.blockId;
+  const recordItemId = blockSelection?.itemId;
+  const recordLayoutId = layoutSelection?.layoutId;
   const referenceFieldSelection = React.useMemo<Selection | null>(() => {
     if (recordBlockId == null || !referenceFieldName) return null;
     const field = { fieldName: referenceFieldName, fieldType: referenceFieldType } as const;
     if (recordItemId == null) return { type: "block-field", blockId: recordBlockId, ...field };
     return { type: "item-field", blockId: recordBlockId, itemId: recordItemId, ...field };
   }, [recordBlockId, recordItemId, referenceFieldName, referenceFieldType]);
-  const outerPlacement = recordSelection
+  const outerPlacement: RecordPlacement | null = recordSelection
     ? (({ nested: _nested, ...outer }) => outer)(recordPlacement(recordSelection))
     : null;
   // The first record's reference field that links the second.
   const recordId = recordSelection?.recordId;
   const nestedFieldName = nested?.fieldName;
   const nestedFieldSelection = React.useMemo<Selection | null>(() => {
-    if (recordBlockId == null || !referenceFieldName || !recordId || !nestedFieldName) return null;
+    if (!recordId || !nestedFieldName) return null;
+    const field = { recordFieldName: nestedFieldName, recordFieldType: nestedFieldType };
+    if (recordLayoutId != null) {
+      return { type: "record-field", layoutId: recordLayoutId, recordId, ...field };
+    }
+    if (recordBlockId == null || !referenceFieldName) return null;
     return {
       type: "record-field",
       blockId: recordBlockId,
       ...(recordItemId == null ? {} : { itemId: recordItemId }),
       fieldName: referenceFieldName,
       recordId,
-      recordFieldName: nestedFieldName,
-      recordFieldType: nestedFieldType,
+      ...field,
     };
-  }, [recordBlockId, recordItemId, referenceFieldName, recordId, nestedFieldName, nestedFieldType]);
+  }, [
+    recordBlockId,
+    recordItemId,
+    recordLayoutId,
+    referenceFieldName,
+    recordId,
+    nestedFieldName,
+    nestedFieldType,
+  ]);
 
   const isStale = outerStale || nestedStale;
   const fallbackSelection = outerStale ? referenceFieldSelection : nestedFieldSelection;
@@ -193,15 +239,25 @@ export function useRecordView({
   const recordCrumbs = (fieldHasOwnView: boolean): SelectionCrumb[] => {
     if (!recordView || !outerRecord || !outerPlacement) return [];
     const outerTarget: Selection = { type: "record", ...outerPlacement };
+    // A record page's record has no reference field above it.
+    const referenceFieldCrumbs: SelectionCrumb[] = isBlockPlacement(outerPlacement)
+      ? [
+          {
+            key: "reference-field",
+            label: referenceField?.title ?? formatFieldName(outerPlacement.fieldName),
+            isCurrent: false,
+            hoverTarget: referenceFieldSelection,
+            onClick: () =>
+              previewStore.send({
+                type: "selectTarget",
+                ...owner,
+                selection: referenceFieldSelection,
+              }),
+          },
+        ]
+      : [];
     const crumbs: SelectionCrumb[] = [
-      {
-        key: "reference-field",
-        label: referenceField?.title ?? formatFieldName(outerPlacement.fieldName),
-        isCurrent: false,
-        hoverTarget: referenceFieldSelection,
-        onClick: () =>
-          previewStore.send({ type: "selectTarget", ...owner, selection: referenceFieldSelection }),
-      },
+      ...referenceFieldCrumbs,
       {
         key: "record",
         label: outerRecord.label,

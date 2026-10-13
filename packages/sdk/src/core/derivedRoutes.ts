@@ -1,4 +1,6 @@
 import type { Layout } from "./createLayout";
+import { asCollectionItem } from "./recordItem";
+import type { LayoutRequestContext } from "./requestContext";
 
 export function routeSegments(id: string) {
   return id.split(".");
@@ -61,13 +63,44 @@ export function derivedLayoutPath(layoutId: string, params: unknown) {
     .join("/")}`;
 }
 
-/** Runs a derived layout's route discovery; an invalid result throws rather than omitting pages. */
-export async function discoverLayoutPaths(layout: Layout): Promise<string[]> {
+/** A discovered page: its path, and the record it renders when its entry names one. */
+export interface DiscoveredPage {
+  path: string;
+  recordId?: string;
+}
+
+/** The record a discovery entry names, if its `target` is a record target. */
+function targetRecordId(entry: unknown) {
+  const target = asCollectionItem(
+    (entry as { target?: { kind?: unknown; id?: unknown } } | null)?.target,
+  );
+  if (typeof target?.id !== "string") return undefined;
+  return target.id;
+}
+
+/**
+ * Runs a derived layout's route discovery, keeping the record each page renders. An invalid
+ * result throws rather than omitting pages.
+ */
+export async function discoverLayoutPages(
+  layout: Layout,
+  context: LayoutRequestContext,
+): Promise<DiscoveredPage[]> {
   const { id, routes } = layout._internal;
   if (!routes) return [];
-  const result = (await routes()) as unknown;
+  let result: unknown;
+  try {
+    result = await routes({ context });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Layout "${id}" routes failed: ${message}`, { cause: error });
+  }
   const entries = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(entries))
     throw new Error(`Layout "${id}" routes must return { data: [{ params }] }`);
-  return entries.map((entry) => derivedLayoutPath(id, (entry as { params?: unknown })?.params));
+  return entries.map((entry) => {
+    const path = derivedLayoutPath(id, (entry as { params?: unknown })?.params);
+    const recordId = targetRecordId(entry);
+    return recordId ? { path, recordId } : { path };
+  });
 }

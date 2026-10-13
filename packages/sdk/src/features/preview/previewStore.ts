@@ -28,14 +28,13 @@ export type Selection =
       recordFieldType: FieldType;
     } & RecordPlacement);
 
-/** A collection record placed by a reference field (one placement of the record). */
-export type RecordPlacement = {
-  blockId: number;
-  /** The repeatable item whose reference field places the record, if not the block's own. */
-  itemId?: number;
-  /** The block's or item's reference field that places the record. */
-  fieldName: string;
-  recordId: string;
+/**
+ * Where one placement of a collection record occurs. A block's or repeatable item's reference
+ * field places it, or a layout renders it as the record of a record page.
+ */
+export type RecordPlacement = BlockRecordPlacement | LayoutRecordPlacement;
+
+type LinkedRecord = {
   /**
    * The second hop: the record that this placement's record links through one of its own
    * reference fields (an article's author). The selection then points to that record.
@@ -43,28 +42,65 @@ export type RecordPlacement = {
   nested?: { fieldName: string; recordId: string };
 };
 
+/** A collection record placed by a reference field of a block or repeatable item. */
+export type BlockRecordPlacement = LinkedRecord & {
+  blockId: number;
+  /** The repeatable item whose reference field places the record, if not the block's own. */
+  itemId?: number;
+  /** The block's or item's reference field that places the record. */
+  fieldName: string;
+  recordId: string;
+};
+
+/** The record a layout renders on one of its record pages, placed by no block. */
+export type LayoutRecordPlacement = LinkedRecord & { layoutId: number; recordId: string };
+
+/**
+ * The block id of what no block places, like a record page's record: it equals no id, itself
+ * included, so no block field or selection ever matches it.
+ */
+export const NO_BLOCK_ID = Number.NaN;
+
+/**
+ * Whether a block places the record. Checks `blockId` rather than `layoutId`, because editing
+ * events spread a layout editing owner's `layoutId` next to block-owned placements.
+ */
+export function isBlockPlacement(placement: RecordPlacement): placement is BlockRecordPlacement {
+  return "blockId" in placement && placement.blockId != null;
+}
+
+function copyNested(placement: RecordPlacement) {
+  if (!placement.nested) return {};
+  return { nested: { fieldName: placement.nested.fieldName, recordId: placement.nested.recordId } };
+}
+
 /** Copies only a placement's identity, never the event or other selection fields. */
+export function recordPlacement(placement: BlockRecordPlacement): BlockRecordPlacement;
+export function recordPlacement(placement: RecordPlacement): RecordPlacement;
 export function recordPlacement(placement: RecordPlacement): RecordPlacement {
+  if (!isBlockPlacement(placement)) {
+    return { layoutId: placement.layoutId, recordId: placement.recordId, ...copyNested(placement) };
+  }
   return {
     blockId: placement.blockId,
     ...(placement.itemId == null ? {} : { itemId: placement.itemId }),
     fieldName: placement.fieldName,
     recordId: placement.recordId,
-    ...(placement.nested
-      ? { nested: { fieldName: placement.nested.fieldName, recordId: placement.nested.recordId } }
-      : {}),
+    ...copyNested(placement),
   };
 }
 
-/** Whether two placements are the same occurrence: same block, item, field and record. */
+/** Whether two placements are the same occurrence: same owner, field and record. */
 export function samePlacement(a: RecordPlacement, b: RecordPlacement): boolean {
+  if (a.recordId !== b.recordId) return false;
+  if (a.nested?.fieldName !== b.nested?.fieldName) return false;
+  if (a.nested?.recordId !== b.nested?.recordId) return false;
+  if (!isBlockPlacement(a)) return !isBlockPlacement(b) && a.layoutId === b.layoutId;
+  if (!isBlockPlacement(b)) return false;
   return (
     a.blockId === b.blockId &&
     (a.itemId ?? null) === (b.itemId ?? null) &&
-    a.fieldName === b.fieldName &&
-    a.recordId === b.recordId &&
-    a.nested?.fieldName === b.nested?.fieldName &&
-    a.nested?.recordId === b.nested?.recordId
+    a.fieldName === b.fieldName
   );
 }
 
@@ -100,14 +136,29 @@ export function selectionForPage(
   return selectionForOwner(context, pageId === null ? null : { kind: "page", pageId });
 }
 
-/** Extract the blockId from any selection variant. */
+/** A selection that belongs to a block: anything but a record a layout places. */
+export type BlockSelection =
+  | Exclude<Selection, { type: "record" | "record-field" }>
+  | BlockRecordSelection;
+type BlockRecordSelection = Extract<Selection, { type: "record" | "record-field" }> &
+  BlockRecordPlacement;
+
+/** Narrows to selections inside a block, excluding records placed by a layout. */
+export function isBlockSelection(sel: Selection | null): sel is BlockSelection {
+  if (!sel) return false;
+  if (sel.type === "record" || sel.type === "record-field") return isBlockPlacement(sel);
+  return true;
+}
+
+/** Extract the blockId from any selection variant; null for a record a layout places. */
 export function selectionBlockId(sel: Selection | null): number | null {
-  return sel?.blockId ?? null;
+  if (!isBlockSelection(sel)) return null;
+  return sel.blockId;
 }
 
 /** Extract the itemId from item and item-field selections, and records placed by an item. */
 export function selectionItemId(sel: Selection | null): number | null {
-  if (!sel) return null;
+  if (!isBlockSelection(sel)) return null;
   if (sel.type === "item" || sel.type === "item-field") return sel.itemId;
   if (sel.type === "record" || sel.type === "record-field") return sel.itemId ?? null;
   return null;
@@ -339,6 +390,8 @@ export const previewStore = createStore({
           },
         };
       }
+      // A record page's record is the root of its layout's selection path.
+      if (sel.type === "record" && !isBlockPlacement(sel)) return context;
       if (sel.type === "record") {
         // The reference field that places the record, in its block or repeatable item.
         const field = { fieldName: sel.fieldName, fieldType: "Reference" as const };
