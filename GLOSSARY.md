@@ -165,7 +165,7 @@ The published state of the website, served to the public. Live only changes when
 _Avoid_: Production, production environment, main
 
 **Draft**:
-A named set of changes to the website's content, kept apart from Live until it is published or discarded. Many drafts can be open at once, each started by an editor or an agent.
+A named set of changes to the website's content, kept apart from Live until it is published or discarded, which ends it. Many drafts can be open at once, each started by an editor or an agent, and every member can see, edit, publish, or discard any of them. Editing while viewing Live always starts a new draft.
 _Avoid_: Branch, environment, changeset, working copy
 
 **Development Draft**:
