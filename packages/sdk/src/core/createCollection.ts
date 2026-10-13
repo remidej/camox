@@ -93,6 +93,7 @@ export function createCollection<
               id: record.id,
               content: record.content as Static<TObject<T>>,
               ...(record.references && { references: record.references }),
+              ...(record.version != null && { version: record.version }),
             },
           };
         },

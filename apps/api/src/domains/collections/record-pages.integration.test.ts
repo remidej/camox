@@ -114,6 +114,7 @@ describe("finding the records a record page renders", () => {
         id: record.id,
         content: { ...article, title: "Draft title", slug: "new-slug" },
         references: { author: null },
+        version: expect.any(Number),
       },
     ]);
     expect(await f.find("old-slug", "draft")).toEqual([]);
@@ -130,6 +131,7 @@ describe("finding the records a record page renders", () => {
         id: draftOnly.id,
         content: { ...article, title: "Unpublished", slug: "draft-only" },
         references: { author: null },
+        version: draftOnly.version,
       },
     ]);
     // A never-published record has no live content.
@@ -163,6 +165,25 @@ describe("finding the records a record page renders", () => {
     expect(live.references.author).not.toHaveProperty("references");
     const [draft] = await f.find("hello", "draft");
     expect(draft.references.author).toMatchObject({ id: ada.id, label: "Ada (draft)" });
+  });
+
+  it("gives drafts their version, which edits from the record page send as expected", async () => {
+    const f = await fixture("versions");
+    const record = await f.create({ slug: "versioned" });
+    const { record: published } = await f.publish(record);
+    const [draft] = await f.find("versioned", "draft");
+    expect(draft.version).toBe(published.version);
+    const edited = await runService(
+      editRecord(f.ctx, {
+        ...f.scope,
+        id: record.id,
+        expectedVersion: draft.version!,
+        content: { ...article, slug: "versioned", title: "Edited" },
+      }),
+    );
+    expect((await f.find("versioned", "draft"))[0].version).toBe(edited.version);
+    // Visitors' content isn't editable: it has no version.
+    expect((await f.find("versioned", "live"))[0]).not.toHaveProperty("version");
   });
 
   it("compares the plain text of values stored as rich text", async () => {

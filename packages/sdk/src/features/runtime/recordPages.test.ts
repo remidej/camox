@@ -51,7 +51,7 @@ const TWIN_IDS = ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-80
 
 type RecordsBySource = Record<
   "draft" | "live",
-  Array<{ id: string; content: Record<string, unknown>; references?: unknown }>
+  Array<{ id: string; content: Record<string, unknown>; references?: unknown; version?: number }>
 >;
 
 /** Records by source, as the API's field lookup returns them for `slug`. */
@@ -237,6 +237,39 @@ void test("editors read the record matching its draft value, visitors its publis
   );
 });
 
+void test("an editor previewing live content reads the record visitors see", async (t) => {
+  const lookups = mockApi(t);
+  const live = await request(
+    "/_camox/data?path=/articles/old-slug&source=live",
+    undefined,
+    VALID_SESSION,
+  );
+  assert.equal(live!.status, 200);
+  assert.deepEqual(((await live!.json()) as PageRenderInput).derived!.result, {
+    kind: "collection-item",
+    collectionId: "articles",
+    data: { id: PUBLISHED_ID, content: { title: "Published title", slug: "old-slug" } },
+  });
+  // The draft slug has no live record.
+  const draftSlug = await request(
+    "/_camox/data?path=/articles/new-slug&source=live",
+    undefined,
+    VALID_SESSION,
+  );
+  assert.equal(draftSlug!.status, 404);
+  // Asking for drafts never grants them to a visitor.
+  const visitor = await request("/_camox/data?path=/articles/new-slug&source=draft");
+  assert.equal(visitor!.status, 404);
+  assert.deepEqual(
+    lookups.map(({ source, session }) => [source, session]),
+    [
+      ["live", null],
+      ["live", null],
+      ["live", null],
+    ],
+  );
+});
+
 void test("the record's resolved references travel in the envelope, for layout.Item", async (t) => {
   mockApi(t, withRenderedRecords);
   assert.deepEqual(await loadedRecord("/articles/linked"), {
@@ -248,6 +281,17 @@ void test("the record's resolved references travel in the envelope, for layout.I
       references: { author: AUTHOR },
     },
   });
+});
+
+void test("an editor's record carries its draft version, which edits send as expected", async (t) => {
+  mockApi(t, {
+    draft: [{ id: PUBLISHED_ID, content: { title: "Draft", slug: "versioned" }, version: 7 }],
+    live: [],
+  });
+  const loaded = (await loadedRecord("/articles/versioned", VALID_SESSION)) as {
+    data: { version?: number };
+  };
+  assert.equal(loaded.data.version, 7);
 });
 
 void test("a slug no record has in the request's source is a 404", async (t) => {
@@ -396,6 +440,23 @@ void test("discovered entries name their record", async (t) => {
       },
     ],
   });
+});
+
+void test("the routes endpoint finds the page of a record, in the editor's source", async (t) => {
+  mockApi(t, discoverable);
+  const pathOf = async (recordId: string, cookie?: string) => {
+    const response = await request(
+      `/_camox/routes?layoutId=articles.$slug&recordId=${recordId}`,
+      undefined,
+      cookie,
+    );
+    assert.equal(response!.status, 200);
+    return ((await response!.json()) as { path: string | null }).path;
+  };
+  assert.equal(await pathOf(DRAFT_ONLY_ID, VALID_SESSION), "/articles/draft-only");
+  assert.equal(await pathOf(PUBLISHED_ID, VALID_SESSION), "/articles/new-slug");
+  assert.equal(await pathOf(PUBLISHED_ID), "/articles/old-slug");
+  assert.equal(await pathOf(DRAFT_ONLY_ID), null);
 });
 
 void test("records sharing a value fail discovery, naming the layout and the records", async (t) => {

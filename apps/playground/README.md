@@ -212,7 +212,7 @@ at `/articles/<its slug>`. It renders the article through `Layout.Item` and its 
 through `article.Reference`, and declares `toMarkdown`, a title and a description from the
 article's fields. `src/layouts/articles.tsx` is the `/articles` singleton. Its articles index
 block lists every article and links each one to its record page, with the href built from the
-slug in code. Record pages are read-only for now.
+slug in code. In Studio, the article's fields are editable in place, like a referenced record.
 
 After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm dev` running:
 
@@ -231,3 +231,21 @@ After the demo content is seeded (see [Demo content](#demo-content)), with `pnpm
 6. `curl -H "Accept: text/markdown" http://localhost:3000/articles/editing-in-context` returns
    the navbar's Markdown, the article's title, author, excerpt and body, then the footer's.
    It shows the published article even while a draft edit is pending.
+
+Editing an article on its page, signed in to Studio:
+
+1. Open `/articles/editing-in-context` in edit mode. The article's fields have purple
+   outlines, like any shared record. Click its title: the sidebar opens the article's fields
+   under Layout → the article's title.
+2. Edit the title inline, or the excerpt in the sidebar. The `/articles` frame's article list
+   shows the new title at once. Editing a title in that list updates the record page too: both
+   edit the same article.
+3. Click the author's name: the sidebar opens the author, one hop further. Pick another
+   author in the article's Author field, and the page shows them.
+4. Change the article's slug in the sidebar. The Studio moves to `/articles/<new slug>`
+   instead of staying on a 404.
+5. Publish from the page's publication modal with the article's switch on, then preview live
+   content: the page shows the published article. Switching between draft and live, and
+   publishing, reload the page's article.
+6. Comments can't be left on the article's fields yet. Signed out, the page still shows only
+   the published article.

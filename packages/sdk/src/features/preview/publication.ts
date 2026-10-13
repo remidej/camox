@@ -1,3 +1,6 @@
+import { queryKeys } from "@camox/api-contract/query-keys";
+import type { QueryClient } from "@tanstack/react-query";
+
 import type { AnyLayoutLoaderResult } from "@/core/createLayout";
 import type { Layout } from "@/lib/queries";
 
@@ -22,6 +25,22 @@ export type PublicationTarget =
 
 export type PageRecordId = { collectionId: string; id: string };
 export type PageRecord = PageRecordId & { status: "draft" | "modified" | "published" };
+
+/**
+ * Refreshes what a publication may change: other pages, layout blocks, records, and code-owned
+ * pages' loaded data. Doesn't rely only on the realtime broadcast to refresh the initiating
+ * client's view.
+ */
+export async function refreshPublishedViews(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.layouts.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pages.list }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.pages.getByPathAll }),
+    queryClient.invalidateQueries({ queryKey: ["camox", "pages", "getById"] }),
+    queryClient.invalidateQueries({ queryKey: ["camox", "blocks", "get"] }),
+    queryClient.invalidateQueries({ queryKey: ["camox", "collections"] }),
+  ]);
+}
 
 /** The record a record page renders, as its loader's collection-item envelope names it. */
 export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRecordId | undefined {

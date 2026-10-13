@@ -1,4 +1,3 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +31,7 @@ import {
   getLayoutPublicationScope,
   getPublicationCapabilities,
   getPublicationRequest,
+  refreshPublishedViews,
   withReferenceTargets,
   type PublicationPlan,
   type PublicationTarget,
@@ -100,16 +100,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
             ? "Unpublished successfully"
             : "Discarded draft changes",
       );
-      // Publication may affect other pages and layout blocks. Do not rely only
-      // on the realtime broadcast to refresh the initiating client's view.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.layouts.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.pages.list }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.pages.getByPathAll }),
-        queryClient.invalidateQueries({ queryKey: ["camox", "pages", "getById"] }),
-        queryClient.invalidateQueries({ queryKey: ["camox", "blocks", "get"] }),
-        queryClient.invalidateQueries({ queryKey: ["camox", "collections"] }),
-      ]);
+      await refreshPublishedViews(queryClient);
     },
     onError: () => toast.error("Could not complete this action. Please try again."),
   });

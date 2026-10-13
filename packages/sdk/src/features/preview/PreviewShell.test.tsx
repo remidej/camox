@@ -45,6 +45,12 @@ registerHooks({
           "export const PreviewPanel = ({children, layoutId}) => React.createElement('section', {'data-preview': true, 'data-layout-id': layoutId}, children)",
         "./components/PreviewToolbar":
           "export const PreviewToolbar = () => React.createElement('div', {'data-toolbar': true})",
+        // The record page's data and slug following load nothing in the shell.
+        "./pageRecord": `
+          export const PageRecordContext = React.createContext(undefined);
+          export const useDerivedPageResult = ({loaded}) => loaded?.result;
+          export const useFollowPageRecord = () => {};
+        `,
       };
       source = stubs[specifier] ?? source;
       for (const name of [

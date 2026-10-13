@@ -54,6 +54,7 @@ registerHooks({
       "../../features/preview/previewSelection": `
         export const usePreviewSelection = () => globalThis.captureReferenceSelection;
         export const usePreviewTargetSelection = () => null;
+        export { PreviewEditingOwnerContext } from ${JSON.stringify(new URL("../../features/preview/previewSelection.ts", import.meta.url).href)};
       `,
       "../components/lexical/InlineLexicalEditor": `
         export const InlineLexicalEditor = props => {

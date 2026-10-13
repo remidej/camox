@@ -16,6 +16,8 @@ export interface LoadedRecord {
   content: Record<string, unknown>;
   /** The records it links, resolved with the record as the first hop. */
   references?: ReferenceRecord["references"];
+  /** The draft's version; live records have none. */
+  version?: number;
 }
 
 /** Reads records in the request's source, scoped to the project and environment. */

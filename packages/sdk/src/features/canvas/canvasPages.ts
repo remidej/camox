@@ -1,3 +1,5 @@
+import { queryKeys } from "@camox/api-contract/query-keys";
+
 import { getPageDestinations } from "../../core/pageDestinations";
 import { runtimePath } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
@@ -14,7 +16,11 @@ export interface CanvasPage {
   layoutId?: string;
 }
 
-/** A Canvas frame's page data. The sidebar reads the same query for the selected page. */
+/**
+ * A Canvas frame's page data. The sidebar reads the same query for the selected page. A
+ * code-owned page's data is its loader's draft result, which reloads with record edits and
+ * publication, like other draft layout reads.
+ */
 export function canvasPageQuery(
   projectSlug: string,
   runtimeBasePath: string,
@@ -22,7 +28,17 @@ export function canvasPageQuery(
   derivedLayoutId: string | undefined,
 ) {
   return {
-    queryKey: ["camox", "canvas", projectSlug, runtimeBasePath, pathname, derivedLayoutId ?? null],
+    queryKey: derivedLayoutId
+      ? [
+          ...queryKeys.layouts.all,
+          "canvas",
+          projectSlug,
+          runtimeBasePath,
+          pathname,
+          derivedLayoutId,
+          "draft",
+        ]
+      : ["camox", "canvas", projectSlug, runtimeBasePath, pathname, null],
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const url = new URL(runtimePath("/_camox/data", runtimeBasePath), window.location.origin);
       url.searchParams.set("path", pathname);

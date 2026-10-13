@@ -474,6 +474,7 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
     ctx.db
       .select({
         id: collectionRecords.id,
+        version: collectionRecords.version,
         content,
         publishedDefinition: publishedRevisions.definition,
       })
@@ -497,7 +498,7 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
       input.source === "live"
         ? (row.publishedDefinition as { contentSchema: unknown }).contentSchema
         : definition.contentSchema;
-    return [{ id: row.id, content: row.content!, value, schema }];
+    return [{ id: row.id, version: row.version, content: row.content!, value, schema }];
   });
   return { definition, records };
 });
@@ -515,9 +516,15 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
   // The page's record is the first hop: it resolves the records it links, which link nothing.
   return yield* Effect.forEach(
     records.filter((record) => record.value === input.value),
-    ({ id, content, schema }) =>
+    ({ id, version, content, schema }) =>
       resolveReferences(ctx, definition, schema, content, input.source, 2).pipe(
-        Effect.map((references) => ({ id, content, references })),
+        // Drafts carry their version, which edits from the record page send as expected.
+        Effect.map((references) => ({
+          id,
+          content,
+          references,
+          ...(input.source === "draft" ? { version } : {}),
+        })),
       ),
   );
 });
