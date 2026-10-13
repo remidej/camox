@@ -173,7 +173,7 @@ A developer's personal draft in a project, whose definitions come from their loc
 _Avoid_: Development environment, code draft, local draft
 
 **Publish**:
-Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts.
+Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, push, merge
 
 **Discard**:
@@ -183,14 +183,6 @@ _Avoid_: Revert, undo, discard changes
 **Conflict**:
 Content that a draft changes and that Live also changed after the draft first changed it.
 _Avoid_: Collision, merge conflict
-
-**Checkpoint**:
-An immutable snapshot of a page's or layout's content at a point in time, created manually, on publish, or automatically while drafting.
-_Avoid_: Version, revision, snapshot, backup
-
-**Revision**:
-An immutable snapshot of one collection record's content.
-_Avoid_: Checkpoint, version
 
 ### Editing
 

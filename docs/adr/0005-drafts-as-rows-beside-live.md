@@ -11,7 +11,7 @@ A draft stores only what it changes, on top of Live (ADR 0003), and every entity
 
 ## Consequences
 
-- Live is plain rows, read without parsing JSON. Checkpoints and revisions only record history.
+- Live is plain rows, read without parsing JSON. Checkpoints and revisions are dropped; see [Live keeps no history in v1](0008-live-keeps-no-history.md).
 - A Live row's `version` counts the changes made to it, since only publishing and releases write Live (see [Definitions live in Live and in development drafts](0006-definitions-in-live-and-development-drafts.md)). A draft copy records the version it started from (`base_version`), or none if the draft created the entity. A conflict is a Live version that moved past the base, or a Live entity that is gone.
 - A deletion is a tombstone row in the draft. Deleting a parent tombstones only the parent, and publishing deletes its descendants too. A descendant published to Live after the tombstone was written counts as a conflict, so Live rows also record when they were published.
 - A synced block's shared content is a row per definition name, in Live and in each draft that changes it. It owns its repeatable items, and placements of a synced definition hold no content.
