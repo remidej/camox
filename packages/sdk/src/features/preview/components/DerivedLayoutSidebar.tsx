@@ -18,6 +18,15 @@ import { PublicationRow } from "./PublicationRow";
 export type DerivedLayoutStructure = NonNullable<PageRenderInput["derived"]>["layout"];
 const EMPTY_PAGE = { blockIds: [] as number[] };
 
+/** Where this page's content is edited, and what its layout's blocks change. */
+function layoutNotice(singleton: boolean, recordPage: boolean) {
+  if (singleton)
+    return "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other placements.";
+  if (recordPage)
+    return "Changes to these blocks apply to every page using this layout. Select this page’s content in the preview to edit its record, shared everywhere it appears.";
+  return "Changes apply to every page using this layout. The generated page content is managed outside the studio.";
+}
+
 export function DerivedLayoutSidebar({
   layout,
   pageRecord,
@@ -85,13 +94,7 @@ export function DerivedLayoutSidebar({
         ))}
         <Alert>
           <AlertTitle>{singleton ? "Code-owned page" : "Shared layout blocks"}</AlertTitle>
-          <AlertDescription>
-            {singleton
-              ? "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other placements."
-              : pageRecord
-                ? "Changes to these blocks apply to every page using this layout. Select this page’s content in the preview to edit its record, shared everywhere it appears."
-                : "Changes apply to every page using this layout. The generated page content is managed outside the studio."}
-          </AlertDescription>
+          <AlertDescription>{layoutNotice(singleton, !!pageRecord)}</AlertDescription>
         </Alert>
       </PanelContent>
     </>

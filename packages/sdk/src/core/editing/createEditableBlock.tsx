@@ -34,6 +34,7 @@ import {
   type SelectionEvent,
 } from "../../features/preview/previewSelection";
 import {
+  NO_BLOCK_ID,
   previewStore,
   selectIsCommentMode,
   selectPreviewSource,
@@ -93,7 +94,6 @@ import {
 } from "../lib/imageTransform";
 import { markdownToReactNodes, type InlineTextStyles } from "../lib/lexicalReact";
 import {
-  latestDraft,
   resolveReference,
   resolveReferenceList,
   type ReferenceContent,
@@ -101,11 +101,10 @@ import {
   type ReferenceListKeys,
   type ReferenceRecord,
   type ReferenceScope,
-  type SavedRecord,
 } from "../lib/reference";
-import { fieldPlainText } from "../recordItem";
 import type { LayoutItemProps } from "./BlockEditingRuntime";
 import { referenceWritesFor } from "./referenceWrites";
+import { useLatestRecord } from "./useLatestRecord";
 
 export type { ContentFieldBuilder, SettingBuilder } from "../lib/contentType.ts";
 export type {
@@ -2757,8 +2756,7 @@ export function createEditableBlock<
     children: (scope: any) => React.ReactNode;
   }) => {
     const block: BlockContextValue = {
-      // No block places it: no block field or selection ever matches this id.
-      blockId: Number.NaN,
+      blockId: NO_BLOCK_ID,
       content: record.content as TContent,
       sourceSchema: properties,
       settings: {} as TSettings,
@@ -2810,26 +2808,10 @@ export function createEditableBlock<
   }: LayoutItemProps) => {
     const editingOwner = React.use(PreviewEditingOwnerContext);
     const source = useSelector(previewStore, selectPreviewSource);
-    const projectSlug = useProjectSlug();
-    const { data: saved } = useQuery<SavedRecord>({
-      queryKey: collectionQueries.record(projectSlug, collectionId, record.id).queryKey,
-      enabled: false,
-    });
-    if (editingOwner?.kind !== "layout" || source !== "draft") return fallback;
-    const { content, version } = latestDraft(record, saved);
+    const latest = useLatestRecord({ collectionId, labelField, loaded: record });
+    if (editingOwner?.kind !== "layout" || source !== "draft" || !latest) return fallback;
     return (
-      <LayoutRecord
-        layoutId={editingOwner.layoutId}
-        properties={properties}
-        record={{
-          id: record.id,
-          collectionId,
-          label: fieldPlainText(content[labelField]),
-          content,
-          references: record.references,
-          version,
-        }}
-      >
+      <LayoutRecord layoutId={editingOwner.layoutId} properties={properties} record={latest}>
         {children}
       </LayoutRecord>
     );

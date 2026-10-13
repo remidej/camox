@@ -1,7 +1,7 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { getPageDestinations } from "../../core/pageDestinations";
-import { runtimePath } from "../runtime/navigationTarget";
+import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 
 type DestinationLayouts = Parameters<typeof getPageDestinations>[1];
@@ -40,13 +40,12 @@ export function canvasPageQuery(
         ]
       : ["camox", "canvas", projectSlug, runtimeBasePath, pathname, null],
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
-      const url = new URL(runtimePath("/_camox/data", runtimeBasePath), window.location.origin);
-      url.searchParams.set("path", pathname);
-      const response = await fetch(url, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
+      const response = await fetchRuntimeJson(
+        "/_camox/data",
+        runtimeBasePath,
+        { path: pathname },
         signal,
-      });
+      );
       if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
       const input = (await response.json()) as PageRenderInput;
       validateCanvasPageInput(input, pathname, derivedLayoutId);

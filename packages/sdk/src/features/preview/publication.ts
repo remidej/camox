@@ -2,6 +2,8 @@ import { queryKeys } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { AnyLayoutLoaderResult } from "@/core/createLayout";
+import { asCollectionItem } from "@/core/recordItem";
+import type { CollectionRecordId } from "@/core/requestContext";
 import type { Layout } from "@/lib/queries";
 
 import type { PreviewedPage } from "./components/PageNavigatorSidebar";
@@ -23,7 +25,7 @@ export type PublicationTarget =
       record?: PageRecord;
     };
 
-export type PageRecordId = { collectionId: string; id: string };
+export type PageRecordId = CollectionRecordId;
 export type PageRecord = PageRecordId & { status: "draft" | "modified" | "published" };
 
 /**
@@ -44,8 +46,9 @@ export async function refreshPublishedViews(queryClient: QueryClient) {
 
 /** The record a record page renders, as its loader's collection-item envelope names it. */
 export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRecordId | undefined {
-  if (result?.kind !== "collection-item") return undefined;
-  return { collectionId: result.collectionId, id: result.data.id };
+  const record = asCollectionItem(result);
+  if (!record) return undefined;
+  return { collectionId: record.collectionId, id: record.data.id };
 }
 
 export type PublicationItem = {

@@ -10,13 +10,19 @@ export interface LayoutRequestContext {
   readonly [requestContextBrand]: true;
 }
 
-/** A collection record as a record page loads it. */
-export interface LoadedRecord {
+/** Names one collection record, whatever its content. */
+export interface CollectionRecordId {
+  collectionId: string;
   id: string;
-  content: Record<string, unknown>;
-  /** The records it links, resolved with the record as the first hop. */
+}
+
+/** A collection record as a record page loads it. */
+export interface LoadedRecord<Content = Record<string, unknown>> {
+  id: string;
+  content: Content;
+  /** The records it links, resolved by Camox with the record as the first hop. */
   references?: ReferenceRecord["references"];
-  /** The draft's version; live records have none. */
+  /** The draft's version, which edits on the record page send as expected. Live has none. */
   version?: number;
 }
 
@@ -39,9 +45,10 @@ export interface RecordLookup {
 }
 
 interface RequestContextState {
-  /** Draft for a valid editor session, otherwise live. */
-  source: "live" | "draft";
-  /** Absent when the runtime has no API to read records from. */
+  /**
+   * Reads drafts for a valid editor session, otherwise live content. Absent when the runtime
+   * has no API to read records from.
+   */
   records?: RecordLookup;
 }
 
@@ -60,10 +67,6 @@ function getState(context: LayoutRequestContext) {
       "Camox request context is missing: pass the loader's context through unchanged",
     );
   return state;
-}
-
-export function getRequestSource(context: LayoutRequestContext): "live" | "draft" {
-  return getState(context).source;
 }
 
 export function getRecordLookup(context: LayoutRequestContext): RecordLookup {

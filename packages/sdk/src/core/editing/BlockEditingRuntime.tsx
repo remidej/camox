@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import type { ReferenceRecord } from "../lib/reference";
+import type { LoadedRecord } from "../requestContext";
 
 export interface BlockEditingRuntime {
   // Keep the hook prefix so React Compiler never memoizes the context read.
@@ -18,12 +18,7 @@ export interface LayoutItemProps {
   labelField: string;
   /** The collection's field schemas. */
   properties: Record<string, unknown>;
-  record: {
-    id: string;
-    content: Record<string, unknown>;
-    references?: ReferenceRecord["references"];
-    version?: number;
-  };
+  record: LoadedRecord;
   children: (scope: any) => React.ReactNode;
   /** The read-only rendering, for where the record can't be edited. */
   fallback: React.ReactNode;

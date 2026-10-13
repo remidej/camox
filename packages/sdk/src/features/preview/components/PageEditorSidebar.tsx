@@ -22,6 +22,7 @@ import { usePageRecordPlacer } from "../pageRecord";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
   isBlockPlacement,
+  NO_BLOCK_ID,
   previewStore,
   recordPlacement,
   selectionBlockId,
@@ -850,7 +851,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   schema={currentSchema}
                   data={currentData}
                   // A record page's record is placed by no block; its placement names it.
-                  blockId={block?.id ?? Number.NaN}
+                  blockId={block?.id ?? NO_BLOCK_ID}
                   itemId={currentItemId ?? undefined}
                   onFieldChange={writeField}
                   postToIframe={postToIframe}
