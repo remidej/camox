@@ -218,6 +218,42 @@ void test("content measurements run after the frame sizing pass and cancel on di
   await page.window.happyDOM.close();
 });
 
+void test("animated inline styles are measured at intervals and published only when targets move", async () => {
+  const page = fixture();
+  page.document.body.innerHTML =
+    '<div data-camox-block-id="block"><div class="marquee"></div></div>';
+  const block = page.document.querySelector("[data-camox-block-id]")!;
+  const marquee = page.document.querySelector(".marquee")!;
+  let y = 0;
+  let reads = 0;
+  block.getBoundingClientRect = () => {
+    reads++;
+    return new page.window.DOMRect(0, y, 100, 20);
+  };
+  const stop = page.start();
+  await page.flush();
+  const updates = page.updates;
+  const target = page.targets[0];
+
+  // A burst of animation frames, each its own mutation batch.
+  for (let frame = 0; frame < 5; frame++) {
+    marquee.setAttribute("style", `transform: translateX(${frame}px)`);
+    await new Promise((resolve) => page.window.requestAnimationFrame(resolve));
+  }
+  await page.flush();
+  assert.equal(reads, 2, "a burst is measured once, after it");
+  assert.equal(page.updates, updates, "content that moved no target publishes nothing");
+  assert.equal(page.targets[0], target);
+
+  y = 30;
+  block.setAttribute("style", "transform: translateY(30px)");
+  await page.flush();
+  assert.equal(page.targets[0]!.bounds.y, 30, "the last animation frame is measured");
+  assert.equal(page.updates, updates + 1);
+  stop();
+  await page.window.happyDOM.close();
+});
+
 void test("hidden Detached copies cannot steal navbar highlights from visible content", async () => {
   const page = fixture();
   page.document.body.innerHTML = `

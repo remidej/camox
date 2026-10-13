@@ -67,6 +67,56 @@ void test("CSSOM rewrite retains responsive conditions, cascade, and importance"
   void window.happyDOM.close();
 });
 
+void test("sheets are walked again only once rules are inserted or an import loads", () => {
+  const window = new Window();
+  const doc = window.document;
+  const style = doc.createElement("style");
+  style.textContent = ".a { color: red }";
+  doc.head.append(style);
+  const sheet = style.sheet!;
+  let walks = 0;
+  // Iterating the rules, unlike reading their count, is a walk.
+  const rules = new Proxy(sheet.cssRules, {
+    get: (target, key) => {
+      if (key === Symbol.iterator) walks++;
+      const value = Reflect.get(target, key, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  Object.defineProperty(sheet, "cssRules", { get: () => rules });
+  const pending = { styleSheet: null as unknown, cssText: "@import url(late.css);" };
+  const host = { cssRules: [pending] };
+  const adapt = () =>
+    adaptCanvasStyleSheets({
+      styleSheets: [sheet, host],
+      adoptedStyleSheets: [],
+    } as unknown as Document);
+
+  adapt();
+  assert.equal(walks, 1);
+  adapt();
+  assert.equal(walks, 1, "an unchanged sheet is not walked again");
+  sheet.insertRule(".screen { height: 100vh }", sheet.cssRules.length);
+  adapt();
+  assert.equal(walks, 2);
+  assert.equal(
+    (sheet.cssRules[1] as unknown as CSSStyleRule).style.height,
+    "var(--camox-viewport-height, 100vh)",
+  );
+
+  const late = doc.createElement("style");
+  late.textContent = ".late { min-height: 100svh }";
+  doc.head.append(late);
+  pending.styleSheet = late.sheet;
+  adapt();
+  assert.equal(
+    (late.sheet!.cssRules[0] as unknown as CSSStyleRule).style.minHeight,
+    "var(--camox-viewport-height, 100svh)",
+    "an import still loading leaves its sheet to be walked again",
+  );
+  void window.happyDOM.close();
+});
+
 void test("inaccessible sheets do not prevent later same-origin sheets being adapted", () => {
   const inaccessible = {
     get cssRules() {
@@ -191,22 +241,37 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
     queued = undefined;
     callback?.(0);
   };
+  const mutate = (type: MutationRecordType, target: unknown, attributeName: string | null = null) =>
+    mutationCallback!(
+      [{ type, target, attributeName } as unknown as MutationRecord],
+      {} as MutationObserver,
+    );
+  const contentChanged = () => mutate("childList", root);
   flush();
   assert.equal(iframe.style.height, "1800px");
   contentHeight = 950;
-  mutationCallback!([], {} as MutationObserver);
+  contentChanged();
   const first = queued;
-  mutationCallback!([], {} as MutationObserver);
+  contentChanged();
   assert.equal(queued, first);
   flush();
   assert.equal(iframe.style.height, "950px");
   resizeCallback!([{ target: root } as unknown as ResizeObserverEntry], {} as ResizeObserver);
   assert.equal(queued, undefined, "our final geometry does not trigger another measurement");
   contentHeight = 100;
-  mutationCallback!([], {} as MutationObserver);
+  contentChanged();
   flush();
   assert.equal(iframe.style.height, "800px");
-  mutationCallback!([], {} as MutationObserver);
+  const animated = doc.createElement("div");
+  root.appendChild(animated);
+  mutate("attributes", animated, "style");
+  mutate("attributes", root, "style");
+  assert.equal(queued, undefined, "animated inline styles in the content leave sizing to resizes");
+  mutate("attributes", animated, "class");
+  assert.notEqual(queued, undefined, "other content attributes re-measure");
+  flush();
+  mutate("attributes", doc.body, "style");
+  assert.notEqual(queued, undefined, "the document's own inline styles re-measure");
   cleanup();
   assert.equal(disconnected, 2);
   assert.equal(queued, undefined);

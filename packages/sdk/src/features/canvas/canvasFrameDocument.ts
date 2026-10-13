@@ -13,19 +13,34 @@ export function logicalViewportValue(value: string) {
   return /^100(?:s|l|d)?vh$/i.test(trimmed) ? `var(--camox-viewport-height, ${trimmed})` : null;
 }
 
+/**
+ * The top-level rule count of each sheet once all of it has been adapted. Every
+ * measurement adapts, so a sheet is only walked again once rules are inserted
+ * into or removed from it, as CSS-in-JS libraries do. Replacing a style
+ * element's text creates a new sheet.
+ */
+const adaptedRuleCounts = new WeakMap<CSSStyleSheet, number>();
+
 /** Mutate this iframe's CSSOM in place so layers, breakpoints and !important keep their order. */
 export function adaptCanvasStyleSheets(doc: Document) {
   const visited = new Set<CSSStyleSheet>();
+  /** Whether the sheet is settled: false while one of its imports is still loading. */
   function visitSheet(sheet: CSSStyleSheet) {
-    if (visited.has(sheet)) return;
+    if (visited.has(sheet)) return true;
     visited.add(sheet);
     try {
-      visitRules(sheet.cssRules);
+      const rules = sheet.cssRules;
+      if (adaptedRuleCounts.get(sheet) === rules.length) return true;
+      const settled = visitRules(rules);
+      if (settled) adaptedRuleCounts.set(sheet, rules.length);
+      return settled;
     } catch {
       // Cross-origin sheets can render but cannot be inspected. Never fetch or copy them.
+      return true;
     }
   }
   function visitRules(rules: CSSRuleList) {
+    let settled = true;
     for (const rule of Array.from(rules)) {
       if ("style" in rule) {
         const style = (rule as CSSStyleRule).style;
@@ -35,11 +50,13 @@ export function adaptCanvasStyleSheets(doc: Document) {
             style.setProperty(property, replacement, style.getPropertyPriority(property));
         }
       }
-      if ("cssRules" in rule) visitRules((rule as CSSGroupingRule).cssRules);
-      if ("styleSheet" in rule && (rule as CSSImportRule).styleSheet) {
-        visitSheet((rule as CSSImportRule).styleSheet!);
+      if ("cssRules" in rule && !visitRules((rule as CSSGroupingRule).cssRules)) settled = false;
+      if ("styleSheet" in rule) {
+        const imported = (rule as CSSImportRule).styleSheet;
+        if (!imported || !visitSheet(imported)) settled = false;
       }
     }
+    return settled;
   }
   for (const sheet of [
     ...Array.from(doc.styleSheets),
@@ -169,7 +186,15 @@ export function observeCanvasDocument(
     if (disposed || frame) return;
     frame = requestAnimationFrame(measure);
   }
-  const mutations = new MutationObserver(schedule);
+  // Animations rewrite inline styles in the content every frame. Any size they
+  // change reaches the ResizeObserver, so those alone never re-measure.
+  const isContentStyleChange = (record: MutationRecord) =>
+    record.type === "attributes" &&
+    record.attributeName === "style" &&
+    root.contains(record.target);
+  const mutations = new MutationObserver((records) => {
+    if (!records.every(isContentStyleChange)) schedule();
+  });
   mutations.observe(root, {
     subtree: true,
     childList: true,
