@@ -19,7 +19,7 @@ One website managed by Camox, owned by an organization.
 _Avoid_: Site, app
 
 **Release**:
-Building the website and syncing its definitions to Live.
+Building the website and syncing its definitions to Live, adding any content they declare that Live lacks.
 _Avoid_: Deploy, ship
 
 **Deploy Token**:
@@ -157,7 +157,7 @@ _Avoid_: Export, plain text
 ### Publishing
 
 **Live**:
-The published state of the website, served to the public. Live only changes when a draft is published.
+The published state of the website, served to the public. Live only changes when a draft is published or a release syncs its definitions.
 _Avoid_: Production, production environment, main
 
 **Draft**:
@@ -165,7 +165,7 @@ A named set of changes to the website's content, kept apart from Live until it i
 _Avoid_: Branch, environment, changeset, working copy
 
 **Development Draft**:
-A developer's personal draft, whose definitions come from their local code instead of Live. It can only be published once a release has given Live the same definitions.
+A developer's personal draft in a project, whose definitions come from their local code instead of Live. It can only be published once a release has given Live the same definitions, and it stays open, emptied, after being published or discarded.
 _Avoid_: Development environment, code draft, local draft
 
 **Publish**:
