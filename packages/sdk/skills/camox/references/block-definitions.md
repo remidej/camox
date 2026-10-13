@@ -33,7 +33,7 @@ function MyBlockComponent() {
 export { myBlock as block };
 ```
 
-For DOM listeners, scrolling, scripts, or widgets, read [DOM integrations](dom-integrations.md). Preview DOM lives in an iframe; use `getElementContext` from `camox/dom`, not component-global `window` or `document`.
+For DOM listeners, scrolling, scripts, widgets, or JavaScript-driven animation, read [DOM integrations](dom-integrations.md). Preview DOM lives in an iframe; use `getElementContext` from `camox/dom`, not component-global `window` or `document`.
 
 ## The `createBlock` options
 

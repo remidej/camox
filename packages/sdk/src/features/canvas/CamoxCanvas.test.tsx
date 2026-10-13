@@ -76,7 +76,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   const actions: string[] = [];
   const frames = new Map<
     string,
-    { active?: boolean; onActivate: (owner: never, source: string) => void }
+    { mode?: string; onActivate: (owner: never, source: string) => void }
   >();
   /** Whether Page frames are near the camera as soon as they are observed. */
   let nearByDefault = true;
@@ -97,6 +97,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   let failingBlock: string | undefined;
   let blockPages: Record<string, { id: number }[]> = {};
   let initialTarget: { left: number } | undefined;
+  let cameraKey = "";
   let cameraRow!: {
     selected?: string | null;
     onDeselect?: () => void;
@@ -162,7 +163,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
       };
     },
     CanvasCameraProbe: (
-      _key: string,
+      key: string,
       target: { left: number } | undefined,
       options: {
         onSelect: typeof snap;
@@ -170,6 +171,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         width?: number;
       } & typeof cameraRow,
     ) => {
+      cameraKey = key;
       initialTarget = target;
       cameraRow = options;
       snap = options.onSelect;
@@ -219,7 +221,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
     },
     CanvasFrameProbe: (props: {
       selected: boolean;
-      active?: boolean;
+      mode?: string;
       input: { pathname: string };
       onActivate: (owner: never, source: string) => void;
     }) => {
@@ -239,6 +241,7 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
   const { CamoxCanvas } = await import("./CamoxCanvas");
+  const { canvasStore } = await import("./canvasStore");
   const { PreviewPreparationContext } = await import("../preview/previewPreparation");
   try {
     for (const name of [
@@ -646,28 +649,36 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         );
       try {
         await render();
-        assert.equal(frames.get("/about")?.active, true, "the selected Page loads right away");
+        const mode = (pathname: string) => frames.get(pathname)?.mode;
+        assert.equal(mode("/about"), "live", "the selected Page loads right away");
         assert.equal(frames.has("/contact"), false, "other Pages wait for the camera");
 
         await reportNear("/contact", true);
-        assert.equal(frames.get("/contact")?.active, true, "a Page loads once near");
+        assert.equal(mode("/contact"), "paused", "a Page loads once near, paused");
         await reportNear("/contact", false);
-        assert.equal(frames.get("/contact")?.active, false, "away, its frame stays but rests");
+        assert.equal(mode("/contact"), "resting", "away, its frame stays but rests");
         await reportNear("/contact", true);
-        assert.equal(frames.get("/contact")?.active, true);
+        assert.equal(mode("/contact"), "paused");
+
+        const setMoving = (moving: boolean) =>
+          React.act(async () =>
+            canvasStore.send({ type: "setCameraMoving", workspaceKey: cameraKey, moving }),
+          );
+        await setMoving(true);
+        assert.equal(mode("/about"), "paused", "the camera moving pauses even the selection");
+        assert.equal(mode("/contact"), "paused");
+        await setMoving(false);
+        assert.equal(mode("/about"), "live");
 
         await reportNear("/about", false);
-        assert.equal(frames.get("/about")?.active, true, "the selected Page stays live away");
+        assert.equal(mode("/about"), "live", "the selected Page stays live away");
         globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
         Object.assign(globalThis, globals);
         await render();
+        assert.equal(mode("/contact"), "live", "the newly selected Page goes live");
         frames.clear();
         await render();
-        assert.equal(
-          frames.get("/about")?.active,
-          false,
-          "and stays loaded but rests once deselected",
-        );
+        assert.equal(mode("/about"), "resting", "the deselected one stays loaded but rests");
       } finally {
         await React.act(async () => root.unmount());
         host.remove();

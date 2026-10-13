@@ -293,7 +293,15 @@ void test("selected ready frames own editing without a click and follow URL sele
     fail: (error: Error) => assert.fail(error.message),
   };
   const paths = ["/about", "/contact"];
-  function Workspace({ pathname, away }: { pathname: string; away?: string }) {
+  function Workspace({
+    pathname,
+    away,
+    paused,
+  }: {
+    pathname: string;
+    away?: string;
+    paused?: string;
+  }) {
     // Activation updates the parent, giving every frame a new callback. This
     // must not trigger another automatic activation or an update-depth loop.
     const [, setActive] = React.useState<unknown>(null);
@@ -316,7 +324,7 @@ void test("selected ready frames own editing without a click and follow URL sele
               }
               pageId={index + 1}
               selected={pathname === path}
-              active={path !== away}
+              mode={path === away ? "resting" : path === paused ? "paused" : "live"}
               width={1000}
               viewportHeight={800}
               onActivate={(owner, source) => {
@@ -385,6 +393,16 @@ void test("selected ready frames own editing without a click and follow URL sele
     assert.notEqual(contentOf(iframes[0]!).style.display, "none");
     await React.act(async () => root.render(<Workspace pathname="/about" />));
     assert.notEqual(contentOf(iframes[1]!).style.display, "none", "and shows again once near");
+
+    const isPaused = (iframe: (typeof iframes)[number]) =>
+      iframe.contentDocument!.documentElement.hasAttribute("data-camox-paused");
+    assert.equal(isPaused(iframes[1]!), false);
+    await React.act(async () => root.render(<Workspace pathname="/about" paused="/contact" />));
+    assert.equal(isPaused(iframes[1]!), true, "a paused frame's document is paused");
+    assert.notEqual(contentOf(iframes[1]!).style.display, "none", "but still shows its content");
+    assert.equal(isPaused(iframes[0]!), false);
+    await React.act(async () => root.render(<Workspace pathname="/about" />));
+    assert.equal(isPaused(iframes[1]!), false, "and resumes once live");
   } finally {
     await React.act(async () => root.unmount());
     client.clear();

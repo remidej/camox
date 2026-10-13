@@ -134,6 +134,9 @@ void test("hover/focus and synced state reuse geometry; content batches remeasur
   assert.equal(page.targets[1]!.bounds, initialBounds);
   assert.equal(page.targets[1]!.rects, initialRects);
   assert.deepEqual([boundsReads, fragmentReads], [2, 1]);
+  page.document.documentElement.setAttribute("data-camox-paused", "");
+  await page.flush();
+  assert.deepEqual([boundsReads, fragmentReads], [2, 1], "pausing the frame does not re-measure");
 
   field.firstChild!.textContent = "Changed";
   block.setAttribute("class", "layout");

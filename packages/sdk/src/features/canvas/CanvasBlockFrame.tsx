@@ -10,6 +10,7 @@ import { blockQueries } from "../../lib/queries";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import { canvasDocumentStyles, canvasPageHref } from "./canvasFrameDocument";
+import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import { CanvasFrameProviders, preventLinkNavigation, useCanvasFrame } from "./useCanvasFrame";
 import { useCanvasNearness } from "./useCanvasNearness";
 
@@ -25,6 +26,8 @@ export interface CanvasBlockFrameProps {
   runtimeBasePath: string;
   width: number;
   viewportHeight: number;
+  /** Whether the block is selected, which keeps its frame live. */
+  selected: boolean;
   /** Interacting with the block selects it. */
   onSelect: () => void;
 }
@@ -34,11 +37,12 @@ export interface CanvasBlockFrameProps {
  * Synced Block's shared content when the environment has some, bare and
  * interactive, but with no editing. It mounts once it comes near the
  * Canvas viewport and stays mounted, so its state survives panning away,
- * though its content is hidden and its effects stop while away.
+ * though it only runs while selected and the camera is still.
  */
 export function CanvasBlockFrame(props: CanvasBlockFrameProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const { near, reached } = useCanvasNearness(ref);
+  const mode = useCanvasFrameMode({ near, selected: props.selected });
   const previewDocument = React.useContext(PreviewDocumentContext);
   // The site document is that of the selected Page, so it changes on every
   // navigation. Only a change of the site's styles rebuilds the frame, which
@@ -50,7 +54,7 @@ export function CanvasBlockFrame(props: CanvasBlockFrameProps) {
   return (
     <div ref={ref}>
       {reached ? (
-        <BlockFrame key={styles} {...props} previewDocument={previewDocument} active={near} />
+        <BlockFrame key={styles} {...props} previewDocument={previewDocument} mode={mode} />
       ) : (
         <div data-canvas-block-placeholder style={{ height: PLACEHOLDER_HEIGHT }} />
       )}
@@ -66,8 +70,8 @@ function BlockFrame({
   viewportHeight,
   onSelect,
   previewDocument,
-  active,
-}: CanvasBlockFrameProps & { previewDocument: string | undefined; active: boolean }) {
+  mode,
+}: CanvasBlockFrameProps & { previewDocument: string | undefined; mode: CanvasFrameMode }) {
   // Kept for the frame's lifetime: the parent rebuilds the frame when the site's styles change.
   const [initialPreviewDocument] = React.useState(previewDocument);
   const [href] = React.useState(() =>
@@ -80,7 +84,7 @@ function BlockFrame({
     viewportHeight,
     fit: "content",
     subject: "block",
-    active,
+    mode,
   });
   const { title, synced } = block._internal;
 
@@ -105,7 +109,7 @@ function BlockFrame({
                 mount={mount}
                 iframe={iframeRef.current}
               >
-                <React.Activity mode={active ? "visible" : "hidden"}>
+                <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
                   <div
                     style={{ display: "flow-root" }}
                     onPointerDownCapture={onSelect}

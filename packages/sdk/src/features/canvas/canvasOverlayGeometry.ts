@@ -1,3 +1,4 @@
+import { PREVIEW_PAUSED_ATTRIBUTE } from "../../core/lib/previewPaused";
 import { resolveOverlayHighlights } from "../preview/overlayHighlights";
 import {
   repeatableItemElements,
@@ -36,6 +37,7 @@ const stateAttributes = new Set([
   "data-camox-hovered",
   "data-camox-focused",
   "data-camox-overlay-mode",
+  PREVIEW_PAUSED_ATTRIBUTE,
 ]);
 
 function rectOf({ x, y, width, height }: DOMRect): OverlayRect {

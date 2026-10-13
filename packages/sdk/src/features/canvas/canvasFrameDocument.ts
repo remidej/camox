@@ -1,4 +1,8 @@
+import { PREVIEW_PAUSED_ATTRIBUTE } from "../../core/lib/previewPaused";
 import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "../preview/components/previewStyles";
+
+/** Freezes CSS animations, including ones that start while the frame is paused. */
+const PAUSED_ANIMATIONS_STYLE = `html[${PREVIEW_PAUSED_ATTRIBUTE}] *, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::before, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::after { animation-play-state: paused !important; }`;
 
 export function canvasPageHref(input: { runtimeBasePath: string; pathname: string; href: string }) {
   return new URL(
@@ -92,7 +96,56 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   // its own root must refuse trackpad swipes as browser Back/Forward gestures.
   doc.documentElement.style.setProperty("overscroll-behavior", "none");
   doc.body.style.setProperty("overscroll-behavior", "none");
+  const paused = doc.createElement("style");
+  paused.textContent = PAUSED_ANIMATIONS_STYLE;
+  doc.head.appendChild(paused);
   return `<!doctype html>${doc.documentElement.outerHTML}`;
+}
+
+function isMedia(target: EventTarget | null): target is HTMLMediaElement {
+  const name = (target as Element | null)?.localName;
+  return name === "video" || name === "audio";
+}
+
+/**
+ * Pause a frame's document: its animations, transitions and media, including
+ * media that starts playing while paused. JavaScript-driven animations are up
+ * to blocks, which can watch the document's paused attribute. Returns how to
+ * resume exactly what it paused.
+ */
+export function pauseCanvasDocument(doc: Document) {
+  doc.documentElement.setAttribute(PREVIEW_PAUSED_ATTRIBUTE, "");
+  const animations: Animation[] = [];
+  for (const animation of doc.getAnimations?.() ?? []) {
+    // The paused attribute holds CSS animations. Pausing them here would stop
+    // their play state following CSS for good.
+    if ("animationName" in animation || animation.playState !== "running") continue;
+    animation.pause();
+    animations.push(animation);
+  }
+  const media = new Set<HTMLMediaElement>();
+  const pauseMedia = (element: HTMLMediaElement) => {
+    if (element.paused) return;
+    element.pause();
+    media.add(element);
+  };
+  doc.querySelectorAll("video, audio").forEach((element) => {
+    if (isMedia(element)) pauseMedia(element);
+  });
+  const onPlay = (event: Event) => {
+    if (isMedia(event.target)) pauseMedia(event.target);
+  };
+  doc.addEventListener("play", onPlay, true);
+  return () => {
+    doc.removeEventListener("play", onPlay, true);
+    doc.documentElement.removeAttribute(PREVIEW_PAUSED_ATTRIBUTE);
+    for (const animation of animations) {
+      if (animation.playState === "paused") animation.play();
+    }
+    for (const element of media) {
+      if (element.isConnected && element.paused) void element.play().catch(() => {});
+    }
+  };
 }
 
 /**
@@ -187,13 +240,14 @@ export function observeCanvasDocument(
     frame = requestAnimationFrame(measure);
   }
   // Animations rewrite inline styles in the content every frame. Any size they
-  // change reaches the ResizeObserver, so those alone never re-measure.
-  const isContentStyleChange = (record: MutationRecord) =>
+  // change reaches the ResizeObserver, so those alone never re-measure, and
+  // neither does pausing the frame.
+  const isUnsizedChange = (record: MutationRecord) =>
     record.type === "attributes" &&
-    record.attributeName === "style" &&
-    root.contains(record.target);
+    ((record.attributeName === "style" && root.contains(record.target)) ||
+      record.attributeName === PREVIEW_PAUSED_ATTRIBUTE);
   const mutations = new MutationObserver((records) => {
-    if (!records.every(isContentStyleChange)) schedule();
+    if (!records.every(isUnsizedChange)) schedule();
   });
   mutations.observe(root, {
     subtree: true,

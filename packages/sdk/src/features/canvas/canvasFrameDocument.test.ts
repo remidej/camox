@@ -9,6 +9,7 @@ import {
   createCanvasDocument,
   logicalViewportValue,
   observeCanvasDocument,
+  pauseCanvasDocument,
 } from "./canvasFrameDocument";
 
 void test("canonical href combines runtime mount and page pathname, not the canvas route", () => {
@@ -114,6 +115,77 @@ void test("sheets are walked again only once rules are inserted or an import loa
     "var(--camox-viewport-height, 100svh)",
     "an import still loading leaves its sheet to be walked again",
   );
+  void window.happyDOM.close();
+});
+
+void test("pausing a frame holds its animations and media, then resumes exactly what it held", async () => {
+  const window = new Window();
+  const doc = window.document;
+  doc.body.innerHTML = "<video></video><audio></audio>";
+  const video = doc.querySelector("video")!;
+  const audio = doc.querySelector("audio")!;
+  await video.play();
+  const animation = (playState: AnimationPlayState, css = false) => {
+    const fake = {
+      playState,
+      pause: () => (fake.playState = "paused"),
+      play: () => (fake.playState = "running"),
+      ...(css && { animationName: "spin" }),
+    };
+    return fake;
+  };
+  const transition = animation("running");
+  const keyframes = animation("running", true);
+  const held = animation("paused");
+  const removed = animation("running");
+  Object.assign(doc, { getAnimations: () => [transition, keyframes, held, removed] });
+
+  const resume = pauseCanvasDocument(doc as unknown as Document);
+  assert.ok(doc.documentElement.hasAttribute("data-camox-paused"));
+  assert.equal(video.paused, true);
+  assert.equal(transition.playState, "paused");
+  assert.equal(keyframes.playState, "running", "CSS animations are left to the paused style");
+  const late = doc.createElement("video");
+  doc.body.append(late);
+  await late.play();
+  await window.happyDOM.waitUntilComplete();
+  assert.equal(late.paused, true, "media starting while paused is held too");
+  // Its element leaves the document while the frame is paused.
+  removed.playState = "idle";
+
+  resume();
+  assert.equal(doc.documentElement.hasAttribute("data-camox-paused"), false);
+  assert.equal(video.paused, false);
+  assert.equal(late.paused, false);
+  assert.equal(audio.paused, true, "media that was not playing stays still");
+  assert.equal(transition.playState, "running");
+  assert.equal(held.playState, "paused", "animations paused before stay paused");
+  assert.equal(removed.playState, "idle", "cancelled animations do not restart");
+  await window.happyDOM.close();
+});
+
+void test("frames hold their CSS animations while paused", (t) => {
+  const window = new Window();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "DOMParser");
+  Object.defineProperty(globalThis, "DOMParser", { configurable: true, value: window.DOMParser });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "DOMParser", original);
+    else Reflect.deleteProperty(globalThis, "DOMParser");
+  });
+  const frame = new window.DOMParser().parseFromString(
+    createCanvasDocument(
+      "<html><head></head><body><div data-camox-preview-root></div></body></html>",
+      "https://example.test/",
+    ),
+    "text/html",
+  );
+  const doc = window.document;
+  doc.documentElement.innerHTML = frame.documentElement.innerHTML;
+  const playState = () =>
+    window.getComputedStyle(doc.body).getPropertyValue("animation-play-state");
+  assert.notEqual(playState(), "paused");
+  doc.documentElement.setAttribute("data-camox-paused", "");
+  assert.equal(playState(), "paused");
   void window.happyDOM.close();
 });
 
@@ -267,6 +339,8 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
   mutate("attributes", animated, "style");
   mutate("attributes", root, "style");
   assert.equal(queued, undefined, "animated inline styles in the content leave sizing to resizes");
+  mutate("attributes", doc.documentElement, "data-camox-paused");
+  assert.equal(queued, undefined, "pausing the frame does not re-measure it");
   mutate("attributes", animated, "class");
   assert.notEqual(queued, undefined, "other content attributes re-measure");
   flush();

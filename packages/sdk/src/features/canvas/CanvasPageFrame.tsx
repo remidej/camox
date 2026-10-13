@@ -16,6 +16,7 @@ import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
 import { canvasPageHref, measureCanvasDocument } from "./canvasFrameDocument";
+import type { CanvasFrameMode } from "./canvasFrameMode";
 import { CanvasOverlays } from "./CanvasOverlays";
 import { CanvasFrameProviders, preventLinkNavigation, useCanvasFrame } from "./useCanvasFrame";
 
@@ -47,10 +48,11 @@ export interface CanvasPageFrameProps {
   selected?: boolean;
   hovered?: boolean;
   /**
-   * Away from the camera, a frame's content is hidden and its effects stop
-   * (animations, videos, observers), while its document and state are kept.
+   * Unless live, the frame's animations and media are paused. Resting, its
+   * content is also hidden and its effects stop, while its document and state
+   * are kept.
    */
-  active?: boolean;
+  mode?: CanvasFrameMode;
   onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
 }
 
@@ -69,7 +71,7 @@ function PageFrame({
   pageId,
   selected = false,
   hovered = false,
-  active = true,
+  mode = "live",
   onActivate,
 }: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
@@ -88,7 +90,7 @@ function PageFrame({
     viewportHeight,
     fit: "page",
     subject: "page",
-    active,
+    mode,
   });
   React.useEffect(() => {
     const iframe = iframeRef.current;
@@ -142,7 +144,7 @@ function PageFrame({
               )}
               {mount &&
                 createPortal(
-                  <React.Activity mode={active ? "visible" : "hidden"}>
+                  <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
                     <React.Suspense fallback={<div role="status">Loading page…</div>}>
                       <div
                         style={{ display: "contents" }}

@@ -128,7 +128,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   const host = dom.document.createElement("div");
   canvas.append(host);
   const root = createRoot(host as unknown as HTMLElement);
-  const render = (previewDocument: string) =>
+  const render = (previewDocument: string, selected = false) =>
     React.act(async () => {
       root.render(
         <QueryClientProvider client={client}>
@@ -140,6 +140,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
                 runtimeBasePath=""
                 width={1000}
                 viewportHeight={800}
+                selected={selected}
                 onSelect={() => selections++}
               />
             </PreviewDocumentContext.Provider>
@@ -183,6 +184,11 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
       "viewport heights match Page frames",
     );
     assert.equal(iframe.style.height, "320px", "frames are their block's natural height");
+    const isPaused = () => frame.document.documentElement.hasAttribute("data-camox-paused");
+    assert.equal(isPaused(), true, "a block near the camera is paused until selected");
+    await render(siteDocument("Home"), true);
+    assert.equal(isPaused(), false, "the selected block is live");
+    await render(siteDocument("Home"));
 
     const tabButton = frame.document.querySelector("button")!;
     await React.act(async () => {
@@ -287,6 +293,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
                   runtimeBasePath=""
                   width={1000}
                   viewportHeight={800}
+                  selected={false}
                   onSelect={() => {}}
                 />
               </PreviewDocumentContext.Provider>
@@ -413,6 +420,7 @@ void test("Synced Blocks show the environment's shared content in their Block Ca
                 runtimeBasePath=""
                 width={1000}
                 viewportHeight={800}
+                selected={false}
                 onSelect={() => {}}
               />
             </PreviewDocumentContext.Provider>
