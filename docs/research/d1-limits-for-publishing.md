@@ -1,6 +1,6 @@
 # D1 limits for publishing
 
-Research for the wayfinder ticket [D1 limits for publishing](https://github.com/remidej/camox/issues/194) on the [Drafts v1](https://github.com/remidej/camox/issues/192) map. Question: can a large draft be applied to Live atomically on Cloudflare D1? Researched 2026-10-12 against Cloudflare and Drizzle primary sources; each page's "last updated" date is noted.
+Research for issue #194 (D1 limits for publishing), part of the Drafts v1 map (issue #192). Decision record: [ADR 0003](../adr/0003-drafts-replace-environments-and-per-item-publishing.md). Question: can a large draft be applied to Live atomically on Cloudflare D1? Researched 2026-10-12 against Cloudflare and Drizzle primary sources; each page's "last updated" date is noted.
 
 ## Answer
 
@@ -18,17 +18,17 @@ Yes, provided publishing is written as **a few set-based statements in one `batc
 
 Source: [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) (updated 2026-04-21).
 
-| Limit | Value |
-|---|---|
-| Database size | 10 GB Paid / 500 MB Free (cannot be raised) |
-| Queries per Worker invocation | 1,000 Paid / 50 Free |
-| SQL statement length | 100 KB |
-| Bound parameters per query | **100** |
-| String, BLOB or row size | 2 MB |
-| Columns per table | 100 |
-| Query duration | 30 s, which "also applies to the entire batch call" |
-| Simultaneous connections per invocation | 6 |
-| Time Travel | 30 days Paid / 7 days Free |
+| Limit                                   | Value                                               |
+| --------------------------------------- | --------------------------------------------------- |
+| Database size                           | 10 GB Paid / 500 MB Free (cannot be raised)         |
+| Queries per Worker invocation           | 1,000 Paid / 50 Free                                |
+| SQL statement length                    | 100 KB                                              |
+| Bound parameters per query              | **100**                                             |
+| String, BLOB or row size                | 2 MB                                                |
+| Columns per table                       | 100                                                 |
+| Query duration                          | 30 s, which "also applies to the entire batch call" |
+| Simultaneous connections per invocation | 6                                                   |
+| Time Travel                             | 30 days Paid / 7 days Free                          |
 
 - "Limits for individual queries … apply to each individual statement contained within a batch statement."
 - No maximum statement count or payload size per batch is documented.

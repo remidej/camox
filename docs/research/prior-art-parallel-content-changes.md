@@ -1,6 +1,6 @@
 # Prior art: parallel content changes
 
-Research for [#193](https://github.com/remidej/camox/issues/193), part of the [Drafts v1 map](https://github.com/remidej/camox/issues/192). Researched October 2026.
+Research for issue #193 (Prior art for parallel content changes), part of the Drafts v1 map (issue #192). Decision record: [ADR 0003](../adr/0003-drafts-replace-environments-and-per-item-publishing.md). Researched October 2026.
 
 **Question.** How do other CMSs handle several sets of content changes in parallel? For Sanity, Contentful, Storyblok and Prismic: what Live means, how a set of changes is stored and previewed, how publishing works and whether it is atomic, how conflicts between parallel sets are detected and shown, and how rollback works.
 
