@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { Window } from "happy-dom";
 
-import { getElementContext } from "./dom";
+import { getElementContext, usePreviewPaused } from "./dom";
 
 void test("missing elements are safe without browser globals", () => {
   assert.equal(getElementContext(null), null);
@@ -52,4 +52,52 @@ void test("listeners and script insertion target only the owning window/document
   context.document.head.appendChild(script);
   assert.equal(preview.document.querySelectorAll("script").length, 1);
   assert.equal(host.document.querySelectorAll("script").length, 0);
+});
+
+void test("blocks follow whether Camox paused their own preview document", async (t) => {
+  const host = new Window();
+  const preview = new Window();
+  const globals = { window: host, document: host.document, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  t.after(async () => {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+    await host.happyDOM.close();
+    await preview.happyDOM.close();
+  });
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const states: boolean[] = [];
+  function Shader() {
+    const ref = React.useRef<HTMLCanvasElement>(null);
+    states.push(usePreviewPaused(ref));
+    return React.createElement("canvas", { ref });
+  }
+  // The component runs in the studio, but renders into the preview's document.
+  const container = preview.document.createElement("div");
+  preview.document.body.append(container);
+  const root = createRoot(container as unknown as HTMLElement);
+  await React.act(async () => root.render(React.createElement(Shader)));
+  assert.equal(states.at(-1), false);
+
+  host.document.documentElement.setAttribute("data-camox-paused", "");
+  await React.act(async () => preview.happyDOM.waitUntilComplete());
+  assert.equal(states.at(-1), false, "the studio's own document does not count");
+
+  await React.act(async () => {
+    preview.document.documentElement.setAttribute("data-camox-paused", "");
+    await preview.happyDOM.waitUntilComplete();
+  });
+  assert.equal(states.at(-1), true, "a paused preview pauses the block");
+  await React.act(async () => {
+    preview.document.documentElement.removeAttribute("data-camox-paused");
+    await preview.happyDOM.waitUntilComplete();
+  });
+  assert.equal(states.at(-1), false, "and resuming it resumes the block");
+  await React.act(async () => root.unmount());
 });

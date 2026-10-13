@@ -1,3 +1,4 @@
+import { PREVIEW_PAUSED_ATTRIBUTE } from "../../core/lib/previewPaused";
 import { resolveOverlayHighlights } from "../preview/overlayHighlights";
 import {
   repeatableItemElements,
@@ -36,6 +37,7 @@ const stateAttributes = new Set([
   "data-camox-hovered",
   "data-camox-focused",
   "data-camox-overlay-mode",
+  PREVIEW_PAUSED_ATTRIBUTE,
 ]);
 
 function rectOf({ x, y, width, height }: DOMRect): OverlayRect {
@@ -133,6 +135,48 @@ function measureItem(item: RepeatableItemTarget, elements: Element[]): Entry {
   };
 }
 
+function sameRect(a: OverlayRect, b: OverlayRect) {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+}
+
+function sameInsertion(a?: CanvasBlockInsertion, b?: CanvasBlockInsertion) {
+  if (!a || !b) return a === b;
+  return (
+    a.position === b.position &&
+    a.before === b.before &&
+    a.after === b.after &&
+    (a.afterPosition ?? null) === (b.afterPosition ?? null)
+  );
+}
+
+/** Whether a measurement found every target where it already was. */
+function sameGeometry(previous: Entry[], next: Entry[]) {
+  if (previous.length !== next.length) return false;
+  return next.every(({ target, depth, item }, index) => {
+    const before = previous[index]!;
+    return (
+      before.target.element === target.element &&
+      before.item === item &&
+      before.depth === depth &&
+      before.target.visible === target.visible &&
+      before.target.inline === target.inline &&
+      sameRect(before.target.bounds, target.bounds) &&
+      before.target.rects.length === target.rects.length &&
+      before.target.rects.every((rect, rectIndex) => sameRect(rect, target.rects[rectIndex]!)) &&
+      sameInsertion(before.target.insertion, target.insertion)
+    );
+  });
+}
+
+const isInlineStyleChange = (mutation: MutationRecord) =>
+  mutation.type === "attributes" && mutation.attributeName === "style";
+
+/**
+ * Animations rewrite inline styles every frame. Batches of only those measure at
+ * most this often, and always once more after the last one.
+ */
+const INLINE_STYLE_MEASURE_INTERVAL = 100;
+
 /**
  * Coordinates stay in the non-scrolling iframe's viewport. The canvas camera
  * transforms the iframe and its overlay layer together, without remeasurement.
@@ -183,11 +227,30 @@ export function observeCanvasOverlays(
   const measureAll = () => {
     frame = undefined;
     if (stopped) return;
-    entries = Array.from(document.querySelectorAll(targetSelector), measureElement);
+    const measured = Array.from(document.querySelectorAll(targetSelector), measureElement);
     for (const [item, elements] of repeatableItemElements(document)) {
-      if (elements.length > 0) entries.push(measureItem(item, elements));
+      if (elements.length > 0) measured.push(measureItem(item, elements));
     }
+    // Content that changed without moving any target, such as an animation,
+    // only publishes highlight changes, and keeps the targets it published.
+    if (sameGeometry(entries, measured)) {
+      publish(false);
+      return;
+    }
+    entries = measured;
     publish(true);
+  };
+  let styleTimer: number | undefined;
+  const scheduleStyleMeasurement = () => {
+    if (stopped || styleTimer !== undefined) return;
+    if (!window) {
+      scheduleMeasurement();
+      return;
+    }
+    styleTimer = window.setTimeout(() => {
+      styleTimer = undefined;
+      scheduleMeasurement();
+    }, INLINE_STYLE_MEASURE_INTERVAL);
   };
   const scheduleMeasurement = () => {
     if (stopped || frame !== undefined) return;
@@ -208,13 +271,16 @@ export function observeCanvasOverlays(
         if (
           mutations.some(
             (mutation) =>
-              mutation.type !== "attributes" || !stateAttributes.has(mutation.attributeName ?? ""),
+              !isInlineStyleChange(mutation) &&
+              (mutation.type !== "attributes" ||
+                !stateAttributes.has(mutation.attributeName ?? "")),
           )
         ) {
           scheduleMeasurement();
           return;
         }
-        publish(false);
+        if (mutations.some(isInlineStyleChange)) scheduleStyleMeasurement();
+        if (mutations.some((mutation) => !isInlineStyleChange(mutation))) publish(false);
       })
     : undefined;
   observer?.observe(document, {
@@ -238,6 +304,7 @@ export function observeCanvasOverlays(
   return () => {
     stopped = true;
     if (frame !== undefined) window?.cancelAnimationFrame(frame);
+    if (styleTimer !== undefined) window?.clearTimeout(styleTimer);
     observer?.disconnect();
     unsubscribeItems();
     document.removeEventListener("load", scheduleMeasurement, true);

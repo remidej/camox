@@ -86,6 +86,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   const { previewStore } = await import("../preview/previewStore");
   const { CanvasBlockFrame } = await import("./CanvasBlockFrame");
 
+  let liveEffects = 0;
   const block = createBlock({
     id: "tabs",
     title: "Tabs",
@@ -93,6 +94,12 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     content: (field) => ({ heading: field.string({ default: "Default heading" }) }),
     component: function Tabs({ content }) {
       const [tab, setTab] = React.useState("First tab");
+      React.useEffect(() => {
+        liveEffects++;
+        return () => {
+          liveEffects--;
+        };
+      }, []);
       return (
         <div>
           <h3>{content.heading}</h3>
@@ -121,7 +128,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   const host = dom.document.createElement("div");
   canvas.append(host);
   const root = createRoot(host as unknown as HTMLElement);
-  const render = (previewDocument: string) =>
+  const render = (previewDocument: string, selected = false) =>
     React.act(async () => {
       root.render(
         <QueryClientProvider client={client}>
@@ -133,6 +140,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
                 runtimeBasePath=""
                 width={1000}
                 viewportHeight={800}
+                selected={selected}
                 onSelect={() => selections++}
               />
             </PreviewDocumentContext.Provider>
@@ -176,6 +184,11 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
       "viewport heights match Page frames",
     );
     assert.equal(iframe.style.height, "320px", "frames are their block's natural height");
+    const isPaused = () => frame.document.documentElement.hasAttribute("data-camox-paused");
+    assert.equal(isPaused(), true, "a block near the camera is paused until selected");
+    await render(siteDocument("Home"), true);
+    assert.equal(isPaused(), false, "the selected block is live");
+    await render(siteDocument("Home"));
 
     const tabButton = frame.document.querySelector("button")!;
     await React.act(async () => {
@@ -212,9 +225,25 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
       "no editable fields or blocks in the frame",
     );
 
+    assert.equal(liveEffects, 1);
+    let contentHeight = 320;
+    previewRoot.getBoundingClientRect = () => new frame.DOMRect(0, 0, 1000, contentHeight);
+    // Hidden content has no height of its own.
+    contentHeight = 0;
     await React.act(async () => observer.callback([{ isIntersecting: false }]));
     assert.equal(host.querySelector("iframe"), iframe, "frames stay mounted after panning away");
     assert.equal(frame.document.querySelector("[data-tab]")?.textContent, "Second tab");
+    const content = previewRoot.firstElementChild as unknown as HTMLElement;
+    assert.equal(content.style.display, "none", "away, the block is hidden");
+    assert.equal(liveEffects, 0, "and its effects stop");
+    assert.equal(iframe.style.height, "320px", "while the frame keeps its size");
+
+    contentHeight = 400;
+    await React.act(async () => observer.callback([{ isIntersecting: true }]));
+    assert.notEqual(content.style.display, "none", "back near, the block shows again");
+    assert.equal(liveEffects, 1);
+    assert.equal(frame.document.querySelector("[data-tab]")?.textContent, "Second tab");
+    assert.equal(iframe.style.height, "400px", "and the frame follows its size again");
 
     await render(siteDocument("About"));
     assert.equal(
@@ -264,6 +293,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
                   runtimeBasePath=""
                   width={1000}
                   viewportHeight={800}
+                  selected={false}
                   onSelect={() => {}}
                 />
               </PreviewDocumentContext.Provider>
@@ -390,6 +420,7 @@ void test("Synced Blocks show the environment's shared content in their Block Ca
                 runtimeBasePath=""
                 width={1000}
                 viewportHeight={800}
+                selected={false}
                 onSelect={() => {}}
               />
             </PreviewDocumentContext.Provider>

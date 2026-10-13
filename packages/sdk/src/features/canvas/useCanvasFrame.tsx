@@ -5,8 +5,10 @@ import { FrameContext } from "../preview/components/Frame";
 import {
   createCanvasDocument,
   observeCanvasDocument,
+  pauseCanvasDocument,
   type CanvasDocumentFit,
 } from "./canvasFrameDocument";
+import type { CanvasFrameMode } from "./canvasFrameMode";
 import { useCanvasFrameInput } from "./useCanvasFrameInput";
 
 function toError(error: unknown) {
@@ -19,6 +21,9 @@ function toError(error: unknown) {
  * content root once the frame loads, sizes the frame to it, and keeps the
  * camera's input working over it. Failing to build or load the document throws
  * to the card's error boundary.
+ *
+ * Unless live, the frame's document is paused. A resting frame keeps its size:
+ * its content is hidden, and must not shrink the frame and move the Canvas.
  */
 export function useCanvasFrame({
   previewDocument,
@@ -27,6 +32,7 @@ export function useCanvasFrame({
   viewportHeight,
   fit,
   subject,
+  mode,
 }: {
   previewDocument: string | undefined;
   href: string;
@@ -35,11 +41,14 @@ export function useCanvasFrame({
   fit: CanvasDocumentFit;
   /** What the frame previews, for error messages. */
   subject: "page" | "block";
+  mode: CanvasFrameMode;
 }) {
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const [srcDoc, setSrcDoc] = React.useState<string>();
   const [mount, setMount] = React.useState<HTMLElement | null>(null);
   const [failure, setFailure] = React.useState<Error | null>(null);
+  const live = mode === "live";
+  const resting = mode === "resting";
   React.useEffect(() => {
     try {
       setSrcDoc(createCanvasDocument(previewDocument, href));
@@ -49,9 +58,13 @@ export function useCanvasFrame({
   }, [previewDocument, href]);
   React.useLayoutEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe || !mount) return;
+    if (!iframe || !mount || resting) return;
     return observeCanvasDocument(iframe, mount, viewportHeight, fit);
-  }, [mount, viewportHeight, width, fit]);
+  }, [mount, viewportHeight, width, fit, resting]);
+  React.useEffect(() => {
+    if (!mount || live) return;
+    return pauseCanvasDocument(mount.ownerDocument);
+  }, [mount, live]);
   useCanvasFrameInput(iframeRef, mount);
   if (failure) throw failure;
 

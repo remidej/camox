@@ -110,6 +110,8 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
     const start = read();
     assert.deepEqual(start, fit(initial), "initial mount does not fly");
     assert.equal(callbacks.size, 0);
+    const moving = () => !!canvasStore.getSnapshot().context.moving["navigation-flight"];
+    assert.equal(moving(), false, "placing the camera is not moving it");
     const fly = controls.flyTo;
     await act(async () => root.render(<Fixture />));
     assert.equal(controls.flyTo, fly, "navigation callback is stable across renders");
@@ -128,6 +130,9 @@ void test("navigation flights zoom out, arrive at page fit, and yield to direct 
       read(),
       "arrival is remembered",
     );
+    assert.equal(moving(), true, "the camera is moving right after it flies");
+    await new Promise((resolve) => dom.setTimeout(resolve, 300));
+    assert.equal(moving(), false, "until it settles");
 
     controls.flyTo(initial.key);
     tick();

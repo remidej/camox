@@ -37,6 +37,33 @@ function Header() {
 
 Read viewport dimensions, query elements, and attach resize listeners through the same context. If the root is conditionally mounted or replaced, rerun setup for the new element (for example, store it using a callback ref and include it in the effect dependencies).
 
+## Pausing JavaScript-driven animation
+
+The studio Canvas shows many pages at once and pauses the previews nobody is looking at. Camox pauses their CSS animations, transitions and media itself, but cannot stop JavaScript running in your block: WebGL shaders, `<canvas>` drawing, `requestAnimationFrame` loops or animation libraries. Use `usePreviewPaused` from `camox/dom` with a ref to an element the component renders, and stop that work while it returns true. It is always false outside Camox preview.
+
+```tsx
+import { usePreviewPaused } from "camox/dom";
+import { useEffect, useRef } from "react";
+
+function Shader() {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const paused = usePreviewPaused(canvas);
+
+  useEffect(() => {
+    if (paused) return;
+    let frame = requestAnimationFrame(function draw(time) {
+      // Draw a frame of the shader at `time`.
+      frame = requestAnimationFrame(draw);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [paused]);
+
+  return <canvas ref={canvas} />;
+}
+```
+
+The element must render together with the component calling the hook, not conditionally later.
+
 ## Third-party scripts and widgets
 
 Resolve context from the widget container, create scripts with `context.document.createElement("script")`, and append them to `context.document.head`. Initialize the SDK exposed on `context.window`, not the editor global. Deduplicate script loading **per document**, not with one module-global promise: preview, thumbnails, and the ordinary page can each have their own SDK instance.

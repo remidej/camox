@@ -26,6 +26,7 @@ import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
 import { CANVAS_HEADER_HEIGHT, type CanvasInsets } from "./canvasCamera";
 import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
+import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
   CANVAS_ITEM_GAP,
   CANVAS_SHELF_GAP,
@@ -53,6 +54,7 @@ import { selectedCanvasPage } from "./canvasSelection";
 import { CANVAS_SHELF_MARKER_OVERHANG, CanvasShelfMarkers } from "./CanvasShelfMarker";
 import { CanvasWorkspaceContext } from "./canvasZoom";
 import { useCanvasCamera } from "./useCanvasCamera";
+import { useCanvasNearness } from "./useCanvasNearness";
 
 type CanvasViewport = { width: number; height: number };
 
@@ -109,16 +111,7 @@ class CanvasFrameBoundary extends React.Component<
   }
 }
 
-function CanvasPagePreview({
-  pathname,
-  runtimeBasePath,
-  derivedLayoutId,
-  pageId,
-  viewport,
-  selected,
-  hovered,
-  onActivate,
-}: {
+type CanvasPagePreviewProps = {
   pathname: string;
   runtimeBasePath: string;
   derivedLayoutId?: string;
@@ -127,7 +120,38 @@ function CanvasPagePreview({
   selected: boolean;
   hovered: boolean;
   onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
-}) {
+};
+
+/**
+ * A Page loads its frame once it first comes near the Canvas viewport, and the
+ * selected Page right away, wherever the camera is. The frame then stays
+ * mounted, but only runs while selected and the camera is still.
+ */
+function CanvasPagePreview(props: CanvasPagePreviewProps) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const { near, reached } = useCanvasNearness(ref);
+  const mode = useCanvasFrameMode({ near, selected: props.selected });
+  // Once loaded, even only for being selected, a frame stays.
+  const [loaded, setLoaded] = React.useState(false);
+  if ((reached || props.selected) && !loaded) setLoaded(true);
+  return (
+    <div ref={ref} style={{ minHeight: props.viewport.height }}>
+      {loaded && <CanvasPageFrameLoader {...props} mode={mode} />}
+    </div>
+  );
+}
+
+function CanvasPageFrameLoader({
+  pathname,
+  runtimeBasePath,
+  derivedLayoutId,
+  pageId,
+  viewport,
+  selected,
+  hovered,
+  mode,
+  onActivate,
+}: CanvasPagePreviewProps & { mode: CanvasFrameMode }) {
   const projectSlug = useProjectSlug();
   const { data, error, isPending, isFetching, refetch } = useQuery({
     ...canvasPageQuery(projectSlug, runtimeBasePath, pathname, derivedLayoutId),
@@ -162,6 +186,7 @@ function CanvasPagePreview({
       pageId={pageId}
       selected={selected}
       hovered={hovered}
+      mode={mode}
       onActivate={onActivate}
     />
   );
@@ -417,6 +442,7 @@ function CanvasWorkspace({
                               runtimeBasePath={runtimeBasePath}
                               width={viewport.width}
                               viewportHeight={viewport.height}
+                              selected={item.block._internal.id === selectedBlock?._internal.id}
                               onSelect={() => selectBlock(item.block)}
                             />
                           </CanvasFrameBoundary>

@@ -16,6 +16,7 @@ import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import type { PageRenderInput } from "../runtime/runtime";
 import { canvasPageHref, measureCanvasDocument } from "./canvasFrameDocument";
+import type { CanvasFrameMode } from "./canvasFrameMode";
 import { CanvasOverlays } from "./CanvasOverlays";
 import { CanvasFrameProviders, preventLinkNavigation, useCanvasFrame } from "./useCanvasFrame";
 
@@ -46,6 +47,12 @@ export interface CanvasPageFrameProps {
   pageId?: number;
   selected?: boolean;
   hovered?: boolean;
+  /**
+   * Unless live, the frame's animations and media are paused. Resting, its
+   * content is also hidden and its effects stop, while its document and state
+   * are kept.
+   */
+  mode?: CanvasFrameMode;
   onActivate: (owner: EditingOwner, source: "selection" | "interaction") => void;
 }
 
@@ -64,6 +71,7 @@ function PageFrame({
   pageId,
   selected = false,
   hovered = false,
+  mode = "live",
   onActivate,
 }: CanvasPageFrameProps) {
   const camoxApp = useCamoxApp();
@@ -82,6 +90,7 @@ function PageFrame({
     viewportHeight,
     fit: "page",
     subject: "page",
+    mode,
   });
   React.useEffect(() => {
     const iframe = iframeRef.current;
@@ -135,43 +144,45 @@ function PageFrame({
               )}
               {mount &&
                 createPortal(
-                  <React.Suspense fallback={<div role="status">Loading page…</div>}>
-                    <div
-                      style={{ display: "contents" }}
-                      onPointerDownCapture={activate}
-                      onFocusCapture={activate}
-                      onClickCapture={activate}
-                      // Selecting/editing must not navigate the iframe away from its portal.
-                      onClick={preventLinkNavigation}
-                    >
-                      {input.derived ? (
-                        <DerivedPageContent
-                          camoxApp={camoxApp}
-                          derived={input.derived}
-                          source={input.source}
+                  <React.Activity mode={mode === "resting" ? "hidden" : "visible"}>
+                    <React.Suspense fallback={<div role="status">Loading page…</div>}>
+                      <div
+                        style={{ display: "contents" }}
+                        onPointerDownCapture={activate}
+                        onFocusCapture={activate}
+                        onClickCapture={activate}
+                        // Selecting/editing must not navigate the iframe away from its portal.
+                        onClick={preventLinkNavigation}
+                      >
+                        {input.derived ? (
+                          <DerivedPageContent
+                            camoxApp={camoxApp}
+                            derived={input.derived}
+                            source={input.source}
+                          />
+                        ) : (
+                          <EditablePageContent />
+                        )}
+                        <PreviewFrameEffects />
+                        {owner?.kind === "page" && (
+                          <PreviewComments iframeElement={iframeRef.current} />
+                        )}
+                        {!isCommentMode && (
+                          <Overlays
+                            iframeElement={iframeRef.current}
+                            owner={owner}
+                            canAddBlocks={owner?.kind === "page"}
+                          />
+                        )}
+                        {/* This commits only after onLoad and the portal's content resolves. */}
+                        <PageContentCommitted
+                          selected={selected}
+                          frame={iframeRef}
+                          viewportHeight={viewportHeight}
                         />
-                      ) : (
-                        <EditablePageContent />
-                      )}
-                      <PreviewFrameEffects />
-                      {owner?.kind === "page" && (
-                        <PreviewComments iframeElement={iframeRef.current} />
-                      )}
-                      {!isCommentMode && (
-                        <Overlays
-                          iframeElement={iframeRef.current}
-                          owner={owner}
-                          canAddBlocks={owner?.kind === "page"}
-                        />
-                      )}
-                      {/* This commits only after onLoad and the portal's content resolves. */}
-                      <PageContentCommitted
-                        selected={selected}
-                        frame={iframeRef}
-                        viewportHeight={viewportHeight}
-                      />
-                    </div>
-                  </React.Suspense>,
+                      </div>
+                    </React.Suspense>
+                  </React.Activity>,
                   mount,
                 )}
             </CanvasOverlays>

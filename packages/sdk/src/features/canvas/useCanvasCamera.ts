@@ -34,6 +34,8 @@ import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
 const MIN_OVERLAY_ZOOM = 0.3;
+/** The camera counts as moving until it has been still this long. */
+const CAMERA_SETTLE_MS = 150;
 
 function isControl(target: EventTarget | null) {
   return (
@@ -305,6 +307,19 @@ export function useCanvasCamera(
         view: { camera, fitted: Math.abs(camera.scale - minimumScale) < 1e-8 },
       });
     };
+    // Input and flights move the camera, until it has been still for a moment.
+    // Fitting it to changing geometry does not.
+    let settle = 0;
+    const setMoving = (moving: boolean) =>
+      canvasStore.send({ type: "setCameraMoving", workspaceKey, moving });
+    const markMoving = () => {
+      if (!settle) setMoving(true);
+      ownerWindow.clearTimeout(settle);
+      settle = ownerWindow.setTimeout(() => {
+        settle = 0;
+        setMoving(false);
+      }, CAMERA_SETTLE_MS);
+    };
     const paint = () => {
       viewport.style.setProperty("--canvas-x", `${camera.x}px`);
       viewport.style.setProperty("--canvas-y", `${camera.y}px`);
@@ -316,6 +331,7 @@ export function useCanvasCamera(
       remember();
     };
     const animate = (time: number) => {
+      markMoving();
       if (flight) {
         flight.startedAt ??= time;
         const progress = reducedMotion.matches
@@ -442,6 +458,7 @@ export function useCanvasCamera(
       },
     };
     const move = (next: CanvasCamera, immediate = false) => {
+      markMoving();
       cancelCameraFlight();
       // Any new camera interaction takes precedence over the remembered view.
       restoredCamera = undefined;
@@ -771,6 +788,8 @@ export function useCanvasCamera(
       else rootStyle.removeProperty("overscroll-behavior-x");
       remember();
       cancelAnimationFrame(animation);
+      ownerWindow.clearTimeout(settle);
+      setMoving(false);
       resize.disconnect();
       viewport.removeEventListener("wheel", onWheel);
       viewport.removeEventListener("pointerdown", onPointerDown);
