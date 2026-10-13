@@ -1,6 +1,6 @@
 # Drafts are rows beside Live
 
-A draft stores only what it changes, on top of Live (ADR 0003), and every entity keeps one id across Live and drafts (ADR 0004). Today Live is a JSON snapshot that each page and layout points to, and the editable rows are the single draft. We store Live and every draft in the same content tables instead: a Live row has no draft, and a draft row carries its draft's id. The first change a draft makes to an entity copies that whole entity into the draft. Reading a draft takes this draft's row where there is one and the Live row otherwise. Publishing becomes a few set-based statements per table, as D1 requires for an atomic publish.
+A draft stores only what it changes, on top of Live (ADR 0003), and every entity keeps one id across Live and drafts (ADR 0004). Today Live is a JSON snapshot that each page and layout points to, and the editable rows are the single draft. We store Live and every draft in the same content tables instead: a Live row has no draft, and a draft row carries its draft's id. The first change a draft makes to an entity copies that whole entity into the draft. Reading a draft takes this draft's row where there is one and the Live row otherwise. Publishing becomes a few set-based statements per table, as D1 requires for an atomic publish. See [Publishing a draft](0009-publishing-a-draft.md).
 
 ## Considered Options
 

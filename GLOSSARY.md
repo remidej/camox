@@ -181,7 +181,7 @@ Deleting a draft without publishing it.
 _Avoid_: Revert, undo, discard changes
 
 **Conflict**:
-Content that a draft changes and that Live also changed after the draft first changed it.
+Content that a draft changes and that Live also changed or deleted after the draft first changed it.
 _Avoid_: Collision, merge conflict
 
 ### Editing
