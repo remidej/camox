@@ -223,5 +223,5 @@ A human who changes content through the studio.
 _Avoid_: Author, admin, content manager
 
 **Agent**:
-A coding agent that manages content through the CLI or AI tools, working in drafts alongside editors.
+A coding agent that manages content alongside editors: through the CLI, in its developer's development draft, or through AI tools in other drafts.
 _Avoid_: Bot, assistant, AI
