@@ -88,7 +88,9 @@ export function DerivedLayoutSidebar({
           <AlertDescription>
             {singleton
               ? "Edit and publish this page’s blocks here. Its URL and structure are defined in code. Synced blocks share content with their other placements."
-              : "Changes apply to every page using this layout. The generated page content is managed outside the studio."}
+              : pageRecord
+                ? "Changes to these blocks apply to every page using this layout. Select this page’s content in the preview to edit its record, shared everywhere it appears."
+                : "Changes apply to every page using this layout. The generated page content is managed outside the studio."}
           </AlertDescription>
         </Alert>
       </PanelContent>

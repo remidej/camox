@@ -55,6 +55,7 @@ registerHooks({
       "../../features/preview/previewSelection": `
         export const usePreviewSelection = () => globalThis.captureArtifactSelection;
         export const usePreviewTargetSelection = () => null;
+        export { PreviewEditingOwnerContext } from ${JSON.stringify(new URL("../../features/preview/previewSelection.ts", import.meta.url).href)};
       `,
     };
     const body = modules[specifier];

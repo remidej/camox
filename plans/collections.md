@@ -433,6 +433,14 @@ the collection's fields as a type-only, invariant member; an envelope typed with
 wrapper annotated `LayoutCollectionItemResult<Content>`) has no `Item`. Record Markdown is
 filled by the API (`recordMarkdown`), with the same builder and resolver as reference lists.
 
+Editable `layout.Item` (#190): comments stay deferred, as above. The draft envelope carries
+the record's `version`. The "normalized record cache" is the per-record query every record
+save writes: `layout.Item` shows a saved draft once its version is newer than the loader's.
+The page's data reloads with record edits and publication, like other draft layout reads, so
+newly linked records resolve. An editor's `/_camox/data?source=live` runs the loader live.
+Following a slug edit asks route discovery for the record's page
+(`/_camox/routes?recordId=`), using the entries' `target`, since the Studio doesn't know `by`.
+
 ## Status and intent
 
 This document records the collections design agreed during brainstorming. It is a specification, not documentation of shipped APIs. Examples describe the target SDK; implementation details that were not settled are listed separately.

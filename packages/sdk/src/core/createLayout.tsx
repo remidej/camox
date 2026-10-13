@@ -4,6 +4,7 @@ import * as React from "react";
 import { BlockErrorBoundary } from "@/features/preview/components/BlockErrorBoundary";
 import { useOptionalCamoxApp } from "@/features/provider/components/CamoxAppContext";
 
+import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import type { ContentProxy } from "./lib/contentType";
 import { RecordScope } from "./lib/recordScope";
 import type { ReferenceRecord, ReferenceScope } from "./lib/reference";
@@ -100,6 +101,8 @@ export interface LayoutCollectionItemResult<
     content: Content;
     /** The records it links, resolved by Camox so that `layout.Item` renders them. */
     references?: ReferenceRecord["references"];
+    /** The draft's version, which edits on the record page send as expected. Live has none. */
+    version?: number;
   };
   /**
    * Type only, never set: the collection's fields, which type `layout.Item`. Invariant, so that
@@ -346,10 +349,14 @@ function createLayoutDefinition<
     return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>;
   };
 
-  /** Renders the page's record read-only; nothing when the loader result isn't a record. */
+  /**
+   * Renders the page's record; nothing when the loader result isn't a record. Visitors get it
+   * read-only; the Studio's editing runtime makes it editable.
+   */
   const Item = ({ children }: { children: (item: any) => React.ReactNode }) => {
     const context = React.use(LayoutContext);
     const app = useOptionalCamoxApp();
+    const editingRuntime = useBlockEditingRuntime();
     if (!context)
       throw new Error(`Layout "${options.id}" Item must be rendered inside its Provider`);
     const { result } = context;
@@ -358,7 +365,7 @@ function createLayoutDefinition<
     if (!collection) return null;
     const { contentSchema, label } = collection._internal;
     const { id, content, references } = result.data;
-    return (
+    const readOnly = (
       <RecordScope
         record={{ id, label: fieldPlainText(content[label]), content, references }}
         properties={contentSchema.properties}
@@ -366,6 +373,15 @@ function createLayoutDefinition<
         children={children}
       />
     );
+    if (!editingRuntime?.renderLayoutItem) return readOnly;
+    return editingRuntime.renderLayoutItem({
+      collectionId: result.collectionId,
+      labelField: label,
+      properties: contentSchema.properties,
+      record: result.data,
+      children,
+      fallback: readOnly,
+    });
   };
   Item.displayName = `LayoutItem(${options.id})`;
 

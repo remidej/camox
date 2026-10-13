@@ -19,7 +19,21 @@ function EditableBlock({ options, props }: { options: object; props: object }) {
   return <Component {...(props as React.ComponentProps<typeof Component>)} />;
 }
 
+/** Record pages' records render through the record scope of a block without fields. */
+const layoutItemOptions = {
+  id: "camox-layout-item",
+  title: "",
+  description: "",
+  content: () => ({}),
+  toMarkdown: () => [],
+  component: () => null,
+};
+
 const completeEditingRuntime: BlockEditingRuntime = {
+  renderLayoutItem(props) {
+    const { LayoutItem } = getEditableDefinition(layoutItemOptions)._internal;
+    return <LayoutItem {...props} />;
+  },
   useSetting(options, name) {
     return getEditableDefinition(options).useSetting(name);
   },

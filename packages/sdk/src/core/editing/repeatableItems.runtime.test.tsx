@@ -40,6 +40,7 @@ registerHooks({
       "../../features/preview/previewSelection": `
         export const usePreviewSelection = () => globalThis.captureItemSelection;
         export const usePreviewTargetSelection = () => null;
+        export { PreviewEditingOwnerContext } from ${JSON.stringify(new URL("../../features/preview/previewSelection.ts", import.meta.url).href)};
       `,
       "../components/lexical/InlineLexicalEditor": `
         export const InlineLexicalEditor = props => React.createElement('span', null, props.externalState);

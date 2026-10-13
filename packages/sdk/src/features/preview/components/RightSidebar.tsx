@@ -4,9 +4,9 @@ import { useContext } from "react";
 import { CMS_SIDEBAR_WIDTH } from "../previewConstants";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import {
+  isBlockSelection,
   previewStore,
   selectIsCommentMode,
-  selectionBlockId,
   selectionForOwner,
 } from "../previewStore";
 import { CommentSidebar } from "./CommentSidebar";
@@ -24,8 +24,9 @@ const RightSidebar = ({
   const owner = useContext(PreviewEditingOwnerContext);
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
-  const selectedBlockId = selectionBlockId(selection);
-  if (pageId == null && derivedLayoutId == null && selectedBlockId == null) return null;
+  // A block, or a record page's record (which no block places), opens the editor.
+  const editing = selection != null;
+  if (pageId == null && derivedLayoutId == null && !isBlockSelection(selection)) return null;
 
   return (
     <aside
@@ -34,7 +35,7 @@ const RightSidebar = ({
     >
       {pageId != null && isCommentMode ? (
         <CommentSidebar key={pageId} pageId={pageId} />
-      ) : selectedBlockId != null ? (
+      ) : editing ? (
         <PageEditorSidebar />
       ) : pageId != null ? (
         <PageInfoSidebar pageId={pageId} />

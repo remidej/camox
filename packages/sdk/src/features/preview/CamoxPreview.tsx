@@ -29,6 +29,7 @@ import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbar } from "./components/PreviewToolbar";
+import { PageRecordContext, useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 import { previewCommentsStore } from "./previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
@@ -323,28 +324,45 @@ export const CamoxPreview = ({
     staleTime: derived ? 0 : Infinity,
   });
   useHydrateDraftCache(!derived && !catalogBlock);
+  // A code-owned page's loader runs again in the preview's source, and after record edits
+  // and publication.
+  const derivedResult = useDerivedPageResult({
+    projectSlug,
+    runtimeBasePath: runtimeBasePath ?? "",
+    pathname,
+    loaded: derived ? { result: derived.result, source: source ?? "draft" } : undefined,
+  });
+  const pageRecord = getPageRecord(derivedResult);
+  useFollowPageRecord({
+    projectSlug,
+    runtimeBasePath: runtimeBasePath ?? "",
+    layoutId: derived?.layoutId,
+    record: pageRecord,
+  });
   const pageData = data && "page" in data ? data : undefined;
   const layout = data && !("page" in data) ? data : undefined;
   return (
-    <PreviewShell
-      pageData={pageData}
-      derivedLayoutId={derived?.layoutId}
-      derivedLayout={layout}
-      pageRecord={getPageRecord(derived?.result)}
-      hasLiveVersion={layout?.livePublishedCheckpointId != null}
-      catalogBlock={catalogBlock}
-      runtimeBasePath={runtimeBasePath}
-    >
-      {derived && layout ? (
-        <DerivedPageContent
-          camoxApp={camoxApp}
-          derived={{ ...derived, layout }}
-          source={previewSource}
-        />
-      ) : (
-        children
-      )}
-    </PreviewShell>
+    <PageRecordContext value={derivedResult}>
+      <PreviewShell
+        pageData={pageData}
+        derivedLayoutId={derived?.layoutId}
+        derivedLayout={layout}
+        pageRecord={pageRecord}
+        hasLiveVersion={layout?.livePublishedCheckpointId != null}
+        catalogBlock={catalogBlock}
+        runtimeBasePath={runtimeBasePath}
+      >
+        {derived && layout ? (
+          <DerivedPageContent
+            camoxApp={camoxApp}
+            derived={{ ...derived, layout, result: derivedResult }}
+            source={previewSource}
+          />
+        ) : (
+          children
+        )}
+      </PreviewShell>
+    </PageRecordContext>
   );
 };
 

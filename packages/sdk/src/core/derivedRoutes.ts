@@ -67,6 +67,27 @@ export async function discoverLayoutPaths(
   layout: Layout,
   context: LayoutRequestContext,
 ): Promise<string[]> {
+  return (await discoverLayoutPages(layout, context)).map((page) => page.path);
+}
+
+/** A discovered page: its path, and the record it renders when its entry names one. */
+export interface DiscoveredPage {
+  path: string;
+  recordId?: string;
+}
+
+/** The record a discovery entry names, if its `target` is a record target. */
+function targetRecordId(entry: unknown) {
+  const target = (entry as { target?: { kind?: unknown; id?: unknown } } | null)?.target;
+  if (target?.kind !== "collection-item" || typeof target.id !== "string") return undefined;
+  return target.id;
+}
+
+/** Like `discoverLayoutPaths`, keeping the record each page renders. */
+export async function discoverLayoutPages(
+  layout: Layout,
+  context: LayoutRequestContext,
+): Promise<DiscoveredPage[]> {
   const { id, routes } = layout._internal;
   if (!routes) return [];
   let result: unknown;
@@ -79,5 +100,9 @@ export async function discoverLayoutPaths(
   const entries = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(entries))
     throw new Error(`Layout "${id}" routes must return { data: [{ params }] }`);
-  return entries.map((entry) => derivedLayoutPath(id, (entry as { params?: unknown })?.params));
+  return entries.map((entry) => {
+    const path = derivedLayoutPath(id, (entry as { params?: unknown })?.params);
+    const recordId = targetRecordId(entry);
+    return recordId ? { path, recordId } : { path };
+  });
 }

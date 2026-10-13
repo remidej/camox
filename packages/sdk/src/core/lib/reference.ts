@@ -90,6 +90,21 @@ export type ReferenceRecord = {
   references?: Record<string, ReferenceRecord | ReferenceRecord[] | null>;
 };
 
+/** A save's result, as record edits store it in the shared record cache. */
+export type SavedRecord = { draft: Record<string, unknown>; version: number };
+
+/**
+ * A record page's draft: as its loader returned it, or as a later save through any placement
+ * stored it. Without a version, the loaded record is live content, which saves never replace.
+ */
+export function latestDraft(
+  loaded: { content: Record<string, unknown>; version?: number },
+  saved: SavedRecord | undefined,
+): { content: Record<string, unknown>; version?: number } {
+  if (!saved || loaded.version == null || saved.version <= loaded.version) return loaded;
+  return { content: saved.draft, version: saved.version };
+}
+
 export function resolveReference(
   value: unknown,
   collectionId: string,

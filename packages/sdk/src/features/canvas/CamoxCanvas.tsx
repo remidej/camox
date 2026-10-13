@@ -14,6 +14,7 @@ import {
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { PageStatusBadge } from "../preview/components/PageStatusBadge";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
+import { PageRecordContext } from "../preview/pageRecord";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
 import { getPageRecord } from "../preview/publication";
@@ -691,11 +692,16 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         viewport={viewport}
         onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
       />
-      <CanvasRightSidebar
-        page={selectedPage}
-        catalog={selectedBlock && { block: selectedBlock, projectId: project.data.id }}
-        owner={editingOwner}
-      />
+      {/* The record page's record, which its sidebar edits. */}
+      <PageRecordContext
+        value={selectedPage?.derivedLayoutId ? selectedFrameInput?.derived?.result : undefined}
+      >
+        <CanvasRightSidebar
+          page={selectedPage}
+          catalog={selectedBlock && { block: selectedBlock, projectId: project.data.id }}
+          owner={editingOwner}
+        />
+      </PageRecordContext>
     </div>
   );
 }

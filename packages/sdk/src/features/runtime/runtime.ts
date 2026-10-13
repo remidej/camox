@@ -5,7 +5,11 @@ import type { Link, Meta, UseHeadInput } from "unhead/types";
 import type { CamoxApp } from "../../core/createApp";
 import type { AnyLayoutLoaderResult } from "../../core/createLayout";
 import type { CamoxDocument } from "../../core/defineDocument";
-import { discoverLayoutPaths, matchDerivedLayout } from "../../core/derivedRoutes";
+import {
+  discoverLayoutPages,
+  discoverLayoutPaths,
+  matchDerivedLayout,
+} from "../../core/derivedRoutes";
 import { getPageDestinations } from "../../core/pageDestinations";
 import { recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
 import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
@@ -273,13 +277,18 @@ async function resolveSessionSource(
   }
 }
 
-/** The first discovered page of a derived layout, which the Canvas previews by default. */
+/**
+ * The first discovered page of a derived layout, which the Canvas previews by default. With
+ * `recordId`, the page rendering that record, which the Studio follows when its slug changes.
+ */
 async function createRoutesResponse(request: Request, options: RuntimeOptions): Promise<Response> {
   const camoxApp = await options.getCamoxApp?.();
   if (!camoxApp) {
     return Response.json({ message: "Camox app registry is not available." }, { status: 500 });
   }
-  const layoutId = new URL(request.url).searchParams.get("layoutId") ?? "";
+  const { searchParams } = new URL(request.url);
+  const layoutId = searchParams.get("layoutId") ?? "";
+  const recordId = searchParams.get("recordId");
   const layout = camoxApp.getLayoutById(layoutId);
   if (layout?._internal.kind !== "derived") return new Response("Not found", { status: 404 });
   const { source, clearAuthCookie } = await resolveSessionSource(request, options);
@@ -289,11 +298,12 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
     ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
   };
   try {
-    const [path = null] = await discoverLayoutPaths(
+    const pages = await discoverLayoutPages(
       layout,
       createLayoutRequestContext(options, source, getServerAuthCookieHeader(request.headers)),
     );
-    return Response.json({ path }, { headers });
+    const page = recordId ? pages.find((entry) => entry.recordId === recordId) : pages[0];
+    return Response.json({ path: page?.path ?? null }, { headers });
   } catch (error) {
     console.error(`[camox] Route discovery failed for layout "${layoutId}".`, error);
     const message = error instanceof Error ? error.message : String(error);
@@ -442,7 +452,7 @@ async function createPageHtmlResponse({
     !options.projectSlug ||
     !options.renderPage
   ) {
-    return createPageDataResponse({ options, pathname, request });
+    return createPageDataResponse({ options, pathname, request, previewLive: false });
   }
 
   const requestUrl = new URL(request.url);
@@ -689,6 +699,8 @@ async function createDerivedResponse(
   request: Request,
   dataOnly = false,
   singletonOnly = false,
+  /** An editor previewing live content: the loader reads what visitors see. */
+  previewLive = false,
 ): Promise<Response | null> {
   const app = await options.getCamoxApp?.();
   const match = app && matchDerivedLayout(app.getLayouts(), pathname);
@@ -717,7 +729,7 @@ async function createDerivedResponse(
     const serializedResult = await loadLayoutResult(
       app,
       match,
-      createLayoutRequestContext(options, source, authCookieHeader),
+      createLayoutRequestContext(options, previewLive ? "live" : source, authCookieHeader),
     );
     const shared = draft ?? (await loadLayout("live"));
     seedBlockCaches(queryClient, shared, source);
@@ -1012,16 +1024,25 @@ async function createPageDataResponse({
   options,
   pathname,
   request,
+  previewLive,
 }: {
   options: RuntimeOptions;
   pathname: string;
   request: Request;
+  previewLive: boolean;
 }): Promise<Response> {
   if (!options.apiUrl || !options.projectSlug) {
     return Response.json({ message: "Camox page loader is not configured." }, { status: 500 });
   }
 
-  const singleton = await createDerivedResponse(options, pathname, request, true, true);
+  const singleton = await createDerivedResponse(
+    options,
+    pathname,
+    request,
+    true,
+    true,
+    previewLive,
+  );
   if (singleton) return singleton;
 
   const queryClient = new QueryClient();
@@ -1073,7 +1094,14 @@ async function createPageDataResponse({
     return Response.json(input, { headers });
   } catch (error) {
     if (isNotFoundError(error)) {
-      const derived = await createDerivedResponse(options, pathname, request, true);
+      const derived = await createDerivedResponse(
+        options,
+        pathname,
+        request,
+        true,
+        false,
+        previewLive,
+      );
       if (derived) return derived;
       return Response.json(
         { kind: "page", message: "No Camox page on this path", pathname },
@@ -1138,7 +1166,12 @@ export async function handleCamoxRequest(
       return createStudioHtmlResponse({ match: targetMatch, options, request, dataOnly: true });
     }
     if (targetMatch.kind !== "page") return new Response("Not found", { status: 404 });
-    return createPageDataResponse({ options, pathname: targetPathname, request });
+    return createPageDataResponse({
+      options,
+      pathname: targetPathname,
+      request,
+      previewLive: url.searchParams.get("source") === "live",
+    });
   }
 
   if (
