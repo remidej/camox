@@ -2,6 +2,17 @@ import type { Collection } from "./createCollection";
 import { resolveToMarkdown } from "./lib/contentType";
 import { isLexicalState, lexicalStateToPlainText } from "./lib/lexicalState";
 
+/**
+ * The value when it names a collection record (a `collection-item` loader result or route
+ * target), otherwise undefined.
+ */
+export function asCollectionItem<T extends { kind?: unknown }>(
+  value: T | null | undefined,
+): (T & { kind: "collection-item" }) | undefined {
+  if (value?.kind !== "collection-item") return undefined;
+  return value as T & { kind: "collection-item" };
+}
+
 /** A record page's String fields as plain text, as its meta callbacks get them. */
 export function recordPlainText(
   collection: Collection,

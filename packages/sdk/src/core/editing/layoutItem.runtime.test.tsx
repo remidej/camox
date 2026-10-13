@@ -54,7 +54,9 @@ initApiClient("http://localhost:8788", "development");
 const previewSelectionUrl = new URL("../../features/preview/previewSelection.ts", import.meta.url);
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
+    // The record page's record is read from the record cache through useLatestRecord.
+    const parents = ["/createEditableBlock.tsx", "/useLatestRecord.ts"];
+    if (!parents.some((parent) => context.parentURL?.endsWith(parent)))
       return nextResolve(specifier, context);
     const modules: Record<string, string> = {
       "@/lib/auth": "export const useProjectSlug = () => 'test'",

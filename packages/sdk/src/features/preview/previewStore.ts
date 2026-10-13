@@ -56,6 +56,12 @@ export type BlockRecordPlacement = LinkedRecord & {
 export type LayoutRecordPlacement = LinkedRecord & { layoutId: number; recordId: string };
 
 /**
+ * The block id of what no block places, like a record page's record: it equals no id, itself
+ * included, so no block field or selection ever matches it.
+ */
+export const NO_BLOCK_ID = Number.NaN;
+
+/**
  * Whether a block places the record. Checks `blockId` rather than `layoutId`, because editing
  * events spread a layout editing owner's `layoutId` next to block-owned placements.
  */

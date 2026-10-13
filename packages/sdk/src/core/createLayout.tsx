@@ -7,9 +7,9 @@ import { useOptionalCamoxApp } from "@/features/provider/components/CamoxAppCont
 import { useBlockEditingRuntime } from "./editing/BlockEditingRuntime";
 import type { ContentProxy } from "./lib/contentType";
 import { RecordScope } from "./lib/recordScope";
-import type { ReferenceRecord, ReferenceScope } from "./lib/reference";
-import { fieldPlainText } from "./recordItem";
-import type { LayoutRequestContext } from "./requestContext";
+import type { ReferenceScope } from "./lib/reference";
+import { asCollectionItem, fieldPlainText } from "./recordItem";
+import type { CollectionRecordId, LayoutRequestContext, LoadedRecord } from "./requestContext";
 
 export type { LayoutRequestContext } from "./requestContext";
 
@@ -96,14 +96,7 @@ export interface LayoutCollectionItemResult<
 > {
   kind: "collection-item";
   collectionId: CollectionId;
-  data: {
-    id: string;
-    content: Content;
-    /** The records it links, resolved by Camox so that `layout.Item` renders them. */
-    references?: ReferenceRecord["references"];
-    /** The draft's version, which edits on the record page send as expected. Live has none. */
-    version?: number;
-  };
+  data: LoadedRecord<Content>;
   /**
    * Type only, never set: the collection's fields, which type `layout.Item`. Invariant, so that
    * records of two collections never merge into one.
@@ -127,10 +120,8 @@ export type AnyLayoutLoaderResult = LayoutLoaderResult | LayoutCollectionItemRes
 type LoaderReturn = AnyLayoutLoaderResult | PromiseLike<AnyLayoutLoaderResult>;
 
 /** The record a discovered page renders, independent of its current params. */
-export interface LayoutRouteTarget {
+export interface LayoutRouteTarget extends CollectionRecordId {
   kind: "collection-item";
-  collectionId: string;
-  id: string;
 }
 
 /** Route discovery result: the params of each page a derived layout can render. */
@@ -359,8 +350,8 @@ function createLayoutDefinition<
     const editingRuntime = useBlockEditingRuntime();
     if (!context)
       throw new Error(`Layout "${options.id}" Item must be rendered inside its Provider`);
-    const { result } = context;
-    if (result?.kind !== "collection-item") return null;
+    const result = asCollectionItem(context.result);
+    if (!result) return null;
     const collection = app?.getCollectionById(result.collectionId);
     if (!collection) return null;
     const { contentSchema, label } = collection._internal;

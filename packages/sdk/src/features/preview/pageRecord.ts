@@ -4,14 +4,13 @@ import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import type { AnyLayoutLoaderResult } from "@/core/createLayout";
-import { latestDraft } from "@/core/lib/reference";
-import { fieldPlainText } from "@/core/recordItem";
-import { useProjectSlug } from "@/lib/auth";
+import { useLatestRecord } from "@/core/editing/useLatestRecord";
+import { asCollectionItem } from "@/core/recordItem";
 import { collectionQueries } from "@/lib/queries";
 
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
-import { runtimePath } from "../runtime/navigationTarget";
+import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 import type { LayoutRecordPlacer } from "./components/useRecordView";
 import { previewStore, selectPreviewSource } from "./previewStore";
@@ -37,14 +36,12 @@ export function derivedPageQuery(
       source,
     ] as const,
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
-      const url = new URL(runtimePath("/_camox/data", runtimeBasePath), window.location.origin);
-      url.searchParams.set("path", pathname);
-      url.searchParams.set("source", source);
-      const response = await fetch(url, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
+      const response = await fetchRuntimeJson(
+        "/_camox/data",
+        runtimeBasePath,
+        { path: pathname, source },
         signal,
-      });
+      );
       // A record without live content has no page for visitors.
       if (response.status === 404) return null;
       if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
@@ -105,14 +102,12 @@ export function useFollowPageRecord({
   });
   const follow = React.useEffectEvent(async (signal: AbortSignal) => {
     if (!layoutId || !record) return;
-    const url = new URL(runtimePath("/_camox/routes", runtimeBasePath), window.location.origin);
-    url.searchParams.set("layoutId", layoutId);
-    url.searchParams.set("recordId", record.id);
-    const response = await fetch(url, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
+    const response = await fetchRuntimeJson(
+      "/_camox/routes",
+      runtimeBasePath,
+      { layoutId, recordId: record.id },
       signal,
-    });
+    );
     if (!response.ok) return;
     const { path } = (await response.json()) as { path: string | null };
     if (!path || path === location.pathname || signal.aborted) return;
@@ -140,28 +135,14 @@ export const PageRecordContext = React.createContext<AnyLayoutLoaderResult | und
  * it, or as a later save stored it. Null on pages that render no record.
  */
 export function usePageRecordPlacer(): LayoutRecordPlacer | null {
-  const result = React.use(PageRecordContext);
+  const loaded = asCollectionItem(React.use(PageRecordContext));
   const app = useCamoxApp();
-  const projectSlug = useProjectSlug();
-  const loaded = result?.kind === "collection-item" ? result : undefined;
   const collection = loaded ? app.getCollectionById(loaded.collectionId) : undefined;
-  const { data: saved } = useQuery({
-    ...collectionQueries.record(projectSlug, loaded?.collectionId ?? "", loaded?.data.id ?? ""),
-    enabled: false,
+  const collectionId = loaded?.collectionId ?? "";
+  const record = useLatestRecord({
+    collectionId,
+    labelField: collection?._internal.label ?? "",
+    loaded: collection ? loaded?.data : undefined,
   });
-  return React.useMemo(() => {
-    if (!loaded || !collection) return null;
-    const { content, version } = latestDraft(loaded.data, saved);
-    return {
-      collectionId: loaded.collectionId,
-      record: {
-        id: loaded.data.id,
-        collectionId: loaded.collectionId,
-        label: fieldPlainText(content[collection._internal.label]),
-        content,
-        version,
-        references: loaded.data.references,
-      },
-    };
-  }, [loaded, collection, saved]);
+  return React.useMemo(() => (record ? { collectionId, record } : null), [collectionId, record]);
 }

@@ -132,15 +132,16 @@ export function useRecordView({
       layoutPlacer != null &&
       layoutPlacer.record.id !== layoutSelection.recordId;
   // A record the field just linked shows once the placer's hydrated records include it.
-  const outerRecord = outerStale
-    ? undefined
-    : blockSelection
-      ? placedRecords(blockPlacer?.references, blockSelection.fieldName).find(
-          (record) => record.id === blockSelection.recordId,
-        )
-      : layoutSelection
-        ? layoutPlacer?.record
-        : undefined;
+  const findOuterRecord = () => {
+    if (outerStale) return undefined;
+    if (blockSelection)
+      return placedRecords(blockPlacer?.references, blockSelection.fieldName).find(
+        (record) => record.id === blockSelection.recordId,
+      );
+    if (layoutSelection) return layoutPlacer?.record;
+    return undefined;
+  };
+  const outerRecord = findOuterRecord();
 
   // Second hop: the record the first one links through its own reference field.
   const nestedField = nested

@@ -3,8 +3,17 @@ import { test } from "node:test";
 
 import { createApp } from "../../core/createApp";
 import { createLayout } from "../../core/createLayout";
-import { getRequestSource } from "../../core/requestContext";
+import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
+
+/** The source the context's record lookup reads, as the API receives it. */
+async function readSource(context: LayoutRequestContext) {
+  const [entry] = await getRecordLookup(context).listPageValues({
+    collectionId: "sources",
+    field: "source",
+  });
+  return entry!.value;
+}
 
 const VALID_SESSION = "camox_auth_cookie=valid";
 const EXPIRED_SESSION = "camox_auth_cookie=expired";
@@ -21,11 +30,11 @@ function sourceReportingApp() {
     ...layoutOptions,
     title: "Pokémon",
     kind: "derived",
-    loader: ({ params, context }) => ({
+    loader: async ({ params, context }) => ({
       kind: "data",
-      data: { name: params.name, source: getRequestSource(context) },
+      data: { name: params.name, source: await readSource(context) },
     }),
-    routes: ({ context }) => ({ data: [{ params: { name: getRequestSource(context) } }] }),
+    routes: async ({ context }) => ({ data: [{ params: { name: await readSource(context) } }] }),
     toMarkdown: ({ data }) => [`# ${data.name} read ${data.source}`],
     buildMetaTitle: ({ data }) => `Read ${data.source}`,
   });
@@ -33,7 +42,7 @@ function sourceReportingApp() {
     ...layoutOptions,
     title: "Pokédex",
     kind: "singleton",
-    loader: ({ context }) => ({ kind: "data", data: { source: getRequestSource(context) } }),
+    loader: async ({ context }) => ({ kind: "data", data: { source: await readSource(context) } }),
     toMarkdown: ({ data }) => [`# Pokédex read ${data.source}`],
     buildMetaTitle: ({ data }) => `Read ${data.source}`,
   });
@@ -58,6 +67,11 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
         { status: 404 },
       );
+    if (url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) {
+      // Reports the source each lookup asked for, so layouts can show it.
+      const { json: input } = (await request.json()) as { json: { source: string } };
+      return Response.json({ json: [{ id: input.source, value: input.source }] });
+    }
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({ json: { before: "", after: "" } });
     if (url.pathname.endsWith("/layouts/get"))

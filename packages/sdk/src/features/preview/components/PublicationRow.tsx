@@ -40,13 +40,15 @@ import { PublishDialog } from "./PublishDialog";
 
 type Operation = "publish" | "unpublish" | "discard";
 
+/** What the controls publish; a new identity remounts them with fresh state. */
+function targetIdentity(target: PublicationTarget | null) {
+  if (!target) return "loading";
+  if (target.kind === "page") return `page:${target.page.id}`;
+  return `layout:${target.layout.id}:${target.record?.id ?? ""}`;
+}
+
 export function PublicationRow({ target }: { target: PublicationTarget | null }) {
-  const identity = !target
-    ? "loading"
-    : target.kind === "page"
-      ? `page:${target.page.id}`
-      : `layout:${target.layout.id}:${target.record?.id ?? ""}`;
-  return <PublicationControls key={identity} target={target} />;
+  return <PublicationControls key={targetIdentity(target)} target={target} />;
 }
 
 function PublicationControls({ target }: { target: PublicationTarget | null }) {

@@ -387,6 +387,9 @@ Loading and discovery:
 - `by` accepts String fields only, compared on extracted plain text. `param` is checked by the
   layout's route params. Records whose value is empty or contains `/` get no page and are
   left out of discovery.
+- Known cost: finding a record by its `by` value loads every record of the collection in the
+  source and compares their extracted plain text in memory, with no index. That's fine at
+  current collection sizes; a stored plain-text column could replace it later.
 - Several records matching in the same source is a server error naming the collection, field,
   value and records; in discovery it fails the sitemap like slice 7's invalid entries.
   Uniqueness enforcement stays deferred.
@@ -409,7 +412,7 @@ Envelopes and types:
 Editing and publication:
 
 - A layout-owned placement (layout and record, no block) gives `layout.Item` fields the same
-  selection, purple overlays, record sidebar and comments as a single reference.
+  selection, purple overlays and record sidebar as a single reference.
 - Comments on record page fields are deferred (#185). Comments belong to a page row and anchor
   to a block, item or block field, and records anchor to their placing reference field; a
   record page has no page row and its record no reference field. In comment mode, clicking a

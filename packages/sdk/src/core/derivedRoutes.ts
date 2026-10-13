@@ -1,4 +1,5 @@
 import type { Layout } from "./createLayout";
+import { asCollectionItem } from "./recordItem";
 import type { LayoutRequestContext } from "./requestContext";
 
 export function routeSegments(id: string) {
@@ -62,14 +63,6 @@ export function derivedLayoutPath(layoutId: string, params: unknown) {
     .join("/")}`;
 }
 
-/** Runs a derived layout's route discovery; an invalid result throws rather than omitting pages. */
-export async function discoverLayoutPaths(
-  layout: Layout,
-  context: LayoutRequestContext,
-): Promise<string[]> {
-  return (await discoverLayoutPages(layout, context)).map((page) => page.path);
-}
-
 /** A discovered page: its path, and the record it renders when its entry names one. */
 export interface DiscoveredPage {
   path: string;
@@ -78,12 +71,17 @@ export interface DiscoveredPage {
 
 /** The record a discovery entry names, if its `target` is a record target. */
 function targetRecordId(entry: unknown) {
-  const target = (entry as { target?: { kind?: unknown; id?: unknown } } | null)?.target;
-  if (target?.kind !== "collection-item" || typeof target.id !== "string") return undefined;
+  const target = asCollectionItem(
+    (entry as { target?: { kind?: unknown; id?: unknown } } | null)?.target,
+  );
+  if (typeof target?.id !== "string") return undefined;
   return target.id;
 }
 
-/** Like `discoverLayoutPaths`, keeping the record each page renders. */
+/**
+ * Runs a derived layout's route discovery, keeping the record each page renders. An invalid
+ * result throws rather than omitting pages.
+ */
 export async function discoverLayoutPages(
   layout: Layout,
   context: LayoutRequestContext,
