@@ -320,7 +320,7 @@ function DashboardNavbar() {
     <header className="border-b">
       <div className="flex h-14 items-center gap-2 px-6">
         <Link to={orgSlug ? "/$orgSlug" : "/"} params={orgSlug ? { orgSlug } : {}} className="pr-4">
-          <img src="/logo-shape.svg" alt="camox logo" className="h-8 py-1" />
+          <img src="/camox-mark.svg" alt="Camox logo" className="h-8 py-1" />
         </Link>
         <OrganizationPicker />
         <ProjectPicker />
