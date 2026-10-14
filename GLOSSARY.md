@@ -135,7 +135,7 @@ The text field of a collection that names its records to editors.
 _Avoid_: Title, display name
 
 **Reference**:
-A field that selects a collection record by identity instead of copying its content.
+A field that selects a collection record by identity instead of copying its content. A required reference can't be published empty.
 _Avoid_: Relation, link, foreign key
 
 **Reference List**:
@@ -173,12 +173,16 @@ A developer's personal draft in a project, whose definitions come from their loc
 _Avoid_: Development environment, code draft, local draft
 
 **Publish**:
-Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts, and the Live content it replaces is not kept.
+Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, push, merge
 
 **Discard**:
 Deleting a draft without publishing it.
 _Avoid_: Revert, undo, discard changes
+
+**Blocker**:
+A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path or an empty required reference.
+_Avoid_: Error, validation failure
 
 **Conflict**:
 Content that a draft changes and that Live also changed or deleted after the draft first changed it.
