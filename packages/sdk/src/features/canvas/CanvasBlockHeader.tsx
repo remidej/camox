@@ -1,5 +1,3 @@
-import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
-
 import type { Block } from "../../core/createBlock";
 
 /** How many Pages place a block, as shown in its header. */
@@ -10,7 +8,7 @@ export function formatCanvasBlockUsage(pageCount: number) {
 
 /**
  * The header above a block of the Block Catalog. Its title sits on the line of
- * Page nicknames, shows the description in a tooltip, and selects the block.
+ * Page nicknames and selects the block.
  * Its usage sits above the title once known, like a Page header's path.
  */
 export function CanvasBlockHeader({
@@ -22,7 +20,7 @@ export function CanvasBlockHeader({
   pageCount?: number;
   onSelect?: () => void;
 }) {
-  const { title, description } = block._internal;
+  const { title } = block._internal;
   return (
     <h2 className="text-foreground flex h-10 w-full min-w-0 flex-col items-start justify-end gap-1 text-left">
       {pageCount !== undefined && (
@@ -33,22 +31,13 @@ export function CanvasBlockHeader({
           {formatCanvasBlockUsage(pageCount)}
         </span>
       )}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              className="focus-visible:ring-ring max-w-full min-w-0 truncate text-left text-sm font-medium outline-none focus-visible:ring-2"
-              onClick={onSelect}
-            />
-          }
-        >
-          {title}
-        </TooltipTrigger>
-        <TooltipContent side="top" align="start">
-          {description}
-        </TooltipContent>
-      </Tooltip>
+      <button
+        type="button"
+        className="focus-visible:ring-ring max-w-full min-w-0 truncate text-left text-sm font-medium outline-none focus-visible:ring-2"
+        onClick={onSelect}
+      >
+        {title}
+      </button>
     </h2>
   );
 }

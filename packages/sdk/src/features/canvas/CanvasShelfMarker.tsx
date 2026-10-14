@@ -4,12 +4,7 @@ import {
   CANVAS_SHELF_MARKER_HEIGHT,
 } from "./canvasCamera";
 import { CANVAS_SHELF_GAP, type CanvasShelfMarker as CanvasShelfMarkerData } from "./canvasItems";
-import {
-  CANVAS_SIDEBAR_LEFT,
-  canvasScreenAbove,
-  canvasScreenLength,
-  canvasScreenX,
-} from "./canvasScreenSpace";
+import { canvasScreenAbove, canvasScreenLength, canvasScreenX } from "./canvasScreenSpace";
 
 const BAR_SIZE = 24;
 // The bar overhangs its area so the label, flush with the area's start, lines up with Page headers.
@@ -74,10 +69,9 @@ export function CanvasShelfMarkers({
  *
  * Expanded, it is a horizontal bar above the Page headers. The bar follows world
  * space horizontally, so it spans its area's items at every zoom, but keeps a
- * constant on-screen height, like Page headers. The label sticks near the left
- * edge of the Canvas, or of the left sidebar over it, while the area is in view,
- * at the inset of a snapped Page so it lines up with that Page's header, and the
- * end of the area pushes it out.
+ * constant on-screen height, like Page headers. The label sticks near the
+ * viewport's left edge while the area is in view, at the inset of a snapped
+ * Page so it lines up with that Page's header, and the end of the area pushes it out.
  *
  * Collapsed, the area's items are hidden and the bar turns vertical in their
  * place, running from the header row to the bottom of the viewport. It is the
@@ -139,7 +133,7 @@ function CanvasShelfMarker({
   // Clipping the label to the rest of the bar pushes it out at the area's end.
   // Zoomed far out, the bar may start past its area, or overhang it less: the
   // label then keeps the full overhang as its inset in the bar.
-  const labelStart = `max(${start}, calc(${bar.left} + ${CANVAS_SHELF_MARKER_OVERHANG}px), calc(${CANVAS_SIDEBAR_LEFT} + ${CANVAS_PAGE_FIT_PADDING}px))`;
+  const labelStart = `max(${start}, calc(${bar.left} + ${CANVAS_SHELF_MARKER_OVERHANG}px), ${CANVAS_PAGE_FIT_PADDING}px)`;
   return (
     <>
       <button
