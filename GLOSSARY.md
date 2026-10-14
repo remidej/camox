@@ -147,7 +147,7 @@ Where a block or reference occurs; placements keep their own identity and order 
 _Avoid_: Usage, instance, occurrence
 
 **File**:
-An uploaded image, video, or document available to the website's content. Like any content, files are added, changed, and removed through drafts. The studio calls files "assets".
+An uploaded image, video, or document available to the website's content. Like any content, files are added, changed, and removed through drafts. A required image or file field can't be published empty. The studio calls files "assets".
 _Avoid_: Media, upload
 
 **Summary**:

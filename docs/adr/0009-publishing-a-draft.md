@@ -15,9 +15,11 @@ Publishing applies a whole draft to Live in one D1 `batch()`, with a fixed numbe
 - Blockers are problems the publish would create:
   - A duplicate path: a page path the draft creates or renames to that Live or another of the draft's pages already uses, or two records sharing the value their record pages are found by. The draft flags it as soon as it appears.
   - Definitions that differ from Live's, in a development draft (ADR 0006).
-  - An empty required reference in content the draft changed.
+  - An empty required reference, image, or file in content the draft changed.
   - A dangling reference the publish would create: in content the draft changed, a reference, reference-list entry, page link, or file that points at nothing; or Live content pointing at something the draft deletes. The fix for untouched Live content is to edit it in the draft.
   - A value of the wrong kind for its definition in content the draft changed, which reading would replace with the default (ADR 0007).
+  - A file the draft adds or replaces whose stored bytes are missing.
+  - A file the draft replaces with a type that a field using it doesn't accept, even in untouched Live content.
 - The same problems already on Live, such as references a release left dangling, are warnings. Reads still treat a missing target as empty: a reference or reference-list entry to a missing record is left out, and a link to a missing page renders as plain text.
 - The confirmation lists, in order: blockers, which disable publishing; conflicts, each with who published Live's version and when; changes that will be lost; warnings; and the draft's changes. There is one Publish button and no choice per conflict. Blockers and conflicts are computed when the dialog opens, and `camox publish` prints the same list (ADR 0010).
 - Moving a block copies its content (ADR 0005), so a draft that only moved a block overwrites text another draft published to it. The confirmation shows it as a conflict.
