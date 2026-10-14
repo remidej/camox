@@ -151,8 +151,12 @@ An uploaded image, video, or document available to the website's content. Like a
 _Avoid_: Media, upload
 
 **Summary**:
-A short AI-generated description of a block's or repeatable item's content, used to identify it to editors and agents.
+A generated value: a short description of a block's or repeatable item's content, used to identify it to editors and agents.
 _Avoid_: Description, label, excerpt
+
+**Generated Value**:
+A value AI derives from content (a summary, a page's SEO, or a file's alt text and filename), kept beside the content rather than in it, so producing one never changes a draft. A value written by hand takes its place.
+_Avoid_: AI field, AI metadata, derived content
 
 **Markdown Representation**:
 The text a block, or a layout rendering loaded data, declares to stand for its content when read by agents.

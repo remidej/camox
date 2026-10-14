@@ -20,6 +20,7 @@ Publishing applies a whole draft to Live in one D1 `batch()`, with a fixed numbe
   - A value of the wrong kind for its definition in content the draft changed, which reading would replace with the default (ADR 0007).
   - A file the draft adds or replaces whose stored bytes are missing.
   - A file the draft replaces with a type that a field using it doesn't accept, even in untouched Live content.
+  - A page the draft creates or changes with no meta title, manual or generated (ADR 0012). While generation is pending it's a warning instead, so a model outage never stops publishing.
 - The same problems already on Live, such as references a release left dangling, are warnings. Reads still treat a missing target as empty: a reference or reference-list entry to a missing record is left out, and a link to a missing page renders as plain text.
 - The confirmation lists, in order: blockers, which disable publishing; conflicts, each with who published Live's version and when; changes that will be lost; warnings; and the draft's changes. There is one Publish button and no choice per conflict. Blockers and conflicts are computed when the dialog opens, and `camox publish` prints the same list (ADR 0010).
 - Moving a block copies its content (ADR 0005), so a draft that only moved a block overwrites text another draft published to it. The confirmation shows it as a conflict.
