@@ -1,0 +1,1653 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Camox brand book</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Inter+Tight:wght@400..700&display=swap"
+    />
+    <style>
+      :root {
+        --bg: #0b0b0c;
+        --panel: #141416;
+        --line: #26262b;
+        --fg: #f4f4f5;
+        --muted: #8b8b94;
+        --stage: #000;
+        --accent: #00bc7d;
+        --guide: #ff4d8d;
+      }
+      body.light {
+        --bg: #ececef;
+        --panel: #ffffff;
+        --line: #dcdce1;
+        --fg: #09090b;
+        --muted: #6b6b75;
+        --stage: #ffffff;
+        --guide: #e11d74;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          14px/1.55 "Inter Tight",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        gap: 24px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 40px;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--line);
+      }
+      header nav {
+        display: flex;
+        gap: 16px;
+        font-size: 13px;
+      }
+      header nav a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      header nav a:hover {
+        color: var(--fg);
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      button {
+        font: inherit;
+      }
+      .tagline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tagline input {
+        font: inherit;
+        font-size: 13px;
+        color: var(--fg);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 6px 10px;
+        width: 320px;
+      }
+      .btn {
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--fg);
+        border-radius: 8px;
+        padding: 6px 12px;
+        font-size: 13px;
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #04140d;
+        font-weight: 600;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: progress;
+      }
+      main {
+        padding: 0 40px 120px;
+        max-width: 1480px;
+      }
+      section {
+        padding-top: 56px;
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0;
+        font-weight: 700;
+      }
+      h2 {
+        font-size: 26px;
+        margin: 0 0 6px;
+        letter-spacing: -0.02em;
+      }
+      h3 {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 650;
+      }
+      section > p,
+      .lead {
+        color: var(--muted);
+        margin: 0 0 20px;
+        max-width: 760px;
+      }
+      .duo {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+      }
+      .canvas {
+        display: grid;
+        place-items: center;
+        padding: 56px 24px;
+      }
+      .canvas svg {
+        max-width: 100%;
+        height: auto;
+      }
+      .caption {
+        padding: 12px 16px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .rules {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .rule {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+      .rule b {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 2px;
+      }
+      .rule span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      code,
+      .mono {
+        font:
+          12px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .swatch {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .swatch .chip {
+        height: 120px;
+      }
+      .swatch div:last-child {
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .donts {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .dont .canvas {
+        padding: 32px 16px;
+        height: 150px;
+      }
+      .dont .caption::before {
+        content: "✕ ";
+        color: #ff5d5d;
+      }
+      .group {
+        margin-top: 28px;
+      }
+      .group h3 {
+        margin-bottom: 4px;
+      }
+      .group > p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .files {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 12px;
+      }
+      .file {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .file .thumb {
+        height: 150px;
+        display: grid;
+        place-items: center;
+        padding: 14px;
+        background-color: var(--stage);
+        background-image:
+          linear-gradient(45deg, var(--checker) 25%, transparent 25%),
+          linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, var(--checker) 75%),
+          linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
+        background-size: 16px 16px;
+        background-position:
+          0 0,
+          0 8px,
+          8px -8px,
+          -8px 0;
+        --checker: rgba(127, 127, 127, 0.12);
+      }
+      .file .thumb > * {
+        max-width: 100%;
+        max-height: 100%;
+      }
+      .file .thumb svg {
+        width: 100%;
+        height: 100%;
+      }
+      .file .thumb canvas {
+        image-rendering: pixelated;
+      }
+      .file .info {
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex: 1;
+      }
+      .file .info .mono {
+        color: var(--fg);
+        word-break: break-all;
+      }
+      .file .info span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .file .info .btn {
+        margin-top: auto;
+        align-self: flex-start;
+        padding: 3px 10px;
+        font-size: 12px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--fg);
+        color: var(--bg);
+        padding: 8px 14px;
+        border-radius: 8px;
+        font-size: 13px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        max-width: 80vw;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body class="dark">
+    <header>
+      <h1>Camox brand book</h1>
+      <nav>
+        <a href="#logo">Logo</a><a href="#construction">Construction</a><a href="#usage">Usage</a
+        ><a href="#colour">Colour</a><a href="#exports">Exports</a>
+      </nav>
+      <div class="actions">
+        <label class="tagline">
+          Banner tagline
+          <input id="tagline" type="text" spellcheck="false" placeholder="No tagline" />
+        </label>
+        <button class="btn" id="theme">Light page</button>
+        <button class="btn" id="zip">Download .zip</button>
+      </div>
+    </header>
+    <main id="main"></main>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      // =====================================================================================
+      // Brand data
+      // =====================================================================================
+
+      const PHI = (1 + Math.sqrt(5)) / 2;
+      const COLORS = {
+        emerald: "#00BC7D",
+        ink: "#0A0A0A",
+        paper: "#F7F7F5",
+        white: "#FFFFFF",
+        mutedDark: "#A1A1AA",
+        mutedLight: "#52525B",
+      };
+      const DEFAULT_TAGLINE = "The CMS framework for agent-managed websites";
+      // Banner tagline: ?tagline= (what `node art/export.mjs --tagline` passes), else the one
+      // typed into the header field in this browser, else the default. Empty means none.
+      let tagline =
+        new URLSearchParams(location.search).get("tagline") ??
+        localStorage.getItem("camox-brand-tagline") ??
+        DEFAULT_TAGLINE;
+
+      // "camox" in Archivo ExtraBold (800) at 112% width with −0.02em tracking, converted to
+      // outlines (font units, y down, baseline at 0) so no exported file depends on the font.
+      const WORDMARK = {
+        upm: 1000,
+        xHeight: 527,
+        inkLeft: 40,
+        inkRight: 3691.3,
+        inkTop: -539.0,
+        inkBottom: 12.0,
+        d: "M351 12Q254 12 185 -18Q116 -48 78 -109.5Q40 -171 40 -264Q40 -357 78 -418.5Q116 -480 185.5 -509.5Q255 -539 351 -539Q413 -539 466.5 -526Q520 -513 560.5 -485.5Q601 -458 623 -417Q645 -376 645 -320L472 -320Q472 -351 456.5 -373Q441 -395 414 -406.5Q387 -418 350 -418Q304 -418 275.5 -401.5Q247 -385 233 -353.5Q219 -322 219 -277L219 -249Q219 -205 233 -174Q247 -143 278 -126.5Q309 -110 355 -110Q393 -110 420.5 -122Q448 -134 463.5 -156Q479 -178 479 -209L645 -209Q645 -153 623 -111.5Q601 -70 560.5 -43Q520 -16 466.5 -2Q413 12 351 12ZM907.3 12Q866.3 12 829.3 5Q792.3 -2 763.8 -18.5Q735.3 -35 719.3 -65Q703.3 -95 703.3 -140Q703.3 -200 732.3 -236.5Q761.3 -273 814.8 -291.5Q868.3 -310 942.8 -316.5Q1017.3 -323 1108.3 -323L1108.3 -347Q1108.3 -374 1096.8 -390.5Q1085.3 -407 1061.3 -415.5Q1037.3 -424 1001.3 -424Q972.3 -424 948.3 -418.5Q924.3 -413 909.8 -402Q895.3 -391 895.3 -374L895.3 -365L722.3 -365Q721.3 -371 721.3 -374Q721.3 -377 721.3 -382Q721.3 -429 754.3 -465Q787.3 -501 850.8 -520Q914.3 -539 1006.3 -539Q1092.3 -539 1153.3 -521Q1214.3 -503 1248.8 -465.5Q1283.3 -428 1283.3 -366L1283.3 -148Q1283.3 -131 1291.8 -120.5Q1300.3 -110 1315.3 -110L1358.3 -110L1358.3 -6Q1345.3 -1 1318.8 5.5Q1292.3 12 1258.3 12Q1216.3 12 1189.3 2.5Q1162.3 -7 1146.3 -23.5Q1130.3 -40 1124.3 -60L1116.3 -60Q1093.3 -39 1062.3 -22Q1031.3 -5 992.8 3.5Q954.3 12 907.3 12ZM963.3 -103Q986.3 -103 1011.8 -109Q1037.3 -115 1058.8 -127Q1080.3 -139 1094.3 -157Q1108.3 -175 1108.3 -198L1108.3 -230Q1032.3 -230 980.8 -222.5Q929.3 -215 902.8 -198Q876.3 -181 876.3 -155Q876.3 -136 888.8 -124Q901.3 -112 920.8 -107.5Q940.3 -103 963.3 -103ZM1404.5 0L1404.5 -527L1546.5 -527L1559.5 -446L1567.5 -446Q1589.5 -478 1620 -498.5Q1650.5 -519 1685.5 -529Q1720.5 -539 1758.5 -539Q1822.5 -539 1866 -516Q1909.5 -493 1931.5 -446L1939.5 -446Q1962.5 -478 1993 -498.5Q2023.5 -519 2059 -529Q2094.5 -539 2131.5 -539Q2195.5 -539 2239 -517Q2282.5 -495 2305 -449.5Q2327.5 -404 2327.5 -335L2327.5 0L2153.5 0L2153.5 -310Q2153.5 -334 2147.5 -352Q2141.5 -370 2130.5 -382Q2119.5 -394 2102 -400Q2084.5 -406 2065.5 -406Q2033.5 -406 2008 -391Q1982.5 -376 1968 -351Q1953.5 -326 1953.5 -293L1953.5 0L1780.5 0L1780.5 -310Q1780.5 -334 1774 -352Q1767.5 -370 1756.5 -382Q1745.5 -394 1728.5 -400Q1711.5 -406 1690.5 -406Q1659.5 -406 1633.5 -391Q1607.5 -376 1593.5 -351Q1579.5 -326 1579.5 -293L1579.5 0ZM2720.3 12Q2623.3 12 2553.3 -18Q2483.3 -48 2445.3 -110Q2407.3 -172 2407.3 -264Q2407.3 -357 2445.3 -418.5Q2483.3 -480 2553.3 -509.5Q2623.3 -539 2720.3 -539Q2817.3 -539 2887.3 -509.5Q2957.3 -480 2995.8 -418.5Q3034.3 -357 3034.3 -264Q3034.3 -172 2995.8 -110Q2957.3 -48 2887.3 -18Q2817.3 12 2720.3 12ZM2720.3 -110Q2766.3 -110 2796.8 -127Q2827.3 -144 2841.8 -174.5Q2856.3 -205 2856.3 -249L2856.3 -278Q2856.3 -322 2841.8 -353.5Q2827.3 -385 2796.8 -401Q2766.3 -417 2720.3 -417Q2675.3 -417 2644.8 -401Q2614.3 -385 2599.8 -353.5Q2585.3 -322 2585.3 -278L2585.3 -249Q2585.3 -205 2599.8 -174.5Q2614.3 -144 2644.8 -127Q2675.3 -110 2720.3 -110ZM3016.3 0L3241.3 -276L3035.3 -527L3248.3 -527L3360.3 -379L3365.3 -379L3478.3 -527L3678.3 -527L3470.3 -275L3691.3 0L3479.3 0L3351.3 -172L3346.3 -172L3218.3 0Z",
+      };
+
+      // =====================================================================================
+      // Geometry
+      // =====================================================================================
+
+      const f2 = (n) => +n.toFixed(2);
+      const pt = (p) => `${f2(p[0])} ${f2(p[1])}`;
+
+      // Polygon with per-vertex corner radii. Rounded corners must be convex.
+      function roundedPoly(pts, rs) {
+        const n = pts.length;
+        let d = "";
+        for (let i = 0; i < n; i++) {
+          const p0 = pts[(i + n - 1) % n];
+          const p1 = pts[i];
+          const p2 = pts[(i + 1) % n];
+          const cmd = i === 0 ? "M" : "L";
+          if (!rs[i]) {
+            d += `${cmd}${pt(p1)}`;
+            continue;
+          }
+          const a = [p0[0] - p1[0], p0[1] - p1[1]];
+          const b = [p2[0] - p1[0], p2[1] - p1[1]];
+          const la = Math.hypot(...a);
+          const lb = Math.hypot(...b);
+          const ua = [a[0] / la, a[1] / la];
+          const ub = [b[0] / lb, b[1] / lb];
+          const tanHalf = Math.tan(Math.acos(ua[0] * ub[0] + ua[1] * ub[1]) / 2);
+          const t = rs[i] / tanHalf;
+          const s = [p1[0] + ua[0] * t, p1[1] + ua[1] * t];
+          const e = [p1[0] + ub[0] * t, p1[1] + ub[1] * t];
+          d += `${cmd}${pt(s)}A${f2(rs[i])} ${f2(rs[i])} 0 0 1 ${pt(e)}`;
+        }
+        return d + "Z";
+      }
+
+      // Outward offset of a clockwise rounded polygon: offset every edge, intersect neighbours;
+      // convex corners keep their centre (radius grows by `o`), concave corners stay sharp.
+      function offsetPoly(pts, rs, o) {
+        const n = pts.length;
+        const lines = pts.map((p, i) => {
+          const q = pts[(i + 1) % n];
+          const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+          const nx = (q[1] - p[1]) / len;
+          const ny = -(q[0] - p[0]) / len;
+          return [
+            [p[0] + nx * o, p[1] + ny * o],
+            [q[0] + nx * o, q[1] + ny * o],
+          ];
+        });
+        const out = [];
+        const radii = [];
+        for (let i = 0; i < n; i++) {
+          const [a1, a2] = lines[(i + n - 1) % n];
+          const [b1, b2] = lines[i];
+          const d1 = [a2[0] - a1[0], a2[1] - a1[1]];
+          const d2 = [b2[0] - b1[0], b2[1] - b1[1]];
+          const den = d1[0] * d2[1] - d1[1] * d2[0];
+          const u = ((b1[0] - a1[0]) * d2[1] - (b1[1] - a1[1]) * d2[0]) / den;
+          out.push([a1[0] + d1[0] * u, a1[1] + d1[1] * u]);
+          radii.push(den > 0 ? rs[i] + o : 0);
+        }
+        return roundedPoly(out, radii);
+      }
+
+      // The mark. Horn side s, wall s/φ², knockout s/φ; the head is s tall and reaches 2s, its
+      // muzzle steps back s/φ so the bottom corner lands on the 45° diagonal from the horn's
+      // corner. The diagonal's two ends are rounded at s/φ³, every other corner at s/φ⁶.
+      const H = 132;
+      const S = H / (1 + 1 / PHI ** 2);
+
+      function geometry({ s = S, t, r, soft } = {}) {
+        t ??= s / PHI ** 2;
+        r ??= s / PHI ** 6;
+        soft ??= s / PHI ** 3;
+        const horn = [
+          [0, 0],
+          [s, 0],
+          [s, t],
+          [t, t],
+          [t, s],
+          [0, s],
+        ];
+        const head = [
+          [s, t],
+          [2 * s, t],
+          [s + t, s + t],
+          [t, s + t],
+          [t, s],
+          [s, s],
+        ];
+        const d =
+          roundedPoly(horn, [soft, r, 0, 0, 0, r]) + roundedPoly(head, [0, r, soft, r, 0, 0]);
+        const outline = [
+          [0, 0],
+          [s, 0],
+          [s, t],
+          [2 * s, t],
+          [s + t, s + t],
+          [t, s + t],
+          [t, s],
+          [0, s],
+        ];
+        const outlineRadii = [soft, r, 0, r, soft, r, 0, r];
+        return { s, t, k: s - t, w: 2 * s, h: s + t, d, horn, head, outline, outlineRadii };
+      }
+
+      // Visual centre of the mark (area centroid), used instead of the bounding box centre.
+      function centroid(g) {
+        const one = (pts) => {
+          let a = 0;
+          let cx = 0;
+          let cy = 0;
+          pts.forEach(([x0, y0], i) => {
+            const [x1, y1] = pts[(i + 1) % pts.length];
+            const cr = x0 * y1 - x1 * y0;
+            a += cr;
+            cx += (x0 + x1) * cr;
+            cy += (y0 + y1) * cr;
+          });
+          return { a: a / 2, x: cx / (3 * a), y: cy / (3 * a) };
+        };
+        const c1 = one(g.horn);
+        const c2 = one(g.head);
+        return {
+          x: (c1.x * c1.a + c2.x * c2.a) / (c1.a + c2.a),
+          y: (c1.y * c1.a + c2.y * c2.a) / (c1.a + c2.a),
+        };
+      }
+
+      // Lockup: wordmark x-height = 52.6% of the mark's height, baseline on the head's bottom,
+      // gap one wall (s/φ²) from the muzzle tip to the c.
+      function lockupLayout() {
+        const g = geometry();
+        const k = (g.h * 0.526) / WORDMARK.xHeight;
+        const wordX = g.w + g.t - WORDMARK.inkLeft * k;
+        return {
+          g,
+          k,
+          wordX,
+          width: g.w + g.t + (WORDMARK.inkRight - WORDMARK.inkLeft) * k,
+          top: 0,
+          bottom: g.h + WORDMARK.inkBottom * k,
+        };
+      }
+
+      // =====================================================================================
+      // Scenes: one description, rendered to SVG (vector files, previews) or canvas (PNG)
+      // =====================================================================================
+
+      const M = (k, x = 0, y = 0) => [k, 0, 0, k, x, y];
+      const path = (d, fill, tf = M(1)) => ({ t: "path", d, fill, tf });
+
+      function markItems(g, color, x, y, k) {
+        return [path(g.d, color, M(k, x, y))];
+      }
+
+      function lockupItems(L, markColor, wordColor, x, y, k) {
+        return [
+          path(L.g.d, markColor, M(k, x, y)),
+          path(WORDMARK.d, wordColor, M(L.k * k, x + L.wordX * k, y + L.g.h * k)),
+        ];
+      }
+
+      let uid = 0;
+      function toSVG(scene, { width, height, unit = "" } = {}) {
+        const defs = [];
+        const body = scene.items
+          .map((it) => {
+            if (it.t === "rect")
+              return `<rect x="${f2(it.x)}" y="${f2(it.y)}" width="${f2(it.w)}" height="${f2(it.h)}"${it.r ? ` rx="${f2(it.r)}"` : ""} fill="${it.fill}"/>`;
+            if (it.t === "circle")
+              return `<circle cx="${f2(it.cx)}" cy="${f2(it.cy)}" r="${f2(it.r)}" fill="${it.fill ?? "none"}"${it.stroke ? ` stroke="${it.stroke}" stroke-width="${f2(it.sw)}"` : ""}${it.id ? ` id="${it.id}"` : ""}/>`;
+            if (it.t === "line")
+              return `<line x1="${f2(it.x1)}" y1="${f2(it.y1)}" x2="${f2(it.x2)}" y2="${f2(it.y2)}" stroke="${it.stroke}" stroke-width="${f2(it.sw)}"${it.dash ? ` stroke-dasharray="${it.dash}"` : ""}/>`;
+            if (it.t === "glow") {
+              const id = `glow${++uid}`;
+              defs.push(
+                `<radialGradient id="${id}"><stop offset="0" stop-color="${it.color}" stop-opacity="${it.alpha}"/><stop offset="1" stop-color="${it.color}" stop-opacity="0"/></radialGradient>`,
+              );
+              return `<circle cx="${f2(it.cx)}" cy="${f2(it.cy)}" r="${f2(it.r)}" fill="url(#${id})"/>`;
+            }
+            if (it.t === "text")
+              return `<text x="${f2(it.x)}" y="${f2(it.y)}" font-family="${it.family ?? "Archivo"}" font-weight="${it.weight ?? 500}" font-size="${f2(it.size)}" fill="${it.fill}" text-anchor="${it.align ?? "start"}">${escapeXML(it.text)}</text>`;
+            const tf = it.tf.every((v, i) => v === M(1)[i])
+              ? ""
+              : ` transform="matrix(${it.tf.map(f2).join(" ")})"`;
+            const stroke = it.stroke ? ` stroke="${it.stroke}" stroke-width="${f2(it.sw)}"` : "";
+            return `<path${it.id ? ` id="${it.id}"` : ""} d="${it.d}" fill="${it.fill ?? "none"}"${stroke}${tf}/>`;
+          })
+          .join("");
+        const w = width ?? f2(scene.w);
+        const h = height ?? f2(scene.h);
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}${unit}" height="${h}${unit}" viewBox="0 0 ${f2(scene.w)} ${f2(scene.h)}">${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${body}</svg>`;
+      }
+
+      function toCanvas(scene, pxWidth = scene.w) {
+        const scale = pxWidth / scene.w;
+        const c = document.createElement("canvas");
+        c.width = Math.round(scene.w * scale);
+        c.height = Math.round(scene.h * scale);
+        const ctx = c.getContext("2d");
+        ctx.scale(scale, scale);
+        for (const it of scene.items) {
+          ctx.save();
+          if (it.t === "rect") {
+            ctx.fillStyle = it.fill;
+            ctx.beginPath();
+            ctx.roundRect(it.x, it.y, it.w, it.h, it.r ?? 0);
+            ctx.fill();
+          } else if (it.t === "circle") {
+            ctx.beginPath();
+            ctx.arc(it.cx, it.cy, it.r, 0, Math.PI * 2);
+            if (it.fill) {
+              ctx.fillStyle = it.fill;
+              ctx.fill();
+            }
+          } else if (it.t === "line") {
+            ctx.strokeStyle = it.stroke;
+            ctx.lineWidth = it.sw;
+            if (it.dash) ctx.setLineDash(it.dash.split(" ").map(Number));
+            ctx.beginPath();
+            ctx.moveTo(it.x1, it.y1);
+            ctx.lineTo(it.x2, it.y2);
+            ctx.stroke();
+          } else if (it.t === "glow") {
+            const grad = ctx.createRadialGradient(it.cx, it.cy, 0, it.cx, it.cy, it.r);
+            grad.addColorStop(0, hexA(it.color, it.alpha));
+            grad.addColorStop(1, hexA(it.color, 0));
+            ctx.fillStyle = grad;
+            ctx.fillRect(it.cx - it.r, it.cy - it.r, it.r * 2, it.r * 2);
+          } else if (it.t === "text") {
+            ctx.fillStyle = it.fill;
+            ctx.font = `${it.weight ?? 500} ${it.size}px "${it.family ?? "Archivo"}"`;
+            ctx.textAlign = it.align === "middle" ? "center" : (it.align ?? "start");
+            ctx.fillText(it.text, it.x, it.y);
+          } else {
+            ctx.transform(...it.tf);
+            const p = new Path2D(it.d);
+            if (it.fill && it.fill !== "none") {
+              ctx.fillStyle = it.fill;
+              ctx.fill(p);
+            }
+            if (it.stroke) {
+              ctx.strokeStyle = it.stroke;
+              ctx.lineWidth = it.sw;
+              ctx.stroke(p);
+            }
+          }
+          ctx.restore();
+        }
+        return c;
+      }
+
+      const escapeXML = (str) =>
+        str.replace(
+          /[&<>"]/g,
+          (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch],
+        );
+
+      function hexA(hex, a) {
+        const n = parseInt(hex.slice(1), 16);
+        return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+      }
+
+      // ---------- scene builders ----------
+
+      function markScene({ color = COLORS.emerald } = {}) {
+        const g = geometry();
+        return { w: g.w, h: g.h, items: markItems(g, color, 0, 0, 1) };
+      }
+
+      function lockupScene({ mark = COLORS.emerald, word = COLORS.white } = {}) {
+        const L = lockupLayout();
+        return { w: L.width, h: L.bottom, items: lockupItems(L, mark, word, 0, 0, 1) };
+      }
+
+      function wordmarkScene(color) {
+        return {
+          w: WORDMARK.inkRight - WORDMARK.inkLeft,
+          h: WORDMARK.inkBottom - WORDMARK.inkTop,
+          items: [path(WORDMARK.d, color, M(1, -WORDMARK.inkLeft, -WORDMARK.inkTop))],
+        };
+      }
+
+      // Square icon: the mark centred on its visual weight, `fill` of the width, on `bg`.
+      function iconScene({ size, bg, color = COLORS.emerald, fill = 1 / PHI, radius = 0 }) {
+        const g = geometry();
+        const k = (size * fill) / g.w;
+        const c = centroid(g);
+        const items = bg ? [{ t: "rect", x: 0, y: 0, w: size, h: size, r: radius, fill: bg }] : [];
+        items.push(...markItems(g, color, size / 2 - c.x * k, size / 2 - c.y * k, k));
+        return { w: size, h: size, items };
+      }
+
+      // Glyph for surfaces that already have a dark background: as large as possible, padded
+      // only so the canvas centre falls on the mark's visual centre. `square` pads the height up
+      // to the width, keeping the visual centre in the middle.
+      function glyphScene({ square = false } = {}) {
+        const g = geometry();
+        const c = centroid(g);
+        const w = 2 * Math.max(c.x, g.w - c.x);
+        const h = square ? w : 2 * Math.max(c.y, g.h - c.y);
+        return { w, h, items: markItems(g, COLORS.emerald, w / 2 - c.x, h / 2 - c.y, 1) };
+      }
+
+      // Pixel-fitted favicon: wall rounded to whole pixels, knockout takes the rest, so edges are
+      // sharp and the diagonal stays exact. At 8 / 13 / 21 these are Fibonacci numbers.
+      function fittedFaviconScene(size) {
+        const s = size / 2;
+        const g = geometry({
+          s,
+          t: Math.round(s / PHI ** 2),
+          r: 0,
+          soft: Math.round(s / PHI ** 3),
+        });
+        const y = Math.floor((size - g.h) / 2);
+        return { w: size, h: size, items: markItems(g, COLORS.emerald, 0, y, 1) };
+      }
+
+      function svgFaviconScene() {
+        const g = geometry();
+        return { w: g.w, h: g.w, items: markItems(g, COLORS.emerald, 0, (g.w - g.h) / 2, 1) };
+      }
+
+      // Banners: the lockup centred, the mark's construction lines carried across the whole
+      // canvas (its horizontals, verticals and the 45° diagonal), a faint emerald glow.
+      function bannerScene({ w, h, theme = "dark", markHeight, withTagline = false, offsetY = 0 }) {
+        const dark = theme === "dark";
+        const bg = dark ? COLORS.ink : COLORS.paper;
+        const fg = dark ? COLORS.white : COLORS.ink;
+        const L = lockupLayout();
+        const k = markHeight / L.g.h;
+        const tagSize = markHeight * 0.2;
+        const tagGap = markHeight * 0.62;
+        const text = withTagline ? tagline.trim() : "";
+        const blockH = markHeight + (text ? tagGap : 0);
+        const x0 = (w - L.width * k) / 2;
+        const y0 = (h - blockH) / 2 + offsetY;
+        const g = L.g;
+        const guide = hexA(fg, dark ? 0.09 : 0.1);
+        const sw = Math.max(1, h / 520);
+        const items = [{ t: "rect", x: 0, y: 0, w, h, fill: bg }];
+        items.push({
+          t: "glow",
+          cx: x0 + g.s * k,
+          cy: y0 + (g.h / 2) * k,
+          r: markHeight * 3.2,
+          color: COLORS.emerald,
+          alpha: dark ? 0.16 : 0.12,
+        });
+        for (const y of [0, g.t, g.s, g.h])
+          items.push({
+            t: "line",
+            x1: 0,
+            y1: y0 + y * k,
+            x2: w,
+            y2: y0 + y * k,
+            stroke: guide,
+            sw,
+          });
+        for (const x of [0, g.t, g.s, g.w])
+          items.push({
+            t: "line",
+            x1: x0 + x * k,
+            y1: 0,
+            x2: x0 + x * k,
+            y2: h,
+            stroke: guide,
+            sw,
+          });
+        items.push({ t: "line", x1: x0 - y0, y1: 0, x2: x0 + (h - y0), y2: h, stroke: guide, sw });
+        items.push(...lockupItems(L, COLORS.emerald, fg, x0, y0, k));
+        if (text)
+          items.push({
+            t: "text",
+            text,
+            x: w / 2,
+            y: y0 + markHeight + tagGap,
+            size: tagSize,
+            weight: 500,
+            fill: dark ? COLORS.mutedDark : COLORS.mutedLight,
+            align: "middle",
+          });
+        return { w, h, items };
+      }
+
+      // Pattern: marks chained along the 45° diagonal one wall apart (step D = s + 2t); rows are
+      // 4D/3 apart, which is close to the previewed spacing and makes the pattern tile exactly
+      // on a 4D/3 × 4D period.
+      function patternScene({ w, h, bg, color, k, tile = false }) {
+        const g = geometry();
+        const D = (g.s + 2 * g.t) * k;
+        const P = (4 * D) / 3;
+        if (tile) {
+          w = P;
+          h = 4 * D;
+        }
+        const items = [{ t: "rect", x: 0, y: 0, w, h, fill: bg }];
+        for (let i = -4; i * D < h + D; i++) {
+          for (let j = -Math.ceil((i * D) / P) - 2; i * D + j * P < w + P; j++) {
+            const x = i * D + j * P;
+            const y = i * D;
+            if (x + g.w * k < 0 || y + g.h * k < 0 || x > w || y > h) continue;
+            items.push(...markItems(g, color, x, y, k));
+          }
+        }
+        return { w, h, items };
+      }
+
+      function stickerScene() {
+        // Die-cut: border s/φ⁵ around the mark; the knockout stays on the sticker (a hole that
+        // small would tear), so the cut follows the outer silhouette only.
+        const g = geometry();
+        const o = g.s / PHI ** 5;
+        const pad = o + 2;
+        const cut = offsetPoly(
+          g.outline.map(([x, y]) => [x + pad, y + pad]),
+          g.outlineRadii,
+          o,
+        );
+        return {
+          w: g.w + 2 * pad,
+          h: g.h + 2 * pad,
+          items: [
+            path(cut, COLORS.white),
+            ...markItems(g, COLORS.emerald, pad, pad, 1),
+            {
+              t: "path",
+              id: "CutContour",
+              d: cut,
+              fill: "none",
+              stroke: "#FF00FF",
+              sw: 0.6,
+              tf: M(1),
+            },
+          ],
+        };
+      }
+
+      // Rectangular sticker with the lockup: ink, one knockout (the clear space) around it.
+      function lockupStickerScene() {
+        const L = lockupLayout();
+        const pad = L.g.k;
+        const w = L.width + pad * 2;
+        const h = L.bottom + pad * 2;
+        const outline = roundedPoly(
+          [
+            [0, 0],
+            [w, 0],
+            [w, h],
+            [0, h],
+          ],
+          Array(4).fill(pad / PHI),
+        );
+        return {
+          w,
+          h,
+          items: [
+            path(outline, COLORS.ink),
+            ...lockupItems(L, COLORS.emerald, COLORS.white, pad, pad, 1),
+            {
+              t: "path",
+              id: "CutContour",
+              d: outline,
+              fill: "none",
+              stroke: "#FF00FF",
+              sw: 0.6,
+              tf: M(1),
+            },
+          ],
+        };
+      }
+
+      function roundStickerScene() {
+        const scene = iconScene({ size: 100, color: COLORS.ink });
+        return {
+          w: 100,
+          h: 100,
+          items: [
+            { t: "circle", cx: 50, cy: 50, r: 50, fill: COLORS.emerald },
+            ...scene.items,
+            { t: "circle", id: "CutContour", cx: 50, cy: 50, r: 50, stroke: "#FF00FF", sw: 0.3 },
+          ],
+        };
+      }
+
+      function constructionScene() {
+        const g = geometry();
+        const pad = 40;
+        const k = 2;
+        const W = g.w * k + pad * 2;
+        const Hh = g.h * k + pad * 2;
+        const X = (v) => pad + v * k;
+        const guide = COLORS.emerald;
+        const line = (x1, y1, x2, y2, dash) => ({
+          t: "line",
+          x1,
+          y1,
+          x2,
+          y2,
+          stroke: "#FF4D8D",
+          sw: 1,
+          dash,
+        });
+        const label = (x, y, text, align = "middle") => ({
+          t: "text",
+          x,
+          y,
+          text,
+          size: 11,
+          fill: "#FF4D8D",
+          family: "ui-monospace, Menlo, monospace",
+          weight: 500,
+          align,
+        });
+        const items = [{ t: "rect", x: 0, y: 0, w: W, h: Hh, fill: COLORS.ink }];
+        items.push(...markItems(g, guide, pad, pad, k));
+        for (const y of [0, g.t, g.s, g.h]) items.push(line(8, X(y), W - 8, X(y), "4 4"));
+        for (const x of [0, g.t, g.s, g.w]) items.push(line(X(x), 8, X(x), Hh - 8, "4 4"));
+        items.push(line(X(0) - 30, X(0) - 30, X(g.h) + 30, X(g.h) + 30));
+        items.push(
+          label((X(0) + X(g.t)) / 2, 22, "s/φ²"),
+          label((X(g.t) + X(g.s)) / 2, 22, "s/φ"),
+          label((X(g.s) + X(g.w)) / 2, 22, "s"),
+        );
+        items.push(
+          label(W - 12, (X(g.t) + X(g.s)) / 2 + 4, "s", "end"),
+          label((X(g.t) + X(g.s + g.t)) / 2, Hh - 12, "bottom = s"),
+          label((X(g.s) + X(g.w)) / 2, X(g.t) - 8, "top = φs"),
+        );
+        return { w: W, h: Hh, items };
+      }
+
+      // =====================================================================================
+      // Exports
+      // =====================================================================================
+
+      const svgFile = (scene, opts) => () => toSVG(scene(), opts);
+      const pngFile = (scene, px) => () => canvasBytes(toCanvas(scene(), px));
+
+      async function canvasBytes(canvas, type = "image/png") {
+        const blob = await new Promise((r) => canvas.toBlob(r, type));
+        return new Uint8Array(await blob.arrayBuffer());
+      }
+
+      // ICO with PNG-compressed entries (supported everywhere favicons are).
+      async function icoBytes(sizes) {
+        const pngs = await Promise.all(
+          sizes.map(async (size) => ({
+            size,
+            bytes: await canvasBytes(toCanvas(fittedFaviconScene(size))),
+          })),
+        );
+        const head = new DataView(new ArrayBuffer(6 + 16 * pngs.length));
+        head.setUint16(2, 1, true);
+        head.setUint16(4, pngs.length, true);
+        let offset = 6 + 16 * pngs.length;
+        pngs.forEach((p, i) => {
+          const o = 6 + 16 * i;
+          head.setUint8(o, p.size);
+          head.setUint8(o + 1, p.size);
+          head.setUint16(o + 4, 1, true);
+          head.setUint16(o + 6, 32, true);
+          head.setUint32(o + 8, p.bytes.length, true);
+          head.setUint32(o + 12, offset, true);
+          offset += p.bytes.length;
+        });
+        return concat([new Uint8Array(head.buffer), ...pngs.map((p) => p.bytes)]);
+      }
+
+      function concat(parts) {
+        const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+        let o = 0;
+        for (const p of parts) {
+          out.set(p, o);
+          o += p.length;
+        }
+        return out;
+      }
+
+      const mm = (scene, widthMm) => {
+        const s = scene();
+        return { width: widthMm, height: f2((widthMm * s.h) / s.w), unit: "mm" };
+      };
+
+      const EXPORTS = [
+        {
+          dir: "logo",
+          title: "Logo",
+          blurb:
+            "Vector masters for screens. Use the lockup by default and the mark alone when space is tight or the name is already present.",
+          files: [
+            {
+              name: "camox-lockup-on-dark.svg",
+              note: "Emerald mark, white wordmark",
+              scene: () => lockupScene({ word: COLORS.white }),
+              bg: COLORS.ink,
+            },
+            {
+              name: "camox-lockup-on-light.svg",
+              note: "Emerald mark, ink wordmark",
+              scene: () => lockupScene({ word: COLORS.ink }),
+              bg: COLORS.paper,
+            },
+            {
+              name: "camox-lockup-white.svg",
+              note: "One colour, for dark or photographic backgrounds",
+              scene: () => lockupScene({ mark: COLORS.white, word: COLORS.white }),
+              bg: COLORS.ink,
+            },
+            {
+              name: "camox-lockup-black.svg",
+              note: "One colour, for light backgrounds",
+              scene: () => lockupScene({ mark: COLORS.ink, word: COLORS.ink }),
+              bg: COLORS.paper,
+            },
+            { name: "camox-mark.svg", note: "Emerald", scene: () => markScene() },
+            {
+              name: "camox-mark-white.svg",
+              note: "One colour",
+              scene: () => markScene({ color: COLORS.white }),
+              bg: COLORS.ink,
+            },
+            {
+              name: "camox-mark-black.svg",
+              note: "One colour",
+              scene: () => markScene({ color: COLORS.ink }),
+              bg: COLORS.paper,
+            },
+            {
+              name: "camox-wordmark-white.svg",
+              note: "Wordmark alone, outlined",
+              scene: () => wordmarkScene(COLORS.white),
+              bg: COLORS.ink,
+            },
+            {
+              name: "camox-wordmark-black.svg",
+              note: "Wordmark alone, outlined",
+              scene: () => wordmarkScene(COLORS.ink),
+              bg: COLORS.paper,
+            },
+            {
+              name: "camox-construction.svg",
+              note: "Construction diagram",
+              scene: constructionScene,
+            },
+            {
+              name: "png/camox-lockup-on-dark-1024.png",
+              note: "On dark",
+              scene: () => lockupScene({ word: COLORS.white }),
+              px: 1024,
+              bg: COLORS.ink,
+            },
+            {
+              name: "png/camox-lockup-on-dark-2048.png",
+              note: "On dark",
+              scene: () => lockupScene({ word: COLORS.white }),
+              px: 2048,
+              bg: COLORS.ink,
+            },
+            {
+              name: "png/camox-lockup-on-light-1024.png",
+              note: "On light",
+              scene: () => lockupScene({ word: COLORS.ink }),
+              px: 1024,
+              bg: COLORS.paper,
+            },
+            {
+              name: "png/camox-lockup-on-light-2048.png",
+              note: "On light",
+              scene: () => lockupScene({ word: COLORS.ink }),
+              px: 2048,
+              bg: COLORS.paper,
+            },
+            {
+              name: "png/camox-lockup-white-2048.png",
+              note: "One colour",
+              scene: () => lockupScene({ mark: COLORS.white, word: COLORS.white }),
+              px: 2048,
+              bg: COLORS.ink,
+            },
+            {
+              name: "png/camox-lockup-black-2048.png",
+              note: "One colour",
+              scene: () => lockupScene({ mark: COLORS.ink, word: COLORS.ink }),
+              px: 2048,
+              bg: COLORS.paper,
+            },
+            {
+              name: "png/camox-mark-512.png",
+              note: "Emerald, transparent",
+              scene: () => markScene(),
+              px: 512,
+            },
+            {
+              name: "png/camox-mark-2048.png",
+              note: "Emerald, transparent",
+              scene: () => markScene(),
+              px: 2048,
+            },
+            {
+              name: "png/camox-mark-white-512.png",
+              note: "White, transparent",
+              scene: () => markScene({ color: COLORS.white }),
+              px: 512,
+              bg: COLORS.ink,
+            },
+            {
+              name: "png/camox-mark-white-2048.png",
+              note: "White, transparent",
+              scene: () => markScene({ color: COLORS.white }),
+              px: 2048,
+              bg: COLORS.ink,
+            },
+            {
+              name: "png/camox-mark-black-512.png",
+              note: "Black, transparent",
+              scene: () => markScene({ color: COLORS.ink }),
+              px: 512,
+              bg: COLORS.paper,
+            },
+            {
+              name: "png/camox-mark-black-2048.png",
+              note: "Black, transparent",
+              scene: () => markScene({ color: COLORS.ink }),
+              px: 2048,
+              bg: COLORS.paper,
+            },
+          ],
+        },
+        {
+          dir: "icons",
+          title: "Icons",
+          blurb:
+            "Favicons are pixel-fitted (walls on whole pixels) at 16/32/48. App icons centre the mark on its visual weight, at 1/φ of the width; the maskable one stays inside the 80% safe zone. The glyph files are for surfaces that already have a dark background: the mark as large as it gets, padded only for optical centring.",
+          files: [
+            {
+              name: "glyph.svg",
+              note: "Optically centred, transparent, no other padding",
+              scene: () => glyphScene(),
+              bg: COLORS.ink,
+            },
+            {
+              name: "glyph-square.svg",
+              note: "Same, padded to a square",
+              scene: () => glyphScene({ square: true }),
+              bg: COLORS.ink,
+            },
+            {
+              name: "glyph-1024.png",
+              note: "Optically centred, transparent",
+              scene: () => glyphScene(),
+              px: 1024,
+              bg: COLORS.ink,
+            },
+            {
+              name: "glyph-square-1024.png",
+              note: "Square, transparent",
+              scene: () => glyphScene({ square: true }),
+              px: 1024,
+              bg: COLORS.ink,
+            },
+            { name: "favicon.svg", note: "Scalable favicon, transparent", scene: svgFaviconScene },
+            {
+              name: "favicon.ico",
+              note: "16, 32 and 48px, pixel-fitted",
+              ico: [16, 32, 48],
+              scene: () => fittedFaviconScene(48),
+              pixel: 48,
+            },
+            {
+              name: "favicon-16.png",
+              note: "Pixel-fitted",
+              scene: () => fittedFaviconScene(16),
+              px: 16,
+              pixel: 16,
+            },
+            {
+              name: "favicon-32.png",
+              note: "Pixel-fitted",
+              scene: () => fittedFaviconScene(32),
+              px: 32,
+              pixel: 32,
+            },
+            {
+              name: "favicon-48.png",
+              note: "Pixel-fitted",
+              scene: () => fittedFaviconScene(48),
+              px: 48,
+              pixel: 48,
+            },
+            {
+              name: "apple-touch-icon.png",
+              note: "iOS rounds the corners itself",
+              scene: () => iconScene({ size: 180, bg: COLORS.ink }),
+              px: 180,
+            },
+            {
+              name: "icon-192.png",
+              note: "PWA",
+              scene: () => iconScene({ size: 192, bg: COLORS.ink }),
+              px: 192,
+            },
+            {
+              name: "icon-512.png",
+              note: "PWA",
+              scene: () => iconScene({ size: 512, bg: COLORS.ink }),
+              px: 512,
+            },
+            {
+              name: "icon-maskable-512.png",
+              note: "PWA maskable, mark inside the safe zone",
+              scene: () => iconScene({ size: 512, bg: COLORS.ink, fill: 0.56 }),
+              px: 512,
+            },
+            {
+              name: "app-icon-1024.png",
+              note: "Store listings, square, no transparency",
+              scene: () => iconScene({ size: 1024, bg: COLORS.ink }),
+              px: 1024,
+            },
+          ],
+        },
+        {
+          dir: "readme",
+          title: "README banners",
+          blurb:
+            "For the GitHub README, swapped by colour scheme with a <picture> element. The mark's construction lines run across the banner.",
+          files: [
+            {
+              name: "banner-dark.png",
+              note: "Dark colour scheme",
+              scene: () => bannerScene({ w: 2400, h: 560, theme: "dark", markHeight: 170 }),
+              px: 2400,
+            },
+            {
+              name: "banner-light.png",
+              note: "Light colour scheme",
+              scene: () => bannerScene({ w: 2400, h: 560, theme: "light", markHeight: 170 }),
+              px: 2400,
+            },
+          ],
+        },
+        {
+          dir: "social",
+          title: "Social",
+          blurb:
+            "Profile pictures work in a circle crop. Covers keep the lockup centred, clear of where each platform overlays the avatar.",
+          files: [
+            {
+              name: "avatar-ink.png",
+              note: "Profile picture, circle-safe",
+              scene: () => iconScene({ size: 1024, bg: COLORS.ink }),
+              px: 1024,
+            },
+            {
+              name: "avatar-emerald.png",
+              note: "Profile picture, circle-safe",
+              scene: () => iconScene({ size: 1024, bg: COLORS.emerald, color: COLORS.ink }),
+              px: 1024,
+            },
+            {
+              name: "og-image.png",
+              note: "Link previews (Open Graph)",
+              scene: () => bannerScene({ w: 1200, h: 630, markHeight: 120, withTagline: true }),
+              px: 1200,
+            },
+            {
+              name: "github-social-preview.png",
+              note: "GitHub repository social preview",
+              scene: () => bannerScene({ w: 1280, h: 640, markHeight: 124, withTagline: true }),
+              px: 1280,
+            },
+            {
+              name: "x-header.png",
+              note: "X / Twitter header",
+              scene: () =>
+                bannerScene({ w: 1500, h: 500, markHeight: 108, withTagline: true, offsetY: -24 }),
+              px: 1500,
+            },
+            {
+              name: "linkedin-cover.png",
+              note: "LinkedIn page cover",
+              scene: () => bannerScene({ w: 1584, h: 396, markHeight: 92, withTagline: true }),
+              px: 1584,
+            },
+          ],
+        },
+        {
+          dir: "print",
+          title: "Print & merch",
+          blurb:
+            "Sizes are in millimetres; cut lines are a magenta CutContour path. Stickers keep the knockout on the sticker rather than cutting it out.",
+          files: [
+            {
+              name: "sticker-die-cut.svg",
+              note: "White border, cut line",
+              scene: stickerScene,
+              size: mm(stickerScene, 75),
+            },
+            {
+              name: "sticker-round.svg",
+              note: "Circle, cut line",
+              scene: roundStickerScene,
+              size: mm(roundStickerScene, 60),
+            },
+            {
+              name: "sticker-lockup.svg",
+              note: "Lockup on ink, rounded rectangle, cut line",
+              scene: lockupStickerScene,
+              size: mm(lockupStickerScene, 90),
+            },
+            {
+              name: "tshirt-chest.svg",
+              note: "One ink, wearer's left chest",
+              scene: () => markScene(),
+              size: mm(() => markScene(), 75),
+              bg: "#151517",
+            },
+            {
+              name: "tshirt-back.svg",
+              note: "Emerald + white, upper back",
+              scene: () => lockupScene(),
+              size: mm(() => lockupScene(), 280),
+              bg: "#151517",
+            },
+          ],
+        },
+        {
+          dir: "pattern",
+          title: "Pattern",
+          blurb:
+            "Marks chained along the 45° diagonal. The SVG tiles repeat seamlessly (use them as a CSS background or a fill); the wallpapers are ready-made.",
+          files: [
+            {
+              name: "pattern-tile-ink.svg",
+              note: "Seamless tile, tone on ink",
+              scene: () => patternScene({ bg: COLORS.ink, color: "#0F2E22", k: 0.5, tile: true }),
+            },
+            {
+              name: "pattern-tile-emerald.svg",
+              note: "Seamless tile, tone on emerald",
+              scene: () =>
+                patternScene({ bg: COLORS.emerald, color: "#0AA36D", k: 0.5, tile: true }),
+            },
+            {
+              name: "wallpaper-ink-2560x1440.png",
+              note: "Desktop / slide background",
+              scene: () =>
+                patternScene({ w: 2560, h: 1440, bg: COLORS.ink, color: "#0F2E22", k: 0.9 }),
+              px: 2560,
+            },
+            {
+              name: "wallpaper-emerald-2560x1440.png",
+              note: "Desktop / slide background",
+              scene: () =>
+                patternScene({ w: 2560, h: 1440, bg: COLORS.emerald, color: "#0AA36D", k: 0.9 }),
+              px: 2560,
+            },
+          ],
+        },
+      ];
+      const ALL_FILES = EXPORTS.flatMap((grp) =>
+        grp.files.map((file) => ({ ...file, path: `${grp.dir}/${file.name}` })),
+      );
+
+      // Folders the exports own inside art/; `node art/export.mjs` replaces them entirely.
+      const MANAGED = EXPORTS.map((grp) => grp.dir);
+
+      async function build(file) {
+        if (file.ico) return icoBytes(file.ico);
+        if (file.name.endsWith(".svg")) {
+          const svg = toSVG(file.scene(), file.size ?? {});
+          return new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8"?>\n${svg}\n`);
+        }
+        return canvasBytes(toCanvas(file.scene(), file.px));
+      }
+
+      async function buildAll(onProgress) {
+        await Promise.all(
+          ["500 40px Archivo", "800 40px Archivo"].map((f) => document.fonts.load(f)),
+        );
+        const out = [];
+        for (const [i, file] of ALL_FILES.entries()) {
+          out.push({ path: file.path, bytes: await build(file) });
+          onProgress?.(i + 1, ALL_FILES.length);
+        }
+        return out;
+      }
+
+      // ---------- zip (stored, no compression) ----------
+      const CRC_TABLE = (() => {
+        const t = new Uint32Array(256);
+        for (let n = 0; n < 256; n++) {
+          let c = n;
+          for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          t[n] = c >>> 0;
+        }
+        return t;
+      })();
+      function crc32(bytes) {
+        let c = 0xffffffff;
+        for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+        return (c ^ 0xffffffff) >>> 0;
+      }
+      function zipBlob(files) {
+        const enc = new TextEncoder();
+        const local = [];
+        const central = [];
+        let offset = 0;
+        for (const f of files) {
+          const name = enc.encode(f.path);
+          const crc = crc32(f.bytes);
+          const size = f.bytes.length;
+          const lh = new DataView(new ArrayBuffer(30));
+          lh.setUint32(0, 0x04034b50, true);
+          lh.setUint16(4, 20, true);
+          lh.setUint16(6, 0x0800, true);
+          lh.setUint16(12, 0x21, true);
+          lh.setUint32(14, crc, true);
+          lh.setUint32(18, size, true);
+          lh.setUint32(22, size, true);
+          lh.setUint16(26, name.length, true);
+          local.push(new Uint8Array(lh.buffer), name, f.bytes);
+          const ch = new DataView(new ArrayBuffer(46));
+          ch.setUint32(0, 0x02014b50, true);
+          ch.setUint16(4, 20, true);
+          ch.setUint16(6, 20, true);
+          ch.setUint16(8, 0x0800, true);
+          ch.setUint16(14, 0x21, true);
+          ch.setUint32(16, crc, true);
+          ch.setUint32(20, size, true);
+          ch.setUint32(24, size, true);
+          ch.setUint16(28, name.length, true);
+          ch.setUint32(42, offset, true);
+          central.push(new Uint8Array(ch.buffer), name);
+          offset += 30 + name.length + size;
+        }
+        const cdSize = central.reduce((n, p) => n + p.length, 0);
+        const end = new DataView(new ArrayBuffer(22));
+        end.setUint32(0, 0x06054b50, true);
+        end.setUint16(8, files.length, true);
+        end.setUint16(10, files.length, true);
+        end.setUint32(12, cdSize, true);
+        end.setUint32(16, offset, true);
+        return new Blob([...local, ...central, new Uint8Array(end.buffer)], {
+          type: "application/zip",
+        });
+      }
+
+      // =====================================================================================
+      // Page
+      // =====================================================================================
+
+      const $ = (id) => document.getElementById(id);
+      const preview = (scene, opts) => toSVG(scene, opts);
+
+      function thumb(file) {
+        if (file.pixel)
+          return `<canvas data-pixel="${file.path}" width="${file.pixel}" height="${file.pixel}" style="width:${Math.min(96, file.pixel * 4)}px"></canvas>`;
+        return preview(file.scene());
+      }
+
+      function dimensions(file) {
+        if (file.size) return `${file.size.width} × ${file.size.height} mm`;
+        if (file.ico) return file.ico.map((s) => `${s}`).join(", ") + " px";
+        if (file.px) {
+          const s = file.scene();
+          return `${file.px} × ${Math.round((file.px * s.h) / s.w)} px`;
+        }
+        return "vector";
+      }
+
+      function render() {
+        const L = lockupLayout();
+        const g = L.g;
+        const clear = g.k; // clear space: one knockout (s/φ) on every side
+        const clearScene = () => {
+          const pad = clear * 1.6;
+          const sc = lockupScene();
+          const items = [
+            { t: "rect", x: 0, y: 0, w: sc.w + pad * 2, h: sc.h + pad * 2, fill: COLORS.ink },
+            {
+              t: "rect",
+              x: pad - clear,
+              y: pad - clear,
+              w: sc.w + clear * 2,
+              h: sc.h + clear * 2,
+              fill: hexA(COLORS.emerald, 0.08),
+            },
+            ...sc.items.map((it) => ({
+              ...it,
+              tf: [it.tf[0], 0, 0, it.tf[3], it.tf[4] + pad, it.tf[5] + pad],
+            })),
+          ];
+          const knock = (x, y) => ({
+            t: "rect",
+            x,
+            y,
+            w: clear,
+            h: clear,
+            fill: hexA("#FF4D8D", 0.35),
+          });
+          items.push(
+            knock(pad - clear, pad),
+            knock(pad + sc.w, pad),
+            knock(pad, pad - clear),
+            knock(pad, pad + sc.h),
+          );
+          return { w: sc.w + pad * 2, h: sc.h + pad * 2, items };
+        };
+        const dont = (label, scene, style = "") =>
+          `<div class="panel dont"><div class="canvas" style="${style}">${scene}</div><div class="caption">${label}</div></div>`;
+        const lockSvg = toSVG(lockupScene());
+        const markOnly = (extra = "", fill = COLORS.emerald) => {
+          const gg = geometry();
+          return `<svg viewBox="-20 -20 ${f2(gg.w + 40)} ${f2(gg.h + 40)}" width="150"><g ${extra}><path d="${gg.d}" fill="${fill}"/></g></svg>`;
+        };
+
+        $("main").innerHTML = `
+          <section id="logo">
+            <h2>Logo</h2>
+            <p>A chamois head looking right: the horn is the top-left square, the head the slanted block below it. Where they overlap, the knockout is a block, and a selection on the canvas. The wordmark is Archivo ExtraBold at 112% width, set at −0.02em and outlined.</p>
+            <div class="duo">
+              <div class="panel"><div class="canvas" style="background:${COLORS.ink}">${toSVG(lockupScene({ word: COLORS.white }), { width: 520, height: f2((520 * L.bottom) / L.width) })}</div><div class="caption">On dark</div></div>
+              <div class="panel"><div class="canvas" style="background:${COLORS.paper}">${toSVG(lockupScene({ word: COLORS.ink }), { width: 520, height: f2((520 * L.bottom) / L.width) })}</div><div class="caption">On light</div></div>
+            </div>
+          </section>
+
+          <section id="construction">
+            <h2>Construction</h2>
+            <p>Every length comes from one horn side <i>s</i> and powers of φ. That's why the corner of the horn, both corners of the knockout and the bottom corner of the muzzle sit on one 45° line.</p>
+            <div class="duo">
+              <div class="panel"><div class="canvas" style="background:${COLORS.ink}">${toSVG(constructionScene())}</div></div>
+              <div class="rules" style="margin:0;grid-template-columns:1fr 1fr;align-content:start">
+                <div class="rule"><b>Horn</b><span>A square of side s.</span></div>
+                <div class="rule"><b>Knockout</b><span>s/φ, so the walls are s/φ². Wall : knockout = knockout : horn.</span></div>
+                <div class="rule"><b>Head</b><span>s tall, top edge φs, bottom edge s: a golden trapezoid (φ + 1/φ² = 2, so it reaches exactly 2s).</span></div>
+                <div class="rule"><b>Diagonal</b><span>The muzzle's bottom corner is at (s + s/φ², s + s/φ²), on the 45° line from the horn's corner.</span></div>
+                <div class="rule"><b>Corners</b><span>The diagonal's two ends at s/φ³ (the soft, chamois-like corners); every other outer corner at s/φ⁶. The knockout stays sharp.</span></div>
+                <div class="rule"><b>Lockup</b><span>Gap to the wordmark = one wall (s/φ²). Wordmark x-height = 52.6% of the mark, baseline on the head's bottom.</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="usage">
+            <h2>Clear space & minimum size</h2>
+            <p>Keep one knockout (s/φ) of empty space around the mark or lockup. Below the sizes listed here, switch to the version made for it.</p>
+            <div class="duo">
+              <div class="panel"><div class="canvas">${toSVG(clearScene(), { width: 560, height: f2((560 * clearScene().h) / clearScene().w) })}</div><div class="caption">Pink squares: one knockout, the minimum clear space.</div></div>
+              <div class="rules" style="margin:0;grid-template-columns:1fr 1fr;align-content:start">
+                <div class="rule"><b>Lockup on screen</b><span>Mark at least 16px tall (wordmark x-height ≈ 8px). Below that, use the mark alone.</span></div>
+                <div class="rule"><b>Mark on screen</b><span>Use the pixel-fitted favicons at 16, 32 and 48px; the vector mark above that.</span></div>
+                <div class="rule"><b>Print</b><span>Mark at least 12mm wide.</span></div>
+                <div class="rule"><b>Embroidery</b><span>At least 40mm wide. Ask the digitiser to keep the two points where horn and head touch crisp. The s/φ⁶ corners come out sharp; the soft diagonal ends survive.</span></div>
+              </div>
+            </div>
+            <h3 style="margin:28px 0 10px">Don't</h3>
+            <div class="donts">
+              ${dont("Stretch or squash it", markOnly('transform="scale(1.35 0.8)"'))}
+              ${dont("Rotate it", markOnly('transform="rotate(-14 95 66)"'))}
+              ${dont(
+                "Fill the knockout",
+                (() => {
+                  const gg = geometry();
+                  return `<svg viewBox="-20 -20 ${f2(gg.w + 40)} ${f2(gg.h + 40)}" width="150"><rect x="${f2(gg.t)}" y="${f2(gg.t)}" width="${f2(gg.k)}" height="${f2(gg.k)}" fill="#7c5cff"/><path d="${gg.d}" fill="${COLORS.emerald}"/></svg>`;
+                })(),
+              )}
+              ${dont(
+                "Outline it",
+                (() => {
+                  const gg = geometry();
+                  return `<svg viewBox="-20 -20 ${f2(gg.w + 40)} ${f2(gg.h + 40)}" width="150"><path d="${gg.d}" fill="none" stroke="${COLORS.emerald}" stroke-width="4"/></svg>`;
+                })(),
+              )}
+              ${dont("Retype the wordmark", `<div style="display:flex;align-items:center;gap:10px">${markOnly().replace('width="150"', 'width="70"')}<span style="font:700 30px Georgia,serif">camox</span></div>`)}
+            </div>
+          </section>
+
+          <section id="colour">
+            <h2>Colour</h2>
+            <p>The mark is one colour by construction, and the knockout is always transparent: it shows whatever is underneath. No Pantone or CMYK reference is set yet; match the emerald from a printer's proof.</p>
+            <div class="swatches">
+              ${[
+                ["Emerald", COLORS.emerald, "rgb(0 188 125)", "The mark"],
+                ["Ink", COLORS.ink, "rgb(10 10 10)", "Dark backgrounds, wordmark on light"],
+                ["Paper", COLORS.paper, "rgb(247 247 245)", "Light backgrounds"],
+                ["White", COLORS.white, "rgb(255 255 255)", "Wordmark on dark, one-colour mark"],
+              ]
+                .map(
+                  ([name, hex, rgb, use]) =>
+                    `<div class="swatch"><div class="chip" style="background:${hex}"></div><div><b>${name}</b><span class="mono">${hex} · ${rgb}</span><span style="color:var(--muted);font-size:12px">${use}</span></div></div>`,
+                )
+                .join("")}
+            </div>
+          </section>
+
+          <section id="exports">
+            <h2>Exports</h2>
+            <p>Everything below is generated from this page. To refresh the repo's copies, run <code>node art/export.mjs</code> (add <code>--tagline "…"</code> to change the banners' tagline); it replaces the folders listed here. The tagline field in the header updates the previews, single downloads and the .zip.</p>
+            ${EXPORTS.map(
+              (grp) =>
+                `<div class="group"><h3>${grp.dir}/ · ${grp.title}</h3><p>${grp.blurb}</p><div class="files">${grp.files
+                  .map((file) => {
+                    const p = `${grp.dir}/${file.name}`;
+                    return `<div class="file"><div class="thumb" style="${file.bg ? `background:${file.bg}` : ""}">${thumb({ ...file, path: p })}</div><div class="info"><span class="mono">${file.name}</span><span>${file.note} · ${dimensions(file)}</span><button class="btn" data-download="${p}">Download</button></div></div>`;
+                  })
+                  .join("")}</div></div>`,
+            ).join("")}
+          </section>`;
+
+        document.querySelectorAll("canvas[data-pixel]").forEach((c) => {
+          const file = ALL_FILES.find((f) => f.path === c.dataset.pixel);
+          c.getContext("2d").drawImage(toCanvas(file.scene()), 0, 0);
+        });
+      }
+
+      function setStatus(msg) {
+        const t = $("toast");
+        t.textContent = msg;
+        t.classList.add("show");
+        clearTimeout(setStatus.timer);
+        setStatus.timer = setTimeout(() => t.classList.remove("show"), 2200);
+      }
+
+      function download(name, blob) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      }
+
+      $("main").addEventListener("click", async (e) => {
+        const b = e.target.closest("[data-download]");
+        if (!b) return;
+        const file = ALL_FILES.find((f) => f.path === b.dataset.download);
+        download(file.name.split("/").at(-1), new Blob([await build(file)]));
+      });
+
+      $("zip").addEventListener("click", async (e) => {
+        e.target.disabled = true;
+        try {
+          const files = await buildAll((i, n) => setStatus(`Generating ${i}/${n}…`));
+          download("camox-art.zip", zipBlob(files));
+          setStatus(`Zipped ${files.length} files. Unzip into art/.`);
+        } finally {
+          e.target.disabled = false;
+        }
+      });
+
+      $("theme").addEventListener("click", () => {
+        document.body.classList.toggle("light");
+        $("theme").textContent = document.body.classList.contains("light")
+          ? "Dark page"
+          : "Light page";
+      });
+
+      $("tagline").value = tagline;
+      let taglineTimer;
+      $("tagline").addEventListener("input", (e) => {
+        tagline = e.target.value;
+        localStorage.setItem("camox-brand-tagline", tagline);
+        clearTimeout(taglineTimer);
+        taglineTimer = setTimeout(render, 150);
+      });
+
+      render();
+    </script>
+  </body>
+</html>
