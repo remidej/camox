@@ -44,7 +44,7 @@ function NavbarContent() {
       <div className="flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center">
           <navbar.Image name="logo">
-            {(props) => <img {...props} className="h-8 w-auto" />}
+            {(props) => <img {...props} className="h-6 w-auto" />}
           </navbar.Image>
         </Link>
 
