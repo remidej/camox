@@ -135,7 +135,7 @@ The text field of a collection that names its records to editors.
 _Avoid_: Title, display name
 
 **Reference**:
-A field that selects a collection record by identity instead of copying its content.
+A field that selects a collection record by identity instead of copying its content. A required reference can't be published empty.
 _Avoid_: Relation, link, foreign key
 
 **Reference List**:
@@ -147,12 +147,16 @@ Where a block or reference occurs; placements keep their own identity and order 
 _Avoid_: Usage, instance, occurrence
 
 **File**:
-An uploaded image, video, or document available to the website's content. Like any content, files are added, changed, and removed through drafts. The studio calls files "assets".
+An uploaded image, video, or document available to the website's content. Like any content, files are added, changed, and removed through drafts. A required image or file field can't be published empty. The studio calls files "assets".
 _Avoid_: Media, upload
 
 **Summary**:
-A short AI-generated description of a block's or repeatable item's content, used to identify it to editors and agents.
+A generated value: a short description of a block's or repeatable item's content, used to identify it to editors and agents.
 _Avoid_: Description, label, excerpt
+
+**Generated Value**:
+A value AI derives from content (a summary, a page's SEO, or a file's alt text and filename), kept beside the content rather than in it, so producing one never changes a draft. A value written by hand takes its place.
+_Avoid_: AI field, AI metadata, derived content
 
 **Markdown Representation**:
 The text a block, or a layout rendering loaded data, declares to stand for its content when read by agents.
@@ -173,12 +177,16 @@ A developer's personal draft in a project, whose definitions come from their loc
 _Avoid_: Development environment, code draft, local draft
 
 **Publish**:
-Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts, and the Live content it replaces is not kept.
+Applying all of a draft's changes to Live at once. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, push, merge
 
 **Discard**:
 Deleting a draft without publishing it.
 _Avoid_: Revert, undo, discard changes
+
+**Blocker**:
+A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path or an empty required reference.
+_Avoid_: Error, validation failure
 
 **Conflict**:
 Content that a draft changes and that Live also changed or deleted after the draft first changed it.
@@ -215,7 +223,7 @@ The hosted interface for managing organizations, projects, and members, outside 
 _Avoid_: Admin, console
 
 **Comment**:
-Feedback left by a user on a page, optionally anchored to a block, repeatable item, or field.
+Feedback left by a user on a page, optionally anchored to a block, repeatable item, or field, on Live or in a draft. A comment made in a draft is seen only there and ends with it; a comment made on Live is seen in every draft. A comment is deleted with what it's anchored to.
 _Avoid_: Note, annotation, feedback
 
 **Editor**:

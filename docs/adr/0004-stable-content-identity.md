@@ -13,6 +13,6 @@ Drafts (ADR 0003) need every piece of content to keep the same identity in Live 
 - An entity's identity is not its storage row's key: how a draft's version of an entity is stored and keyed is left to how drafts store their changes.
 - Ids inside content keep their shapes and hold entity ids: `_fileId`, `camox:page:<id>` text links, `{ type: "page", pageId }` link fields, `_itemId` patch handles, comment targets, and references to collection records. Anything pointing at a definition uses its name, so a page names its layout and a collection record names its collection.
 - A synced block's shared content is one entity identified by its definition's name, and its repeatable items have ordinary ids shared by every placement. Each draft can hold its own version of that content. `sync_key`, which only matched copied items across placements, goes away.
-- Ids are never reused, and undoing a deletion brings an entity back with its original id, so links and comments to it work again.
+- Ids are never reused, and undoing a deletion brings an entity back with its original id, so links to it work again.
 - The server mints ids, but create endpoints may accept a client-minted UUIDv7, for optimistic inserts. The API only accepts UUIDv7.
-- Migrating `apps/landing` gives its content fresh UUIDv7s, including its existing UUIDv4s, and rewrites every id stored in content with the remapping code push and pull use today. That code is deleted afterwards.
+- Migrating `apps/landing` gives its content fresh UUIDv7s, including its existing UUIDv4s, and rewrites every id stored in content. See [Drafts start on a fresh database](0013-drafts-start-on-a-fresh-database.md).

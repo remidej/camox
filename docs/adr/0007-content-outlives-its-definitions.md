@@ -12,7 +12,7 @@ A release changes definitions under content that was shaped for the old ones, in
 
 - Conforming happens in one place in the API, on every read that returns content, including Markdown and AI tools. It drops unknown keys, fills missing fields with their defaults, replaces values of the wrong kind with the default, and leaves out repeatable items under a removed repeater. Everything after it gets content typed exactly by its definition, with no checks for stale shapes. Collection fields without a default fall back to an empty value of their kind.
 - Writes keep merging patches into stored content as is, so stale keys stay stored, invisible. A definition that comes back finds its content again.
-- Publishing doesn't check content against definitions, for blocks or collection records. Writes still validate the incoming patch.
+- Writes validate the incoming patch. Publishing blocks only on values of the wrong kind in content the draft changed, the one mismatch that would visibly replace an editor's work with a default; unknown keys and missing fields pass (ADR 0009).
 - Content whose definition is gone stays stored and comes back with its definition:
   - Blocks of a removed block definition render nothing. In edit mode the studio shows a placeholder that can only be deleted, in a draft.
   - Pages of a removed layout, or of a layout that is no longer curated, are not served. The studio lists them as needing a layout, to be moved or deleted in a draft.
