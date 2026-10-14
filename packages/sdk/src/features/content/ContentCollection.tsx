@@ -21,6 +21,7 @@ import { MultipleAssetFieldEditor } from "@/features/preview/components/Multiple
 import { PageStatusBadge } from "@/features/preview/components/PageStatusBadge";
 import { ReferenceFieldEditor } from "@/features/preview/components/ReferenceFieldEditor";
 import { ReferenceListFieldEditor } from "@/features/preview/components/ReferenceListFieldEditor";
+import { enabled as draftsPrototypeEnabled } from "@/features/studio/components/drafts-prototype/index";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
   collectionQueries,
@@ -116,11 +117,14 @@ export const ContentCollection = ({
                   <span className="truncate">{record.label || "Untitled item"}</span>
                   <PageStatusBadge size="sm" status={record.status} />
                 </button>
-                <PublishCollectionItemButton
-                  projectSlug={projectSlug}
-                  collectionId={collection.collectionId}
-                  record={record}
-                />
+                {/* PROTOTYPE (#203): per-item publishing is replaced by drafts. */}
+                {!draftsPrototypeEnabled && (
+                  <PublishCollectionItemButton
+                    projectSlug={projectSlug}
+                    collectionId={collection.collectionId}
+                    record={record}
+                  />
+                )}
                 <DeleteCollectionItemButton
                   projectSlug={projectSlug}
                   collectionId={collection.collectionId}

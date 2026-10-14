@@ -13,6 +13,7 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
 import { studioStore } from "../studioStore";
+import * as DraftsPrototype from "./drafts-prototype/index";
 import { EnvironmentMenu } from "./EnvironmentMenu";
 import { ProjectMenu } from "./ProjectMenu";
 import { SiteStatusIndicator } from "./SiteStatusIndicator";
@@ -65,7 +66,7 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
       <div className="flex flex-row gap-2">
         <div className="flew-row flex gap-1">
           <ProjectMenu />
-          <EnvironmentMenu />
+          {DraftsPrototype.enabled ? <DraftsPrototype.DraftsLeft /> : <EnvironmentMenu />}
         </div>
         <ul className="flex items-center gap-1">
           {getNavbarLinks().map((link, index) => {
@@ -99,7 +100,11 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
         </ul>
       </div>
       <div className="flex items-center gap-2">
-        <SiteStatusIndicator isPreview={isPreview} />
+        {DraftsPrototype.enabled ? (
+          <DraftsPrototype.DraftsRight />
+        ) : (
+          <SiteStatusIndicator isPreview={isPreview} />
+        )}
         <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
           <SearchIcon className="text-muted-foreground size-4" />
           <span className="text-muted-foreground">Quick find</span>
@@ -109,6 +114,12 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
         </Button>
         <UserButton />
       </div>
+      {DraftsPrototype.enabled && (
+        <>
+          <DraftsPrototype.DraftsBanner />
+          <DraftsPrototype.PrototypeSwitcher />
+        </>
+      )}
     </nav>
   );
 };

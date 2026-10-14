@@ -22,6 +22,7 @@ import { useSelector } from "@xstate/store-react";
 import { MoreHorizontal } from "lucide-react";
 import * as React from "react";
 
+import { enabled as draftsPrototypeEnabled } from "@/features/studio/components/drafts-prototype/index";
 import { getApiClient } from "@/lib/api-client";
 
 import { type Action, actionsStore } from "../../provider/actionsStore";
@@ -48,6 +49,8 @@ function targetIdentity(target: PublicationTarget | null) {
 }
 
 export function PublicationRow({ target }: { target: PublicationTarget | null }) {
+  // PROTOTYPE (#203): per-item publishing is replaced by drafts.
+  if (draftsPrototypeEnabled) return null;
   return <PublicationControls key={targetIdentity(target)} target={target} />;
 }
 

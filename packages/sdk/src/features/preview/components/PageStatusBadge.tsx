@@ -2,6 +2,7 @@ import { Badge } from "@camox/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import * as React from "react";
 
+import { enabled as draftsPrototypeEnabled } from "@/features/studio/components/drafts-prototype/index";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------------------------------
@@ -54,6 +55,8 @@ const PageStatusBadge = ({
   size = "default",
   className,
 }: PageStatusBadgeProps) => {
+  // PROTOTYPE (#203): per-item status badges are replaced by drafts.
+  if (draftsPrototypeEnabled) return null;
   const { className: statusClassName, label } = statusStyles[status];
   const badge = (
     <Badge size={size} className={cn(statusClassName, className)}>
