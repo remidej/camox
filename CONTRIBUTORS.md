@@ -143,11 +143,12 @@ hand-written section at the end with the reference views and guard triggers,
 which Drizzle can't express. After changing the schema, from `apps/api`:
 
 ```sh
-sed -n '/^-- Hand-written:/,$p' migrations/0000_baseline.sql > /tmp/hand-written.sql
-test -s /tmp/hand-written.sql && rm -rf migrations
-pnpm db:generate --name baseline
-printf '\n--> statement-breakpoint\n' >> migrations/0000_baseline.sql
-cat /tmp/hand-written.sql >> migrations/0000_baseline.sql
+sed -n '/^-- Hand-written:/,$p' migrations/0000_baseline.sql > /tmp/hand-written.sql &&
+  test -s /tmp/hand-written.sql &&
+  rm -rf migrations &&
+  pnpm db:generate --name baseline &&
+  printf '\n--> statement-breakpoint\n' >> migrations/0000_baseline.sql &&
+  cat /tmp/hand-written.sql >> migrations/0000_baseline.sql
 ```
 
 If the change touches a table or column the views or triggers read, edit the
