@@ -15,7 +15,6 @@ import { NavigationProvider, useLocation, useNavigate } from "../navigation/navi
 import { PageStatusBadge } from "../preview/components/PageStatusBadge";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import { PageRecordContext } from "../preview/pageRecord";
-import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
 import { getPageRecord } from "../preview/publication";
@@ -24,7 +23,7 @@ import { runtimePath } from "../runtime/navigationTarget";
 import { blockCatalogPath, matchBlockCatalogPath, STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
-import { CANVAS_HEADER_HEIGHT, type CanvasInsets } from "./canvasCamera";
+import { CANVAS_HEADER_HEIGHT } from "./canvasCamera";
 import { CanvasPageCommentIndicators } from "./CanvasCommentIndicators";
 import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
@@ -57,11 +56,6 @@ import { useCanvasCamera } from "./useCanvasCamera";
 import { useCanvasNearness } from "./useCanvasNearness";
 
 type CanvasViewport = { width: number; height: number };
-
-/** The sidebars overlay the Canvas at each side while an item is selected. */
-const CANVAS_SIDEBAR_INSETS: CanvasInsets = { left: CMS_SIDEBAR_WIDTH, right: CMS_SIDEBAR_WIDTH };
-/** How the sidebars, and Canvas overlays making room for them, slide in and out. */
-const SIDEBAR_SLIDE = "duration-300 ease-out motion-reduce:transition-none";
 
 function usePreparationFailure(error: Error | null, selected = true) {
   const preparation = React.useContext(PreviewPreparationContext);
@@ -237,7 +231,17 @@ type CanvasPageStatus = Pick<
   "status" | "modifiedReason"
 >;
 
+/** What the Canvas offers to the sidebars around it. */
+type CanvasWorkspaceHandle = {
+  /**
+   * Shows an item: selects it as from outside the Canvas, so the camera flies to
+   * it. A Page without a path to select, or the selected item, only gets the flight.
+   */
+  showItem: (key: string) => void;
+};
+
 function CanvasWorkspace({
+  ref,
   projectId,
   pages,
   blocks,
@@ -245,7 +249,6 @@ function CanvasWorkspace({
   selectedPage,
   selectedBlock,
   intendedItemKey,
-  leftSidebarOpen,
   runtimeBasePath,
   viewport,
   onActivate,
@@ -259,11 +262,11 @@ function CanvasWorkspace({
   selectedBlock: Block | undefined;
   /** The key of the item the Canvas is selecting, even before its location commits. */
   intendedItemKey: string | undefined;
-  leftSidebarOpen: boolean;
   runtimeBasePath: string;
   viewport: CanvasViewport;
   onActivate: (pathname: string, owner: EditingOwner) => void;
   onSelectionIntent: (pathname: string) => void;
+  ref?: React.Ref<CanvasWorkspaceHandle>;
 }) {
   const { apiUrl, projectSlug, environmentName } = useAuthContext();
   const queryClient = useQueryClient();
@@ -349,7 +352,6 @@ function CanvasWorkspace({
       },
       selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
       onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
-      insets: CANVAS_SIDEBAR_INSETS,
     },
   );
   // A collapsing marker's area may start off-screen. Its vertical bar should take
@@ -358,9 +360,7 @@ function CanvasWorkspace({
   React.useLayoutEffect(() => {
     const marker = markers.find(({ key }) => key === collapsingShelf.current);
     collapsingShelf.current = null;
-    if (!marker) return;
-    const sidebarLeft = leftSidebarOpen ? CANVAS_SIDEBAR_INSETS.left : 0;
-    keepInView(marker.start, sidebarLeft + CANVAS_SHELF_MARKER_OVERHANG);
+    if (marker) keepInView(marker.start, CANVAS_SHELF_MARKER_OVERHANG);
   });
   const instructionsId = React.useId();
   const previousPath = React.useRef(selectedPath);
@@ -377,6 +377,30 @@ function CanvasWorkspace({
     if (location.source === "canvas" || !selectedKey) return;
     flyTo(selectedKey);
   }, [selectedPath, location.source, selectedKey, hiddenSelectedShelf, flyTo]);
+  // An item to fly to once its shelf is expanded and it has a place in the row.
+  const [pendingFlight, setPendingFlight] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!pendingFlight || !positions.has(pendingFlight)) return;
+    setPendingFlight(null);
+    flyTo(pendingFlight);
+  });
+  React.useImperativeHandle(ref, () => ({
+    showItem(key) {
+      const shelf = shelves.find((candidate) => candidate.items.some((item) => item.key === key));
+      const item = shelf?.items.find((candidate) => candidate.key === key);
+      if (!shelf || !item) return;
+      const pathname =
+        item.kind === "block"
+          ? blockCatalogPath(item.block._internal.id)
+          : pageSlots.get(key)?.pathname;
+      if (pathname && pathname !== selectedPath) {
+        void navigate({ to: `${pathname}${location.search}${location.hash}` });
+        return;
+      }
+      if (collapsedShelves.has(shelf.key)) toggleShelf(shelf.key);
+      setPendingFlight(key);
+    },
+  }));
 
   return (
     <div
@@ -388,7 +412,7 @@ function CanvasWorkspace({
       data-camox-canvas
       // While Space arms the hand tool, the whole canvas (page frames and their
       // controls included) shows the hand and hands the drag to the camera.
-      className="bg-muted relative isolate min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
+      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
       style={{
         userSelect: "none",
         overscrollBehavior: "none",
@@ -573,37 +597,6 @@ function CanvasWorkspace({
   );
 }
 
-/**
- * A sidebar overlaid on one side of the Canvas, which keeps its full size. It
- * slides out of view on its own side when closed.
- */
-function CanvasSidebarPanel({
-  side,
-  open,
-  onClosed,
-  children,
-}: {
-  side: "left" | "right";
-  open: boolean;
-  onClosed: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      data-canvas-sidebar={side}
-      data-state={open ? "open" : "closed"}
-      inert={!open}
-      className={`bg-background absolute inset-y-0 z-10 flex transition-transform ${SIDEBAR_SLIDE} ${side === "left" ? "left-0 data-[state=closed]:-translate-x-full" : "right-0 data-[state=closed]:translate-x-full"}`}
-      style={{ width: CMS_SIDEBAR_WIDTH }}
-      onTransitionEnd={(event) => {
-        if (event.target === event.currentTarget && !open) onClosed();
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 /** Each derived layout's first discovered page, keyed by layout id. */
 function useDiscoveredPreviewPaths(runtimeBasePath: string) {
   const projectSlug = useProjectSlug();
@@ -697,28 +690,22 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const [intent, setIntent] = React.useState<{ from: string; to: typeof location } | null>(null);
   const intended = intent?.from === location.pathname ? intent.to : location;
   const intendedSelection = selectionAt(intended.pathname);
-  const sidebarsOpen = !!(intendedSelection.page || intendedSelection.block);
-  // The sidebars keep showing the last selection while they slide out of view.
-  const [sidebarLocation, setSidebarLocation] = React.useState(location);
-  if (sidebarsOpen && sidebarLocation !== intended) setSidebarLocation(intended);
   const navigate = useNavigate();
-  const shown = sidebarsOpen ? intendedSelection : selectionAt(sidebarLocation.pathname);
-  // Feedback stays at hand: while commenting, the right sidebar keeps the last selection.
-  const rightSidebarOpen = sidebarsOpen || (isCommentMode && !!(shown.page || shown.block));
-  // The shown frame's data names a record page's record. Its frame loads it; only read here.
-  const { data: shownFrameInput } = useQuery({
+  const workspace = React.useRef<CanvasWorkspaceHandle>(null);
+  // The intended frame's data names a record page's record. Its frame loads it; only read here.
+  const { data: intendedFrameInput } = useQuery({
     ...canvasPageQuery(
       projectSlug,
       runtimeBasePath,
-      sidebarsOpen ? intended.pathname : sidebarLocation.pathname,
-      shown.page?.derivedLayoutId,
+      intended.pathname,
+      intendedSelection.page?.derivedLayoutId,
     ),
     enabled: false,
   });
-  const shownRecordResult = shown.page?.derivedLayoutId
-    ? shownFrameInput?.derived?.result
+  const recordResult = intendedSelection.page?.derivedLayoutId
+    ? intendedFrameInput?.derived?.result
     : undefined;
-  const pageRecord = getPageRecord(shownRecordResult);
+  const pageRecord = getPageRecord(recordResult);
   usePreparationFailure(
     (!project.isFetching ? project.error : null) ?? (!pages.isFetching ? pages.error : null),
   );
@@ -766,20 +753,29 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         <span role="status">Loading canvas…</span>
       </CanvasMessage>
     );
-  const editingOwner =
-    sidebarsOpen && activeFrame?.pathname === intended.pathname ? activeFrame.owner : null;
+  const editingOwner = activeFrame?.pathname === intended.pathname ? activeFrame.owner : null;
   const blockCatalog = getBlockCatalog(app.getBlocks());
+  const intendedItemKey =
+    intendedSelection.page?.key ??
+    (intendedSelection.block && canvasBlockKey(intendedSelection.block._internal.id));
   return (
-    <div
-      className={`relative flex min-h-0 flex-1 overflow-hidden transition-[--canvas-sidebar-left] ${SIDEBAR_SLIDE}`}
-      style={
-        {
-          "--canvas-sidebar-left": `${sidebarsOpen ? CANVAS_SIDEBAR_INSETS.left : 0}px`,
-        } as React.CSSProperties
-      }
-    >
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       {selectedPage?.pageId != null && !isCommentMode && <CuratedBlockShortcuts />}
+      {/* The sidebars stay mounted and route to the intended selection, or the Canvas itself. */}
+      <NavigationProvider location={intended} navigate={navigate}>
+        <CanvasLeftSidebar
+          page={intendedSelection.page}
+          navigator={{
+            shelves: getCanvasShelves(canvasPages, blockCatalog),
+            selectedKey: intendedItemKey,
+            onShowItem: (key) => workspace.current?.showItem(key),
+          }}
+          owner={editingOwner}
+          pageRecord={pageRecord}
+        />
+      </NavigationProvider>
       <CanvasWorkspace
+        ref={workspace}
         key={project.data.id}
         projectId={project.data.id}
         pages={canvasPages}
@@ -787,11 +783,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         statuses={statuses}
         selectedPage={selectedPage}
         selectedBlock={selectedBlock}
-        leftSidebarOpen={sidebarsOpen}
-        intendedItemKey={
-          intendedSelection.page?.key ??
-          (intendedSelection.block && canvasBlockKey(intendedSelection.block._internal.id))
-        }
+        intendedItemKey={intendedItemKey}
         runtimeBasePath={runtimeBasePath}
         viewport={viewport}
         onActivate={(pathname, owner) => setActiveFrame({ pathname, owner })}
@@ -807,36 +799,20 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
           })
         }
       />
-      {/* Sliding out, the sidebars still show their selection's location, not the current one. */}
-      <NavigationProvider location={sidebarLocation} navigate={navigate}>
-        <CanvasSidebarPanel
-          side="left"
-          open={sidebarsOpen}
-          onClosed={() => {
-            if (!rightSidebarOpen) setSidebarLocation(intended);
-          }}
-        >
-          <CanvasLeftSidebar
-            page={shown.page}
-            catalog={shown.block && { block: shown.block, blocks: blockCatalog }}
+      <NavigationProvider location={intended} navigate={navigate}>
+        {/* The record page's record, which its sidebar edits. */}
+        <PageRecordContext value={recordResult}>
+          <CanvasRightSidebar
+            page={intendedSelection.page}
+            catalog={
+              intendedSelection.block && {
+                block: intendedSelection.block,
+                projectId: project.data.id,
+              }
+            }
             owner={editingOwner}
-            pageRecord={pageRecord}
           />
-        </CanvasSidebarPanel>
-        <CanvasSidebarPanel
-          side="right"
-          open={rightSidebarOpen}
-          onClosed={() => setSidebarLocation(intended)}
-        >
-          {/* The record page's record, which its sidebar edits. */}
-          <PageRecordContext value={shownRecordResult}>
-            <CanvasRightSidebar
-              page={shown.page}
-              catalog={shown.block && { block: shown.block, projectId: project.data.id }}
-              owner={editingOwner}
-            />
-          </PageRecordContext>
-        </CanvasSidebarPanel>
+        </PageRecordContext>
       </NavigationProvider>
     </div>
   );
