@@ -144,7 +144,7 @@ which Drizzle can't express. After changing the schema, from `apps/api`:
 
 ```sh
 sed -n '/^-- Hand-written:/,$p' migrations/0000_baseline.sql > /tmp/hand-written.sql
-rm -rf migrations
+test -s /tmp/hand-written.sql && rm -rf migrations
 pnpm db:generate --name baseline
 printf '\n--> statement-breakpoint\n' >> migrations/0000_baseline.sql
 cat /tmp/hand-written.sql >> migrations/0000_baseline.sql
