@@ -8,7 +8,7 @@ import { getAuthorizedProject } from "../../authorization";
 import { isRasterImage } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { runService } from "../../lib/run-service";
-import { authed, pub } from "../../orpc";
+import { authed, contentWrite, liveReadOnlyError, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import { inScope } from "../blocks/draft-scope";
@@ -18,7 +18,7 @@ import * as service from "./service";
 import { optimizeVideo } from "./video-optimization";
 
 // Every procedure reads and writes files in the draft the request names (`x-camox-draft`),
-// once the file's project is known. Writes on Live start a draft with the create header.
+// once the file's project is known. Writes need a draft: on Live the create header starts one.
 
 // Public procedures
 
@@ -46,7 +46,7 @@ const getUsageCount = pub
 
 // Protected procedures
 
-const setAlt = authed
+const setAlt = contentWrite
   .input(service.setFileAltInput)
   .handler(({ context, input }) =>
     inScope(context, service.projectOfFile(context, input.id), (scope) =>
@@ -54,7 +54,7 @@ const setAlt = authed
     ),
   );
 
-const setFilename = authed
+const setFilename = contentWrite
   .input(service.setFileFilenameInput)
   .handler(({ context, input }) =>
     inScope(context, service.projectOfFile(context, input.id), (scope) =>
@@ -62,7 +62,7 @@ const setFilename = authed
     ),
   );
 
-const deleteFn = authed
+const deleteFn = contentWrite
   .input(service.deleteFileInput)
   .handler(({ context, input }) =>
     inScope(context, service.projectOfFile(context, input.id), (scope) =>
@@ -70,7 +70,7 @@ const deleteFn = authed
     ),
   );
 
-const deleteMany = authed.input(service.deleteFilesInput).handler(({ context, input }) => {
+const deleteMany = contentWrite.input(service.deleteFilesInput).handler(({ context, input }) => {
   const [first] = input.ids;
   const project = first === undefined ? undefined : service.projectOfFile(context, first);
   return inScope(context, project ?? Effect.succeed(undefined), (scope) =>
@@ -78,7 +78,7 @@ const deleteMany = authed.input(service.deleteFilesInput).handler(({ context, in
   );
 });
 
-const setAiMetadata = authed
+const setAiMetadata = contentWrite
   .input(service.setFileAiMetadataInput)
   .handler(({ context, input }) =>
     inScope(context, service.projectOfFile(context, input.id), (scope) =>
@@ -176,7 +176,8 @@ fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
 
 /**
  * Uploads a new file, or replaces a file's content keeping its id (`/:id/content`), in the
- * draft the request names. Uploading on Live with the create header starts a draft. The blob
+ * draft the request names. Like any content write it needs one: Live is read-only, and
+ * uploading on Live with the create header starts a draft. The blob
  * is stored before the row is written, and deleted again when the write fails.
  */
 const uploadContent: Handler<AppEnv> = async (c) => {
@@ -187,6 +188,10 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   }
   const draft = draftRequestOf(c.req.raw.headers);
   if (draft === "invalid") return c.json({ error: `${DRAFT_HEADER} must be a UUIDv7` }, 400);
+  if (!draft) {
+    const error = liveReadOnlyError();
+    return c.json({ error: error.message, code: error.code }, 409);
+  }
   const ctx: ServiceContext = {
     db: c.var.db,
     user: c.var.user,

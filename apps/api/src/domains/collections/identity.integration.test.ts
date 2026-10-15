@@ -1,4 +1,4 @@
-import { call } from "@orpc/server";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { describe, expect, it } from "vitest";
 
 import { collection as customers } from "../../../../playground/src/collections/customers";
@@ -6,6 +6,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { callTool } from "../agent/service";
@@ -32,6 +33,8 @@ async function fixture() {
   return {
     ...base,
     options: { context },
+    // AI tools write content, so they run in a draft: Live is read-only.
+    toolContext: { ...context, draft: { id: generateUuidv7(), create: true } },
     scope: { projectSlug: base.project.slug, collectionId: id },
   };
 }
@@ -39,23 +42,23 @@ async function fixture() {
 describe("stable collection record identity", () => {
   it("creating a record returns a UUIDv7, or keeps a client-minted UUIDv7", async () => {
     const f = await fixture();
-    const minted = await call(routes.createRecord, { ...f.scope, content }, f.options);
+    const minted = await callSeedingLive(routes.createRecord, { ...f.scope, content }, f.options);
     expect(minted.id).toMatch(UUIDV7);
 
-    const optimistic = await call(
+    const optimistic = await callSeedingLive(
       routes.createRecord,
       { ...f.scope, id: CLIENT_RECORD_ID, content },
       f.options,
     );
     expect(optimistic.id).toBe(CLIENT_RECORD_ID);
     expect(
-      await call(routes.getRecord, { ...f.scope, id: CLIENT_RECORD_ID }, f.options),
+      await callSeedingLive(routes.getRecord, { ...f.scope, id: CLIENT_RECORD_ID }, f.options),
     ).toMatchObject({ id: CLIENT_RECORD_ID });
   });
 
   it("procedures and AI tools reject a record id that isn't a UUIDv7", async () => {
     const f = await fixture();
-    await call(routes.createRecord, { ...f.scope, content }, f.options);
+    await callSeedingLive(routes.createRecord, { ...f.scope, content }, f.options);
     const target = f.scope;
     for (const id of [1, "1", crypto.randomUUID()]) {
       for (const [procedure, input] of [
@@ -66,14 +69,16 @@ describe("stable collection record identity", () => {
         [routes.deleteRecord, { ...target, id }],
         [routes.recordMarkdown, { ...f.scope, id }],
       ] as const) {
-        await expect(call(procedure as never, input as never, f.options)).rejects.toMatchObject({
+        await expect(
+          callSeedingLive(procedure as never, input as never, f.options),
+        ).rejects.toMatchObject({
           code: "BAD_REQUEST",
         });
       }
       for (const name of ["createCollectionRecord", "getCollectionRecord"]) {
         expect(
           await runService(
-            callTool(f.options.context, {
+            callTool(f.toolContext, {
               projectId: f.project.id,
               name,
               arguments: { collectionId: f.scope.collectionId, id, content },
@@ -82,6 +87,6 @@ describe("stable collection record identity", () => {
         ).toMatchObject({ ok: false });
       }
     }
-    expect(await call(routes.listRecords, f.scope, f.options)).toHaveLength(1);
+    expect(await callSeedingLive(routes.listRecords, f.scope, f.options)).toHaveLength(1);
   });
 });

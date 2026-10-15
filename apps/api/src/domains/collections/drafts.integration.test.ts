@@ -3,7 +3,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import { createProjectFixture, createRpcContext, callSeedingLive } from "../../../test/fixtures";
 import { router } from "../../router";
 import { blockDefinitions, pages } from "../../schema";
 import type { ResolvedReference } from "./references";
@@ -131,38 +131,38 @@ async function fixture() {
   const authors = { projectSlug, collectionId: "authors" };
   const articles = { projectSlug, collectionId: "articles" };
   const createAuthor = (name: string, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.collectionDefinitions.createRecord,
       { ...authors, content: { name } },
       member(headers),
     );
   const renameAuthor = (id: string, name: string, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.collectionDefinitions.editRecord,
       { ...authors, id, content: { name } },
       member(headers),
     );
   const deleteAuthor = (id: string, headers: Headers = {}) =>
-    call(router.collectionDefinitions.deleteRecord, { ...authors, id }, member(headers));
+    callSeedingLive(router.collectionDefinitions.deleteRecord, { ...authors, id }, member(headers));
   const authorNames = async (headers: Headers = {}) =>
     (await call(router.collectionDefinitions.listRecords, authors, member(headers)))
       .map((record) => record.label)
       .sort();
   const createArticle = (title: string, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.collectionDefinitions.createRecord,
       { ...articles, content: { title } },
       member(headers),
     );
   const retitleArticle = (id: string, title: string, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.collectionDefinitions.editRecord,
       { ...articles, id, content: { title } },
       member(headers),
     );
 
   const createByline = (author: string | null, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.blocks.create,
       { pageId: page.id, type: "byline", content: { author } },
       member(headers),

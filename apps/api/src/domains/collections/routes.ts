@@ -1,5 +1,5 @@
 import { runService } from "../../lib/run-service";
-import { authed, pub } from "../../orpc";
+import { authed, contentWrite, pub } from "../../orpc";
 import * as service from "./service";
 
 // Studio reads and draft authoring are authenticated.
@@ -31,13 +31,13 @@ export const collectionDefinitionProcedures = {
   recordMarkdown: pub
     .input(service.recordMarkdownInput)
     .handler(({ context, input }) => runService(service.recordMarkdown(context, input))),
-  createRecord: authed
+  createRecord: contentWrite
     .input(service.createRecordInput)
     .handler(({ context, input }) => runService(service.createRecord(context, input))),
-  editRecord: authed
+  editRecord: contentWrite
     .input(service.editRecordInput)
     .handler(({ context, input }) => runService(service.editRecord(context, input))),
-  deleteRecord: authed
+  deleteRecord: contentWrite
     .input(service.deleteRecordInput)
     .handler(({ context, input }) => runService(service.deleteRecord(context, input))),
   sync: pub

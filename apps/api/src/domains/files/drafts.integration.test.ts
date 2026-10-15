@@ -10,6 +10,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -126,10 +127,15 @@ async function fixture() {
     await waitOnExecutionContext(execution);
     return response;
   }
+  /** Uploads in the draft `headers` name, or on Live through a draft published right away. */
   const upload = async (headers: Headers = {}, options: Parameters<typeof send>[1] = {}) => {
-    const response = await send(headers, options);
+    const draftId = DRAFT_HEADER in headers ? undefined : generateUuidv7();
+    const response = await send(draftId ? startingDraft(draftId) : headers, options);
     expect(response.status).toBe(201);
-    return response.json<FileRow>();
+    const uploaded = await response.json<FileRow>();
+    if (!draftId) return uploaded;
+    await publish(draftId);
+    return (await getFile(uploaded.id)) as FileRow;
   };
   const replace = async (
     target: string,
@@ -153,9 +159,13 @@ async function fixture() {
   const blobExists = async (blobId: string) => (await ctx.env.FILES_BUCKET.head(blobId)) !== null;
 
   const createBlock = (content: Record<string, unknown>, headers: Headers = {}) =>
-    call(router.blocks.create, { pageId: page.id, type: "hero", content }, member(headers));
+    callSeedingLive(
+      router.blocks.create,
+      { pageId: page.id, type: "hero", content },
+      member(headers),
+    );
   const editBlock = (id: string, content: Record<string, unknown>, headers: Headers) =>
-    call(router.blocks.updateContent, { id, content }, member(headers));
+    callSeedingLive(router.blocks.updateContent, { id, content }, member(headers));
 
   const preview = (draftId: string) =>
     call(router.drafts.previewPublish, { projectId }, member(inDraft(draftId)));
@@ -230,7 +240,7 @@ describe("files in drafts", () => {
     const f = await fixture();
     const live = await f.upload();
     const draftId = generateUuidv7();
-    await call(
+    await callSeedingLive(
       router.files.setAlt,
       { id: live.id, alt: "A mountain" },
       f.member(startingDraft(draftId)),
@@ -266,7 +276,11 @@ describe("files in drafts", () => {
     const once = await f.replace(live.id, startingDraft(first));
     const twice = await f.replace(live.id, inDraft(first));
     // Another draft names the Live blob through its own copy of the file.
-    await call(router.files.setAlt, { id: live.id, alt: "Kept" }, f.member(startingDraft(second)));
+    await callSeedingLive(
+      router.files.setAlt,
+      { id: live.id, alt: "Kept" },
+      f.member(startingDraft(second)),
+    );
 
     expect(await f.blobExists(once.blobId)).toBe(false);
     expect(await f.blobExists(twice.blobId)).toBe(true);
@@ -305,7 +319,7 @@ describe("files in drafts", () => {
     const other = await f.upload();
     const block = await f.createBlock({ title: "Hero", image: { _fileId: used.id } });
     const draftId = generateUuidv7();
-    await call(router.files.delete, { id: used.id }, f.member(startingDraft(draftId)));
+    await callSeedingLive(router.files.delete, { id: used.id }, f.member(startingDraft(draftId)));
 
     const content = async (headers: Headers) =>
       (await call(router.blocks.get, { id: block.id }, f.member(headers))).block.content;
@@ -430,7 +444,7 @@ describe("files in drafts", () => {
     const draftId = generateUuidv7();
     const photo = await f.upload(startingDraft(draftId), { bytes: "portrait" });
     const people = { projectSlug: f.project.slug, collectionId: "people" };
-    const ada = await call(
+    const ada = await callSeedingLive(
       router.collectionDefinitions.createRecord,
       { ...people, content: { name: "Ada", photo: { _fileId: photo.id } } },
       f.member(inDraft(draftId)),
@@ -450,7 +464,7 @@ describe("files in drafts", () => {
     const image = await f.upload();
     const block = await f.createBlock({ title: "Hero", image: { _fileId: image.id } });
     const draftId = generateUuidv7();
-    await call(router.blocks.delete, { id: block.id }, f.member(startingDraft(draftId)));
+    await callSeedingLive(router.blocks.delete, { id: block.id }, f.member(startingDraft(draftId)));
 
     const count = async (headers: Headers) =>
       (await call(router.files.getUsageCount, { id: image.id }, f.member(headers))).count;

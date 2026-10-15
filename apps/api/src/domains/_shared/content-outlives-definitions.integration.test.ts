@@ -1,7 +1,11 @@
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  callSeedingLive,
+} from "../../../test/fixtures";
 import type { BaseContext } from "../../orpc";
 import { router } from "../../router";
 
@@ -93,7 +97,7 @@ async function fixture() {
       ),
   };
   await release.blocks([hero, cards({ cards: cardsRepeater })]);
-  const { page } = await call(
+  const { page } = await callSeedingLive(
     router.pages.create,
     {
       projectId: base.project.id,
@@ -108,7 +112,7 @@ async function fixture() {
 describe("content outlives its definitions", () => {
   it("hides a removed field from every read and brings it back unchanged with its definition", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "hero", content: { title: "Kept", subtitle: "Stored" } },
       f.options,
@@ -141,7 +145,7 @@ describe("content outlives its definitions", () => {
 
   it("fills a field added after the content was written with its default", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "hero", content: { title: "Kept", subtitle: "Stored" } },
       f.options,
@@ -161,7 +165,7 @@ describe("content outlives its definitions", () => {
 
   it("reads a value of the wrong kind as the default and leaves the stored value untouched", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       {
         pageId: f.page.id,
@@ -199,7 +203,7 @@ describe("content outlives its definitions", () => {
 
   it("keeps stale keys stored when a write patches content, and validates only the patch", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "hero", content: { title: "Kept", subtitle: "Stored" } },
       f.options,
@@ -209,13 +213,17 @@ describe("content outlives its definitions", () => {
       contentSchema: { type: "object", properties: { title: string("Welcome") } },
     };
     await f.release.blocks([withoutSubtitle, cards({ cards: cardsRepeater })]);
-    await call(
+    await callSeedingLive(
       router.blocks.updateContent,
       { id: block.id, content: { title: "Edited" } },
       f.options,
     );
     await expect(
-      call(router.blocks.updateContent, { id: block.id, content: { title: 42 } }, f.options),
+      callSeedingLive(
+        router.blocks.updateContent,
+        { id: block.id, content: { title: 42 } },
+        f.options,
+      ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     await f.release.blocks([hero, cards({ cards: cardsRepeater })]);
@@ -225,7 +233,7 @@ describe("content outlives its definitions", () => {
 
   it("leaves out repeatable items under a removed repeater, and brings them back with it", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       {
         pageId: f.page.id,
@@ -270,7 +278,7 @@ describe("pages whose layout is gone", () => {
 
   it("aren't served when their layout is removed, are listed as needing a layout, and come back with it", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "hero", content: { title: "Kept" } },
       f.options,
@@ -302,7 +310,11 @@ describe("pages whose layout is gone", () => {
     const f = await fixture();
     const sync = await f.release.layouts([{ layoutId: "other" }]);
     const other = sync.layouts.find((result) => result.layout.layoutId === "other")!.layout;
-    await call(router.pages.setLayout, { id: f.page.id, layoutId: other.layoutId }, f.options);
+    await callSeedingLive(
+      router.pages.setLayout,
+      { id: f.page.id, layoutId: other.layoutId },
+      f.options,
+    );
     expect((await read(f)).layout?.layoutId).toBe("other");
     expect(await listed(f)).toMatchObject({ needsLayout: false });
   });
@@ -370,12 +382,12 @@ describe("collection records", () => {
     await syncCollections([withRole]);
     await f.release.blocks([hero, cards({ cards: cardsRepeater }), profile]);
     const scope = { projectSlug: f.project.slug, collectionId: "people" };
-    const record = await call(
+    const record = await callSeedingLive(
       router.collectionDefinitions.createRecord,
       { ...scope, content: { name: "Ada", role: "Engineer" } },
       f.options,
     );
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "profile", content: { person: record.id } },
       f.options,
@@ -450,7 +462,7 @@ describe("collection records", () => {
   it("keeps a removed field's value stored through edits", async () => {
     const f = await collectionFixture();
     await f.syncCollections([people({})]);
-    await call(
+    await callSeedingLive(
       router.collectionDefinitions.editRecord,
       { ...f.scope, id: f.record.id, content: { name: "Ada L." } },
       f.options,
@@ -476,14 +488,14 @@ describe("collection records", () => {
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      call(
+      callSeedingLive(
         router.collectionDefinitions.editRecord,
         { ...f.scope, id: f.record.id, content: { name: "X" } },
         f.options,
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      call(
+      callSeedingLive(
         router.collectionDefinitions.createRecord,
         { ...f.scope, content: { name: "X" } },
         f.options,
@@ -498,12 +510,12 @@ describe("collection records", () => {
 describe("blocks of a removed block definition", () => {
   it("are kept, read with no content, render no Markdown, and come back with their definition", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "cards", content: { heading: "Team", cards: [{ label: "Ada" }] } },
       f.options,
     );
-    await call(
+    await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "hero", content: { title: "Kept" } },
       f.options,
@@ -536,13 +548,13 @@ describe("blocks of a removed block definition", () => {
 
   it("can be deleted", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "cards", content: { heading: "Team" } },
       f.options,
     );
     await f.release.blocks([hero]);
-    await call(router.blocks.delete, { id: block.id }, f.options);
+    await callSeedingLive(router.blocks.delete, { id: block.id }, f.options);
     const page = await call(
       router.pages.getByPath,
       { projectSlug: f.project.slug, path: f.page.fullPath },
@@ -553,7 +565,7 @@ describe("blocks of a removed block definition", () => {
 
   it("keep rendering when their definition becomes layout-only", async () => {
     const f = await fixture();
-    const block = await call(
+    const block = await callSeedingLive(
       router.blocks.create,
       { pageId: f.page.id, type: "hero", content: { title: "Kept" } },
       f.options,

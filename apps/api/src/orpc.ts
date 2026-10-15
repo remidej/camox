@@ -5,6 +5,8 @@ import { os, ORPCError } from "@orpc/server";
 import type { Database } from "./db";
 import type { Auth } from "./domains/auth/routes";
 import type { DraftRequest } from "./domains/drafts/scope";
+import { LiveReadOnlyError } from "./lib/errors";
+import { toORPCError } from "./lib/run-service";
 import type { Bindings } from "./types";
 
 // --- Context types ---
@@ -71,3 +73,22 @@ export const authed = pub.use(async ({ context, next }) => {
     },
   });
 });
+
+/** The error a content write naming no draft fails with: Live is read-only (ADR 0003). */
+export const liveReadOnlyError = () => toORPCError(new LiveReadOnlyError());
+
+/** Rejects a request naming no draft: Live is read-only. */
+export const requireDraft = os
+  .$context<{ draft: DraftRequest | null }>()
+  .middleware(({ context, next }) => {
+    if (!context.draft) throw liveReadOnlyError();
+    return next();
+  });
+
+/**
+ * Content write procedure — requires an authenticated user and a draft (ADR 0003, ADR 0011).
+ * Content reaches Live only by publishing a draft or through a release, so a write naming no
+ * draft is rejected before its input is read. Every procedure built on it is listed as a
+ * content write in `@camox/api-contract/drafts`, which the studio follows to start a draft.
+ */
+export const contentWrite = authed.use(requireDraft);

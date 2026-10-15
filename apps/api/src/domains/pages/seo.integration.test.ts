@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -42,7 +43,9 @@ async function fixture() {
 
 describe("page SEO updates", () => {
   it("resolves tool paths and rejects IDs outside the selected project or environment", async () => {
-    const { db, ctx, page, project } = await fixture();
+    const { db, ctx: liveCtx, page, project } = await fixture();
+    // AI tools write content, so they run in a draft: Live is read-only.
+    const ctx = { ...liveCtx, draft: { id: generateUuidv7(), create: true } };
     const update = (arguments_: Record<string, unknown>, projectId = project.id, context = ctx) =>
       runService(callTool(context, { projectId, name: "updatePage", arguments: arguments_ }));
     expect(await update({ path: "/about", metaTitle: "By path" })).toMatchObject({
@@ -79,7 +82,8 @@ describe("page SEO updates", () => {
         environmentName: devName,
       }),
     ).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
-    expect(await runService(getPage(ctx, { id: page.id }, null))).toMatchObject({
+    const draft = { id: ctx.draft.id, kind: "regular" as const, projectId: project.id };
+    expect(await runService(getPage(ctx, { id: page.id }, draft))).toMatchObject({
       metaTitle: "By path",
       metaDescription: "By ID",
     });

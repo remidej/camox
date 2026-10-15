@@ -63,6 +63,13 @@ export class DraftEndedError extends Data.TaggedError("DraftEndedError")<{
   readonly ended: EndedDraft;
 }> {}
 
+/** A content write names no draft: Live is read-only (ADR 0003). */
+export class LiveReadOnlyError extends Data.TaggedError("LiveReadOnlyError")<OptionalMessage> {
+  constructor(args: OptionalMessage = {}) {
+    super(args);
+  }
+}
+
 /** Live changed since the publish preview the caller confirmed, so nothing was published. */
 export class ConflictsChangedError extends Data.TaggedError("ConflictsChangedError")<{
   readonly message: string;
@@ -81,6 +88,7 @@ export type ServiceError =
   | ConflictError
   | IncompatibleEnvironmentsError
   | DraftEndedError
+  | LiveReadOnlyError
   | ConflictsChangedError
   | PublishBlockedError;
 

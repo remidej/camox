@@ -1,8 +1,10 @@
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { call, Procedure, type AnyProcedure } from "@orpc/server";
 import { env } from "cloudflare:workers";
 
 import { createDb } from "../src/db";
 import type { ServiceContext } from "../src/domains/_shared/service-context";
-import type { BaseContext } from "../src/orpc";
+import { requireDraft, type BaseContext } from "../src/orpc";
 import { environments, layouts, member, organizationTable, projects, user } from "../src/schema";
 import type { Bindings } from "../src/types";
 
@@ -127,3 +129,29 @@ export function createRpcContext(
     },
   };
 }
+
+/**
+ * `procedure` without the "Live is read-only" check, so a test can seed Live content through a
+ * content write naming no draft, the way a release writes Live. Everything else (auth, input
+ * validation, the handler) runs as usual. Prefer publishing a draft where publish checks allow.
+ */
+export function seedingLive<T extends AnyProcedure>(procedure: T): T {
+  const definition = procedure["~orpc"];
+  const at = definition.middlewares.indexOf(requireDraft as never);
+  if (at === -1) return procedure;
+  const shift = (index: number) => (index > at ? index - 1 : index);
+  return new Procedure({
+    ...definition,
+    middlewares: definition.middlewares.filter((_, index) => index !== at),
+    inputValidationIndex: shift(definition.inputValidationIndex),
+    outputValidationIndex: shift(definition.outputValidationIndex),
+  }) as T;
+}
+
+/** `call`, except that a content write naming no draft seeds Live (see `seedingLive`). */
+export const callSeedingLive: typeof call = (procedure, input, ...rest) => {
+  const [options] = rest;
+  const context = (options as { context?: { headers?: Headers } } | undefined)?.context;
+  const namesDraft = context?.headers?.has(DRAFT_HEADER) ?? false;
+  return call(namesDraft ? procedure : seedingLive(procedure as AnyProcedure), input, ...rest);
+};

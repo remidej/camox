@@ -8,6 +8,8 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  seedingLive,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -103,11 +105,11 @@ async function fixture() {
     title: string,
     headers: Record<string, string> = {},
     { type = "hero", pageId = page.id } = {},
-  ) => call(router.blocks.create, { pageId, type, content: { title } }, member(headers));
+  ) => callSeedingLive(router.blocks.create, { pageId, type, content: { title } }, member(headers));
   const editTitle = (id: string, title: string, headers: Record<string, string> = {}) =>
-    call(router.blocks.updateContent, { id, content: { title } }, member(headers));
+    callSeedingLive(router.blocks.updateContent, { id, content: { title } }, member(headers));
   const deleteBlock = (id: string, headers: Record<string, string> = {}) =>
-    call(router.blocks.delete, { id }, member(headers));
+    callSeedingLive(router.blocks.delete, { id }, member(headers));
   const titleIn = async (id: string, headers: Record<string, string> = {}) =>
     (await call(router.blocks.get, { id }, member(headers))).block.content.title;
   const pageTitles = async (headers: Record<string, string> = {}, pageId = page.id) =>
@@ -245,14 +247,24 @@ describe("publishing a draft", () => {
   });
 
   it("lists changes whose page is gone as lost, and leaves them off Live", async () => {
-    const { createBlock, createPage, editTitle, member, preview, publish, titleIn } =
-      await fixture();
+    const {
+      createBlock,
+      createPage,
+      editTitle,
+      member,
+      preview,
+      publish,
+      publishedOnLive,
+      titleIn,
+    } = await fixture();
     const about = await createPage("/about");
     const changed = await createBlock("Live", {}, { pageId: about.id });
     const draft = generateUuidv7();
     await editTitle(changed.id, "Mine", startingDraft(draft));
     const created = await createBlock("Created", inDraft(draft), { pageId: about.id });
-    await call(router.pages.delete, { id: about.id }, member());
+    await publishedOnLive((headers) =>
+      call(router.pages.delete, { id: about.id }, member(headers)),
+    );
 
     const { lost, conflicts } = await preview(draft);
     expect(
@@ -269,14 +281,14 @@ describe("publishing a draft", () => {
     const { createBlock, deleteBlock, member, preview, publish } = await fixture();
     const block = await createBlock("Live");
     const before = await call(
-      router.repeatableItems.create,
+      seedingLive(router.repeatableItems.create),
       { blockId: block.id, fieldName: "links", content: { label: "Before" } },
       member(),
     );
     const draft = generateUuidv7();
     await deleteBlock(block.id, startingDraft(draft));
     const after = await call(
-      router.repeatableItems.create,
+      seedingLive(router.repeatableItems.create),
       { blockId: block.id, fieldName: "links", content: { label: "After" } },
       member(),
     );

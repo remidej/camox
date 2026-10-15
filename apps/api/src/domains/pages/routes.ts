@@ -1,4 +1,4 @@
-import { authed, pub } from "../../orpc";
+import { authed, contentWrite, pub } from "../../orpc";
 import { inScope, projectOfPage, projectOfSlug } from "../blocks/draft-scope";
 import * as service from "./service";
 
@@ -46,13 +46,13 @@ const get = pub
 
 // Protected procedures
 
-const create = authed
+const create = contentWrite
   .input(service.createPageInput)
   .handler(({ context, input }) =>
     inScope(context, input.projectId, (scope) => service.createPage(context, input, scope)),
   );
 
-const update = authed
+const update = contentWrite
   .input(service.updatePageInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.id), (scope) =>
@@ -60,7 +60,7 @@ const update = authed
     ),
   );
 
-const deleteFn = authed
+const deleteFn = contentWrite
   .input(service.deletePageInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.id), (scope) =>
@@ -68,7 +68,7 @@ const deleteFn = authed
     ),
   );
 
-const setAiSeo = authed
+const setAiSeo = contentWrite
   .input(service.setPageAiSeoInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.id), (scope) =>
@@ -76,7 +76,7 @@ const setAiSeo = authed
     ),
   );
 
-const setMetaTitle = authed
+const setMetaTitle = contentWrite
   .input(service.setPageMetaTitleInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.id), (scope) =>
@@ -84,7 +84,7 @@ const setMetaTitle = authed
     ),
   );
 
-const setMetaDescription = authed
+const setMetaDescription = contentWrite
   .input(service.setPageMetaDescriptionInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.id), (scope) =>
@@ -92,7 +92,7 @@ const setMetaDescription = authed
     ),
   );
 
-const setLayout = authed
+const setLayout = contentWrite
   .input(service.setPageLayoutInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.id), (scope) =>

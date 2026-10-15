@@ -46,7 +46,7 @@ export const commentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "resolveComment",
     description: "Resolve a comment on a page in the selected environment.",
     inputSchema: resolveInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", allowedOnLive: true, risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = resolveInput.parse(input);
       return runService(

@@ -1,4 +1,5 @@
-import { call } from "@orpc/server";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import type { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +9,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import type { BaseContext } from "../../orpc";
@@ -46,7 +48,7 @@ describe("collection record procedures", () => {
   it("authenticates every write, and the edit reads back as the record's content", async () => {
     const f = await fixture();
     const options = { context: f.context };
-    const created = await call(
+    const created = await callSeedingLive(
       routes.createRecord,
       { ...f.scope, content: { name: "Ada", company: "Analytical Engines", logo: null } },
       options,
@@ -54,12 +56,12 @@ describe("collection record procedures", () => {
     const target = { ...f.scope, id: created.id };
     const writes = [
       (context: BaseContext) =>
-        call(
+        callSeedingLive(
           routes.editRecord,
           { ...target, content: { name: "Ada", company: "", logo: null } },
           { context },
         ),
-      (context: BaseContext) => call(routes.deleteRecord, target, { context }),
+      (context: BaseContext) => callSeedingLive(routes.deleteRecord, target, { context }),
     ];
     for (const write of writes) {
       await expect(write({ ...f.context, session: null })).rejects.toMatchObject({
@@ -69,25 +71,29 @@ describe("collection record procedures", () => {
         code: "FORBIDDEN",
       });
     }
-    await call(
+    await callSeedingLive(
       routes.editRecord,
       { ...target, content: { name: "Ada Lovelace", company: "Analytical Engines", logo: null } },
       options,
     );
-    expect(await call(routes.getRecord, target, options)).toMatchObject({
+    expect(await callSeedingLive(routes.getRecord, target, options)).toMatchObject({
       content: { name: "Ada Lovelace" },
     });
-    expect(await call(routes.listRecords, f.scope, options)).toEqual([
+    expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([
       { id: created.id, label: "Ada Lovelace" },
     ]);
-    await call(routes.deleteRecord, target, options);
-    expect(await call(routes.listRecords, f.scope, options)).toEqual([]);
+    await callSeedingLive(routes.deleteRecord, target, options);
+    expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([]);
   });
 
   it("dispatches record tools through authenticated agent routes without crossing environments", async () => {
     const f = await fixture();
     const projectId = f.project.id;
-    const tools = await call(agentProcedures.listTools, { projectId }, { context: f.context });
+    const tools = await callSeedingLive(
+      agentProcedures.listTools,
+      { projectId },
+      { context: f.context },
+    );
     const names = tools.map((tool) => tool.name);
     expect(names).not.toContain("publishCollectionRecord");
     expect(names).not.toContain("unpublishCollectionRecord");
@@ -101,16 +107,21 @@ describe("collection record procedures", () => {
     expect(
       tools.find((tool) => tool.name === "deleteCollectionRecord")?.inputSchema,
     ).not.toHaveProperty("properties.expectedVersion");
+    // AI tools write content, so they run in a draft: Live is read-only.
+    const drafted = createRpcContext(f.db, f.memberUser, {
+      [DRAFT_HEADER]: generateUuidv7(),
+      [DRAFT_CREATE_HEADER]: "1",
+    });
     const invoke = (context: BaseContext, name: string, args: unknown) =>
-      call(agentProcedures.callTool, { projectId, name, arguments: args }, { context });
-    const created = await invoke(f.context, "createCollectionRecord", {
+      callSeedingLive(agentProcedures.callTool, { projectId, name, arguments: args }, { context });
+    const created = await invoke(drafted, "createCollectionRecord", {
       collectionId: "customers",
       content: { name: "Transport customer", company: "Example", logo: null },
     });
     if (!created.ok) throw new Error(created.error.message);
     const record = created.result as Effect.Success<ReturnType<typeof getCollectionRecord>>;
     const target = { collectionId: "customers", id: record.id };
-    const development = { ...f.context, environmentName: `dev:${f.memberUser.email}` };
+    const development = { ...drafted, environmentName: `dev:${f.memberUser.email}` };
     await runService(
       syncCollectionDefinitions(development, {
         projectSlug: f.scope.projectSlug,
@@ -124,9 +135,9 @@ describe("collection record procedures", () => {
       error: { code: "NOT_FOUND" },
     });
     await expect(
-      invoke({ ...f.context, session: null }, "deleteCollectionRecord", target),
+      invoke({ ...drafted, session: null }, "deleteCollectionRecord", target),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    expect(await invoke(f.context, "deleteCollectionRecord", target)).toMatchObject({ ok: true });
+    expect(await invoke(drafted, "deleteCollectionRecord", target)).toMatchObject({ ok: true });
   });
 
   it("AI tools use validated session-scoped services and ask approval to delete", async () => {

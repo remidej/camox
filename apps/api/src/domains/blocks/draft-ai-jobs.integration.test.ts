@@ -8,6 +8,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -68,9 +69,13 @@ async function fixture() {
     context: createRpcContext(base.db, base.memberUser, headers),
   });
   const createBlock = (title: string) =>
-    call(router.blocks.create, { pageId: page.id, type: "hero", content: { title } }, member());
+    callSeedingLive(
+      router.blocks.create,
+      { pageId: page.id, type: "hero", content: { title } },
+      member(),
+    );
   const editTitle = (id: string, title: string, headers: Record<string, string> = {}) =>
-    call(router.blocks.updateContent, { id, content: { title } }, member(headers));
+    callSeedingLive(router.blocks.updateContent, { id, content: { title } }, member(headers));
   const summaryIn = async (id: string, headers: Record<string, string> = {}) =>
     (await call(router.blocks.get, { id }, member(headers))).block.summary;
   const titleIn = async (id: string, headers: Record<string, string> = {}) =>

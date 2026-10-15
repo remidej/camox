@@ -1,7 +1,12 @@
-import { call } from "@orpc/server";
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { describe, expect, it, vi } from "vitest";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  callSeedingLive,
+} from "../../../test/fixtures";
 import { lexicalStateToMarkdown, markdownToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
 import type { BaseContext } from "../../orpc";
@@ -78,32 +83,36 @@ async function fixture() {
     }),
   );
   const options = { context };
-  const { page } = await call(
+  const { page } = await callSeedingLive(
     pageRoutes.create,
     { projectId: base.project.id, pathSegment: "about", layoutId: base.layout.layoutId },
     options,
   );
-  return { ...base, ctx, options, page };
+  // AI tools write content, so they run in a draft: Live is read-only.
+  const draftId = generateUuidv7();
+  const toolCtx = { ...ctx, draft: { id: draftId, create: true } };
+  const inDraft = { context: { ...context, headers: new Headers({ [DRAFT_HEADER]: draftId }) } };
+  return { ...base, ctx, options, page, toolCtx, inDraft };
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
 const createBlock = (f: Fixture, input: Record<string, unknown> = {}) =>
-  call(
+  callSeedingLive(
     blockRoutes.create,
     { pageId: f.page.id, type: "list", content: { entries: [] }, ...input } as never,
     f.options,
   );
 
 const createItem = (f: Fixture, blockId: string, input: Record<string, unknown> = {}) =>
-  call(
+  callSeedingLive(
     itemRoutes.create,
     { blockId, fieldName: "entries", content: { title: "Entry" }, ...input } as never,
     f.options,
   );
 
 const tool = (f: Fixture, name: string, args: Record<string, unknown>) =>
-  runService(callTool(f.ctx, { projectId: f.project.id, name, arguments: args }));
+  runService(callTool(f.toolCtx, { projectId: f.project.id, name, arguments: args }));
 
 describe("stable page tree identity", () => {
   it("creating a page, block or repeatable item returns a UUIDv7", async () => {
@@ -126,7 +135,7 @@ describe("stable page tree identity", () => {
 
   it("keeps a client-minted UUIDv7 for a page, block or repeatable item", async () => {
     const f = await fixture();
-    const { page } = await call(
+    const { page } = await callSeedingLive(
       pageRoutes.create,
       {
         id: CLIENT_PAGE_ID,
@@ -142,10 +151,12 @@ describe("stable page tree identity", () => {
     const item = await createItem(f, CLIENT_BLOCK_ID, { id: CLIENT_ITEM_ID });
     expect(item.id).toBe(CLIENT_ITEM_ID);
 
-    expect(await call(pageRoutes.get, { id: CLIENT_PAGE_ID }, f.options)).toMatchObject({
+    expect(await callSeedingLive(pageRoutes.get, { id: CLIENT_PAGE_ID }, f.options)).toMatchObject({
       id: CLIENT_PAGE_ID,
     });
-    expect(await call(blockRoutes.get, { id: CLIENT_BLOCK_ID }, f.options)).toMatchObject({
+    expect(
+      await callSeedingLive(blockRoutes.get, { id: CLIENT_BLOCK_ID }, f.options),
+    ).toMatchObject({
       block: { id: CLIENT_BLOCK_ID, pageId: CLIENT_PAGE_ID },
       repeatableItems: [{ id: CLIENT_ITEM_ID, blockId: CLIENT_BLOCK_ID }],
     });
@@ -194,7 +205,9 @@ describe("stable page tree identity", () => {
           },
         ],
       ] as const) {
-        await expect(call(procedure as never, input as never, f.options)).rejects.toMatchObject({
+        await expect(
+          callSeedingLive(procedure as never, input as never, f.options),
+        ).rejects.toMatchObject({
           code: "BAD_REQUEST",
         });
       }
@@ -214,7 +227,7 @@ describe("stable page tree identity", () => {
         expect(await tool(f, name, args)).toMatchObject({ ok: false });
       }
     }
-    expect(await call(blockRoutes.get, { id: block.id }, f.options)).toMatchObject({
+    expect(await callSeedingLive(blockRoutes.get, { id: block.id }, f.options)).toMatchObject({
       repeatableItems: [{ id: item.id }],
     });
   });
@@ -233,10 +246,10 @@ describe("stable page tree identity", () => {
       content: { entries: [{ _itemId: second.id }, { _itemId: first.id, title: "Changed" }] },
     });
     expect(edited).toMatchObject({ ok: true });
-    const { block: read, repeatableItems } = await call(
+    const { block: read, repeatableItems } = await callSeedingLive(
       blockRoutes.get,
       { id: block.id },
-      f.options,
+      f.inDraft,
     );
     expect(read.content).toMatchObject({
       entries: [{ _itemId: second.id }, { _itemId: first.id }],
@@ -247,7 +260,7 @@ describe("stable page tree identity", () => {
 
     for (const _itemId of NOT_UUIDV7) {
       await expect(
-        call(
+        callSeedingLive(
           blockRoutes.updateContent,
           { id: block.id, content: { entries: [{ _itemId }] } },
           f.options,
@@ -261,15 +274,15 @@ describe("stable page tree identity", () => {
     const block = await createBlock(f);
     const item = await createItem(f, block.id);
     const target = { kind: "item-field", blockId: block.id, itemId: item.id, fieldName: "title" };
-    const comment = await call(
+    const comment = await callSeedingLive(
       commentRoutes.create,
       { pageId: f.page.id, message: "Typo", target } as never,
       f.options,
     );
     expect(comment).toMatchObject({ pageId: f.page.id, target });
-    expect(await call(commentRoutes.list, { pageId: f.page.id }, f.options)).toMatchObject([
-      { id: comment.id, target },
-    ]);
+    expect(
+      await callSeedingLive(commentRoutes.list, { pageId: f.page.id }, f.options),
+    ).toMatchObject([{ id: comment.id, target }]);
   });
 
   it("page links in text and link fields store the page's UUIDv7 and render as links", async () => {
@@ -277,7 +290,11 @@ describe("stable page tree identity", () => {
     const link = { type: "page", text: "About us", pageId: f.page.id };
     const body = JSON.stringify(markdownToLexicalState(`[About](camox:page:${f.page.id})`));
     await createBlock(f, { content: { body, cta: link, entries: [] } });
-    const markdown = await call(blockRoutes.getPageMarkdown, { pageId: f.page.id }, f.options);
+    const markdown = await callSeedingLive(
+      blockRoutes.getPageMarkdown,
+      { pageId: f.page.id },
+      f.options,
+    );
     expect(markdown.markdown).toContain(`[About us](camox:page:${f.page.id})`);
 
     const target = await f.db
@@ -307,15 +324,19 @@ describe("stable page tree identity", () => {
       ...f.options,
       context: { ...f.options.context, environmentName: "target" },
     };
-    const [replica] = await call(pageRoutes.list, { projectId: f.project.id }, replicaCtx);
+    const [replica] = await callSeedingLive(
+      pageRoutes.list,
+      { projectId: f.project.id },
+      replicaCtx,
+    );
     expect(replica!.id).toMatch(UUIDV7);
-    const replicaMarkdown = await call(
+    const replicaMarkdown = await callSeedingLive(
       blockRoutes.getPageMarkdown,
       { pageId: replica!.id },
       replicaCtx,
     );
     expect(replicaMarkdown.markdown).toContain(`[About us](camox:page:${replica!.id})`);
-    const { block: replicaBlock } = await call(
+    const { block: replicaBlock } = await callSeedingLive(
       blockRoutes.get,
       { id: replicaMarkdown.blocks[0]!.id },
       replicaCtx,
@@ -338,7 +359,7 @@ describe("stable page tree identity", () => {
           createBlock(f, { content: { ...content, entries: [] } }),
         ).rejects.toMatchObject({ code: "BAD_REQUEST" });
         await expect(
-          call(blockRoutes.updateContent, { id: block.id, content }, f.options),
+          callSeedingLive(blockRoutes.updateContent, { id: block.id, content }, f.options),
         ).rejects.toMatchObject({ code: "BAD_REQUEST" });
       }
     }

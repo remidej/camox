@@ -9,6 +9,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -70,13 +71,13 @@ async function fixture() {
   });
 
   const createBlock = (title: string, headers: Record<string, string> = onLive) =>
-    call(
+    callSeedingLive(
       router.blocks.create,
       { pageId: page.id, type: "hero", content: { title } },
       member(headers),
     );
   const deleteBlock = (id: string, headers: Record<string, string>) =>
-    call(router.blocks.delete, { id }, member(headers));
+    callSeedingLive(router.blocks.delete, { id }, member(headers));
   const comment = (
     headers: Record<string, string>,
     target: CommentTarget = { kind: "page" },

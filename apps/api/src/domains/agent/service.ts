@@ -10,7 +10,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
-import { decodeInput, type ServiceError } from "../../lib/errors";
+import { decodeInput, LiveReadOnlyError, type ServiceError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
 
 // --- Input Schemas ---
@@ -103,8 +103,9 @@ export const listTools = Effect.fn("agent.listTools")(function* (
  * and either returns the tool result or a structured error (no throw on
  * tool-side failures — the LLM/CLI consumer needs to read the error to retry).
  *
- * Auth and project membership are checked in `buildToolContext` and surface as
- * typed service errors so the transport's error path handles them.
+ * Auth and project membership are checked in `buildToolContext`, and a content write naming no
+ * draft is rejected as "Live is read-only"; both surface as typed service errors so the
+ * transport's error path handles them.
  */
 export const callTool = Effect.fn("agent.callTool")(function* (
   ctx: ServiceContext,
@@ -114,5 +115,11 @@ export const callTool = Effect.fn("agent.callTool")(function* (
   const toolCtx = yield* buildToolContext(ctx, projectId);
 
   const tools = yield* Effect.promise(() => resolveTools(toolProviders, toolCtx));
+  const tool = findTool(tools, name);
+  // Live is read-only (ADR 0003): a tool writing content needs the session to name a draft.
+  if (tool && writesContent(tool) && !ctx.draft) return yield* new LiveReadOnlyError();
   return yield* executeTool({ toolCtx, tools, name, args });
 });
+
+const writesContent = (tool: ToolDefinition) =>
+  tool.meta.kind === "write" && !tool.meta.allowedOnLive;

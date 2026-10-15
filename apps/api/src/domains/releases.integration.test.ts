@@ -3,7 +3,12 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
-import { createProjectFixture, createRpcContext, createServiceContext } from "../../test/fixtures";
+import {
+  createProjectFixture,
+  createRpcContext,
+  createServiceContext,
+  callSeedingLive,
+} from "../../test/fixtures";
 import { runService } from "../lib/run-service";
 import { router } from "../router";
 import { pages } from "../schema";
@@ -99,13 +104,13 @@ async function fixture() {
     return layout.blocks;
   };
   const createBlock = (title: string, headers: Record<string, string> = {}) =>
-    call(
+    callSeedingLive(
       router.blocks.create,
       { pageId: page.id, type: "hero", content: { title } },
       member(headers),
     );
   const editTitle = (id: string, title: string, headers: Record<string, string> = {}) =>
-    call(router.blocks.updateContent, { id, content: { title } }, member(headers));
+    callSeedingLive(router.blocks.updateContent, { id, content: { title } }, member(headers));
   const titleIn = async (id: string, headers: Record<string, string> = {}) =>
     (await call(router.blocks.get, { id }, member(headers))).block.content.title;
   const preview = (draftId: string) =>
@@ -224,7 +229,7 @@ describe("a release", () => {
     const first = await createBlock("Shared");
     const second = await createBlock("Ignored");
     const open = generateUuidv7();
-    await call(
+    await callSeedingLive(
       router.blocks.updatePosition,
       { id: second.id, afterPosition: null },
       member(startingDraft(open)),
@@ -256,7 +261,7 @@ describe("a release", () => {
       ],
     };
     await releaseLayouts(declared);
-    await call(router.pages.delete, { id: about.id }, member());
+    await callSeedingLive(router.pages.delete, { id: about.id }, member());
 
     await releaseLayouts(declared);
 

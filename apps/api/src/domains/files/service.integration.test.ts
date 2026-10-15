@@ -1,11 +1,19 @@
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  callSeedingLive,
+  createProjectFixture,
+  createRpcContext,
+  createServiceContext,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
+import { router } from "../../router";
 import { blocks, environments, files, layouts, repeatableItems } from "../../schema";
 import type { AppEnv } from "../../types";
 import { callTool } from "../agent/service";
@@ -17,6 +25,8 @@ import {
   listFiles,
   updateFile,
 } from "./service";
+
+const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
 
 // Independent of the shared schema: version nibble 7, RFC 4122 variant.
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -56,17 +66,43 @@ async function fixture(media?: MediaBinding) {
     body.set("file", new File([contents], filename, { type }));
     body.set("projectId", String(fixture.project.id));
     for (const [key, value] of Object.entries(metadata)) body.set(key, value);
+    // Live is read-only: the upload starts a draft, published once the upload succeeds.
+    const draftId = generateUuidv7();
     const execution = createExecutionContext();
     const response = await app.request(
       targetId === undefined
         ? "http://localhost/files/upload"
         : `http://localhost/files/${targetId}/content`,
-      { method: "POST", body },
+      {
+        method: "POST",
+        body,
+        headers: { [DRAFT_HEADER]: draftId, [DRAFT_CREATE_HEADER]: "1" },
+      },
       bindings,
       execution,
     );
     await waitOnExecutionContext(execution);
-    return response;
+    if (!response.ok) return response;
+    // Answer with the file as Live has it once the draft is published.
+    const { id } = await response.json<typeof files.$inferSelect>();
+    await publishDraft(draftId);
+    const live = await fixture.db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, id), isNull(files.draftId)))
+      .get();
+    return Response.json(live, { status: response.status });
+  }
+  async function publishDraft(draftId: string) {
+    const options = {
+      context: {
+        ...createRpcContext(fixture.db, fixture.memberUser, inDraft(draftId)),
+        env: bindings,
+      },
+    };
+    const projectId = fixture.project.id;
+    const { token } = await call(router.drafts.previewPublish, { projectId }, options);
+    await call(router.drafts.publish, { projectId, token }, options);
   }
   return { ...fixture, ctx, app, upload, scheduleAiJob };
 }
@@ -239,8 +275,10 @@ describe("media persistence", () => {
   it("exposes file operations through the shared agent tool dispatcher", async () => {
     const { upload, ctx, project } = await fixture();
     const file = await (await upload({ alt: "Original" })).json<typeof files.$inferSelect>();
+    // AI tools write content, so they run in a draft: Live is read-only.
+    const drafted = { ...ctx, draft: { id: generateUuidv7(), create: true } };
     const invoke = (name: string, args: unknown) =>
-      runService(callTool(ctx, { projectId: project.id, name, arguments: args }));
+      runService(callTool(drafted, { projectId: project.id, name, arguments: args }));
     expect(await invoke("listFiles", {})).toMatchObject({ ok: true, result: [{ id: file.id }] });
     expect(await invoke("getFile", { id: file.id })).toMatchObject({
       ok: true,
@@ -482,7 +520,7 @@ describe("media persistence", () => {
     const triggerName = `fail_replace_${original.id.replaceAll("-", "_")}`;
     await db.run(
       sql.raw(
-        `CREATE TRIGGER ${triggerName} BEFORE UPDATE ON files WHEN OLD.id = '${original.id}' BEGIN SELECT RAISE(ABORT, 'test rollback'); END`,
+        `CREATE TRIGGER ${triggerName} BEFORE INSERT ON files WHEN NEW.id = '${original.id}' BEGIN SELECT RAISE(ABORT, 'test rollback'); END`,
       ),
     );
     const before = await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` });
@@ -578,14 +616,19 @@ describe("stable file identity", () => {
         [fileProcedures.setAiMetadata, { id, enabled: false }],
         [fileProcedures.generateMetadata, { id }],
       ] as const) {
-        await expect(call(procedure as never, input as never, { context })).rejects.toMatchObject({
+        await expect(
+          callSeedingLive(procedure as never, input as never, { context }),
+        ).rejects.toMatchObject({
           code: "BAD_REQUEST",
         });
       }
       for (const name of ["getFile", "updateFile"]) {
         expect(
           await runService(
-            callTool(ctx, { projectId: project.id, name, arguments: { id, alt: "Alt" } }),
+            callTool(
+              { ...ctx, draft: { id: generateUuidv7(), create: true } },
+              { projectId: project.id, name, arguments: { id, alt: "Alt" } },
+            ),
           ),
         ).toMatchObject({ ok: false });
       }

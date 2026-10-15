@@ -1,5 +1,9 @@
-import type { Router } from "@camox/api-contract";
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import {
+  DRAFT_CREATE_HEADER,
+  DRAFT_HEADER,
+  DRAFT_SEARCH_PARAM,
+  isContentWrite,
+} from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { inScope, LIVE_KEY_SCOPE, scopeOfKey, type QueryKey } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
@@ -10,95 +14,9 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
  * The draft the studio reads and writes (ADR 0011). The URL's `camox-draft` param names it;
  * without one the studio is on Live. Content writes start a draft: the first one on Live mints
  * an id and asks the API to create it, and the param lands in the URL once a write succeeds.
- * Edits fired before it settles share the same pending id so they land in one draft.
+ * Edits fired before it settles share the same pending id so they land in one draft. The API
+ * rejects content writes naming no draft, so this is the only path from an edit to the API.
  */
-
-// Whether each procedure of a router that follows drafts is a content write that starts a draft.
-// Every procedure is listed, so a new one fails the type check until it's classified and can't
-// be forgotten. Procedures that only fill a generated value (ADR 0012), like `generateSummary`,
-// don't start one. A synced block's shared content is written through `blocks` and
-// `repeatableItems`.
-const BLOCKS_START_DRAFT: Record<keyof Router["blocks"], boolean> = {
-  get: false,
-  getPageMarkdown: false,
-  getLayoutMarkdown: false,
-  getUsageCounts: false,
-  getPagesUsing: false,
-  getSyncedContent: false,
-  create: true,
-  updateContent: true,
-  updateSettings: true,
-  updatePosition: true,
-  delete: true,
-  deleteMany: true,
-  generateSummary: false,
-  duplicate: true,
-};
-
-// A release syncs collection definitions; it never runs in the studio.
-const COLLECTIONS_START_DRAFT: Record<keyof Router["collectionDefinitions"], boolean> = {
-  list: false,
-  get: false,
-  listRecords: false,
-  getRecord: false,
-  getRecordUsageCount: false,
-  findRecordsByField: false,
-  listRecordPageValues: false,
-  recordMarkdown: false,
-  createRecord: true,
-  editRecord: true,
-  deleteRecord: true,
-  sync: false,
-};
-
-// Uploads and replacements go through `getUploadDraftHeaders`, outside oRPC.
-const FILES_START_DRAFT: Record<keyof Router["files"], boolean> = {
-  list: false,
-  get: false,
-  getUsageCount: false,
-  setAlt: true,
-  setFilename: true,
-  delete: true,
-  deleteMany: true,
-  // Switching AI metadata on or off changes content (ADR 0012); generating only fills it.
-  setAiMetadata: true,
-  generateMetadata: false,
-};
-
-const PAGES_START_DRAFT: Record<keyof Router["pages"], boolean> = {
-  getByPath: false,
-  getStructure: false,
-  list: false,
-  listBySlug: false,
-  get: false,
-  create: true,
-  update: true,
-  delete: true,
-  setAiSeo: true,
-  setMetaTitle: true,
-  setMetaDescription: true,
-  setLayout: true,
-  generateSeo: false,
-};
-
-const ITEMS_START_DRAFT: Record<keyof Router["repeatableItems"], boolean> = {
-  get: false,
-  create: true,
-  updateContent: true,
-  updateSettings: true,
-  updatePosition: true,
-  duplicate: true,
-  generateSummary: false,
-  delete: true,
-};
-
-const STARTS_DRAFT: Partial<Record<keyof Router, Record<string, boolean>>> = {
-  blocks: BLOCKS_START_DRAFT,
-  collectionDefinitions: COLLECTIONS_START_DRAFT,
-  files: FILES_START_DRAFT,
-  pages: PAGES_START_DRAFT,
-  repeatableItems: ITEMS_START_DRAFT,
-};
 
 let currentDraftId: string | null = null;
 /** The id the first content writes on Live share, and how many of them are still in flight. */
@@ -161,11 +79,6 @@ export function onDraftStarted(listener: (draftId: string) => void): () => void 
   return () => listeners.delete(listener);
 }
 
-function startsDraft(path: readonly string[]) {
-  if (path.length !== 2) return false;
-  return STARTS_DRAFT[path[0] as keyof Router]?.[path[1]] === true;
-}
-
 type DraftRequestHeaders = {
   headers: Record<string, string>;
   settle: (ok: boolean) => void;
@@ -173,7 +86,7 @@ type DraftRequestHeaders = {
 
 /** Headers for an API call at `path`, and a callback to report whether the call succeeded. */
 export function getDraftRequestHeaders(path: readonly string[]): DraftRequestHeaders {
-  return headersFor(startsDraft(path));
+  return headersFor(isContentWrite(path));
 }
 
 /**
