@@ -24,10 +24,8 @@ export type PageStructure = {
 export type Project = Awaited<ReturnType<ApiClient["projects"]["getBySlug"]>>;
 export type Layout = Awaited<ReturnType<ApiClient["layouts"]["list"]>>[number];
 export type BlockUsageCounts = Awaited<ReturnType<ApiClient["blocks"]["getUsageCounts"]>>;
-type CheckCompatibilityResponse = Awaited<
-  ReturnType<ApiClient["environments"]["checkCompatibility"]>
->;
-export type CompatibilityReason = CheckCompatibilityResponse["reasons"][number];
+export type DraftList = Awaited<ReturnType<ApiClient["drafts"]["list"]>>;
+export type DraftSummary = DraftList["drafts"][number];
 
 // --- Query factories ---
 
@@ -207,35 +205,30 @@ export const blockQueries = {
   }),
 };
 
-export const environmentQueries = {
-  // Param-aware queryKey so push (current → prod) and pull (prod → current) get
-  // distinct cache slots; both still fall under the `environments.checkCompatibility`
-  // namespace so the server-side broadcast invalidates them as a prefix.
-  checkCompatibility: (projectId: number, sourceEnvName: string, targetEnvName: string) => ({
-    ...getOrpc().environments.checkCompatibility.queryOptions({
-      input: { projectId, sourceEnvName, targetEnvName },
-      staleTime: Infinity,
-    }),
-    queryKey: [...queryKeys.environments.checkCompatibility, sourceEnvName, targetEnvName] as const,
-  }),
-};
-
 export const draftQueries = {
+  // Open drafts and Live's latest publish. The same whatever draft the viewer is in, so a Live
+  // invalidation refreshes it for everyone.
+  list: (projectId: number) => ({
+    ...getOrpc().drafts.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
+    queryKey: [...queryKeys.drafts.list, projectId] as const,
+  }),
+  // The draft the studio is in: its name, creator and change count.
+  get: (projectId: number, draftId: string) => ({
+    ...getOrpc().drafts.get.queryOptions({ input: { projectId }, staleTime: Infinity }),
+    queryKey: [...queryKeys.drafts.get, draftId] as const,
+  }),
   // What publishing the draft will do. Always refetched when the review opens, since conflicts
   // depend on Live at that moment.
   previewPublish: (projectId: number, draftId: string) => ({
     ...getOrpc().drafts.previewPublish.queryOptions({ input: { projectId }, staleTime: 0 }),
-    queryKey: ["camox", "drafts", "previewPublish", draftId] as const,
+    queryKey: [...queryKeys.drafts.previewPublish, draftId] as const,
   }),
 };
 
 export const draftMutations = {
+  rename: () => getOrpc().drafts.rename.mutationOptions(),
   publish: () => getOrpc().drafts.publish.mutationOptions(),
   discard: () => getOrpc().drafts.discard.mutationOptions(),
-};
-
-export const environmentMutations = {
-  replicate: () => getOrpc().environments.replicate.mutationOptions(),
 };
 
 export const repeatableItemQueries = {

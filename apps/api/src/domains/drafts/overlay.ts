@@ -23,6 +23,7 @@ import { blocks, sharedContents } from "../blocks/schema";
 import { comments } from "../comments/schema";
 import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
+import { environments } from "../projects/schema";
 import { repeatableItems } from "../repeatable-items/schema";
 import { drafts, endedDrafts } from "./schema";
 import type { DraftScope } from "./scope";
@@ -101,6 +102,8 @@ export type ContentTableRegistration = {
   /** The columns a change on another entity can rewrite, copying this one into the draft. */
   rewritable: AnySQLiteColumn[];
   dependents: Dependent[];
+  /** The table's rows in a project, Live's and every draft's, as a condition on the table. */
+  inProject: (projectId: number) => SQL;
 };
 
 const registrations = new Map<ContentTable, ContentTableRegistration>();
@@ -120,12 +123,17 @@ export function registrationOf(table: ContentTable): ContentTableRegistration {
   return registration;
 }
 
+/** The ids of a project's environments, as a subquery. */
+const environmentsOf = (projectId: number) =>
+  sql`(select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`;
+
 registerContentTable(pages, {
   entity: "page",
   parents: [{ column: pages.parentPageId, key: pages.id }],
   // Renaming or moving a page rewrites the full path of every descendant page.
   rewritable: [pages.fullPath],
   dependents: [{ onDelete: "delete", column: comments.pageId }],
+  inProject: (projectId) => eq(pages.projectId, projectId),
 });
 
 registerContentTable(blocks, {
@@ -140,6 +148,7 @@ registerContentTable(blocks, {
   ],
   rewritable: [],
   dependents: [{ onDelete: "detach", column: comments.blockId }],
+  inProject: (projectId) => sql`${blocks.environmentId} in ${environmentsOf(projectId)}`,
 });
 
 registerContentTable(sharedContents, {
@@ -147,6 +156,7 @@ registerContentTable(sharedContents, {
   parents: [],
   rewritable: [],
   dependents: [],
+  inProject: (projectId) => sql`${sharedContents.environmentId} in ${environmentsOf(projectId)}`,
 });
 
 registerContentTable(repeatableItems, {
@@ -162,6 +172,9 @@ registerContentTable(repeatableItems, {
   ],
   rewritable: [],
   dependents: [{ onDelete: "detach", column: comments.itemId }],
+  // An item's tree is rooted in a shared content of the environment, or in a block.
+  inProject: (projectId) =>
+    sql`(${repeatableItems.environmentId} in ${environmentsOf(projectId)} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."environment_id" in ${environmentsOf(projectId)}))`,
 });
 
 /** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */
@@ -415,6 +428,24 @@ export const updateExisting = Effect.fn("overlay.updateExisting")(function* <
   )) as Row<T> | undefined;
 });
 
+// --- Releases (ADR 0006, ADR 0007) ---
+//
+// Besides publishing, a release is the only writer of Live. What it writes is published by no
+// member, which the studio shows as "a release".
+
+/** The bookkeeping of an entity a release adds to Live. */
+export function releasedNew(now: number) {
+  return { firstPublishedAt: now, publishedAt: now, publishedBy: null };
+}
+
+/**
+ * The bookkeeping of a Live entity a release changes: a counted change, so drafts that copied
+ * it see a conflict.
+ */
+export function releasedChange(table: ContentTable, now: number) {
+  return { version: sql`${table.version} + 1`, publishedAt: now, publishedBy: null };
+}
+
 /**
  * Orders by fractional position, then by id: positions picked in different drafts can collide
  * (ADR 0005).
@@ -555,6 +586,75 @@ export const changesOf = Effect.fn("overlay.changesOf")(function* (
     }
   }
   return changes;
+});
+
+export type DraftActivity = { changeCount: number; lastChangedAt: number | null };
+
+/**
+ * How many entities each draft stores, the count `changesOf` lists, and when it last wrote one.
+ * A draft storing nothing is missing from the map.
+ */
+export const activityOf = Effect.fn("overlay.activityOf")(function* (
+  db: Database,
+  draftIds: string[],
+) {
+  const activity = new Map<string, DraftActivity>();
+  if (draftIds.length === 0) return activity;
+  for (const table of tables()) {
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({
+          draftId: sql<string>`${table.draftId}`,
+          count: sql<number>`count(*)`,
+          lastChangedAt: sql<number | null>`max(${table.updatedAt})`,
+        })
+        .from(table as SQLiteTable)
+        .where(inArray(table.draftId, draftIds))
+        .groupBy(table.draftId),
+    );
+    for (const row of rows) {
+      const known = activity.get(row.draftId) ?? { changeCount: 0, lastChangedAt: null };
+      activity.set(row.draftId, {
+        changeCount: known.changeCount + row.count,
+        lastChangedAt: Math.max(known.lastChangedAt ?? 0, row.lastChangedAt ?? 0) || null,
+      });
+    }
+  }
+  return activity;
+});
+
+/**
+ * Who published Live's most recently published content in a project, and when: the latest
+ * publish of any draft, development drafts included, or a release, which has no publisher.
+ * Null when nothing was ever published.
+ */
+export const latestLivePublish = Effect.fn("overlay.latestLivePublish")(function* (
+  db: Database,
+  projectId: number,
+) {
+  let latest: { publishedBy: string | null; publishedAt: number } | null = null;
+  for (const table of tables()) {
+    const row = yield* Effect.promise(() =>
+      db
+        .select({
+          publishedBy: sql<string | null>`${table.publishedBy}`,
+          publishedAt: sql<number>`${table.publishedAt}`,
+        })
+        .from(table as SQLiteTable)
+        .where(
+          and(
+            isNull(table.draftId),
+            sql`${table.publishedAt} is not null`,
+            registrationOf(table).inProject(projectId),
+          ),
+        )
+        .orderBy(sql`${table.publishedAt} desc`)
+        .limit(1)
+        .get(),
+    );
+    if (row && (!latest || row.publishedAt > latest.publishedAt)) latest = row;
+  }
+  return latest;
 });
 
 export type StoredConflict = {

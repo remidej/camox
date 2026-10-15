@@ -55,13 +55,15 @@ const insertSharedContent = Effect.fn("insertSharedContent")(function* (
   data: { content: unknown; settings: unknown; summary: string },
 ) {
   const now = Date.now();
-  yield* overlay.insert(db, scope, sharedContents, {
-    id: sharedContentId(key),
-    ...key,
-    ...data,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const row = { id: sharedContentId(key), ...key, ...data, createdAt: now, updatedAt: now };
+  if (scope) return void (yield* overlay.insert(db, scope, sharedContents, row));
+  // Only releases and Live writes create Live's shared content.
+  yield* Effect.promise(() =>
+    db
+      .insert(sharedContents)
+      .values({ ...row, ...overlay.releasedNew(now) })
+      .onConflictDoNothing(),
+  );
 });
 
 /**
@@ -222,18 +224,25 @@ const copyItemTree = Effect.fn("copyItemTree")(function* (
   ): Effect.Effect<void> =>
     Effect.gen(function* () {
       for (const item of items.filter((candidate) => candidate.parentItemId === parentId)) {
-        const copied = yield* overlay.insert(db, null, repeatableItems, {
-          ...rootColumns(root),
-          parentItemId: copiedParentId,
-          fieldName: item.fieldName,
-          content: item.content,
-          settings: item.settings,
-          summary: item.summary,
-          position: item.position,
-          createdAt: now,
-          updatedAt: now,
-        });
-        yield* copyChildren(item.id, copied!.id);
+        const copied = yield* Effect.promise(() =>
+          db
+            .insert(repeatableItems)
+            .values({
+              ...overlay.releasedNew(now),
+              ...rootColumns(root),
+              parentItemId: copiedParentId,
+              fieldName: item.fieldName,
+              content: item.content,
+              settings: item.settings,
+              summary: item.summary,
+              position: item.position,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning({ id: repeatableItems.id })
+            .get(),
+        );
+        yield* copyChildren(item.id, copied.id);
       }
     });
   yield* copyChildren(null, null);
@@ -271,18 +280,25 @@ const sharedContentFromDefaults = Effect.fn("sharedContentFromDefaults")(functio
   });
   const ids = new Map<string, string>();
   for (const seed of defaults.seeds) {
-    const inserted = yield* overlay.insert(db, null, repeatableItems, {
-      ...rootColumns({ sharedContent: key }),
-      parentItemId: seed.parentTempId ? (ids.get(seed.parentTempId) ?? null) : null,
-      fieldName: seed.fieldName,
-      content: seed.content,
-      settings: seed.settings ?? null,
-      summary: "",
-      position: seed.position,
-      createdAt: now,
-      updatedAt: now,
-    });
-    ids.set(seed.tempId, inserted!.id);
+    const inserted = yield* Effect.promise(() =>
+      db
+        .insert(repeatableItems)
+        .values({
+          ...overlay.releasedNew(now),
+          ...rootColumns({ sharedContent: key }),
+          parentItemId: seed.parentTempId ? (ids.get(seed.parentTempId) ?? null) : null,
+          fieldName: seed.fieldName,
+          content: seed.content,
+          settings: seed.settings ?? null,
+          summary: "",
+          position: seed.position,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: repeatableItems.id })
+        .get(),
+    );
+    ids.set(seed.tempId, inserted.id);
   }
 });
 
@@ -301,7 +317,11 @@ const sharedContentFromPlacement = Effect.fn("sharedContentFromPlacement")(funct
   yield* Effect.promise(() =>
     db
       .update(repeatableItems)
-      .set(rootColumns({ sharedContent: key }))
+      .set({
+        ...rootColumns({ sharedContent: key }),
+        // Moving Live items under the shared content is a change drafts that copied them see.
+        ...(scope ? {} : overlay.releasedChange(repeatableItems, Date.now())),
+      })
       .where(
         and(eq(repeatableItems.blockId, placement.id), overlay.storedIn(repeatableItems, scope)),
       ),
@@ -309,9 +329,10 @@ const sharedContentFromPlacement = Effect.fn("sharedContentFromPlacement")(funct
 });
 
 /**
- * Becoming synced (ADR 0007): Live's shared content is taken from the most recently updated
+ * Becoming synced (ADR 0007): Live's shared content is taken from the most recently published
  * Live placement, items included, or from the definition's defaults when there is none. Every
- * Live placement's own content is cleared.
+ * Live placement's own content is cleared, a change drafts that copied a placement see as a
+ * conflict.
  */
 const becomeSynced = Effect.fn("becomeSynced")(function* (db: Database, key: DefinitionKey) {
   const placements = yield* placementsOf(db, null, key);
@@ -331,23 +352,30 @@ const becomeSynced = Effect.fn("becomeSynced")(function* (db: Database, key: Def
   );
   const lastUpdate = (block: BlockRow) =>
     Math.max(block.updatedAt, itemUpdates.find((row) => row.blockId === block.id)?.updatedAt ?? 0);
-  // Ties go to the newest placement, whose UUIDv7 sorts last.
-  const latest = placements.reduce((best, block) =>
-    lastUpdate(block) >= lastUpdate(best) ? block : best,
-  );
+  // Placements never published, or published together, go by their last update. Remaining ties
+  // go to the newest placement, whose UUIDv7 sorts last.
+  const rank = (block: BlockRow) => [block.publishedAt ?? -1, lastUpdate(block)];
+  const later = (a: BlockRow, b: BlockRow) => {
+    const [aPublished, aUpdated] = rank(a);
+    const [bPublished, bUpdated] = rank(b);
+    if (aPublished !== bPublished) return aPublished > bPublished;
+    return aUpdated >= bUpdated;
+  };
+  const latest = placements.reduce((best, block) => (later(block, best) ? block : best));
   yield* sharedContentFromPlacement(db, null, latest);
   yield* Effect.promise(() => db.delete(repeatableItems).where(liveItemsOf));
   yield* Effect.promise(() =>
     db
       .update(blocks)
-      .set(clearedPlacement)
+      .set({ ...clearedPlacement, ...overlay.releasedChange(blocks, Date.now()) })
       .where(and(placementsWhere(key), overlay.storedIn(blocks, null))),
   );
 });
 
 /**
  * No longer synced (ADR 0007): every Live placement gets its own copy of Live's shared content,
- * with fresh ids for the copied repeatable items, and the shared content is deleted.
+ * with fresh ids for the copied repeatable items, and the shared content is deleted. Drafts that
+ * copied a placement see the change as a conflict.
  */
 const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
   db: Database,
@@ -362,7 +390,12 @@ const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
     yield* Effect.promise(() =>
       db
         .update(blocks)
-        .set({ content: shared.content, settings: shared.settings, summary: shared.summary })
+        .set({
+          content: shared.content,
+          settings: shared.settings,
+          summary: shared.summary,
+          ...overlay.releasedChange(blocks, now),
+        })
         .where(eq(blocks.rowId, placement.rowId)),
     );
     yield* copyItemTree(db, items, { blockId: placement.id }, now);

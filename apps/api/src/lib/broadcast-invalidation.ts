@@ -39,13 +39,19 @@ export function broadcastInvalidation({ draftId, targets, ...room }: BroadcastIn
     ["pages", "blocks", "repeatableItems", "layouts", "blockDefinitions"].includes(String(domain)),
   );
   const alreadyIncludesComments = targets.some((key) => key.length === 2 && key[1] === "comments");
+  const withComments =
+    contentChanged && !alreadyIncludesComments ? [...targets, queryKeys.comments.all] : targets;
+  // A change in a draft changes its change count: in its own summary, and in everyone's list.
+  const draftChanged = contentChanged && draftId !== null;
   const message: InvalidationMessage = {
     type: "invalidate",
     draftId,
-    targets:
-      contentChanged && !alreadyIncludesComments ? [...targets, queryKeys.comments.all] : targets,
+    targets: draftChanged ? [...withComments, queryKeys.drafts.get] : withComments,
   };
   broadcast(room, message);
+  if (draftChanged) {
+    broadcast(room, { type: "invalidate", draftId: null, targets: [queryKeys.drafts.list] });
+  }
 }
 
 /**

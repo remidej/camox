@@ -1,8 +1,22 @@
 import { runService } from "../../lib/run-service";
 import { authed } from "../../orpc";
+import * as list from "./list";
 import * as publish from "./publish";
 
-// Every procedure acts on the draft the request names through `x-camox-draft` (ADR 0011).
+// Every procedure but `list` acts on the draft the request names through `x-camox-draft`
+// (ADR 0011).
+
+const listDrafts = authed
+  .input(list.listInput)
+  .handler(({ context, input }) => runService(list.listDrafts(context, input)));
+
+const get = authed
+  .input(list.getInput)
+  .handler(({ context, input }) => runService(list.getDraft(context, input)));
+
+const rename = authed
+  .input(list.renameInput)
+  .handler(({ context, input }) => runService(list.renameDraft(context, input)));
 
 const previewPublish = authed
   .input(publish.previewPublishInput)
@@ -17,6 +31,9 @@ const discard = authed
   .handler(({ context, input }) => runService(publish.discardDraft(context, input)));
 
 export const draftProcedures = {
+  list: listDrafts,
+  get,
+  rename,
   previewPublish,
   publish: publishDraft,
   discard,
