@@ -7,7 +7,7 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlocks } from "../../lib/bump-content-updated-at";
 import { blocks, repeatableItems, sharedContents } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { visibleIn } from "../drafts/overlay";
+import { releasedChange, visibleIn } from "../drafts/overlay";
 import {
   itemsUnder,
   rootColumns,
@@ -315,9 +315,9 @@ const sharedContentFromPlacement = Effect.fn("sharedContentFromPlacement")(funct
 });
 
 /**
- * Becoming synced (ADR 0007): the shared content is taken from the most recently updated
+ * Becoming synced (ADR 0007): the shared content is taken from the most recently published
  * placement, items included, or from the definition's defaults when there is none. Every
- * placement's own content is cleared.
+ * placement's own content is cleared, a change drafts that copied a placement see as a conflict.
  */
 const becomeSynced = Effect.fn("becomeSynced")(function* (db: Database, key: DefinitionKey) {
   const placements = yield* placementsOf(db, key);
@@ -333,20 +333,32 @@ const becomeSynced = Effect.fn("becomeSynced")(function* (db: Database, key: Def
   );
   const lastUpdate = (block: BlockRow) =>
     Math.max(block.updatedAt, itemUpdates.find((row) => row.blockId === block.id)?.updatedAt ?? 0);
-  // Ties go to the newest placement, whose UUIDv7 sorts last.
-  const latest = placements.reduce((best, block) =>
-    lastUpdate(block) >= lastUpdate(best) ? block : best,
-  );
+  // Placements never published, or published together, go by their last update. Remaining ties
+  // go to the newest placement, whose UUIDv7 sorts last.
+  const rank = (block: BlockRow) => [block.publishedAt ?? -1, lastUpdate(block)];
+  const later = (a: BlockRow, b: BlockRow) => {
+    const [aPublished, aUpdated] = rank(a);
+    const [bPublished, bUpdated] = rank(b);
+    if (aPublished !== bPublished) return aPublished > bPublished;
+    return aUpdated >= bUpdated;
+  };
+  const latest = placements.reduce((best, block) => (later(block, best) ? block : best));
   yield* sharedContentFromPlacement(db, latest);
   yield* Effect.promise(() =>
     db.delete(repeatableItems).where(inArray(repeatableItems.blockId, placementIds)),
   );
-  yield* Effect.promise(() => db.update(blocks).set(clearedPlacement).where(placementsWhere(key)));
+  yield* Effect.promise(() =>
+    db
+      .update(blocks)
+      .set({ ...clearedPlacement, ...releasedChange(blocks, Date.now()) })
+      .where(placementsWhere(key)),
+  );
 });
 
 /**
  * No longer synced (ADR 0007): every placement gets its own copy of the shared content, with
- * fresh ids for the copied repeatable items, and the shared content is deleted.
+ * fresh ids for the copied repeatable items, and the shared content is deleted. Drafts that
+ * copied a placement see the change as a conflict.
  */
 const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
   db: Database,
@@ -362,7 +374,12 @@ const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
     yield* Effect.promise(() =>
       db
         .update(blocks)
-        .set({ content: shared.content, settings: shared.settings, summary: shared.summary })
+        .set({
+          content: shared.content,
+          settings: shared.settings,
+          summary: shared.summary,
+          ...releasedChange(blocks, now),
+        })
         .where(eq(blocks.rowId, placement.rowId)),
     );
     yield* copyItemTree(db, items, { blockId: placement.id }, now);

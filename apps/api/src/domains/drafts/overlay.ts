@@ -383,6 +383,24 @@ export const updateExisting = Effect.fn("overlay.updateExisting")(function* <
   )) as Row<T> | undefined;
 });
 
+// --- Releases (ADR 0006, ADR 0007) ---
+//
+// Besides publishing, a release is the only writer of Live. What it writes is published by no
+// member, which the studio shows as "a release".
+
+/** The bookkeeping of an entity a release adds to Live. */
+export function releasedNew(now: number) {
+  return { firstPublishedAt: now, publishedAt: now, publishedBy: null };
+}
+
+/**
+ * The bookkeeping of a Live entity a release changes: a counted change, so drafts that copied
+ * it see a conflict.
+ */
+export function releasedChange(table: ContentTable, now: number) {
+  return { version: sql`${table.version} + 1`, publishedAt: now, publishedBy: null };
+}
+
 /**
  * Orders by fractional position, then by id: positions picked in different drafts can collide
  * (ADR 0005).
