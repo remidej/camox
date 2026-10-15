@@ -145,7 +145,7 @@ async function download(source: string, destination: string) {
 export async function uploadFile(
   context: Awaited<ReturnType<typeof resolveCommandContext>>,
   options: UploadOptions,
-  targetId?: number,
+  targetId?: string,
 ): Promise<unknown> {
   validateUpload(options);
   let temporaryDirectory: string | undefined;

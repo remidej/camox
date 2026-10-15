@@ -1,6 +1,9 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
+import { z } from "zod";
+
 /**
  * Rewrite Image/File nodes in a block contentSchema to the AI-facing shape:
- * `{ _fileId: integer } | null`. The persisted SDK schema bakes in
+ * `{ _fileId: <UUIDv7> } | null`. The persisted SDK schema bakes in
  * `default: { url: "https://placehold.co/...", ... }` to drive runtime UI
  * placeholders — but when handed verbatim to a model it trains the model to
  * mimic the placehold URL into block content. This rewriter strips those
@@ -13,6 +16,8 @@
 
 type SchemaNode = Record<string, unknown>;
 
+const { $schema: _, ...fileIdSchema } = z.toJSONSchema(uuidv7Schema);
+
 function isObject(v: unknown): v is SchemaNode {
   return v != null && typeof v === "object" && !Array.isArray(v);
 }
@@ -24,14 +29,14 @@ function rewriteAssetNode(node: SchemaNode): SchemaNode {
     anyOf: [
       {
         type: "object",
-        properties: { _fileId: { type: "integer" } },
+        properties: { _fileId: fileIdSchema },
         required: ["_fileId"],
         additionalProperties: false,
       },
       { type: "null" },
     ],
     description:
-      "Reference to a file in the project's files table. Either { _fileId: <integer> } pointing at an existing file row, or null (the frontend renders a placeholder). Do NOT invent a URL or filename — any other shape will be silently dropped on write.",
+      "Reference to a file in the project's files table. Either { _fileId: <the file's UUIDv7 id> } pointing at an existing file row, or null (the frontend renders a placeholder). Do NOT invent a URL or filename — a _fileId that isn't a UUIDv7 is rejected, and any other shape is silently dropped on write.",
   };
   if (typeof node.title === "string") out.title = node.title;
   return out;

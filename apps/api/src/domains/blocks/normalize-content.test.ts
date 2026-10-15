@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { normalizeBlockContent } from "./normalize-content";
 
+const FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+
 describe("normalizeBlockContent", () => {
   it("extracts nested repeaters and strips untrusted asset properties", () => {
     const schema = {
@@ -26,14 +28,14 @@ describe("normalizeBlockContent", () => {
     const result = Effect.runSync(
       normalizeBlockContent(
         {
-          hero: { _fileId: "42", url: "https://untrusted.example/image.png" },
+          hero: { _fileId: FILE_ID, url: "https://untrusted.example/image.png" },
           sections: [{ title: "Section", cards: [{ title: "Card" }] }],
         },
         schema,
       ),
     );
 
-    expect(result.content).toEqual({ hero: { _fileId: 42 } });
+    expect(result.content).toEqual({ hero: { _fileId: FILE_ID } });
     expect(result.seeds).toHaveLength(2);
     expect(result.seeds[0]).toMatchObject({
       parentTempId: null,

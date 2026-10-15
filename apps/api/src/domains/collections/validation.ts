@@ -1,4 +1,5 @@
 import { isQueryBacked, isSystemOrderKey } from "@camox/api-contract";
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -142,10 +143,7 @@ const assetInput = z
     filename: z.string(),
     mimeType: z.string(),
     size: z.number().int().nonnegative().optional(),
-    _fileId: z
-      .string()
-      .regex(/^[1-9]\d*$/)
-      .optional(),
+    _fileId: uuidv7Schema.optional(),
   })
   .strict();
 
@@ -158,8 +156,8 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
   value: unknown,
 ) {
   let asset = yield* decodeContent(assetInput, value);
-  if (asset._fileId) {
-    const fileId = Number(asset._fileId);
+  const fileId = asset._fileId;
+  if (fileId) {
     const file = yield* Effect.promise(() =>
       ctx.db
         .select()
@@ -183,7 +181,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
       filename: file.filename,
       mimeType: file.mimeType,
       size: file.size,
-      _fileId: String(file.id),
+      _fileId: file.id,
     };
   }
   if (field.fieldType.startsWith("Image") && !asset.mimeType.startsWith("image/")) {
@@ -217,14 +215,14 @@ export const validateContent = Effect.fn("collections.validateContent")(function
   for (const [key, field] of Object.entries(schema.properties)) {
     const value = content[key];
     if (field.fieldType === "Reference") {
-      const id = yield* decodeContent(z.uuid().nullable(), value);
+      const id = yield* decodeContent(uuidv7Schema.nullable(), value);
       if (id !== null && !(yield* recordInScope(ctx, definition, field, id)))
         return yield* missingReference(key);
       result[key] = id;
       continue;
     }
     if (field.fieldType === "ReferenceList") {
-      const ids = yield* decodeContent(z.array(z.uuid()).max(field.maxItems ?? 100), value);
+      const ids = yield* decodeContent(z.array(uuidv7Schema).max(field.maxItems ?? 100), value);
       if (new Set(ids).size !== ids.length)
         return yield* new InvalidInputError({
           message: `${key}: reference list links the same record more than once`,
