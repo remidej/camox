@@ -77,7 +77,7 @@ const PageLocationFieldset = ({
             <SelectItem value={NO_PARENT_VALUE}>No parent</SelectItem>
             <SelectSeparator />
             {nonRootPages?.map((page) => (
-              <SelectItem key={page.id} value={String(page.id)}>
+              <SelectItem key={page.id} value={page.id}>
                 <div className="flex flex-col items-start">
                   <span>{page.nickname}</span>
                   <span className="text-muted-foreground font-mono text-xs [[data-slot=select-value]_&]:hidden">

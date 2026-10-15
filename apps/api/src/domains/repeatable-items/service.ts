@@ -480,7 +480,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
       .returning()
       .get(),
   );
-  if (!result) return yield* new ConflictError({ message: `Item ${id} already exists` });
+  if (!result) return yield* new ConflictError({ message: `Repeatable item ${id} already exists` });
 
   // Insert client-provided nested item seeds
   if (preparedSeeds.length > 0) {

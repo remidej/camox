@@ -556,7 +556,8 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     }
     const elementObj = element as Record<string, unknown>;
     const rawItemId = elementObj._itemId;
-    const itemId = uuidv7Schema.safeParse(rawItemId).success ? (rawItemId as string) : null;
+    const parsedItemId = uuidv7Schema.safeParse(rawItemId);
+    const itemId = parsedItemId.success ? parsedItemId.data : null;
     const position = generateKeyBetween(prevPos, null);
     prevPos = position;
 

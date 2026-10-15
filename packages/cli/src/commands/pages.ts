@@ -28,7 +28,7 @@ const get = command(
   "get",
   object({
     command: constant("pages.get" as const),
-    id: optional(option("--id", uuidv7("ID"))),
+    id: optional(option("--id", uuidv7())),
     path: optional(option("--path", string({ metavar: "PATH" }))),
     cwd: cwdFlag,
     project: projectFlag,
@@ -44,7 +44,7 @@ const create = command(
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: option("--path-segment", string({ metavar: "SEGMENT" })),
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
-    parentPageId: optional(option("--parent-page-id", uuidv7("ID"))),
+    parentPageId: optional(option("--parent-page-id", uuidv7())),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -56,7 +56,7 @@ const update = command(
   "update",
   object({
     command: constant("pages.update" as const),
-    id: optional(option("--id", uuidv7("ID"))),
+    id: optional(option("--id", uuidv7())),
     path: optional(option("--path", string({ metavar: "PATH" }))),
     metaTitle: optional(
       option("--meta-title", string({ metavar: "TEXT" }), {
@@ -75,7 +75,7 @@ const update = command(
     ),
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: optional(option("--path-segment", string({ metavar: "SEGMENT" }))),
-    parentPageId: optional(option("--parent-page-id", uuidv7("ID"))),
+    parentPageId: optional(option("--parent-page-id", uuidv7())),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -90,7 +90,7 @@ const setLayout = command(
   "set-layout",
   object({
     command: constant("pages.set-layout" as const),
-    id: option("--id", uuidv7("ID")),
+    id: option("--id", uuidv7()),
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
@@ -103,7 +103,7 @@ const del = command(
   "delete",
   object({
     command: constant("pages.delete" as const),
-    id: option("--id", uuidv7("ID")),
+    id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,

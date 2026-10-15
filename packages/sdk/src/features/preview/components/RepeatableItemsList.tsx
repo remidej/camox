@@ -58,7 +58,7 @@ const SortableRepeatableItem = ({
 }: SortableRepeatableItemProps) => {
   const owner = useContext(PreviewEditingOwnerContext);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: String(item.id),
+    id: item.id,
   });
 
   const style = {
@@ -78,8 +78,8 @@ const SortableRepeatableItem = ({
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
       type: "CAMOX_HOVER_REPEATABLE_ITEM",
-      blockId: String(blockId),
-      itemId: String(item.id),
+      blockId: blockId,
+      itemId: item.id,
     };
     iframeElement.contentWindow.postMessage(message, "*");
   };
@@ -88,8 +88,8 @@ const SortableRepeatableItem = ({
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
       type: "CAMOX_HOVER_REPEATABLE_ITEM_END",
-      blockId: String(blockId),
-      itemId: String(item.id),
+      blockId: blockId,
+      itemId: item.id,
     };
     iframeElement.contentWindow.postMessage(message, "*");
   };
@@ -196,8 +196,8 @@ const RepeatableItemsList = ({ items, blockId, fieldName, schema }: RepeatableIt
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const oldIndex = items.findIndex((item) => String(item.id) === active.id);
-    const newIndex = items.findIndex((item) => String(item.id) === over.id);
+    const oldIndex = items.findIndex((item) => item.id === active.id);
+    const newIndex = items.findIndex((item) => item.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
     let afterPosition: string | undefined;
@@ -228,13 +228,13 @@ const RepeatableItemsList = ({ items, blockId, fieldName, schema }: RepeatableIt
           modifiers={[restrictToVerticalAxis]}
         >
           <SortableContext
-            items={items.map((item) => String(item.id))}
+            items={items.map((item) => item.id)}
             strategy={verticalListSortingStrategy}
           >
             <ul className="flex flex-col gap-1">
               {items.map((item) => (
                 <SortableRepeatableItem
-                  key={String(item.id)}
+                  key={item.id}
                   item={item}
                   blockId={blockId}
                   fieldName={fieldName}

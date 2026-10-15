@@ -54,7 +54,7 @@ function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
       type: "CAMOX_HOVER_BLOCK",
-      blockId: String(block.id),
+      blockId: block.id,
     };
     iframeElement.contentWindow.postMessage(message, "*");
   };
@@ -63,7 +63,7 @@ function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
       type: "CAMOX_HOVER_BLOCK_END",
-      blockId: String(block.id),
+      blockId: block.id,
     };
     iframeElement.contentWindow.postMessage(message, "*");
   };
@@ -177,7 +177,7 @@ const animateLayoutChanges: AnimateLayoutChanges = (args) => {
 const SortableBlock = ({ block }: SortableBlockProps) => {
   const [gripPopoverOpen, setGripPopoverOpen] = React.useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: String(block.id),
+    id: block.id,
     animateLayoutChanges,
   });
   const style = {
@@ -324,8 +324,8 @@ const PageTree = () => {
     }
 
     // Find the old and new indices
-    const oldIndex = pageBlocks.findIndex((block) => String(block.id) === active.id);
-    const newIndex = pageBlocks.findIndex((block) => String(block.id) === over.id);
+    const oldIndex = pageBlocks.findIndex((block) => block.id === active.id);
+    const newIndex = pageBlocks.findIndex((block) => block.id === over.id);
 
     if (oldIndex === -1 || newIndex === -1) {
       setActiveId(null);
@@ -374,7 +374,7 @@ const PageTree = () => {
       <div className="flex flex-col gap-0.5">
         {layoutBeforeBlocks.map((block) => (
           <LayoutBlockItem
-            key={String(block.id)}
+            key={block.id}
             block={block}
             layoutName={layout?._internal.title ?? "Unknown"}
           />
@@ -388,19 +388,19 @@ const PageTree = () => {
           modifiers={[restrictToVerticalAxis]}
         >
           <SortableContext
-            items={pageBlocks.map((block) => String(block.id))}
+            items={pageBlocks.map((block) => block.id)}
             strategy={verticalListSortingStrategy}
           >
             <div className="relative flex flex-col gap-0.5">
               {pageBlocks.map((block) => (
-                <SortableBlock key={String(block.id)} block={block} />
+                <SortableBlock key={block.id} block={block} />
               ))}
             </div>
           </SortableContext>
           <DragOverlay dropAnimation={null}>
             {activeId
               ? (() => {
-                  const activeBlock = pageBlocks.find((b) => String(b.id) === activeId);
+                  const activeBlock = pageBlocks.find((b) => b.id === activeId);
                   if (!activeBlock) return null;
                   return (
                     <div className="bg-accent text-accent-foreground rounded-lg shadow-md">
@@ -416,7 +416,7 @@ const PageTree = () => {
         </DndContext>
         {layoutAfterBlocks.map((block) => (
           <LayoutBlockItem
-            key={String(block.id)}
+            key={block.id}
             block={block}
             layoutName={layout?._internal.title ?? "Unknown"}
           />

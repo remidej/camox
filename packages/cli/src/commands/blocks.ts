@@ -47,7 +47,7 @@ const get = command(
   "get",
   object({
     command: constant("blocks.get" as const),
-    id: option("--id", uuidv7("ID")),
+    id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -59,7 +59,7 @@ const getMany = command(
   "get-many",
   object({
     command: constant("blocks.get-many" as const),
-    id: multiple(option("--id", uuidv7("ID")), { min: 1 }),
+    id: multiple(option("--id", uuidv7()), { min: 1 }),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -71,7 +71,7 @@ const create = command(
   "create",
   object({
     command: constant("blocks.create" as const),
-    pageId: option("--page-id", uuidv7("ID")),
+    pageId: option("--page-id", uuidv7()),
     type: option("--type", string({ metavar: "TYPE" })),
     content: optional(option("--content", string({ metavar: "JSON" }))),
     fieldFile: fieldFileFlag,
@@ -79,8 +79,8 @@ const create = command(
     position: optional(
       option("--position", choice(["first", "last"] as const, { metavar: "WHERE" })),
     ),
-    afterId: optional(option("--after-id", uuidv7("ID"))),
-    beforeId: optional(option("--before-id", uuidv7("ID"))),
+    afterId: optional(option("--after-id", uuidv7())),
+    beforeId: optional(option("--before-id", uuidv7())),
     afterPosition: optional(option("--after-position", string({ metavar: "POS" }))),
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
@@ -94,7 +94,7 @@ const edit = command(
   "edit",
   object({
     command: constant("blocks.edit" as const),
-    id: option("--id", uuidv7("ID")),
+    id: option("--id", uuidv7()),
     content: optional(option("--content", string({ metavar: "JSON" }))),
     fieldFile: fieldFileFlag,
     settings: optional(option("--settings", string({ metavar: "JSON" }))),
@@ -109,12 +109,12 @@ const move = command(
   "move",
   object({
     command: constant("blocks.move" as const),
-    id: option("--id", uuidv7("ID")),
+    id: option("--id", uuidv7()),
     position: optional(
       option("--position", choice(["first", "last"] as const, { metavar: "WHERE" })),
     ),
-    afterId: optional(option("--after-id", uuidv7("ID"))),
-    beforeId: optional(option("--before-id", uuidv7("ID"))),
+    afterId: optional(option("--after-id", uuidv7())),
+    beforeId: optional(option("--before-id", uuidv7())),
     afterPosition: optional(option("--after-position", string({ metavar: "POS" }))),
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
@@ -128,7 +128,7 @@ const del = command(
   "delete",
   object({
     command: constant("blocks.delete" as const),
-    id: option("--id", uuidv7("ID")),
+    id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,

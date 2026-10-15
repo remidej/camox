@@ -22,7 +22,7 @@ export const parser = command(
       "list",
       object({
         command: constant("comments.list" as const),
-        pageId: option("--page-id", uuidv7("ID")),
+        pageId: option("--page-id", uuidv7()),
         ...common,
       }),
       { description: message`List all comments (including resolved ones) for a page.` },
@@ -31,7 +31,7 @@ export const parser = command(
       "resolve",
       object({
         command: constant("comments.resolve" as const),
-        pageId: option("--page-id", uuidv7("ID")),
+        pageId: option("--page-id", uuidv7()),
         id: option("--id", uuidv7()),
         ...common,
       }),
