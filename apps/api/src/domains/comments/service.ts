@@ -2,11 +2,12 @@ import {
   COMMENT_MESSAGE_MAX_LENGTH,
   commentSchema,
   commentTargetSchema,
+  type Comment,
   type CommentTarget,
 } from "@camox/api-contract";
 import { generateUuidv7, uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -23,7 +24,11 @@ import {
   user,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { user as users } from "../auth/schema";
 import { visibleIn } from "../drafts/overlay";
+import { drafts } from "../drafts/schema";
+import type { DraftScope } from "../drafts/scope";
+import { resolveDraftScope } from "../drafts/service";
 import { rootOfItem, sharedContentItemsIn } from "../repeatable-items/roots";
 
 export const listCommentsInput = z.strictObject({ pageId: uuidv7Schema });
@@ -45,8 +50,18 @@ const authorize = Effect.fn("authorize")(function* (ctx: ServiceContext, pageId:
     ctx.db.select().from(environments).where(eq(environments.id, access.page.environmentId)).get(),
   );
   if (environment?.name !== ctx.environmentName) return yield* new NotFoundError();
-  return access;
+  const scope = yield* resolveDraftScope(ctx, access.projectId);
+  return { ...access, scope };
 });
+
+/**
+ * The comments a scope sees: Live's, plus a draft's own in that draft (#241). A comment is
+ * written where its author is and never moves.
+ */
+function seenIn(scope: DraftScope): SQL {
+  if (!scope) return isNull(comments.draftId);
+  return or(isNull(comments.draftId), eq(comments.draftId, scope.id))!;
+}
 
 function selectComments(ctx: ServiceContext) {
   return ctx.db
@@ -54,6 +69,8 @@ function selectComments(ctx: ServiceContext) {
       id: comments.id,
       pageId: comments.pageId,
       environmentId: comments.environmentId,
+      draftId: comments.draftId,
+      addressedInDraftId: comments.addressedInDraftId,
       target: comments.target,
       message: comments.message,
       resolved: comments.resolved,
@@ -71,42 +88,94 @@ export const listComments = Effect.fn("comments.listComments")(function* (
   rawInput: z.input<typeof listCommentsInput>,
 ) {
   const { pageId } = yield* decodeInput(listCommentsInput, rawInput);
-  const { page } = yield* authorize(ctx, pageId);
+  const { page, scope } = yield* authorize(ctx, pageId);
   const rows = yield* Effect.promise(() =>
     selectComments(ctx)
-      .where(eq(comments.pageId, pageId))
+      .where(and(eq(comments.pageId, pageId), seenIn(scope)))
       .orderBy(asc(comments.createdAt), asc(comments.id)),
   );
-  const targets = yield* loadTargets(ctx, page);
-  return yield* Effect.forEach(rows, (row) => serializeComment(targets, row));
+  const targets = yield* loadTargets(ctx, page, scope);
+  return yield* serializeComments(ctx, targets, rows);
 });
 
+/**
+ * Resolves or reopens a comment the scope sees. Resolving a Live comment from a draft only
+ * marks it addressed in that draft, which publishing the draft resolves and discarding it
+ * clears (#241). Reopening clears the mark too.
+ */
 export const setCommentResolved = Effect.fn("comments.setCommentResolved")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setCommentResolvedInput>,
 ) {
   const { pageId, id, resolved } = yield* decodeInput(setCommentResolvedInput, rawInput);
   const access = yield* authorize(ctx, pageId);
-  const scope = and(eq(comments.id, id), eq(comments.pageId, pageId));
-  const updated = yield* Effect.promise(() =>
-    ctx.db.update(comments).set({ resolved }).where(scope).returning().get(),
-  );
-  if (!updated) return yield* new NotFoundError();
+  const { scope } = access;
+  const where = and(eq(comments.id, id), eq(comments.pageId, pageId), seenIn(scope));
+  const row = yield* Effect.promise(() => ctx.db.select().from(comments).where(where).get());
+  if (!row) return yield* new NotFoundError();
+  const addressesLive = scope !== null && row.draftId === null && resolved && !row.resolved;
+  const change = addressesLive
+    ? { addressedInDraftId: scope.id }
+    : { resolved, addressedInDraftId: null };
+  yield* Effect.promise(() => ctx.db.update(comments).set(change).where(where));
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: null,
+    draftId: row.draftId,
     projectId: access.projectId,
     targets: [queryKeys.comments.list(pageId)],
   });
-  const result = yield* Effect.promise(() => selectComments(ctx).where(scope).get());
+  const result = yield* Effect.promise(() => selectComments(ctx).where(where).get());
   if (!result) return yield* new NotFoundError();
-  return yield* serializeComment(yield* loadTargets(ctx, access.page), result);
+  const targets = yield* loadTargets(ctx, access.page, scope);
+  const [serialized] = yield* serializeComments(ctx, targets, [result]);
+  return serialized!;
+});
+
+type CommentRow = Awaited<ReturnType<typeof selectComments>>[number];
+
+/** The comments as the API returns them, each saying which draft addressed it, if any. */
+const serializeComments = Effect.fn("serializeComments")(function* (
+  ctx: ServiceContext,
+  targets: TargetLookups,
+  rows: CommentRow[],
+) {
+  const draftIds = [
+    ...new Set(rows.flatMap((row) => (row.addressedInDraftId ? [row.addressedInDraftId] : []))),
+  ];
+  const addressing = draftIds.length
+    ? yield* Effect.promise(() =>
+        ctx.db
+          .select({
+            draftId: drafts.id,
+            name: drafts.name,
+            createdAt: drafts.createdAt,
+            creatorName: users.name,
+          })
+          .from(drafts)
+          .leftJoin(users, eq(users.id, drafts.createdBy))
+          .where(inArray(drafts.id, draftIds)),
+      )
+    : [];
+  const draftsById = new Map(addressing.map((draft) => [draft.draftId, draft]));
+  return yield* Effect.forEach(rows, (row) => {
+    const draft = row.addressedInDraftId ? draftsById.get(row.addressedInDraftId) : undefined;
+    const addressedIn = draft
+      ? {
+          draftId: draft.draftId,
+          name: draft.name,
+          createdBy: { name: draft.creatorName ?? "A former member" },
+          createdAt: draft.createdAt,
+        }
+      : null;
+    return serializeComment(targets, row, addressedIn);
+  });
 });
 
 const serializeComment = Effect.fn("serializeComment")(function* (
   targets: TargetLookups,
-  row: Awaited<ReturnType<typeof selectComments>>[number],
+  { addressedInDraftId: _addressedInDraftId, ...row }: CommentRow,
+  addressedIn: Comment["addressedIn"],
 ) {
   let target = row.target;
   if (
@@ -121,20 +190,22 @@ const serializeComment = Effect.fn("serializeComment")(function* (
       Effect.catchTag("InvalidInputError", () => Effect.succeed(null)),
     );
   }
-  return commentSchema.parse({ ...row, target });
+  return commentSchema.parse({ ...row, target, addressedIn });
 });
 
 type FieldSchema = { properties?: Record<string, FieldSchema>; items?: FieldSchema };
 
-// Load the whole page/layout scope, including unreferenced ancestor items. Using a
-// subquery keeps both query count and bind parameters independent of feedback count.
+// Load the whole page/layout scope as the draft scope reads it, including unreferenced ancestor
+// items. A comment whose anchor the scope doesn't read, such as a block the draft deleted, reads
+// as unavailable. Using a subquery keeps both query count and bind parameters independent of
+// feedback count.
 const loadTargets = Effect.fn("loadTargets")(function* (
   ctx: ServiceContext,
   page: Effect.Success<ReturnType<typeof authorize>>["page"],
+  draftScope: DraftScope,
 ) {
-  // Comments anchor to Live blocks until comments move into drafts.
   const scope = and(
-    visibleIn(blocks, null),
+    visibleIn(blocks, draftScope),
     or(
       eq(blocks.pageId, page.id),
       page.layoutId === null
@@ -228,7 +299,7 @@ export const createComment = Effect.fn("comments.createComment")(function* (
   );
   let targets: TargetLookups | undefined;
   if (!existing) {
-    targets = yield* loadTargets(ctx, access.page);
+    targets = yield* loadTargets(ctx, access.page, access.scope);
     yield* validateTarget(targets, input.target);
   }
   const inserted = existing
@@ -239,6 +310,7 @@ export const createComment = Effect.fn("comments.createComment")(function* (
           .values({
             ...input,
             environmentId: access.page.environmentId,
+            draftId: access.scope?.id ?? null,
             blockId: "blockId" in input.target ? input.target.blockId : null,
             itemId: "itemId" in input.target ? input.target.itemId : null,
             authorId: ctx.user!.id,
@@ -258,6 +330,7 @@ export const createComment = Effect.fn("comments.createComment")(function* (
     !row ||
     row.authorId !== ctx.user!.id ||
     row.pageId !== input.pageId ||
+    row.draftId !== (access.scope?.id ?? null) ||
     row.message !== input.message ||
     stableStringify(row.target) !== stableStringify(input.target)
   ) {
@@ -269,7 +342,7 @@ export const createComment = Effect.fn("comments.createComment")(function* (
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
-      draftId: null,
+      draftId: access.scope?.id ?? null,
       projectId: access.projectId,
       targets: [queryKeys.comments.list(input.pageId)],
     });
@@ -278,6 +351,7 @@ export const createComment = Effect.fn("comments.createComment")(function* (
     selectComments(ctx).where(eq(comments.id, input.id)).get(),
   );
   if (!result) return yield* Effect.die(new Error(`Comment ${input.id} vanished after insert`));
-  targets ??= yield* loadTargets(ctx, access.page);
-  return yield* serializeComment(targets, result);
+  targets ??= yield* loadTargets(ctx, access.page, access.scope);
+  const [serialized] = yield* serializeComments(ctx, targets, [result]);
+  return serialized!;
 });

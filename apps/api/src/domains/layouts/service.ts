@@ -1,5 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -401,11 +401,13 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       }
     }
     if (orphanIdsToDelete.length > 0) {
-      // A release writes Live, deleting the comments on what it deletes. Items and comments hold
-      // no foreign key to their block (ADR 0005).
+      // A release writes Live, deleting Live's comments on what it deletes; drafts keep theirs.
+      // Items and comments hold no foreign key to their block (ADR 0005).
       yield* Effect.promise(() =>
         ctx.db.batch([
-          ctx.db.delete(comments).where(inArray(comments.blockId, orphanIdsToDelete)),
+          ctx.db
+            .delete(comments)
+            .where(and(isNull(comments.draftId), inArray(comments.blockId, orphanIdsToDelete))),
           ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, orphanIdsToDelete)),
           ctx.db
             .delete(blocks)

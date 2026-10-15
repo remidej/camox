@@ -150,14 +150,16 @@ describe("a release", () => {
       ],
     });
     const [navbar, banner] = await layoutBlocks("default");
-    const comment = (blockId: string, message: string) =>
+    const comment = (blockId: string, message: string, headers: Record<string, string> = {}) =>
       call(
         router.comments.create,
         { pageId: page.id, message, target: { kind: "block", blockId } },
-        member(),
+        member(headers),
       );
     await comment(navbar.id, "On the navbar");
     await comment(banner.id, "On the banner");
+    const draft = generateUuidv7();
+    await comment(banner.id, "On the banner, in a draft", startingDraft(draft));
 
     await releaseLayouts({
       default: [{ type: "navbar", slot: "before" }],
@@ -173,6 +175,16 @@ describe("a release", () => {
     ]);
     const comments = await call(router.comments.list, { pageId: page.id }, member());
     expect(comments.map((c) => c.message)).toEqual(["On the navbar"]);
+    // A release writes Live only: the draft keeps its comment, unavailable with its block gone.
+    const inTheDraft = await call(
+      router.comments.list,
+      { pageId: page.id },
+      member(inDraft(draft)),
+    );
+    expect(inTheDraft).toEqual([
+      expect.objectContaining({ message: "On the navbar" }),
+      expect.objectContaining({ message: "On the banner, in a draft", target: null }),
+    ]);
   });
 
   it("making a definition synced builds Live's shared content from the most recently published placement, and a draft holding its own placement content sees a conflict by a release", async () => {
