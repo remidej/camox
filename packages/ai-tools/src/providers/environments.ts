@@ -71,7 +71,7 @@ export const environmentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Destructive — every page, block, and file in the target environment is replaced. " +
       "Fails with FAILED_PRECONDITION (and a `data.reasons` array) when the environments are incompatible; call checkEnvironmentCompatibility first if you want to inspect divergences without attempting the copy.",
     inputSchema: replicateInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", allowedOnLive: true, risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const { direction } = replicateInput.parse(input);
       return runService(

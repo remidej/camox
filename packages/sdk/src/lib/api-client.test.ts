@@ -143,6 +143,23 @@ void test("reads and generated values on Live start no draft", async (t) => {
   assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
 });
 
+void test("commenting on Live starts no draft", async (t) => {
+  openStudio("/about");
+  const sent = mockApi(t);
+
+  await getApiClient().comments.create({ pageId: "page-1", message: "Typo" } as never);
+  await getApiClient().comments.setResolved({ pageId: "page-1", id: "c", resolved: true } as never);
+
+  assert.deepEqual(
+    sent.map(({ path, draft, create }) => ({ path, draft, create })),
+    [
+      { path: "comments/create", draft: null, create: null },
+      { path: "comments/setResolved", draft: null, create: null },
+    ],
+  );
+  assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
+});
+
 void test("block edits fired before the draft exists all land in the same new draft", async (t) => {
   openStudio("/about");
   const sent = mockApi(t);

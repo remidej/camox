@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { authed, pub } from "../../orpc";
+import { authed, contentWrite, pub } from "../../orpc";
 import { inScope, projectOfBlock, projectOfPage, projectOfSlug } from "./draft-scope";
 import * as service from "./service";
 
@@ -54,7 +54,7 @@ const getSyncedContent = pub
 
 // Protected procedures
 
-const create = authed
+const create = contentWrite
   .input(service.createBlockInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.pageId), (scope) =>
@@ -62,7 +62,7 @@ const create = authed
     ),
   );
 
-const updateContent = authed
+const updateContent = contentWrite
   .input(service.updateBlockContentInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfBlock(context, input.id), (scope) =>
@@ -70,7 +70,7 @@ const updateContent = authed
     ),
   );
 
-const updateSettings = authed
+const updateSettings = contentWrite
   .input(service.updateBlockSettingsInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfBlock(context, input.id), (scope) =>
@@ -78,7 +78,7 @@ const updateSettings = authed
     ),
   );
 
-const updatePosition = authed
+const updatePosition = contentWrite
   .input(service.updateBlockPositionInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfBlock(context, input.id), (scope) =>
@@ -87,7 +87,7 @@ const updatePosition = authed
   );
 
 // fn suffix because delete is a reserved keyword
-const deleteFn = authed
+const deleteFn = contentWrite
   .input(service.deleteBlockInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfBlock(context, input.id), (scope) =>
@@ -96,7 +96,7 @@ const deleteFn = authed
   );
 
 // The draft is resolved on the first block's project; the service rejects blocks of another.
-const deleteManyFn = authed.input(service.deleteBlocksInput).handler(({ context, input }) => {
+const deleteManyFn = contentWrite.input(service.deleteBlocksInput).handler(({ context, input }) => {
   const [first] = input.blockIds;
   const project = first ? projectOfBlock(context, first) : Effect.succeed(undefined);
   return inScope(context, project, (scope) => service.deleteBlocks(context, input, scope));
@@ -110,7 +110,7 @@ const generateSummary = authed
     ),
   );
 
-const duplicate = authed
+const duplicate = contentWrite
   .input(service.duplicateBlockInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfBlock(context, input.id), (scope) =>

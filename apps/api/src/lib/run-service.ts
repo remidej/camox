@@ -1,6 +1,8 @@
 import {
   CONFLICTS_CHANGED_ERROR,
   DRAFT_ENDED_ERROR_CODE,
+  DRAFT_HEADER,
+  LIVE_READ_ONLY_ERROR,
   PUBLISH_BLOCKED_ERROR,
 } from "@camox/api-contract/drafts";
 import { ORPCError } from "@orpc/server";
@@ -31,6 +33,12 @@ export function toORPCError(error: ServiceError) {
         status: 410,
         message: `This draft was ${error.ended.outcome}`,
         data: error.ended,
+      });
+    case "LiveReadOnlyError":
+      return new ORPCError(LIVE_READ_ONLY_ERROR, {
+        status: 409,
+        message:
+          error.message || `Live is read-only: content writes name a draft with ${DRAFT_HEADER}`,
       });
     case "ConflictsChangedError":
       return new ORPCError(CONFLICTS_CHANGED_ERROR, { status: 409, message: error.message });

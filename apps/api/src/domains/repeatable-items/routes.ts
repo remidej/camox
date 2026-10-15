@@ -1,4 +1,4 @@
-import { authed, pub } from "../../orpc";
+import { authed, contentWrite, pub } from "../../orpc";
 import { inScope, projectOfBlock, projectOfItem } from "../blocks/draft-scope";
 import * as service from "./service";
 
@@ -16,7 +16,7 @@ const get = pub
 
 // Protected procedures
 
-const create = authed
+const create = contentWrite
   .input(service.createRepeatableItemInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfBlock(context, input.blockId), (scope) =>
@@ -24,7 +24,7 @@ const create = authed
     ),
   );
 
-const updateContent = authed
+const updateContent = contentWrite
   .input(service.updateRepeatableItemContentInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfItem(context, input.id), (scope) =>
@@ -32,7 +32,7 @@ const updateContent = authed
     ),
   );
 
-const updateSettings = authed
+const updateSettings = contentWrite
   .input(service.updateRepeatableItemSettingsInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfItem(context, input.id), (scope) =>
@@ -40,7 +40,7 @@ const updateSettings = authed
     ),
   );
 
-const updatePosition = authed
+const updatePosition = contentWrite
   .input(service.updateRepeatableItemPositionInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfItem(context, input.id), (scope) =>
@@ -48,7 +48,7 @@ const updatePosition = authed
     ),
   );
 
-const duplicate = authed
+const duplicate = contentWrite
   .input(service.duplicateRepeatableItemInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfItem(context, input.id), (scope) =>
@@ -64,7 +64,7 @@ const generateSummary = authed
     ),
   );
 
-const deleteFn = authed
+const deleteFn = contentWrite
   .input(service.deleteRepeatableItemInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfItem(context, input.id), (scope) =>

@@ -8,6 +8,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -78,13 +79,13 @@ async function fixture() {
   const member = (headers: Record<string, string> = {}) => as("member", headers);
 
   const createBlock = (title: string, headers: Record<string, string> = {}) =>
-    call(
+    callSeedingLive(
       router.blocks.create,
       { pageId: page.id, type: "hero", content: { title } },
       member(headers),
     );
   const editTitle = (id: string, title: string, headers: Record<string, string> = {}) =>
-    call(router.blocks.updateContent, { id, content: { title } }, member(headers));
+    callSeedingLive(router.blocks.updateContent, { id, content: { title } }, member(headers));
   const titleIn = async (id: string, headers: Record<string, string> = {}) =>
     (await call(router.blocks.get, { id }, member(headers))).block.content.title;
   const pageBlockIds = async (headers: Record<string, string> = {}) =>
@@ -136,7 +137,7 @@ describe("block procedures in the draft a request names", () => {
     const draft = generateUuidv7();
 
     await expect(
-      call(
+      callSeedingLive(
         router.blocks.create,
         { pageId: page.id, type: "hero", content: {}, afterPosition: "a", beforePosition: "b" },
         member(startingDraft(draft)),
@@ -167,7 +168,7 @@ describe("block procedures in the draft a request names", () => {
 
     for (const headers of [inDraft(draft), startingDraft(generateUuidv7())]) {
       const edit = (caller: Caller) =>
-        call(
+        callSeedingLive(
           router.blocks.updateContent,
           { id: block.id, content: { title: "x" } },
           as(caller, headers),
@@ -192,7 +193,7 @@ describe("block procedures in the draft a request names", () => {
     const created = await createBlock("Created", startingDraft(draft));
 
     await editTitle(created.id, "Edited", inDraft(draft));
-    await call(
+    await callSeedingLive(
       router.blocks.updatePosition,
       { id: created.id, beforePosition: live.position },
       member(inDraft(draft)),
@@ -203,7 +204,7 @@ describe("block procedures in the draft a request names", () => {
     expect(await pageBlockIds()).toEqual([live.id]);
     await expect(titleIn(created.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
 
-    await call(router.blocks.delete, { id: created.id }, member(inDraft(draft)));
+    await callSeedingLive(router.blocks.delete, { id: created.id }, member(inDraft(draft)));
     expect(await pageBlockIds(inDraft(draft))).toEqual([live.id]);
   });
 
@@ -235,7 +236,7 @@ describe("block procedures in the draft a request names", () => {
     const draft = generateUuidv7();
     const created = await createBlock("Created", startingDraft(draft));
 
-    const item = await call(
+    const item = await callSeedingLive(
       router.repeatableItems.create,
       { blockId: created.id, fieldName: "links", content: { label: "Docs" } },
       member(inDraft(draft)),
@@ -248,7 +249,7 @@ describe("block procedures in the draft a request names", () => {
   it("keeps the repeatable items of a block deleted on Live while a draft's copy shows them", async () => {
     const { member, createBlock, editTitle } = await fixture();
     const block = await createBlock("Live");
-    const item = await call(
+    const item = await callSeedingLive(
       router.repeatableItems.create,
       { blockId: block.id, fieldName: "links", content: { label: "Docs" } },
       member(),
@@ -256,7 +257,7 @@ describe("block procedures in the draft a request names", () => {
     const draft = generateUuidv7();
     await editTitle(block.id, "Draft", startingDraft(draft));
 
-    await call(router.blocks.delete, { id: block.id }, member());
+    await callSeedingLive(router.blocks.delete, { id: block.id }, member());
 
     const shown = await call(router.blocks.get, { id: block.id }, member(inDraft(draft)));
     expect(shown.repeatableItems.map((shownItem) => shownItem.id)).toEqual([item.id]);
@@ -266,13 +267,13 @@ describe("block procedures in the draft a request names", () => {
     const { db, member, createBlock } = await fixture();
     const draft = generateUuidv7();
     const created = await createBlock("Created", startingDraft(draft));
-    const item = await call(
+    const item = await callSeedingLive(
       router.repeatableItems.create,
       { blockId: created.id, fieldName: "links", content: { label: "Docs" } },
       member(inDraft(draft)),
     );
 
-    await call(router.blocks.delete, { id: created.id }, member(inDraft(draft)));
+    await callSeedingLive(router.blocks.delete, { id: created.id }, member(inDraft(draft)));
 
     // Items of a deleted block can't be read through any procedure, so the row is checked.
     const left = await db

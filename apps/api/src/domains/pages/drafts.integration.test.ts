@@ -7,6 +7,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -62,7 +63,7 @@ async function fixture() {
     headers: Headers = {},
     { parentPageId }: { parentPageId?: string } = {},
   ) =>
-    call(
+    callSeedingLive(
       router.pages.create,
       { projectId, pathSegment, parentPageId, layoutId: base.layout.layoutId },
       member(headers),
@@ -70,9 +71,9 @@ async function fixture() {
   const updatePage = (
     input: { id: string; nickname?: string; pathSegment?: string; parentPageId?: string | null },
     headers: Headers = {},
-  ) => call(router.pages.update, input, member(headers));
+  ) => callSeedingLive(router.pages.update, input, member(headers));
   const deletePage = (id: string, headers: Headers = {}) =>
-    call(router.pages.delete, { id }, member(headers));
+    callSeedingLive(router.pages.delete, { id }, member(headers));
   const paths = async (headers: Headers = {}) =>
     (await call(router.pages.list, { projectId }, member(headers)))
       .map((page) => page.fullPath)
@@ -83,9 +84,13 @@ async function fixture() {
     call(router.pages.getByPath, { projectSlug: base.project.slug, path }, member(headers));
 
   const createBlock = (pageId: string, title: string, headers: Headers = {}) =>
-    call(router.blocks.create, { pageId, type: "hero", content: { title } }, member(headers));
+    callSeedingLive(
+      router.blocks.create,
+      { pageId, type: "hero", content: { title } },
+      member(headers),
+    );
   const createItem = (blockId: string, label: string, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.repeatableItems.create,
       { blockId, fieldName: "links", content: { label } },
       member(headers),
@@ -192,12 +197,16 @@ describe("pages in a draft", () => {
     const draft = generateUuidv7();
 
     await updatePage({ id: page.id, nickname: "Who we are" }, startingDraft(draft));
-    await call(
+    await callSeedingLive(
       router.pages.setLayout,
       { id: page.id, layoutId: "landing" },
       member(inDraft(draft)),
     );
-    await call(router.pages.setSeo, { id: page.id, metaTitle: "About us" }, member(inDraft(draft)));
+    await callSeedingLive(
+      router.pages.setSeo,
+      { id: page.id, metaTitle: "About us" },
+      member(inDraft(draft)),
+    );
 
     expect(await getPage(page.id, inDraft(draft))).toMatchObject({
       nickname: "Who we are",

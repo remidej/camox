@@ -7,6 +7,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -84,31 +85,35 @@ async function fixture() {
   });
 
   const createBlock = (title: string, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.blocks.create,
       { pageId: page.id, type: "hero", content: { title } },
       member(headers),
     );
   const deleteBlock = (id: string, headers: Headers = {}) =>
-    call(router.blocks.delete, { id }, member(headers));
+    callSeedingLive(router.blocks.delete, { id }, member(headers));
   const addItem = (
     blockId: string,
     label: string,
     headers: Headers = {},
     { parentItemId, fieldName = "links" }: { parentItemId?: string; fieldName?: string } = {},
   ) =>
-    call(
+    callSeedingLive(
       router.repeatableItems.create,
       { blockId, parentItemId, fieldName, content: { label } },
       member(headers),
     );
   const editItem = (id: string, label: string, headers: Headers = {}) =>
-    call(router.repeatableItems.updateContent, { id, content: { label } }, member(headers));
+    callSeedingLive(
+      router.repeatableItems.updateContent,
+      { id, content: { label } },
+      member(headers),
+    );
   /** Moves an item before another position, or to the end. */
   const moveItem = (id: string, beforePosition: string | null, headers: Headers = {}) =>
-    call(router.repeatableItems.updatePosition, { id, beforePosition }, member(headers));
+    callSeedingLive(router.repeatableItems.updatePosition, { id, beforePosition }, member(headers));
   const deleteItem = (id: string, headers: Headers = {}) =>
-    call(router.repeatableItems.delete, { id }, member(headers));
+    callSeedingLive(router.repeatableItems.delete, { id }, member(headers));
   const labelOf = async (id: string, headers: Headers = {}) =>
     (
       (await call(router.repeatableItems.get, { id }, member(headers))).item.content as {

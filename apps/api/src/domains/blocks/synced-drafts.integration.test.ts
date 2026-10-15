@@ -7,6 +7,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  callSeedingLive,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -78,12 +79,20 @@ async function fixture() {
   });
 
   const place = (pageId: string) =>
-    call(router.blocks.create, { pageId, type: "navbar", content: { title: "Live" } }, member());
+    callSeedingLive(
+      router.blocks.create,
+      { pageId, type: "navbar", content: { title: "Live" } },
+      member(),
+    );
   const first = await place(home.id);
   const second = await place(about.id);
 
   const editTitle = (blockId: string, title: string, headers: Headers = {}) =>
-    call(router.blocks.updateContent, { id: blockId, content: { title } }, member(headers));
+    callSeedingLive(
+      router.blocks.updateContent,
+      { id: blockId, content: { title } },
+      member(headers),
+    );
   /** What a placement shows: its title and its links, as a scope reads them. */
   const shown = async (blockId: string, headers: Headers = {}) => {
     const { block, repeatableItems } = await call(
@@ -129,7 +138,7 @@ describe("a synced block's shared content in a draft", () => {
     const other = generateUuidv7();
 
     await editTitle(first.id, "Draft", startingDraft(draft));
-    await call(
+    await callSeedingLive(
       router.repeatableItems.create,
       { blockId: second.id, fieldName: "links", content: { label: "Pricing" } },
       member(inDraft(draft)),

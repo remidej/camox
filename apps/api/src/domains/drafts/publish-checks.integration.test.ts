@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import { createProjectFixture, createRpcContext, callSeedingLive } from "../../../test/fixtures";
 import { router } from "../../router";
 import { blockDefinitions, collectionDefinitions } from "../../schema";
 
@@ -111,26 +111,30 @@ async function fixture() {
 
   // Pages get a manual meta title, so their SEO (ADR 0012) stays out of these checks.
   const createPage = async (pathSegment: string, headers: Headers = {}) => {
-    const { page } = await call(
+    const { page } = await callSeedingLive(
       router.pages.create,
       { projectId, pathSegment, layoutId: base.layout.layoutId, nickname: pathSegment || "Home" },
       member(headers),
     );
-    return call(router.pages.setSeo, { id: page.id, metaTitle: page.nickname }, member(headers));
+    return callSeedingLive(
+      router.pages.setSeo,
+      { id: page.id, metaTitle: page.nickname },
+      member(headers),
+    );
   };
   const renamePage = (id: string, pathSegment: string, headers: Headers = {}) =>
-    call(router.pages.update, { id, pathSegment }, member(headers));
+    callSeedingLive(router.pages.update, { id, pathSegment }, member(headers));
   const listPages = (headers: Headers = {}) =>
     call(router.pages.list, { projectId }, member(headers));
 
   const createAuthor = (name: string, mentor: string | null = null, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.collectionDefinitions.createRecord,
       { projectSlug, collectionId: "authors", content: { name, mentor } },
       member(headers),
     );
   const deleteAuthor = (id: string, headers: Headers = {}) =>
-    call(
+    callSeedingLive(
       router.collectionDefinitions.deleteRecord,
       { projectSlug, collectionId: "authors", id },
       member(headers),
@@ -142,11 +146,11 @@ async function fixture() {
       member(headers),
     );
   const createByline = (pageId: string, content: Record<string, unknown>) =>
-    call(router.blocks.create, { pageId, type: "byline", content }, member());
+    callSeedingLive(router.blocks.create, { pageId, type: "byline", content }, member());
   const editByline = (id: string, content: Record<string, unknown>, headers: Headers = {}) =>
-    call(router.blocks.updateContent, { id, content }, member(headers));
+    callSeedingLive(router.blocks.updateContent, { id, content }, member(headers));
   const deletePage = (id: string, headers: Headers = {}) =>
-    call(router.pages.delete, { id }, member(headers));
+    callSeedingLive(router.pages.delete, { id }, member(headers));
 
   const preview = (draftId: string) =>
     call(router.drafts.previewPublish, { projectId }, member(inDraft(draftId)));

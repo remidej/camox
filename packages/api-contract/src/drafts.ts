@@ -1,3 +1,5 @@
+import type { Router } from "./index.ts";
+
 /** Request header naming the draft a request reads and writes (ADR 0011). Absent means Live. */
 export const DRAFT_HEADER = "x-camox-draft";
 
@@ -38,3 +40,103 @@ export const CONFLICTS_CHANGED_ERROR = "CONFLICTS_CHANGED";
 
 /** oRPC error code for a publish refused because the draft still has blockers. */
 export const PUBLISH_BLOCKED_ERROR = "PUBLISH_BLOCKED";
+
+/**
+ * oRPC error code for a content write that names no draft. Live is read-only (ADR 0003): content
+ * changes reach it only by publishing a draft, or through a release.
+ */
+export const LIVE_READ_ONLY_ERROR = "LIVE_READ_ONLY";
+
+// Whether each procedure of a router that follows drafts writes content. Live is read-only
+// (ADR 0003), so the API rejects a content write naming no draft, and the studio starts a draft
+// for one on Live. Every procedure is listed, so a new one fails the type check until it's
+// classified and can't be forgotten. Procedures that only fill a generated value (ADR 0012),
+// like `generateSummary`, write no content. A synced block's shared content is written through
+// `blocks` and `repeatableItems`. Comments are written where you are, Live included, so their
+// router isn't listed; neither are releases and dev-mode sync.
+const BLOCK_WRITES: Record<keyof Router["blocks"], boolean> = {
+  get: false,
+  getPageMarkdown: false,
+  getLayoutMarkdown: false,
+  getUsageCounts: false,
+  getPagesUsing: false,
+  getSyncedContent: false,
+  create: true,
+  updateContent: true,
+  updateSettings: true,
+  updatePosition: true,
+  delete: true,
+  deleteMany: true,
+  generateSummary: false,
+  duplicate: true,
+};
+
+// A release syncs collection definitions; it never runs in the studio.
+const COLLECTION_WRITES: Record<keyof Router["collectionDefinitions"], boolean> = {
+  list: false,
+  get: false,
+  listRecords: false,
+  getRecord: false,
+  getRecordUsageCount: false,
+  findRecordsByField: false,
+  listRecordPageValues: false,
+  recordMarkdown: false,
+  createRecord: true,
+  editRecord: true,
+  deleteRecord: true,
+  sync: false,
+};
+
+// Uploads and replacements are content writes too, outside oRPC.
+const FILE_WRITES: Record<keyof Router["files"], boolean> = {
+  list: false,
+  get: false,
+  getUsageCount: false,
+  setAlt: true,
+  setFilename: true,
+  delete: true,
+  deleteMany: true,
+  // Switching AI metadata on or off changes content (ADR 0012); generating only fills it.
+  setAiMetadata: true,
+  generateMetadata: false,
+};
+
+const PAGE_WRITES: Record<keyof Router["pages"], boolean> = {
+  getByPath: false,
+  getStructure: false,
+  list: false,
+  listBySlug: false,
+  get: false,
+  create: true,
+  update: true,
+  delete: true,
+  // Switching AI SEO on or off changes content (ADR 0012), like writing either field.
+  setSeo: true,
+  setLayout: true,
+  generateSeo: false,
+};
+
+const ITEM_WRITES: Record<keyof Router["repeatableItems"], boolean> = {
+  get: false,
+  create: true,
+  updateContent: true,
+  updateSettings: true,
+  updatePosition: true,
+  duplicate: true,
+  generateSummary: false,
+  delete: true,
+};
+
+const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
+  blocks: BLOCK_WRITES,
+  collectionDefinitions: COLLECTION_WRITES,
+  files: FILE_WRITES,
+  pages: PAGE_WRITES,
+  repeatableItems: ITEM_WRITES,
+};
+
+/** Whether the procedure at `path` (`[router, procedure]`) writes content. */
+export function isContentWrite(path: readonly string[]): boolean {
+  if (path.length !== 2) return false;
+  return CONTENT_WRITES[path[0] as keyof Router]?.[path[1]] === true;
+}
