@@ -2,7 +2,7 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
@@ -937,7 +937,7 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
         ctx.db
           .update(comments)
           .set({ itemId: null })
-          .where(inArray(comments.itemId, [id, ...descendants])),
+          .where(and(isNull(comments.draftId), inArray(comments.itemId, [id, ...descendants]))),
       ]),
     );
   }

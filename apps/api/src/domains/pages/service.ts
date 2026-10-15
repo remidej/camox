@@ -1,6 +1,6 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -502,7 +502,7 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
           ),
         ),
       ctx.db.delete(blocks).where(and(eq(blocks.pageId, id), overlay.storedIn(blocks, null))),
-      ctx.db.delete(comments).where(eq(comments.pageId, id)),
+      ctx.db.delete(comments).where(and(eq(comments.pageId, id), isNull(comments.draftId))),
       ctx.db
         .delete(pages)
         .where(and(eq(pages.id, id), overlay.storedIn(pages, null)))

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8e29163c-3d85-4052-b59e-24e8a1317013",
+  "id": "d9fe2c95-c2f7-4ef9-96b8-9952eee58875",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1970,6 +1970,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "addressed_in_draft_id": {
+          "name": "addressed_in_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "page_id": {
           "name": "page_id",
           "type": "text",
@@ -2048,6 +2062,16 @@
           "name": "comments_item_idx",
           "columns": ["item_id"],
           "isUnique": false
+        },
+        "comments_draft_idx": {
+          "name": "comments_draft_idx",
+          "columns": ["draft_id"],
+          "isUnique": false
+        },
+        "comments_addressed_in_draft_idx": {
+          "name": "comments_addressed_in_draft_idx",
+          "columns": ["addressed_in_draft_id"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2058,6 +2082,24 @@
           "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "comments_draft_id_drafts_id_fk": {
+          "name": "comments_draft_id_drafts_id_fk",
+          "tableFrom": "comments",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "comments_addressed_in_draft_id_drafts_id_fk": {
+          "name": "comments_addressed_in_draft_id_drafts_id_fk",
+          "tableFrom": "comments",
+          "tableTo": "drafts",
+          "columnsFrom": ["addressed_in_draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "comments_author_id_user_id_fk": {
