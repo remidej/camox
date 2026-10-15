@@ -61,6 +61,34 @@ describe("the project room", () => {
     await settled();
   });
 
+  it("refreshes the draft's own summary and everyone's drafts list when content changes in a draft", async () => {
+    const { send, room, settled } = projectRoom();
+
+    broadcastInvalidation({ ...room, draftId: "draft-1", targets: [queryKeys.blocks.get("3")] });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftId: "draft-1",
+        targets: expect.arrayContaining([queryKeys.blocks.get("3"), queryKeys.drafts.get]),
+      }),
+    );
+    expect(send).toHaveBeenCalledWith({
+      type: "invalidate",
+      draftId: null,
+      targets: [queryKeys.drafts.list],
+    });
+    await settled();
+  });
+
+  it("leaves the drafts list alone when content changes on Live", async () => {
+    const { send, room, settled } = projectRoom();
+
+    broadcastInvalidation({ ...room, draftId: null, targets: [queryKeys.blocks.get("3")] });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    await settled();
+  });
+
   it("tells the project's viewers that a draft ended, how and by whom", async () => {
     const { send, idFromName, room, settled } = projectRoom();
     const ended: EndedDraft = {
