@@ -3,9 +3,7 @@ import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { user } from "../auth/schema";
 import { drafts } from "../drafts/schema";
-import { pages } from "../pages/schema";
 import { environments } from "../projects/schema";
-import { repeatableItems } from "../repeatable-items/schema";
 
 export const comments = sqliteTable(
   "comments",
@@ -22,13 +20,12 @@ export const comments = sqliteTable(
     addressedInDraftId: text("addressed_in_draft_id").references(() => drafts.id, {
       onDelete: "set null",
     }),
-    pageId: text("page_id")
-      .notNull()
-      .references(() => pages.id, { onDelete: "cascade" }),
-    // Null anchors keep feedback whose block or item was deleted.
-    // No foreign key: a block id is unique only within Live or within one draft (ADR 0005).
+    // No foreign keys to content: an id is unique only within Live or within one draft
+    // (ADR 0005). Deleting a page deletes its comments, and null anchors keep feedback whose
+    // block or item was deleted.
+    pageId: text("page_id").notNull(),
     blockId: text("block_id"),
-    itemId: text("item_id").references(() => repeatableItems.id, { onDelete: "set null" }),
+    itemId: text("item_id"),
     target: text({ mode: "json" }).$type<CommentTarget>(),
     message: text().notNull(),
     resolved: int({ mode: "boolean" }).notNull().default(false),

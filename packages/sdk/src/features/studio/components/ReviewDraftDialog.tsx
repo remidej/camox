@@ -31,6 +31,7 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "nu
 function ownerName(owner: Subject["owner"]): string {
   if (!owner) return "Elsewhere";
   if (owner.kind === "layout") return `Layout ${owner.name}`;
+  if (owner.kind === "syncedBlock") return `Synced block ${owner.title}`;
   if (owner.kind === "collection") return owner.title;
   return owner.nickname || owner.path;
 }
@@ -39,6 +40,7 @@ function ownerName(owner: Subject["owner"]): string {
 const GROUP_ORDER: (NonNullable<Subject["owner"]>["kind"] | "elsewhere")[] = [
   "page",
   "layout",
+  "syncedBlock",
   "collection",
   "elsewhere",
 ];

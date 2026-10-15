@@ -389,10 +389,14 @@ describe("embed content validation", () => {
         );
         await expectRejectedWithoutWrites(db, () =>
           runService(
-            updateRepeatableItemContent(ctx, {
-              id: item.id,
-              content: { label: "Changed", embed: value },
-            }),
+            updateRepeatableItemContent(
+              ctx,
+              {
+                id: item.id,
+                content: { label: "Changed", embed: value },
+              },
+              null,
+            ),
           ),
         );
       }
@@ -435,7 +439,7 @@ describe("embed content validation", () => {
         ),
       );
       await expectRejectedWithoutWrites(db, () =>
-        runService(updateRepeatableItemContent(ctx, { id: item.id, content })),
+        runService(updateRepeatableItemContent(ctx, { id: item.id, content }, null)),
       );
     },
   );
@@ -569,7 +573,9 @@ describe("embed content validation", () => {
       ),
     );
     await expectRejectedWithoutWrites(db, () =>
-      runService(updateRepeatableItemContent(ctx, { id: item.id, content: { embed: validEmbed } })),
+      runService(
+        updateRepeatableItemContent(ctx, { id: item.id, content: { embed: validEmbed } }, null),
+      ),
     );
     await expectRejectedWithoutWrites(db, () =>
       runService(
@@ -620,7 +626,7 @@ describe("embed content validation", () => {
     for (const item of items) {
       expect(item.content).toEqual({ embed: validEmbed });
       await runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { embed: changed } }),
+        updateRepeatableItemContent(ctx, { id: item.id, content: { embed: changed } }, null),
       );
       expect(
         (await db.select().from(repeatableItems).where(eq(repeatableItems.id, item.id)).get())
@@ -666,7 +672,11 @@ describe("embed content validation", () => {
     });
     for (const item of items) {
       await runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { label: "Updated label" } }),
+        updateRepeatableItemContent(
+          ctx,
+          { id: item.id, content: { label: "Updated label" } },
+          null,
+        ),
       );
       expect(
         (await db.select().from(repeatableItems).where(eq(repeatableItems.id, item.id)).get())

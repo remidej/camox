@@ -12,7 +12,17 @@ import { viewBlockQueries } from "./view-queries";
  * -----------------------------------------------------------------------------------------------*/
 
 export type NormalizedFile = PageWithBlocks["files"][number];
-export type NormalizedItem = PageWithBlocks["repeatableItems"][number];
+/** The draft overlay's bookkeeping on stored rows (ADR 0005), which the studio never reads. */
+type RowBookkeeping =
+  | "rowId"
+  | "draftId"
+  | "version"
+  | "baseVersion"
+  | "deleted"
+  | "firstPublishedAt"
+  | "publishedAt"
+  | "publishedBy";
+export type NormalizedItem = Omit<PageWithBlocks["repeatableItems"][number], RowBookkeeping>;
 export type NormalizedBlock = PageWithBlocks["blocks"][number];
 
 export interface NormalizedCollectionRecord {

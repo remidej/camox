@@ -2,11 +2,12 @@ import { sql, type SQL } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { blocks } from "../blocks/schema";
+import { blocks, sharedContents } from "../blocks/schema";
 import { collectionDefinitions, collectionRecords } from "../collections/schema";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { itemsInEnvironment } from "../repeatable-items/roots";
+import { repeatableItems } from "../repeatable-items/schema";
 
 /** What content can reference: a collection record by its id, or a file by its `_fileId`. */
 export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; id: string };
@@ -46,12 +47,15 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
         and ${overlay.visibleIn(blocks, scope.draft)}
         and ${matches(sql`${blocks.content}`)}
       union all
-      select 'sharedContent', s.type from shared_contents s
-      where s.environment_id = ${scope.environmentId} and ${matches(sql.raw("s.content"))}
+      select 'sharedContent', ${sharedContents.type} from ${sharedContents}
+      where ${sharedContents.environmentId} = ${scope.environmentId}
+        and ${overlay.visibleIn(sharedContents, scope.draft)}
+        and ${matches(sql`${sharedContents.content}`)}
       union all
-      select 'repeatableItem', repeatable_items.id from repeatable_items
+      select 'repeatableItem', ${repeatableItems.id} from ${repeatableItems}
       where ${itemsInEnvironment(scope.environmentId)}
-        and ${matches(sql.raw("repeatable_items.content"))}
+        and ${overlay.visibleIn(repeatableItems, scope.draft)}
+        and ${matches(sql`${repeatableItems.content}`)}
       union all
       select 'record', ${collectionRecords.id} from ${collectionRecords}
       join ${collectionDefinitions}

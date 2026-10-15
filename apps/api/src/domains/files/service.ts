@@ -17,7 +17,7 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, member, projects, repeatableItems, sharedContents } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
-import { definitionOf, placementsOf, sharedContentWhere } from "../blocks/shared-content";
+import { definitionOf, placementsOf } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
 import { blockIdsOf, itemsInEnvironment, rootOfItem } from "../repeatable-items/roots";
 import { readMetadataImage } from "./metadata-image";
@@ -253,6 +253,7 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
   const affectedItems = yield* Effect.promise(() =>
     db
       .select({
+        rowId: repeatableItems.rowId,
         id: repeatableItems.id,
         content: repeatableItems.content,
         blockId: repeatableItems.blockId,
@@ -285,7 +286,8 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
       db
         .update(repeatableItems)
         .set({ content: cleaned, updatedAt: now })
-        .where(eq(repeatableItems.id, item.id)),
+        // Live and each draft hold their own row for the item.
+        .where(eq(repeatableItems.rowId, item.rowId)),
     );
   }
 
@@ -302,7 +304,7 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
       db
         .update(sharedContents)
         .set({ content: cleaned, updatedAt: now })
-        .where(sharedContentWhere(shared)),
+        .where(eq(sharedContents.rowId, shared.rowId)),
     );
   }
   const changedSharedContents = [
@@ -313,7 +315,7 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
     }),
   ];
   const placements = [];
-  for (const key of changedSharedContents) placements.push(...(yield* placementsOf(db, key)));
+  for (const key of changedSharedContents) placements.push(...(yield* placementsOf(db, null, key)));
 
   const itemBlockIds = [
     ...blockIdsOf(affectedItems),

@@ -19,7 +19,7 @@ import {
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { blocks } from "../blocks/schema";
+import { blocks, sharedContents } from "../blocks/schema";
 import { collectionRecords } from "../collections/schema";
 import { comments } from "../comments/schema";
 import { layouts } from "../layouts/schema";
@@ -76,7 +76,8 @@ type Patch<T extends ContentTable> = Partial<Omit<Values<T>, (typeof bookkeeping
 
 /**
  * A column naming the entity's parent: `key` on the parent's table, also matching every
- * `within` pair (child column, parent column). Parents are Live-only tables for now.
+ * `within` pair (child column, parent column). The parent's table is a registered content
+ * table, read through the draft, or a Live-only one.
  */
 type ParentRelation = {
   column: AnySQLiteColumn;
@@ -87,16 +88,17 @@ type ParentRelation = {
 /**
  * A Live-only table whose rows belong to the entity through `column`. Publishing a deletion
  * deletes them (`delete`) or clears their pointer (`detach`) once nothing holds the entity.
- * Rows written after the draft deleted the entity are listed as lost changes.
  */
-type Dependent =
-  | { onDelete: "delete"; column: AnySQLiteColumn; id: AnySQLiteColumn; updatedAt: AnySQLiteColumn }
-  | { onDelete: "detach"; column: AnySQLiteColumn };
+type Dependent = { onDelete: "delete" | "detach"; column: AnySQLiteColumn };
 
 export type ContentTableRegistration = {
   /** What the entity is called in changes, conflicts and publish tokens. */
   entity: string;
-  /** The columns naming the entity's parent. A change whose parent is gone is lost. */
+  /**
+   * The columns naming the entity's parent. A change whose parent is gone is lost, and
+   * publishing deletes Live entities whose parent nothing holds any more: descendants of what
+   * the draft deleted.
+   */
   parents: ParentRelation[];
   /** The columns a change on another entity can rewrite, copying this one into the draft. */
   rewritable: AnySQLiteColumn[];
@@ -112,7 +114,10 @@ export type ContentTableRegistration = {
 
 const registrations = new Map<ContentTable, ContentTableRegistration>();
 
-/** Declares a content table to the overlay. Only registered tables can be read or written. */
+/**
+ * Declares a content table to the overlay. Only registered tables can be read or written.
+ * Register parents before their children: publishing deletes descendants in this order.
+ */
 export function registerContentTable(table: ContentTable, registration: ContentTableRegistration) {
   registrations.set(table, registration);
 }
@@ -124,6 +129,20 @@ export function registrationOf(table: ContentTable): ContentTableRegistration {
   return registration;
 }
 
+/** The ids of a project's environments, as a subquery. */
+const environmentsOf = (projectId: number) =>
+  sql`(select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`;
+
+registerContentTable(pages, {
+  entity: "page",
+  parents: [{ column: pages.parentPageId, key: pages.id }],
+  // Renaming or moving a page rewrites the full path of every descendant page.
+  rewritable: [pages.fullPath],
+  dependents: [{ onDelete: "delete", column: comments.pageId }],
+  commentAnchor: comments.pageId,
+  inProject: (projectId) => eq(pages.projectId, projectId),
+});
+
 registerContentTable(blocks, {
   entity: "block",
   parents: [
@@ -134,19 +153,37 @@ registerContentTable(blocks, {
       within: [[blocks.environmentId, layouts.environmentId]],
     },
   ],
-  rewritable: [blocks.content],
-  dependents: [
-    {
-      onDelete: "delete",
-      column: repeatableItems.blockId,
-      id: repeatableItems.id,
-      updatedAt: repeatableItems.updatedAt,
-    },
-    { onDelete: "detach", column: comments.blockId },
-  ],
+  rewritable: [],
+  dependents: [{ onDelete: "detach", column: comments.blockId }],
   commentAnchor: comments.blockId,
+  inProject: (projectId) => sql`${blocks.environmentId} in ${environmentsOf(projectId)}`,
+});
+
+registerContentTable(sharedContents, {
+  entity: "sharedContent",
+  parents: [],
+  rewritable: [],
+  dependents: [],
+  inProject: (projectId) => sql`${sharedContents.environmentId} in ${environmentsOf(projectId)}`,
+});
+
+registerContentTable(repeatableItems, {
+  entity: "repeatableItem",
+  parents: [
+    { column: repeatableItems.blockId, key: blocks.id },
+    { column: repeatableItems.parentItemId, key: repeatableItems.id },
+    {
+      column: repeatableItems.sharedContentType,
+      key: sharedContents.type,
+      within: [[repeatableItems.environmentId, sharedContents.environmentId]],
+    },
+  ],
+  rewritable: [],
+  dependents: [{ onDelete: "detach", column: comments.itemId }],
+  commentAnchor: comments.itemId,
+  // An item's tree is rooted in a shared content of the environment, or in a block.
   inProject: (projectId) =>
-    sql`${blocks.environmentId} in (select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`,
+    sql`(${repeatableItems.environmentId} in ${environmentsOf(projectId)} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."environment_id" in ${environmentsOf(projectId)}))`,
 });
 
 // A record names its collection, a definition, which no draft deletes: a record has no parent.
@@ -232,14 +269,19 @@ export const get = Effect.fn("overlay.get")(function* <T extends ContentTable>(
  * The row a scope itself stores for an entity, tombstone included: unlike `get`, a draft finds
  * no row for an entity it reads from Live.
  */
-export const getStored = (db: Database, scope: DraftScope, table: ContentTable, id: string) =>
+export const getStored = <T extends ContentTable>(
+  db: Database,
+  scope: DraftScope,
+  table: T,
+  id: string,
+) =>
   Effect.promise(
     () =>
       db
         .select()
         .from(table as SQLiteTable)
         .where(and(storedIn(table, scope), eq(table.id, id)))
-        .get() as Promise<Row<ContentTable> | undefined>,
+        .get() as Promise<Row<T> | undefined>,
   );
 
 /**
@@ -509,15 +551,42 @@ const tableOf = (column: AnySQLiteColumn) => sql.identifier(getTableName(column.
 const at = (alias: string, column: AnySQLiteColumn) =>
   sql`${sql.identifier(alias)}.${ident(column)}`;
 
-/** Whether the entity at `alias` has every parent it names, as Live reads them. */
-function parentsExist(table: ContentTable, alias: string): SQL {
-  const checks = registrationOf(table).parents.map(({ column, key, within = [] }) => {
-    const matches = [
-      sql`"parent".${ident(key)} = ${at(alias, column)}`,
-      ...within.map(([child, parent]) => sql`"parent".${ident(parent)} = ${at(alias, child)}`),
-    ];
-    return sql`(${at(alias, column)} is null or exists (select 1 from ${tableOf(key)} as "parent" where ${sql.join(matches, sql` and `)}))`;
-  });
+const registeredTableOf = (column: AnySQLiteColumn) =>
+  tables().find((table) => getTableName(table) === getTableName(column.table));
+
+/**
+ * Where a row of the relation's parent table matches the entity at `alias`. A registered
+ * parent counts when Live or the draft `draftId` holds it, tombstones aside; with `anywhere`,
+ * when Live or any draft does.
+ */
+function parentRowMatches(
+  relation: ParentRelation,
+  alias: string,
+  holder: { draftId: string } | "anywhere",
+): SQL {
+  const { column, key, within = [] } = relation;
+  const matches = [
+    sql`"parent".${ident(key)} = ${at(alias, column)}`,
+    ...within.map(([child, parent]) => sql`"parent".${ident(parent)} = ${at(alias, child)}`),
+  ];
+  const parentTable = registeredTableOf(key);
+  if (parentTable) {
+    matches.push(sql`"parent".${ident(parentTable.deleted)} = 0`);
+    if (holder !== "anywhere") {
+      matches.push(
+        sql`("parent".${ident(parentTable.draftId)} is null or "parent".${ident(parentTable.draftId)} = ${holder.draftId})`,
+      );
+    }
+  }
+  return sql`exists (select 1 from ${tableOf(key)} as "parent" where ${sql.join(matches, sql` and `)})`;
+}
+
+/** Whether the entity at `alias` has every parent it names, in Live or in the draft. */
+function parentsExist(table: ContentTable, alias: string, draftId: string): SQL {
+  const checks = registrationOf(table).parents.map(
+    (relation) =>
+      sql`(${at(alias, relation.column)} is null or ${parentRowMatches(relation, alias, { draftId })})`,
+  );
   return checks.length ? sql.join(checks, sql` and `) : sql`1`;
 }
 
@@ -537,7 +606,7 @@ function conflictsIn(table: ContentTable, draftId: string): SQL {
     left join ${t} as "l" on ${at("l", table.draftId)} is null and ${at("l", table.id)} = ${at("d", table.id)}
     where ${at("d", table.draftId)} = ${draftId}
       and ${at("d", table.baseVersion)} is not null
-      and ${parentsExist(table, "d")}
+      and ${parentsExist(table, "d", draftId)}
       and ((${at("l", table.id)} is null and ${at("d", table.deleted)} = 0)
         or ${at("l", table.version)} != ${at("d", table.baseVersion)})`;
 }
@@ -684,14 +753,14 @@ export type StoredLoss =
   | { reason: "parentGone"; entity: string; id: string }
   | {
       reason: "writtenAfterDeletion";
-      table: string;
+      entity: string;
       id: string;
       parent: { entity: string; id: string };
     };
 
 /**
- * The changes publishing drops: entities the draft changed whose parent is gone, and Live rows
- * written under an entity after the draft deleted it.
+ * The changes publishing drops: entities the draft changed whose parent exists neither in Live
+ * nor in the draft, and Live entities published under a parent after the draft deleted it.
  */
 export const lostOf = Effect.fn("overlay.lostOf")(function* (
   db: Database,
@@ -699,31 +768,40 @@ export const lostOf = Effect.fn("overlay.lostOf")(function* (
 ) {
   const lost: StoredLoss[] = [];
   for (const table of tables()) {
-    const { entity, dependents } = registrationOf(table);
+    const { entity, parents } = registrationOf(table);
     const t = sql.identifier(getTableName(table));
     const orphans = yield* Effect.promise(() =>
       db.all<{ id: string }>(sql`select ${at("d", table.id)} as "id" from ${t} as "d"
         where ${at("d", table.draftId)} = ${scope.id} and ${at("d", table.deleted)} = 0
-          and not (${parentsExist(table, "d")})`),
+          and not (${parentsExist(table, "d", scope.id)})`),
     );
     for (const { id } of orphans) lost.push({ reason: "parentGone", entity, id });
 
-    for (const dependent of dependents) {
-      if (dependent.onDelete !== "delete") continue;
+    for (const relation of parents) {
+      const parentTable = registeredTableOf(relation.key);
+      if (!parentTable) continue;
+      const { column, key, within = [] } = relation;
+      const matches = [
+        sql`${at("tomb", key)} = ${at("x", column)}`,
+        ...within.map(([child, parent]) => sql`${at("tomb", parent)} = ${at("x", child)}`),
+      ];
       const rows = yield* Effect.promise(() =>
         db.all<{ id: string; parent_id: string }>(sql`
-          select ${at("dep", dependent.id)} as "id", ${at("d", table.id)} as "parent_id"
-          from ${tableOf(dependent.column)} as "dep"
-          join ${t} as "d" on ${at("d", table.id)} = ${at("dep", dependent.column)}
-          where ${at("d", table.draftId)} = ${scope.id} and ${at("d", table.deleted)} = 1
-            and ${at("dep", dependent.updatedAt)} >= ${at("d", table.updatedAt)}`),
+          select ${at("x", table.id)} as "id", ${at("tomb", parentTable.id)} as "parent_id"
+          from ${t} as "x"
+          join ${sql.identifier(getTableName(parentTable))} as "tomb" on ${sql.join(matches, sql` and `)}
+          where ${at("x", table.draftId)} is null
+            and ${at("tomb", parentTable.draftId)} = ${scope.id}
+            and ${at("tomb", parentTable.deleted)} = 1
+            and max(${at("x", table.updatedAt)}, coalesce(${at("x", table.publishedAt)}, 0))
+              >= ${at("tomb", parentTable.updatedAt)}`),
       );
       for (const row of rows) {
         lost.push({
           reason: "writtenAfterDeletion",
-          table: getTableName(dependent.column.table),
+          entity,
           id: row.id,
-          parent: { entity, id: row.parent_id },
+          parent: { entity: registrationOf(parentTable).entity, id: row.parent_id },
         });
       }
     }
@@ -775,16 +853,11 @@ function applyStatements(
   const d = (column: AnySQLiteColumn) => at("d", column);
   const live = (column: AnySQLiteColumn) => sql`${t}.${ident(column)}`;
   const applied = () =>
-    sql`${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 0 and ${parentsExist(table, "d")}`;
+    sql`${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 0 and ${parentsExist(table, "d", draftId)}`;
   const tombstones = () =>
     sql`select ${d(table.id)} from ${t} as "d" where ${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 1`;
-  // A dependent goes once nothing holds its entity: Live dropped it and no draft reads it.
-  const unheld = (column: AnySQLiteColumn) => {
-    const pointer = sql`${tableOf(column)}.${ident(column)}`;
-    return sql`${pointer} in (${tombstones()}) and not exists (select 1 from ${t} as "h" where ${at("h", table.id)} = ${pointer} and ${at("h", table.deleted)} = 0)`;
-  };
 
-  const statements: BatchItem[] = [
+  return [
     // Copies the draft's version over the Live entities it changed.
     sql`update ${t} set
         ${sql.join(
@@ -812,15 +885,53 @@ function applyStatements(
     // Deletes what the draft deleted.
     sql`delete from ${t} where ${live(table.draftId)} is null and ${live(table.id)} in (${tombstones()})`,
   ];
-  for (const dependent of registrationOf(table).dependents) {
-    const { column } = dependent;
-    statements.push(
-      dependent.onDelete === "delete"
-        ? sql`delete from ${tableOf(column)} where ${unheld(column)}`
-        : sql`update ${tableOf(column)} set ${ident(column)} = null where ${unheld(column)}`,
-    );
-  }
-  return statements;
+}
+
+/**
+ * A statement deleting one table's Live descendants of what is gone: Live entities whose parent
+ * nothing holds any more, neither Live nor any draft, and, through a parent in the same table,
+ * their descendants too. A parent a draft still holds keeps its Live descendants for that
+ * draft. Run after the parents' own tables.
+ */
+function descendantsStatement(table: ContentTable): BatchItem | undefined {
+  const { parents } = registrationOf(table);
+  if (parents.length === 0) return undefined;
+  const t = sql.identifier(getTableName(table));
+  const orphaned = parents.map(
+    (relation) =>
+      sql`(${at("x", relation.column)} is not null and not ${parentRowMatches(relation, "x", "anywhere")})`,
+  );
+  const selfColumns = parents
+    .filter((relation) => registeredTableOf(relation.key) === table && !relation.within?.length)
+    .map((relation) => relation.column);
+  const recursive = selfColumns.map(
+    (column) => sql`union
+      select ${at("c", table.id)} from ${t} as "c" join "doomed" on ${at("c", column)} = "doomed"."id"
+      where ${at("c", table.draftId)} is null and not exists (
+        select 1 from ${t} as "h" where ${at("h", table.id)} = ${at("c", column)}
+          and ${at("h", table.draftId)} is not null and ${at("h", table.deleted)} = 0)`,
+  );
+  return sql`delete from ${t} where ${t}.${ident(table.draftId)} is null and ${t}.${ident(table.id)} in (
+    with recursive "doomed"("id") as (
+      select ${at("x", table.id)} from ${t} as "x"
+      where ${at("x", table.draftId)} is null and (${sql.join(orphaned, sql` or `)})
+      ${sql.join(recursive, sql` `)}
+    ) select "id" from "doomed")`;
+}
+
+/**
+ * Statements for one table's Live-only dependents: rows pointing at an entity that nothing holds
+ * any more, neither Live nor any draft, are deleted or have their pointer cleared.
+ */
+function dependentStatements(table: ContentTable): BatchItem[] {
+  const t = sql.identifier(getTableName(table));
+  return registrationOf(table).dependents.map(({ onDelete, column }) => {
+    const pointer = sql`${tableOf(column)}.${ident(column)}`;
+    const unheld = sql`${pointer} is not null and not exists (select 1 from ${t} as "h" where ${at("h", table.id)} = ${pointer} and ${at("h", table.deleted)} = 0)`;
+    return onDelete === "delete"
+      ? sql`delete from ${tableOf(column)} where ${unheld}`
+      : sql`update ${tableOf(column)} set ${ident(column)} = null where ${unheld}`;
+  });
 }
 
 /** Statements deleting every row a draft stores, keeping the draft. */
@@ -856,7 +967,8 @@ function endStatements(
 /**
  * Publishes a draft in one batch: a guard that aborts unless the conflicts are still `shown`,
  * then each table's draft rows applied to Live (bumping versions and setting who published and
- * when), deletions with their Live dependents, lost changes dropped, and the draft ended.
+ * when), deletions with their Live descendants and dependents, lost changes dropped, and the
+ * draft ended.
  * Fails when the batch aborted, having applied nothing.
  */
 export const publish = (
@@ -879,6 +991,8 @@ export const publish = (
     guardStatement(scope.id, shown),
     ...alongside,
     ...tables().flatMap((table) => applyStatements(table, scope.id, publishedBy, now)),
+    ...tables().flatMap((table) => descendantsStatement(table) ?? []),
+    ...tables().flatMap(dependentStatements),
     ...endStatements(db, scope, "published", publishedBy, now),
   ];
   return Effect.tryPromise(() => runBatch(db, statements));

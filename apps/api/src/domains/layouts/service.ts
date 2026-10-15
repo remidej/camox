@@ -371,6 +371,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
                 settings: seed.settings ?? null,
                 summary: "",
                 position: seed.position,
+                ...releasedNew(now),
                 createdAt: now,
                 updatedAt: now,
               })
@@ -381,7 +382,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         }
       }
 
-      yield* adoptSharedContent(ctx, block);
+      yield* adoptSharedContent(ctx, null, block);
       entry.position = newPos;
       lastPos = newPos;
     }
@@ -408,7 +409,14 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           ctx.db
             .delete(comments)
             .where(and(isNull(comments.draftId), inArray(comments.blockId, orphanIdsToDelete))),
-          ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, orphanIdsToDelete)),
+          ctx.db
+            .delete(repeatableItems)
+            .where(
+              and(
+                visibleIn(repeatableItems, null),
+                inArray(repeatableItems.blockId, orphanIdsToDelete),
+              ),
+            ),
           ctx.db
             .delete(blocks)
             .where(and(visibleIn(blocks, null), inArray(blocks.id, orphanIdsToDelete))),

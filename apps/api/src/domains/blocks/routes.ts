@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 
-import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
 import { inScope, projectOfBlock, projectOfPage, projectOfSlug } from "./draft-scope";
 import * as service from "./service";
@@ -45,10 +44,13 @@ const getPagesUsing = pub
     inScope(context, input.projectId, (scope) => service.getPagesUsingBlock(context, input, scope)),
   );
 
-// Shared content lives in Live until it moves into drafts (#238).
 const getSyncedContent = pub
   .input(service.blockTypeInput)
-  .handler(({ context, input }) => runService(service.getSyncedBlockContent(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, input.projectId, (scope) =>
+      service.getSyncedBlockContent(context, input, scope),
+    ),
+  );
 
 // Protected procedures
 

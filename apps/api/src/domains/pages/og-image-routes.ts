@@ -10,6 +10,7 @@ import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import type { ForbiddenError, NotFoundError } from "../../lib/errors";
 import type { AppEnv } from "../../types";
+import { storedIn } from "../drafts/overlay";
 import { pages } from "./schema";
 
 // --- Hono routes (multipart upload for the per-page custom OG image) ---
@@ -41,7 +42,13 @@ const deleteOgBlobIfUnreferenced = Effect.fn("deleteOgBlobIfUnreferenced")(funct
     db
       .select({ id: pages.id })
       .from(pages)
-      .where(and(eq(pages.customOgImageBlobId, blobId), sql`${pages.id} != ${excludingPageId}`))
+      .where(
+        and(
+          eq(pages.customOgImageBlobId, blobId),
+          // Drafts' copies of the page hold the blob too.
+          sql`not (${pages.id} = ${excludingPageId} and ${pages.draftId} is null)`,
+        ),
+      )
       .limit(1)
       .get(),
   );
@@ -68,7 +75,7 @@ pageHonoRoutes.post("/:id/og-image", async (c) => {
   if (!uuidv7Schema.safeParse(pageId).success) return c.json({ error: "Invalid page id" }, 400);
 
   const program = Effect.gen(function* () {
-    const access = yield* assertPageAccess(c.var.db, pageId, user.id);
+    const access = yield* assertPageAccess(c.var.db, pageId, user.id, null);
 
     const body = yield* Effect.promise(() => c.req.parseBody());
     const file = body["file"];
@@ -95,7 +102,7 @@ pageHonoRoutes.post("/:id/og-image", async (c) => {
       c.var.db
         .update(pages)
         .set({ customOgImageBlobId: key, customOgImageUrl: url, updatedAt: now })
-        .where(eq(pages.id, pageId))
+        .where(and(eq(pages.id, pageId), storedIn(pages, null)))
         .returning()
         .get(),
     );
@@ -130,7 +137,7 @@ pageHonoRoutes.delete("/:id/og-image", async (c) => {
   if (!uuidv7Schema.safeParse(pageId).success) return c.json({ error: "Invalid page id" }, 400);
 
   const program = Effect.gen(function* () {
-    const access = yield* assertPageAccess(c.var.db, pageId, user.id);
+    const access = yield* assertPageAccess(c.var.db, pageId, user.id, null);
 
     const blobId = access.page.customOgImageBlobId;
     if (!blobId) return c.json({ ok: true });
@@ -139,7 +146,7 @@ pageHonoRoutes.delete("/:id/og-image", async (c) => {
       c.var.db
         .update(pages)
         .set({ customOgImageBlobId: null, customOgImageUrl: null, updatedAt: Date.now() })
-        .where(eq(pages.id, pageId))
+        .where(and(eq(pages.id, pageId), storedIn(pages, null)))
         .returning()
         .get(),
     );

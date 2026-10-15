@@ -86,8 +86,8 @@ void test("a failed first block edit leaves the studio on Live", async (t) => {
   await assert.rejects(blockEdit());
   assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
 
-  await assert.rejects(getApiClient().pages.update({ id: "page-1" } as never));
-  assert.deepEqual(sent[1], { path: "pages/update", draft: null, create: null });
+  await assert.rejects(getApiClient().pages.get({ id: "page-1" } as never));
+  assert.deepEqual(sent[1], { path: "pages/get", draft: null, create: null });
 
   fail = false;
   await blockEdit();
@@ -95,21 +95,49 @@ void test("a failed first block edit leaves the studio on Live", async (t) => {
   assert.notEqual(sent[2].draft, sent[0].draft);
 });
 
-void test("only block writes start a draft", async (t) => {
+void test("page, repeatable item and synced content edits on Live start a draft like block edits", async (t) => {
+  const writes = [
+    () => getApiClient().pages.create({ projectId: 1 } as never),
+    () => getApiClient().pages.update({ id: "page-1" } as never),
+    () => getApiClient().pages.delete({ id: "page-1" } as never),
+    () => getApiClient().pages.setLayout({ id: "page-1" } as never),
+    () => getApiClient().pages.setMetaTitle({ id: "page-1" } as never),
+    () => getApiClient().repeatableItems.create({ blockId: "block-1" } as never),
+    () => getApiClient().repeatableItems.updateContent({ id: "item-1" } as never),
+    () => getApiClient().repeatableItems.updatePosition({ id: "item-1" } as never),
+    () => getApiClient().repeatableItems.delete({ id: "item-1" } as never),
+  ];
+  for (const write of writes) {
+    openStudio("/about");
+    const sent = mockApi(t);
+
+    await write();
+
+    assert.match(sent[0].draft ?? "", UUIDV7, sent[0].path);
+    assert.equal(sent[0].create, "1", sent[0].path);
+    assert.equal(
+      new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM),
+      sent[0].draft,
+      sent[0].path,
+    );
+    t.mock.restoreAll();
+  }
+});
+
+void test("reads and generated values on Live start no draft", async (t) => {
   openStudio("/about");
   const sent = mockApi(t);
 
-  await getApiClient().pages.update({ id: "page-1" } as never);
-  await getApiClient().repeatableItems.updateContent({ id: "item-1" } as never);
+  await getApiClient().pages.list({ projectId: 1 } as never);
+  await getApiClient().pages.generateSeo({ id: "page-1" } as never);
+  await getApiClient().repeatableItems.get({ id: "item-1" } as never);
+  await getApiClient().repeatableItems.generateSummary({ id: "item-1" } as never);
   await getApiClient().blocks.get({ id: "block-1" } as never);
+  await getApiClient().blocks.getSyncedContent({ projectId: 1, type: "navbar" } as never);
 
   assert.deepEqual(
     sent.map(({ draft, create }) => ({ draft, create })),
-    [
-      { draft: null, create: null },
-      { draft: null, create: null },
-      { draft: null, create: null },
-    ],
+    sent.map(() => ({ draft: null, create: null })),
   );
   assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
 });

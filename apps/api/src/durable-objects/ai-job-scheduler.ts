@@ -1,14 +1,15 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { DurableObject } from "cloudflare:workers";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createDb } from "../db";
 import { runBlockSummaryJob } from "../domains/blocks/service";
+import { storedIn, storedInLiveOrDraft } from "../domains/drafts/overlay";
 import { executeFileMetadata } from "../domains/files/service";
 import { executePageSeo } from "../domains/pages/ai";
 import { rootOfItem } from "../domains/repeatable-items/roots";
-import { executeRepeatableItemSummary } from "../domains/repeatable-items/service";
+import { runRepeatableItemSummaryJob } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
 import { blocks, environments, files, pages, repeatableItems } from "../schema";
@@ -100,7 +101,12 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       }
     } else if (entityTable === "repeatableItems" && type === "summary") {
       const cascade = yield* retryAiCall(label, (abortController) =>
-        executeRepeatableItemSummary(db, apiKey, entityId, abortController),
+        runRepeatableItemSummaryJob(
+          db,
+          apiKey,
+          { entityId, draftId: job.draftId ?? null },
+          abortController,
+        ),
       );
       if (cascade) {
         // Cascade: schedule parent block summary regeneration
@@ -111,13 +117,25 @@ export class AiJobScheduler extends DurableObject<Bindings> {
             entityId: cascade.blockId,
             type: "summary",
             delayMs: 5000,
+            draftId: job.draftId ?? null,
           }),
         );
       }
 
       // Broadcast repeatable item summary update
       const item = yield* Effect.promise(() =>
-        db.select().from(repeatableItems).where(eq(repeatableItems.id, entityId)).get(),
+        db
+          .select()
+          .from(repeatableItems)
+          .where(
+            and(
+              eq(repeatableItems.id, entityId),
+              job.draftId
+                ? storedInLiveOrDraft(repeatableItems, job.draftId)
+                : storedIn(repeatableItems, null),
+            ),
+          )
+          .get(),
       );
       if (item) {
         // A shared content's item names its environment instead of a block.
@@ -131,7 +149,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
           broadcastInvalidation({
             waitUntil: (p) => this.ctx.waitUntil(p),
             projectRoomNamespace: this.env.ProjectRoom,
-            draftId: null,
+            draftId: job.draftId ?? null,
             projectId,
             targets: [queryKeys.pages.getByPathAll, queryKeys.blocks.getUsageCounts],
           });
@@ -160,7 +178,11 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       );
 
       const page = yield* Effect.promise(() =>
-        db.select().from(pages).where(eq(pages.id, entityId)).get(),
+        db
+          .select()
+          .from(pages)
+          .where(and(eq(pages.id, entityId), storedIn(pages, null)))
+          .get(),
       );
       if (page) {
         broadcastInvalidation({

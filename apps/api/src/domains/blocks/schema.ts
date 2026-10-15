@@ -1,6 +1,6 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { sql } from "drizzle-orm";
-import { index, int, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
 import { environments } from "../projects/schema";
@@ -62,10 +62,25 @@ export const blocks = sqliteTable(
  * The shared content of a synced block definition (ADR 0004, 0005): one entity per definition
  * name and environment, shown by every placement of the definition. It owns its repeatable
  * items.
+ *
+ * Live and every draft store it side by side, like blocks. Its id is derived from the
+ * definition it belongs to (`sharedContentId`), so Live and every draft name the same entity.
  */
 export const sharedContents = sqliteTable(
   "shared_contents",
   {
+    rowId: int("row_id").primaryKey(),
+    id: text().notNull(),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    // Live: the number of changes made to the row. Unused on draft rows (last write wins).
+    version: int().notNull().default(1),
+    // The Live version a draft copy started from. Null on Live rows and on rows a draft created.
+    baseVersion: int("base_version"),
+    // A draft's deletion of the shared content.
+    deleted: int({ mode: "boolean" }).notNull().default(false),
+    firstPublishedAt: int("first_published_at"),
+    publishedAt: int("published_at"),
+    publishedBy: text("published_by"),
     environmentId: int("environment_id")
       .notNull()
       .references(() => environments.id),
@@ -77,5 +92,18 @@ export const sharedContents = sqliteTable(
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.environmentId, table.type] })],
+  (table) => [
+    uniqueIndex("shared_contents_live_id_idx")
+      .on(table.id)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("shared_contents_draft_id_idx")
+      .on(table.draftId, table.id)
+      .where(sql`${table.draftId} is not null`),
+    index("shared_contents_definition_idx").on(table.environmentId, table.type),
+  ],
 );
+
+/** The id of a definition's shared content, the same in Live and in every draft. */
+export function sharedContentId(key: { environmentId: number; type: string }) {
+  return `${key.environmentId}:${key.type}`;
+}

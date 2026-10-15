@@ -135,7 +135,7 @@ describe("artifact sources are kept out of LLM-bound fallbacks", () => {
   it("repeatable item summaries", async () => {
     const { db, item } = await fixture("templated");
     chat.mockResolvedValueOnce("Moon scene");
-    await runService(executeRepeatableItemSummary(db, "key", item.id));
+    await runService(executeRepeatableItemSummary(db, "key", item.id, null));
     expect(chat).toHaveBeenCalledOnce();
     expect(prompts()).toContain("Moon");
     expect(prompts()).not.toMatch(SOURCE_PIECES);
