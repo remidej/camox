@@ -31,7 +31,7 @@ export function PageApp({
   return (
     <QueryClientProvider client={queryClient}>
       <HydrationBoundary state={input.dehydratedState as DehydratedState}>
-        <PageNavigationProvider initialInput={input} queryClient={queryClient}>
+        <PageNavigationProvider camoxApp={camoxApp} initialInput={input} queryClient={queryClient}>
           {(currentInput) => (
             <CoreCamoxProvider
               camoxApp={camoxApp}
@@ -72,6 +72,12 @@ const LazyLocalhostPreviewProvider = React.lazy(() =>
     default: module.LocalhostPreviewProvider,
   })),
 );
+
+/** Editing lists and adds any block, so it waits for every definition, not only the page's. */
+function AllBlocks({ camoxApp, children }: { camoxApp: CamoxApp; children: React.ReactNode }) {
+  React.use(camoxApp.loadAllBlocks());
+  return children;
+}
 
 class EditingActivationBoundary extends React.Component<
   { children: React.ReactNode; fallback: React.ReactNode },
@@ -128,7 +134,9 @@ function PageExperience({
   const fallback = input.routeKind ? <StudioLoadError /> : isolatedPage;
   if (isAuthenticated) {
     const editor = hasHydrated ? (
-      <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
+      <AllBlocks camoxApp={camoxApp}>
+        <LazyEditablePageExperience camoxApp={camoxApp} input={input} queryClient={queryClient} />
+      </AllBlocks>
     ) : null;
 
     return (
@@ -151,7 +159,9 @@ function PageExperience({
   if (hasHydrated && isLocalhostPreview()) {
     return (
       <React.Suspense fallback={published}>
-        <LazyLocalhostPreviewProvider>{published}</LazyLocalhostPreviewProvider>
+        <AllBlocks camoxApp={camoxApp}>
+          <LazyLocalhostPreviewProvider>{published}</LazyLocalhostPreviewProvider>
+        </AllBlocks>
       </React.Suspense>
     );
   }

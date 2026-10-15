@@ -34,6 +34,7 @@ import {
   STUDIO_CONTENT_PATH,
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
+import { getPageBlockTypes } from "./pageBlockTypes";
 import type { StudioRenderInput } from "./studioApp";
 
 const DEFAULT_RUNTIME_BASE_PATH = "";
@@ -102,6 +103,13 @@ export interface PageRenderInput {
 export interface RuntimeOptions {
   apiUrl?: string;
   authenticationUrl?: string;
+  /** Where the browser loads each block from, so a page can preload the blocks it renders. */
+  blockPreloads?: {
+    /** Each block's module path, by block id. */
+    modulePaths: Record<string, string>;
+    /** The built chunks each block module needs, by module path. `null` in dev. */
+    chunks: Record<string, string[]> | null;
+  };
   environmentName?: string;
   pageClientEntryUrl?: string;
   studioClientEntryUrl?: string;
@@ -406,6 +414,23 @@ function serializeJsonForHtml(value: unknown): string {
   return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
 
+/**
+ * The browser loads a page's blocks before hydrating it. Preloading them alongside the entry
+ * script avoids a request waterfall.
+ */
+function renderBlockPreloads(options: RuntimeOptions, dehydratedState: unknown): string {
+  const preloads = options.blockPreloads;
+  if (!preloads) return "";
+  const urls = new Set<string>();
+  for (const type of getPageBlockTypes(dehydratedState)) {
+    const modulePath = preloads.modulePaths[type];
+    if (!modulePath) continue;
+    if (!preloads.chunks) urls.add(modulePath);
+    for (const chunk of preloads.chunks?.[modulePath] ?? []) urls.add(`/${chunk}`);
+  }
+  return [...urls].map((url) => `<link rel="modulepreload" href="${escapeXml(url)}">`).join("");
+}
+
 function renderClientEntryScript(src?: string): string {
   if (!src) return "";
   return `<script type="module" src="${escapeXml(src)}"></script>`;
@@ -564,6 +589,7 @@ async function createPageHtmlResponse({
 <head>
 ${renderStudioThemeScript(result.source === "draft")}
 ${renderedHead.headTags}
+${renderBlockPreloads(options, dehydratedState)}
 <script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(pageRenderInput)}</script>
 </head>
 <body${renderedHead.bodyAttrs}>
@@ -815,7 +841,7 @@ async function createDerivedResponse(
       source === "draft" ? options.studioStylesheetUrl : undefined,
     );
     return new Response(
-      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(source === "draft")}${head.headTags}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(source === "draft")}${head.headTags}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
       {
         headers: {
           "Content-Type": "text/html; charset=utf-8",

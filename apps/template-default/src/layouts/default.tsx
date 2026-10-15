@@ -1,8 +1,6 @@
 import { createLayout } from "camox/createLayout";
 
-import { block as faqBlock } from "../blocks/faq";
 import { block as footerBlock } from "../blocks/footer";
-import { block as heroBlock } from "../blocks/hero";
 import { block as navbarBlock } from "../blocks/navbar";
 
 const defaultLayout = createLayout({
@@ -12,7 +10,7 @@ const defaultLayout = createLayout({
   blocks: {
     before: [navbarBlock],
     after: [footerBlock],
-    initial: [heroBlock, faqBlock],
+    initial: [() => import("../blocks/hero"), () => import("../blocks/faq")],
   },
   component: DefaultLayout,
   buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,

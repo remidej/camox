@@ -14,7 +14,6 @@ Use one `.tsx` file per layout in `src/layouts/`, a named `layout` or `Layout` e
 import { createLayout } from "camox/createLayout";
 import { block as navbarBlock } from "../blocks/navbar";
 import { block as footerBlock } from "../blocks/footer";
-import { block as heroBlock } from "../blocks/hero";
 
 const myLayout = createLayout({
   id: "my-layout",
@@ -23,7 +22,7 @@ const myLayout = createLayout({
   blocks: {
     before: [navbarBlock],
     after: [footerBlock],
-    initial: [heroBlock],
+    initial: [() => import("../blocks/hero")],
   },
   component: MyLayoutComponent,
   buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
@@ -65,6 +64,7 @@ export { myLayout as layout };
 
 `initial` seeds the homepage at project creation, using block defaults in array order. It does not populate existing Pages.
 
+- List each block as an import of its module, `() => import("../blocks/hero")`, never a statically imported block. Layouts load on every page, so a static import would ship the block to every visitor.
 - Accepts only blocks with `layoutOnly` omitted or `false`.
 - At most one layout per app may define `initial`; multiple definitions cause a startup error.
 - Without `initial`, Camox seeds an empty homepage using the first curated layout. Apps with only singleton/derived layouts do not seed a curated homepage.
