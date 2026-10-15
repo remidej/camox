@@ -1,7 +1,7 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
@@ -21,6 +21,7 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
   blockDefinitions,
   blocks,
+  environments,
   files,
   layoutCheckpoints,
   layouts,
@@ -45,6 +46,7 @@ import {
   type ResolvedReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
@@ -332,39 +334,27 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   // Get block definition for content schema and field order. Scope by
   // environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
-  let projectId: number | null = null;
-  let environmentId: number | null = null;
-  const { pageId, layoutId } = block;
-  if (pageId) {
-    const page = yield* Effect.promise(() =>
-      db.select().from(pages).where(eq(pages.id, pageId)).get(),
-    );
-    projectId = page?.projectId ?? null;
-    environmentId = page?.environmentId ?? null;
-  } else if (layoutId) {
-    const layout = yield* Effect.promise(() =>
-      db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
-    );
-    projectId = layout?.projectId ?? null;
-    environmentId = layout?.environmentId ?? null;
-  }
+  const environmentId = block.environmentId;
+  const environment = yield* Effect.promise(() =>
+    db.select().from(environments).where(eq(environments.id, environmentId)).get(),
+  );
+  const projectId = environment?.projectId ?? null;
 
-  const def =
-    projectId && environmentId
-      ? yield* Effect.promise(() =>
-          db
-            .select()
-            .from(blockDefinitions)
-            .where(
-              and(
-                eq(blockDefinitions.projectId, projectId),
-                eq(blockDefinitions.environmentId, environmentId),
-                eq(blockDefinitions.blockId, block.type),
-              ),
-            )
-            .get(),
-        )
-      : null;
+  const def = projectId
+    ? yield* Effect.promise(() =>
+        db
+          .select()
+          .from(blockDefinitions)
+          .where(
+            and(
+              eq(blockDefinitions.projectId, projectId),
+              eq(blockDefinitions.environmentId, environmentId),
+              eq(blockDefinitions.blockId, block.type),
+            ),
+          )
+          .get(),
+      )
+    : null;
 
   const contentSchema = (def?.contentSchema as Record<string, any>) ?? null;
   const fieldOrder = contentSchema?.properties
@@ -771,7 +761,7 @@ const loadBlockBundle = Effect.fn("loadBlockBundle")(function* (
   }
   if (layoutId != null) {
     const parentLayout = yield* Effect.promise(() =>
-      ctx.db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
+      ctx.db.select().from(layouts).where(layoutNamed(liveBlock.environmentId, layoutId)).get(),
     );
     if (!parentLayout) return { block: null, items: [] };
     // See readLayoutSnapshot in pages/service.ts: in phase 1 the layout side
@@ -1076,7 +1066,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     // is unpublished, treat it as empty rather than failing the page read.
     if (page.layoutId) {
       const layout = yield* Effect.promise(() =>
-        ctx.db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
+        ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
       );
       if (layout) {
         const layoutSnapshot = yield* readLayoutSnapshot(ctx, layout);
@@ -1154,9 +1144,7 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
         count: sql<number>`count(*)`,
       })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .where(or(eq(pages.environmentId, environment.id), eq(layouts.environmentId, environment.id)))
+      .where(eq(blocks.environmentId, environment.id))
       .groupBy(blocks.type),
   );
 });
@@ -1284,6 +1272,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     ctx.db
       .insert(blocks)
       .values({
+        environmentId: access.page.environmentId,
         pageId,
         type,
         content: prepared.content,
@@ -1494,13 +1483,12 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
 
   // Query siblings (excluding the block being moved) to compute a correct position
   const block = access.block;
-  const parentColumn = block.pageId ? blocks.pageId : blocks.layoutId;
-  const parentId = block.pageId ?? block.layoutId;
-  const siblings = parentId
+  const owner = blocksOfOwner(block);
+  const siblings = owner
     ? sortByPosition(
-        (yield* Effect.promise(() =>
-          ctx.db.select().from(blocks).where(eq(parentColumn, parentId)),
-        )).filter((b) => b.id !== id),
+        (yield* Effect.promise(() => ctx.db.select().from(blocks).where(owner))).filter(
+          (b) => b.id !== id,
+        ),
       )
     : [];
 
@@ -1587,9 +1575,8 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     ctx.db
       .select({ id: blocks.id, projectId: projects.id })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
+      .innerJoin(environments, eq(environments.id, blocks.environmentId))
+      .innerJoin(projects, eq(projects.id, environments.projectId))
       .innerJoin(
         member,
         and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
@@ -1670,12 +1657,9 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   const now = Date.now();
 
   // Find the next block after the original to insert between them
-  const parentId = original.pageId ?? original.layoutId;
-  const parentColumn = original.pageId ? blocks.pageId : blocks.layoutId;
-  const siblings = parentId
-    ? sortByPosition(
-        yield* Effect.promise(() => ctx.db.select().from(blocks).where(eq(parentColumn, parentId))),
-      )
+  const owner = blocksOfOwner(original);
+  const siblings = owner
+    ? sortByPosition(yield* Effect.promise(() => ctx.db.select().from(blocks).where(owner)))
     : [];
   const originalIndex = siblings.findIndex((b) => b.id === id);
   const nextBlock = originalIndex >= 0 ? siblings[originalIndex + 1] : undefined;
@@ -1685,6 +1669,7 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     ctx.db
       .insert(blocks)
       .values({
+        environmentId: original.environmentId,
         pageId: original.pageId,
         layoutId: original.layoutId,
         type: original.type,

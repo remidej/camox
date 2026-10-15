@@ -15,8 +15,8 @@ export type PreviewedPage = {
   status: PublicationStatus;
   modifiedReason:
     | { reason: "self" }
-    | { reason: "layout"; layoutId: number; layoutHandle: string; affectedPagesCount: number }
-    | { reason: "both"; layoutId: number; layoutHandle: string; affectedPagesCount: number }
+    | { reason: "layout"; layoutHandle: string; affectedPagesCount: number }
+    | { reason: "both"; layoutHandle: string; affectedPagesCount: number }
     | null;
 };
 

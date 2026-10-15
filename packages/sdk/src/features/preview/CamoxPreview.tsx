@@ -419,7 +419,7 @@ export const PreviewShell = ({
   const { pathname } = useLocation();
 
   const pageId = pageData?.page.id;
-  const layoutId = derivedLayout?.id;
+  const layoutId = derivedLayout?.layoutId;
   const editingOwner = React.useMemo<EditingOwner | null>(() => {
     if (pageId != null) return { kind: "page", pageId };
     if (layoutId != null) return { kind: "layout", layoutId };
@@ -571,7 +571,7 @@ export const PreviewShell = ({
                 active={!showCanvas}
                 isMobileExperience={isMobileStudio}
                 page={pageData?.page}
-                layoutId={derivedLayout?.id}
+                layoutId={derivedLayout?.layoutId}
                 projectName={pageData?.projectName}
                 toolbarProps={toolbarProps}
               >

@@ -1,15 +1,17 @@
-import { index, int, sqliteTable, text, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { user } from "../auth/schema";
-import { layouts } from "./schema";
+import { environments } from "../projects/schema";
 
 export const layoutCheckpoints = sqliteTable(
   "layout_checkpoints",
   {
     id: int().primaryKey({ autoIncrement: true }),
-    layoutId: int("layout_id")
+    environmentId: int("environment_id")
       .notNull()
-      .references((): AnySQLiteColumn => layouts.id, { onDelete: "cascade" }),
+      .references(() => environments.id),
+    // The layout's name. Deleting a layout deletes its checkpoints.
+    layoutId: text("layout_id").notNull(),
     kind: text().notNull().$type<"auto-publish" | "manual" | "auto-draft">(),
     label: text(),
     snapshot: text().notNull(),
@@ -17,5 +19,11 @@ export const layoutCheckpoints = sqliteTable(
     createdAt: int("created_at").notNull(),
     createdBy: text("created_by").references(() => user.id),
   },
-  (table) => [index("layout_checkpoints_layout_created_idx").on(table.layoutId, table.createdAt)],
+  (table) => [
+    index("layout_checkpoints_layout_created_idx").on(
+      table.environmentId,
+      table.layoutId,
+      table.createdAt,
+    ),
+  ],
 );

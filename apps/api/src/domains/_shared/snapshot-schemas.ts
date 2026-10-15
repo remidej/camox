@@ -24,8 +24,9 @@ const sqliteBoolean = z.preprocess(
 
 export const snapshotBlockSchema = z.object({
   id: z.number(),
+  environmentId: z.number(),
   pageId: z.number().nullable(),
-  layoutId: z.number().nullable(),
+  layoutId: z.string().nullable(),
   type: z.string(),
   content: z.unknown(),
   settings: z.unknown().nullable(),
@@ -58,7 +59,7 @@ const snapshotPageRowSchema = z.object({
   pathSegment: z.string(),
   fullPath: z.string(),
   parentPageId: z.number().nullable(),
-  layoutId: z.number(),
+  layoutId: z.string(),
   nickname: z.string(),
   metaTitle: z.string().nullable(),
   metaDescription: z.string().nullable(),
@@ -70,7 +71,6 @@ const snapshotPageRowSchema = z.object({
 });
 
 const snapshotLayoutRowSchema = z.object({
-  id: z.number(),
   projectId: z.number(),
   environmentId: z.number(),
   layoutId: z.string(),

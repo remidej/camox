@@ -18,7 +18,7 @@ export type PublicationTarget =
     }
   | {
       kind: "layout";
-      layout: Pick<Layout, "id" | "status" | "livePublishedCheckpointId"> &
+      layout: Pick<Layout, "projectId" | "layoutId" | "status" | "livePublishedCheckpointId"> &
         Partial<Pick<Layout, "kind">>;
       name: string;
       /** The record a record page renders. It publishes independently of the layout. */
@@ -141,7 +141,7 @@ export function buildPublicationPlan(target: PublicationTarget): PublicationPlan
       description: `Publishes the editable blocks on ${target.name}. The route and application data are controlled by code, not publishing.`,
       items: [
         {
-          key: `layout:${target.layout.id}`,
+          key: `layout:${target.layout.layoutId}`,
           label: `${target.name} blocks`,
           impact:
             "Updates this page’s before and after blocks. Synced block changes also apply wherever those blocks are used.",
@@ -160,7 +160,7 @@ export function buildPublicationPlan(target: PublicationTarget): PublicationPlan
           ? []
           : [
               {
-                key: `layout:${target.layout.id}`,
+                key: `layout:${target.layout.layoutId}`,
                 label: `${target.name} layout blocks`,
                 impact:
                   "Updates the before and after blocks on every page using this layout, including all derived URLs.",
@@ -175,7 +175,7 @@ export function buildPublicationPlan(target: PublicationTarget): PublicationPlan
       description: `Publishes ${target.name} on every page using this layout. Generated content and external data are not published by this action.`,
       items: [
         {
-          key: `layout:${target.layout.id}`,
+          key: `layout:${target.layout.layoutId}`,
           label: `${target.name} layout blocks`,
           // affectedPagesCount only counts stored curated pages, not derived URLs.
           impact:
@@ -202,7 +202,7 @@ export function buildPublicationPlan(target: PublicationTarget): PublicationPlan
   if (reason && (reason.reason === "layout" || reason.reason === "both")) {
     const others = Math.max(0, reason.affectedPagesCount - 1);
     items.push({
-      key: `layout:${reason.layoutId}`,
+      key: `layout:${reason.layoutHandle}`,
       label: `${reason.layoutHandle} layout blocks`,
       impact:
         others === 0
@@ -246,7 +246,9 @@ export type PublicationRequest =
   | {
       kind: "layout";
       input: {
-        id: number;
+        /** A layout is named within a project. */
+        projectId: number;
+        layoutId: string;
         pageRecord?: PageRecordId;
         includeLayout?: boolean;
         collections?: CollectionPublicationInput[];
@@ -287,7 +289,8 @@ export function getPublicationRequest(
     return {
       kind: "layout",
       input: {
-        id: target.layout.id,
+        projectId: target.layout.projectId,
+        layoutId: target.layout.layoutId,
         ...getLayoutPublicationScope(target, !!alsoPublishLayout),
         ...collectionInput,
       },

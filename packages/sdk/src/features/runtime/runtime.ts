@@ -61,7 +61,6 @@ export interface RuntimeRouteMatch {
 
 export interface LayoutIdentity {
   blockIds: number[];
-  id: number;
   layoutId: string;
   version: string;
 }
@@ -164,7 +163,6 @@ function getLayoutIdentity(
 
   return {
     blockIds: [...layout.beforeBlockIds, ...layout.afterBlockIds],
-    id: layout.id,
     layoutId: layout.layoutId,
     version,
   };

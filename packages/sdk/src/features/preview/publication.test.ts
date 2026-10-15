@@ -20,7 +20,6 @@ const pageTarget: Extract<PublicationTarget, { kind: "page" }> = {
     livePublishedCheckpointId: 10,
     modifiedReason: {
       reason: "both",
-      layoutId: 2,
       layoutHandle: "marketing",
       affectedPagesCount: 4,
     },
@@ -29,7 +28,12 @@ const pageTarget: Extract<PublicationTarget, { kind: "page" }> = {
 const layoutTarget: Extract<PublicationTarget, { kind: "layout" }> = {
   kind: "layout",
   name: "Pokémon",
-  layout: { id: 2, status: "modified", livePublishedCheckpointId: 20 },
+  layout: {
+    projectId: 1,
+    layoutId: "marketing",
+    status: "modified",
+    livePublishedCheckpointId: 20,
+  },
 };
 
 const reference: ReferencePublicationTarget = {
@@ -65,9 +69,9 @@ void test("required unpublished and absent references block publication with exp
   const plan = withReferenceTargets(buildPublicationPlan(layoutTarget), [
     { ...reference, status: "draft", required: true, hasPublishedRevision: false },
   ]);
-  assert.match(getPublicationBlocker(plan, ["layout:2"])!, /Acme/);
+  assert.match(getPublicationBlocker(plan, ["layout:marketing"])!, /Acme/);
   assert.throws(
-    () => getPublicationRequest(layoutTarget, ["layout:2"], plan),
+    () => getPublicationRequest(layoutTarget, ["layout:marketing"], plan),
     /required unpublished/,
   );
   assert.equal(
@@ -85,7 +89,7 @@ void test("optional unpublished exclusion remains empty and reviewed versions do
   const source = { ...reference, status: "draft" as const, hasPublishedRevision: false };
   const plan = withReferenceTargets(buildPublicationPlan(layoutTarget), [source]);
   source.expectedVersion = 8;
-  assert.equal(getPublicationBlocker(plan, ["layout:2"]), undefined);
+  assert.equal(getPublicationBlocker(plan, ["layout:marketing"]), undefined);
   assert.match(plan.items.at(-1)!.impact, /reference stays empty/);
   assert.deepEqual(
     getPublicationRequest(
@@ -94,7 +98,8 @@ void test("optional unpublished exclusion remains empty and reviewed versions do
       plan,
     ).input,
     {
-      id: 2,
+      projectId: 1,
+      layoutId: "marketing",
       collections: [{ id: reference.id, collectionId: reference.collectionId, expectedVersion: 7 }],
     },
   );
@@ -103,8 +108,8 @@ void test("optional unpublished exclusion remains empty and reviewed versions do
 void test("empty reference plans preserve existing requests", () => {
   const plan = withReferenceTargets(buildPublicationPlan(pageTarget), []);
   assert.deepEqual(
-    getPublicationRequest(pageTarget, ["page:1", "layout:2"], plan),
-    getPublicationRequest(pageTarget, ["page:1", "layout:2"]),
+    getPublicationRequest(pageTarget, ["page:1", "layout:marketing"], plan),
+    getPublicationRequest(pageTarget, ["page:1", "layout:marketing"]),
   );
 });
 
@@ -114,7 +119,7 @@ void test("page publication separates required content from optional shared chan
     plan.items.map(({ key, optional }) => ({ key, optional })),
     [
       { key: "page:1", optional: false },
-      { key: "layout:2", optional: true },
+      { key: "layout:marketing", optional: true },
     ],
   );
   assert.match(plan.items[1].impact, /3 other pages/);
@@ -147,7 +152,10 @@ void test("page-only changes do not invent shared dependencies", () => {
     page: { ...pageTarget.page, modifiedReason: { reason: "self" } },
   };
   assert.equal(buildPublicationPlan(target).items.length, 1);
-  assert.deepEqual(getPublicationRequest(target, ["layout:2"]), { kind: "page", input: { id: 1 } });
+  assert.deepEqual(getPublicationRequest(target, ["layout:marketing"]), {
+    kind: "page",
+    input: { id: 1 },
+  });
 });
 
 void test("a layout-only page modification still offers shared scope explicitly", () => {
@@ -157,7 +165,6 @@ void test("a layout-only page modification still offers shared scope explicitly"
       ...pageTarget.page,
       modifiedReason: {
         reason: "layout",
-        layoutId: 2,
         layoutHandle: "marketing",
         affectedPagesCount: 1,
       },
@@ -169,13 +176,13 @@ void test("a layout-only page modification still offers shared scope explicitly"
 void test("derived entry points use the same scope model without pretending derived URLs are enumerable", () => {
   const plan = buildPublicationPlan(layoutTarget);
   assert.equal(plan.items.length, 1);
-  assert.equal(plan.items[0].key, "layout:2");
+  assert.equal(plan.items[0].key, "layout:marketing");
   assert.equal(plan.items[0].optional, false);
   assert.match(plan.items[0].impact, /every page.*all derived URLs/);
   assert.match(plan.description, /external data are not published/);
-  assert.deepEqual(getPublicationRequest(layoutTarget, ["layout:2"]), {
+  assert.deepEqual(getPublicationRequest(layoutTarget, ["layout:marketing"]), {
     kind: "layout",
-    input: { id: 2 },
+    input: { projectId: 1, layoutId: "marketing" },
   });
 });
 
@@ -189,7 +196,10 @@ void test("singleton publication describes content changes, not route existence"
   assert.match(plan.description, /route.*controlled by code/);
   assert.match(plan.items[0].impact, /Synced block changes/);
   assert.doesNotMatch(plan.description, /every page/);
-  assert.deepEqual(getPublicationRequest(target, []), { kind: "layout", input: { id: 2 } });
+  assert.deepEqual(getPublicationRequest(target, []), {
+    kind: "layout",
+    input: { projectId: 1, layoutId: "marketing" },
+  });
 });
 
 void test("capabilities preserve home-page safety, live read-only publication and supported discard actions", () => {
@@ -264,7 +274,8 @@ void test("a record page publishes its changed record without republishing an un
     {
       kind: "layout",
       input: {
-        id: 2,
+        projectId: 1,
+        layoutId: "marketing",
         pageRecord: { collectionId: "articles", id: "article-1" },
         includeLayout: false,
         collections: [{ id: "article-1", collectionId: "articles", expectedVersion: 7 }],
@@ -282,12 +293,13 @@ void test("a record page's changed layout is an optional switch, independent of 
   assert.deepEqual(
     plan.items.map(({ key, optional }) => ({ key, optional })),
     [
-      { key: "layout:2", optional: true },
+      { key: "layout:marketing", optional: true },
       { key: "collection:articles:article-1", optional: true },
     ],
   );
-  assert.deepEqual(getPublicationRequest(target, ["layout:2"], plan).input, {
-    id: 2,
+  assert.deepEqual(getPublicationRequest(target, ["layout:marketing"], plan).input, {
+    projectId: 1,
+    layoutId: "marketing",
     pageRecord: { collectionId: "articles", id: "article-1" },
     includeLayout: true,
   });

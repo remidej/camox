@@ -53,7 +53,7 @@ describe("page persistence", () => {
         environmentId: environment.id,
         pathSegment: "about",
         fullPath: "/about",
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         nickname: "About",
         contentUpdatedAt: Date.now(),
         createdById: memberUser.id,
@@ -65,6 +65,7 @@ describe("page persistence", () => {
     const block = await db
       .insert(blocks)
       .values({
+        environmentId: environment.id,
         pageId: page.id,
         type: "hero",
         content: { title: "Published title" },

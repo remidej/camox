@@ -14,12 +14,17 @@ export const collectionSelection = z
   .default([]);
 /** The record a record page renders, which its layout's publication can include. */
 export const pageRecordInput = z.object({ collectionId: z.string(), id: uuidv7Schema }).strict();
-export const referenceTargetsInput = z.object({
+export const pageReferenceTargetsInput = z.object({
   id: z.number(),
-  /** Pages only: also publish the page's layout. */
+  /** Also publish the page's layout. */
   alsoPublishLayout: z.boolean().optional(),
-  /** Layouts only: the record of the record page being published. */
+});
+export const layoutReferenceTargetsInput = z.object({
+  /** A layout is named within a project, in the request's environment. */
+  projectId: z.number(),
+  layoutId: z.string(),
+  /** The record of the record page being published. */
   pageRecord: pageRecordInput.optional(),
-  /** Layouts only: `false` publishes the selected records without the layout. */
+  /** `false` publishes the selected records without the layout. */
   includeLayout: z.boolean().optional(),
 });

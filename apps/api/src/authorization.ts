@@ -1,9 +1,18 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "./db";
 import { ForbiddenError, NotFoundError, UnauthenticatedError } from "./lib/errors";
-import { member, blocks, files, layouts, pages, projects, repeatableItems } from "./schema";
+import {
+  member,
+  blocks,
+  environments,
+  files,
+  layouts,
+  pages,
+  projects,
+  repeatableItems,
+} from "./schema";
 
 // --- Definition Sync ---
 
@@ -153,9 +162,10 @@ export const assertPageAccess = Effect.fn("assertPageAccess")(function* (
   return result;
 });
 
+/** A layout is found by its name within a project's environment. */
 export const assertLayoutAccess = Effect.fn("assertLayoutAccess")(function* (
   db: Database,
-  layoutId: number,
+  layout: { projectId: number; environmentId: number; layoutId: string },
   userId: string,
 ) {
   const result = yield* Effect.promise(() =>
@@ -163,7 +173,13 @@ export const assertLayoutAccess = Effect.fn("assertLayoutAccess")(function* (
       .select({ layout: layouts, projectId: projects.id })
       .from(layouts)
       .innerJoin(projects, eq(projects.id, layouts.projectId))
-      .where(eq(layouts.id, layoutId))
+      .where(
+        and(
+          eq(layouts.projectId, layout.projectId),
+          eq(layouts.environmentId, layout.environmentId),
+          eq(layouts.layoutId, layout.layoutId),
+        ),
+      )
       .get(),
   );
   if (!result) return yield* new NotFoundError();
@@ -178,11 +194,10 @@ export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
 ) {
   const result = yield* Effect.promise(() =>
     db
-      .select({ block: blocks, projectId: projects.id, pagePath: pages.fullPath })
+      .select({ block: blocks, projectId: environments.projectId, pagePath: pages.fullPath })
       .from(blocks)
+      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
       .where(eq(blocks.id, blockId))
       .get(),
   );
@@ -198,12 +213,15 @@ export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess"
 ) {
   const result = yield* Effect.promise(() =>
     db
-      .select({ item: repeatableItems, projectId: projects.id, pagePath: pages.fullPath })
+      .select({
+        item: repeatableItems,
+        projectId: environments.projectId,
+        pagePath: pages.fullPath,
+      })
       .from(repeatableItems)
       .innerJoin(blocks, eq(repeatableItems.blockId, blocks.id))
+      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
       .where(eq(repeatableItems.id, itemId))
       .get(),
   );

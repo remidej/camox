@@ -6,6 +6,7 @@ import { z } from "zod";
 import { assertLayoutAccess, assertPageAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError } from "../../lib/errors";
+import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import {
   blockDefinitions,
@@ -16,9 +17,15 @@ import {
   projects,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { layoutNamed } from "../layouts/identity";
 import { buildLayoutSnapshotFromDraft } from "../layouts/service";
 import { buildPageSnapshotFromDraft } from "../pages/service";
-import { collectionSelection, referenceTargetsInput } from "./reference-publication-input";
+import { collectionOfRecord } from "./identity";
+import {
+  collectionSelection,
+  layoutReferenceTargetsInput,
+  pageReferenceTargetsInput,
+} from "./reference-publication-input";
 import {
   itemSchemas,
   referencedRecords,
@@ -31,29 +38,63 @@ import {
 } from "./references";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
 import { validateContent } from "./validation";
-export { referenceTargetsInput } from "./reference-publication-input";
+export {
+  layoutReferenceTargetsInput,
+  pageReferenceTargetsInput,
+} from "./reference-publication-input";
+
+type PublicationKind = "page" | "layout";
+/** A page is found by its id; a layout by its name within a project. */
+type TargetsInput<K extends PublicationKind> = K extends "page"
+  ? z.input<typeof pageReferenceTargetsInput>
+  : z.input<typeof layoutReferenceTargetsInput>;
+type PublicationTarget =
+  | ({ kind: "page" } & z.infer<typeof pageReferenceTargetsInput>)
+  | ({ kind: "layout" } & z.infer<typeof layoutReferenceTargetsInput>);
+
+const decodeTarget = Effect.fn("collections.decodeTarget")(function* (
+  rawInput: unknown,
+  kind: PublicationKind,
+): Effect.fn.Return<PublicationTarget, InvalidInputError> {
+  if (kind === "page") {
+    return { kind, ...(yield* decodeInput(pageReferenceTargetsInput, rawInput)) };
+  }
+  return { kind, ...(yield* decodeInput(layoutReferenceTargetsInput, rawInput)) };
+});
+
+/** The layout a publication includes: the target layout, or the page's when asked for. */
+const publishedLayout = Effect.fn("collections.publishedLayout")(function* (
+  ctx: ServiceContext,
+  target: PublicationTarget,
+  page: typeof pages.$inferSelect | undefined,
+  userId: string,
+) {
+  if (target.kind === "layout") {
+    const environment = yield* resolveEnvironment(ctx.db, target.projectId, ctx.environmentName);
+    const access = yield* assertLayoutAccess(
+      ctx.db,
+      { projectId: target.projectId, environmentId: environment.id, layoutId: target.layoutId },
+      userId,
+    );
+    return access.layout;
+  }
+  if (!page || !target.alsoPublishLayout) return undefined;
+  return yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
+  );
+});
 
 const publicationScope = Effect.fn("collections.publicationScope")(function* (
   ctx: ServiceContext,
-  input: z.infer<typeof referenceTargetsInput>,
-  kind: "page" | "layout",
+  target: PublicationTarget,
 ) {
   const user = yield* requireUser(ctx);
-  const pageAccess = kind === "page" ? yield* assertPageAccess(ctx.db, input.id, user.id) : null;
-  const layoutAccess =
-    kind === "layout" ? yield* assertLayoutAccess(ctx.db, input.id, user.id) : null;
-  const page = pageAccess?.page;
-  const layoutId = page?.layoutId;
-  const layout =
-    layoutAccess?.layout ??
-    (input.alsoPublishLayout && layoutId
-      ? yield* Effect.promise(() =>
-          ctx.db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
-        )
-      : undefined);
+  const page =
+    target.kind === "page" ? (yield* assertPageAccess(ctx.db, target.id, user.id)).page : undefined;
+  const layout = yield* publishedLayout(ctx, target, page, user.id);
   const owner = page ?? layout!;
   // A record page can publish its record alone: the layout's blocks then leave the scope.
-  const publishesLayout = !!layout && (kind === "page" || input.includeLayout !== false);
+  const publishesLayout = !!layout && (target.kind === "page" || target.includeLayout !== false);
   const pageSnapshot = page ? yield* buildPageSnapshotFromDraft(ctx, page) : undefined;
   const layoutSnapshot =
     layout && publishesLayout ? yield* buildLayoutSnapshotFromDraft(ctx, layout) : undefined;
@@ -61,7 +102,7 @@ const publicationScope = Effect.fn("collections.publicationScope")(function* (
     page,
     layout,
     owner,
-    pageRecord: kind === "layout" ? input.pageRecord : undefined,
+    pageRecord: target.kind === "layout" ? target.pageRecord : undefined,
     pageSnapshot,
     layoutSnapshot,
     blocks: [...(pageSnapshot?.blocks ?? []), ...(layoutSnapshot?.blocks ?? [])],
@@ -211,26 +252,25 @@ function withoutQueryBackedLists(schema: unknown) {
   };
 }
 
-export const referenceTargets = Effect.fn("collections.referenceTargets")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof referenceTargetsInput>,
-  kind: "page" | "layout",
-) {
-  const input = yield* decodeInput(referenceTargetsInput, rawInput);
-  return yield* plan(ctx, yield* publicationScope(ctx, input, kind));
+export const referenceTargets = Effect.fn("collections.referenceTargets")(function* <
+  K extends PublicationKind,
+>(ctx: ServiceContext, rawInput: TargetsInput<K>, kind: K) {
+  const target = yield* decodeTarget(rawInput, kind);
+  return yield* plan(ctx, yield* publicationScope(ctx, target));
 });
 
 /**
  * Immutable snapshots may be orphaned on conflict. All visible pointers (including * independently published synced blocks) move in one D1 batch, never as a sequence of publications.
  */
-export const publishWithReferences = Effect.fn("collections.publishWithReferences")(function* (
+export const publishWithReferences = Effect.fn("collections.publishWithReferences")(function* <
+  K extends PublicationKind,
+>(
   ctx: ServiceContext,
-  input: z.infer<typeof referenceTargetsInput> & {
-    collections: z.infer<typeof collectionSelection>;
-  },
-  kind: "page" | "layout",
+  input: TargetsInput<K> & { collections: z.infer<typeof collectionSelection> },
+  kind: K,
 ) {
-  const scope = yield* publicationScope(ctx, input, kind);
+  const target = yield* decodeTarget(input, kind);
+  const scope = yield* publicationScope(ctx, target);
   const review = yield* plan(ctx, scope);
   if (review.missingRequired.length)
     return yield* new ConflictError({
@@ -263,7 +303,8 @@ export const publishWithReferences = Effect.fn("collections.publishWithReference
       ctx.db
         .select({
           valid: sql<number>`case when exists (
-      select 1 from ${collectionRecords} r join ${collectionDefinitions} d on d.id = r.definition_id
+      select 1 from ${collectionRecords} r join ${collectionDefinitions} d
+        on d.environment_id = r.environment_id and d.collection_id = r.collection_id
       where r.id = ${selection.id} and r.version = ${selection.expectedVersion}
         and d.active = 1 and d.project_id = ${scope.owner.projectId}
         and d.environment_id = ${scope.owner.environmentId} and d.collection_id = ${selection.collectionId}
@@ -274,20 +315,16 @@ export const publishWithReferences = Effect.fn("collections.publishWithReference
     );
   }
   for (const selection of selected.values()) {
-    const record = yield* Effect.promise(() =>
-      ctx.db.select().from(collectionRecords).where(eq(collectionRecords.id, selection.id)).get(),
+    const found = yield* Effect.promise(() =>
+      ctx.db
+        .select({ record: collectionRecords, definition: collectionDefinitions })
+        .from(collectionRecords)
+        .innerJoin(collectionDefinitions, collectionOfRecord)
+        .where(eq(collectionRecords.id, selection.id))
+        .get(),
     );
-    const definitionId = record?.definitionId;
-    const definition =
-      definitionId === undefined
-        ? undefined
-        : yield* Effect.promise(() =>
-            ctx.db
-              .select()
-              .from(collectionDefinitions)
-              .where(eq(collectionDefinitions.id, definitionId))
-              .get(),
-          );
+    const record = found?.record;
+    const definition = found?.definition;
     if (!record || !definition || record.version !== selection.expectedVersion)
       return yield* new ConflictError({
         message: "Reference publication plan changed; review again",
@@ -349,7 +386,8 @@ export const publishWithReferences = Effect.fn("collections.publishWithReference
       ctx.db
         .insert(layoutCheckpoints)
         .values({
-          layoutId: layout.id,
+          environmentId: layout.environmentId,
+          layoutId: layout.layoutId,
           kind: "auto-publish",
           label: null,
           snapshot: JSON.stringify(scope.layoutSnapshot),
@@ -364,7 +402,7 @@ export const publishWithReferences = Effect.fn("collections.publishWithReference
       ctx.db
         .update(layouts)
         .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
-        .where(eq(layouts.id, layout.id)),
+        .where(layoutNamed(layout.environmentId, layout.layoutId)),
     );
   }
   const seen = new Set<string>();
@@ -413,12 +451,14 @@ export const publishWithReferences = Effect.fn("collections.publishWithReference
       ["camox", "collections"],
     ],
   });
-  if (kind === "page") {
+  if (scope.page && target.kind === "page") {
+    const pageId = scope.page.id;
     return yield* Effect.promise(() =>
-      ctx.db.select().from(pages).where(eq(pages.id, input.id)).get(),
+      ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
     );
   }
+  const { environmentId, layoutId } = scope.owner as typeof layouts.$inferSelect;
   return yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.id, input.id)).get(),
+    ctx.db.select().from(layouts).where(layoutNamed(environmentId, layoutId)).get(),
   );
 });

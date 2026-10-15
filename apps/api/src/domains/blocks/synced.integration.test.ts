@@ -6,6 +6,7 @@ import { createProjectFixture, createServiceContext } from "../../../test/fixtur
 import { runService } from "../../lib/run-service";
 import { blocks, environments, layouts, pages, repeatableItems } from "../../schema";
 import { syncBlockDefinitions, upsertBlockDefinition } from "../block-definitions/service";
+import { blocksOfLayout } from "../layouts/identity";
 import { getLayout, publishLayout, syncLayouts, unpublishLayout } from "../layouts/service";
 import {
   createRepeatableItem,
@@ -84,17 +85,9 @@ async function fixture(suffix: string, synced?: boolean) {
     .select()
     .from(layouts)
     .where(eq(layouts.environmentId, base.environment.id));
-  const first = (await base.db
-    .select()
-    .from(blocks)
-    .where(eq(blocks.layoutId, base.layout.id))
-    .get())!;
+  const first = (await base.db.select().from(blocks).where(blocksOfLayout(base.layout)).get())!;
   const otherLayout = rows.find((row) => row.layoutId === "other")!;
-  const second = (await base.db
-    .select()
-    .from(blocks)
-    .where(eq(blocks.layoutId, otherLayout.id))
-    .get())!;
+  const second = (await base.db.select().from(blocks).where(blocksOfLayout(otherLayout)).get())!;
   return { ...base, ctx, syncCtx, definition, first, second, otherLayout };
 }
 
@@ -184,7 +177,7 @@ describe("synced blocks", () => {
       .values({
         projectId: project.id,
         environmentId: environment.id,
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         pathSegment: "",
         fullPath: "/",
         nickname: "Home",
@@ -220,7 +213,8 @@ describe("synced blocks", () => {
     const isolated = await db
       .insert(blocks)
       .values({
-        layoutId: otherLayout.id,
+        environmentId: otherEnvironment.id,
+        layoutId: otherLayout.layoutId,
         type: "navbar",
         content: { title: "Isolated" },
         position: "a0",
@@ -257,13 +251,13 @@ describe("synced blocks", () => {
 
   it("publishes shared data everywhere while keeping unpublished edits private", async () => {
     const { ctx, project, layout, otherLayout, first, second } = await fixture("sync-live", true);
-    await runService(publishLayout(ctx, { id: layout.id }));
-    await runService(publishLayout(ctx, { id: otherLayout.id }));
+    await runService(publishLayout(ctx, { projectId: project.id, layoutId: layout.layoutId }));
+    await runService(publishLayout(ctx, { projectId: project.id, layoutId: otherLayout.layoutId }));
     await runService(updateBlockContent(ctx, { id: second.id, content: { title: "New draft" } }));
     expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
       title: "default",
     });
-    await runService(publishLayout(ctx, { id: otherLayout.id }));
+    await runService(publishLayout(ctx, { projectId: project.id, layoutId: otherLayout.layoutId }));
     const live = await runService(
       getLayout(ctx, { projectSlug: project.slug, layoutId: "default" }),
     );
@@ -279,7 +273,9 @@ describe("synced blocks", () => {
       title: "New draft",
     });
     // Removing the publishing placement must not roll back the singleton.
-    await runService(unpublishLayout(ctx, { id: otherLayout.id }));
+    await runService(
+      unpublishLayout(ctx, { projectId: project.id, layoutId: otherLayout.layoutId }),
+    );
     await runService(deleteBlock(ctx, { id: second.id }));
     expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
       title: "New draft",

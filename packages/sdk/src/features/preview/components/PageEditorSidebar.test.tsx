@@ -1611,7 +1611,7 @@ void test("a selection on a record that left the query's results falls back to t
 
 /** The layout of a record page rendering Acme, as its loader returned it. */
 const acmePage = {
-  owner: { kind: "layout", layoutId: 4 },
+  owner: { kind: "layout", layoutId: "articles" },
   result: {
     kind: "collection-item",
     collectionId: "customers",
@@ -1624,7 +1624,7 @@ void test("a record page's record field opens the record's fields, saved with it
     t,
     {
       type: "record-field",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: ACME,
       recordFieldName: "quote",
       recordFieldType: "String",
@@ -1648,7 +1648,7 @@ void test("a record page's record field opens the record's fields, saved with it
   ]);
 
   await sidebar.click("Acme");
-  assert.deepEqual(sidebar.selection(), { type: "record", layoutId: 4, recordId: ACME });
+  assert.deepEqual(sidebar.selection(), { type: "record", layoutId: "articles", recordId: ACME });
   assert.match(sidebar.text(), /Quote\s*Superb/);
   assert.match(sidebar.text(), /Contact\s*Ada Lovelace/);
 });
@@ -1658,7 +1658,7 @@ void test("a record page's record opens the records it links", async (t) => {
     t,
     {
       type: "record",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: ACME,
       nested: { fieldName: "contact", recordId: ADA },
     },

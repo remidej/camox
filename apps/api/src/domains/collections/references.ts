@@ -8,8 +8,9 @@ import { getAuthorizedProject, requireUser } from "../../authorization";
 import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { stableStringify } from "../../lib/stable-stringify";
-import { blockDefinitions, layouts, pages } from "../../schema";
+import { blockDefinitions, environments } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { collectionOfRecord, recordsOf } from "./identity";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
 
 type Field = Record<string, unknown>;
@@ -282,12 +283,7 @@ const recordIdsByMetadata = Effect.fn("collections.recordIdsByMetadata")(functio
     })
     .from(collectionRevisions)
     .innerJoin(collectionRecords, eq(collectionRecords.id, collectionRevisions.recordId))
-    .where(
-      and(
-        eq(collectionRecords.definitionId, definition.id),
-        eq(collectionRevisions.kind, "auto-publish"),
-      ),
-    )
+    .where(and(recordsOf(definition), eq(collectionRevisions.kind, "auto-publish")))
     .groupBy(collectionRevisions.recordId)
     .as("first_publications");
   // Falls back to the published revision, then, for never-published drafts, to now.
@@ -304,7 +300,7 @@ const recordIdsByMetadata = Effect.fn("collections.recordIdsByMetadata")(functio
       .leftJoin(firstPublications, eq(firstPublications.recordId, collectionRecords.id))
       .where(
         and(
-          eq(collectionRecords.definitionId, definition.id),
+          recordsOf(definition),
           source === "live" ? isNotNull(publishedRevisions.id) : undefined,
         ),
       )
@@ -342,7 +338,7 @@ const recordIdsByText = Effect.fn("collections.recordIdsByText")(function* (
       )
       .where(
         and(
-          eq(collectionRecords.definitionId, definition.id),
+          recordsOf(definition),
           source === "live" ? isNotNull(publishedRevisions.id) : undefined,
         ),
       ),
@@ -408,12 +404,7 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
     ctx.db
       .select()
       .from(collectionRecords)
-      .where(
-        and(
-          eq(collectionRecords.id, validId.data),
-          eq(collectionRecords.definitionId, definition.id),
-        ),
-      )
+      .where(and(eq(collectionRecords.id, validId.data), recordsOf(definition)))
       .get(),
   );
   if (!record) return null;
@@ -590,10 +581,7 @@ export const recordInScope = Effect.fn("collections.recordInScope")(function* (
     ctx.db
       .select({ id: collectionRecords.id })
       .from(collectionRecords)
-      .innerJoin(
-        collectionDefinitions,
-        eq(collectionDefinitions.id, collectionRecords.definitionId),
-      )
+      .innerJoin(collectionDefinitions, collectionOfRecord)
       .where(
         and(
           eq(collectionRecords.id, validId.data),
@@ -618,21 +606,16 @@ export function missingReference(name: string) {
   });
 }
 
+/** The project and environment a block belongs to, whether on a page or in a layout. */
 export const blockScope = Effect.fn("collections.blockScope")(function* (
   ctx: ServiceContext,
-  block: { pageId: number | null; layoutId: number | null },
+  block: { environmentId: number },
 ) {
-  const { pageId, layoutId } = block;
-  const owner =
-    pageId !== null
-      ? yield* Effect.promise(() => ctx.db.select().from(pages).where(eq(pages.id, pageId)).get())
-      : layoutId !== null
-        ? yield* Effect.promise(() =>
-            ctx.db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
-          )
-        : null;
-  if (!owner) return yield* new NotFoundError();
-  return { projectId: owner.projectId, environmentId: owner.environmentId };
+  const environment = yield* Effect.promise(() =>
+    ctx.db.select().from(environments).where(eq(environments.id, block.environmentId)).get(),
+  );
+  if (!environment) return yield* new NotFoundError();
+  return { projectId: environment.projectId, environmentId: environment.id };
 });
 
 /** Derived dependency status; source edits never mutate page/layout checkpoints. */
@@ -643,17 +626,18 @@ export const referenceChanges = Effect.fn("collections.referenceChanges")(functi
   const rows = yield* Effect.promise(() =>
     ctx.db.all<{
       page_id: number | null;
-      layout_id: number | null;
+      layout_id: string | null;
       draft: string;
       content: string | null;
     }>(sql`select u.page_id, u.layout_id, r.draft, v.content
     from collection_reference_uses u join collection_records r
-      on r.id = u.record_id and r.definition_id = u.definition_id
+      on r.id = u.record_id and r.environment_id = u.environment_id
+      and r.collection_id = u.collection_id
     left join collection_revisions v on v.id = r.published_revision_id
     where u.environment_id = ${environmentId} and u.live = 0`),
   );
   const pageIds = new Set<number>();
-  const layoutIds = new Set<number>();
+  const layoutIds = new Set<string>();
   for (const row of rows) {
     if (
       row.content &&

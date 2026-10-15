@@ -70,7 +70,7 @@ async function fixture(suffix: string) {
     .values({
       projectId: base.project.id,
       environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",
@@ -90,7 +90,7 @@ async function snapshot(db: Awaited<ReturnType<typeof fixture>>["db"]) {
     blocks: await db.select().from(blocks).orderBy(blocks.id),
     items: await db.select().from(repeatableItems).orderBy(repeatableItems.id),
     pages: await db.select().from(pages).orderBy(pages.id),
-    layouts: await db.select().from(layouts).orderBy(layouts.id),
+    layouts: await db.select().from(layouts).orderBy(layouts.layoutId),
   };
 }
 
@@ -434,7 +434,6 @@ describe("embed content validation", () => {
       .get();
     await db.insert(blockDefinitions).values({
       ...definition!,
-      id: undefined,
       environmentId: development.id,
       contentSchema: {
         properties: {
@@ -463,7 +462,7 @@ describe("embed content validation", () => {
       .get();
     await db
       .update(pages)
-      .set({ environmentId: development.id, layoutId: developmentLayout.id })
+      .set({ environmentId: development.id, layoutId: developmentLayout.layoutId })
       .where(eq(pages.id, page.id));
     // Context still selects production; writes must use the owning page's schema.
     const block = await runService(

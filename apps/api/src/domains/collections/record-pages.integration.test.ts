@@ -8,6 +8,7 @@ import { plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, layouts, pages } from "../../schema";
 import { createBlock } from "../blocks/service";
+import { layoutNamed } from "../layouts/identity";
 import { publishLayout } from "../layouts/service";
 import { referenceTargets } from "./reference-publication";
 import {
@@ -313,10 +314,21 @@ describe("publishing a record from its record page", () => {
     pageRecord: { collectionId: string; id: string },
     includeLayout = true,
   ) =>
-    runService(referenceTargets(f.ctx, { id: f.layout.id, pageRecord, includeLayout }, "layout"));
+    runService(
+      referenceTargets(
+        f.ctx,
+        { projectId: f.project.id, layoutId: f.layout.layoutId, pageRecord, includeLayout },
+        "layout",
+      ),
+    );
   const livePointer = async (f: Awaited<ReturnType<typeof fixture>>) =>
-    (await f.db.select().from(layouts).where(eq(layouts.id, f.layout.id)).get())
-      ?.livePublishedCheckpointId;
+    (
+      await f.db
+        .select()
+        .from(layouts)
+        .where(layoutNamed(f.layout.environmentId, f.layout.layoutId))
+        .get()
+    )?.livePublishedCheckpointId;
 
   /** A layout block featuring the record, so the layout reaches it on its own. */
   async function featureInLayout(f: Awaited<ReturnType<typeof fixture>>, recordId: string) {
@@ -347,7 +359,7 @@ describe("publishing a record from its record page", () => {
       .values({
         projectId: f.project.id,
         environmentId: f.environment.id,
-        layoutId: f.layout.id,
+        layoutId: f.layout.layoutId,
         pathSegment: "host",
         fullPath: "/host",
         nickname: "",
@@ -366,7 +378,7 @@ describe("publishing a record from its record page", () => {
     );
     await f.db
       .update(blocks)
-      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
+      .set({ pageId: null, layoutId: f.layout.layoutId, slot: "before" })
       .where(eq(blocks.id, block.id));
   }
 
@@ -376,7 +388,15 @@ describe("publishing a record from its record page", () => {
     const pageRecord = { collectionId: "articles", id: record.id };
 
     expect(
-      (await runService(referenceTargets(f.ctx, { id: f.layout.id }, "layout"))).targets,
+      (
+        await runService(
+          referenceTargets(
+            f.ctx,
+            { projectId: f.project.id, layoutId: f.layout.layoutId },
+            "layout",
+          ),
+        )
+      ).targets,
     ).toEqual([]);
     expect((await layoutTargets(f, pageRecord)).targets).toEqual([
       {
@@ -416,7 +436,8 @@ describe("publishing a record from its record page", () => {
     await expect(
       runService(
         publishLayout(f.ctx, {
-          id: f.layout.id,
+          projectId: f.project.id,
+          layoutId: f.layout.layoutId,
           pageRecord: { collectionId: "articles", id: devRecord.id },
           includeLayout: false,
           collections: [{ id: devRecord.id, collectionId: "articles", expectedVersion: 1 }],
@@ -434,7 +455,8 @@ describe("publishing a record from its record page", () => {
 
     await runService(
       publishLayout(f.ctx, {
-        id: f.layout.id,
+        projectId: f.project.id,
+        layoutId: f.layout.layoutId,
         pageRecord,
         includeLayout: false,
         collections: [{ id: record.id, collectionId: "articles", expectedVersion: 1 }],
@@ -461,7 +483,9 @@ describe("publishing a record from its record page", () => {
     expect((await layoutTargets(f, pageRecord, false)).targets).toMatchObject([
       { id: record.id, status: "modified" },
     ]);
-    await runService(publishLayout(f.ctx, { id: f.layout.id, pageRecord }));
+    await runService(
+      publishLayout(f.ctx, { projectId: f.project.id, layoutId: f.layout.layoutId, pageRecord }),
+    );
     expect(await livePointer(f)).not.toBeNull();
     expect(await f.find("hello", "live")).toMatchObject([{ content: { title: "First take" } }]);
   });
