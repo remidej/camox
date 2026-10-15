@@ -5,6 +5,7 @@ import type { CamoxApp } from "../../core/createApp";
 import { initApiClient } from "../../lib/api-client";
 import { AuthContext, createCamoxAuthClient, useProcessOtt } from "../../lib/auth";
 import { projectQueries, type Project } from "../../lib/queries";
+import { onDraftStarted } from "../../lib/studio-draft";
 import { CamoxAppProvider } from "./components/CamoxAppContext";
 import { PreviewSignInPage } from "./PreviewSignInPage";
 
@@ -48,6 +49,13 @@ export function CoreCamoxProvider({
     initApiClient(apiUrl, environmentName);
     initializedApiUrl.current = apiUrl;
   }
+
+  // Once the first block edit moves the studio into a new draft, refetch everything so the
+  // studio shows the draft rather than Live.
+  React.useEffect(
+    () => onDraftStarted(() => void queryClient.invalidateQueries({ queryKey: ["camox"] })),
+    [queryClient],
+  );
 
   const seededProject = React.useRef<Project | undefined>(undefined);
   if (initialProject && seededProject.current !== initialProject) {
