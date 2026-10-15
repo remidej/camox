@@ -23,8 +23,11 @@ export async function generateSitemap(origin: string): Promise<SitemapEntry[]> {
 
   const pages = await api.pages.listBySlug({ projectSlug: __CAMOX_PROJECT_SLUG__ });
 
-  return pages.map((page) => ({
-    loc: `${origin}${page.fullPath}`,
-    lastmod: new Date(page.updatedAt).toISOString(),
-  }));
+  // Pages whose layout is gone, or whose URL a singleton serves, aren't served.
+  return pages
+    .filter((page) => !page.needsLayout && !page.shadowed)
+    .map((page) => ({
+      loc: `${origin}${page.fullPath}`,
+      lastmod: new Date(page.updatedAt).toISOString(),
+    }));
 }

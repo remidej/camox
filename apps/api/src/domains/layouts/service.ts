@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { assertLayoutAccess, assertSyncAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
+import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import {
   blockDefinitions,
@@ -18,6 +18,7 @@ import {
   repeatableItems,
 } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
+import { conformBlocksIn } from "../_shared/conform-content";
 import { readLayoutSnapshot } from "../_shared/layout-source";
 import type { ServiceContext } from "../_shared/service-context";
 import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
@@ -33,7 +34,6 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
-import { normalizePagePath, singletonPath } from "./route-ownership";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -308,7 +308,13 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id))),
+      .where(
+        and(
+          eq(layouts.projectId, projectId),
+          eq(layouts.environmentId, environment.id),
+          eq(layouts.active, true),
+        ),
+      ),
   );
   const statuses = yield* fetchLayoutStatuses(ctx, rows, environment.id);
   return rows.map((layout) => ({
@@ -336,15 +342,21 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
       .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
       .get(),
   );
-  if (!layout) return yield* new NotFoundError();
+  if (!layout?.active) return yield* new NotFoundError();
   if (user) yield* assertLayoutAccess(ctx.db, layout.id, user.id);
 
   const snapshot =
     source === "draft"
       ? yield* buildLayoutSnapshotFromDraft(ctx, layout)
       : yield* readLayoutSnapshot(ctx, layout);
-  const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);
-  const items = sortByPosition(snapshot?.repeatableItems ?? []);
+  const conformed = yield* conformBlocksIn(
+    ctx,
+    layout,
+    snapshot?.blocks ?? [],
+    snapshot?.repeatableItems ?? [],
+  );
+  const layoutBlocks = sortByPosition(conformed.blocks);
+  const items = sortByPosition(conformed.items);
   const normalized = layoutBlocks.map((block) =>
     injectRepeatableItemMarkers(
       block,
@@ -409,31 +421,6 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName, {
     autoCreate,
   });
-  // Validate the complete submission before writing anything. Existing curated
-  // pages must be moved explicitly before code can claim their URLs/layouts.
-  const existingPages = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.environmentId, environment.id)),
-  );
-  const existingLayouts = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.environmentId, environment.id)),
-  );
-  for (const def of layoutDefs) {
-    if (def.kind === "curated") continue;
-    const existing = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
-    if (existingPages.some((page) => page.layoutId === existing?.id))
-      return yield* new ConflictError({
-        message: `Layout ${def.layoutId} is still assigned to curated pages`,
-      });
-    if (def.kind !== "singleton") continue;
-    const path = yield* singletonPath(def.layoutId);
-    for (const page of existingPages) {
-      if ((yield* normalizePagePath(page.fullPath)) !== path) continue;
-      return yield* new ConflictError({
-        message: `Singleton URL ${path} conflicts with an existing curated page`,
-      });
-    }
-  }
-
   const now = Date.now();
   const results = [];
 
@@ -504,7 +491,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       ? yield* Effect.promise(() =>
           ctx.db
             .update(layouts)
-            .set({ description: def.description, kind: def.kind, updatedAt: now })
+            .set({ description: def.description, kind: def.kind, active: true, updatedAt: now })
             .where(eq(layouts.id, existingLayout.id))
             .returning()
             .get(),
@@ -672,21 +659,21 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         ),
   );
 
-  const deletedLayoutIds: string[] = [];
-  const blockedLayoutDeletions: Array<{ layoutId: string; pageCount: number }> = [];
-  for (const orphan of orphanLayouts) {
-    const pagesUsing = yield* Effect.promise(() =>
+  // A removed layout keeps its row, pages and blocks, which come back with it.
+  // Meanwhile its pages aren't served, and the studio lists them as needing a layout.
+  const removedLayoutIds = orphanLayouts.map((orphan) => orphan.layoutId);
+  if (orphanLayouts.length > 0) {
+    yield* Effect.promise(() =>
       ctx.db
-        .select({ id: pages.id })
-        .from(pages)
-        .where(and(eq(pages.layoutId, orphan.id), eq(pages.environmentId, environment.id))),
+        .update(layouts)
+        .set({ active: false, updatedAt: now })
+        .where(
+          inArray(
+            layouts.id,
+            orphanLayouts.map((orphan) => orphan.id),
+          ),
+        ),
     );
-    if (pagesUsing.length > 0) {
-      blockedLayoutDeletions.push({ layoutId: orphan.layoutId, pageCount: pagesUsing.length });
-      continue;
-    }
-    yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.id, orphan.id)));
-    deletedLayoutIds.push(orphan.layoutId);
   }
 
   // A layoutOnly block definition only makes sense while at least one
@@ -731,8 +718,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
 
   return {
     layouts: results,
-    deletedLayoutIds,
-    blockedLayoutDeletions,
+    removedLayoutIds,
     deletedDefinitionTypes,
   };
 });

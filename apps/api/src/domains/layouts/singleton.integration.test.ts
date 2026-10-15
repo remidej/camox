@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages } from "../../schema";
+import { upsertBlockDefinition } from "../block-definitions/service";
 import {
   createPage,
   discardPageChanges,
+  listPages,
   publishPage,
   setPageLayout,
   updatePage,
@@ -72,21 +74,25 @@ describe("singleton page ownership", () => {
     );
   });
 
-  it("rejects existing URL and layout-use collisions before changing definitions", async () => {
+  it("syncs over existing URL and layout-use collisions, which content never blocks", async () => {
     const { ctx, project, layout, db, definitions, sync } = await setup("singleton-collision");
     await runService(
       createPage(ctx, { projectId: project.id, layoutId: layout.id, pathSegment: "pokedex" }),
     );
-    await expect(sync()).rejects.toMatchObject({ status: 409 });
+    await sync();
     expect(await db.select().from(layouts).where(eq(layouts.projectId, project.id))).toHaveLength(
-      1,
+      3,
     );
-    await expect(sync([{ ...definitions[0], kind: "singleton" }])).rejects.toMatchObject({
-      status: 409,
-    });
+    expect(await runService(listPages(ctx, { projectId: project.id }))).toMatchObject([
+      { fullPath: "/pokedex", shadowed: true, needsLayout: false },
+    ]);
+    await sync([{ ...definitions[0], kind: "singleton" }]);
     expect((await db.select().from(layouts).where(eq(layouts.id, layout.id)).get())?.kind).toBe(
-      "curated",
+      "singleton",
     );
+    expect(await runService(listPages(ctx, { projectId: project.id }))).toMatchObject([
+      { fullPath: "/pokedex", needsLayout: true },
+    ]);
   });
 
   it("protects nested singleton paths when moving an ancestor and restoring a published page", async () => {
@@ -135,6 +141,16 @@ describe("singleton page ownership", () => {
 
   it("publishes only singleton blocks, keeps drafts private, and releases removed routes", async () => {
     const { ctx, project, layout, definitions, sync, db } = await setup("singleton-publishing");
+    await runService(
+      upsertBlockDefinition(createServiceContext(db, null), {
+        projectSlug: project.slug,
+        deployToken: "test-deploy-token",
+        blockId: "intro",
+        title: "Intro",
+        description: "",
+        contentSchema: { type: "object", properties: { title: { type: "string" } } },
+      }),
+    );
     const result = await sync([
       definitions[0],
       {

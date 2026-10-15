@@ -3,7 +3,15 @@ import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blocks, environments, files, layouts, pages, repeatableItems } from "../../schema";
+import {
+  blockDefinitions,
+  blocks,
+  environments,
+  files,
+  layouts,
+  pages,
+  repeatableItems,
+} from "../../schema";
 import { callTool } from "../agent/service";
 import { getLayout, publishLayout, unpublishLayout } from "./service";
 
@@ -13,6 +21,45 @@ describe("standalone shared layout reads", () => {
       await createProjectFixture("layout-view");
     const ctx = createServiceContext(db, memberUser);
     const now = Date.now();
+    const title = { type: "string", fieldType: "String" };
+    await db.insert(blockDefinitions).values(
+      [
+        {
+          blockId: "navbar",
+          properties: {
+            title,
+            links: {
+              type: "array",
+              fieldType: "Repeater",
+              items: {
+                type: "object",
+                properties: {
+                  label: title,
+                  children: {
+                    type: "array",
+                    fieldType: "Repeater",
+                    items: {
+                      type: "object",
+                      properties: { image: { type: "object", fieldType: "Image" } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        { blockId: "footer", properties: { title } },
+      ].map(({ blockId, properties }) => ({
+        projectId: project.id,
+        environmentId: environment.id,
+        blockId,
+        title: blockId,
+        description: "",
+        contentSchema: { type: "object", properties },
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
     const file = await db
       .insert(files)
       .values({

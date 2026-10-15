@@ -17,6 +17,9 @@ export const layouts = sqliteTable(
     kind: text({ enum: ["curated", "derived", "singleton"] })
       .notNull()
       .default("curated"),
+    // False once a sync no longer declares the layout. The row stays, so its pages and
+    // blocks come back with it; until then its pages aren't served.
+    active: int({ mode: "boolean" }).notNull().default(true),
     // FK to layout_checkpoints.id is declared in checkpoints-schema.ts to avoid
     // the circular import between layouts and layout_checkpoints.
     livePublishedCheckpointId: int("live_published_checkpoint_id"),

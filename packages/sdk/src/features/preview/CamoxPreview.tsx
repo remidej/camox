@@ -29,6 +29,7 @@ import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbar } from "./components/PreviewToolbar";
+import { RemovedBlockPlaceholder } from "./components/RemovedBlockPlaceholder";
 import { PageRecordContext, useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 import { previewCommentsStore } from "./previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
@@ -122,7 +123,9 @@ const BlockRenderer = ({
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(data.block.type);
 
-  if (!blockDef) return null;
+  if (!blockDef) {
+    return <RemovedBlockPlaceholder blockId={blockId} type={data.block.type} mode={mode} />;
+  }
 
   return (
     <NormalizedDataProvider

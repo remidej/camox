@@ -9,6 +9,7 @@ import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/e
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { stableStringify } from "../../lib/stable-stringify";
 import { blockDefinitions, layouts, pages } from "../../schema";
+import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
 
@@ -417,15 +418,17 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
       .get(),
   );
   if (!record) return null;
+  const { contentSchema } = definition;
   if (source === "draft") {
+    const content = conformRecordContent(contentSchema, record.draft);
     return {
       id: record.id,
       collectionId: definition.collectionId,
-      content: record.draft,
-      label: lexicalStateToPlainText(record.draft[definition.label] as string),
-      contentSchema: definition.contentSchema,
+      content,
+      label: lexicalStateToPlainText(content[definition.label] as string),
+      contentSchema,
       version: record.version,
-      ...(yield* linked(definition.contentSchema, record.draft)),
+      ...(yield* linked(contentSchema, content)),
     } satisfies ResolvedReference;
   }
   const { publishedRevisionId } = record;
@@ -443,15 +446,16 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
       .get(),
   );
   if (!revision) return null;
-  const contentSchema = (revision.definition as { contentSchema: unknown }).contentSchema;
+  // Published content reads under the definition in effect, like the draft.
+  const content = conformRecordContent(contentSchema, revision.content);
   return {
     id: record.id,
     collectionId: definition.collectionId,
-    content: revision.content,
-    label: lexicalStateToPlainText(revision.content[String(revision.definition.label)] as string),
+    content,
+    label: lexicalStateToPlainText(content[definition.label] as string),
     contentSchema,
     revisionId: revision.id,
-    ...(yield* linked(contentSchema, revision.content)),
+    ...(yield* linked(contentSchema, content)),
   } satisfies ResolvedReference;
 });
 

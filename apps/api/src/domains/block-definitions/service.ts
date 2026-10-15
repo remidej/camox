@@ -1,11 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { assertSyncAccess } from "../../authorization";
 import { decodeInput } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
-import { blockDefinitions, blocks, layouts, pages } from "../../schema";
+import { blockDefinitions } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { applySyncedFlagChange } from "../blocks/synced";
 import { validateReferenceSchema } from "../collections/references";
@@ -192,44 +192,23 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
   );
   const orphans = existingDefs.filter((d) => !incomingIds.has(d.blockId) && d.layoutOnly !== true);
 
-  const deletedDefinitionTypes: string[] = [];
-  const blockedDefinitionDeletions: Array<{ blockId: string; blockCount: number }> = [];
-
-  for (const orphan of orphans) {
-    // A block is attached to either a page or a layout (the column
-    // not in use is null), so usage is the union of both joins scoped to this
-    // environment.
-    const pageUses = yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: blocks.id })
-        .from(blocks)
-        .innerJoin(pages, eq(blocks.pageId, pages.id))
-        .where(and(eq(blocks.type, orphan.blockId), eq(pages.environmentId, environment.id))),
-    );
-    const layoutUses = yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: blocks.id })
-        .from(blocks)
-        .innerJoin(layouts, eq(blocks.layoutId, layouts.id))
-        .where(and(eq(blocks.type, orphan.blockId), eq(layouts.environmentId, environment.id))),
-    );
-    const usageCount = pageUses.length + layoutUses.length;
-
-    if (usageCount > 0) {
-      blockedDefinitionDeletions.push({ blockId: orphan.blockId, blockCount: usageCount });
-      continue;
-    }
+  // Blocks of a removed definition stay stored and render nothing until it comes back.
+  const deletedDefinitionTypes = orphans.map((orphan) => orphan.blockId);
+  if (orphans.length > 0) {
     yield* Effect.promise(() =>
-      ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.id, orphan.id)),
+      ctx.db.delete(blockDefinitions).where(
+        inArray(
+          blockDefinitions.id,
+          orphans.map((orphan) => orphan.id),
+        ),
+      ),
     );
-    deletedDefinitionTypes.push(orphan.blockId);
   }
 
   return {
     results,
     environmentCreated: environment.created,
     deletedDefinitionTypes,
-    blockedDefinitionDeletions,
   };
 });
 

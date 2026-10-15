@@ -19,6 +19,7 @@ import {
   user,
 } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
+import { conformBlocksIn } from "../_shared/conform-content";
 import { readLayoutSnapshot } from "../_shared/layout-source";
 export { readLayoutSnapshot } from "../_shared/layout-source";
 import { pageSourceSchema, type PageSource } from "../_shared/page-source";
@@ -38,7 +39,12 @@ import {
   referenceChanges,
   type ResolvedReferences,
 } from "../collections/references";
-import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
+import {
+  assertCuratedLayout,
+  assertUnreservedPagePaths,
+  pageServingProblems,
+  servesPages,
+} from "../layouts/route-ownership";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
 
@@ -578,6 +584,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
         db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
       )) ?? null)
     : null;
+  if (!servesPages(layout)) return yield* new NotFoundError();
 
   let pageBlocks: RawBlock[];
   let layoutBlocks: RawBlock[];
@@ -622,6 +629,12 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     }
     allItems = [...pageItems, ...layoutItems];
   }
+
+  const conformed = yield* conformBlocksIn(ctx, page, [...pageBlocks, ...layoutBlocks], allItems);
+  const conformedById = new Map(conformed.blocks.map((block) => [block.id, block]));
+  pageBlocks = pageBlocks.map((block) => conformedById.get(block.id)!);
+  layoutBlocks = layoutBlocks.map((block) => conformedById.get(block.id)!);
+  allItems = conformed.items;
 
   const referenceSource = source === "draft" ? "draft" : "live";
   const hydrated = yield* hydrateReferences(
@@ -705,6 +718,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
         db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
       )) ?? null)
     : null;
+  if (!servesPages(layout)) return yield* new NotFoundError();
 
   let pageBlockOrder: { id: number; position: string }[];
   let layoutBlockOrder: { id: number; position: string; slot: "before" | "after" | null }[];
@@ -778,9 +792,11 @@ export const listPages = Effect.fn("pages.listPages")(function* (
       .where(and(eq(pages.projectId, projectId), eq(pages.environmentId, environment.id))),
   );
   const statuses = yield* fetchPageStatuses(ctx, rows, environment.id);
+  const problems = yield* pageServingProblems(ctx, environment.id);
   return rows.map((page) => ({
     ...page,
     ...(statuses.get(page.id) ?? { status: "draft" as const, modifiedReason: null }),
+    ...problems(page),
   }));
 });
 
@@ -802,9 +818,11 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
       .where(and(eq(pages.projectId, project.id), eq(pages.environmentId, environment.id))),
   );
   const statuses = yield* fetchPageStatuses(ctx, rows, environment.id);
+  const problems = yield* pageServingProblems(ctx, environment.id);
   return rows.map((page) => ({
     ...page,
     ...(statuses.get(page.id) ?? { status: "draft" as const, modifiedReason: null }),
+    ...problems(page),
   }));
 });
 

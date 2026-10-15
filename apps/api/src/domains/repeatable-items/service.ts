@@ -18,6 +18,7 @@ import { stripArtifactSources } from "../../lib/content-markdown";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, repeatableItems } from "../../schema";
+import { conformBlocksIn } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { loadBlockSchemas } from "../blocks/content-schema";
 import { initializeBlockContent } from "../blocks/initialize-content";
@@ -323,9 +324,20 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   rawInput: z.input<typeof getRepeatableItemInput>,
 ) {
   const { id } = yield* decodeInput(getRepeatableItemInput, rawInput);
-  const item = yield* Effect.promise(() =>
+  const stored = yield* Effect.promise(() =>
     ctx.db.select().from(repeatableItems).where(eq(repeatableItems.id, id)).get(),
   );
+  if (!stored) return yield* new NotFoundError();
+  // An item conforms through its repeater path, which runs through its block and ancestors.
+  const block = yield* Effect.promise(() =>
+    ctx.db.select().from(blocks).where(eq(blocks.id, stored.blockId)).get(),
+  );
+  if (!block) return yield* new NotFoundError();
+  const siblings = yield* Effect.promise(() =>
+    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
+  );
+  const conformed = yield* conformBlocksIn(ctx, yield* blockScope(ctx, block), [block], siblings);
+  const item = conformed.items.find((candidate) => candidate.id === id);
   if (!item) return yield* new NotFoundError();
 
   // Collect and fetch referenced files

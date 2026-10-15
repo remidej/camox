@@ -35,7 +35,8 @@ export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(func
       .where(and(eq(layouts.id, layoutId), eq(layouts.environmentId, environmentId)))
       .get(),
   );
-  if (!layout) return yield* new NotFoundError({ message: "Layout not found in this environment" });
+  if (!layout?.active)
+    return yield* new NotFoundError({ message: "Layout not found in this environment" });
   if (layout.kind !== "curated")
     return yield* new InvalidInputError({
       message: "Only curated layouts can be assigned to pages",
@@ -51,7 +52,13 @@ export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPage
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environmentId), eq(layouts.kind, "singleton"))),
+      .where(
+        and(
+          eq(layouts.environmentId, environmentId),
+          eq(layouts.kind, "singleton"),
+          eq(layouts.active, true),
+        ),
+      ),
   );
   const reserved = new Set<string>();
   for (const layout of singletons) reserved.add(yield* singletonPath(layout.layoutId));
@@ -59,4 +66,35 @@ export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPage
     if (reserved.has(yield* normalizePagePath(path)))
       return yield* new ConflictError({ message: `URL ${path} is owned by a singleton page` });
   }
+});
+
+/** Pages are served only through an active curated layout; the others need a layout. */
+export function servesPages(layout: { kind: string; active: boolean } | null | undefined) {
+  return layout?.active === true && layout.kind === "curated";
+}
+
+/**
+ * For each curated page, whether it can't be served: its layout was removed or is no longer
+ * curated (it needs a layout), or an active singleton serves its URL instead (it's shadowed).
+ */
+export const pageServingProblems = Effect.fn("layouts.pageServingProblems")(function* (
+  ctx: ServiceContext,
+  environmentId: number,
+) {
+  const rows = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.environmentId, environmentId)),
+  );
+  const byId = new Map(rows.map((layout) => [layout.id, layout]));
+  const pathOf = (path: Effect.Effect<string, InvalidInputError>) =>
+    Effect.runSync(Effect.orElseSucceed(path, () => null));
+  const singletonPaths = new Set<string | null>(
+    rows
+      .filter((layout) => layout.active && layout.kind === "singleton")
+      .map((layout) => pathOf(singletonPath(layout.layoutId))),
+  );
+  singletonPaths.delete(null);
+  return (page: { layoutId: number; fullPath: string }) => ({
+    needsLayout: !servesPages(byId.get(page.layoutId)),
+    shadowed: singletonPaths.has(pathOf(normalizePagePath(page.fullPath))),
+  });
 });

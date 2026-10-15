@@ -325,19 +325,25 @@ const PageStructureModal = ({
 }) => {
   const data = usePageMetadataData(pageId);
   const { page } = data;
+  // A page whose layout was removed or is no longer curated is moved to another one here.
+  const needsLayout = data.pages?.find((item) => item.id === pageId)?.needsLayout ?? false;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Page page</DialogTitle>
-          <DialogDescription>Update the URL path for this page.</DialogDescription>
+          <DialogDescription>
+            {needsLayout
+              ? "This page's layout is gone, so it isn't served. Move it to another layout, or delete it."
+              : "Update the URL path for this page."}
+          </DialogDescription>
         </DialogHeader>
         {page ? (
           <PageStructureEditor
             data={data}
             includeNickname={false}
-            includeLayout={false}
+            includeLayout={needsLayout}
             onSaved={() => onOpenChange(false)}
           />
         ) : (
@@ -389,7 +395,7 @@ const PageStructureEditor = ({
           parentPageId: values.value.parentPageId,
         });
 
-        if (includeLayout && values.value.layoutId) {
+        if (includeLayout && values.value.layoutId && values.value.layoutId !== page.layoutId) {
           await setLayout.mutateAsync({ id: page.id, layoutId: values.value.layoutId });
         }
 

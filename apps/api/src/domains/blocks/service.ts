@@ -30,6 +30,7 @@ import {
   projects,
   repeatableItems,
 } from "../../schema";
+import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
 import { pageSourceSchema, type PageSource } from "../_shared/page-source";
 import type { ServiceContext } from "../_shared/service-context";
 import {
@@ -45,6 +46,7 @@ import {
   type ResolvedReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
@@ -324,17 +326,17 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   db: Database,
   blockId: number,
 ) {
-  const block = yield* Effect.promise(() =>
+  const stored = yield* Effect.promise(() =>
     db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
   );
-  if (!block) return null;
+  if (!stored) return null;
 
   // Get block definition for content schema and field order. Scope by
   // environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
   let projectId: number | null = null;
   let environmentId: number | null = null;
-  const { pageId, layoutId } = block;
+  const { pageId, layoutId } = stored;
   if (pageId) {
     const page = yield* Effect.promise(() =>
       db.select().from(pages).where(eq(pages.id, pageId)).get(),
@@ -359,7 +361,7 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
               and(
                 eq(blockDefinitions.projectId, projectId),
                 eq(blockDefinitions.environmentId, environmentId),
-                eq(blockDefinitions.blockId, block.type),
+                eq(blockDefinitions.blockId, stored.type),
               ),
             )
             .get(),
@@ -372,11 +374,14 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
     : undefined;
 
   // Merge repeatable items into content
-  const items = sortByPosition(
+  const storedItems = sortByPosition(
     yield* Effect.promise(() =>
       db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
     ),
   );
+  const conformed = conformBlocks(new Map(def ? [[def.blockId, def]] : []), [stored], storedItems);
+  const block = conformed.blocks[0];
+  const items = conformed.items;
 
   nestChildItems(items);
 
@@ -804,9 +809,12 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   // parse the whole snapshot to pull one block — but blocks.get against
   // 'live' / { checkpointId } is never the hot path. The edit loop stays on
   // 'draft'.
-  const { block, items: sourcedItems } = yield* loadBlockBundle(ctx, id, source);
-  if (!block) return yield* new NotFoundError();
-  const sorted = sourcedItems.sort((a, b) => comparePositions(a.position, b.position));
+  const { block: storedBlock, items: storedItems } = yield* loadBlockBundle(ctx, id, source);
+  if (!storedBlock) return yield* new NotFoundError();
+  const scope = yield* blockScope(ctx, storedBlock);
+  const conformed = yield* conformBlocksIn(ctx, scope, [storedBlock], storedItems);
+  const block = conformed.blocks[0];
+  const sorted = conformed.items.sort((a, b) => comparePositions(a.position, b.position));
 
   // Build a map of parentItemId → grouped children by fieldName
   const childrenByParent = new Map<number | null, Map<string, typeof sorted>>();
@@ -850,7 +858,6 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     (item as any).content = itemContent;
   }
 
-  const scope = yield* blockScope(ctx, block);
   const referenceSource = source === "draft" ? "draft" : "live";
   const hydratedBlock = (yield* hydrateReferences(
     ctx,
@@ -930,11 +937,17 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     }
   }
 
+  const conformed = conformBlocks(
+    new Map(defs.map((def) => [def.blockId, def])),
+    blockRows,
+    itemRows,
+  );
+  const conformedById = new Map(conformed.blocks.map((block) => [block.id, block]));
   const items: RenderableItem[] = yield* hydrateItemReferences(
     ctx,
     scope,
-    blockRows,
-    itemRows,
+    conformed.blocks,
+    conformed.items,
     referenceSource,
   );
   nestChildItems(items);
@@ -946,7 +959,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     itemsByBlock.set(item.blockId, list);
   }
 
-  const hydrated = yield* hydrateReferences(ctx, scope, blockRows, referenceSource);
+  const hydrated = yield* hydrateReferences(ctx, scope, conformed.blocks, referenceSource);
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
   const fileIds = new Set<number>();
   for (const block of hydrated) {
@@ -964,14 +977,15 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     JSON.stringify(
       stripArtifactSources(
         schemaByType.get(block.type)?.properties,
-        block.content as Record<string, unknown>,
+        (conformedById.get(block.id) ?? block).content as Record<string, unknown>,
       ),
     );
   const markdown = (block: RenderableBlock): string | undefined => {
     const schema = schemaByType.get(block.type);
     if (!schema?.toMarkdown) return undefined;
     const blockItems = itemsByBlock.get(block.id) ?? [];
-    const content = { ...(block.content as Record<string, unknown>) };
+    const conformedBlock = conformedById.get(block.id) ?? block;
+    const content = { ...(conformedBlock.content as Record<string, unknown>) };
     for (const fieldName of new Set(blockItems.map((i) => i.fieldName))) {
       content[fieldName] = blockItems.filter((i) => i.fieldName === fieldName);
     }
@@ -980,13 +994,16 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
       schema.properties,
       content,
       {
-        settings: block.settings as Record<string, unknown> | null | undefined,
+        settings: conformedBlock.settings as Record<string, unknown> | null | undefined,
         files: fileMap,
         references: referencesByBlock.get(block.id),
       },
     )}`;
   };
-  return { markdown, json };
+  /** A block whose definition is gone renders nothing, not even its JSON. */
+  const rendersNothing = (block: RenderableBlock) =>
+    !defs.some((def) => def.blockId === block.type);
+  return { markdown, json, rendersNothing };
 });
 
 /** Joins the Markdown of a layout's before and after slots, skipping blocks without Markdown. */
@@ -1016,6 +1033,10 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
   );
   if (!page) return yield* new NotFoundError();
+  const pageLayout = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
+  );
+  if (!servesPages(pageLayout)) return yield* new NotFoundError();
 
   // Page blocks + their items, sourced from either the live tables (draft) or
   // the published checkpoint (live / pinned). SnapshotBlock and the drizzle
@@ -1096,11 +1117,13 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
   // Convert page blocks to markdown
-  const blockMarkdowns = sorted.map((block) => ({
-    id: block.id,
-    position: block.position,
-    markdown: render.markdown(block) ?? render.json(block),
-  }));
+  const blockMarkdowns = sorted
+    .filter((block) => !render.rendersNothing(block))
+    .map((block) => ({
+      id: block.id,
+      position: block.position,
+      markdown: render.markdown(block) ?? render.json(block),
+    }));
 
   const parts = [before, ...blockMarkdowns.map((b) => b.markdown), after].filter(Boolean);
   return { markdown: parts.join("\n\n"), blocks: blockMarkdowns };
@@ -1127,7 +1150,7 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
       .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
       .get(),
   );
-  if (!layout) return yield* new NotFoundError();
+  if (!layout?.active) return yield* new NotFoundError();
   // An unpublished layout has no live blocks, like a curated page's layout side.
   const snapshot = yield* readLayoutSnapshot(ctx, layout);
   const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);

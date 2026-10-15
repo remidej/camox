@@ -12,10 +12,10 @@ import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
+import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
-import { collectionAdditionDefaults } from "./schema-evolution";
 import { collectionDefinitionInput, validateContent } from "./validation";
 
 export const syncCollectionDefinitionsInput = z
@@ -62,67 +62,7 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
     const existing = yield* Effect.promise(() =>
       ctx.db.select().from(collectionDefinitions).where(scope),
     );
-    // Validate the whole sync first. Backfills and schema updates then commit in
-    // one batch; the DB guard also catches races with first-record creation.
-    const backfills = [];
-    for (const definition of input.definitions) {
-      const previous = existing.find((d) => d.collectionId === definition.collectionId);
-      if (
-        !previous ||
-        stableStringify(previous.contentSchema) === stableStringify(definition.contentSchema)
-      )
-        continue;
-      const record = yield* Effect.promise(() =>
-        ctx.db
-          .select({ id: collectionRecords.id })
-          .from(collectionRecords)
-          .where(eq(collectionRecords.definitionId, previous.id))
-          .get(),
-      );
-      if (!record) continue;
-      const defaults = JSON.stringify(
-        yield* collectionAdditionDefaults(ctx, previous.contentSchema, {
-          ...previous,
-          contentSchema: definition.contentSchema,
-        }),
-      );
-      backfills.push(
-        ctx.db
-          .update(collectionRecords)
-          .set({
-            // Merge only missing keys, including nulls. json_patch would delete
-            // null asset fields; json_each also handles arbitrary field names.
-            draft: sql`(
-            select json_group_object(key, case type
-              when 'object' then json(value) when 'array' then json(value)
-              when 'true' then json('true') when 'false' then json('false')
-              else value end)
-            from (
-              select key, value, type from json_each(${collectionRecords.draft})
-              union all
-              select key, value, type from json_each(${defaults}) as addition
-              where not exists (
-                select 1 from json_each(${collectionRecords.draft}) as current
-                where current.key = addition.key
-              )
-            )
-          )`,
-            version: sql`${collectionRecords.version} + 1`,
-            updatedAt: Date.now(),
-          })
-          .where(
-            and(
-              eq(collectionRecords.definitionId, previous.id),
-              sql`exists (select 1 from ${collectionDefinitions}
-            where ${collectionDefinitions.id} = ${previous.id}
-            and ${collectionDefinitions.contentSchema} = ${JSON.stringify(previous.contentSchema)})`,
-              sql`exists (select 1 from json_each(${defaults}) as addition
-            where not exists (select 1 from json_each(${collectionRecords.draft}) as current
-              where current.key = addition.key))`,
-            ),
-          ),
-      );
-    }
+    // Content never blocks a sync: records keep their stored shape and conform on read.
     const statements = [
       ctx.db
         .update(collectionDefinitions)
@@ -138,7 +78,6 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
               : undefined,
           ),
         ),
-      ...backfills,
       ...input.definitions.map((definition) =>
         ctx.db
           .insert(collectionDefinitions)
@@ -207,7 +146,7 @@ export const getCollectionRecord = Effect.fn("collections.getCollectionRecord")(
   const input = yield* decodeInput(getCollectionRecordInput, rawInput);
   const { definition, record } = yield* recordFor(ctx, input, true);
   if (!definition.active || !record) return yield* new NotFoundError();
-  return record;
+  return { ...record, draft: conformRecordContent(definition.contentSchema, record.draft) };
 });
 
 export const listCollectionDefinitions = Effect.fn("collections.listCollectionDefinitions")(
@@ -278,7 +217,9 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
     version: record.version,
     status: recordStatus(record.content, record.publishedContent),
     label: lexicalStateToPlainText(
-      record.content[definition.label] as string | Record<string, unknown>,
+      conformRecordContent(definition.contentSchema, record.content)[definition.label] as
+        | string
+        | Record<string, unknown>,
     ),
   }));
 });
@@ -419,22 +360,25 @@ export const readRecord = Effect.fn("collections.readRecord")(function* (
     rawInput,
   );
   const { definition, record } = yield* recordFor(ctx, input, input.source !== "live");
-  if (!record) return null;
-  if (input.source === "draft") return record;
-  if (input.source === "live" && (!definition.active || !record.publishedRevisionId)) return null;
+  // Records of a removed collection are kept and hidden until it comes back.
+  if (!record || !definition.active) return null;
+  if (input.source === "draft") {
+    return { ...record, draft: conformRecordContent(definition.contentSchema, record.draft) };
+  }
+  if (input.source === "live" && !record.publishedRevisionId) return null;
   const revisionId =
     input.source === "live" ? record.publishedRevisionId! : input.source.revisionId;
-  return (
-    (yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(collectionRevisions)
-        .where(
-          and(eq(collectionRevisions.id, revisionId), eq(collectionRevisions.recordId, record.id)),
-        )
-        .get(),
-    )) ?? null
+  const revision = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionRevisions)
+      .where(
+        and(eq(collectionRevisions.id, revisionId), eq(collectionRevisions.recordId, record.id)),
+      )
+      .get(),
   );
+  if (!revision) return null;
+  return { ...revision, content: conformRecordContent(definition.contentSchema, revision.content) };
 });
 
 export const listRecordPageValuesInput = scopeInput.extend({
@@ -476,7 +420,6 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
         id: collectionRecords.id,
         version: collectionRecords.version,
         content,
-        publishedDefinition: publishedRevisions.definition,
       })
       .from(collectionRecords)
       .leftJoin(
@@ -490,15 +433,12 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
         ),
       ),
   );
+  const schema = definition.contentSchema;
   const records = rows.flatMap((row) => {
-    const value = pageValue(row.content, input.field);
+    const content = conformRecordContent(schema, row.content);
+    const value = pageValue(content, input.field);
     if (value === null) return [];
-    // Live records render with the schema they were published with.
-    const schema =
-      input.source === "live"
-        ? (row.publishedDefinition as { contentSchema: unknown }).contentSchema
-        : definition.contentSchema;
-    return [{ id: row.id, version: row.version, content: row.content!, value, schema }];
+    return [{ id: row.id, version: row.version, content, value, schema }];
   });
   return { definition, records };
 });
@@ -569,19 +509,13 @@ export const recordMarkdown = Effect.fn("collections.recordMarkdown")(function* 
       .get(),
   );
   if (!revision) return yield* new NotFoundError();
-  const { contentSchema } = revision.definition as { contentSchema: { properties?: object } };
-  const references = yield* resolveReferences(
-    ctx,
-    definition,
-    contentSchema,
-    revision.content,
-    "live",
-    2,
-  );
+  const contentSchema = definition.contentSchema as { properties?: object };
+  const content = conformRecordContent(contentSchema, revision.content);
+  const references = yield* resolveReferences(ctx, definition, contentSchema, content, "live", 2);
   return contentToMarkdown(
     input.toMarkdown,
     (contentSchema.properties ?? {}) as Record<string, unknown>,
-    revision.content,
+    content,
     { references },
   );
 });
@@ -638,11 +572,26 @@ export const editRecord = Effect.fn("collections.editRecord")(function* (
 ) {
   const input = yield* decodeInput(editRecordInput, rawInput);
   const { definition, record } = yield* mutation(ctx, input);
-  const draft = yield* validateContent(ctx, definition, input.content);
+  // Keys of removed fields stay stored, unread, for when their field comes back.
+  const draft = {
+    ...record.draft,
+    ...(yield* validateContent(ctx, definition, input.content)),
+  };
   const updated = yield* update(ctx, definition, record, { draft });
   invalidateRecord(ctx, definition, input, record.id);
   return updated;
 });
+
+/** The stored keys of fields the collection still declares. */
+function declaredContent(
+  definition: typeof collectionDefinitions.$inferSelect,
+  content: Record<string, unknown>,
+) {
+  const properties = (definition.contentSchema.properties ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(content).filter(([key]) => Object.hasOwn(properties, key)),
+  );
+}
 
 export const deleteRecord = Effect.fn("collections.deleteRecord")(function* (
   ctx: ServiceContext,
@@ -723,7 +672,7 @@ export const publishRecord = Effect.fn("collections.publishRecord")(function* (
 ) {
   const input = yield* decodeInput(mutationInput, rawInput);
   const { definition, record } = yield* mutation(ctx, input);
-  yield* validateContent(ctx, definition, record.draft);
+  yield* validateContent(ctx, definition, declaredContent(definition, record.draft));
   const revision = yield* snapshot(ctx, definition, record, "auto-publish");
   const updated = yield* update(ctx, definition, record, { publishedRevisionId: revision.id });
   invalidateRecord(ctx, definition, input, record.id);
@@ -780,13 +729,15 @@ export const restoreRecord = Effect.fn("collections.restoreRecord")(function* (
   if (!revision) return yield* new NotFoundError();
   if (revision.schemaVersion !== 1)
     return yield* new ConflictError({ message: "Unsupported snapshot version" });
-  const defaults = yield* collectionAdditionDefaults(
-    ctx,
-    revision.definition.contentSchema,
-    definition,
-  );
-  const draft = { ...defaults, ...revision.content };
-  yield* validateContent(ctx, definition, draft);
+  // The revision conforms to today's definition; its other keys stay stored, unread.
+  const draft = {
+    ...revision.content,
+    ...(yield* validateContent(
+      ctx,
+      definition,
+      conformRecordContent(definition.contentSchema, revision.content),
+    )),
+  };
   const displaced = yield* snapshot(ctx, definition, record, "auto-draft");
   return { record: yield* update(ctx, definition, record, { draft }), displaced };
 });

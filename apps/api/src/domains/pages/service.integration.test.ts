@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { assertSyncAccess, getAuthorizedProject } from "../../authorization";
 import { runService } from "../../lib/run-service";
-import { blocks, pages } from "../../schema";
+import { blockDefinitions, blocks, pages } from "../../schema";
 import { getPageByPath, publishPage } from "./service";
 
 describe("page persistence", () => {
@@ -62,6 +62,16 @@ describe("page persistence", () => {
       })
       .returning()
       .get();
+    await db.insert(blockDefinitions).values({
+      projectId: project.id,
+      environmentId: environment.id,
+      blockId: "hero",
+      title: "Hero",
+      description: "",
+      contentSchema: { type: "object", properties: { title: { type: "string" } } },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
     const block = await db
       .insert(blocks)
       .values({

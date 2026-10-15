@@ -7,21 +7,32 @@ export type PageDestination = {
   fullPath: string;
 } & ({ kind: "curated"; pageId: number } | { kind: "singleton"; layoutId: string });
 
-/** Concrete navigable pages, not records that can all be mutated through pages.*. */
+/**
+ * Concrete navigable pages, not records that can all be mutated through pages.*. Pages whose
+ * layout is gone, or whose URL a singleton serves, aren't served, so they aren't destinations.
+ */
 export function getPageDestinations(
-  pages: readonly { id: number; nickname: string; fullPath: string }[],
+  pages: readonly {
+    id: number;
+    nickname: string;
+    fullPath: string;
+    needsLayout?: boolean;
+    shadowed?: boolean;
+  }[],
   layouts: readonly { _internal: Pick<Layout["_internal"], "id" | "kind" | "title"> }[],
 ): PageDestination[] {
   return [
-    ...pages.map(
-      (page): PageDestination => ({
-        key: `page:${page.id}`,
-        kind: "curated",
-        pageId: page.id,
-        title: page.nickname,
-        fullPath: page.fullPath,
-      }),
-    ),
+    ...pages
+      .filter((page) => !page.needsLayout && !page.shadowed)
+      .map(
+        (page): PageDestination => ({
+          key: `page:${page.id}`,
+          kind: "curated",
+          pageId: page.id,
+          title: page.nickname,
+          fullPath: page.fullPath,
+        }),
+      ),
     ...layouts
       .filter((layout) => layout._internal.kind === "singleton")
       .map(

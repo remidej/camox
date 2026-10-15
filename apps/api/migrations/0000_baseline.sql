@@ -125,6 +125,7 @@ CREATE TABLE `layouts` (
 	`layout_id` text NOT NULL,
 	`description` text,
 	`kind` text DEFAULT 'curated' NOT NULL,
+	`active` integer DEFAULT true NOT NULL,
 	`live_published_checkpoint_id` integer,
 	`content_updated_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
@@ -353,30 +354,6 @@ WHEN NEW.published_revision_id IS NOT NULL AND NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'Invalid published collection revision'); END;
 --> statement-breakpoint
--- Existing field contracts are immutable. Additions are allowed only after
--- every draft has been backfilled in the same transaction as the schema sync.
--- This also closes the race with creating a collection's first record.
-CREATE TRIGGER collection_schema_guard BEFORE UPDATE OF content_schema ON collection_definitions
-WHEN OLD.content_schema != NEW.content_schema
-AND EXISTS (SELECT 1 FROM collection_records WHERE definition_id = OLD.id)
-AND (
-  EXISTS (
-    SELECT 1 FROM json_each(OLD.content_schema, '$.properties') AS previous
-    LEFT JOIN json_each(NEW.content_schema, '$.properties') AS incoming
-      ON incoming.key = previous.key
-    WHERE incoming.key IS NULL OR incoming.value != previous.value
-  )
-  OR EXISTS (
-    SELECT 1 FROM collection_records AS record,
-      json_each(NEW.content_schema, '$.properties') AS field
-    WHERE record.definition_id = OLD.id
-    AND NOT EXISTS (
-      SELECT 1 FROM json_each(record.draft) AS content WHERE content.key = field.key
-    )
-  )
-)
-BEGIN SELECT RAISE(ABORT, 'Collection schema changes require compatible draft backfills'); END;
---> statement-breakpoint
 CREATE TRIGGER collection_active_guard BEFORE INSERT ON collection_records
 WHEN NOT EXISTS (SELECT 1 FROM collection_definitions WHERE id = NEW.definition_id AND active = 1)
 BEGIN SELECT RAISE(ABORT, 'Collection definition is retired'); END;
@@ -547,9 +524,10 @@ LEFT JOIN collection_definitions d ON d.project_id = p.project_id
 WHERE json_extract(f.value, '$.fieldType') = 'ReferenceList'
   AND json_type(f.value, '$.query') IS NULL;
 --> statement-breakpoint
--- Deleting a record that any placement links is refused. Unpublishing a record or
--- retiring a collection that published content requires is refused, and so is
--- publishing a page, layout or synced block that requires an unpublished record.
+-- Deleting a record that any placement links is refused. Unpublishing a record
+-- that published content requires is refused, and so is publishing a page, layout
+-- or synced block that requires an unpublished record. Removing a collection is
+-- never refused: content never blocks a definition sync.
 CREATE TRIGGER collection_record_reference_delete_guard BEFORE DELETE ON collection_records
 WHEN EXISTS (SELECT 1 FROM collection_reference_uses u WHERE u.record_id = OLD.id)
 BEGIN SELECT RAISE(ABORT, 'Collection item is still referenced'); END;
@@ -559,12 +537,6 @@ WHEN NEW.published_revision_id IS NULL AND EXISTS (
   SELECT 1 FROM collection_reference_uses u WHERE u.record_id = OLD.id AND u.live = 1 AND u.required = 1
 )
 BEGIN SELECT RAISE(ABORT, 'Collection item is required by published content'); END;
---> statement-breakpoint
-CREATE TRIGGER collection_definition_reference_retire_guard BEFORE UPDATE OF active ON collection_definitions
-WHEN NEW.active = 0 AND EXISTS (
-  SELECT 1 FROM collection_reference_uses u WHERE u.definition_id = OLD.id AND u.live = 1 AND u.required = 1
-)
-BEGIN SELECT RAISE(ABORT, 'Collection is required by published content'); END;
 --> statement-breakpoint
 CREATE TRIGGER page_reference_publish_guard AFTER UPDATE OF live_published_checkpoint_id ON pages
 WHEN NEW.live_published_checkpoint_id IS NOT NULL AND EXISTS (
