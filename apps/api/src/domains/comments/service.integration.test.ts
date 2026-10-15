@@ -1,4 +1,6 @@
 import type { CommentTarget } from "@camox/api-contract";
+import { generateUuidv7 } from "@camox/api-contract/ids";
+import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,7 +15,9 @@ import {
   pages,
   repeatableItems,
 } from "../../schema";
+import { callTool } from "../agent/service";
 import { replicateEnvironment } from "../environments/service";
+import { commentProcedures } from "./routes";
 import { createComment, listComments, setCommentResolved } from "./service";
 
 const { broadcastInvalidation } = vi.hoisted(() => {
@@ -102,7 +106,7 @@ async function fixture() {
     .get();
   const ctx = createServiceContext(base.db, base.memberUser);
   const create = (target: CommentTarget, message = "Feedback") =>
-    runService(createComment(ctx, { id: crypto.randomUUID(), pageId: page.id, message, target }));
+    runService(createComment(ctx, { id: generateUuidv7(), pageId: page.id, message, target }));
   return { ...base, ctx, page, block, item, nested, create };
 }
 
@@ -163,7 +167,7 @@ describe("comments", () => {
       code: "NOT_FOUND",
     });
     await expect(
-      runService(setCommentResolved(f.ctx, { ...input, id: crypto.randomUUID() })),
+      runService(setCommentResolved(f.ctx, { ...input, id: generateUuidv7() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     for (const invalid of [
       { ...input, id: "invalid" },
@@ -199,7 +203,7 @@ describe("comments", () => {
       for (let index = 0; index < 63; index++) {
         const target = targets[index % targets.length]!;
         await f.db.insert(comments).values({
-          id: crypto.randomUUID(),
+          id: generateUuidv7(),
           pageId: f.page.id,
           environmentId: f.environment.id,
           authorId: f.memberUser.id,
@@ -243,7 +247,7 @@ describe("comments", () => {
       .returning()
       .get();
     const input = {
-      id: crypto.randomUUID(),
+      id: generateUuidv7(),
       pageId: f.page.id,
       message: "Shared header",
       target: { kind: "block" as const, blockId: layoutBlock.id },
@@ -265,7 +269,7 @@ describe("comments", () => {
       runService(
         createComment(f.ctx, {
           ...input,
-          id: crypto.randomUUID(),
+          id: generateUuidv7(),
           pageId: sibling.id,
           target: { kind: "block", blockId: f.block.id },
         }),
@@ -289,7 +293,7 @@ describe("comments", () => {
       { kind: "item-field", blockId: f.block.id, itemId: f.nested.id, fieldName: "text" },
     ];
     for (const target of targets) {
-      const input = { id: crypto.randomUUID(), pageId: f.page.id, message: " Feedback ", target };
+      const input = { id: generateUuidv7(), pageId: f.page.id, message: " Feedback ", target };
       const first = await runService(createComment(f.ctx, input));
       expect(first).toMatchObject({
         message: "Feedback",
@@ -315,7 +319,7 @@ describe("comments", () => {
     const f = await fixture();
     const other = await fixture();
     const input = {
-      id: crypto.randomUUID(),
+      id: generateUuidv7(),
       pageId: f.page.id,
       message: "Feedback",
       target: { kind: "page" as const },
@@ -414,7 +418,7 @@ describe("comments", () => {
       createComment(
         { ...f.ctx, environmentName: destination.name },
         {
-          id: crypto.randomUUID(),
+          id: generateUuidv7(),
           pageId: page.id,
           message: "Old destination",
           target: { kind: "page" },
@@ -470,5 +474,73 @@ describe("comments", () => {
     expect(await f.db.select().from(comments).where(eq(comments.id, unavailable.id))).toHaveLength(
       1,
     );
+  });
+});
+
+// Independent of the shared schema: version nibble 7, RFC 4122 variant.
+const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CLIENT_COMMENT_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+
+describe("stable comment identity", () => {
+  function procedureContext(f: Awaited<ReturnType<typeof fixture>>) {
+    return {
+      context: {
+        ...f.ctx,
+        headers: new Headers(),
+        session: {
+          id: "session",
+          token: "test",
+          userId: f.memberUser.id,
+          expiresAt: new Date(Date.now() + 60_000),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+    };
+  }
+
+  it("creating a comment returns a UUIDv7, or keeps a client-minted UUIDv7", async () => {
+    const f = await fixture();
+    const options = procedureContext(f);
+    const input = { pageId: f.page.id, message: "Feedback", target: { kind: "page" as const } };
+    const minted = await call(commentProcedures.create, input, options);
+    expect(minted.id).toMatch(UUIDV7);
+    const optimistic = await call(
+      commentProcedures.create,
+      { ...input, id: CLIENT_COMMENT_ID },
+      options,
+    );
+    expect(optimistic.id).toBe(CLIENT_COMMENT_ID);
+    expect(
+      (await call(commentProcedures.list, { pageId: f.page.id }, options)).map(({ id }) => id),
+    ).toEqual(expect.arrayContaining([minted.id, CLIENT_COMMENT_ID]));
+  });
+
+  it("procedures and AI tools reject a comment id that isn't a UUIDv7", async () => {
+    const f = await fixture();
+    const options = procedureContext(f);
+    const input = { pageId: f.page.id, message: "Feedback", target: { kind: "page" as const } };
+    for (const id of [1, "1", crypto.randomUUID()]) {
+      await expect(
+        call(commentProcedures.create, { ...input, id } as never, options),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(
+        call(
+          commentProcedures.setResolved,
+          { pageId: f.page.id, id, resolved: true } as never,
+          options,
+        ),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(
+        await runService(
+          callTool(f.ctx, {
+            projectId: f.project.id,
+            name: "resolveComment",
+            arguments: { pageId: f.page.id, id },
+          }),
+        ),
+      ).toMatchObject({ ok: false });
+    }
+    expect(await call(commentProcedures.list, { pageId: f.page.id }, options)).toEqual([]);
   });
 });

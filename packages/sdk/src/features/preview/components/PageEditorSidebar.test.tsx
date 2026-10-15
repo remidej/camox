@@ -46,7 +46,7 @@ registerHooks({
         source = `export function AssetPickerModal({ open, mode, onSelectSingle, onSelectMultiple }) {
           if (!open) return null;
           const file = ${JSON.stringify({
-            id: 5,
+            id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a05",
             url: "https://cdn.test/logo.png",
             alt: "",
             filename: "logo.png",
@@ -74,7 +74,9 @@ initApiClient("http://localhost:8788", "development");
 const pageOwner: EditingOwner = { kind: "page", pageId: 1 };
 const BLOCK_ID = 7;
 const ITEM_ID = 12;
-const FILE_ID = 5;
+const FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a05";
+const OTHER_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a08";
+const THIRD_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a09";
 const logo = { _fileId: FILE_ID };
 const ARTIFACT_SOURCE =
   "<!doctype html><title>Orbiting moons</title><script>const secretSource = 1;</script>";
@@ -100,7 +102,7 @@ const acmeContent = {
     alt: "",
     filename: "acme.png",
     mimeType: "image/png",
-    _fileId: "9",
+    _fileId: THIRD_FILE_ID,
   },
   gallery: [
     {
@@ -108,7 +110,7 @@ const acmeContent = {
       alt: "Team",
       filename: "team.png",
       mimeType: "image/png",
-      _fileId: "8",
+      _fileId: OTHER_FILE_ID,
     },
   ],
 };
@@ -302,7 +304,7 @@ async function renderSidebar(
   client.setQueryData(fileQueries.get(FILE_ID).queryKey, file as never);
   client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: 1 } as never);
   // By default every file is used elsewhere, so unlinking never offers to delete it.
-  for (const id of [FILE_ID, 8, 9]) {
+  for (const id of [FILE_ID, OTHER_FILE_ID, THIRD_FILE_ID]) {
     client.setQueryData(fileQueries.getUsageCount(id).queryKey, {
       count: options.fileUsage ?? 3,
     } as never);
@@ -802,7 +804,7 @@ const pickedLogo = {
   filename: "logo.png",
   mimeType: "image/png",
   size: 1200,
-  _fileId: "5",
+  _fileId: FILE_ID,
 };
 
 void test("record image edits are saved to the record as asset snapshots", async (t) => {

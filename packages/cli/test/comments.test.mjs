@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const binary = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
-const commentId = "78cf8b0c-630e-4d56-8a5f-931f15048784";
+const commentId = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
 const calls = [];
 let home;
 let server;
@@ -112,6 +112,9 @@ void test("rejects missing and invalid identifiers before a request", async () =
     ["list", "--page-id", "0"],
     ["resolve", "--page-id", "42"],
     ["resolve", "--id", commentId],
+    ["resolve", "--page-id", "42", "--id", "1"],
+    // A UUIDv4 isn't a comment id.
+    ["resolve", "--page-id", "42", "--id", "78cf8b0c-630e-4d56-8a5f-931f15048784"],
   ]) {
     const count = calls.length;
     const result = await cli(...args);

@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
@@ -28,7 +29,7 @@ export const fileMetadataInput = z
   .refine((data) => data.alt === undefined || data.aiMetadataEnabled !== true, {
     message: "Alt text cannot be combined with automatic metadata enabled.",
   });
-export const projectFileInput = z.object({ projectId: z.number(), id: z.number() });
+export const projectFileInput = z.object({ projectId: z.number(), id: uuidv7Schema });
 export const updateFileMetadataInput = fileMetadataInput
   .and(
     z.object({
@@ -58,15 +59,15 @@ export const updateFileMetadataInput = fileMetadataInput
 export const updateFileInput = projectFileInput.and(updateFileMetadataInput);
 
 export const listFilesInput = z.object({ projectId: z.number() });
-export const getFileInput = z.object({ id: z.number() });
-export const getFileUsageCountInput = z.object({ id: z.number() });
-export const setFileAltInput = z.object({ id: z.number(), alt: z.string() });
-export const setFileFilenameInput = z.object({ id: z.number(), filename: z.string() });
-export const deleteFileInput = z.object({ id: z.number() });
-export const deleteFilesInput = z.object({ ids: z.array(z.number()) });
-export const replaceFileInput = z.object({ id: z.number(), newFileId: z.number() });
-export const setFileAiMetadataInput = z.object({ id: z.number(), enabled: z.boolean() });
-export const generateFileMetadataInput = z.object({ id: z.number() });
+export const getFileInput = z.object({ id: uuidv7Schema });
+export const getFileUsageCountInput = z.object({ id: uuidv7Schema });
+export const setFileAltInput = z.object({ id: uuidv7Schema, alt: z.string() });
+export const setFileFilenameInput = z.object({ id: uuidv7Schema, filename: z.string() });
+export const deleteFileInput = z.object({ id: uuidv7Schema });
+export const deleteFilesInput = z.object({ ids: z.array(uuidv7Schema) });
+export const replaceFileInput = z.object({ id: uuidv7Schema, newFileId: uuidv7Schema });
+export const setFileAiMetadataInput = z.object({ id: uuidv7Schema, enabled: z.boolean() });
+export const generateFileMetadataInput = z.object({ id: uuidv7Schema });
 
 function invalidateFile(
   ctx: ServiceContext,
@@ -144,7 +145,7 @@ const generateImageMetadata = Effect.fn("generateImageMetadata")(function* (
 export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(function* (
   db: Database,
   apiKey: string,
-  fileId: number,
+  fileId: string,
   abortController?: AbortController,
 ) {
   const file = yield* Effect.promise(() =>
@@ -191,9 +192,14 @@ export const saveGeneratedFileMetadata = Effect.fn("files.saveGeneratedFileMetad
 
 // --- File reference cleanup ---
 
+/** How a `{ _fileId }` reference appears in stored content JSON. */
+export function fileIdMarker(fileId: string) {
+  return `"_fileId":${JSON.stringify(fileId)}`;
+}
+
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-function cleanFileReferences(value: JsonValue, fileId: number): JsonValue {
+function cleanFileReferences(value: JsonValue, fileId: string): JsonValue {
   if (value === null || typeof value !== "object") return value;
 
   if (Array.isArray(value)) {
@@ -213,7 +219,7 @@ function cleanFileReferences(value: JsonValue, fileId: number): JsonValue {
   return cleaned;
 }
 
-function containsFileRef(value: JsonValue, fileId: number): boolean {
+function containsFileRef(value: JsonValue, fileId: string): boolean {
   if (value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some((v) => containsFileRef(v, fileId));
   if ("_fileId" in value && value._fileId === fileId) return true;
@@ -222,9 +228,9 @@ function containsFileRef(value: JsonValue, fileId: number): boolean {
 
 export const removeFileReferences = Effect.fn("files.removeFileReferences")(function* (
   db: Database,
-  fileId: number,
+  fileId: string,
 ) {
-  const marker = `"_fileId":${fileId}`;
+  const marker = fileIdMarker(fileId);
   const now = Date.now();
 
   const affectedBlocks = yield* Effect.promise(() =>
@@ -330,7 +336,7 @@ export const getFileUsageCount = Effect.fn("files.getFileUsageCount")(function* 
   );
   if (!file) return yield* new NotFoundError();
 
-  const marker = `"_fileId":${file.id}`;
+  const marker = fileIdMarker(file.id);
   const blockCount = yield* Effect.promise(() =>
     ctx.db
       .select({ count: sql<number>`count(*)` })
@@ -605,7 +611,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
   target: z.input<typeof projectFileInput>,
   asset: FileAsset,
   rawMetadata: z.input<typeof fileMetadataInput>,
-  temporaryFileId?: number,
+  temporaryFileId?: string,
 ) {
   const metadata = yield* decodeInput(fileMetadataInput, rawMetadata);
   const oldFile = yield* getProjectFile(ctx, target);
@@ -639,7 +645,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
   );
 
   // Include direct URLs as well as _fileId references in invalidation.
-  const marker = `"_fileId":${id}`;
+  const marker = fileIdMarker(id);
   const affectedBlocks = yield* Effect.promise(() =>
     ctx.db
       .select({ id: blocks.id, pageId: blocks.pageId })

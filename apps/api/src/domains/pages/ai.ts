@@ -235,10 +235,11 @@ export function sortByPosition<T extends { position: string }>(items: T[]): T[] 
   return items.sort((a, b) => comparePositions(a.position, b.position));
 }
 
-function visitForFileIds(value: unknown, fileIds: Set<number>) {
+function visitForFileIds(value: unknown, fileIds: Set<string>) {
   if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value && (value as { _fileId: unknown })._fileId != null) {
-    fileIds.add(Number((value as { _fileId: unknown })._fileId));
+  if ("_fileId" in value) {
+    const fileId = (value as { _fileId: unknown })._fileId;
+    if (typeof fileId === "string") fileIds.add(fileId);
     return;
   }
   if (Array.isArray(value)) {
@@ -255,7 +256,7 @@ function visitForFileIds(value: unknown, fileIds: Set<number>) {
   for (const child of Object.values(obj)) visitForFileIds(child, fileIds);
 }
 
-export function collectFileIds(content: Record<string, unknown>, fileIds: Set<number>) {
+export function collectFileIds(content: Record<string, unknown>, fileIds: Set<string>) {
   for (const value of Object.values(content)) {
     visitForFileIds(value, fileIds);
   }
@@ -289,9 +290,9 @@ export function nestChildItems(
 
 export const buildFileMap = Effect.fn("pages.buildFileMap")(function* (
   db: Database,
-  fileIds: Set<number>,
+  fileIds: Set<string>,
 ) {
-  if (fileIds.size === 0) return new Map<number, typeof files.$inferSelect>();
+  if (fileIds.size === 0) return new Map<string, typeof files.$inferSelect>();
   const rows = yield* Effect.promise(() =>
     db
       .select()

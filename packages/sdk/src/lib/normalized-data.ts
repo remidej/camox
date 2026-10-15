@@ -76,7 +76,7 @@ export function placedRecords(references: NormalizedReferences | undefined, fiel
  * -----------------------------------------------------------------------------------------------*/
 
 interface NormalizedDataContextValue {
-  filesMap: Map<number, NormalizedFile>;
+  filesMap: Map<string, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
   recordsMap: Map<string, NormalizedCollectionRecord>;
   /** Each block's resolved references, by block id. */
@@ -245,7 +245,7 @@ export function usePageBlocks(
  * -----------------------------------------------------------------------------------------------*/
 
 /** Check if a value is a { _fileId } marker */
-export function isFileMarker(value: unknown): value is { _fileId: number } {
+export function isFileMarker(value: unknown): value is { _fileId: string } {
   return (
     value != null &&
     typeof value === "object" &&
@@ -270,10 +270,10 @@ export function isItemMarker(value: unknown): value is { _itemId: number } {
  * This enables granular invalidation — content edits refetch only the affected block.
  * -----------------------------------------------------------------------------------------------*/
 
-function visitForFileIds(value: unknown, ids: Set<number>) {
+function visitForFileIds(value: unknown, ids: Set<string>) {
   if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "number") {
-    ids.add((value as { _fileId: number })._fileId);
+  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "string") {
+    ids.add((value as { _fileId: string })._fileId);
     return;
   }
   if (Array.isArray(value)) {
@@ -285,7 +285,7 @@ function visitForFileIds(value: unknown, ids: Set<number>) {
   }
 }
 
-function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<number>) {
+function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<string>) {
   for (const value of Object.values(content)) {
     visitForFileIds(value, ids);
   }
@@ -302,7 +302,7 @@ export function seedBlockCaches(
     const blockItems = pageData.repeatableItems.filter((i) => i.blockId === block.id);
 
     // Collect file IDs referenced by this block and its items
-    const fileIds = new Set<number>();
+    const fileIds = new Set<string>();
     collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
     for (const record of linkedRecords((block as ReferenceBlock).references)) {
       collectFileIdsFromContent(record.content, fileIds);
@@ -331,7 +331,7 @@ export function seedBlockCaches(
  * values consult the mutable file map, so a published source cannot change when
  * the file's current metadata changes.
  */
-export function resolveAssetValue(value: unknown, filesMap: Map<number, NormalizedFile>): unknown {
+export function resolveAssetValue(value: unknown, filesMap: Map<string, NormalizedFile>): unknown {
   if (value && typeof value === "object" && "url" in value && typeof value.url === "string") {
     return value;
   }
@@ -340,17 +340,17 @@ export function resolveAssetValue(value: unknown, filesMap: Map<number, Normaliz
 
 /** Resolve a file marker to a full file object */
 export function resolveFileMarker(
-  marker: { _fileId: number },
-  filesMap: Map<number, NormalizedFile>,
+  marker: { _fileId: string },
+  filesMap: Map<string, NormalizedFile>,
 ): {
   url: string;
   alt: string;
   filename: string;
   mimeType: string;
   size: number;
-  _fileId: number;
+  _fileId: string;
 } {
-  const file = filesMap.get(Number(marker._fileId));
+  const file = filesMap.get(marker._fileId);
   if (file) {
     return {
       url: file.url,

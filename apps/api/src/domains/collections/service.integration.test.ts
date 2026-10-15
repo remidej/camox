@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -118,7 +119,7 @@ describe("authenticated collection browsing", () => {
       runService(getCollectionRecord(f.ctx, { ...input, collectionId: "other" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      runService(getCollectionRecord(f.ctx, { ...input, id: crypto.randomUUID() })),
+      runService(getCollectionRecord(f.ctx, { ...input, id: generateUuidv7() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     const edited = await runService(
       editRecord(f.ctx, {
@@ -329,7 +330,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
     const created = await runService(
       createRecord(f.ctx, {
         ...f.scope,
-        content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
+        content: { ...article, cover: { ...article.cover, _fileId: file.id } },
       }),
     );
     const published = await runService(
@@ -580,7 +581,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
   it("creates, edits, publishes, restores only the draft, and reads exact historical snapshots", async () => {
     const f = await fixture("lifecycle");
     expect(
-      await runService(readRecord(f.publicCtx, { ...f.scope, id: crypto.randomUUID() })),
+      await runService(readRecord(f.publicCtx, { ...f.scope, id: generateUuidv7() })),
     ).toBeNull();
     let record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = () => ({ ...f.scope, id: record.id, expectedVersion: record.version });
@@ -762,7 +763,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
     const record = await runService(
       createRecord(f.ctx, {
         ...f.scope,
-        content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
+        content: { ...article, cover: { ...article.cover, _fileId: file.id } },
       }),
     );
     expect(record.draft.cover).toMatchObject({ url: file.url, filename: file.filename });
@@ -801,7 +802,7 @@ describe("collection record lifecycle (repeatable articles service fixture)", ()
         editRecord(f.ctx, {
           ...input,
           expectedVersion: live.record.version,
-          content: { ...article, cover: { ...article.cover, _fileId: String(file.id) } },
+          content: { ...article, cover: { ...article.cover, _fileId: file.id } },
         }),
       ),
     ).rejects.toThrow();

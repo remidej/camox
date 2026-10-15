@@ -1,9 +1,11 @@
 import { isQueryBacked } from "@camox/api-contract";
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Validator, type OutputUnit, type Schema } from "@cfworker/json-schema";
 import { Effect } from "effect";
+import { z } from "zod";
 
 import { InvalidInputError } from "../../lib/errors";
-import { sanitizeAssetValue } from "./asset-value";
+import { projectAssetValue } from "./asset-value";
 
 export type ContentSchema = Schema & { fieldType?: string };
 export type SchemaProps = Record<string, ContentSchema | boolean>;
@@ -23,13 +25,14 @@ type AdaptContext = {
   namespace: string;
 };
 
+const { $schema: _, ...fileIdSchema } = z.toJSONSchema(uuidv7Schema) as Schema;
 const assetTypes = new Set(["Image", "File", "ImageList", "FileList"]);
 const assetSchema: Schema = {
   anyOf: [
     { type: "null" },
     {
       type: "object",
-      properties: { _fileId: { type: "number" } },
+      properties: { _fileId: fileIdSchema },
       required: ["_fileId"],
       additionalProperties: false,
     },
@@ -321,10 +324,10 @@ function resolveLocalReference(
  */
 function project(value: unknown, schema: ContentSchema | boolean): unknown {
   if (typeof schema === "boolean") return value;
-  if (isSingleAsset(schema)) return sanitizeAssetValue(value);
+  if (isSingleAsset(schema)) return projectAssetValue(value);
   if (Array.isArray(value)) {
     if (schema.fieldType === "ImageList" || schema.fieldType === "FileList") {
-      return value.map(sanitizeAssetValue);
+      return value.map(projectAssetValue);
     }
     return value.map((item, index) => {
       const child =

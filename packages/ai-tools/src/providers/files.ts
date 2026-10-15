@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { z } from "zod";
 
 import {
@@ -9,7 +10,7 @@ import {
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import type { ToolProvider } from "../types";
 
-const target = z.object({ id: z.number().int().positive() });
+const target = z.object({ id: uuidv7Schema });
 const updateInput = target.and(updateFileMetadataInput);
 
 export const filesProvider: ToolProvider = (ctx) => [

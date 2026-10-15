@@ -102,7 +102,7 @@ interface ItemFieldsEditorProps {
   onFieldChange: (fieldName: string, value: unknown) => void | Promise<void>;
   postToIframe: (message: OverlayMessage) => void;
   /** Lookup maps for resolving _fileId and _itemId markers */
-  filesMap: Map<number, NormalizedFile>;
+  filesMap: Map<string, NormalizedFile>;
   itemsMap: Map<number, NormalizedItem>;
   /** Hydrated records linked by this block's or item's reference fields, keyed by field name. */
   references?: NormalizedReferences;

@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
@@ -135,10 +136,10 @@ fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
 const uploadContent: Handler<AppEnv> = async (c) => {
   if (!c.var.user) return c.json({ error: "Unauthorized" }, 401);
   const idParam = c.req.param("id");
-  const id = idParam === undefined ? undefined : Number(idParam);
-  if (id !== undefined && (!Number.isSafeInteger(id) || id <= 0)) {
+  if (idParam !== undefined && !uuidv7Schema.safeParse(idParam).success) {
     return c.json({ error: "Invalid file id" }, 400);
   }
+  const id = idParam;
   const ctx: ServiceContext = {
     db: c.var.db,
     user: c.var.user,
@@ -151,6 +152,11 @@ const uploadContent: Handler<AppEnv> = async (c) => {
 
   const body = await c.req.parseBody();
   const file = body["file"];
+  // Creating accepts a client-minted id for optimistic inserts; replacing names its target.
+  const newId = body["id"];
+  if (newId !== undefined && (id !== undefined || !uuidv7Schema.safeParse(newId).success)) {
+    return c.json({ error: "Invalid file id" }, 400);
+  }
   const projectId = Number(body["projectId"]);
   const aiMetadata = body["aiMetadataEnabled"];
   if (aiMetadata !== undefined && aiMetadata !== "true" && aiMetadata !== "false") {
@@ -240,6 +246,7 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     result = await c.var.db
       .insert(files)
       .values({
+        ...(typeof newId === "string" ? { id: newId } : {}),
         projectId,
         environmentId: environment.id,
         blobId: key,

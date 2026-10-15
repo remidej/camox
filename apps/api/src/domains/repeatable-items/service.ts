@@ -341,7 +341,7 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   if (!item) return yield* new NotFoundError();
 
   // Collect and fetch referenced files
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   collectFileIds(item.content as Record<string, unknown>, fileIds);
 
   const fileRows =

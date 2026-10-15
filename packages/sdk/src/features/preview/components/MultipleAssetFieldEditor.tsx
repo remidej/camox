@@ -42,7 +42,7 @@ type ResolvedAsset = {
   filename: string;
   mimeType: string;
   size?: number;
-  _fileId: number;
+  _fileId: string;
 };
 
 /* -------------------------------------------------------------------------------------------------
@@ -52,7 +52,7 @@ type ResolvedAsset = {
 interface SortableAssetItemProps {
   asset: ResolvedAsset;
   assetType: "Image" | "File";
-  onRemove: (fileId: number) => void;
+  onRemove: (fileId: string) => void;
   onAssetOpen: (asset: ResolvedAsset) => void;
   persisted: boolean;
   offerDelete: boolean;
@@ -67,7 +67,7 @@ const SortableAssetItem = ({
   offerDelete,
 }: SortableAssetItemProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: String(asset._fileId),
+    id: asset._fileId,
   });
 
   const style = {
@@ -189,7 +189,7 @@ const MultipleAssetFieldEditor = ({
   const { uploads, uploadFiles } = useFileUpload({
     projectId: project?.id,
     onFileCommitted: (result) => {
-      addAssets([{ ...result, alt: "", _fileId: Number(result.fileId) }]);
+      addAssets([{ ...result, alt: "", _fileId: result.fileId }]);
     },
   });
 
@@ -208,8 +208,8 @@ const MultipleAssetFieldEditor = ({
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const oldIndex = items.findIndex((a) => String(a._fileId) === active.id);
-    const newIndex = items.findIndex((a) => String(a._fileId) === over.id);
+    const oldIndex = items.findIndex((a) => a._fileId === active.id);
+    const newIndex = items.findIndex((a) => a._fileId === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
     const reordered = [...items];
@@ -219,7 +219,7 @@ const MultipleAssetFieldEditor = ({
     onFieldChange(fieldName, toStorageFormat(reordered));
   };
 
-  const handleRemove = (fileId: number) => {
+  const handleRemove = (fileId: string) => {
     onFieldChange(fieldName, toStorageFormat(items.filter((a) => a._fileId !== fileId)));
   };
 
@@ -239,7 +239,7 @@ const MultipleAssetFieldEditor = ({
             modifiers={[restrictToVerticalAxis]}
           >
             <SortableContext
-              items={items.map((a) => String(a._fileId))}
+              items={items.map((a) => a._fileId)}
               strategy={verticalListSortingStrategy}
             >
               <ul className="flex flex-col gap-1">
