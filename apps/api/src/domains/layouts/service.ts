@@ -8,7 +8,14 @@ import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
-import { blockDefinitions, blocks, layouts, projects, repeatableItems } from "../../schema";
+import {
+  blockDefinitions,
+  blocks,
+  comments,
+  layouts,
+  projects,
+  repeatableItems,
+} from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
@@ -19,7 +26,7 @@ import {
   hydrateReferences,
   validateReferenceValues,
 } from "../collections/references";
-import { visibleIn } from "../drafts/overlay";
+import { releasedNew, visibleIn } from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { blocksOfLayout, layoutNamed } from "./identity";
@@ -230,8 +237,24 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     ),
   );
 
+  // Only declared blocks Live lacks are written, so only they are checked: content already on
+  // Live, like a link to a page deleted since, never fails a release.
+  const declaredOnLive = new Set<string>();
+  for (const layout of existingLayouts) {
+    const placed = yield* Effect.promise(() =>
+      ctx.db
+        .select({ type: blocks.type, slot: blocks.slot })
+        .from(blocks)
+        .where(and(visibleIn(blocks, null), blocksOfLayout(layout))),
+    );
+    for (const block of placed) {
+      declaredOnLive.add(`${layout.layoutId}:${block.type}:${block.slot ?? ""}`);
+    }
+  }
+
   for (const def of preparedLayouts) {
     for (const block of def.blocks) {
+      if (declaredOnLive.has(`${def.layoutId}:${block.type}:${block.slot ?? ""}`)) continue;
       yield* validateReferenceValues(
         ctx,
         { projectId, environmentId: environment.id, draft: null },
@@ -322,6 +345,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
             slot: blockDef.slot ?? null,
             position: newPos,
             summary: "",
+            ...releasedNew(now),
             createdAt: now,
             updatedAt: now,
           })
@@ -377,9 +401,11 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       }
     }
     if (orphanIdsToDelete.length > 0) {
-      // A release writes Live. Items hold no foreign key to their block (ADR 0005).
+      // A release writes Live, deleting the comments on what it deletes. Items and comments hold
+      // no foreign key to their block (ADR 0005).
       yield* Effect.promise(() =>
         ctx.db.batch([
+          ctx.db.delete(comments).where(inArray(comments.blockId, orphanIdsToDelete)),
           ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, orphanIdsToDelete)),
           ctx.db
             .delete(blocks)

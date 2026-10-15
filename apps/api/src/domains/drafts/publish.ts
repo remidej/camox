@@ -58,6 +58,8 @@ export type Conflict = Subject & {
   liveVersion: number | null;
   publishedBy: { id: string; name: string } | null;
   publishedAt: number | null;
+  /** Whether a release made Live's version, which no member published (ADR 0006). */
+  release: boolean;
 };
 
 export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletion" };
@@ -304,6 +306,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     liveVersion: conflict.liveVersion,
     publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
+    release: conflict.publishedAt !== null && conflict.publishedBy === null,
   }));
   const lost: LostChange[] = losses.map((loss) => {
     if (loss.reason === "parentGone") {
