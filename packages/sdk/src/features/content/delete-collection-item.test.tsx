@@ -7,7 +7,10 @@ import * as React from "react";
 
 void test("both delete buttons require confirmation, allow cancellation, and retain errors for retry", async (t) => {
   // Initialize the DOM before importing UI components, which detect portals at module load.
-  const window = new Window();
+  // In a draft already, so deleting doesn't start one and switch the cached queries' keys.
+  const window = new Window({
+    url: "http://localhost:3000/?camox-draft=019a0000-0000-7000-8000-000000000001",
+  });
   Object.assign(globalThis, {
     React,
     window,

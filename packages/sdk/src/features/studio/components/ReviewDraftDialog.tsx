@@ -36,8 +36,18 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "nu
 function ownerName(owner: Subject["owner"]): string {
   if (!owner) return "Elsewhere";
   if (owner.kind === "layout") return `Layout ${owner.name}`;
+  if (owner.kind === "collection") return owner.title;
   return owner.nickname || owner.path;
 }
+
+// The order of change groups: pages first, then layouts, then collections.
+const GROUP_ORDER: (NonNullable<Subject["owner"]>["kind"] | "elsewhere")[] = [
+  "page",
+  "layout",
+  "collection",
+  "elsewhere",
+];
+const groupRank = (owner: Subject["owner"]) => GROUP_ORDER.indexOf(owner?.kind ?? "elsewhere");
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -101,10 +111,11 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
   );
 }
 
-/** The right column: the draft's changes, grouped by page. */
+/** The right column: the draft's changes, grouped by page, then layout, then collection. */
 function Changes({ changes }: { changes: Preview["changes"] }) {
   const groups = new Map<string, Preview["changes"]>();
-  for (const change of changes) {
+  const sorted = [...changes].sort((a, b) => groupRank(a.owner) - groupRank(b.owner));
+  for (const change of sorted) {
     const name = ownerName(change.owner);
     groups.set(name, [...(groups.get(name) ?? []), change]);
   }

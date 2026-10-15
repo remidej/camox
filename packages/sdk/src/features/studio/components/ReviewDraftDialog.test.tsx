@@ -138,6 +138,36 @@ void test("says nothing on Live changed when there's nothing to warn about, and 
   }
 });
 
+void test("groups record changes by collection, after the pages", async (t) => {
+  const authors = { kind: "collection", name: "authors", title: "Authors" };
+  const record = (id: string, label: string) => ({
+    entity: "record",
+    id,
+    label,
+    owner: authors,
+    change: "changed",
+  });
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      changes: [
+        record("019a0000-0000-7000-8000-000000000010", "Ada"),
+        ...emptyPreview.changes,
+        record("019a0000-0000-7000-8000-000000000011", "Grace"),
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    const groups = [...window.document.querySelectorAll('[role="dialog"] section')].map(
+      (section) => section.textContent ?? "",
+    );
+    assert.deepEqual(groups, ["HomeHero (changed)", "AuthorsAda (changed)Grace (changed)"]);
+  } finally {
+    await close();
+  }
+});
+
 void test("disables Publish all while the draft has blockers", async (t) => {
   mockApi(t, () =>
     json({

@@ -23,6 +23,7 @@ import {
   projectQueries,
   type CollectionDefinition,
 } from "@/lib/queries";
+import { readDraftFromUrl } from "@/lib/studio-draft";
 
 import {
   collectionFormContent,
@@ -534,7 +535,10 @@ void test("collection form values round-trip assets and preserve unchanged rich 
 void test("collection forms create and edit records, invalidate lists, and retain values on failure", async (t) => {
   const { Window } = await import("happy-dom");
   const { act } = await import("react");
-  const window = new Window();
+  // In a draft already, so writes don't start one and switch the cached queries' keys.
+  const window = new Window({
+    url: "http://localhost:3000/?camox-draft=019a0000-0000-7000-8000-000000000001",
+  });
   Object.assign(globalThis, {
     window,
     document: window.document,
@@ -544,6 +548,11 @@ void test("collection forms create and edit records, invalidate lists, and retai
     Event: window.Event,
     localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  readDraftFromUrl();
+  t.after(() => {
+    window.history.replaceState(null, "", "/");
+    readDraftFromUrl();
   });
   const { createRoot } = await import("react-dom/client");
   const id = "a6479288-341f-4008-b118-dea6d8dd9158";
