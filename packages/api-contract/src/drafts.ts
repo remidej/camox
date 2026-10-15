@@ -12,3 +12,20 @@ export const DRAFT_SEARCH_PARAM = "camox-draft";
 
 /** A regular draft is a named set of edits; a development draft backs a dev server. */
 export type DraftKind = "regular" | "development";
+
+/** How a regular draft ended. */
+export type DraftOutcome = "published" | "discarded";
+
+/** Who ended a draft, how and when, from its ended-drafts record (ADR 0009, ADR 0011). */
+export type EndedDraft = {
+  draftId: string;
+  outcome: DraftOutcome;
+  endedBy: { id: string; name: string };
+  endedAt: number;
+};
+
+/**
+ * The oRPC error code a request naming an ended draft fails with. Its `data` is an `EndedDraft`,
+ * so a page can render Live and say who published or discarded the draft.
+ */
+export const DRAFT_ENDED_ERROR_CODE = "DRAFT_ENDED";

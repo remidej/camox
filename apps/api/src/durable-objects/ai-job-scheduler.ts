@@ -93,6 +93,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
           projectRoomNamespace: this.env.ProjectRoom,
+          draftId: job.draftId ?? null,
           projectId,
           targets: [queryKeys.pages.getByPathAll, queryKeys.blocks.getUsageCounts],
         });
@@ -130,6 +131,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
           broadcastInvalidation({
             waitUntil: (p) => this.ctx.waitUntil(p),
             projectRoomNamespace: this.env.ProjectRoom,
+            draftId: null,
             projectId,
             targets: [queryKeys.pages.getByPathAll, queryKeys.blocks.getUsageCounts],
           });
@@ -147,6 +149,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
           projectRoomNamespace: this.env.ProjectRoom,
+          draftId: null,
           projectId: file.projectId,
           targets: [queryKeys.files.list, queryKeys.files.get(entityId)],
         });
@@ -163,6 +166,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
           projectRoomNamespace: this.env.ProjectRoom,
+          draftId: null,
           projectId: page.projectId,
           targets: [queryKeys.pages.list, queryKeys.pages.getById(entityId)],
         });

@@ -264,13 +264,10 @@ void test("loading and failures are not presented as an empty collection", async
   client.clear();
 });
 
-void test("collection query keys isolate projects, environments and collections", () => {
+void test("collection query keys isolate projects and collections", () => {
   const first = collectionQueries.records("site", "articles").queryKey;
   assert.notDeepEqual(first, collectionQueries.records("other-site", "articles").queryKey);
   assert.notDeepEqual(first, collectionQueries.records("site", "authors").queryKey);
-  initApiClient("http://localhost:8788", "production");
-  assert.notDeepEqual(first, collectionQueries.records("site", "articles").queryKey);
-  initApiClient("http://localhost:8788", "development");
   assert.notDeepEqual(collectionQueries.get("site", "articles").queryKey, first);
   const record = collectionQueries.record("site", "articles", "one").queryKey;
   assert.notDeepEqual(record, collectionQueries.record("site", "articles", "two").queryKey);

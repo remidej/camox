@@ -13,6 +13,7 @@ import { NormalizedDataProvider, seedBlockCaches, usePageBlocks } from "@/lib/no
 import { blockQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { scopedKey } from "../../lib/studio-draft";
 import { canvasStore } from "../canvas/canvasStore";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { type Action, actionsStore } from "../provider/actionsStore";
@@ -90,7 +91,7 @@ export function usePreviewedPage() {
   // Current page: SSR loader seeds block caches on first load. Client-side
   // refetches (after invalidation) use the lightweight endpoint.
   const { data: currentPage } = useSuspenseQuery({
-    queryKey: queryKeys.pages.getByPath(pathname),
+    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
     queryFn: pageStructureQueryFn(pathname, projectSlug),
     staleTime: Infinity,
   });
@@ -244,7 +245,7 @@ function useRefreshMemberPage(enabled: boolean) {
       .then((data) => {
         if (cancelled) return;
         seedBlockCaches(queryClient, data);
-        queryClient.setQueryData(queryKeys.pages.getByPath(pathname), {
+        queryClient.setQueryData(scopedKey(queryKeys.pages.getByPath(pathname)), {
           page: data.page,
           layout: data.layout,
           projectName: data.projectName,
@@ -288,8 +289,8 @@ export const CamoxPreview = ({
     queryKey: canvasOnly
       ? ["camox", "canvas", "canvasOnly"]
       : derived
-        ? [...queryKeys.layouts.all, "get", projectSlug, derived.layoutId]
-        : queryKeys.pages.getByPath(pathname),
+        ? scopedKey([...queryKeys.layouts.all, "get", projectSlug, derived.layoutId])
+        : scopedKey(queryKeys.pages.getByPath(pathname)),
     queryFn: async () => {
       // A Canvas-only location has no page or layout record.
       if (canvasOnly) return null;

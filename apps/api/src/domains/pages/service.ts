@@ -100,6 +100,7 @@ function invalidatePage(ctx: ServiceContext, projectId: number, pageId: string) 
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId,
     // Pages using a block change with page creation, renames and deletion.
     targets: [

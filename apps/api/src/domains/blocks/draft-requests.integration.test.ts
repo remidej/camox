@@ -14,7 +14,11 @@ import { router } from "../../router";
 import { pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 
-const { broadcastInvalidation } = vi.hoisted(() => ({ broadcastInvalidation: vi.fn() }));
+const { broadcastInvalidation } = vi.hoisted(() => {
+  // Modules loaded by earlier test files would keep the real broadcaster.
+  vi.resetModules();
+  return { broadcastInvalidation: vi.fn() };
+});
 vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation }));
 
 type Caller = "member" | "outsider" | "anonymous";
@@ -145,9 +149,12 @@ describe("block procedures in the draft a request names", () => {
   it("rejects writing to a missing draft without the create header", async () => {
     const { createBlock, editTitle, titleIn } = await fixture();
     const block = await createBlock("Live");
+    const missing = generateUuidv7();
 
-    await expect(editTitle(block.id, "Lost", inDraft(generateUuidv7()))).rejects.toMatchObject({
+    // The error names the missing draft, so a page can tell it apart from missing content.
+    await expect(editTitle(block.id, "Lost", inDraft(missing))).rejects.toMatchObject({
       code: "NOT_FOUND",
+      data: { draftId: missing },
     });
     expect(await titleIn(block.id)).toBe("Live");
   });
@@ -273,6 +280,22 @@ describe("block procedures in the draft a request names", () => {
       .from(repeatableItems)
       .where(eq(repeatableItems.id, item.id));
     expect(left).toEqual([]);
+  });
+
+  it("names the draft an edit came from in its invalidation, and Live for an edit on Live", async () => {
+    const { createBlock, editTitle } = await fixture();
+    const block = await createBlock("Live");
+    const draft = generateUuidv7();
+    const broadcastDrafts = () =>
+      vi.mocked(broadcastInvalidation).mock.calls.map(([options]) => options.draftId);
+
+    vi.mocked(broadcastInvalidation).mockClear();
+    await editTitle(block.id, "Draft", startingDraft(draft));
+    expect(broadcastDrafts()).toEqual([draft]);
+
+    vi.mocked(broadcastInvalidation).mockClear();
+    await editTitle(block.id, "Live again");
+    expect(broadcastDrafts()).toEqual([null]);
   });
 
   it("serves other content from Live to requests naming a draft", async () => {

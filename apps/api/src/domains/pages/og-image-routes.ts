@@ -107,6 +107,7 @@ pageHonoRoutes.post("/:id/og-image", async (c) => {
     broadcastInvalidation({
       waitUntil: (p) => c.executionCtx.waitUntil(p),
       projectRoomNamespace: c.env.ProjectRoom,
+      draftId: null,
       projectId: access.page.projectId,
       targets: [
         queryKeys.pages.list,
@@ -148,6 +149,7 @@ pageHonoRoutes.delete("/:id/og-image", async (c) => {
     broadcastInvalidation({
       waitUntil: (p) => c.executionCtx.waitUntil(p),
       projectRoomNamespace: c.env.ProjectRoom,
+      draftId: null,
       projectId: access.page.projectId,
       targets: [
         queryKeys.pages.list,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
@@ -254,7 +254,7 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
 });
 
 function clientPage(client: QueryClient, path: string) {
-  return client.getQueryData(queryKeys.pages.getByPath(path));
+  return client.getQueryData(inScope(queryKeys.pages.getByPath(path), null));
 }
 
 void test("singleton and derived layout sidebars load shared layouts, seed their blocks, and use full URL pages", async () => {
@@ -280,7 +280,7 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
       { layoutId: "about", projectSlug: "test-project" },
       { layoutId: "articles.$slug", projectSlug: "test-project" },
     ]);
-    assert.deepEqual(dom.client.getQueryData(queryKeys.blocks.get("42")), {
+    assert.deepEqual(dom.client.getQueryData(inScope(queryKeys.blocks.get("42"), null)), {
       block: { id: "42", content: { text: "layout" } },
       files: [],
       repeatableItems: [],

@@ -5,6 +5,7 @@ import * as React from "react";
 import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
 import { seedBlockCaches } from "../../lib/normalized-data";
+import { scopedKey } from "../../lib/studio-draft";
 import { useLocation } from "../navigation/navigation";
 import { AddBlockDialog } from "../preview/components/AddBlockDialog";
 import { CreatePageModal } from "../preview/components/CreatePageModal";
@@ -45,7 +46,7 @@ function CuratedSidebar() {
   const owner = React.useContext(PreviewEditingOwnerContext);
   const { data: structure } = useSuspenseQuery({
     // PageTree reads this same query through usePreviewedPage.
-    queryKey: queryKeys.pages.getByPath(pathname),
+    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
     queryFn: () => getApiClient().pages.getStructure({ path: pathname, projectSlug }),
     staleTime: Infinity,
   });
@@ -63,7 +64,7 @@ function LayoutSidebar({ layoutId, pageRecord }: { layoutId: string; pageRecord?
   const projectSlug = useProjectSlug();
   const queryClient = useQueryClient();
   const { data: layout } = useSuspenseQuery({
-    queryKey: [...queryKeys.layouts.all, "get", projectSlug, layoutId],
+    queryKey: scopedKey([...queryKeys.layouts.all, "get", projectSlug, layoutId]),
     queryFn: async () => {
       const result = await getApiClient().layouts.get({ projectSlug, layoutId });
       seedBlockCaches(queryClient, result);

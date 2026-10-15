@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_ENDED_ERROR_CODE, DRAFT_HEADER, type EndedDraft } from "@camox/api-contract/drafts";
 
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
@@ -13,6 +13,17 @@ const notFound = () =>
     { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
     { status: 404 },
   );
+/** The draft the API refuses as missing, and the one it reports as ended. */
+const MISSING_DRAFT = "missing";
+const ENDED_DRAFT = "ended";
+const ended: EndedDraft = {
+  draftId: ENDED_DRAFT,
+  outcome: "published",
+  endedBy: { id: "user-2", name: "Ada" },
+  endedAt: 1_700_000_000_000,
+};
+const refused = (status: number, code: string, data: unknown) =>
+  Response.json({ json: { defined: false, code, status, message: "Refused", data } }, { status });
 const unauthorized = () =>
   Response.json(
     { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Sign in" } },
@@ -32,6 +43,8 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     draftHeaders.push({ path: url.pathname, draft });
     if (session && session !== "valid") return unauthorized();
     if (draft && !session) return unauthorized();
+    if (draft === MISSING_DRAFT) return refused(404, "NOT_FOUND", { draftId: draft });
+    if (draft === ENDED_DRAFT) return refused(410, DRAFT_ENDED_ERROR_CODE, ended);
     const source = draft ? `draft ${draft}` : "Live";
     if (url.pathname.endsWith("/getBySlug")) {
       if (!session) return unauthorized();
@@ -114,8 +127,13 @@ const runtimeOptions: RuntimeOptions = {
       getLayoutById: () => null,
       getCollectionById: () => undefined,
     }) as never,
-  renderPage: async (input) => `<main>${renderedSource(input)}</main>`,
+  renderPage: async (input) => {
+    lastRender = input;
+    return `<main>${renderedSource(input)}</main>`;
+  },
 };
+/** What the last render received, which the browser hydrates from. */
+let lastRender: PageRenderInput | undefined;
 
 function request(path: string, init: { cookie?: string; accept?: string } = {}) {
   const headers: Record<string, string> = {};
@@ -164,6 +182,62 @@ void test("Markdown and the sitemap read Live, even for a member naming a draft"
     requests.filter((entry) => entry.draft),
     [],
   );
+});
+
+/** What a page renders for a request, and the input the browser hydrates from. */
+async function render(path: string, cookie?: string) {
+  lastRender = undefined;
+  const response = await request(path, { cookie });
+  const input = path.startsWith("/_camox/data")
+    ? ((await response!.json()) as PageRenderInput)
+    : lastRender!;
+  return { source: renderedSource(input), input };
+}
+
+const PATHS = ["/about", "/pokedex", "/_camox/data?path=/about", "/_camox/data?path=/pokedex"];
+const withDraft = (path: string, draft: string) =>
+  `${path}${path.includes("?") ? "&" : "?"}camox-draft=${draft}`;
+
+void test("a page says which draft it read", async (t) => {
+  mockApi(t);
+  for (const path of PATHS) {
+    const draft = await render(withDraft(path, "d1"), MEMBER_SESSION);
+    assert.equal(draft.input.draftId, "d1", path);
+    assert.equal(draft.input.refusedDraft, undefined, path);
+    const live = await render(path, MEMBER_SESSION);
+    assert.equal(live.input.draftId ?? null, null, path);
+  }
+});
+
+void test("a visitor opening a URL with a draft param sees Live, without the param and with no notice", async (t) => {
+  mockApi(t);
+  for (const path of PATHS) {
+    const { source, input } = await render(withDraft(path, "d1"));
+    assert.equal(source, "Live", path);
+    assert.equal(input.draftId ?? null, null, path);
+    assert.deepEqual(input.refusedDraft, { notice: null }, path);
+    assert.equal(new URL(input.href).searchParams.has("camox-draft"), false, path);
+  }
+});
+
+void test("a member opening a draft that doesn't exist gets Live in the same response, and a notice", async (t) => {
+  mockApi(t);
+  for (const path of PATHS) {
+    const { source, input } = await render(withDraft(path, MISSING_DRAFT), MEMBER_SESSION);
+    assert.equal(source, "Live", path);
+    assert.equal(input.draftId ?? null, null, path);
+    assert.deepEqual(input.refusedDraft, { notice: { reason: "missing" } }, path);
+    assert.equal(new URL(input.href).searchParams.has("camox-draft"), false, path);
+  }
+});
+
+void test("a member opening an ended draft gets Live, and a notice saying how and by whom it ended", async (t) => {
+  mockApi(t);
+  for (const path of PATHS) {
+    const { source, input } = await render(withDraft(path, ENDED_DRAFT), MEMBER_SESSION);
+    assert.equal(source, "Live", path);
+    assert.deepEqual(input.refusedDraft, { notice: { reason: "ended", ...ended } }, path);
+  }
 });
 
 void test("a page rendered from a draft is never publicly cacheable", async (t) => {

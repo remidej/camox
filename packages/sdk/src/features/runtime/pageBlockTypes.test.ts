@@ -9,11 +9,15 @@ import { getPageBlockTypes } from "./pageBlockTypes";
 
 function seededState(types: string[]) {
   const queryClient = new QueryClient();
-  seedBlockCaches(queryClient, {
-    blocks: types.map((type, id) => ({ id, type, content: {}, settings: {}, position: "a" })),
-    files: [],
-    repeatableItems: [],
-  } as unknown as Parameters<typeof seedBlockCaches>[1]);
+  seedBlockCaches(
+    queryClient,
+    {
+      blocks: types.map((type, id) => ({ id, type, content: {}, settings: {}, position: "a" })),
+      files: [],
+      repeatableItems: [],
+    } as unknown as Parameters<typeof seedBlockCaches>[1],
+    null,
+  );
   queryClient.setQueryData(queryKeys.pages.getByPath("/"), { page: { id: 1 } });
   return dehydrate(queryClient);
 }

@@ -592,6 +592,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId: access.projectId,
     targets: [
       treeBundleKey(tree),
@@ -663,6 +664,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
+      draftId: null,
       projectId: access.projectId,
       targets: [
         treeBundleKey(tree),
@@ -717,6 +719,7 @@ export const updateRepeatableItemSettings = Effect.fn(
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId: access.projectId,
     targets: [
       treeBundleKey(tree),
@@ -780,6 +783,7 @@ export const updateRepeatableItemPosition = Effect.fn(
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId: access.projectId,
     targets: [
       treeBundleKey(tree),
@@ -846,6 +850,7 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
+      draftId: null,
       projectId: access.projectId,
       targets: [
         treeBundleKey(tree),
@@ -882,6 +887,7 @@ export const generateRepeatableItemSummary = Effect.fn(
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId: access.projectId,
     targets: [
       treeBundleKey(yield* treeOfRoot(ctx.db, rootOfItem(access.item))),
@@ -926,6 +932,7 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId: access.projectId,
     targets: [
       treeBundleKey(tree),

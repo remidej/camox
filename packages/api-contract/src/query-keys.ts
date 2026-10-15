@@ -1,3 +1,5 @@
+import type { EndedDraft } from "./drafts";
+
 /**
  * Use TypeScript to enforce 'camox' as the first query key to ensure they're all namespaced.
  * This is because the Tanstack Query client on the frontend may be shared with the user's routes,
@@ -8,50 +10,35 @@ type QueryKeyGroup = Record<string, QueryKey | ((...args: any[]) => QueryKey)>;
 
 export const queryKeys = {
   collections: {
-    list: (projectSlug: string, environmentName: string) => [
-      "camox",
-      "collections",
-      "list",
-      projectSlug,
-      environmentName,
-    ],
-    get: (projectSlug: string, environmentName: string, collectionId: string) => [
+    list: (projectSlug: string) => ["camox", "collections", "list", projectSlug],
+    get: (projectSlug: string, collectionId: string) => [
       "camox",
       "collections",
       "get",
       projectSlug,
-      environmentName,
       collectionId,
     ],
-    record: (projectSlug: string, environmentName: string, collectionId: string, id: string) => [
+    record: (projectSlug: string, collectionId: string, id: string) => [
       "camox",
       "collections",
       "record",
       projectSlug,
-      environmentName,
       collectionId,
       id,
     ],
-    recordUsageCount: (
-      projectSlug: string,
-      environmentName: string,
-      collectionId: string,
-      id: string,
-    ) => [
+    recordUsageCount: (projectSlug: string, collectionId: string, id: string) => [
       "camox",
       "collections",
       "recordUsageCount",
       projectSlug,
-      environmentName,
       collectionId,
       id,
     ],
-    records: (projectSlug: string, environmentName: string, collectionId: string) => [
+    records: (projectSlug: string, collectionId: string) => [
       "camox",
       "collections",
       "records",
       projectSlug,
-      environmentName,
       collectionId,
     ],
   },
@@ -90,7 +77,36 @@ export const queryKeys = {
   },
 } satisfies Record<string, QueryKeyGroup>;
 
+/** The last segment of a query key: what the query reads, Live or a draft (ADR 0011). */
+export const LIVE_KEY_SCOPE = "live";
+
+/**
+ * A query key read from Live (`draftId` null) or from a draft. The keys above are prefixes naming
+ * what a query reads; the cache holds them with the scope appended, so each draft's queries are
+ * kept and invalidated apart.
+ */
+export function inScope(key: QueryKey, draftId: string | null): QueryKey {
+  return [...key, draftId ?? LIVE_KEY_SCOPE];
+}
+
+/** The scope a scoped query key ends in: `"live"` or a draft's id. */
+export function scopeOfKey(key: readonly unknown[]): unknown {
+  return key[key.length - 1];
+}
+
+/**
+ * Refetch the queries under these prefixes. `draftId` names the draft the change came from, so
+ * only that draft's queries refetch; a Live change (`null`) refetches every draft's too, since
+ * drafts read Live wherever they change nothing.
+ */
 export type InvalidationMessage = {
   type: "invalidate";
+  draftId: string | null;
   targets: QueryKey[];
 };
+
+/** A draft was published or discarded: its viewers go back to Live. */
+export type DraftEndedMessage = { type: "draftEnded" } & EndedDraft;
+
+/** Everything the project room broadcasts. */
+export type ProjectRoomMessage = InvalidationMessage | DraftEndedMessage;

@@ -1298,6 +1298,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.page.projectId,
     targets: [
       // Block create/delete/duplicate restructures the page — refetch the
@@ -1386,6 +1387,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       queryKeys.blocks.get(id),
@@ -1427,6 +1429,7 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       queryKeys.blocks.get(id),
@@ -1487,6 +1490,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       ...(access.pagePath
@@ -1516,6 +1520,7 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       // Deleting a block restructures the page. Invalidate all active page path
@@ -1572,6 +1577,7 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
+      draftId: scope?.id ?? null,
       projectId,
       targets: [
         queryKeys.pages.getByPathAll,
@@ -1606,6 +1612,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       queryKeys.blocks.get(id),
@@ -1657,6 +1664,7 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       ...(access.pagePath

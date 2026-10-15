@@ -1,4 +1,10 @@
-import { queryKeys, type InvalidationMessage, type QueryKey } from "@camox/api-contract/query-keys";
+import type { EndedDraft } from "@camox/api-contract/drafts";
+import {
+  queryKeys,
+  scopeOfKey,
+  type ProjectRoomMessage,
+  type QueryKey,
+} from "@camox/api-contract/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePartySocket } from "partysocket/react";
 import { useRef } from "react";
@@ -7,10 +13,21 @@ import { getAuthCookieHeader } from "./auth";
 
 const DEBOUNCE_MS = 300;
 
-export function useProjectRoom(apiUrl: string, projectId: number | undefined) {
+type PendingInvalidation = { draftId: string | null; queryKey: QueryKey };
+
+/**
+ * Follows the project's realtime room (ADR 0011). An invalidation from a draft refetches only
+ * that draft's queries; one from Live refetches every draft's too, since drafts read Live
+ * wherever they change nothing.
+ */
+export function useProjectRoom(
+  apiUrl: string,
+  projectId: number | undefined,
+  { onDraftEnded }: { onDraftEnded?: (ended: EndedDraft) => void } = {},
+) {
   const queryClient = useQueryClient();
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const pendingRef = useRef<QueryKey[]>([]);
+  const pendingRef = useRef<PendingInvalidation[]>([]);
 
   const host = apiUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
@@ -39,7 +56,7 @@ export function useProjectRoom(apiUrl: string, projectId: number | undefined) {
       console.error("[useProjectRoom] WebSocket error:", event);
     },
     onMessage(event) {
-      let data: InvalidationMessage;
+      let data: ProjectRoomMessage;
       try {
         data = JSON.parse(event.data);
       } catch {
@@ -47,17 +64,28 @@ export function useProjectRoom(apiUrl: string, projectId: number | undefined) {
         return;
       }
 
+      if (data.type === "draftEnded") {
+        const { type: _type, ...ended } = data;
+        onDraftEnded?.(ended);
+        return;
+      }
       if (data.type !== "invalidate") return;
 
-      pendingRef.current.push(...data.targets);
+      for (const queryKey of data.targets) {
+        pendingRef.current.push({ draftId: data.draftId ?? null, queryKey });
+      }
 
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
-        const targets = pendingRef.current;
+        const pending = pendingRef.current;
         pendingRef.current = [];
 
-        for (const queryKey of targets) {
-          void queryClient.invalidateQueries({ queryKey });
+        for (const { draftId, queryKey } of pending) {
+          void queryClient.invalidateQueries({
+            queryKey,
+            predicate:
+              draftId === null ? undefined : (query) => scopeOfKey(query.queryKey) === draftId,
+          });
         }
       }, DEBOUNCE_MS);
     },

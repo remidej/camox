@@ -283,6 +283,7 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   broadcastInvalidation({
     waitUntil: (p) => c.executionCtx.waitUntil(p),
     projectRoomNamespace: c.env.ProjectRoom,
+    draftId: null,
     projectId,
     targets: [queryKeys.files.list, queryKeys.files.get(result.id)],
   });
