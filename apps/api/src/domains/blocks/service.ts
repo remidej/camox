@@ -50,6 +50,7 @@ import {
 } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { draftScopeOfJob } from "../drafts/service";
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, sortItemsByPosition } from "../pages/ai";
@@ -166,7 +167,7 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
   ctx: ServiceContext,
   rawInput: z.input<typeof resolveBlockPositionInput>,
   opts: { mode: "create" | "move" },
-  scope: DraftScope = null,
+  scope: DraftScope,
 ): Effect.fn.Return<
   { afterPosition?: string | null; beforePosition?: string | null },
   ServiceError
@@ -424,8 +425,8 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   db: Database,
   apiKey: string,
   blockId: string,
+  scope: DraftScope,
   abortController?: AbortController,
-  scope: DraftScope = null,
 ): Effect.fn.Return<{ pageId: string } | null> {
   if (scope) {
     const held = yield* Effect.promise(() =>
@@ -482,6 +483,21 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   }
 
   return null;
+});
+
+/**
+ * Runs a block summary job in the draft it was scheduled from, or in Live. A job whose draft
+ * has ended does nothing.
+ */
+export const runBlockSummaryJob = Effect.fn("blocks.runBlockSummaryJob")(function* (
+  db: Database,
+  apiKey: string,
+  job: { entityId: string; draftId: string | null },
+  abortController?: AbortController,
+) {
+  const scope = yield* draftScopeOfJob(db, job.draftId);
+  if (scope === undefined) return null;
+  return yield* executeBlockSummary(db, apiKey, job.entityId, scope, abortController);
 });
 
 /**
@@ -754,7 +770,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
 export const getBlock = Effect.fn("blocks.getBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlockInput>,
-  draft: DraftScope = null,
+  draft: DraftScope,
 ) {
   const { id } = yield* decodeInput(getBlockInput, rawInput);
   const stored = yield* overlay.get(ctx.db, draft, blocks, id);
@@ -963,7 +979,7 @@ function layoutSlotsMarkdown(
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageMarkdownInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const { pageId } = yield* decodeInput(getPageMarkdownInput, rawInput);
 
@@ -1011,7 +1027,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
 export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutMarkdownInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutMarkdownInput, rawInput);
   const project = yield* Effect.promise(() =>
@@ -1035,7 +1051,7 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
 export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlocksUsageCountsInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(getBlocksUsageCountsInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
@@ -1059,7 +1075,7 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
 export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof blockTypeInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
@@ -1132,7 +1148,7 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
 export const createBlock = Effect.fn("blocks.createBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createBlockInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const {
@@ -1267,6 +1283,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       entityId: result.id,
       type: "summary",
       delayMs: 0,
+      draftId: scope?.id ?? null,
     }),
   );
   broadcastInvalidation({
@@ -1292,7 +1309,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 export const editBlock = Effect.fn("blocks.editBlock")(function* (
   ctx: ServiceContext,
   input: { id: string; content?: unknown; settings?: unknown },
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const access = yield* assertBlockAccess(ctx.db, input.id, user.id, scope);
@@ -1316,7 +1333,7 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
 export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockContentInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, content } = yield* decodeInput(updateBlockContentInput, rawInput);
@@ -1353,6 +1370,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
       entityId: id,
       type: "summary",
       delayMs: 5000,
+      draftId: scope?.id ?? null,
     }),
   );
   // Granular invalidation: only refetch this block, not the entire page.
@@ -1376,7 +1394,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockSettingsInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, settings } = yield* decodeInput(updateBlockSettingsInput, rawInput);
@@ -1416,7 +1434,7 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
 export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockPositionInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, afterPosition, beforePosition } = yield* decodeInput(
@@ -1476,7 +1494,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlockInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deleteBlockInput, rawInput);
@@ -1506,7 +1524,7 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
 export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlocksInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { blockIds } = yield* decodeInput(deleteBlocksInput, rawInput);
@@ -1559,19 +1577,13 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
 export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateBlockSummaryInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
   const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
-  const seoStale = yield* executeBlockSummary(
-    ctx.db,
-    ctx.env.OPEN_ROUTER_API_KEY,
-    id,
-    undefined,
-    scope,
-  );
+  const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
   if (seoStale) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1601,7 +1613,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
 export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof duplicateBlockInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(duplicateBlockInput, rawInput);

@@ -60,7 +60,7 @@ describe("getPagesUsingBlock", () => {
     await place("faq", { environmentId: environment.id, pageId: pricing.id });
 
     const result = await runService(
-      getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }),
+      getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }, null),
     );
 
     expect(result).toEqual([
@@ -68,7 +68,7 @@ describe("getPagesUsingBlock", () => {
       { id: home.id, nickname: "Home", fullPath: "/home" },
     ]);
     // Usage counts count placements, which is why Pages need their own query.
-    const counts = await runService(getBlocksUsageCounts(ctx, { projectId: project.id }));
+    const counts = await runService(getBlocksUsageCounts(ctx, { projectId: project.id }, null));
     expect(counts.find(({ type }) => type === "hero")?.count).toBe(3);
   });
 
@@ -79,13 +79,14 @@ describe("getPagesUsingBlock", () => {
     await place("hero", { environmentId: layout.environmentId, layoutId: layout.layoutId });
 
     expect(
-      await runService(getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" })),
+      await runService(getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }, null)),
     ).toEqual([]);
     expect(
       await runService(
         getPagesUsingBlock(
           { ...ctx, environmentName: "development" },
           { projectId: project.id, type: "hero" },
+          null,
         ),
       ),
     ).toEqual([{ id: draft.id, nickname: "Draft", fullPath: "/draft" }]);

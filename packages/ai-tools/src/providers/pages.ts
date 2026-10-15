@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { getPageMarkdown } from "../../../../apps/api/src/domains/blocks/service";
+import { resolveDraftScope } from "../../../../apps/api/src/domains/drafts/service";
 import {
   createPage,
   createPageInput,
@@ -81,7 +82,8 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
             ctx,
             "id" in parsed ? { id: parsed.id } : { projectId: ctx.projectId, path: parsed.path },
           );
-          const { blocks } = yield* getPageMarkdown(ctx, { pageId: page.id });
+          const scope = yield* resolveDraftScope(ctx, ctx.projectId);
+          const { blocks } = yield* getPageMarkdown(ctx, { pageId: page.id }, scope);
           return { page, blocks };
         }),
       );

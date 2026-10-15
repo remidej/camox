@@ -159,7 +159,7 @@ describe("singleton page ownership", () => {
       .set({ content: { title: "Edited" } })
       .where(blocksOfLayout(singleton));
     for (const reader of [createServiceContext(db, null), ctx]) {
-      expect((await runService(getLayout(reader, input))).blocks[0].content).toEqual({
+      expect((await runService(getLayout(reader, input, null))).blocks[0].content).toEqual({
         title: "Edited",
       });
     }

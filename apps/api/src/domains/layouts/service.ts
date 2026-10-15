@@ -20,6 +20,7 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import { visibleIn } from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { blocksOfLayout, layoutNamed } from "./identity";
 
@@ -88,6 +89,7 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
 export const getLayout = Effect.fn("layouts.getLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutInput>,
+  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutInput, rawInput);
   const project = yield* Effect.promise(() =>
@@ -104,7 +106,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   );
   if (!layout) return yield* new NotFoundError();
 
-  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout);
+  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
   const normalized = layoutBlocks.map((block) =>
     injectRepeatableItemMarkers(
       block,

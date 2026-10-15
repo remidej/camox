@@ -201,7 +201,7 @@ function composePageView(args: {
 export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageByPathInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageByPathInput, rawInput);
   const { project, page, layout } = yield* findPageByPath(ctx, projectSlug, path);
@@ -246,7 +246,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
 export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageStructureInput>,
-  scope: DraftScope = null,
+  scope: DraftScope,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageStructureInput, rawInput);
   const { project, page, layout } = yield* findPageByPath(ctx, projectSlug, path);

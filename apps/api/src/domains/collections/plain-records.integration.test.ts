@@ -142,19 +142,23 @@ async function fixture() {
     runService(createRecord(ctx, { ...articles, content: { title, author } }));
   const byline = async (author: string | null) => {
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "byline", content: { author } }),
+      createBlock(ctx, { pageId: page.id, type: "byline", content: { author } }, null),
     );
     const addCoauthor = (coauthor: string) =>
       runService(
-        createRepeatableItem(ctx, {
-          blockId: block.id,
-          fieldName: "coauthors",
-          content: { author: coauthor },
-        }),
+        createRepeatableItem(
+          ctx,
+          {
+            blockId: block.id,
+            fieldName: "coauthors",
+            content: { author: coauthor },
+          },
+          null,
+        ),
       );
     return Object.assign(
       async () =>
-        (await runService(getBlock(ctx, { id: block.id }))).block.references
+        (await runService(getBlock(ctx, { id: block.id }, null))).block.references
           .author as ResolvedReference | null,
       { addCoauthor },
     );
@@ -213,11 +217,15 @@ describe("used in counts", () => {
     expect(await runService(getFileUsageCount(f.ctx, { id: short.id }))).toEqual({ count: 0 });
 
     await runService(
-      createBlock(f.ctx, {
-        pageId: f.page.id,
-        type: "picture",
-        content: { image: { _fileId: short.id } },
-      }),
+      createBlock(
+        f.ctx,
+        {
+          pageId: f.page.id,
+          type: "picture",
+          content: { image: { _fileId: short.id } },
+        },
+        null,
+      ),
     );
     expect(await runService(getFileUsageCount(f.ctx, { id: short.id }))).toEqual({ count: 1 });
   });

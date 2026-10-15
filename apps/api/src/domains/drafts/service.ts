@@ -57,6 +57,22 @@ export const resolveDraftScope = Effect.fn("resolveDraftScope")(function* (
   return { id: draft.id, kind: draft.kind, projectId: draft.projectId } satisfies DraftScope;
 });
 
+/**
+ * The scope a background job scheduled from `draftId` runs in: Live for `null`, or undefined
+ * when the draft has ended since, so the job does nothing (ADR 0012).
+ */
+export const draftScopeOfJob = Effect.fn("draftScopeOfJob")(function* (
+  db: ServiceContext["db"],
+  draftId: string | null,
+) {
+  if (draftId === null) return null satisfies DraftScope;
+  const draft = yield* Effect.promise(() =>
+    db.select().from(drafts).where(eq(drafts.id, draftId)).get(),
+  );
+  if (!draft) return undefined;
+  return { id: draft.id, kind: draft.kind, projectId: draft.projectId } satisfies DraftScope;
+});
+
 /** Promise form of `resolveDraftScope`, rejecting with the matching `ORPCError`. */
 export function requireDraftScope(ctx: DraftScopeContext, projectId: number): Promise<DraftScope> {
   return runService(resolveDraftScope(ctx, projectId));
