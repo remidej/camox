@@ -7,6 +7,7 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlocks } from "../../lib/bump-content-updated-at";
 import { blocks, repeatableItems, sharedContents } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { visibleIn } from "../drafts/overlay";
 import {
   itemsUnder,
   rootColumns,
@@ -36,9 +37,13 @@ export function sharedContentWhere(key: DefinitionKey) {
   )!;
 }
 
-/** The placements of a definition. */
+/** The Live placements of a definition. Shared content stays in Live until #238. */
 function placementsWhere(key: DefinitionKey) {
-  return and(eq(blocks.environmentId, key.environmentId), eq(blocks.type, key.type))!;
+  return and(
+    visibleIn(blocks, null),
+    eq(blocks.environmentId, key.environmentId),
+    eq(blocks.type, key.type),
+  )!;
 }
 
 /** The definition a block places. */
@@ -357,7 +362,7 @@ const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
       db
         .update(blocks)
         .set({ content: shared.content, settings: shared.settings, summary: shared.summary })
-        .where(eq(blocks.id, placement.id)),
+        .where(eq(blocks.rowId, placement.rowId)),
     );
     yield* copyItemTree(db, items, { blockId: placement.id }, now);
   }
@@ -414,8 +419,9 @@ export const adoptSharedContent = Effect.fn("blocks.adoptSharedContent")(functio
   block: BlockRow,
 ) {
   const key = definitionOf(block);
+  // The new row itself, whether in Live or in a draft.
   const clear = Effect.promise(() =>
-    ctx.db.update(blocks).set(clearedPlacement).where(eq(blocks.id, block.id)),
+    ctx.db.update(blocks).set(clearedPlacement).where(eq(blocks.rowId, block.rowId)),
   );
   if (yield* findSharedContent(ctx.db, key)) {
     yield* Effect.promise(() =>

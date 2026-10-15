@@ -23,6 +23,7 @@ import {
   user,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { visibleIn } from "../drafts/overlay";
 import { rootOfItem, sharedContentItemsIn } from "../repeatable-items/roots";
 
 export const listCommentsInput = z.strictObject({ pageId: uuidv7Schema });
@@ -130,11 +131,15 @@ const loadTargets = Effect.fn("loadTargets")(function* (
   ctx: ServiceContext,
   page: Effect.Success<ReturnType<typeof authorize>>["page"],
 ) {
-  const scope = or(
-    eq(blocks.pageId, page.id),
-    page.layoutId === null
-      ? undefined
-      : and(isNull(blocks.pageId), eq(blocks.layoutId, page.layoutId)),
+  // Comments anchor to Live blocks until comments move into drafts.
+  const scope = and(
+    visibleIn(blocks, null),
+    or(
+      eq(blocks.pageId, page.id),
+      page.layoutId === null
+        ? undefined
+        : and(isNull(blocks.pageId), eq(blocks.layoutId, page.layoutId)),
+    ),
   );
   const pageBlocks = yield* Effect.promise(() => ctx.db.select().from(blocks).where(scope));
   const items = yield* Effect.promise(() =>

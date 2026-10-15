@@ -237,7 +237,12 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
 
   const affectedBlocks = yield* Effect.promise(() =>
     db
-      .select({ id: blocks.id, content: blocks.content, pageId: blocks.pageId })
+      .select({
+        rowId: blocks.rowId,
+        id: blocks.id,
+        content: blocks.content,
+        pageId: blocks.pageId,
+      })
       .from(blocks)
       .where(sql`INSTR(${blocks.content}, ${marker}) > 0`),
   );
@@ -257,8 +262,12 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
 
   for (const block of affectedBlocks) {
     const cleaned = cleanFileReferences(block.content as JsonValue, fileId);
+    // Cleaned per row: Live and each draft hold their own content for the block.
     yield* Effect.promise(() =>
-      db.update(blocks).set({ content: cleaned, updatedAt: now }).where(eq(blocks.id, block.id)),
+      db
+        .update(blocks)
+        .set({ content: cleaned, updatedAt: now })
+        .where(eq(blocks.rowId, block.rowId)),
     );
   }
 

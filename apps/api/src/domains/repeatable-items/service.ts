@@ -430,7 +430,8 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   const user = yield* requireUser(ctx);
   const { id, blockId, parentItemId, fieldName, content, settings, afterPosition, nestedItems } =
     yield* decodeInput(createRepeatableItemInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, blockId, user.id);
+  // Repeatable items are written in Live until they move into drafts (#238).
+  const access = yield* assertBlockAccess(ctx.db, blockId, user.id, null);
 
   const now = Date.now();
 

@@ -187,7 +187,13 @@ describe("comments", () => {
     const f = await fixture();
     const layoutBlock = await f.db
       .insert(blocks)
-      .values({ ...f.block, id: undefined, pageId: null, layoutId: f.layout.layoutId })
+      .values({
+        ...f.block,
+        rowId: undefined,
+        id: undefined,
+        pageId: null,
+        layoutId: f.layout.layoutId,
+      })
       .returning()
       .get();
     const targets: CommentTarget[] = [
@@ -241,6 +247,7 @@ describe("comments", () => {
       .insert(blocks)
       .values({
         ...f.block,
+        rowId: undefined,
         id: undefined,
         pageId: null,
         layoutId: f.layout.layoutId,
@@ -433,7 +440,7 @@ describe("comments", () => {
     // Delete a separate target without removing the nested target.
     const deleted = await f.db
       .insert(blocks)
-      .values({ ...f.block, id: undefined })
+      .values({ ...f.block, rowId: undefined, id: undefined })
       .returning()
       .get();
     await f.create({ kind: "block", blockId: deleted.id });

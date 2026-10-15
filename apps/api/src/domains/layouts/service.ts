@@ -19,6 +19,7 @@ import {
   hydrateReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { visibleIn } from "../drafts/overlay";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { blocksOfLayout, layoutNamed } from "./identity";
 
@@ -274,7 +275,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           position: blocks.position,
         })
         .from(blocks)
-        .where(blocksOfLayout(layout)),
+        .where(and(visibleIn(blocks, null), blocksOfLayout(layout))),
     );
 
     const existingByKey = new Map<string, string>();
@@ -374,8 +375,14 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       }
     }
     if (orphanIdsToDelete.length > 0) {
+      // A release writes Live. Items hold no foreign key to their block (ADR 0005).
       yield* Effect.promise(() =>
-        ctx.db.delete(blocks).where(inArray(blocks.id, orphanIdsToDelete)),
+        ctx.db.batch([
+          ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, orphanIdsToDelete)),
+          ctx.db
+            .delete(blocks)
+            .where(and(visibleIn(blocks, null), inArray(blocks.id, orphanIdsToDelete))),
+        ]),
       );
     }
 

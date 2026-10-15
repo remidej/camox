@@ -1,6 +1,6 @@
 import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -23,6 +23,7 @@ import {
   sharedContents,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { visibleIn } from "../drafts/overlay";
 import { itemsInEnvironment, sharedContentItemsIn } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
@@ -318,9 +319,12 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     ctx.db.select().from(comments).where(eq(comments.environmentId, source.id)),
   );
 
-  // Blocks on pages and in layouts both belong to the environment.
+  // Blocks on pages and in layouts both belong to the environment. Only Live is copied.
   const sourceBlocks = yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.environmentId, source.id)),
+    ctx.db
+      .select()
+      .from(blocks)
+      .where(and(visibleIn(blocks, null), eq(blocks.environmentId, source.id))),
   );
 
   const sourceSharedContents = yield* Effect.promise(() =>
@@ -424,7 +428,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const blocksMap = new Map<string, string>();
   for (const row of sourceBlocks) {
-    const { id, environmentId: _envId, pageId, content, settings, ...rest } = row;
+    const { rowId: _rowId, id, environmentId: _envId, pageId, content, settings, ...rest } = row;
     const newPageId = pageId !== null ? (pagesMap.get(pageId) ?? null) : null;
     const newContent = remapContentReferences(content, filesMap, pagesMap);
     const newSettings =

@@ -1,6 +1,6 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -18,6 +18,8 @@ import {
   hydrateReferences,
   type ResolvedReferences,
 } from "../collections/references";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
 import {
   assertCuratedLayout,
@@ -25,7 +27,9 @@ import {
   pageServingProblems,
   servesPages,
 } from "../layouts/route-ownership";
-import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
+import { buildFileMap, collectFileIds, executePageSeo } from "./ai";
+
+const { sortByPosition } = overlay;
 
 const PAGE_NICKNAME_MAX_LENGTH = 80;
 const pageNicknameSchema = z.string().trim().min(1).max(PAGE_NICKNAME_MAX_LENGTH);
@@ -197,12 +201,15 @@ function composePageView(args: {
 export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageByPathInput>,
+  scope: DraftScope = null,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageByPathInput, rawInput);
   const { project, page, layout } = yield* findPageByPath(ctx, projectSlug, path);
 
-  const pageContent = yield* readOwnerBlocks(ctx, { pageId: page.id });
-  const layoutContent = layout ? yield* readOwnerBlocks(ctx, layout) : { blocks: [], items: [] };
+  const pageContent = yield* readOwnerBlocks(ctx, { pageId: page.id }, scope);
+  const layoutContent = layout
+    ? yield* readOwnerBlocks(ctx, layout, scope)
+    : { blocks: [], items: [] };
   const allBlocks = [...pageContent.blocks, ...layoutContent.blocks];
 
   const hydrated = yield* hydrateReferences(ctx, page, allBlocks);
@@ -239,27 +246,16 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
 export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageStructureInput>,
+  scope: DraftScope = null,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageStructureInput, rawInput);
   const { project, page, layout } = yield* findPageByPath(ctx, projectSlug, path);
 
   const pageBlockOrder = sortByPosition(
-    yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: blocks.id, position: blocks.position })
-        .from(blocks)
-        .where(eq(blocks.pageId, page.id)),
-    ),
+    yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, page.id)),
   );
   const layoutBlockOrder = layout
-    ? sortByPosition(
-        yield* Effect.promise(() =>
-          ctx.db
-            .select({ id: blocks.id, position: blocks.position, slot: blocks.slot })
-            .from(blocks)
-            .where(blocksOfLayout(layout)),
-        ),
-      )
+    ? sortByPosition(yield* overlay.select(ctx.db, scope, blocks, blocksOfLayout(layout)))
     : [];
 
   return {
@@ -475,8 +471,15 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
   const { id } = yield* decodeInput(deletePageInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const result = yield* Effect.promise(() =>
-    ctx.db.delete(pages).where(eq(pages.id, id)).returning().get(),
+  // Blocks hold no foreign key to their page (ADR 0005): delete them, in Live and in every
+  // draft, with the repeatable items they own.
+  const pageBlockIds = ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.pageId, id));
+  const [, , [result]] = yield* Effect.promise(() =>
+    ctx.db.batch([
+      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, pageBlockIds)),
+      ctx.db.delete(blocks).where(eq(blocks.pageId, id)),
+      ctx.db.delete(pages).where(eq(pages.id, id)).returning(),
+    ]),
   );
   invalidatePage(ctx, access.page.projectId, id);
   return result;
