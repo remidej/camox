@@ -9,6 +9,7 @@ import type { Database } from "../../db";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
 import { conformBlocks } from "../_shared/conform-content";
+import { definitionsIn } from "../_shared/definitions";
 import { withSharedContent } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
@@ -141,6 +142,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
         and(
           eq(blockDefinitions.projectId, page.projectId),
           eq(blockDefinitions.environmentId, page.environmentId),
+          definitionsIn(blockDefinitions, scope),
         ),
       ),
   );

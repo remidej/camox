@@ -3,6 +3,8 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
+import { definitionsIn } from "../_shared/definitions";
+import type { DraftScope } from "../drafts/scope";
 import { layouts } from "../layouts/schema";
 
 // Record pages (GLOSSARY): pages of a derived layout, each rendering one collection record
@@ -38,12 +40,14 @@ export function recordsSharingPageValues<T>(
 /** The record pages layouts declare, in one environment or in every one of a project. */
 export const recordPageLayouts = Effect.fn("collections.recordPageLayouts")(function* (
   db: Database,
-  where: { environmentId: number } | { projectId: number },
+  where: ({ environmentId: number } | { projectId: number }) & { draft: DraftScope },
 ) {
-  const scope =
+  const scope = and(
     "environmentId" in where
       ? eq(layouts.environmentId, where.environmentId)
-      : eq(layouts.projectId, where.projectId);
+      : eq(layouts.projectId, where.projectId),
+    definitionsIn(layouts, where.draft),
+  );
   const rows = yield* Effect.promise(() =>
     db
       .select({

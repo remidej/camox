@@ -14,7 +14,6 @@ import { uuidv7 } from "../lib/uuidv7";
 const common = {
   cwd: cwdFlag,
   project: optional(option("--project", string({ metavar: "SLUG" }))),
-  production: option("--production"),
   json: option("--json"),
 };
 const metadata = {
@@ -83,7 +82,7 @@ export const parser = command(
         ...common,
       }),
       {
-        description: message`Update metadata or replace file content with --file or --url (maximum 100 MiB). Replacing affects every reference to this file in the selected environment; its ID stays unchanged but its URL changes. Omitted alt text and AI settings are preserved. Example: camox files update --id <FILE_ID> --file ./hero.jpg --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
+        description: message`Update metadata or replace file content with --file or --url (maximum 100 MiB). Replacing affects every reference to this file in your development draft; its ID stays unchanged but its URL changes. Omitted alt text and AI settings are preserved. Example: camox files update --id <FILE_ID> --file ./hero.jpg --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
       },
     ),
     command(
@@ -93,7 +92,7 @@ export const parser = command(
         id: option("--id", uuidv7()),
         ...common,
       }),
-      { description: message`Inspect a file in the selected project and environment.` },
+      { description: message`Inspect a file in the selected project.` },
     ),
     command(
       "list",
@@ -101,11 +100,11 @@ export const parser = command(
         command: constant("files.list" as const),
         ...common,
       }),
-      { description: message`List files in the selected project and environment.` },
+      { description: message`List files in the selected project.` },
     ),
   ),
   {
-    description: message`Upload and manage media. Defaults to your development environment; --production explicitly targets production.`,
+    description: message`Upload and manage media in your development draft.`,
   },
 );
 
@@ -116,7 +115,6 @@ export async function handler(args: Args): Promise<never> {
   const options = {
     cwd: args.cwd,
     projectFlag: args.project,
-    production: args.production,
     outputMode,
   } as const;
   try {

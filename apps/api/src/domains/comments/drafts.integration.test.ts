@@ -10,6 +10,7 @@ import {
   createRpcContext,
   createServiceContext,
   callSeedingLive,
+  openDevelopmentDraft,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -103,15 +104,20 @@ async function fixture() {
 
   /** A draft the member opened, holding one block edit so it has something to publish. */
   const openDraft = async (name: string | null = null, kind: DraftKind = "regular") => {
-    const id = generateUuidv7();
-    await base.db.insert(drafts).values({
-      id,
-      projectId,
-      kind,
-      name,
-      createdBy: base.memberUser.id,
-      createdAt: now,
-    });
+    const id =
+      kind === "development"
+        ? await openDevelopmentDraft(base.db, projectId, base.memberUser.id)
+        : generateUuidv7();
+    if (kind === "regular") {
+      await base.db.insert(drafts).values({
+        id,
+        projectId,
+        kind,
+        name,
+        createdBy: base.memberUser.id,
+        createdAt: now,
+      });
+    }
     await createBlock("Draft work", inDraft(id));
     return id;
   };

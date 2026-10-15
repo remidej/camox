@@ -3,7 +3,9 @@ import { Effect } from "effect";
 
 import { ConflictError, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { layouts } from "../../schema";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
+import type { DraftScope } from "../drafts/scope";
 
 export function singletonPath(layoutId: string) {
   if (!/^[\w-]+(?:\.[\w-]+)*$/.test(layoutId))
@@ -27,12 +29,19 @@ export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(func
   ctx: ServiceContext,
   environmentId: number,
   layoutId: string,
+  scope: DraftScope,
 ) {
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.layoutId, layoutId), eq(layouts.environmentId, environmentId)))
+      .where(
+        and(
+          eq(layouts.layoutId, layoutId),
+          eq(layouts.environmentId, environmentId),
+          definitionsIn(layouts, scope),
+        ),
+      )
       .get(),
   );
   if (!layout) return yield* new NotFoundError({ message: "Layout not found in this environment" });
@@ -46,12 +55,19 @@ export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPage
   ctx: ServiceContext,
   environmentId: number,
   paths: string[],
+  scope: DraftScope,
 ) {
   const singletons = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environmentId), eq(layouts.kind, "singleton"))),
+      .where(
+        and(
+          eq(layouts.environmentId, environmentId),
+          definitionsIn(layouts, scope),
+          eq(layouts.kind, "singleton"),
+        ),
+      ),
   );
   const reserved = new Set<string>();
   for (const layout of singletons) reserved.add(yield* singletonPath(layout.layoutId));
@@ -76,9 +92,13 @@ export function servesPages(layout: { kind: string } | null | undefined) {
 export const pageServingProblems = Effect.fn("layouts.pageServingProblems")(function* (
   ctx: ServiceContext,
   environmentId: number,
+  scope: DraftScope,
 ) {
   const rows = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.environmentId, environmentId)),
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(eq(layouts.environmentId, environmentId), definitionsIn(layouts, scope))),
   );
   const byName = new Map(rows.map((layout) => [layout.layoutId, layout]));
   const pathOf = (path: Effect.Effect<string, InvalidInputError>) =>

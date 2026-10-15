@@ -3,6 +3,7 @@ import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
   LIVE_READ_ONLY_ERROR,
+  NO_DEVELOPMENT_DRAFT_ERROR,
   PUBLISH_BLOCKED_ERROR,
 } from "@camox/api-contract/drafts";
 import { ORPCError } from "@orpc/server";
@@ -39,6 +40,13 @@ export function toORPCError(error: ServiceError) {
         status: 409,
         message:
           error.message || `Live is read-only: content writes name a draft with ${DRAFT_HEADER}`,
+      });
+    case "NoDevelopmentDraftError":
+      return new ORPCError(NO_DEVELOPMENT_DRAFT_ERROR, {
+        status: 404,
+        message:
+          error.message ||
+          "You have no development draft in this project yet: run the site locally first, so dev mode syncs your definitions and creates it",
       });
     case "ConflictsChangedError":
       return new ORPCError(CONFLICTS_CHANGED_ERROR, { status: 409, message: error.message });

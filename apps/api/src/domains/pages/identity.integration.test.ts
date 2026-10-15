@@ -308,10 +308,12 @@ describe("stable page tree identity", () => {
       })
       .returning()
       .get();
-    await f.db.insert(layouts).values({ ...f.layout, environmentId: target.id });
+    await f.db.insert(layouts).values({ ...f.layout, rowId: undefined, environmentId: target.id });
     for (const definition of await f.db.select().from(blockDefinitions)) {
       if (definition.environmentId !== f.environment.id) continue;
-      await f.db.insert(blockDefinitions).values({ ...definition, environmentId: target.id });
+      await f.db
+        .insert(blockDefinitions)
+        .values({ ...definition, rowId: undefined, environmentId: target.id });
     }
     await runService(
       replicateEnvironment(f.ctx, {

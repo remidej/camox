@@ -1,4 +1,5 @@
 import {
+  DEVELOPMENT_DRAFT,
   DRAFT_CREATE_HEADER,
   DRAFT_HEADER,
   DRAFT_SEARCH_PARAM,
@@ -8,7 +9,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { inScope, LIVE_KEY_SCOPE, scopeOfKey, type QueryKey } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
 
-import type { DraftNotice } from "../features/routes/pageRuntime";
+import type { DraftNotice, DraftRead } from "../features/routes/pageRuntime";
 
 /**
  * The draft the studio reads and writes (ADR 0011). The URL's `camox-draft` param names it;
@@ -16,16 +17,38 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
  * an id and asks the API to create it, and the param lands in the URL once a write succeeds.
  * Edits fired before it settles share the same pending id so they land in one draft. The API
  * rejects content writes naming no draft, so this is the only path from an edit to the API.
+ *
+ * Dev mode works only in the caller's development draft and ignores the URL (ADR 0006): every
+ * request names `development`, and no draft is ever started.
  */
 
 let currentDraftId: string | null = null;
+/**
+ * Dev mode: whether the last render could read the development draft. Without its owner's
+ * session it read Live, and the page keeps showing Live.
+ */
+let developmentDraftRead = true;
 /** The id the first content writes on Live share, and how many of them are still in flight. */
 let pending: { id: string; inFlight: number } | null = null;
 const listeners = new Set<(draftId: string) => void>();
 
-/** Follows the URL: the draft its param names, or Live. Navigations call it once they commit. */
-export function readDraftFromUrl() {
+/** Whether this is dev mode, which works only in the development draft (ADR 0006). */
+export function isDevelopmentMode(): boolean {
+  return typeof __CAMOX_DEVELOPMENT_DRAFT__ !== "undefined" && __CAMOX_DEVELOPMENT_DRAFT__;
+}
+
+/**
+ * Follows the URL: the draft its param names, or Live. Navigations call it once they commit,
+ * with what the page they show read. Dev mode follows that render instead of the URL: the
+ * development draft, or Live when the render couldn't read it.
+ */
+export function readDraftFromUrl(rendered?: DraftRead) {
   pending = null;
+  if (isDevelopmentMode()) {
+    if (rendered) developmentDraftRead = !rendered.refusedDraft;
+    currentDraftId = developmentDraftRead ? DEVELOPMENT_DRAFT : null;
+    return;
+  }
   currentDraftId =
     typeof window === "undefined"
       ? null
@@ -100,7 +123,8 @@ export function getUploadDraftHeaders(): DraftRequestHeaders {
 function headersFor(write: boolean): DraftRequestHeaders {
   const noop = () => {};
   if (currentDraftId) return { headers: { [DRAFT_HEADER]: currentDraftId }, settle: noop };
-  if (!write) return { headers: {}, settle: noop };
+  // Dev mode never starts a draft: without the development draft, it can't write.
+  if (!write || isDevelopmentMode()) return { headers: {}, settle: noop };
 
   pending ??= { id: generateUuidv7(), inFlight: 0 };
   const started = pending;

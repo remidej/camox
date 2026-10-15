@@ -1,4 +1,4 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { os, ORPCError } from "@orpc/server";
 
@@ -34,8 +34,11 @@ export type AuthedContext = BaseContext & {
 function draftRequestOf(headers: Headers): DraftRequest | null {
   const id = headers.get(DRAFT_HEADER);
   if (!id) return null;
+  if (id === DEVELOPMENT_DRAFT) return { development: true };
   if (!uuidv7Schema.safeParse(id).success) {
-    throw new ORPCError("BAD_REQUEST", { message: `${DRAFT_HEADER} must be a UUIDv7` });
+    throw new ORPCError("BAD_REQUEST", {
+      message: `${DRAFT_HEADER} must be a UUIDv7 or "${DEVELOPMENT_DRAFT}"`,
+    });
   }
   return { id, create: headers.get(DRAFT_CREATE_HEADER) === "1" };
 }

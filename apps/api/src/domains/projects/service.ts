@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -10,7 +11,7 @@ import {
   requireUser,
 } from "../../authorization";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { resolveEnvironment } from "../../lib/resolve-environment";
+import { resolveProjectEnvironment } from "../../lib/resolve-environment";
 import {
   blockDefinitions,
   collectionDefinitions,
@@ -26,6 +27,7 @@ import {
   repeatableItems,
   sharedContents,
 } from "../../schema";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { requestBlockSummary } from "../blocks/service";
@@ -35,7 +37,9 @@ import {
   resolveReferences,
   validateReferenceValues,
 } from "../collections/references";
-import { releasedNew } from "../drafts/overlay";
+import * as overlay from "../drafts/overlay";
+import { releasedNew, visibleIn } from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { homeOf, requestGeneration } from "../generated-values/service";
 import { requestPageSeo } from "../pages/service";
@@ -357,22 +361,52 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   return result;
 });
 
+/**
+ * Inserts content a sync seeds: on Live as released content, in a development draft as a draft
+ * row (ADR 0006).
+ */
+const seed = Effect.fn("projects.seed")(function* <T extends overlay.ContentTable>(
+  ctx: ServiceContext,
+  draft: DraftScope,
+  table: T,
+  values: Omit<T["$inferInsert"], "id" | "draftId">,
+) {
+  if (draft) {
+    return (yield* overlay.insert(ctx.db, draft, table, values as never))! as T["$inferSelect"];
+  }
+  return (yield* Effect.promise(() =>
+    ctx.db
+      .insert(table as SQLiteTable)
+      .values({ ...values, ...releasedNew(Date.now()) } as never)
+      .returning()
+      .get(),
+  )) as T["$inferSelect"];
+});
+
 export const initializeProjectContent = Effect.fn("projects.initializeProjectContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof initializeProjectContentInput>,
 ) {
   const input = yield* decodeInput(initializeProjectContentInput, rawInput);
-  const project = yield* assertSyncAccess(ctx.db, input.projectSlug, {
-    user: ctx.user,
-    environmentName: ctx.environmentName,
-    deployToken: input.deployToken,
-  });
+  // A release seeds Live; dev mode seeds the caller's development draft, as draft rows
+  // (ADR 0006).
+  const { project, scope: draft } = yield* assertSyncAccess(
+    ctx.db,
+    input.projectSlug,
+    { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
+    { create: true },
+  );
 
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  const environment = yield* resolveProjectEnvironment(ctx.db, project.id);
 
-  // Check if environment already has pages — if so, skip (idempotent)
+  // Skip when the target already reads pages (idempotent).
   const existingPage = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.environmentId, environment.id)).limit(1).get(),
+    ctx.db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.environmentId, environment.id), visibleIn(pages, draft)))
+      .limit(1)
+      .get(),
   );
   if (existingPage) {
     return { created: false };
@@ -389,6 +423,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
         and(
           eq(layouts.projectId, project.id),
           eq(layouts.environmentId, environment.id),
+          definitionsIn(layouts, draft),
           eq(layouts.layoutId, input.layoutId),
         ),
       )
@@ -406,6 +441,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
         and(
           eq(blockDefinitions.projectId, project.id),
           eq(blockDefinitions.environmentId, environment.id),
+          definitionsIn(blockDefinitions, draft),
         ),
       ),
   );
@@ -429,7 +465,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   });
 
   for (const block of preparedBlocks) {
-    const scope = { projectId: project.id, environmentId: environment.id, draft: null };
+    const scope = { projectId: project.id, environmentId: environment.id, draft };
     const schema = definitionsByType.get(block.type)?.contentSchema;
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
     const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
@@ -443,23 +479,17 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   }
 
   // Create homepage
-  const homepage = yield* Effect.promise(() =>
-    ctx.db
-      .insert(pages)
-      .values({
-        projectId: project.id,
-        environmentId: environment.id,
-        pathSegment: "",
-        fullPath: "/",
-        layoutId: layout.layoutId,
-        nickname: "Home",
-        contentUpdatedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get(),
-  );
+  const homepage = yield* seed(ctx, draft, pages, {
+    projectId: project.id,
+    environmentId: environment.id,
+    pathSegment: "",
+    fullPath: "/",
+    layoutId: layout.layoutId,
+    nickname: "Home",
+    contentUpdatedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
 
   // Create blocks on the homepage
   let prevPosition: string | null = null;
@@ -469,51 +499,38 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     const position = generateKeyBetween(prevPosition, null);
     prevPosition = position;
 
-    const block = yield* Effect.promise(() =>
-      ctx.db
-        .insert(blocks)
-        .values({
-          environmentId: environment.id,
-          pageId: homepage.id,
-          type: blockDef.type,
-          content: blockDef.content,
-          settings: blockDef.settings ?? null,
-          position,
-          ...releasedNew(now),
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get(),
-    );
+    const block = yield* seed(ctx, draft, blocks, {
+      environmentId: environment.id,
+      pageId: homepage.id,
+      type: blockDef.type,
+      content: blockDef.content,
+      settings: blockDef.settings ?? null,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    yield* requestBlockSummary(ctx, null, project.id, block.id, 0);
+    yield* requestBlockSummary(ctx, draft, project.id, block.id, 0);
 
     const itemSeeds = blockDef.repeatableItems;
     if (itemSeeds && itemSeeds.length > 0) {
       const tempIdToRealId = new Map<string, string>();
-      for (const seed of itemSeeds) {
-        const parentItemId = seed.parentTempId
-          ? (tempIdToRealId.get(seed.parentTempId) ?? null)
+      for (const itemSeed of itemSeeds) {
+        const parentItemId = itemSeed.parentTempId
+          ? (tempIdToRealId.get(itemSeed.parentTempId) ?? null)
           : null;
-        const inserted = yield* Effect.promise(() =>
-          ctx.db
-            .insert(repeatableItems)
-            .values({
-              blockId: block.id,
-              parentItemId,
-              fieldName: seed.fieldName,
-              content: seed.content,
-              settings: seed.settings ?? null,
-              position: seed.position,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning()
-            .get(),
-        );
-        tempIdToRealId.set(seed.tempId, inserted.id);
-        yield* requestGeneration(ctx, homeOf(null, project.id), {
+        const inserted = yield* seed(ctx, draft, repeatableItems, {
+          blockId: block.id,
+          parentItemId,
+          fieldName: itemSeed.fieldName,
+          content: itemSeed.content,
+          settings: itemSeed.settings ?? null,
+          position: itemSeed.position,
+          createdAt: now,
+          updatedAt: now,
+        });
+        tempIdToRealId.set(itemSeed.tempId, inserted.id);
+        yield* requestGeneration(ctx, homeOf(draft, project.id), {
           entity: "repeatableItem",
           entityId: inserted.id,
           delayMs: 0,
@@ -521,11 +538,11 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       }
     }
 
-    yield* adoptSharedContent(ctx, null, block);
+    yield* adoptSharedContent(ctx, draft, block);
     blockCount++;
   }
 
   // The homepage's SEO is generated once its blocks are summarised (ADR 0012).
-  yield* requestPageSeo(ctx, null, homepage, 15000);
+  yield* requestPageSeo(ctx, draft, homepage, 15000);
   return { created: true, pageId: homepage.id, blockCount };
 });

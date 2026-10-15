@@ -397,7 +397,7 @@ describe("comments", () => {
       .insert(environments)
       .values({
         projectId: f.project.id,
-        name: "dev:test",
+        name: "staging",
         type: "development",
         createdAt: now,
         updatedAt: now,
@@ -406,7 +406,7 @@ describe("comments", () => {
       .get();
     const layout = await f.db
       .insert(layouts)
-      .values({ ...f.layout, environmentId: destination.id })
+      .values({ ...f.layout, rowId: undefined, environmentId: destination.id })
       .returning()
       .get();
     const definition = await f.db
@@ -414,7 +414,9 @@ describe("comments", () => {
       .from(blockDefinitions)
       .where(eq(blockDefinitions.environmentId, f.environment.id))
       .get();
-    await f.db.insert(blockDefinitions).values({ ...definition!, environmentId: destination.id });
+    await f.db
+      .insert(blockDefinitions)
+      .values({ ...definition!, rowId: undefined, environmentId: destination.id });
     const page = await f.db
       .insert(pages)
       .values({

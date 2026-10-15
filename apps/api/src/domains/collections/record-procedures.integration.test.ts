@@ -1,4 +1,4 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import type { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -86,7 +86,7 @@ describe("collection record procedures", () => {
     expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([]);
   });
 
-  it("dispatches record tools through authenticated agent routes without crossing environments", async () => {
+  it("dispatches record tools through authenticated agent routes without crossing drafts", async () => {
     const f = await fixture();
     const projectId = f.project.id;
     const tools = await callSeedingLive(
@@ -121,13 +121,15 @@ describe("collection record procedures", () => {
     if (!created.ok) throw new Error(created.error.message);
     const record = created.result as Effect.Success<ReturnType<typeof getCollectionRecord>>;
     const target = { collectionId: "customers", id: record.id };
-    const development = { ...drafted, environmentName: `dev:${f.memberUser.email}` };
+    // The development draft has its own definitions, here none: Live's collection isn't in it.
+    const development = createRpcContext(f.db, f.memberUser, {
+      [DRAFT_HEADER]: DEVELOPMENT_DRAFT,
+    });
     await runService(
-      syncCollectionDefinitions(development, {
-        projectSlug: f.scope.projectSlug,
-        autoCreate: true,
-        definitions: [],
-      }),
+      syncCollectionDefinitions(
+        { ...development, draft: { development: true } },
+        { projectSlug: f.scope.projectSlug, autoCreate: true, definitions: [] },
+      ),
     );
     expect(await invoke(development, "listCollections", {})).toEqual({ ok: true, result: [] });
     expect(await invoke(development, "deleteCollectionRecord", target)).toMatchObject({

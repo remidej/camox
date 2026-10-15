@@ -1,6 +1,6 @@
 import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 
-import { getCurrentDraftId } from "../../lib/studio-draft";
+import { getCurrentDraftId, isDevelopmentMode } from "../../lib/studio-draft";
 
 export function runtimePath(pathname: string, basePath: string) {
   const base = basePath.replace(/\/$/, "");
@@ -17,9 +17,10 @@ export function fetchRuntimeJson(
 ) {
   const url = new URL(runtimePath(endpoint, runtimeBasePath), window.location.origin);
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-  // The runtime reads the draft the studio is in, like the page around it.
+  // The runtime reads the draft the studio is in, like the page around it. Dev mode's runtime
+  // always reads the development draft.
   const draftId = getCurrentDraftId();
-  if (draftId) url.searchParams.set(DRAFT_SEARCH_PARAM, draftId);
+  if (draftId && !isDevelopmentMode()) url.searchParams.set(DRAFT_SEARCH_PARAM, draftId);
   return fetch(url, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },

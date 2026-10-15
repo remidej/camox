@@ -213,6 +213,33 @@ void test("disables Publish all while the draft has blockers", async (t) => {
   }
 });
 
+void test("names a definition that differs from Live's as a blocker of its own, without a place to find it", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      blockers: [
+        {
+          entity: "definition",
+          id: "hero",
+          label: "Hero",
+          owner: null,
+          code: "definitionsDiffer",
+          field: "",
+          message: "its definition differs from Live's",
+        },
+      ],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /Hero: its definition differs from Live's/);
+    assert.doesNotMatch(dialogText(), /Elsewhere/);
+    assert.equal(buttonNamed(/Publish all/)?.disabled, true);
+  } finally {
+    await close();
+  }
+});
+
 void test("shows the new conflicts when Live changed since the preview, then publishes and switches to Live", async (t) => {
   let liveChanged = false;
   const calls = mockApi(t, (path) => {

@@ -238,23 +238,23 @@ describe("media persistence", () => {
       aiMetadata: false,
     });
     expect(await runService(listFiles(ctx, { projectId: project.id }, null))).toHaveLength(1);
-    const dev = { ...ctx, environmentName: `dev:${ctx.user!.email}` };
+    const staging = { ...ctx, environmentName: "staging" };
     await db.insert(environments).values({
       projectId: project.id,
-      name: dev.environmentName,
+      name: staging.environmentName,
       type: "development",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-    await expect(runService(getProjectFile(dev, target, null))).rejects.toMatchObject({
+    await expect(runService(getProjectFile(staging, target, null))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     await expect(
-      runService(updateFile(dev, { ...target, alt: "Wrong environment" }, null)),
+      runService(updateFile(staging, { ...target, alt: "Wrong environment" }, null)),
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    expect(await runService(listFiles(dev, { projectId: project.id }, null))).toEqual([]);
+    expect(await runService(listFiles(staging, { projectId: project.id }, null))).toEqual([]);
     await expect(
       runService(getProjectFile(createServiceContext(db, outsiderUser), target, null)),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -346,7 +346,7 @@ describe("media persistence", () => {
       .insert(environments)
       .values({
         projectId: project.id,
-        name: "dev:other@example.com",
+        name: "staging",
         type: "development",
         createdAt: now,
         updatedAt: now,
@@ -495,7 +495,7 @@ describe("media persistence", () => {
       .insert(environments)
       .values({
         projectId: project.id,
-        name: "dev:replace@example.com",
+        name: "staging",
         type: "development",
         createdAt: Date.now(),
         updatedAt: Date.now(),

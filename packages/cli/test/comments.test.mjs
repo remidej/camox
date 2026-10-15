@@ -83,13 +83,13 @@ async function cli(...args) {
   }
 }
 
-void test("lists page comments in development and resolves a comment in production", async () => {
+void test("lists page comments and resolves a comment in the development draft", async () => {
   const listed = await cli("list", "--page-id", pageId, "--json");
   assert.equal(listed.code, 0, listed.stderr);
   assert.deepEqual(JSON.parse(listed.stdout), { pageId });
   assert.equal(calls.at(-1).input.name, "listComments");
   assert.equal(calls.at(-1).input.projectId, 7);
-  assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
+  assert.equal(calls.at(-1).headers["x-camox-draft"], "development");
 
   const resolved = await cli(
     "resolve",
@@ -97,14 +97,13 @@ void test("lists page comments in development and resolves a comment in producti
     pageId,
     "--id",
     commentId,
-    "--production",
     "--project",
     "other",
   );
   assert.equal(resolved.code, 0, resolved.stderr);
   assert.deepEqual(JSON.parse(resolved.stdout), { pageId, id: commentId });
   assert.equal(calls.at(-1).input.name, "resolveComment");
-  assert.equal(calls.at(-1).headers["x-environment-name"], "production");
+  assert.equal(calls.at(-1).headers["x-camox-draft"], "development");
   assert.equal(calls.at(-2).input.slug, "other");
 });
 

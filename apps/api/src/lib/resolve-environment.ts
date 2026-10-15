@@ -44,3 +44,10 @@ export const resolveEnvironment = Effect.fn("resolveEnvironment")(function* (
   }
   return { ...environment, created };
 });
+
+/**
+ * The project's production environment, which holds Live and every draft, development drafts
+ * included. Definition syncs write there whatever environment a request names.
+ */
+export const resolveProjectEnvironment = (db: Database, projectId: number) =>
+  resolveEnvironment(db, projectId, "production");

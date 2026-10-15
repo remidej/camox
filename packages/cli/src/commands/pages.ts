@@ -11,7 +11,6 @@ import { uuidv7 } from "../lib/uuidv7";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
-const productionFlag = option("--production");
 
 const list = command(
   "list",
@@ -19,7 +18,6 @@ const list = command(
     command: constant("pages.list" as const),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -32,7 +30,6 @@ const get = command(
     path: optional(option("--path", string({ metavar: "PATH" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -47,7 +44,6 @@ const create = command(
     parentPageId: optional(option("--parent-page-id", uuidv7())),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -63,11 +59,10 @@ const update = command(
     parentPageId: optional(option("--parent-page-id", uuidv7())),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
   {
-    description: message`Update a page, including in --production. Pass exactly one of --id or --path and at least one update field. Omitted fields are preserved. Example: camox pages update --path /about --nickname "About". Edit SEO metadata with pages set-seo.`,
+    description: message`Update a page. Pass exactly one of --id or --path and at least one update field. Omitted fields are preserved. Example: camox pages update --path /about --nickname "About". Edit SEO metadata with pages set-seo.`,
   },
 );
 
@@ -94,7 +89,6 @@ const setSeo = command(
     ),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
   {
@@ -110,7 +104,6 @@ const setLayout = command(
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -122,14 +115,13 @@ const del = command(
     id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
 
 export const parser = command("pages", or(list, get, create, update, setSeo, setLayout, del));
 
-type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; json: boolean };
 
 type Args =
   | ({ command: "pages.list" } & CommonFlags)
@@ -164,7 +156,6 @@ export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
   const cwd = args.cwd;
   const projectFlag = args.project;
-  const production = args.production;
 
   switch (args.command) {
     case "pages.list":
@@ -173,7 +164,6 @@ export async function handler(args: Args): Promise<never> {
         args: {},
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     case "pages.get": {
@@ -189,7 +179,6 @@ export async function handler(args: Args): Promise<never> {
         args: args.id != null ? { id: args.id } : { path: args.path },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     }
@@ -204,7 +193,6 @@ export async function handler(args: Args): Promise<never> {
         },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     case "pages.update": {
@@ -226,7 +214,6 @@ export async function handler(args: Args): Promise<never> {
         },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     }
@@ -260,7 +247,6 @@ export async function handler(args: Args): Promise<never> {
         },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     }
@@ -270,7 +256,6 @@ export async function handler(args: Args): Promise<never> {
         args: { id: args.id, layoutId: args.layoutId },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     case "pages.delete":
@@ -279,7 +264,6 @@ export async function handler(args: Args): Promise<never> {
         args: { id: args.id },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
   }

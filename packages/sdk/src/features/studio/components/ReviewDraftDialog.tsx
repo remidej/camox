@@ -19,7 +19,7 @@ import * as React from "react";
 
 import type { ApiClient } from "@/lib/api-client";
 import { draftMutations, draftQueries, type DraftSummary } from "@/lib/queries";
-import { getCurrentDraftId, switchToLive } from "@/lib/studio-draft";
+import { getCurrentDraftId, isDevelopmentMode, switchToLive } from "@/lib/studio-draft";
 
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 
@@ -46,6 +46,15 @@ const GROUP_ORDER: (NonNullable<Subject["owner"]>["kind"] | "files" | "elsewhere
   "files",
   "elsewhere",
 ];
+/**
+ * A problem as one line. One with nowhere to find it, like a definition that differs from
+ * Live's, names only itself.
+ */
+function problemLine(problem: Preview["blockers"][number]): string {
+  if (!problem.owner && problem.entity !== "file") return `${problem.label}: ${problem.message}`;
+  return `${problem.label} on ${ownerName(problem.owner, problem.entity)}: ${problem.message}`;
+}
+
 const groupRank = ({ owner, entity }: Subject) =>
   GROUP_ORDER.indexOf(owner?.kind ?? (entity === "file" ? "files" : "elsewhere"));
 
@@ -78,9 +87,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
       {blockers.length > 0 && (
         <Section title="Fix before publishing">
           {blockers.map((blocker) => (
-            <li key={`${blocker.code}:${blocker.id}:${blocker.field}`}>
-              {blocker.label} on {ownerName(blocker.owner, blocker.entity)}: {blocker.message}
-            </li>
+            <li key={`${blocker.code}:${blocker.id}:${blocker.field}`}>{problemLine(blocker)}</li>
           ))}
         </Section>
       )}
@@ -108,9 +115,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
       {warnings.length > 0 && (
         <Section title="Already on Live">
           {warnings.map((warning) => (
-            <li key={`${warning.code}:${warning.id}:${warning.field}`}>
-              {warning.label} on {ownerName(warning.owner, warning.entity)}: {warning.message}
-            </li>
+            <li key={`${warning.code}:${warning.id}:${warning.field}`}>{problemLine(warning)}</li>
           ))}
         </Section>
       )}
@@ -160,10 +165,17 @@ export function useCurrentDraftId() {
   );
 }
 
-/** Switches the studio to Live once its draft ended here, replacing the draft's URL entry. */
+/**
+ * Switches the studio to Live once its draft ended here, replacing the draft's URL entry. A
+ * development draft never ends: publishing or discarding empties it, and dev mode stays in it.
+ */
 export function useLeaveDraft() {
   const queryClient = useQueryClient();
   return (ended: EndedDraft | null) => {
+    if (isDevelopmentMode()) {
+      void queryClient.invalidateQueries({ queryKey: ["camox"] });
+      return;
+    }
     switchToLive();
     void queryClient.invalidateQueries({ queryKey: ["camox"] });
     if (ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);

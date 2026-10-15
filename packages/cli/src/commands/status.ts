@@ -1,3 +1,4 @@
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { object } from "@optique/core/constructs";
 import { command, constant, option } from "@optique/core/primitives";
 
@@ -16,12 +17,11 @@ export const parser = command(
   object({
     command: constant("status" as const),
     cwd: cwdFlag,
-    production: option("--production"),
     json: option("--json"),
   }),
 );
 
-type Args = { cwd?: string; command: "status"; production: boolean; json: boolean };
+type Args = { cwd?: string; command: "status"; json: boolean };
 
 export async function handler(args: Args): Promise<never> {
   let runtime;
@@ -40,14 +40,10 @@ export async function handler(args: Args): Promise<never> {
   }
 
   const token = readAuthTokenForUrl(runtime.authenticationUrl, args.cwd);
-  const environmentName = args.production
-    ? "production"
-    : token?.email
-      ? `dev:${token.email}`
-      : null;
   const status = {
     projectSlug: runtime.projectSlug,
-    environmentName,
+    // Every command works in the caller's development draft (ADR 0010).
+    draft: DEVELOPMENT_DRAFT,
     apiUrl: runtime.apiUrl,
     authenticationUrl: runtime.authenticationUrl,
     authenticated: token !== null,
@@ -61,7 +57,7 @@ export async function handler(args: Args): Promise<never> {
 
   const lines = [
     `project:     ${status.projectSlug}`,
-    `environment: ${status.environmentName ?? "(unknown — run `camox login`)"}`,
+    `draft:       ${status.draft}`,
     `api:         ${status.apiUrl}`,
     `auth:        ${status.authenticationUrl}`,
     status.user

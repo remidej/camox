@@ -1,65 +1,86 @@
+import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "./db";
+import { ensureDevelopmentDraft, findDevelopmentDraft } from "./domains/drafts/development";
 import { visibleIn } from "./domains/drafts/overlay";
-import type { DraftScope } from "./domains/drafts/scope";
-import { ForbiddenError, NotFoundError, UnauthenticatedError } from "./lib/errors";
-import { member, blocks, environments, layouts, pages, projects, repeatableItems } from "./schema";
+import type { DraftRequest, DraftScope } from "./domains/drafts/scope";
+import {
+  ForbiddenError,
+  NoDevelopmentDraftError,
+  NotFoundError,
+  type ServiceError,
+  UnauthenticatedError,
+} from "./lib/errors";
+import { member, blocks, environments, pages, projects, repeatableItems } from "./schema";
 
 // --- Definition Sync ---
 
 type SyncPrincipal = {
   user: { id: string; email: string } | null;
-  environmentName: string;
+  draft: DraftRequest | null;
   deployToken?: string;
 };
 
+/** Where a definition sync writes: Live for a release, or a member's development draft. */
+export type SyncTarget = {
+  project: typeof projects.$inferSelect;
+  scope: DraftScope;
+  /** Whether this sync created the development draft. */
+  draftCreated: boolean;
+};
+
 /**
- * Authorize code-definition writes.
- *
- * Humans may only sync their own email-based development environment. The
- * project deploy token is deliberately restricted to production releases.
+ * Authorize code-definition writes and say where they go (ADR 0006). A release, with the
+ * project's deploy token and no draft, writes Live. Dev mode, with a member's session and
+ * `x-camox-draft: development`, writes the member's development draft, which a sync allowed to
+ * `create` creates the first time.
  */
 export const assertSyncAccess = Effect.fn("assertSyncAccess")(function* (
   db: Database,
   projectSlug: string,
   principal: SyncPrincipal,
-) {
+  { create = false }: { create?: boolean } = {},
+): Effect.fn.Return<SyncTarget, ServiceError> {
   const project = yield* Effect.promise(() =>
     db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );
   if (!project) return yield* new NotFoundError();
 
   if (principal.deployToken) {
-    if (principal.environmentName !== "production") {
+    if (principal.draft) {
       return yield* new ForbiddenError({
-        message: "Deploy tokens may only sync the production environment",
+        message: `A release writes Live: deploy tokens can't name a draft with ${DRAFT_HEADER}`,
       });
     }
-
     if (principal.deployToken !== project.deployToken) {
       return yield* new UnauthenticatedError();
     }
-
-    return project;
+    return { project, scope: null, draftCreated: false };
   }
 
   if (!principal.user) {
     return yield* new UnauthenticatedError();
   }
 
-  const expectedEnvironment = `dev:${principal.user.email}`;
-  if (principal.environmentName !== expectedEnvironment) {
+  if (!principal.draft || !("development" in principal.draft)) {
     return yield* new ForbiddenError({
-      message: `Authenticated sync is restricted to ${expectedEnvironment}`,
+      message: `Dev-mode sync writes your development draft: send ${DRAFT_HEADER}: ${DEVELOPMENT_DRAFT}`,
     });
   }
 
   yield* assertProjectMembership(db, project.id, principal.user.id);
 
-  return project;
+  const existing = yield* findDevelopmentDraft(db, project.id, principal.user.id);
+  if (existing) return { project, scope: developmentScope(existing), draftCreated: false };
+  if (!create) return yield* new NoDevelopmentDraftError();
+  const { draft, created } = yield* ensureDevelopmentDraft(db, project.id, principal.user.id);
+  return { project, scope: developmentScope(draft), draftCreated: created };
 });
+
+const developmentScope = (draft: { id: string; projectId: number }) =>
+  ({ id: draft.id, kind: "development", projectId: draft.projectId }) satisfies DraftScope;
 
 // --- Session Helpers ---
 
@@ -164,31 +185,6 @@ export const assertPageAccess = Effect.fn("assertPageAccess")(function* (
   if (!result) return yield* new NotFoundError();
   // A draft holds content of its own project only.
   if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
-  yield* assertProjectMembership(db, result.projectId, userId);
-  return result;
-});
-
-/** A layout is found by its name within a project's environment. */
-export const assertLayoutAccess = Effect.fn("assertLayoutAccess")(function* (
-  db: Database,
-  layout: { projectId: number; environmentId: number; layoutId: string },
-  userId: string,
-) {
-  const result = yield* Effect.promise(() =>
-    db
-      .select({ layout: layouts, projectId: projects.id })
-      .from(layouts)
-      .innerJoin(projects, eq(projects.id, layouts.projectId))
-      .where(
-        and(
-          eq(layouts.projectId, layout.projectId),
-          eq(layouts.environmentId, layout.environmentId),
-          eq(layouts.layoutId, layout.layoutId),
-        ),
-      )
-      .get(),
-  );
-  if (!result) return yield* new NotFoundError();
   yield* assertProjectMembership(db, result.projectId, userId);
   return result;
 });

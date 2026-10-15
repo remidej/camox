@@ -22,11 +22,13 @@ import {
   comments,
   environments,
   files,
+  layouts,
   pages,
   repeatableItems,
   sharedContents,
 } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import { sharedPlacementId } from "../blocks/shared-content";
@@ -95,6 +97,7 @@ export type Problem = Subject & {
     | "emptyRequiredReference"
     | "unresolvedComment"
     | "commentDeleted"
+    | "definitionsDiffer"
     | FileProblemCode
     | ContentProblemCode;
   field: string;
@@ -198,7 +201,12 @@ const describer = Effect.fn("drafts.describer")(function* (
     ctx.db
       .select({ blockId: blockDefinitions.blockId, title: blockDefinitions.title })
       .from(blockDefinitions)
-      .where(eq(blockDefinitions.projectId, scope.projectId)),
+      .where(
+        and(
+          eq(blockDefinitions.projectId, scope.projectId),
+          definitionsIn(blockDefinitions, scope),
+        ),
+      ),
   );
   const titles = new Map(definitions.map((definition) => [definition.blockId, definition.title]));
 
@@ -263,14 +271,19 @@ const describeFile = (id: string, file?: { filename: string }): Subject => ({
 /** Labels for records, from the rows the draft holds, each under its collection. */
 const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
   ctx: ServiceContext,
-  projectId: number,
+  scope: Scope,
   rows: RecordRow[],
 ) {
   const definitions = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(collectionDefinitions)
-      .where(eq(collectionDefinitions.projectId, projectId)),
+      .where(
+        and(
+          eq(collectionDefinitions.projectId, scope.projectId),
+          definitionsIn(collectionDefinitions, scope),
+        ),
+      ),
   );
   const definitionOf = (row: RecordRow) =>
     definitions.find(
@@ -333,11 +346,19 @@ type FieldSchema = { fieldType?: string; required?: unknown; title?: string };
  */
 const emptyRequiredReferences = Effect.fn("drafts.emptyRequiredReferences")(function* (
   ctx: ServiceContext,
-  projectId: number,
+  scope: Scope,
   rows: BlockRow[],
 ) {
   const definitions = yield* Effect.promise(() =>
-    ctx.db.select().from(blockDefinitions).where(eq(blockDefinitions.projectId, projectId)),
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, scope.projectId),
+          definitionsIn(blockDefinitions, scope),
+        ),
+      ),
   );
   const byName = new Map(definitions.map((definition) => [definition.blockId, definition]));
   const found: { id: string; field: string; title: string }[] = [];
@@ -385,11 +406,11 @@ const checkProblems = Effect.fn("drafts.checkProblems")(function* (
     }));
   return {
     blockers: [
-      ...problems(yield* emptyRequiredReferences(ctx, scope.projectId, changed)),
+      ...problems(yield* emptyRequiredReferences(ctx, scope, changed)),
       ...fileProblems(fileChecks.blockers),
     ],
     warnings: [
-      ...problems(yield* emptyRequiredReferences(ctx, scope.projectId, untouched)),
+      ...problems(yield* emptyRequiredReferences(ctx, scope, untouched)),
       ...fileProblems(fileChecks.warnings),
     ],
   };
@@ -469,7 +490,7 @@ const findingDescriber = Effect.fn("drafts.findingDescriber")(function* (
   const ids = new Set(findings.flatMap((f) => (f.entity === "record" ? [f.id] : [])));
   const describeRecord = yield* recordDescriber(
     ctx,
-    scope.projectId,
+    scope,
     records.filter((record) => ids.has(record.id)),
   );
   return ({ entity, id, code, field, message }: ContentFinding): Problem => ({
@@ -478,6 +499,75 @@ const findingDescriber = Effect.fn("drafts.findingDescriber")(function* (
     field,
     message,
   });
+});
+
+// --- Definitions of a development draft (ADR 0006) ---
+
+type DefinitionRow = { name: string; schemaHash: string };
+
+const DEFINITION_KINDS = [
+  { kind: "block", label: "Block", table: blockDefinitions, name: blockDefinitions.blockId },
+  { kind: "layout", label: "Layout", table: layouts, name: layouts.layoutId },
+  {
+    kind: "collection",
+    label: "Collection",
+    table: collectionDefinitions,
+    name: collectionDefinitions.collectionId,
+  },
+] as const;
+
+/**
+ * A development draft publishes only while its definitions match Live's: the same names, and
+ * the same schema hash for each (ADR 0006). Each definition that differs is a blocker, until a
+ * release gives Live the same definitions. Regular drafts read Live's definitions.
+ */
+const checkDefinitions = Effect.fn("drafts.checkDefinitions")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+) {
+  if (scope.kind !== "development") return [];
+  const blockers: Problem[] = [];
+  for (const { kind, label, table, name } of DEFINITION_KINDS) {
+    const read = (definitions: DraftScope) =>
+      Effect.promise(() =>
+        ctx.db
+          .select({ name, schemaHash: table.schemaHash })
+          .from(table)
+          .where(and(eq(table.projectId, scope.projectId), definitionsIn(table, definitions))),
+      ) as Effect.Effect<DefinitionRow[]>;
+    const live = new Map((yield* read(null)).map((row) => [row.name, row.schemaHash]));
+    const local = new Map((yield* read(scope)).map((row) => [row.name, row.schemaHash]));
+    const blocker = (definition: string, message: string): Problem => ({
+      entity: "definition",
+      id: `${kind}:${definition}`,
+      label: `${label} "${definition}"`,
+      owner: null,
+      code: "definitionsDiffer",
+      field: "",
+      message,
+    });
+    for (const [definition, hash] of local) {
+      if (!live.has(definition)) {
+        blockers.push(blocker(definition, "Only in your local code: release it before publishing"));
+        continue;
+      }
+      if (live.get(definition) !== hash) {
+        blockers.push(
+          blocker(definition, "Differs from Live's: release your local code before publishing"),
+        );
+      }
+    }
+    for (const definition of live.keys()) {
+      if (local.has(definition)) continue;
+      blockers.push(
+        blocker(
+          definition,
+          "On Live but not in your local code: sync or release before publishing",
+        ),
+      );
+    }
+  }
+  return blockers.sort((a, b) => (a.id < b.id ? -1 : 1));
 });
 
 // --- Preview ---
@@ -499,7 +589,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   ]);
   const describeRecord = yield* recordDescriber(
     ctx,
-    scope.projectId,
+    scope,
     stored.filter((change) => change.table === collectionRecords).map((c) => c.row as RecordRow),
   );
   const fileNames = new Map(
@@ -526,6 +616,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     checked.records,
   );
   const blockers = [
+    ...(yield* checkDefinitions(ctx, scope)),
     ...content.blockers,
     ...checked.blockers.map(describeFinding),
     ...feedback.blockers,
@@ -697,7 +788,8 @@ const endedEarlier = Effect.fn("drafts.endedEarlier")(function* (
 ) {
   const user = yield* requireUser(ctx);
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
-  if (!ctx.draft) return undefined;
+  // A development draft never ends: publishing and discarding empty it (ADR 0006).
+  if (!ctx.draft || "development" in ctx.draft) return undefined;
   return yield* findEndedDraft(ctx.db, projectId, ctx.draft.id);
 });
 

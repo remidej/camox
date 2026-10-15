@@ -8,6 +8,7 @@ import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { itemsInEnvironment } from "../repeatable-items/roots";
 import { repeatableItems } from "../repeatable-items/schema";
+import { definitionsIn } from "./definitions";
 
 /** What content can reference: a collection record by its id, or a file by its `_fileId`. */
 export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; id: string };
@@ -61,6 +62,7 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
       join ${collectionDefinitions}
         on ${collectionDefinitions.environmentId} = ${collectionRecords.environmentId}
         and ${collectionDefinitions.collectionId} = ${collectionRecords.collectionId}
+        and ${definitionsIn(collectionDefinitions, scope.draft)}
       where ${collectionRecords.environmentId} = ${scope.environmentId}
         and ${overlay.visibleIn(collectionRecords, scope.draft)}
         and ${collectionRecords.id} != ${target.id}

@@ -1,3 +1,5 @@
+import { NO_DEVELOPMENT_DRAFT_ERROR } from "@camox/api-contract/drafts";
+
 /**
  * Output formatting for tool dispatch commands.
  *
@@ -48,10 +50,27 @@ export function parseJsonFlag(name: string, raw: string): unknown {
   }
 }
 
+/**
+ * Only the first dev-mode sync after login creates the development draft, so the CLI can't
+ * (ADR 0010).
+ */
+export const NO_DEVELOPMENT_DRAFT_CLI_ERROR: CliError = {
+  code: NO_DEVELOPMENT_DRAFT_ERROR,
+  message:
+    "You have no development draft in this project yet. Run your site locally once (e.g. `pnpm dev`) to create your development draft, then retry.",
+};
+
+/** Whether an error, or an error response body, says the caller has no development draft. */
+export function isNoDevelopmentDraft(err: unknown): boolean {
+  if (!err || typeof err !== "object" || !("code" in err)) return false;
+  return err.code === NO_DEVELOPMENT_DRAFT_ERROR;
+}
+
 export function asCliError(err: unknown): CliError {
   if (err && typeof err === "object" && "__cliError" in err) {
     return (err as { __cliError: CliError }).__cliError;
   }
+  if (isNoDevelopmentDraft(err)) return NO_DEVELOPMENT_DRAFT_CLI_ERROR;
   if (err instanceof Error) {
     return { code: "INTERNAL_ERROR", message: err.message };
   }

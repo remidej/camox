@@ -1,6 +1,6 @@
 import type { DraftKind } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -85,8 +85,7 @@ const summarize = Effect.fn("drafts.summarize")(function* (
 });
 
 /**
- * The project's open regular drafts and the caller's development draft, most recently changed
- * first, with Live's latest publish.
+ * The project's open regular drafts, most recently changed first, with Live's latest publish.
  */
 export const listDrafts = Effect.fn("drafts.list")(function* (
   ctx: ServiceContext,
@@ -101,13 +100,9 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
       .select()
       .from(drafts)
       .where(
-        and(
-          eq(drafts.projectId, projectId),
-          or(
-            eq(drafts.kind, "regular"),
-            and(eq(drafts.kind, "development"), eq(drafts.createdBy, user.id)),
-          ),
-        ),
+        // Development drafts stay out of the production studio: only the localhost studio
+        // shows its owner's (ADR 0006).
+        and(eq(drafts.projectId, projectId), eq(drafts.kind, "regular")),
       ),
   );
   const summaries = yield* summarize(ctx.db, rows);

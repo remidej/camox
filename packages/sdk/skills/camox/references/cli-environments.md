@@ -2,18 +2,7 @@
 
 Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and the dev-first workflow.
 
-Every Project has an isolated dev Environment for each developer and a shared production Environment.
-
-## Target production per command
-
-Commands target the dev Environment by default. Use `--production` only when the user explicitly asks to operate on production:
-
-```sh
-{{CAMOX_CMD}} pages list --production
-{{CAMOX_CMD}} blocks edit --id <ID> --production
-```
-
-`--production` selects the Environment. Edits in production are visible on the public site right away.
+Every command works in the current developer's development draft. No command reads or writes Live: changes reach the public site only when the developer publishes the draft from the studio.
 
 ## Replicate an entire Environment
 

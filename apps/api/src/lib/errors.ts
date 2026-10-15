@@ -70,6 +70,18 @@ export class LiveReadOnlyError extends Data.TaggedError("LiveReadOnlyError")<Opt
   }
 }
 
+/**
+ * The request names the caller's development draft, which doesn't exist yet: dev mode's first
+ * sync after login creates it (ADR 0006).
+ */
+export class NoDevelopmentDraftError extends Data.TaggedError(
+  "NoDevelopmentDraftError",
+)<OptionalMessage> {
+  constructor(args: OptionalMessage = {}) {
+    super(args);
+  }
+}
+
 /** Live changed since the publish preview the caller confirmed, so nothing was published. */
 export class ConflictsChangedError extends Data.TaggedError("ConflictsChangedError")<{
   readonly message: string;
@@ -89,6 +101,7 @@ export type ServiceError =
   | IncompatibleEnvironmentsError
   | DraftEndedError
   | LiveReadOnlyError
+  | NoDevelopmentDraftError
   | ConflictsChangedError
   | PublishBlockedError;
 

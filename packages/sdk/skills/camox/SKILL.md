@@ -38,7 +38,7 @@ For any CLI operation, first read [CLI common guidance](references/cli-common.md
   [CLI Content](references/cli-content.md).
 - List comments on a Page or resolve a comment by its ID:
   [CLI Content — Comments](references/cli-content.md#comments).
-- Production targeting or environment replication:
+- Where the CLI writes, or environment replication:
   [CLI Environments](references/cli-environments.md).
 
 ## Addressing feedback

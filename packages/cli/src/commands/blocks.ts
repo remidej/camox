@@ -13,7 +13,6 @@ import { uuidv7 } from "../lib/uuidv7";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
-const productionFlag = option("--production");
 const fieldFileFlag = multiple(
   option("--field-file", string({ metavar: "NAME=PATH" }), {
     description: message`Set the string field NAME to the raw contents of the file at PATH, without JSON escaping. Repeat to set several fields. Merges with --content; when both set a field, the file wins.`,
@@ -26,7 +25,6 @@ const types = command(
     command: constant("blocks.types" as const),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -38,7 +36,6 @@ const describe = command(
     type: multiple(option("--type", string({ metavar: "TYPE" })), { min: 1 }),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -50,7 +47,6 @@ const get = command(
     id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -62,7 +58,6 @@ const getMany = command(
     id: multiple(option("--id", uuidv7()), { min: 1 }),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -85,7 +80,6 @@ const create = command(
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -100,7 +94,6 @@ const edit = command(
     settings: optional(option("--settings", string({ metavar: "JSON" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -119,7 +112,6 @@ const move = command(
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -131,14 +123,13 @@ const del = command(
     id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
 
 export const parser = command("blocks", or(types, describe, get, getMany, create, edit, move, del));
 
-type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; json: boolean };
 
 type PositioningFlags = {
   position?: "first" | "last";
@@ -243,7 +234,6 @@ export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
   const cwd = args.cwd;
   const projectFlag = args.project;
-  const production = args.production;
 
   try {
     switch (args.command) {
@@ -253,7 +243,6 @@ export async function handler(args: Args): Promise<never> {
           args: {},
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.describe":
@@ -262,7 +251,6 @@ export async function handler(args: Args): Promise<never> {
           args: { types: [...args.type] },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.get":
@@ -271,7 +259,6 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.get-many":
@@ -280,7 +267,6 @@ export async function handler(args: Args): Promise<never> {
           args: { ids: [...args.id] },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.create": {
@@ -310,7 +296,6 @@ export async function handler(args: Args): Promise<never> {
           },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       }
@@ -323,7 +308,6 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id, content, settings },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       }
@@ -349,7 +333,6 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id, ...toolArgs },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       }
@@ -359,7 +342,6 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
     }

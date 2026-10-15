@@ -11,7 +11,6 @@ import { uuidv7 } from "../lib/uuidv7";
 const common = {
   cwd: cwdFlag,
   project: optional(option("--project", string({ metavar: "SLUG" }))),
-  production: option("--production"),
   json: option("--json"),
 };
 
@@ -41,11 +40,11 @@ export const parser = command(
     ),
   ),
   {
-    description: message`Read and resolve page comments in the selected environment. Defaults to development; use --production to target production.`,
+    description: message`Read and resolve page comments in your development draft.`,
   },
 );
 
-type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; json: boolean };
 type Args =
   | ({ command: "comments.list"; pageId: string } & CommonFlags)
   | ({ command: "comments.resolve"; pageId: string; id: string } & CommonFlags);
@@ -59,7 +58,6 @@ export async function handler(args: Args): Promise<never> {
     },
     cwd: args.cwd,
     projectFlag: args.project,
-    production: args.production,
     outputMode: args.json ? "json" : "auto",
   });
 }

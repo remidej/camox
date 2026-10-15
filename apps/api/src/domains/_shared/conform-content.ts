@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 import { z } from "zod";
 
@@ -7,6 +7,8 @@ import { blockDefinitions } from "../block-definitions/schema";
 import { normalizeFieldValue } from "../blocks/asset-value";
 import { validateContent } from "../blocks/validate-content";
 import { assetFileId } from "../collections/record-files";
+import type { DraftScope } from "../drafts/scope";
+import { definitionsIn } from "./definitions";
 import type { ServiceContext } from "./service-context";
 
 /**
@@ -183,13 +185,17 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
   return { blocks: conformedBlocks, items: conformedItems };
 }
 
-/** Conforms blocks and items to the block definitions of the scope they're read in. */
+/**
+ * Conforms blocks and items to the block definitions of the scope they're read in: a
+ * development draft's own, or Live's (ADR 0006, ADR 0007).
+ */
 export const conformBlocksIn = Effect.fn("conformBlocksIn")(function* <
   B extends ConformableBlock,
   I extends ConformableItem,
 >(
   ctx: ServiceContext,
   scope: { environmentId: number },
+  draft: DraftScope,
   blocks: readonly B[],
   items: readonly I[],
 ) {
@@ -201,7 +207,12 @@ export const conformBlocksIn = Effect.fn("conformBlocksIn")(function* <
         settingsSchema: blockDefinitions.settingsSchema,
       })
       .from(blockDefinitions)
-      .where(eq(blockDefinitions.environmentId, scope.environmentId)),
+      .where(
+        and(
+          eq(blockDefinitions.environmentId, scope.environmentId),
+          definitionsIn(blockDefinitions, draft),
+        ),
+      ),
   );
   return conformBlocks(new Map(rows.map((row) => [row.blockId, row])), blocks, items);
 });

@@ -1,4 +1,4 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { ORPCError } from "@orpc/server";
 import { Effect } from "effect";
@@ -110,6 +110,7 @@ export const fileProcedures = {
 function draftRequestOf(headers: Headers): DraftRequest | null | "invalid" {
   const id = headers.get(DRAFT_HEADER);
   if (!id) return null;
+  if (id === DEVELOPMENT_DRAFT) return { development: true };
   if (!uuidv7Schema.safeParse(id).success) return "invalid";
   return { id, create: headers.get(DRAFT_CREATE_HEADER) === "1" };
 }
@@ -187,7 +188,9 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     return c.json({ error: "Invalid file id" }, 400);
   }
   const draft = draftRequestOf(c.req.raw.headers);
-  if (draft === "invalid") return c.json({ error: `${DRAFT_HEADER} must be a UUIDv7` }, 400);
+  if (draft === "invalid") {
+    return c.json({ error: `${DRAFT_HEADER} must be a UUIDv7 or "${DEVELOPMENT_DRAFT}"` }, 400);
+  }
   if (!draft) {
     const error = liveReadOnlyError();
     return c.json({ error: error.message, code: error.code }, 409);
@@ -284,7 +287,10 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     return c.json(result, id !== undefined ? 200 : 201);
   } catch (error) {
     if (!(error instanceof ORPCError)) throw error;
-    return c.json({ error: error.message, data: error.data }, error.status as 400);
+    return c.json(
+      { error: error.message, code: error.code, data: error.data },
+      error.status as 400,
+    );
   }
 };
 

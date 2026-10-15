@@ -1,6 +1,7 @@
 import type { DraftKind, DraftOutcome } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { projects } from "../projects/schema";
 
@@ -18,7 +19,13 @@ export const drafts = sqliteTable(
     createdBy: text("created_by").notNull(),
     createdAt: int("created_at").notNull(),
   },
-  (table) => [index("drafts_project_idx").on(table.projectId)],
+  (table) => [
+    index("drafts_project_idx").on(table.projectId),
+    // Each member has one development draft per project (ADR 0006).
+    uniqueIndex("drafts_development_idx")
+      .on(table.projectId, table.createdBy)
+      .where(sql`${table.kind} = 'development'`),
+  ],
 );
 
 /**

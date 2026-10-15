@@ -103,7 +103,7 @@ void test("set-seo forwards individual, combined, empty and toggled SEO fields t
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), { id: PAGE_ID, ...expected });
     assert.equal(calls.at(-1).input.name, "setPageSeo");
-    assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
+    assert.equal(calls.at(-1).headers["x-camox-draft"], "development");
   }
 });
 
@@ -114,7 +114,7 @@ void test("update forwards page fields to updatePage", async () => {
   assert.equal(calls.at(-1).input.name, "updatePage");
 });
 
-void test("path targeting, project override, production selection and reads", async () => {
+void test("path targeting, project override and reads", async () => {
   const result = await cli(
     "set-seo",
     "--path",
@@ -123,12 +123,11 @@ void test("path targeting, project override, production selection and reads", as
     "About",
     "--project",
     "other",
-    "--production",
   );
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { path: "/about", metaTitle: "About" });
   assert.equal(calls.at(-1).input.projectId, 7);
-  assert.equal(calls.at(-1).headers["x-environment-name"], "production");
+  assert.equal(calls.at(-1).headers["x-camox-draft"], "development");
   assert.equal(calls.at(-2).input.slug, "other");
   const read = await cli("get", "--path", "/about");
   assert.equal(read.code, 0, read.stderr);

@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { blockDefinitions, blocks, files } from "../../schema";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
@@ -42,10 +43,18 @@ const ASSET_FIELDS = new Set(["Image", "File", "ImageList", "FileList"]);
 /** The content schemas of a project's block definitions, by name. Synced placements hold none. */
 const definitionsOf = Effect.fn("files.definitionsOf")(function* (
   ctx: ServiceContext,
-  projectId: number,
+  scope: NonNullable<DraftScope>,
 ) {
   const rows = yield* Effect.promise(() =>
-    ctx.db.select().from(blockDefinitions).where(eq(blockDefinitions.projectId, projectId)),
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, scope.projectId),
+          definitionsIn(blockDefinitions, scope),
+        ),
+      ),
   );
   const fields = new Map<string, [string, FieldSchema][]>();
   for (const definition of rows) {
@@ -108,7 +117,7 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
 ) {
   const blockers: Finding[] = [];
   const warnings: Finding[] = [];
-  const definitions = yield* definitionsOf(ctx, scope.projectId);
+  const definitions = yield* definitionsOf(ctx, scope);
   const inProject = eq(files.projectId, scope.projectId);
   const shownFiles = new Map(
     (yield* withFileMetadata(

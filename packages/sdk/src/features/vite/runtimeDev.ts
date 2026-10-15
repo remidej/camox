@@ -217,6 +217,7 @@ export async function handleCamoxRequest(request) {
     blockPreloads: { modulePaths: blockModulePaths, chunks: blockChunks },
     pageClientEntryUrl,
     studioClientEntryUrl,
+    developmentDraft: __CAMOX_DEVELOPMENT_DRAFT__,
     environmentName: __CAMOX_ENVIRONMENT_NAME__,
     getCamoxApp: async () => camoxApp,
     getDocument: async () => camoxDocument,

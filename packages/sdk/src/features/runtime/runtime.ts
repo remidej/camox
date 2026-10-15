@@ -1,4 +1,4 @@
-import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
@@ -115,6 +115,11 @@ export interface RuntimeOptions {
     /** The built chunks each block module needs, by module path. `null` in dev. */
     chunks: Record<string, string[]> | null;
   };
+  /**
+   * Dev mode: every render reads the caller's development draft and ignores the URL's draft
+   * (ADR 0006).
+   */
+  developmentDraft?: boolean;
   environmentName?: string;
   pageClientEntryUrl?: string;
   studioClientEntryUrl?: string;
@@ -150,8 +155,12 @@ export function getRuntimePathname(
   return stripped || "/";
 }
 
-/** The draft the request's URL names, if any. Sitemaps and Markdown ignore it: they read Live. */
-function getRequestDraftId(request: Request): string | undefined {
+/**
+ * The draft the request's URL names, if any, or in dev mode the development draft. Sitemaps and
+ * Markdown ignore it: they read Live.
+ */
+function getRequestDraftId(request: Request, options: RuntimeOptions): string | undefined {
+  if (options.developmentDraft) return DEVELOPMENT_DRAFT;
   return new URL(request.url).searchParams.get(DRAFT_SEARCH_PARAM) || undefined;
 }
 
@@ -159,8 +168,11 @@ function getRequestDraftId(request: Request): string | undefined {
  * Whether a response may show what only this visitor sees: a session, or a draft named in the
  * URL. Shared caches must never keep it.
  */
-function isPrivateRender(request: Request): boolean {
-  return !!getServerAuthCookieHeader(request.headers) || getRequestDraftId(request) !== undefined;
+function isPrivateRender(request: Request, options: RuntimeOptions): boolean {
+  return (
+    !!getServerAuthCookieHeader(request.headers) ||
+    getRequestDraftId(request, options) !== undefined
+  );
 }
 
 function escapeXml(value: string): string {
@@ -531,7 +543,7 @@ async function createPageHtmlResponse({
     const result = await loadCamoxPageForRequest({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
-      draftId: getRequestDraftId(request),
+      draftId: getRequestDraftId(request, options),
       environmentName: options.environmentName,
       origin: new URL(request.url).origin,
       pathname,
@@ -539,7 +551,7 @@ async function createPageHtmlResponse({
       queryClient,
     });
     const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", Vary: "Cookie" });
-    if (isPrivateRender(request)) headers.set("Cache-Control", "private, no-store");
+    if (isPrivateRender(request, options)) headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }
@@ -746,7 +758,7 @@ async function createDerivedResponse(
     const studio = project !== undefined;
     // Only a member's session reads record drafts, in the loader and in linked records.
     const authCookieHeader = studio ? getServerAuthCookieHeader(request.headers) : undefined;
-    const requestedDraft = getRequestDraftId(request);
+    const requestedDraft = getRequestDraftId(request, options);
     const readLayout = () =>
       readDraftOrLive(requestedDraft, studio, (draftId) =>
         createServerApiClient(options.apiUrl!, options.environmentName, {
@@ -831,7 +843,7 @@ async function createDerivedResponse(
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           Vary: "Cookie",
-          ...(isPrivateRender(request) ? { "Cache-Control": "private, no-store" } : {}),
+          ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
       },
@@ -1033,7 +1045,7 @@ async function createPageDataResponse({
     const result = await loadCamoxPageForRequest({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
-      draftId: getRequestDraftId(request),
+      draftId: getRequestDraftId(request, options),
       environmentName: options.environmentName,
       origin: new URL(request.url).origin,
       pathname,

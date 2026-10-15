@@ -44,6 +44,7 @@ export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
   return yield* conformBlocksIn(
     ctx,
     ownerBlocks[0],
+    scope,
     shown.blocks,
     sortItemsByPosition(shown.items),
   );

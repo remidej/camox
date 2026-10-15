@@ -109,20 +109,25 @@ CREATE TABLE `projects` (
 CREATE UNIQUE INDEX `projects_slug_idx` ON `projects` (`slug`);--> statement-breakpoint
 CREATE INDEX `projects_organization_idx` ON `projects` (`organization_id`);--> statement-breakpoint
 CREATE TABLE `layouts` (
+	`row_id` integer PRIMARY KEY NOT NULL,
+	`draft_id` text,
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
 	`layout_id` text NOT NULL,
 	`description` text,
 	`kind` text DEFAULT 'curated' NOT NULL,
 	`record_pages` text,
+	`schema_hash` text DEFAULT '' NOT NULL,
 	`content_updated_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	PRIMARY KEY(`project_id`, `environment_id`, `layout_id`),
+	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `layouts_live_idx` ON `layouts` (`project_id`,`environment_id`,`layout_id`) WHERE "layouts"."draft_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX `layouts_draft_idx` ON `layouts` (`draft_id`,`layout_id`) WHERE "layouts"."draft_id" is not null;--> statement-breakpoint
 CREATE INDEX `layouts_environment_layout_idx` ON `layouts` (`environment_id`,`layout_id`);--> statement-breakpoint
 CREATE TABLE `pages` (
 	`row_id` integer PRIMARY KEY NOT NULL,
@@ -162,6 +167,8 @@ CREATE INDEX `pages_parent_idx` ON `pages` (`parent_page_id`);--> statement-brea
 CREATE INDEX `pages_project_idx` ON `pages` (`project_id`);--> statement-breakpoint
 CREATE INDEX `pages_environment_full_path_idx` ON `pages` (`environment_id`,`full_path`);--> statement-breakpoint
 CREATE TABLE `block_definitions` (
+	`row_id` integer PRIMARY KEY NOT NULL,
+	`draft_id` text,
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
 	`block_id` text NOT NULL,
@@ -173,13 +180,16 @@ CREATE TABLE `block_definitions` (
 	`default_settings` text,
 	`layout_only` integer,
 	`synced` integer DEFAULT false NOT NULL,
+	`schema_hash` text DEFAULT '' NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	PRIMARY KEY(`project_id`, `environment_id`, `block_id`),
+	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `block_definitions_live_idx` ON `block_definitions` (`project_id`,`environment_id`,`block_id`) WHERE "block_definitions"."draft_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX `block_definitions_draft_idx` ON `block_definitions` (`draft_id`,`block_id`) WHERE "block_definitions"."draft_id" is not null;--> statement-breakpoint
 CREATE INDEX `block_definitions_environment_block_idx` ON `block_definitions` (`environment_id`,`block_id`);--> statement-breakpoint
 CREATE TABLE `blocks` (
 	`row_id` integer PRIMARY KEY NOT NULL,
@@ -322,6 +332,8 @@ CREATE INDEX `comments_item_idx` ON `comments` (`item_id`);--> statement-breakpo
 CREATE INDEX `comments_draft_idx` ON `comments` (`draft_id`);--> statement-breakpoint
 CREATE INDEX `comments_addressed_in_draft_idx` ON `comments` (`addressed_in_draft_id`);--> statement-breakpoint
 CREATE TABLE `collection_definitions` (
+	`row_id` integer PRIMARY KEY NOT NULL,
+	`draft_id` text,
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
 	`collection_id` text NOT NULL,
@@ -329,11 +341,14 @@ CREATE TABLE `collection_definitions` (
 	`description` text NOT NULL,
 	`label` text NOT NULL,
 	`content_schema` text NOT NULL,
-	PRIMARY KEY(`project_id`, `environment_id`, `collection_id`),
+	`schema_hash` text DEFAULT '' NOT NULL,
+	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `collection_definitions_live_idx` ON `collection_definitions` (`project_id`,`environment_id`,`collection_id`) WHERE "collection_definitions"."draft_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX `collection_definitions_draft_idx` ON `collection_definitions` (`draft_id`,`collection_id`) WHERE "collection_definitions"."draft_id" is not null;--> statement-breakpoint
 CREATE TABLE `collection_records` (
 	`row_id` integer PRIMARY KEY NOT NULL,
 	`id` text NOT NULL,
@@ -367,6 +382,7 @@ CREATE TABLE `drafts` (
 );
 --> statement-breakpoint
 CREATE INDEX `drafts_project_idx` ON `drafts` (`project_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `drafts_development_idx` ON `drafts` (`project_id`,`created_by`) WHERE "drafts"."kind" = 'development';--> statement-breakpoint
 CREATE TABLE `ended_drafts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` integer NOT NULL,

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, NotFoundError } from "../../lib/errors";
-import { resolveEnvironment } from "../../lib/resolve-environment";
+import { resolveEnvironment, resolveProjectEnvironment } from "../../lib/resolve-environment";
 import {
   blockDefinitions,
   blocks,
@@ -17,7 +17,9 @@ import {
   repeatableItems,
 } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
+import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
+import { layoutSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { adoptSharedContent } from "../blocks/shared-content";
@@ -26,10 +28,12 @@ import {
   hydrateReferences,
   validateReferenceValues,
 } from "../collections/references";
+import * as overlay from "../drafts/overlay";
 import { releasedNew, visibleIn } from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { resolveDraftScope } from "../drafts/service";
 import { buildFileMap, collectFileIds } from "../pages/ai";
-import { blocksOfLayout, layoutNamed } from "./identity";
+import { blocksOfLayout } from "./identity";
 import type { RecordPages } from "./schema";
 
 // --- Input Schemas ---
@@ -86,12 +90,19 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
   rawInput: z.input<typeof listLayoutsInput>,
 ) {
   const { projectId } = yield* decodeInput(listLayoutsInput, rawInput);
+  const scope = yield* resolveDraftScope(ctx, projectId);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id))),
+      .where(
+        and(
+          eq(layouts.projectId, projectId),
+          eq(layouts.environmentId, environment.id),
+          definitionsIn(layouts, scope),
+        ),
+      ),
   );
 });
 
@@ -111,7 +122,13 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
+      .where(
+        and(
+          eq(layouts.environmentId, environment.id),
+          eq(layouts.layoutId, layoutId),
+          definitionsIn(layouts, scope),
+        ),
+      )
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
@@ -179,13 +196,107 @@ const updateSyncedLayout = Effect.fn("layouts.updateSyncedLayout")(function* (
   ) {
     return existing;
   }
+  const schemaHash = yield* Effect.promise(() => layoutSchemaHash(def));
   return yield* Effect.promise(() =>
     ctx.db
       .update(layouts)
-      .set({ description: def.description, kind: def.kind, recordPages, updatedAt: now })
-      .where(layoutNamed(existing.environmentId, existing.layoutId))
+      .set({
+        description: def.description,
+        kind: def.kind,
+        recordPages,
+        schemaHash,
+        updatedAt: now,
+      })
+      .where(eq(layouts.rowId, existing.rowId))
       .returning()
       .get(),
+  );
+});
+
+type DeclaredBlock = Pick<
+  typeof blocks.$inferInsert,
+  "environmentId" | "layoutId" | "type" | "content" | "settings" | "slot" | "position"
+>;
+type ItemSeed = {
+  tempId: string;
+  parentTempId: string | null;
+  fieldName: string;
+  content: unknown;
+  settings?: unknown;
+  position: string;
+};
+
+/**
+ * Seeds a block a layout declares, with its repeatable items, in the sync's target: on Live as
+ * released content, in a development draft as draft rows (ADR 0006).
+ */
+const insertDeclaredBlock = Effect.fn("layouts.insertDeclaredBlock")(function* (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  values: DeclaredBlock,
+  seeds: readonly ItemSeed[] | undefined,
+  now: number,
+) {
+  const timestamps = { createdAt: now, updatedAt: now };
+  const block = scope
+    ? (yield* overlay.insert(ctx.db, scope, blocks, { ...values, ...timestamps }))!
+    : yield* Effect.promise(() =>
+        ctx.db
+          .insert(blocks)
+          .values({ ...values, ...releasedNew(now), ...timestamps })
+          .returning()
+          .get(),
+      );
+
+  const tempIdToRealId = new Map<string, string>();
+  for (const seed of seeds ?? []) {
+    const item = {
+      blockId: block.id,
+      parentItemId: seed.parentTempId ? (tempIdToRealId.get(seed.parentTempId) ?? null) : null,
+      fieldName: seed.fieldName,
+      content: seed.content,
+      settings: seed.settings ?? null,
+      position: seed.position,
+      ...timestamps,
+    };
+    const inserted = scope
+      ? (yield* overlay.insert(ctx.db, scope, repeatableItems, item))!
+      : yield* Effect.promise(() =>
+          ctx.db
+            .insert(repeatableItems)
+            .values({ ...item, ...releasedNew(now) })
+            .returning()
+            .get(),
+        );
+    tempIdToRealId.set(seed.tempId, inserted.id);
+  }
+  return block;
+});
+
+/**
+ * Deletes layout-only blocks no layout declares any more, in the sync's target. A release
+ * deletes Live's with their items and Live's comments on them; drafts keep theirs. Dev mode
+ * deletes them in the development draft.
+ */
+const deleteOrphanedBlocks = Effect.fn("layouts.deleteOrphanedBlocks")(function* (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  ids: string[],
+) {
+  if (ids.length === 0) return;
+  if (scope) {
+    for (const id of ids) yield* overlay.remove(ctx.db, scope, blocks, id);
+    return;
+  }
+  // Items and comments hold no foreign key to their block (ADR 0005).
+  yield* Effect.promise(() =>
+    ctx.db.batch([
+      ctx.db.delete(comments).where(and(isNull(comments.draftId), inArray(comments.blockId, ids))),
+      ctx.db
+        .delete(repeatableItems)
+        .where(and(visibleIn(repeatableItems, null), inArray(repeatableItems.blockId, ids))),
+      ctx.db.delete(blocks).where(and(visibleIn(blocks, null), inArray(blocks.id, ids))),
+    ]),
   );
 });
 
@@ -195,17 +306,18 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
 ) {
   const input = yield* decodeInput(syncLayoutsInput, rawInput);
   const { projectSlug, layouts: layoutDefs, autoCreate } = input;
-  const project = yield* assertSyncAccess(ctx.db, projectSlug, {
-    user: ctx.user,
-    environmentName: ctx.environmentName,
-    deployToken: input.deployToken,
-  });
+  // A release writes Live; dev mode writes the caller's development draft (ADR 0006).
+  const { project, scope } = yield* assertSyncAccess(
+    ctx.db,
+    projectSlug,
+    { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
+    { create: autoCreate },
+  );
   const projectId = project.id;
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName, {
-    autoCreate,
-  });
+  const environment = yield* resolveProjectEnvironment(ctx.db, projectId);
+  const inTarget = and(eq(layouts.environmentId, environment.id), definitionsIn(layouts, scope));
   const existingLayouts = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.environmentId, environment.id)),
+    ctx.db.select().from(layouts).where(inTarget),
   );
   const now = Date.now();
   const results = [];
@@ -218,6 +330,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         and(
           eq(blockDefinitions.projectId, projectId),
           eq(blockDefinitions.environmentId, environment.id),
+          definitionsIn(blockDefinitions, scope),
         ),
       ),
   );
@@ -247,27 +360,27 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     ),
   );
 
-  // Only declared blocks Live lacks are written, so only they are checked: content already on
-  // Live, like a link to a page deleted since, never fails a release.
-  const declaredOnLive = new Set<string>();
+  // Only declared blocks the target lacks are written, so only they are checked: content already
+  // there, like a link to a page deleted since, never fails a sync.
+  const declaredInTarget = new Set<string>();
   for (const layout of existingLayouts) {
     const placed = yield* Effect.promise(() =>
       ctx.db
         .select({ type: blocks.type, slot: blocks.slot })
         .from(blocks)
-        .where(and(visibleIn(blocks, null), blocksOfLayout(layout))),
+        .where(and(visibleIn(blocks, scope), blocksOfLayout(layout))),
     );
     for (const block of placed) {
-      declaredOnLive.add(`${layout.layoutId}:${block.type}:${block.slot ?? ""}`);
+      declaredInTarget.add(`${layout.layoutId}:${block.type}:${block.slot ?? ""}`);
     }
   }
 
   for (const def of preparedLayouts) {
     for (const block of def.blocks) {
-      if (declaredOnLive.has(`${def.layoutId}:${block.type}:${block.slot ?? ""}`)) continue;
+      if (declaredInTarget.has(`${def.layoutId}:${block.type}:${block.slot ?? ""}`)) continue;
       yield* validateReferenceValues(
         ctx,
-        { projectId, environmentId: environment.id, draft: null },
+        { projectId, environmentId: environment.id, draft: scope },
         definitionsByType.get(block.type)?.contentSchema,
         block.bundle,
       );
@@ -278,10 +391,12 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     const existingLayout = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
     const layout = existingLayout
       ? yield* updateSyncedLayout(ctx, existingLayout, def, now)
-      : yield* Effect.promise(() =>
+      : yield* Effect.promise(async () =>
           ctx.db
             .insert(layouts)
             .values({
+              draftId: definitionsDraftOf(scope),
+              schemaHash: await layoutSchemaHash(def),
               projectId,
               environmentId: environment.id,
               layoutId: def.layoutId,
@@ -311,7 +426,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           position: blocks.position,
         })
         .from(blocks)
-        .where(and(visibleIn(blocks, null), blocksOfLayout(layout))),
+        .where(and(visibleIn(blocks, scope), blocksOfLayout(layout))),
     );
 
     const existingByKey = new Map<string, string>();
@@ -344,54 +459,23 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       const blockDef = entry.def;
       createdBlockTypes.push(blockDef.type);
 
-      const block = yield* Effect.promise(() =>
-        ctx.db
-          .insert(blocks)
-          .values({
-            environmentId: layout.environmentId,
-            layoutId: layout.layoutId,
-            type: blockDef.type,
-            content: blockDef.content,
-            settings: blockDef.settings ?? null,
-            slot: blockDef.slot ?? null,
-            position: newPos,
-            ...releasedNew(now),
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get(),
+      const block = yield* insertDeclaredBlock(
+        ctx,
+        scope,
+        {
+          environmentId: layout.environmentId,
+          layoutId: layout.layoutId,
+          type: blockDef.type,
+          content: blockDef.content,
+          settings: blockDef.settings ?? null,
+          slot: blockDef.slot ?? null,
+          position: newPos,
+        },
+        blockDef.repeatableItems,
+        now,
       );
 
-      const itemSeeds = blockDef.repeatableItems;
-      if (itemSeeds && itemSeeds.length > 0) {
-        const tempIdToRealId = new Map<string, string>();
-        for (const seed of itemSeeds) {
-          const parentItemId = seed.parentTempId
-            ? (tempIdToRealId.get(seed.parentTempId) ?? null)
-            : null;
-          const inserted = yield* Effect.promise(() =>
-            ctx.db
-              .insert(repeatableItems)
-              .values({
-                blockId: block.id,
-                parentItemId,
-                fieldName: seed.fieldName,
-                content: seed.content,
-                settings: seed.settings ?? null,
-                position: seed.position,
-                ...releasedNew(now),
-                createdAt: now,
-                updatedAt: now,
-              })
-              .returning()
-              .get(),
-          );
-          tempIdToRealId.set(seed.tempId, inserted.id);
-        }
-      }
-
-      yield* adoptSharedContent(ctx, null, block);
+      yield* adoptSharedContent(ctx, scope, block);
       entry.position = newPos;
       lastPos = newPos;
     }
@@ -410,28 +494,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         skippedOrphanTypes.push(existing.type);
       }
     }
-    if (orphanIdsToDelete.length > 0) {
-      // A release writes Live, deleting Live's comments on what it deletes; drafts keep theirs.
-      // Items and comments hold no foreign key to their block (ADR 0005).
-      yield* Effect.promise(() =>
-        ctx.db.batch([
-          ctx.db
-            .delete(comments)
-            .where(and(isNull(comments.draftId), inArray(comments.blockId, orphanIdsToDelete))),
-          ctx.db
-            .delete(repeatableItems)
-            .where(
-              and(
-                visibleIn(repeatableItems, null),
-                inArray(repeatableItems.blockId, orphanIdsToDelete),
-              ),
-            ),
-          ctx.db
-            .delete(blocks)
-            .where(and(visibleIn(blocks, null), inArray(blocks.id, orphanIdsToDelete))),
-        ]),
-      );
-    }
+    yield* deleteOrphanedBlocks(ctx, scope, orphanIdsToDelete);
 
     results.push({
       layout,
@@ -449,13 +512,11 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       ? orphanLayoutQuery.where(
           and(
             eq(layouts.projectId, projectId),
-            eq(layouts.environmentId, environment.id),
+            inTarget,
             notInArray(layouts.layoutId, submittedLayoutIds),
           ),
         )
-      : orphanLayoutQuery.where(
-          and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id)),
-        ),
+      : orphanLayoutQuery.where(and(eq(layouts.projectId, projectId), inTarget)),
   );
 
   // A removed layout's pages and blocks stay stored under its name and come back with it.
@@ -463,7 +524,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   const removedLayoutIds = orphanLayouts.map((orphan) => orphan.layoutId);
   for (const layoutId of removedLayoutIds) {
     yield* Effect.promise(() =>
-      ctx.db.delete(layouts).where(layoutNamed(environment.id, layoutId)),
+      ctx.db.delete(layouts).where(and(inTarget, eq(layouts.layoutId, layoutId))),
     );
   }
 
@@ -475,7 +536,13 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     ctx.db
       .selectDistinct({ type: blocks.type })
       .from(blocks)
-      .where(and(eq(blocks.environmentId, environment.id), isNotNull(blocks.layoutId))),
+      .where(
+        and(
+          eq(blocks.environmentId, environment.id),
+          isNotNull(blocks.layoutId),
+          visibleIn(blocks, scope),
+        ),
+      ),
   );
   const usedTypeSet = new Set(usedTypes.map((r) => r.type));
 
@@ -493,6 +560,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           and(
             eq(blockDefinitions.projectId, projectId),
             eq(blockDefinitions.environmentId, environment.id),
+            definitionsIn(blockDefinitions, scope),
             inArray(blockDefinitions.blockId, deletedDefinitionTypes),
           ),
         ),
@@ -502,7 +570,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: null,
+    draftId: scope?.id ?? null,
     projectId,
     targets: [queryKeys.layouts.all, queryKeys.pages.getByPathAll],
   });
