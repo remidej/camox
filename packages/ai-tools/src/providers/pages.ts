@@ -1,24 +1,20 @@
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { pageSourceSchema } from "../../../../apps/api/src/domains/_shared/page-source";
 import { getPageMarkdown } from "../../../../apps/api/src/domains/blocks/service";
 import {
   createPage,
   createPageInput,
   deletePage,
   deletePageInput,
-  discardPageChanges,
   getPage,
   listPages,
-  publishPage,
   setPageLayout,
   setPageLayoutInput,
   setPageMetaDescription,
   setPageMetaDescriptionInput,
   setPageMetaTitle,
   setPageMetaTitleInput,
-  unpublishPage,
   updatePage,
   updatePageInput,
 } from "../../../../apps/api/src/domains/pages/service";
@@ -29,15 +25,8 @@ import type { ToolDefinition, ToolProvider } from "../types";
 
 const listPagesToolInput = z.object({});
 const createPageToolInput = createPageInput.omit({ projectId: true });
-// `source` defaults to "draft" in the agent / CLI tool — the user is editing
-// the working copy unless they explicitly ask for the published version.
-const getPageToolInput = z.union([
-  z.object({ id: z.number(), source: pageSourceSchema.optional() }),
-  z.object({ path: z.string(), source: pageSourceSchema.optional() }),
-]);
-// Publish accepts either `id` or `path` so the CLI can mirror `pages get`'s
-// flags. `alsoPublishLayout` defaults true at the CLI layer; the underlying
-// service no-ops when the layout has no pending changes.
+const getPageToolInput = z.union([z.object({ id: z.number() }), z.object({ path: z.string() })]);
+// Mutations accept either `id` or `path` so the CLI can mirror `pages get`'s flags.
 const pageMutationTargetInput = z
   .object({
     id: z.number().optional(),
@@ -57,12 +46,6 @@ const updatePageToolInput = z
     message: "Pass exactly one of `id` or `path`.",
   });
 
-const publishPageToolInput = pageMutationTargetInput.and(
-  z.object({
-    alsoPublishLayout: z.boolean().optional(),
-  }),
-);
-
 const resolvePageTargetId = Effect.fn("resolvePageTargetId")(function* (
   ctx: Parameters<ToolProvider>[0],
   target: z.infer<typeof pageMutationTargetInput>,
@@ -71,11 +54,7 @@ const resolvePageTargetId = Effect.fn("resolvePageTargetId")(function* (
   if (target.path == null)
     return yield* Effect.die(new Error("Pass exactly one of `id` or `path`."));
 
-  const page = yield* getPage(ctx, {
-    projectId: ctx.projectId,
-    path: target.path,
-    source: "draft",
-  });
+  const page = yield* getPage(ctx, { projectId: ctx.projectId, path: target.path });
   return page.id;
 });
 
@@ -90,22 +69,18 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "getPage",
     description:
-      "Fetch a single page by id or by full path (e.g. `/about`). Returns the page row and an ordered array of its blocks, each with `id`, `position`, and rendered `markdown`. Layout-scoped blocks are not included — use the layouts tools to inspect those. " +
-      "Defaults to reading the draft; pass `source: 'live'` to read the published snapshot (errors if the page has never been published).",
+      "Fetch a single page by id or by full path (e.g. `/about`). Returns the page row and an ordered array of its blocks, each with `id`, `position`, and rendered `markdown`. Layout-scoped blocks are not included — use the layouts tools to inspect those.",
     inputSchema: getPageToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = getPageToolInput.parse(input);
-      const source = parsed.source ?? "draft";
       return runService(
         Effect.gen(function* () {
           const page = yield* getPage(
             ctx,
-            "id" in parsed
-              ? { id: parsed.id, source }
-              : { projectId: ctx.projectId, path: parsed.path, source },
+            "id" in parsed ? { id: parsed.id } : { projectId: ctx.projectId, path: parsed.path },
           );
-          const { blocks } = yield* getPageMarkdown(ctx, { pageId: page.id, source });
+          const { blocks } = yield* getPageMarkdown(ctx, { pageId: page.id });
           return { page, blocks };
         }),
       );
@@ -126,7 +101,7 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "updatePage",
     description:
-      "Update a page draft by id or path: internal nickname, pathSegment, parentPageId, metaTitle, metaDescription, or aiSeoEnabled. Manual metadata disables automatic SEO for both fields and cannot be combined with aiSeoEnabled: true. Empty strings clear metadata; omitted fields are preserved. Enabling AI schedules asynchronous generation. Publish separately to update live content.",
+      "Update a page by id or path: internal nickname, pathSegment, parentPageId, metaTitle, metaDescription, or aiSeoEnabled. Manual metadata disables automatic SEO for both fields and cannot be combined with aiSeoEnabled: true. Empty strings clear metadata; omitted fields are preserved. Enabling AI schedules asynchronous generation.",
     inputSchema: updatePageToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
@@ -134,7 +109,7 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       return runService(
         Effect.gen(function* () {
           const id = yield* resolvePageTargetId(ctx, parsed);
-          const page = yield* getPage(ctx, { id, source: "draft" });
+          const page = yield* getPage(ctx, { id });
           const environment = yield* resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
           if (page.projectId !== ctx.projectId || page.environmentId !== environment.id) {
             return yield* new NotFoundError();
@@ -173,53 +148,5 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     inputSchema: deletePageInput,
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => runService(deletePage(ctx, deletePageInput.parse(input))),
-  },
-  {
-    name: "publishPage",
-    description:
-      "Promote the page's current draft to live. Accepts either `id` or `path` (e.g. `/about`). " +
-      "Pass `alsoPublishLayout: true` (default behavior in the CLI's `pages publish`) to bundle the page's layout into the same publish — a no-op when the layout has no pending changes.",
-    inputSchema: publishPageToolInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
-    handler: async (input) => {
-      const parsed = publishPageToolInput.parse(input);
-      return runService(
-        resolvePageTargetId(ctx, parsed).pipe(
-          Effect.flatMap((id) =>
-            publishPage(ctx, { id, alsoPublishLayout: parsed.alsoPublishLayout }),
-          ),
-        ),
-      );
-    },
-  },
-  {
-    name: "unpublishPage",
-    description:
-      "Remove the page's live published snapshot pointer so public/live reads stop serving it. " +
-      "The draft is left untouched. Accepts either `id` or `path` (e.g. `/about`).",
-    inputSchema: pageMutationTargetInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
-    handler: async (input) => {
-      const parsed = pageMutationTargetInput.parse(input);
-      return runService(
-        resolvePageTargetId(ctx, parsed).pipe(Effect.flatMap((id) => unpublishPage(ctx, { id }))),
-      );
-    },
-  },
-  {
-    name: "discardPageChanges",
-    description:
-      "Reset the page draft to the currently published live snapshot. This does not change live content and fails if the page has never been published. " +
-      "Accepts either `id` or `path` (e.g. `/about`).",
-    inputSchema: pageMutationTargetInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
-    handler: async (input) => {
-      const parsed = pageMutationTargetInput.parse(input);
-      return runService(
-        resolvePageTargetId(ctx, parsed).pipe(
-          Effect.flatMap((id) => discardPageChanges(ctx, { id })),
-        ),
-      );
-    },
   },
 ];

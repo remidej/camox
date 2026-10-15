@@ -1,4 +1,4 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { type ApiClient, getOrpc } from "./api-client";
 
@@ -18,8 +18,8 @@ export const viewProjectQueries = {
 };
 
 export const viewBlockQueries = {
-  get: (id: number, source: ReadSource) => ({
-    ...getOrpc().blocks.get.queryOptions({ input: { id, source }, staleTime: Infinity }),
-    queryKey: queryKeys.blocks.get(id, source),
+  get: (id: number) => ({
+    ...getOrpc().blocks.get.queryOptions({ input: { id }, staleTime: Infinity }),
+    queryKey: queryKeys.blocks.get(id),
   }),
 };

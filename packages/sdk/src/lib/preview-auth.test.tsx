@@ -72,7 +72,6 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
       ...target,
       authenticationUrl: "https://auth.test",
       presentation: initialAuthenticated ? "studio" : "public",
-      source: initialAuthenticated ? "draft" : "live",
       href: window.location.href,
       pathname: "/about",
       runtimeBasePath: "",

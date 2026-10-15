@@ -61,7 +61,7 @@ export interface CanvasPageFrameProps {
  * isolated, but their cache and editing runtime are shared with the studio.
  */
 export function CanvasPageFrame(props: CanvasPageFrameProps) {
-  return <PageFrame key={`${props.input.pathname}:${props.input.source}`} {...props} />;
+  return <PageFrame key={props.input.pathname} {...props} />;
 }
 
 function PageFrame({
@@ -155,11 +155,7 @@ function PageFrame({
                         onClick={preventLinkNavigation}
                       >
                         {input.derived ? (
-                          <DerivedPageContent
-                            camoxApp={camoxApp}
-                            derived={input.derived}
-                            source={input.source}
-                          />
+                          <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
                         ) : (
                           <EditablePageContent />
                         )}

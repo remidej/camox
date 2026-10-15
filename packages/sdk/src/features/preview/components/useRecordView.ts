@@ -23,7 +23,7 @@ import {
 } from "../previewStore";
 import { contentFieldSchema, type ContentFieldSchema } from "./contentFieldSchema";
 import { formatFieldName } from "./ItemFieldsEditor";
-import type { PublicationStatus } from "./PageStatusBadge";
+import type { PublicationStatus } from "./PublicationStatusBadge";
 
 /** One entry of the sidebar's selection path. */
 export type SelectionCrumb = {

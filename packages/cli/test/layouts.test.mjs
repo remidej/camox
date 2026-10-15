@@ -90,7 +90,7 @@ async function cli(...args) {
   }
 }
 
-void test("discovers layout block IDs through list and draft get by layout name", async () => {
+void test("discovers layout block IDs through list and get by layout name", async () => {
   const listed = await cli("list", "--json");
   assert.equal(listed.code, 0, listed.stderr);
   assert.equal(calls.at(-1).input.name, "listLayouts");
@@ -99,31 +99,18 @@ void test("discovers layout block IDs through list and draft get by layout name"
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), bundle);
   assert.equal(calls.at(-1).input.name, "getLayout");
-  assert.deepEqual(calls.at(-1).input.arguments, { layoutId: "default", source: "draft" });
+  assert.deepEqual(calls.at(-1).input.arguments, { layoutId: "default" });
   assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
 });
 
-void test("forwards live source independently of project and production targeting", async () => {
-  for (const live of [false, true]) {
-    const result = await cli(
-      "get",
-      "--layout-id",
-      "default",
-      "--project",
-      "other",
-      "--production",
-      ...(live ? ["--live"] : []),
-    );
-    assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), bundle);
-    assert.deepEqual(calls.at(-1).input.arguments, {
-      layoutId: "default",
-      source: live ? "live" : "draft",
-    });
-    assert.equal(calls.at(-1).input.projectId, 7);
-    assert.equal(calls.at(-1).headers["x-environment-name"], "production");
-    assert.equal(calls.at(-2).input.slug, "other");
-  }
+void test("forwards project and production targeting", async () => {
+  const result = await cli("get", "--layout-id", "default", "--project", "other", "--production");
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), bundle);
+  assert.deepEqual(calls.at(-1).input.arguments, { layoutId: "default" });
+  assert.equal(calls.at(-1).input.projectId, 7);
+  assert.equal(calls.at(-1).headers["x-environment-name"], "production");
+  assert.equal(calls.at(-2).input.slug, "other");
 });
 
 void test("rejects a missing layout name, or a numeric layout ID, before making requests", async () => {
@@ -147,7 +134,6 @@ void test("prints structured server errors and exposes discovery guidance in hel
   assert.equal(help.code, 0);
   for (const text of [
     "--layout-id",
-    "--live",
     "--cwd",
     "--project",
     "--production",

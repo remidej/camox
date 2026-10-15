@@ -3,7 +3,6 @@ import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-q
 import * as React from "react";
 
 import { referenceWritesFor } from "@/core/editing/referenceWrites";
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { lexicalStateToPlainText } from "@/core/lib/lexicalState";
 import { referenceListIds, type ReferenceRecord } from "@/core/lib/reference";
 import { serializeAssetField } from "@/features/content/collection-form";
@@ -124,9 +123,8 @@ function applyReferenceListOptimistically(
 
 /**
  * Returns the single field-change handler shared by every sidebar field editor
- * (field list, asset and link views). Edits are dropped outside the draft
- * source. Reference and reference list changes return a promise (rejecting outside the draft
- * source) so callers like the create-record modal can wait for the link.
+ * (field list, asset and link views). Reference and reference list changes return a promise
+ * so callers like the create-record modal can wait for the link.
  * Record edits go through the per-record queue shared with inline preview
  * edits, as full content with the expected version; their assets are sent as
  * collection asset snapshots rather than block file markers.
@@ -138,7 +136,6 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
   const updateBlockContent = useMutation(blockMutations.updateContent());
   const updateItemContent = useMutation(repeatableItemMutations.updateContent());
   const editRecord = useMutation(collectionMutations.edit());
-  const requireDraft = useRequireDraftSource();
 
   return React.useCallback(
     (fieldName: string, value: unknown) => {
@@ -146,11 +143,6 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
         const fieldType = fieldTypeOf(schema, fieldName);
         // A record's own reference fields report failures to their reference editor.
         const awaited = fieldType === "Reference" || fieldType === "ReferenceList";
-        if (!requireDraft()) {
-          return awaited
-            ? Promise.reject(new Error("Switch to draft to change this reference."))
-            : undefined;
-        }
         const { record } = target;
         const saving = referenceWritesFor(queryClient)
           .save(record, fieldName, serializeAssetField(fieldType, value), async (input) => {
@@ -193,7 +185,6 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
           };
         };
         return (async () => {
-          if (!requireDraft()) throw new Error("Switch to draft to change this list.");
           const restore = applyReferenceListOptimistically(
             queryClient,
             target.blockId,
@@ -219,13 +210,11 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       }
       if (field?.fieldType === "Reference") {
         return (async () => {
-          if (id == null || !requireDraft())
-            throw new Error("Switch to draft to change this reference.");
+          if (id == null) throw new Error("Nothing to change this reference on.");
           await mutation.mutateAsync({ id, content });
         })();
       }
       if (id == null) return;
-      if (!requireDraft()) return;
       mutation.mutate({ id, content });
     },
     [
@@ -237,7 +226,6 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
       editRecord,
       updateBlockContent,
       updateItemContent,
-      requireDraft,
     ],
   );
 }

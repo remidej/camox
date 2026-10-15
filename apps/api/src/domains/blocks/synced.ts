@@ -6,7 +6,6 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlocks } from "../../lib/bump-content-updated-at";
 import { blockDefinitions, blocks, environments, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { initializeSyncedLiveData } from "./synced-live";
 
 /** Placements keep their own identity/order; only data is shared, within an environment. */
 const placements = Effect.fn("placements")(function* (
@@ -40,7 +39,7 @@ const copyItems = Effect.fn("copyItems")(function* (
   const kept = new Set<number>();
 
   // Walk the tree rather than relying on row/position order: child IDs may be
-  // smaller than parent IDs after a checkpoint restore or environment copy.
+  // smaller than parent IDs after an environment copy.
   const copyChildren = (
     parentId: number | null,
     targetParentId: number | null,
@@ -118,7 +117,6 @@ export const applySyncedFlagChange = Effect.fn("blocks.applySyncedFlagChange")(f
   },
 ) {
   if (synced) {
-    yield* initializeSyncedLiveData(ctx, environmentId, type);
     const rows = yield* placements(ctx, environmentId, type);
     if (rows.length >= 2) yield* syncBlockData(ctx, rows[0].block.id);
   }
@@ -148,7 +146,6 @@ export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function*
 /**
  * Fan out a data edit, or seed a newly created placement from existing data.
  * This deliberately doesn't copy page/layout IDs, layout slot or block position.
- * Published checkpoints remain immutable; edits still require publishing.
  */
 export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
   ctx: ServiceContext,
@@ -182,8 +179,7 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
     broadcastSharedDataChange([]);
     return;
   }
-  // Prefer another owner when restoring a page: its other restored placements
-  // may still contain historical data until their turn in the restore loop.
+  // Seed a new placement from another owner's copy when there is one.
   const existing =
     peers.find(
       (peer) => peer.pageId !== row.block.pageId || peer.layoutId !== row.block.layoutId,
@@ -216,6 +212,6 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
     queryKeys.layouts.all,
     ["camox", "blocks", "getPageMarkdown"],
     ["camox", "repeatableItems", "get"],
-    ...targets.map((block) => queryKeys.blocks.get(block.id, "draft")),
+    ...targets.map((block) => queryKeys.blocks.get(block.id)),
   ]);
 });

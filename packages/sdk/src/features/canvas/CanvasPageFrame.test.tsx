@@ -102,7 +102,6 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     pathname: "/about",
     href: "http://localhost/about",
     runtimeBasePath: "",
-    source: "draft",
     previewDocument: "<html><head></head><body><div data-camox-preview-root></div></body></html>",
     dehydratedState: { queries: [], mutations: [] },
   } as unknown as PageRenderInput;
@@ -316,7 +315,6 @@ void test("selected ready frames own editing without a click and follow URL sele
                   pathname: path,
                   href: `http://localhost${path}`,
                   runtimeBasePath: "",
-                  source: "draft",
                   previewDocument:
                     "<html><head></head><body><div data-camox-preview-root></div></body></html>",
                   dehydratedState: { queries: [], mutations: [] },

@@ -1,6 +1,5 @@
 import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
-import { pageReferenceTargetsInput, referenceTargets } from "../collections/reference-publication";
 import * as service from "./service";
 
 // Public procedures
@@ -59,22 +58,7 @@ const generateSeo = authed
   .input(service.generatePageSeoInput)
   .handler(({ context, input }) => runService(service.generatePageSeo(context, input)));
 
-const publish = authed
-  .input(service.publishPageInput)
-  .handler(({ context, input }) => runService(service.publishPage(context, input)));
-
-const unpublish = authed
-  .input(service.unpublishPageInput)
-  .handler(({ context, input }) => runService(service.unpublishPage(context, input)));
-
-const discardChanges = authed
-  .input(service.discardPageChangesInput)
-  .handler(({ context, input }) => runService(service.discardPageChanges(context, input)));
-
 export const pageProcedures = {
-  referenceTargets: authed
-    .input(pageReferenceTargetsInput)
-    .handler(({ context, input }) => runService(referenceTargets(context, input, "page"))),
   getByPath,
   getStructure,
   list,
@@ -88,7 +72,4 @@ export const pageProcedures = {
   setMetaDescription,
   setLayout,
   generateSeo,
-  publish,
-  unpublish,
-  discardChanges,
 };

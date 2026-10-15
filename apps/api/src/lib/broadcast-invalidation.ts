@@ -20,7 +20,7 @@ export function broadcastInvalidation({
   const id = projectRoomNamespace.idFromName(String(projectId));
   const stub = projectRoomNamespace.get(id) as ProjectRoomStub;
   // Comment availability depends on current objects and field definitions.
-  // Refresh it for every content mutation, including deletions and checkpoint restores.
+  // Refresh it for every content mutation, including deletions.
   const contentChanged = targets.some(([, domain]) =>
     ["pages", "blocks", "repeatableItems", "layouts", "blockDefinitions"].includes(String(domain)),
   );

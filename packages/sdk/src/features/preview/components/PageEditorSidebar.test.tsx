@@ -361,7 +361,6 @@ async function renderSidebar(
     return Response.json({ json: null });
   });
 
-  previewStore.send({ type: "viewDraftSite" });
   previewStore.send({ type: "selectTarget", ...owner, selection });
 
   const host = document.createElement("div");
@@ -406,7 +405,6 @@ async function renderSidebar(
     host.remove();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "viewDraftSite" });
     await window.happyDOM.close();
   });
 
@@ -598,18 +596,6 @@ void test("repeater item asset field edits are saved to the item", async (t) => 
   ]);
 });
 
-void test("field edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, {
-    type: "block-field",
-    blockId: BLOCK_ID,
-    fieldName: "logo",
-    fieldType: "Image",
-  });
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.unlinkAsset();
-  assert.deepEqual(sidebar.writes, []);
-});
-
 /** Whether the sidebar offers any way to type into a field. */
 const hasEditor = (host: HTMLElement) =>
   host.querySelector("textarea, input, [contenteditable]") != null;
@@ -761,13 +747,6 @@ void test("record boolean field edits are saved to the record", async (t) => {
   );
 });
 
-void test("record field edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, recordField("quote", "String"));
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.typeText("Superb");
-  assert.deepEqual(sidebar.writes, []);
-});
-
 void test("a record selection falls back to the reference field view once the record is unlinked", async (t) => {
   const sidebar = await renderSidebar(t, {
     type: "record",
@@ -837,13 +816,6 @@ void test("record image list edits are saved to the record as asset snapshots", 
       ],
     ],
   );
-});
-
-void test("record asset edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, recordField("logo", "Image"));
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.unlinkAsset();
-  assert.deepEqual(sidebar.writes, []);
 });
 
 void test("unlinking a block asset used nowhere else offers to delete the file", async (t) => {
@@ -1249,21 +1221,6 @@ void test("dragging a card writes the new order", async (t) => {
   assert.deepEqual(
     cards(sidebar.host).map((card) => card.label),
     ["Open Acme", "Open Globex", "Open Initech"],
-  );
-});
-
-void test("reference list changes are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  const unlink = sidebar.host.querySelector<HTMLElement>("button[aria-label='Unlink']");
-  assert.ok(unlink);
-  await act(async () => unlink.click());
-  await sidebar.settle();
-  assert.deepEqual(sidebar.writes, []);
-  assert.deepEqual(
-    cards(sidebar.host).map((card) => card.label),
-    ["Open Globex", "Open Acme"],
-    "the list is unchanged",
   );
 });
 

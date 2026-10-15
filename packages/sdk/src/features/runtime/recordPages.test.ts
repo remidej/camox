@@ -237,39 +237,6 @@ void test("editors read the record matching its draft value, visitors its publis
   );
 });
 
-void test("an editor previewing live content reads the record visitors see", async (t) => {
-  const lookups = mockApi(t);
-  const live = await request(
-    "/_camox/data?path=/articles/old-slug&source=live",
-    undefined,
-    VALID_SESSION,
-  );
-  assert.equal(live!.status, 200);
-  assert.deepEqual(((await live!.json()) as PageRenderInput).derived!.result, {
-    kind: "collection-item",
-    collectionId: "articles",
-    data: { id: PUBLISHED_ID, content: { title: "Published title", slug: "old-slug" } },
-  });
-  // The draft slug has no live record.
-  const draftSlug = await request(
-    "/_camox/data?path=/articles/new-slug&source=live",
-    undefined,
-    VALID_SESSION,
-  );
-  assert.equal(draftSlug!.status, 404);
-  // Asking for drafts never grants them to a visitor.
-  const visitor = await request("/_camox/data?path=/articles/new-slug&source=draft");
-  assert.equal(visitor!.status, 404);
-  assert.deepEqual(
-    lookups.map(({ source, session }) => [source, session]),
-    [
-      ["live", null],
-      ["live", null],
-      ["live", null],
-    ],
-  );
-});
-
 void test("the record's resolved references travel in the envelope, for layout.Item", async (t) => {
   mockApi(t, withRenderedRecords);
   assert.deepEqual(await loadedRecord("/articles/linked"), {

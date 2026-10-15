@@ -31,14 +31,13 @@ const get = command(
   object({
     command: constant("layouts.get" as const),
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
-    live: option("--live"),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
   }),
   {
-    description: message`Inspect a layout and its blocks, including shared navigation and footer IDs for blocks get and blocks edit. A layout is named by the layoutId its code gives it, as listed by layouts list. Reads the draft by default; --live reads the published snapshot. --production selects the environment, not the published state.`,
+    description: message`Inspect a layout and its blocks, including shared navigation and footer IDs for blocks get and blocks edit. A layout is named by the layoutId its code gives it, as listed by layouts list. --production selects the environment.`,
   },
 );
 
@@ -53,7 +52,7 @@ type CommonFlags = {
 
 type Args =
   | ({ command: "layouts.list" } & CommonFlags)
-  | ({ command: "layouts.get"; layoutId: string; live: boolean } & CommonFlags);
+  | ({ command: "layouts.get"; layoutId: string } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
@@ -73,7 +72,7 @@ export async function handler(args: Args): Promise<never> {
     case "layouts.get":
       return dispatch({
         toolName: "getLayout",
-        args: { layoutId: args.layoutId, source: args.live ? "live" : "draft" },
+        args: { layoutId: args.layoutId },
         cwd,
         projectFlag,
         production,

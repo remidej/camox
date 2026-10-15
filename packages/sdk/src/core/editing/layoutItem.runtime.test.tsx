@@ -293,20 +293,3 @@ void test("an edit through a block shows on the record page at once", async () =
   );
   client.clear();
 });
-
-void test("previewing live content renders the loaded record, never the draft", async () => {
-  const { render, client } = setup();
-  render();
-  editors[0]!.onChange("Unpublished edit");
-  await settle();
-  previewStore.send({ type: "viewLiveSite" });
-  const live = render({
-    kind: "collection-item",
-    collectionId: "articles",
-    data: { id: ARTICLE_ID, content: { title: "Live title", slug: "hello", author: null } },
-  });
-  assert.match(live, /<h1><span>Live title<\/span><\/h1>/);
-  assert.doesNotMatch(live, /<h1[^>]*data-camox/);
-  assert.doesNotMatch(live, /Unpublished edit<\/span><\/h1>/);
-  client.clear();
-});

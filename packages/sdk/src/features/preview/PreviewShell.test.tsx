@@ -50,15 +50,11 @@ registerHooks({
           export const PageRecordContext = React.createContext(undefined);
           export const useDerivedPageResult = ({loaded}) => loaded?.result;
           export const useFollowPageRecord = () => {};
+          export const getPageRecord = () => undefined;
         `,
       };
       source = stubs[specifier] ?? source;
-      for (const name of [
-        "AddBlockDialog",
-        "BlockErrorBoundary",
-        "CreatePageModal",
-        "LeftSidebar",
-      ]) {
+      for (const name of ["AddBlockDialog", "BlockErrorBoundary", "CreatePageModal"]) {
         if (specifier === `./components/${name}`) source = `export const ${name} = () => null`;
       }
       if (specifier.includes("feature-flag")) {
@@ -119,14 +115,13 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
   const { SharedChromeContext } = await import("../runtime/SharedChromeContext");
   type ShellProps = React.ComponentProps<typeof PreviewShell>;
   const pageData = {
-    page: { id: 3, status: "draft", livePublishedCheckpointId: 1 },
+    page: { id: 3 },
     projectName: "Test",
   } as ShellProps["pageData"];
   const derivedLayout = {
     layoutId: "article",
     contentUpdatedAt: 0,
     updatedAt: 0,
-    livePublishedCheckpointId: 1,
     beforeBlockIds: [],
     afterBlockIds: [],
   } satisfies ShellProps["derivedLayout"];
@@ -151,7 +146,6 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
   };
   const reset = () => {
     store.send({ type: "exitEditMode" });
-    store.send({ type: "viewDraftSite" });
   };
   try {
     reset();
@@ -167,7 +161,7 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
 
     for (const [name, props] of [
       ["curated page", { pageData }],
-      ["derived layout", { derivedLayoutId: "article", derivedLayout, hasLiveVersion: true }],
+      ["derived layout", { derivedLayout }],
     ] as const) {
       await t.test(`${name}: Canvas and single-preview mode transitions`, async () => {
         await dom.render(null);
@@ -197,9 +191,7 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
         });
         assert.equal(store.getSnapshot().context.mode, "commenting-draft");
         assertCanvas();
-        await React.act(async () => store.send({ type: "viewLiveSite" }));
-        assertPreview();
-        await React.act(async () => store.send({ type: "viewDraftSite" }));
+        await React.act(async () => store.send({ type: "exitEditMode" }));
         assertPreview();
         assert.ok(canvasImports > 0);
       });
@@ -260,7 +252,7 @@ void test("leaving the preview resets preview, comment and canvas state", async 
   const { previewCommentsStore } = await import("./previewCommentsStore");
   const { canvasStore } = await import("../canvas/canvasStore");
   const pageData = {
-    page: { id: 3, status: "draft", livePublishedCheckpointId: 1 },
+    page: { id: 3 },
     projectName: "Test",
   } as React.ComponentProps<typeof PreviewShell>["pageData"];
   const initialPreview = previewStore.getSnapshot().context;
@@ -303,19 +295,18 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     layoutId: "article",
     contentUpdatedAt: 0,
     updatedAt: 0,
-    livePublishedCheckpointId: 1,
     beforeBlockIds: [],
     afterBlockIds: [],
   };
   Object.assign(globalThis, { testPreviewLayout: layout });
-  client.setQueryData(queryKeys.pages.getByPath("/", "draft"), {
-    page: { id: 3, status: "draft", livePublishedCheckpointId: 1 },
+  client.setQueryData(queryKeys.pages.getByPath("/"), {
+    page: { id: 3 },
   });
   type Props = React.ComponentProps<typeof CamoxPreview>;
   const render = (derived?: Props["derived"], canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
       <QueryClientProvider client={client}>
-        <CamoxPreview derived={derived} canvasOnly={canvasOnly} source="draft">
+        <CamoxPreview derived={derived} canvasOnly={canvasOnly}>
           <p data-content>Site content</p>
         </CamoxPreview>
       </QueryClientProvider>,

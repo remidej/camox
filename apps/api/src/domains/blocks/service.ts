@@ -23,22 +23,14 @@ import {
   blocks,
   environments,
   files,
-  layoutCheckpoints,
   layouts,
   member,
-  pageCheckpoints,
   pages,
   projects,
   repeatableItems,
 } from "../../schema";
-import { pageSourceSchema, type PageSource } from "../_shared/page-source";
+import { readOwnerBlocks, referenceSource } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
-import {
-  layoutSnapshotSchema,
-  pageSnapshotSchema,
-  type SnapshotBlock,
-  type SnapshotRepeatableItem,
-} from "../_shared/snapshot-schemas";
 import {
   blockScope,
   hydrateItemReferences,
@@ -46,16 +38,14 @@ import {
   type ResolvedReferences,
   validateReferenceValues,
 } from "../collections/references";
-import { blocksOfOwner, layoutNamed } from "../layouts/identity";
+import { blocksOfOwner } from "../layouts/identity";
 import { buildFileMap, collectFileIds } from "../pages/ai";
-import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
 import { type FieldSchema } from "./normalize-content";
 import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
 import { sharedPlacementId, syncBlockData } from "./synced";
-import { resolveSyncedLiveData } from "./synced-live";
 import { validateContent } from "./validate-content";
 
 // --- Input Schemas ---
@@ -71,14 +61,8 @@ const repeatableItemSeedSchema = z.object({
   position: z.string(),
 });
 
-export const getBlockInput = z.object({
-  id: z.number(),
-  source: pageSourceSchema.optional().default("live"),
-});
-export const getPageMarkdownInput = z.object({
-  pageId: z.number(),
-  source: pageSourceSchema.optional().default("draft"),
-});
+export const getBlockInput = z.object({ id: z.number() });
+export const getPageMarkdownInput = z.object({ pageId: z.number() });
 export const getLayoutMarkdownInput = z.object({
   projectSlug: z.string(),
   layoutId: z.string(),
@@ -707,96 +691,19 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
 
 // --- Reads ---
 
-const loadBlockBundle = Effect.fn("loadBlockBundle")(function* (
-  ctx: ServiceContext,
-  blockId: number,
-  source: PageSource,
-): Effect.fn.Return<{ block: SnapshotBlock | null; items: SnapshotRepeatableItem[] }> {
-  if (source === "draft") {
-    const block =
-      (yield* Effect.promise(() =>
-        ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
-      )) ?? null;
-    if (!block) return { block: null, items: [] };
-    const items = yield* Effect.promise(() =>
-      ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
-    );
-    // The drizzle row shape is structurally compatible with SnapshotBlock /
-    // SnapshotRepeatableItem (same columns, same nullability), so casting
-    // through the union return type is safe here.
-    return { block, items };
-  }
-
-  // Non-draft: find the parent (page or layout) by the live block row's
-  // parent ids, then pull the block + its items out of the parent's snapshot.
-  const liveBlock = yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
-  );
-  if (!liveBlock) return { block: null, items: [] };
-
-  const { pageId, layoutId } = liveBlock;
-  if (pageId != null) {
-    const parentPage = yield* Effect.promise(() =>
-      ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
-    );
-    if (!parentPage) return { block: null, items: [] };
-    const checkpointId =
-      source === "live" ? parentPage.livePublishedCheckpointId : source.checkpointId;
-    if (checkpointId == null) return { block: null, items: [] };
-    const checkpoint = yield* Effect.promise(() =>
-      ctx.db.select().from(pageCheckpoints).where(eq(pageCheckpoints.id, checkpointId)).get(),
-    );
-    if (!checkpoint) return { block: null, items: [] };
-    if (typeof source === "object" && checkpoint.pageId !== parentPage.id) {
-      return { block: null, items: [] };
-    }
-    const stored = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
-    const snapshot =
-      source === "live"
-        ? yield* resolveSyncedLiveData(ctx, parentPage.environmentId, stored)
-        : stored;
-    const block = snapshot.blocks.find((b) => b.id === blockId) ?? null;
-    if (!block) return { block: null, items: [] };
-    return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
-  }
-  if (layoutId != null) {
-    const parentLayout = yield* Effect.promise(() =>
-      ctx.db.select().from(layouts).where(layoutNamed(liveBlock.environmentId, layoutId)).get(),
-    );
-    if (!parentLayout) return { block: null, items: [] };
-    // See readLayoutSnapshot in pages/service.ts: in phase 1 the layout side
-    // always follows its own live pointer regardless of source.
-    const checkpointId = parentLayout.livePublishedCheckpointId;
-    if (checkpointId == null) return { block: null, items: [] };
-    const checkpoint = yield* Effect.promise(() =>
-      ctx.db.select().from(layoutCheckpoints).where(eq(layoutCheckpoints.id, checkpointId)).get(),
-    );
-    if (!checkpoint) return { block: null, items: [] };
-    const snapshot = yield* resolveSyncedLiveData(
-      ctx,
-      parentLayout.environmentId,
-      layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot)),
-    );
-    const block = snapshot.blocks.find((b) => b.id === blockId) ?? null;
-    if (!block) return { block: null, items: [] };
-    return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
-  }
-  return { block: null, items: [] };
-});
-
 export const getBlock = Effect.fn("blocks.getBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlockInput>,
 ) {
-  const { id, source } = yield* decodeInput(getBlockInput, rawInput);
-  // For non-draft reads, locate the block + its items inside the parent
-  // page/layout's snapshot rather than the live tables. Mildly wasteful — we
-  // parse the whole snapshot to pull one block — but blocks.get against
-  // 'live' / { checkpointId } is never the hot path. The edit loop stays on
-  // 'draft'.
-  const { block, items: sourcedItems } = yield* loadBlockBundle(ctx, id, source);
+  const { id } = yield* decodeInput(getBlockInput, rawInput);
+  const block = yield* Effect.promise(() =>
+    ctx.db.select().from(blocks).where(eq(blocks.id, id)).get(),
+  );
   if (!block) return yield* new NotFoundError();
-  const sorted = sourcedItems.sort((a, b) => comparePositions(a.position, b.position));
+  const blockItems = yield* Effect.promise(() =>
+    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
+  );
+  const sorted = blockItems.sort((a, b) => comparePositions(a.position, b.position));
 
   // Build a map of parentItemId → grouped children by fieldName
   const childrenByParent = new Map<number | null, Map<string, typeof sorted>>();
@@ -841,14 +748,9 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   }
 
   const scope = yield* blockScope(ctx, block);
-  const referenceSource = source === "draft" ? "draft" : "live";
-  const hydratedBlock = (yield* hydrateReferences(
-    ctx,
-    scope,
-    [{ ...block, content }],
-    referenceSource,
-  ))[0];
-  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted, referenceSource);
+  const source = yield* referenceSource(ctx, scope.projectId);
+  const hydratedBlock = (yield* hydrateReferences(ctx, scope, [{ ...block, content }], source))[0];
+  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted, source);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<string>();
@@ -876,8 +778,8 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   };
 });
 
-type RenderableBlock = SnapshotBlock;
-type RenderableItem = SnapshotRepeatableItem & { references?: ResolvedReferences };
+type RenderableBlock = typeof blocks.$inferSelect;
+type RenderableItem = typeof repeatableItems.$inferSelect & { references?: ResolvedReferences };
 
 /**
  * Renders each block's Markdown Representation, resolving its references and files.
@@ -889,8 +791,8 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
   scope: { projectId: number; environmentId: number },
   blockRows: RenderableBlock[],
   itemRows: RenderableItem[],
-  referenceSource: "draft" | "live",
 ) {
+  const source = yield* referenceSource(ctx, scope.projectId);
   // Get block definitions for content schemas and Markdown representations. Scope
   // by environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
@@ -925,7 +827,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     scope,
     blockRows,
     itemRows,
-    referenceSource,
+    source,
   );
   nestChildItems(items);
   const itemsByBlock = new Map<number, RenderableItem[]>();
@@ -936,7 +838,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     itemsByBlock.set(item.blockId, list);
   }
 
-  const hydrated = yield* hydrateReferences(ctx, scope, blockRows, referenceSource);
+  const hydrated = yield* hydrateReferences(ctx, scope, blockRows, source);
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
   const fileIds = new Set<string>();
   for (const block of hydrated) {
@@ -999,89 +901,24 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageMarkdownInput>,
 ) {
-  const { pageId, source } = yield* decodeInput(getPageMarkdownInput, rawInput);
-  if (source === "draft") yield* requireUser(ctx);
+  const { pageId } = yield* decodeInput(getPageMarkdownInput, rawInput);
 
   const page = yield* Effect.promise(() =>
     ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
   );
   if (!page) return yield* new NotFoundError();
 
-  // Page blocks + their items, sourced from either the live tables (draft) or
-  // the published checkpoint (live / pinned). SnapshotBlock and the drizzle
-  // row shape are structurally compatible — same columns, same nullability —
-  // so the renderer below works against either.
-  let sorted: RenderableBlock[];
-  let allItems: RenderableItem[];
-  let sortedLayout: RenderableBlock[] = [];
-  let layoutAllItems: RenderableItem[] = [];
-
-  if (source === "draft") {
-    const pageBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId)),
-    );
-    sorted = pageBlocks.sort((a, b) => comparePositions(a.position, b.position));
-    const blockIds = sorted.map((b) => b.id);
-    allItems =
-      blockIds.length > 0
-        ? sortByPosition(
-            yield* Effect.promise(() =>
-              ctx.db
-                .select()
-                .from(repeatableItems)
-                .where(inArray(repeatableItems.blockId, blockIds)),
-            ),
-          )
-        : [];
-    if (page.layoutId) {
-      const layoutBlocks = yield* Effect.promise(() =>
-        ctx.db.select().from(blocks).where(eq(blocks.layoutId, page.layoutId)),
-      );
-      sortedLayout = layoutBlocks.sort((a, b) => comparePositions(a.position, b.position));
-      const layoutBlockIds = sortedLayout.map((b) => b.id);
-      layoutAllItems =
-        layoutBlockIds.length > 0
-          ? sortByPosition(
-              yield* Effect.promise(() =>
-                ctx.db
-                  .select()
-                  .from(repeatableItems)
-                  .where(inArray(repeatableItems.blockId, layoutBlockIds)),
-              ),
-            )
-          : [];
-    }
-  } else {
-    const pageSnapshot = yield* readPageSnapshot(ctx, page, source);
-    if (!pageSnapshot) {
-      return yield* new InvalidInputError({
-        message:
-          "Page has not been published. Run `camox pages publish` first, or omit --live to read the draft.",
-      });
-    }
-    sorted = sortByPosition(pageSnapshot.blocks);
-    allItems = sortByPosition(pageSnapshot.repeatableItems);
-    // Phase 1 contract: the layout side always follows its own live pointer
-    // when reading a non-draft page (see readLayoutSnapshot). If the layout
-    // is unpublished, treat it as empty rather than failing the page read.
-    if (page.layoutId) {
-      const layout = yield* Effect.promise(() =>
-        ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
-      );
-      if (layout) {
-        const layoutSnapshot = yield* readLayoutSnapshot(ctx, layout);
-        sortedLayout = layoutSnapshot ? sortByPosition(layoutSnapshot.blocks) : [];
-        layoutAllItems = layoutSnapshot ? sortByPosition(layoutSnapshot.repeatableItems) : [];
-      }
-    }
-  }
+  const { blocks: sorted, items: allItems } = yield* readOwnerBlocks(ctx, { pageId });
+  const { blocks: sortedLayout, items: layoutAllItems } = yield* readOwnerBlocks(ctx, {
+    environmentId: page.environmentId,
+    layoutId: page.layoutId,
+  });
 
   const render = yield* renderBlocksMarkdown(
     ctx,
     page,
     [...sorted, ...sortedLayout],
     [...allItems, ...layoutAllItems],
-    source === "draft" ? "draft" : "live",
   );
   const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
@@ -1097,8 +934,8 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
 });
 
 /**
- * The live Markdown of a code-owned layout's before and after slots, for pages
- * without a page row (singleton and derived layouts). Public, so never the draft.
+ * The Markdown of a code-owned layout's before and after slots, for pages
+ * without a page row (singleton and derived layouts).
  */
 export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function* (
   ctx: ServiceContext,
@@ -1118,16 +955,8 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
-  // An unpublished layout has no live blocks, like a curated page's layout side.
-  const snapshot = yield* readLayoutSnapshot(ctx, layout);
-  const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);
-  const render = yield* renderBlocksMarkdown(
-    ctx,
-    layout,
-    layoutBlocks,
-    sortByPosition(snapshot?.repeatableItems ?? []),
-    "live",
-  );
+  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout);
+  const render = yield* renderBlocksMarkdown(ctx, layout, layoutBlocks, items);
   return layoutSlotsMarkdown(layoutBlocks, render.markdown);
 });
 
@@ -1171,7 +1000,7 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
 });
 
 /**
- * A Synced Block's shared draft content in the current environment, as a
+ * A Synced Block's shared content in the current environment, as a
  * block bundle. Null when the block isn't synced or has no placement yet.
  */
 export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(function* (
@@ -1182,7 +1011,7 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   const id = yield* sharedPlacementId(ctx, environment.id, type);
   if (id === null) return null;
-  return yield* getBlock(ctx, { id, source: "draft" });
+  return yield* getBlock(ctx, { id });
 });
 
 // --- Writes ---
@@ -1332,10 +1161,8 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     projectId: access.page.projectId,
     targets: [
       // Block create/delete/duplicate restructures the page — refetch the
-      // draft page view. The live snapshot is untouched, so its cache stays.
-      queryKeys.pages.getByPath(access.page.fullPath, "draft"),
-      // Page list refetches so the derived publish-status badge picks up the
-      // new `content_updated_at`.
+      // page view and the page list, whose rows carry `content_updated_at`.
+      queryKeys.pages.getByPath(access.page.fullPath),
       queryKeys.pages.list,
       queryKeys.blocks.getPageMarkdown(pageId),
       queryKeys.blocks.getUsageCounts,
@@ -1410,15 +1237,14 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
     }),
   );
   // Granular invalidation: only refetch this block, not the entire page.
-  // Draft source only — the live snapshot doesn't change on edits.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(id, "draft"),
+      queryKeys.blocks.get(id),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
@@ -1453,15 +1279,14 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
   yield* syncBlockData(ctx, id);
   yield* bumpContentUpdatedAt(ctx.db, access.block);
   // Granular invalidation: only refetch this block, not the entire page.
-  // Draft source only — the live snapshot doesn't change on edits.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(id, "draft"),
+      queryKeys.blocks.get(id),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
@@ -1523,7 +1348,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
     projectId: access.projectId,
     targets: [
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
@@ -1631,9 +1456,9 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(id, "draft"),
+      queryKeys.blocks.get(id),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
       queryKeys.blocks.getUsageCounts,
@@ -1692,7 +1517,7 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     projectId: access.projectId,
     targets: [
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(original.pageId ? [queryKeys.blocks.getPageMarkdown(original.pageId)] : []),

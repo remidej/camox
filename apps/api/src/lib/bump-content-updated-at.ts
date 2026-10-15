@@ -10,9 +10,9 @@ type BlockParent = { environmentId?: number; pageId?: number | null; layoutId?: 
 
 /**
  * Bumps `content_updated_at` on the parent page or layout that owns these
- * blocks. Called by every block / repeatable-item mutation so the derived
- * publish status is a cheap timestamp compare instead of a row scan. One
- * extra UPDATE per mutation on the hot edit path.
+ * blocks. Called by every block / repeatable-item mutation, so readers can
+ * tell when a page or layout's content last changed. One extra UPDATE per
+ * mutation on the hot edit path.
  */
 export const bumpContentUpdatedAt = Effect.fn("bumpContentUpdatedAt")(function* (
   db: Database,

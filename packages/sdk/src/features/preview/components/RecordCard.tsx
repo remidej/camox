@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { PageStatusBadge, type PublicationStatus } from "./PageStatusBadge";
+import { PublicationStatusBadge, type PublicationStatus } from "./PublicationStatusBadge";
 
 /**
  * A linked collection record: label, publication badge and collection title.
@@ -29,7 +29,7 @@ export function RecordCard({
           <span className="truncate text-sm font-medium">{label}</span>
           {status && (
             <span className="shrink-0">
-              <PageStatusBadge status={status} size="sm" />
+              <PublicationStatusBadge status={status} size="sm" />
             </span>
           )}
         </span>

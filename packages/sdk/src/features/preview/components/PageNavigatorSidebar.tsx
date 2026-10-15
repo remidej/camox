@@ -2,37 +2,27 @@ import { Alert, AlertDescription, AlertTitle } from "@camox/ui/alert";
 import { PanelContent, PanelHeader } from "@camox/ui/panel";
 
 import { PagePicker } from "./PagePicker";
-import type { PublicationStatus } from "./PageStatusBadge";
 import { PageTree } from "./PageTree";
-import { PublicationRow } from "./PublicationRow";
 
 export type PreviewedPage = {
   id: number;
   metaTitle: string | null;
   pathSegment: string;
   fullPath: string;
-  livePublishedCheckpointId: number | null;
-  status: PublicationStatus;
-  modifiedReason:
-    | { reason: "self" }
-    | { reason: "layout"; layoutHandle: string; affectedPagesCount: number }
-    | { reason: "both"; layoutHandle: string; affectedPagesCount: number }
-    | null;
 };
 
-export const PageNavigatorHeader = ({ page }: { page?: PreviewedPage }) => (
+export const PageNavigatorHeader = () => (
   <PanelHeader className="flex flex-col gap-2 p-2">
     <div className="flex w-full">
       <PagePicker />
     </div>
-    {page && <PublicationRow target={{ kind: "page", page }} />}
   </PanelHeader>
 );
 
 const PageNavigatorSidebar = ({ page }: { page?: PreviewedPage }) => {
   return (
     <>
-      <PageNavigatorHeader page={page} />
+      <PageNavigatorHeader />
       <PanelContent className="flex grow basis-0 flex-col gap-2 overflow-auto p-2">
         {page ? (
           <PageTree />

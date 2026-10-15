@@ -21,7 +21,6 @@ import {
   environments,
   files,
   invitation,
-  layoutCheckpoints,
   layouts,
   member,
   organizationTable,
@@ -69,9 +68,7 @@ async function clearAll(db: ReturnType<typeof createDrizzle>) {
   await db.delete(comments).run();
   await db.delete(repeatableItems).run();
   await db.delete(blocks).run();
-  // Cascades to page checkpoints.
   await db.delete(pages).run();
-  await db.delete(layoutCheckpoints).run();
   await db.delete(layouts).run();
   await db.delete(blockDefinitions).run();
   // With every page, layout and block gone, only records still reference records. Clearing

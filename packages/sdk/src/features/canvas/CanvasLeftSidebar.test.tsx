@@ -102,17 +102,17 @@ async function setup() {
   const calls: unknown[] = [];
   const api = {
     pages: {
-      getStructure: async (input: { path: string; source: string; projectSlug: string }) => {
+      getStructure: async (input: { path: string; projectSlug: string }) => {
         calls.push(input);
         return pageStructure(input.path);
       },
     },
     layouts: {
-      get: async (input: { layoutId: string; source: string; projectSlug: string }) => {
+      get: async (input: { layoutId: string; projectSlug: string }) => {
         calls.push(input);
         return {
           layout: { id: 12, layoutId: input.layoutId, beforeBlockIds: [42], afterBlockIds: [] },
-          blocks: [{ id: 42, content: { text: input.source } }],
+          blocks: [{ id: 42, content: { text: "layout" } }],
           files: [],
           repeatableItems: [],
         };
@@ -206,7 +206,7 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
     assert.equal(picker.getAttribute("data-owner"), "null");
     assert.equal(picker.getAttribute("data-id"), "7");
     assert.equal(dom.mount.querySelectorAll("aside").length, 1, "uses actual LeftSidebar");
-    assert.deepEqual(dom.calls, [{ path: "/", projectSlug: "test-project", source: "draft" }]);
+    assert.deepEqual(dom.calls, [{ path: "/", projectSlug: "test-project" }]);
     assert.deepEqual(clientPage(dom.client, "/"), pageStructure("/"));
     assert.equal(dom.mount.querySelector("[data-add-block]")?.getAttribute("data-add-block"), "/");
     assert.equal(
@@ -242,10 +242,10 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
 });
 
 function clientPage(client: QueryClient, path: string) {
-  return client.getQueryData(queryKeys.pages.getByPath(path, "draft"));
+  return client.getQueryData(queryKeys.pages.getByPath(path));
 }
 
-void test("singleton and derived layout sidebars load shared layouts, seed source-specific blocks, and use full URL pages", async () => {
+void test("singleton and derived layout sidebars load shared layouts, seed their blocks, and use full URL pages", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
   try {
@@ -265,22 +265,14 @@ void test("singleton and derived layout sidebars load shared layouts, seed sourc
       assert.ok(dom.mount.querySelector("[data-create-page]"));
     }
     assert.deepEqual(dom.calls, [
-      { layoutId: "about", projectSlug: "test-project", source: "draft" },
-      { layoutId: "articles.$slug", projectSlug: "test-project", source: "draft" },
+      { layoutId: "about", projectSlug: "test-project" },
+      { layoutId: "articles.$slug", projectSlug: "test-project" },
     ]);
-    assert.deepEqual(dom.client.getQueryData(queryKeys.blocks.get(42, "draft")), {
-      block: { id: 42, content: { text: "draft" } },
+    assert.deepEqual(dom.client.getQueryData(queryKeys.blocks.get(42)), {
+      block: { id: 42, content: { text: "layout" } },
       files: [],
       repeatableItems: [],
     });
-    await React.act(async () => dom.store.send({ type: "viewLiveSite" }));
-    await dom.settle();
-    assert.deepEqual(dom.calls.at(-1), {
-      layoutId: "articles.$slug",
-      projectSlug: "test-project",
-      source: "live",
-    });
-    assert.ok(dom.client.getQueryData(queryKeys.blocks.get(42, "live")));
     await dom.render("/missing", undefined);
     assert.equal(dom.mount.querySelector("aside"), null);
   } finally {

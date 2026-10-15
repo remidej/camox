@@ -55,9 +55,8 @@ For DOM listeners, scrolling, scripts, widgets, or JavaScript-driven animation, 
 
 For shared navbar/footer data across layouts, use `layoutOnly: true, synced: true`. These flags are independent: synced blocks can also be ordinary page-content blocks.
 
-- Editing any placement updates the shared draft everywhere. New placements reuse existing data rather than resetting to defaults.
+- Editing any placement updates the shared content everywhere. New placements reuse existing data rather than resetting to defaults.
 - Position, layout slot, and deletion remain per placement; deleting one placement leaves the others.
-- Publishing a page or layout containing the block publishes shared data for all live placements. Unpublished drafts do not leak into live.
 - Enabling syncing on an existing type applies the oldest placement's data to all placements. Disabling it leaves independently editable copies.
 
 ## Markdown Representation (`toMarkdown`)

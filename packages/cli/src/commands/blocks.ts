@@ -13,8 +13,6 @@ import { cwdFlag } from "../lib/runtime-options";
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
 const productionFlag = option("--production");
-// `--live` flips read commands from draft (default) to the published snapshot.
-const liveFlag = option("--live");
 const fieldFileFlag = multiple(
   option("--field-file", string({ metavar: "NAME=PATH" }), {
     description: message`Set the string field NAME to the raw contents of the file at PATH, without JSON escaping. Repeat to set several fields. Merges with --content; when both set a field, the file wins.`,
@@ -49,7 +47,6 @@ const get = command(
   object({
     command: constant("blocks.get" as const),
     id: option("--id", integer({ metavar: "ID" })),
-    live: liveFlag,
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -62,7 +59,6 @@ const getMany = command(
   object({
     command: constant("blocks.get-many" as const),
     id: multiple(option("--id", integer({ metavar: "ID" })), { min: 1 }),
-    live: liveFlag,
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -154,8 +150,8 @@ type PositioningFlags = {
 type Args =
   | ({ command: "blocks.types" } & CommonFlags)
   | ({ command: "blocks.describe"; type: readonly string[] } & CommonFlags)
-  | ({ command: "blocks.get"; id: number; live: boolean } & CommonFlags)
-  | ({ command: "blocks.get-many"; id: readonly number[]; live: boolean } & CommonFlags)
+  | ({ command: "blocks.get"; id: number } & CommonFlags)
+  | ({ command: "blocks.get-many"; id: readonly number[] } & CommonFlags)
   | ({
       command: "blocks.create";
       pageId: number;
@@ -271,7 +267,7 @@ export async function handler(args: Args): Promise<never> {
       case "blocks.get":
         return dispatch({
           toolName: "getBlock",
-          args: { id: args.id, source: args.live ? "live" : "draft" },
+          args: { id: args.id },
           cwd,
           projectFlag,
           production,
@@ -280,7 +276,7 @@ export async function handler(args: Args): Promise<never> {
       case "blocks.get-many":
         return dispatch({
           toolName: "getBlocks",
-          args: { ids: [...args.id], source: args.live ? "live" : "draft" },
+          args: { ids: [...args.id] },
           cwd,
           projectFlag,
           production,

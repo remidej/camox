@@ -37,7 +37,6 @@ import {
   NO_BLOCK_ID,
   previewStore,
   selectIsCommentMode,
-  selectPreviewSource,
   selectionBlockId,
   type RecordPlacement,
   type Selection as PreviewTarget,
@@ -254,6 +253,7 @@ export interface PeekItem {
   position: string;
   createdAt: number;
   updatedAt: number;
+  syncKey: string | null;
   /** Peek items link no records. */
   references: Record<string, never>;
 }
@@ -387,6 +387,7 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
+        syncKey: null,
         references: {},
       });
 
@@ -2794,9 +2795,9 @@ export function createEditableBlock<
   };
 
   /**
-   * `layout.Item` in the Studio. A layout editing its draft renders the record editable, with
+   * `layout.Item` in the Studio. A layout being edited renders the record editable, with
    * its content from the shared record cache once an edit through any placement is newer than
-   * what the loader returned. Elsewhere, and for live content, it renders read-only.
+   * what the loader returned. Elsewhere, it renders read-only.
    */
   const LayoutItem = ({
     collectionId,
@@ -2807,9 +2808,8 @@ export function createEditableBlock<
     fallback,
   }: LayoutItemProps) => {
     const editingOwner = React.use(PreviewEditingOwnerContext);
-    const source = useSelector(previewStore, selectPreviewSource);
     const latest = useLatestRecord({ collectionId, labelField, loaded: record });
-    if (editingOwner?.kind !== "layout" || source !== "draft" || !latest) return fallback;
+    if (editingOwner?.kind !== "layout" || !latest) return fallback;
     return (
       <LayoutRecord layoutId={editingOwner.layoutId} properties={properties} record={latest}>
         {children}

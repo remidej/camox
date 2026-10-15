@@ -12,7 +12,19 @@ import { Label } from "@camox/ui/label";
 import { Switch } from "@camox/ui/switch";
 import * as React from "react";
 
-import { getPublicationBlocker, type PublicationPlan } from "../publication";
+type PublicationItem = {
+  key: string;
+  label: string;
+  switchLabel?: string;
+  impact: string;
+  optional: boolean;
+};
+
+type PublicationPlan = {
+  title: string;
+  description: string;
+  items: PublicationItem[];
+};
 
 /** Shared scope/impact review. Mount afresh for each publication attempt. */
 export function PublishDialog({
@@ -21,18 +33,12 @@ export function PublishDialog({
   onPublish,
   onOpenChange,
   error,
-  loading = false,
-  unavailable = false,
-  onSelectionChange,
 }: {
   plan: PublicationPlan;
   pending: boolean;
   onPublish: (includedKeys: string[]) => void;
   onOpenChange: (open: boolean) => void;
   error?: string;
-  loading?: boolean;
-  unavailable?: boolean;
-  onSelectionChange?: (key: string, included: boolean) => void;
 }) {
   const id = React.useId();
   const [excludedKeys, setExcludedKeys] = React.useState<string[]>([]);
@@ -40,7 +46,6 @@ export function PublishDialog({
   const includedKeys = plan.items
     .filter((item) => !item.optional || !excludedKeys.includes(item.key))
     .map((item) => item.key);
-  const blocker = getPublicationBlocker(plan, includedKeys);
 
   return (
     <AlertDialog open onOpenChange={(open) => !pending && onOpenChange(open)}>
@@ -60,9 +65,8 @@ export function PublishDialog({
                     setExcludedKeys((keys) =>
                       checked ? keys.filter((key) => key !== item.key) : [...keys, item.key],
                     );
-                    onSelectionChange?.(item.key, checked);
                   }}
-                  disabled={pending || loading}
+                  disabled={pending}
                 />
                 <div className="min-w-0 space-y-1">
                   <Label htmlFor={`${id}-${item.key}`}>
@@ -74,14 +78,9 @@ export function PublishDialog({
             ))}
           </div>
         )}
-        {loading && (
-          <p role="status" className="text-sm">
-            Loading referenced items…
-          </p>
-        )}
-        {(error || blocker) && (
+        {error && (
           <p role="alert" className="text-destructive text-sm">
-            {error || blocker}
+            {error}
           </p>
         )}
         <AlertDialogFooter>
@@ -89,10 +88,9 @@ export function PublishDialog({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending || loading || unavailable || !!blocker || includedKeys.length === 0}
+            disabled={pending || includedKeys.length === 0}
             onClick={(event) => {
               event.preventDefault();
-              if (loading || unavailable || blocker) return;
               onPublish(includedKeys);
             }}
           >

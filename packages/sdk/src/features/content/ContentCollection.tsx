@@ -18,7 +18,7 @@ import { useState } from "react";
 
 import { SingleAssetFieldEditor } from "@/features/preview/components/AssetFieldEditor";
 import { MultipleAssetFieldEditor } from "@/features/preview/components/MultipleAssetFieldEditor";
-import { PageStatusBadge } from "@/features/preview/components/PageStatusBadge";
+import { PublicationStatusBadge } from "@/features/preview/components/PublicationStatusBadge";
 import { ReferenceFieldEditor } from "@/features/preview/components/ReferenceFieldEditor";
 import { ReferenceListFieldEditor } from "@/features/preview/components/ReferenceListFieldEditor";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
@@ -114,7 +114,7 @@ export const ContentCollection = ({
                   className="focus-visible:bg-accent flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-sm"
                 >
                   <span className="truncate">{record.label || "Untitled item"}</span>
-                  <PageStatusBadge size="sm" status={record.status} />
+                  <PublicationStatusBadge size="sm" status={record.status} />
                 </button>
                 <PublishCollectionItemButton
                   projectSlug={projectSlug}

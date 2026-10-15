@@ -273,13 +273,6 @@ void test("comment mode is draft-editing only and clears editing selection", asy
 
   previewStore.send({ type: "exitEditMode" });
   assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
-  previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "setCommentMode", enabled: true });
-  previewStore.send({ type: "viewLiveSite" });
-  assert.equal(previewStore.getSnapshot().context.mode, "previewing-live");
-  previewStore.send({ type: "setCommentMode", enabled: true });
-  assert.equal(previewStore.getSnapshot().context.mode, "previewing-live");
-  previewStore.send({ type: "viewDraftSite" });
 });
 
 void test("comments reveal the existing editor and retain their page and field target", async () => {
@@ -611,30 +604,17 @@ void test("comment mode shares normal hover and redirects native preview clicks"
   }
 });
 
-void test("preview modes have only valid edit/source combinations across every transition", async () => {
-  const { previewStore, selectIsEditMode, selectPreviewSource } = await import("./previewStore");
-  const modes: PreviewMode[] = [
-    "editing-draft",
-    "previewing-draft",
-    "previewing-live",
-    "commenting-draft",
-  ];
+void test("preview modes have only valid edit combinations across every transition", async () => {
+  const { previewStore, selectIsEditMode } = await import("./previewStore");
+  const modes: PreviewMode[] = ["editing-draft", "previewing-draft", "commenting-draft"];
   const transitions = [
     {
       type: "enterEditMode",
-      expected: ["editing-draft", "editing-draft", "editing-draft", "commenting-draft"],
+      expected: ["editing-draft", "editing-draft", "commenting-draft"],
     },
     {
       type: "exitEditMode",
-      expected: ["previewing-draft", "previewing-draft", "previewing-live", "previewing-draft"],
-    },
-    {
-      type: "viewLiveSite",
-      expected: ["previewing-live", "previewing-live", "previewing-live", "previewing-live"],
-    },
-    {
-      type: "viewDraftSite",
-      expected: ["editing-draft", "previewing-draft", "previewing-draft", "commenting-draft"],
+      expected: ["previewing-draft", "previewing-draft", "previewing-draft"],
     },
   ] as const;
 
@@ -646,7 +626,6 @@ void test("preview modes have only valid edit/source combinations across every t
       previewStore.send({ type: "enterEditMode" });
       if (mode === "commenting-draft") previewStore.send({ type: "setCommentMode", enabled: true });
       if (mode === "previewing-draft") previewStore.send({ type: "exitEditMode" });
-      if (mode === "previewing-live") previewStore.send({ type: "viewLiveSite" });
 
       previewStore.send({ type });
       const snapshot = previewStore.getSnapshot();
@@ -655,16 +634,8 @@ void test("preview modes have only valid edit/source combinations across every t
         selectIsEditMode(snapshot),
         snapshot.context.mode === "editing-draft" || snapshot.context.mode === "commenting-draft",
       );
-      assert.equal(
-        selectPreviewSource(snapshot),
-        snapshot.context.mode === "previewing-live" ? "live" : "draft",
-      );
-      assert.equal(selectIsEditMode(snapshot) && selectPreviewSource(snapshot) === "live", false);
       assert.equal("isCommentMode" in snapshot.context, false);
-      if (type === "viewLiveSite") assert.equal(snapshot.context.isToolbarHidden, true);
-      if (type === "enterEditMode" || type === "viewDraftSite") {
-        assert.equal(snapshot.context.isToolbarHidden, false);
-      }
+      if (type === "enterEditMode") assert.equal(snapshot.context.isToolbarHidden, false);
     }
   }
 });

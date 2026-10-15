@@ -124,7 +124,6 @@ CREATE TABLE `layouts` (
 	`layout_id` text NOT NULL,
 	`description` text,
 	`kind` text DEFAULT 'curated' NOT NULL,
-	`live_published_checkpoint_id` integer,
 	`content_updated_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
@@ -134,21 +133,6 @@ CREATE TABLE `layouts` (
 );
 --> statement-breakpoint
 CREATE INDEX `layouts_environment_layout_idx` ON `layouts` (`environment_id`,`layout_id`);--> statement-breakpoint
-CREATE TABLE `layout_checkpoints` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`environment_id` integer NOT NULL,
-	`layout_id` text NOT NULL,
-	`kind` text NOT NULL,
-	`label` text,
-	`snapshot` text NOT NULL,
-	`schema_version` integer NOT NULL,
-	`created_at` integer NOT NULL,
-	`created_by` text,
-	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-CREATE INDEX `layout_checkpoints_layout_created_idx` ON `layout_checkpoints` (`environment_id`,`layout_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `pages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,
@@ -163,7 +147,6 @@ CREATE TABLE `pages` (
 	`ai_seo_enabled` integer,
 	`custom_og_image_blob_id` text,
 	`custom_og_image_url` text,
-	`live_published_checkpoint_id` integer,
 	`content_updated_at` integer NOT NULL,
 	`created_by_id` text,
 	`created_at` integer NOT NULL,
@@ -177,20 +160,6 @@ CREATE INDEX `pages_full_path_idx` ON `pages` (`full_path`);--> statement-breakp
 CREATE INDEX `pages_parent_idx` ON `pages` (`parent_page_id`);--> statement-breakpoint
 CREATE INDEX `pages_project_idx` ON `pages` (`project_id`);--> statement-breakpoint
 CREATE INDEX `pages_environment_full_path_idx` ON `pages` (`environment_id`,`full_path`);--> statement-breakpoint
-CREATE TABLE `page_checkpoints` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`page_id` integer NOT NULL,
-	`kind` text NOT NULL,
-	`label` text,
-	`snapshot` text NOT NULL,
-	`schema_version` integer NOT NULL,
-	`created_at` integer NOT NULL,
-	`created_by` text,
-	FOREIGN KEY (`page_id`) REFERENCES `pages`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-CREATE INDEX `page_checkpoints_page_created_idx` ON `page_checkpoints` (`page_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `block_definitions` (
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
@@ -203,7 +172,6 @@ CREATE TABLE `block_definitions` (
 	`default_settings` text,
 	`layout_only` integer,
 	`synced` integer DEFAULT false NOT NULL,
-	`synced_published_data` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	PRIMARY KEY(`project_id`, `environment_id`, `block_id`),
@@ -386,7 +354,8 @@ WHEN NOT EXISTS (
 BEGIN SELECT RAISE(ABORT, 'Collection definition is retired'); END;
 --> statement-breakpoint
 -- Reference identities remain in authored content. These views are a dependency
--- index over draft placements, current checkpoints and independently shared live data.
+-- index over block, item and record placements. Blocks and items are current
+-- content; records also place references from their published revision.
 -- D1 allows at most five terms per compound SELECT, so block, item and record
 -- placements are separate views, combined by the placements view.
 -- Repeatable items are read against their item schema, found by walking their
@@ -400,36 +369,11 @@ CREATE VIEW collection_reference_block_placements AS
 SELECT d.project_id, d.environment_id, d.content_schema, b.content, 0 AS live,
   b.page_id, b.layout_id, b.id AS block_id, d.block_id AS block_type
 FROM blocks b
-JOIN block_definitions d ON d.block_id = b.type AND d.environment_id = b.environment_id
-UNION ALL
-SELECT d.project_id, d.environment_id, d.content_schema,
-  CASE WHEN d.synced = 1 AND d.synced_published_data IS NOT NULL
-    THEN json_extract(d.synced_published_data, '$.block.content')
-    ELSE json_extract(b.value, '$.content') END,
-  1, p.id, NULL, json_extract(b.value, '$.id'), d.block_id
-FROM pages p JOIN page_checkpoints c ON c.id = p.live_published_checkpoint_id,
-json_each(c.snapshot, '$.blocks') b
-JOIN block_definitions d ON d.environment_id = p.environment_id
-  AND d.block_id = json_extract(b.value, '$.type')
-UNION ALL
-SELECT d.project_id, d.environment_id, d.content_schema,
-  CASE WHEN d.synced = 1 AND d.synced_published_data IS NOT NULL
-    THEN json_extract(d.synced_published_data, '$.block.content')
-    ELSE json_extract(b.value, '$.content') END,
-  1, NULL, l.layout_id, json_extract(b.value, '$.id'), d.block_id
-FROM layouts l JOIN layout_checkpoints c ON c.id = l.live_published_checkpoint_id,
-json_each(c.snapshot, '$.blocks') b
-JOIN block_definitions d ON d.environment_id = l.environment_id
-  AND d.block_id = json_extract(b.value, '$.type')
-UNION ALL
-SELECT project_id, environment_id, content_schema,
-  json_extract(synced_published_data, '$.block.content'), 1, NULL, NULL,
-  json_extract(synced_published_data, '$.block.id'), block_id
-FROM block_definitions WHERE synced = 1 AND synced_published_data IS NOT NULL;
+JOIN block_definitions d ON d.block_id = b.type AND d.environment_id = b.environment_id;
 --> statement-breakpoint
 CREATE VIEW collection_reference_item_placements AS
 WITH RECURSIVE
-draft_items(project_id, environment_id, content_schema, content, page_id, layout_id,
+items(project_id, environment_id, content_schema, content, page_id, layout_id,
   block_id, block_type, item_id) AS (
   SELECT d.project_id, d.environment_id,
     json_extract(d.content_schema, '$.properties."' || i.field_name || '".items'),
@@ -443,65 +387,11 @@ draft_items(project_id, environment_id, content_schema, content, page_id, layout
     json_extract(parent.content_schema, '$.properties."' || i.field_name || '".items'),
     i.content, parent.page_id, parent.layout_id, parent.block_id,
     parent.block_type, i.id
-  FROM repeatable_items i JOIN draft_items parent ON i.parent_item_id = parent.item_id
-),
--- Each live block's item rows: its checkpoint's items, or its type's shared live items.
-live_containers(project_id, environment_id, block_schema, page_id, layout_id, block_id,
-  block_type, items, shared) AS (
-  SELECT d.project_id, d.environment_id, d.content_schema, p.id, NULL,
-    json_extract(b.value, '$.id'), d.block_id,
-    CASE WHEN d.synced = 1 AND d.synced_published_data IS NOT NULL
-      THEN json_extract(d.synced_published_data, '$.items')
-      ELSE json_extract(c.snapshot, '$.repeatableItems') END,
-    d.synced = 1 AND d.synced_published_data IS NOT NULL
-  FROM pages p JOIN page_checkpoints c ON c.id = p.live_published_checkpoint_id,
-  json_each(c.snapshot, '$.blocks') b
-  JOIN block_definitions d ON d.environment_id = p.environment_id
-    AND d.block_id = json_extract(b.value, '$.type')
-  UNION ALL
-  SELECT d.project_id, d.environment_id, d.content_schema, NULL, l.layout_id,
-    json_extract(b.value, '$.id'), d.block_id,
-    CASE WHEN d.synced = 1 AND d.synced_published_data IS NOT NULL
-      THEN json_extract(d.synced_published_data, '$.items')
-      ELSE json_extract(c.snapshot, '$.repeatableItems') END,
-    d.synced = 1 AND d.synced_published_data IS NOT NULL
-  FROM layouts l JOIN layout_checkpoints c ON c.id = l.live_published_checkpoint_id,
-  json_each(c.snapshot, '$.blocks') b
-  JOIN block_definitions d ON d.environment_id = l.environment_id
-    AND d.block_id = json_extract(b.value, '$.type')
-  UNION ALL
-  SELECT project_id, environment_id, content_schema, NULL, NULL,
-    json_extract(synced_published_data, '$.block.id'), block_id,
-    json_extract(synced_published_data, '$.items'), 1
-  FROM block_definitions WHERE synced = 1 AND synced_published_data IS NOT NULL
-),
-live_items(project_id, environment_id, content_schema, content, page_id, layout_id,
-  block_id, block_type, items, item_id) AS (
-  SELECT o.project_id, o.environment_id,
-    json_extract(o.block_schema,
-      '$.properties."' || json_extract(i.value, '$.fieldName') || '".items'),
-    json_extract(i.value, '$.content'), o.page_id, o.layout_id, o.block_id,
-    o.block_type, o.items, json_extract(i.value, '$.id')
-  FROM live_containers o, json_each(o.items) i
-  WHERE json_extract(i.value, '$.parentItemId') IS NULL
-    -- Shared items all belong to their type's one block; checkpoint items to their own.
-    AND (o.shared OR json_extract(i.value, '$.blockId') = o.block_id)
-  UNION ALL
-  SELECT parent.project_id, parent.environment_id,
-    json_extract(parent.content_schema,
-      '$.properties."' || json_extract(i.value, '$.fieldName') || '".items'),
-    json_extract(i.value, '$.content'), parent.page_id, parent.layout_id, parent.block_id,
-    parent.block_type, parent.items, json_extract(i.value, '$.id')
-  FROM live_items parent, json_each(parent.items) i
-  WHERE json_extract(i.value, '$.parentItemId') = parent.item_id
+  FROM repeatable_items i JOIN items parent ON i.parent_item_id = parent.item_id
 )
 SELECT project_id, environment_id, content_schema, content, 0 AS live, page_id, layout_id,
   block_id, block_type
-FROM draft_items WHERE content_schema IS NOT NULL
-UNION ALL
-SELECT project_id, environment_id, content_schema, content, 1, page_id, layout_id,
-  block_id, block_type
-FROM live_items WHERE content_schema IS NOT NULL;
+FROM items WHERE content_schema IS NOT NULL;
 --> statement-breakpoint
 CREATE VIEW collection_reference_record_placements AS
 SELECT d.project_id, d.environment_id, d.content_schema, r.draft AS content, 0 AS live,
@@ -550,8 +440,7 @@ WHERE json_extract(f.value, '$.fieldType') = 'ReferenceList'
   AND json_type(f.value, '$.query') IS NULL;
 --> statement-breakpoint
 -- Deleting a record that any placement links is refused. Unpublishing a record or
--- retiring a collection that published content requires is refused, and so is
--- publishing a page, layout or synced block that requires an unpublished record.
+-- retiring a collection that a published record requires is refused.
 CREATE TRIGGER collection_record_reference_delete_guard BEFORE DELETE ON collection_records
 WHEN EXISTS (SELECT 1 FROM collection_reference_uses u WHERE u.record_id = OLD.id)
 BEGIN SELECT RAISE(ABORT, 'Collection item is still referenced'); END;
@@ -569,44 +458,6 @@ WHEN NEW.active = 0 AND EXISTS (
     AND u.live = 1 AND u.required = 1
 )
 BEGIN SELECT RAISE(ABORT, 'Collection is required by published content'); END;
---> statement-breakpoint
-CREATE TRIGGER page_reference_publish_guard AFTER UPDATE OF live_published_checkpoint_id ON pages
-WHEN NEW.live_published_checkpoint_id IS NOT NULL AND EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.page_id = NEW.id AND u.live = 1 AND u.required = 1
-    AND (r.published_revision_id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Required collection item is not published'); END;
---> statement-breakpoint
-CREATE TRIGGER layout_reference_publish_guard AFTER UPDATE OF live_published_checkpoint_id ON layouts
-WHEN NEW.live_published_checkpoint_id IS NOT NULL AND EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.environment_id = NEW.environment_id AND u.layout_id = NEW.layout_id
-    AND u.live = 1 AND u.required = 1
-    AND (r.published_revision_id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Required collection item is not published'); END;
---> statement-breakpoint
-CREATE TRIGGER synced_reference_publish_guard AFTER UPDATE OF synced_published_data ON block_definitions
-WHEN NEW.synced = 1 AND NEW.synced_published_data IS NOT NULL AND EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.environment_id = NEW.environment_id AND u.block_type = NEW.block_id
-    AND u.live = 1 AND u.required = 1
-    AND (r.published_revision_id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Required collection item is not published'); END;
 --> statement-breakpoint
 -- Service validation provides actionable errors; these checks close the race
 -- with a concurrent record deletion after validation but before placement writes.
