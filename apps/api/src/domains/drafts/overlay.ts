@@ -243,12 +243,12 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
     const taken = yield* getStored(db, null, table, values.id);
     if (taken) return undefined;
   }
-  // An entity created straight on Live is published as it's created.
-  const now = Date.now();
-  const published = scope ? {} : { firstPublishedAt: now, publishedAt: now };
+  // An entity created straight on Live is on Live from then on: lists sorted by when entities
+  // were first published place it there. Nobody published it, so it records no publish.
+  const firstPublished = scope ? {} : { firstPublishedAt: Date.now() };
   const row = {
     ...values,
-    ...published,
+    ...firstPublished,
     draftId: scope?.id ?? null,
     baseVersion: null,
     deleted: false,
