@@ -10,7 +10,7 @@ const definitionInput = collections.getCollectionDefinitionInput.omit({ projectS
 const recordInput = collections.getCollectionRecordInput.omit({ projectSlug: true });
 const createInput = collections.createRecordInput.omit({ projectSlug: true });
 const editInput = collections.editRecordInput.omit({ projectSlug: true });
-const mutationInput = collections.publishRecordInput.omit({ projectSlug: true });
+const deleteInput = collections.deleteRecordInput.omit({ projectSlug: true });
 
 export const collectionsProvider: ToolProvider = (ctx) => {
   // Never accept a caller-supplied project scope. Membership is checked here and
@@ -21,7 +21,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
   return [
     {
       name: "listCollections",
-      description: "List active code-defined collections in this project and environment.",
+      description: "List the code-defined collections in this project and environment.",
       inputSchema: listInput,
       meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
       handler: async (input) => {
@@ -52,8 +52,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
     },
     {
       name: "listCollectionRecords",
-      description:
-        "List record IDs, draft labels, publication status and optimistic-concurrency versions.",
+      description: "List record IDs and labels, newest first.",
       inputSchema: definitionInput,
       meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
       handler: async (input) => {
@@ -70,7 +69,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
     {
       name: "getCollectionRecord",
       description:
-        "Read a record's saved draft and version. This is an authenticated draft read, not live content.",
+        "Read a record's current content. Files read as their current metadata alongside their _fileId.",
       inputSchema: recordInput,
       meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
       handler: async (input) => {
@@ -87,7 +86,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
     {
       name: "createCollectionRecord",
       description:
-        "Create an unpublished standalone record. Supply full content matching getCollection's schema; reference fields hold a record id (or null) and reference lists an array of distinct record ids from the referenced collection. Publish separately.",
+        "Create a record. Supply full content matching getCollection's schema; reference fields hold a record id (or null), reference lists an array of distinct record ids from the referenced collection, and image or file fields a { _fileId } (or null).",
       inputSchema: createInput,
       meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
       handler: async (input) => {
@@ -101,8 +100,7 @@ export const collectionsProvider: ToolProvider = (ctx) => {
     },
     {
       name: "editCollectionRecord",
-      description:
-        "Replace the complete saved draft, preserving omitted fields yourself. Pass its last-read expectedVersion; conflicts require rereading. Does not publish.",
+      description: "Replace a record's complete content, preserving omitted fields yourself.",
       inputSchema: editInput,
       meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
       handler: async (input) => {
@@ -115,45 +113,13 @@ export const collectionsProvider: ToolProvider = (ctx) => {
       },
     },
     {
-      name: "publishCollectionRecord",
-      description:
-        "Publish this standalone record's saved draft only. Pass its last-read expectedVersion. No pages, blocks or dependencies are published.",
-      inputSchema: mutationInput,
-      meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
-      handler: async (input) => {
-        const parsed = mutationInput.parse(input);
-        return runService(
-          scope.pipe(
-            Effect.flatMap((project) => collections.publishRecord(ctx, { ...parsed, ...project })),
-          ),
-        );
-      },
-    },
-    {
-      name: "unpublishCollectionRecord",
-      description:
-        "Remove the record from live reads, keeping its draft and history. Requires its last-read expectedVersion.",
-      inputSchema: mutationInput,
-      meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
-      handler: async (input) => {
-        const parsed = mutationInput.parse(input);
-        return runService(
-          scope.pipe(
-            Effect.flatMap((project) =>
-              collections.unpublishRecord(ctx, { ...parsed, ...project }),
-            ),
-          ),
-        );
-      },
-    },
-    {
       name: "deleteCollectionRecord",
       description:
-        "Permanently delete a standalone record and all its history. Media-library files are kept. Requires its last-read expectedVersion.",
-      inputSchema: mutationInput,
+        "Permanently delete a record. Content that references it is left alone and reads the reference as empty. Files are kept.",
+      inputSchema: deleteInput,
       meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
       handler: async (input) => {
-        const parsed = mutationInput.parse(input);
+        const parsed = deleteInput.parse(input);
         return runService(
           scope.pipe(
             Effect.flatMap((project) => collections.deleteRecord(ctx, { ...parsed, ...project })),

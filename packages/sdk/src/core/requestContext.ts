@@ -22,11 +22,11 @@ export interface LoadedRecord<Content = Record<string, unknown>> {
   content: Content;
   /** The records it links, resolved by Camox with the record as the first hop. */
   references?: ReferenceRecord["references"];
-  /** The draft's version, which edits on the record page send as expected. Live has none. */
-  version?: number;
+  /** When its content last changed. */
+  updatedAt?: number;
 }
 
-/** Reads records in the request's source, scoped to the project and environment. */
+/** Reads records, scoped to the project and environment. */
 export interface RecordLookup {
   /** The records whose String field's plain text equals `value`. */
   findByField(input: {

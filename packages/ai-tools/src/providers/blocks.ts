@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { pageSourceSchema } from "../../../../apps/api/src/domains/_shared/page-source";
 import {
   createBlock,
   createBlockInput,
@@ -39,46 +38,34 @@ const editBlockToolInput = z.object({
   settings: z.unknown().optional(),
 });
 
-// Tool-layer schema for getBlock: source defaults to "draft" (agent / CLI edit
-// the working copy). The service's `getBlockInput` defaults to "live" because
-// it backs the public SDK loader too — we override here explicitly.
-const getBlockToolInput = z.object({
-  id: z.number(),
-  source: pageSourceSchema.optional(),
-});
+const getBlockToolInput = z.object({ id: z.number() });
 
-const getBlocksToolInput = z.object({
-  ids: z.array(z.number()).min(1),
-  source: pageSourceSchema.optional(),
-});
+const getBlocksToolInput = z.object({ ids: z.array(z.number()).min(1) });
 
 export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "getBlock",
     description:
       "Fetch a single block by id. Returns the block (with `_itemId` markers injected for each repeatable field), the full list of `repeatableItems` (each with its own `id`), and any referenced `files`. " +
-      "Use this before editing a single field inside a repeatable item — pass each item's `id` back as `_itemId` on the `editBlock` items array. Any existing item not referenced by `_itemId` in the patch is deleted, so the round-trip is the only safe way to update one item without losing the others (and their file references, settings, and positions). " +
-      "Defaults to reading the draft; pass `source: 'live'` to read the published snapshot.",
+      "Use this before editing a single field inside a repeatable item — pass each item's `id` back as `_itemId` on the `editBlock` items array. Any existing item not referenced by `_itemId` in the patch is deleted, so the round-trip is the only safe way to update one item without losing the others (and their file references, settings, and positions).",
     inputSchema: getBlockToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = getBlockToolInput.parse(input);
-      return runService(getBlock(ctx, { id: parsed.id, source: parsed.source ?? "draft" }));
+      return runService(getBlock(ctx, { id: parsed.id }));
     },
   },
   {
     name: "getBlocks",
     description:
       "Fetch multiple blocks by id in one call. Returns an array of getBlock bundle results in the same order as the requested ids. " +
-      "Use this before editing repeatable fields across several blocks so each block's `_itemId` markers can be preserved. " +
-      "Defaults to reading the draft; pass `source: 'live'` to read the published snapshot.",
+      "Use this before editing repeatable fields across several blocks so each block's `_itemId` markers can be preserved.",
     inputSchema: getBlocksToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = getBlocksToolInput.parse(input);
-      const source = parsed.source ?? "draft";
       return runService(
-        Effect.forEach(parsed.ids, (id) => getBlock(ctx, { id, source }), {
+        Effect.forEach(parsed.ids, (id) => getBlock(ctx, { id }), {
           concurrency: "unbounded",
         }),
       );

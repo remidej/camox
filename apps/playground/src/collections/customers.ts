@@ -1,10 +1,10 @@
 import { createCollection } from "camox/createCollection";
 
-// Testimonials share company names and logos from these independently published customers.
+// Testimonials share company names and logos from these customers.
 export const collection = createCollection({
   id: "customers",
   title: "Customers",
-  description: "Create and publish customers independently of page content.",
+  description: "Customers whose names and logos testimonials share.",
   content: (field) => ({
     name: field.string({ minLength: 1 }),
     company: field.string(),

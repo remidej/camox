@@ -336,7 +336,7 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   const siblings = yield* Effect.promise(() =>
     ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
   );
-  const conformed = yield* conformBlocksIn(ctx, yield* blockScope(ctx, block), [block], siblings);
+  const conformed = yield* conformBlocksIn(ctx, block, [block], siblings);
   const item = conformed.items.find((candidate) => candidate.id === id);
   if (!item) return yield* new NotFoundError();
 
@@ -523,9 +523,9 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(blockId, "draft"),
+      queryKeys.blocks.get(blockId),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       queryKeys.blocks.getUsageCounts,
@@ -588,15 +588,15 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
         delayMs: 5000,
       }),
     );
-    // Granular invalidation: only refetch the parent block bundle (draft source)
+    // Granular invalidation: only refetch the parent block bundle
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
       projectId: access.projectId,
       targets: [
-        queryKeys.blocks.get(access.item.blockId, "draft"),
+        queryKeys.blocks.get(access.item.blockId),
         ...(access.pagePath
-          ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+          ? [queryKeys.pages.getByPath(access.pagePath)]
           : [queryKeys.pages.getByPathAll]),
         queryKeys.pages.list,
       ],
@@ -649,9 +649,9 @@ export const updateRepeatableItemSettings = Effect.fn(
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(access.item.blockId, "draft"),
+      queryKeys.blocks.get(access.item.blockId),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
     ],
@@ -711,15 +711,15 @@ export const updateRepeatableItemPosition = Effect.fn(
   );
   yield* syncBlockData(ctx, access.item.blockId);
   yield* bumpContentUpdatedAtForBlock(ctx.db, access.item.blockId);
-  // Granular invalidation: only refetch the parent block bundle (draft source)
+  // Granular invalidation: only refetch the parent block bundle
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(access.item.blockId, "draft"),
+      queryKeys.blocks.get(access.item.blockId),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
     ],
@@ -789,9 +789,9 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
       projectRoomNamespace: ctx.env.ProjectRoom,
       projectId: access.projectId,
       targets: [
-        queryKeys.blocks.get(original.blockId, "draft"),
+        queryKeys.blocks.get(original.blockId),
         ...(access.pagePath
-          ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+          ? [queryKeys.pages.getByPath(access.pagePath)]
           : [queryKeys.pages.getByPathAll]),
         queryKeys.pages.list,
         queryKeys.blocks.getUsageCounts,
@@ -824,7 +824,7 @@ export const generateRepeatableItemSummary = Effect.fn(
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
-    targets: [queryKeys.blocks.get(access.item.blockId, "draft"), queryKeys.blocks.getUsageCounts],
+    targets: [queryKeys.blocks.get(access.item.blockId), queryKeys.blocks.getUsageCounts],
   });
   const updated = yield* Effect.promise(() =>
     ctx.db.select().from(repeatableItems).where(eq(repeatableItems.id, id)).get(),
@@ -872,9 +872,9 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
     projectRoomNamespace: ctx.env.ProjectRoom,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(blockId, "draft"),
+      queryKeys.blocks.get(blockId),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       queryKeys.blocks.getUsageCounts,

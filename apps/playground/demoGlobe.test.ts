@@ -17,7 +17,7 @@ function fakeApi(blocks: FakeBlock[]) {
     logger: { info: (message: string) => logs.push(message) },
     client: {
       pages: {
-        getByPath: async (input: { projectSlug: string; path: string; source: "draft" }) => {
+        getByPath: async (input: { projectSlug: string; path: string }) => {
           assert.equal(input.path, "/");
           return { blocks };
         },

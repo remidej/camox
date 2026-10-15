@@ -36,7 +36,6 @@ const record: ReferenceRecord = {
   id,
   collectionId: "customers",
   label: "Source label",
-  version: 1,
   content: { name: "Acme", logo: null, images: [] },
 };
 
@@ -437,6 +436,7 @@ void test("repeatable items render the records they link, at any repeater depth"
     position: "a0",
     createdAt: 0,
     updatedAt: 0,
+    syncKey: null,
     references,
   });
   const html = renderToStaticMarkup(
@@ -564,26 +564,30 @@ void test("placement identity is separate from source identity and resolution va
 
 void test("two placements serialize shared source edits without clobbering another field", async () => {
   const writer = new ReferenceWrites();
-  const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
+  const requests: Array<{ content: Record<string, unknown> }> = [];
   const save = async (input: (typeof requests)[number]) => {
     requests.push(input);
     await Promise.resolve();
-    return { id, version: input.expectedVersion + 1, draft: input.content };
+    return { id, content: input.content };
   };
   await Promise.all([
     writer.save(record, "name", "First", save),
     writer.save({ ...record }, "quote", "Second", save),
     writer.save({ ...record }, "name", "Third", save),
   ]);
+  // Each queued save builds on the content the previous one saved.
   assert.deepEqual(
-    requests.map((r) => r.expectedVersion),
-    [1, 2, 3],
+    requests.map((r) => r.content),
+    [
+      { ...record.content, name: "First" },
+      { ...record.content, name: "First", quote: "Second" },
+      { ...record.content, name: "Third", quote: "Second" },
+    ],
   );
-  assert.deepEqual(requests[2].content, { ...record.content, name: "Third", quote: "Second" });
   assert.equal(record.content.name, "Acme");
 });
 
-void test("failed source writes do not retry or advance queued expected versions", async () => {
+void test("failed source writes do not retry, and queued writes behind them are dropped", async () => {
   const writer = new ReferenceWrites();
   let calls = 0;
   const save = async () => {
@@ -599,6 +603,4 @@ void test("failed source writes do not retry or advance queued expected versions
     results.map((r) => r.status),
     ["rejected", "rejected"],
   );
-  await assert.rejects(writer.save({ ...record, version: undefined }, "name", "Live", save));
-  assert.equal(calls, 1);
 });

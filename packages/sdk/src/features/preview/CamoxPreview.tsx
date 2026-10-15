@@ -1,4 +1,4 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
@@ -26,11 +26,15 @@ import { BlockErrorBoundary } from "./components/BlockErrorBoundary";
 import { CanvasPreview } from "./components/CanvasPreview";
 import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
-import { LeftSidebar } from "./components/LeftSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbar } from "./components/PreviewToolbar";
 import { RemovedBlockPlaceholder } from "./components/RemovedBlockPlaceholder";
-import { PageRecordContext, useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
+import {
+  getPageRecord,
+  PageRecordContext,
+  useDerivedPageResult,
+  useFollowPageRecord,
+} from "./pageRecord";
 import { previewCommentsStore } from "./previewCommentsStore";
 import { EDIT_MODE_SHORTCUT } from "./previewConstants";
 import { PreviewEditingOwnerContext } from "./previewSelection";
@@ -38,10 +42,8 @@ import {
   previewStore,
   selectIsCommentMode,
   selectIsEditMode,
-  selectPreviewSource,
   type EditingOwner,
 } from "./previewStore";
-import { getPageRecord, type PageRecordId } from "./publication";
 import { usePreviewViewportActions } from "./usePreviewViewportActions";
 
 const MOBILE_STUDIO_QUERY = "(max-width: 767px)";
@@ -74,29 +76,22 @@ function useIsMobileStudio() {
 /**
  * Lightweight queryFn for client-side refetches — only fetches structural data.
  * Used after initial SSR load when block caches are already populated.
- *
- * Source is threaded from the studio's source select (previewStore). Each
- * source has its own cache slot, so toggling Draft↔Live is instant once both
- * have been seeded. Public visitors never invalidate (no project room) so
- * this query function doesn't run for them — they stay on the SSR-seeded
- * 'live' data.
+ * Public visitors never invalidate (no project room) so this query function
+ * doesn't run for them — they stay on the SSR-seeded data.
  */
-function pageStructureQueryFn(path: string, projectSlug: string, source: ReadSource) {
-  return () => getApiClient().pages.getStructure({ path, projectSlug, source });
+function pageStructureQueryFn(path: string, projectSlug: string) {
+  return () => getApiClient().pages.getStructure({ path, projectSlug });
 }
 
 export function usePreviewedPage() {
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
-  const previewSource = useSelector(previewStore, selectPreviewSource);
 
-  // Current page: SSR loader seeds block caches on first load (both 'live'
-  // and 'draft' slots, so the studio's default 'draft' view has data even
-  // before the first edit). Client-side refetches (after invalidation) use
-  // the lightweight endpoint.
+  // Current page: SSR loader seeds block caches on first load. Client-side
+  // refetches (after invalidation) use the lightweight endpoint.
   const { data: currentPage } = useSuspenseQuery({
-    queryKey: queryKeys.pages.getByPath(pathname, previewSource),
-    queryFn: pageStructureQueryFn(pathname, projectSlug, previewSource),
+    queryKey: queryKeys.pages.getByPath(pathname),
+    queryFn: pageStructureQueryFn(pathname, projectSlug),
     staleTime: Infinity,
   });
 
@@ -118,8 +113,7 @@ const BlockRenderer = ({
   showAddBlockTop: boolean;
   showAddBlockBottom: boolean;
 }) => {
-  const previewSource = useSelector(previewStore, selectPreviewSource);
-  const { data } = useSuspenseQuery(blockQueries.get(blockId, previewSource));
+  const { data } = useSuspenseQuery(blockQueries.get(blockId));
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(data.block.type);
 
@@ -155,11 +149,8 @@ const BlockRenderer = ({
 
 export const PageContent = () => {
   const pageData = usePreviewedPage();
-  const previewSource = useSelector(previewStore, selectPreviewSource);
-  const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } = usePageBlocks(
-    pageData,
-    previewSource,
-  );
+  const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } =
+    usePageBlocks(pageData);
 
   const camoxApp = useCamoxApp();
 
@@ -230,20 +221,16 @@ export const PageContent = () => {
 };
 
 /* -------------------------------------------------------------------------------------------------
- * useHydrateDraftCache
+ * useRefreshMemberPage
  *
- * SSR seeds the `'draft'` cache slot with the live snapshot data so the studio
- * can render immediately on first paint without a Suspense flash. That seed
- * is stale the moment there's an unpublished edit, though — on refresh the
- * studio would silently re-render the published version and the user's
- * in-flight changes would disappear from view (the row in the DB is fine).
- *
- * After the initial paint, fetch the real draft data and re-seed the draft
- * caches. From there, every block invalidation keeps the slot in sync. Only
- * runs for authenticated users — public visitors stay on the live cache.
+ * The server may have rendered the page before the studio authenticated, so
+ * linked collection records show their published content. Project members
+ * read their saved drafts instead: after the initial paint, fetch the page
+ * again with the session and re-seed the caches. From there, every block
+ * invalidation keeps them in sync. Only runs for authenticated users.
  * -----------------------------------------------------------------------------------------------*/
 
-function useHydrateDraftCache(enabled: boolean) {
+function useRefreshMemberPage(enabled: boolean) {
   const isAuthenticated = useIsAuthenticated();
   const queryClient = useQueryClient();
   const projectSlug = useProjectSlug();
@@ -253,11 +240,11 @@ function useHydrateDraftCache(enabled: boolean) {
     if (!isAuthenticated || !enabled) return;
     let cancelled = false;
     void getApiClient()
-      .pages.getByPath({ path: pathname, projectSlug, source: "draft" })
+      .pages.getByPath({ path: pathname, projectSlug })
       .then((data) => {
         if (cancelled) return;
-        seedBlockCaches(queryClient, data, "draft");
-        queryClient.setQueryData(queryKeys.pages.getByPath(pathname, "draft"), {
+        seedBlockCaches(queryClient, data);
+        queryClient.setQueryData(queryKeys.pages.getByPath(pathname), {
           page: data.page,
           layout: data.layout,
           projectName: data.projectName,
@@ -265,7 +252,7 @@ function useHydrateDraftCache(enabled: boolean) {
         });
       })
       .catch(() => {
-        // A draft fetch failure (network blip, 404 on a just-deleted page) is
+        // A fetch failure (network blip, 404 on a just-deleted page) is
         // non-fatal — the SSR-seeded view stays on screen and the next edit
         // invalidation will retry. Throwing here would break the studio for a
         // transient error.
@@ -285,55 +272,42 @@ export const CamoxPreview = ({
   runtimeBasePath,
   derived,
   canvasOnly,
-  source,
 }: {
   children: React.ReactNode;
   runtimeBasePath?: string;
   derived?: PageRenderInput["derived"];
   canvasOnly?: PageRenderInput["canvasOnly"];
-  source?: ReadSource;
 }) => {
   const camoxApp = useCamoxApp();
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
   const queryClient = useQueryClient();
-  const previewSource = useSelector(previewStore, selectPreviewSource);
   // All route kinds resolve through one component so selecting a layout frame, a
   // block, or nothing never remounts the workspace, its camera, or its in-progress selection.
   const { data } = useSuspenseQuery<PageStructure | DerivedLayoutStructure | null>({
     queryKey: canvasOnly
       ? ["camox", "canvas", "canvasOnly"]
       : derived
-        ? [...queryKeys.layouts.all, "get", projectSlug, derived.layoutId, previewSource]
-        : queryKeys.pages.getByPath(pathname, previewSource),
+        ? [...queryKeys.layouts.all, "get", projectSlug, derived.layoutId]
+        : queryKeys.pages.getByPath(pathname),
     queryFn: async () => {
       // A Canvas-only location has no page or layout record.
       if (canvasOnly) return null;
-      if (!derived) return pageStructureQueryFn(pathname, projectSlug, previewSource)();
-      const result = await getApiClient().layouts.get({
-        projectSlug,
-        layoutId: derived.layoutId,
-        source: previewSource,
-      });
-      seedBlockCaches(queryClient, result, previewSource);
+      if (!derived) return pageStructureQueryFn(pathname, projectSlug)();
+      const result = await getApiClient().layouts.get({ projectSlug, layoutId: derived.layoutId });
+      seedBlockCaches(queryClient, result);
       return result.layout;
     },
-    // Only the server's source has seeded layout blocks.
-    initialData: canvasOnly
-      ? null
-      : derived && previewSource === source
-        ? derived.layout
-        : undefined,
+    initialData: canvasOnly ? null : derived?.layout,
     staleTime: derived ? 0 : Infinity,
   });
-  useHydrateDraftCache(!derived && !canvasOnly);
-  // A code-owned page's loader runs again in the preview's source, and after record edits
-  // and publication.
+  useRefreshMemberPage(!derived && !canvasOnly);
+  // A code-owned page's loader runs again after record edits and publication.
   const derivedResult = useDerivedPageResult({
     projectSlug,
     runtimeBasePath: runtimeBasePath ?? "",
     pathname,
-    loaded: derived ? { result: derived.result, source: source ?? "draft" } : undefined,
+    loaded: derived ? { result: derived.result } : undefined,
   });
   const pageRecord = getPageRecord(derivedResult);
   useFollowPageRecord({
@@ -348,10 +322,7 @@ export const CamoxPreview = ({
     <PageRecordContext value={derivedResult}>
       <PreviewShell
         pageData={pageData}
-        derivedLayoutId={derived?.layoutId}
         derivedLayout={layout}
-        pageRecord={pageRecord}
-        hasLiveVersion={layout?.livePublishedCheckpointId != null}
         canvasOnly={canvasOnly}
         runtimeBasePath={runtimeBasePath}
       >
@@ -359,7 +330,6 @@ export const CamoxPreview = ({
           <DerivedPageContent
             camoxApp={camoxApp}
             derived={{ ...derived, layout, result: derivedResult }}
-            source={previewSource}
           />
         ) : (
           children
@@ -393,19 +363,13 @@ function useCanvasOnlyEditMode(canvasOnly: boolean, isEditMode: boolean, isMobil
 export const PreviewShell = ({
   children,
   pageData,
-  hasLiveVersion = false,
-  derivedLayoutId,
   derivedLayout,
-  pageRecord,
   canvasOnly,
   runtimeBasePath = "",
 }: {
   children: React.ReactNode;
   pageData?: ReturnType<typeof usePreviewedPage>;
-  hasLiveVersion?: boolean;
-  derivedLayoutId?: string;
   derivedLayout?: DerivedLayoutStructure;
-  pageRecord?: PageRecordId;
   canvasOnly?: PageRenderInput["canvasOnly"];
   runtimeBasePath?: string;
 }) => {
@@ -416,25 +380,17 @@ export const PreviewShell = ({
   const isEditMode = useSelector(previewStore, selectIsEditMode);
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const previewSource = useSelector(previewStore, selectPreviewSource);
   usePreviewViewportActions();
   const showCanvas = !isMobileStudio && isEditMode;
   const { pathname } = useLocation();
 
   const pageId = pageData?.page.id;
-  const layoutId = derivedLayout?.id;
+  const layoutId = derivedLayout?.layoutId;
   const editingOwner = React.useMemo<EditingOwner | null>(() => {
     if (pageId != null) return { kind: "page", pageId };
     if (layoutId != null) return { kind: "layout", layoutId };
     return null;
   }, [pageId, layoutId]);
-
-  // Gate "Preview live content" on a published snapshot existing — same rule
-  // as the sidebar Switch. Without it, flipping to 'live' would Suspense on
-  // an empty cache slot.
-  const hasLiveCheckpoint = pageData
-    ? pageData.page.livePublishedCheckpointId != null
-    : hasLiveVersion;
 
   // Stores outlive this component; studio routes unmount it, so start over on return.
   React.useEffect(
@@ -488,24 +444,6 @@ export const PreviewShell = ({
         shortcut: { key: "c" },
       },
       {
-        id: "preview-live-content",
-        label: "Preview live content",
-        aliases: ["Live", "View live", "Published content"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => isAuthenticated && previewSource === "draft" && hasLiveCheckpoint,
-        execute: () => previewStore.send({ type: "viewLiveSite" }),
-        shortcut: { key: "d", withAlt: true },
-      },
-      {
-        id: "preview-draft-content",
-        label: "Preview draft content",
-        aliases: ["Draft", "View draft", "Unpublished content"],
-        groupLabel: "Preview",
-        checkIfAvailable: () => isAuthenticated && previewSource === "live",
-        execute: () => previewStore.send({ type: "viewDraftSite" }),
-        shortcut: { key: "d", withAlt: true },
-      },
-      {
         id: "clear-selection",
         label: "Clear selection",
         aliases: ["Deselect", "Unselect"],
@@ -530,15 +468,7 @@ export const PreviewShell = ({
         ids: actions.map((a) => a.id),
       });
     };
-  }, [
-    isEditMode,
-    isCommentMode,
-    isAuthenticated,
-    isMobileStudio,
-    pageData,
-    previewSource,
-    hasLiveCheckpoint,
-  ]);
+  }, [isEditMode, isCommentMode, isAuthenticated, isMobileStudio, pageData]);
 
   if (!isAuthenticated) {
     return <>{children}</>;
@@ -560,21 +490,11 @@ export const PreviewShell = ({
           {!sharedChrome && !isMobileStudio && !isToolbarHidden && <Navbar isPreview />}
           <CanvasPreview enabled={showCanvas} pathname={pathname} runtimeBasePath={runtimeBasePath}>
             <div className="flex min-h-0 flex-1 flex-row items-stretch">
-              {!showCanvas && !isMobileStudio && (pageData || derivedLayoutId) && (
-                // Keep publication actions registered in read-only preview.
-                <div hidden>
-                  <LeftSidebar
-                    page={pageData?.page}
-                    derivedLayout={derivedLayout}
-                    pageRecord={pageRecord}
-                  />
-                </div>
-              )}
               <PreviewPanel
                 active={!showCanvas}
                 isMobileExperience={isMobileStudio}
                 page={pageData?.page}
-                layoutId={derivedLayout?.id}
+                layoutId={derivedLayout?.layoutId}
                 projectName={pageData?.projectName}
                 toolbarProps={toolbarProps}
               >

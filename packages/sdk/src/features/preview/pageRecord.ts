@@ -1,11 +1,11 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { useQuery } from "@tanstack/react-query";
-import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import type { AnyLayoutLoaderResult } from "@/core/createLayout";
 import { useLatestRecord } from "@/core/editing/useLatestRecord";
 import { asCollectionItem } from "@/core/recordItem";
+import type { CollectionRecordId } from "@/core/requestContext";
 import { collectionQueries } from "@/lib/queries";
 
 import { useLocation, useNavigate } from "../navigation/navigation";
@@ -13,33 +13,28 @@ import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 import type { LayoutRecordPlacer } from "./components/useRecordView";
-import { previewStore, selectPreviewSource } from "./previewStore";
-import type { PageRecordId } from "./publication";
+
+export type PageRecordId = CollectionRecordId;
+
+/** The record a record page renders, as its loader's collection-item envelope names it. */
+export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRecordId | undefined {
+  const record = asCollectionItem(result);
+  if (!record) return undefined;
+  return { collectionId: record.collectionId, id: record.data.id };
+}
 
 /**
- * A code-owned page's loader result in a preview source. Its records are draft or live content,
- * so it reloads with record edits and publication, like the draft reads it sits among.
+ * A code-owned page's loader result. Its records are what the session may read, so it reloads
+ * with record edits and publication.
  */
-export function derivedPageQuery(
-  projectSlug: string,
-  runtimeBasePath: string,
-  pathname: string,
-  source: ReadSource,
-) {
+export function derivedPageQuery(projectSlug: string, runtimeBasePath: string, pathname: string) {
   return {
-    queryKey: [
-      ...queryKeys.layouts.all,
-      "data",
-      projectSlug,
-      runtimeBasePath,
-      pathname,
-      source,
-    ] as const,
+    queryKey: [...queryKeys.layouts.all, "data", projectSlug, runtimeBasePath, pathname] as const,
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const response = await fetchRuntimeJson(
         "/_camox/data",
         runtimeBasePath,
-        { path: pathname, source },
+        { path: pathname },
         signal,
       );
       // A record without live content has no page for visitors.
@@ -53,8 +48,8 @@ export function derivedPageQuery(
 }
 
 /**
- * The previewed code-owned page's loader result, in the preview's source. The server rendered
- * the page with `loaded`; switching source, editing records or publishing loads it again.
+ * The previewed code-owned page's loader result. The server rendered the page with `loaded`;
+ * editing or publishing records loads it again.
  */
 export function useDerivedPageResult({
   projectSlug,
@@ -65,13 +60,12 @@ export function useDerivedPageResult({
   projectSlug: string;
   runtimeBasePath: string;
   pathname: string;
-  loaded: { result: AnyLayoutLoaderResult | undefined; source: ReadSource } | undefined;
+  loaded: { result: AnyLayoutLoaderResult | undefined } | undefined;
 }): AnyLayoutLoaderResult | undefined {
-  const source = useSelector(previewStore, selectPreviewSource);
   const { data } = useQuery({
-    ...derivedPageQuery(projectSlug, runtimeBasePath, pathname, source),
+    ...derivedPageQuery(projectSlug, runtimeBasePath, pathname),
     enabled: loaded != null,
-    initialData: loaded && loaded.source === source ? (loaded.result ?? null) : undefined,
+    initialData: loaded ? (loaded.result ?? null) : undefined,
   });
   return data ?? undefined;
 }
@@ -95,10 +89,10 @@ export function useFollowPageRecord({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: savedVersion } = useQuery({
+  const { data: savedAt } = useQuery({
     ...collectionQueries.record(projectSlug, record?.collectionId ?? "", record?.id ?? ""),
     enabled: false,
-    select: (saved) => saved.version,
+    select: (saved) => saved.updatedAt,
   });
   const follow = React.useEffectEvent(async (signal: AbortSignal) => {
     if (!layoutId || !record) return;
@@ -119,12 +113,12 @@ export function useFollowPageRecord({
     });
   });
   React.useEffect(() => {
-    if (savedVersion == null) return;
+    if (savedAt == null) return;
     const controller = new AbortController();
     // A failed lookup leaves the Studio where it is, as before the edit.
     follow(controller.signal).catch(() => {});
     return () => controller.abort();
-  }, [savedVersion]);
+  }, [savedAt]);
 }
 
 /** What the previewed record page's loader returned, for the Studio around its preview. */

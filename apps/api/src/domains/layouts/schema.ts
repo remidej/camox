@@ -1,35 +1,28 @@
-import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, int, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { environments, projects } from "../projects/schema";
 
 export const layouts = sqliteTable(
   "layouts",
   {
-    id: int().primaryKey({ autoIncrement: true }),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
     environmentId: int("environment_id")
       .notNull()
       .references(() => environments.id),
+    // The layout's name, given by code. It identifies the layout within a project.
     layoutId: text("layout_id").notNull(),
     description: text(),
     kind: text({ enum: ["curated", "derived", "singleton"] })
       .notNull()
       .default("curated"),
-    // False once a sync no longer declares the layout. The row stays, so its pages and
-    // blocks come back with it; until then its pages aren't served.
-    active: int({ mode: "boolean" }).notNull().default(true),
-    // FK to layout_checkpoints.id is declared in checkpoints-schema.ts to avoid
-    // the circular import between layouts and layout_checkpoints.
-    livePublishedCheckpointId: int("live_published_checkpoint_id"),
     contentUpdatedAt: int("content_updated_at").notNull(),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },
   (table) => [
-    index("layouts_project_idx").on(table.projectId),
-    index("layouts_project_layout_idx").on(table.projectId, table.layoutId),
+    primaryKey({ columns: [table.projectId, table.environmentId, table.layoutId] }),
     index("layouts_environment_layout_idx").on(table.environmentId, table.layoutId),
   ],
 );

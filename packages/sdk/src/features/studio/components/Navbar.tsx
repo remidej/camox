@@ -15,7 +15,6 @@ import { STUDIO_CONTENT_PATH } from "../routes";
 import { studioStore } from "../studioStore";
 import { EnvironmentMenu } from "./EnvironmentMenu";
 import { ProjectMenu } from "./ProjectMenu";
-import { SiteStatusIndicator } from "./SiteStatusIndicator";
 import { UserButton } from "./UserButton";
 
 const links = [
@@ -99,7 +98,6 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
         </ul>
       </div>
       <div className="flex items-center gap-2">
-        <SiteStatusIndicator isPreview={isPreview} />
         <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
           <SearchIcon className="text-muted-foreground size-4" />
           <span className="text-muted-foreground">Quick find</span>

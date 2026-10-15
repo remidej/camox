@@ -2,8 +2,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 /**
  * Demo content for the playground's `articles` collection, seeded through the record
- * endpoints by the camox plugin's dev-only `afterSync` hook. Listed oldest first: the
- * first four are published in this order, the last one stays a draft.
+ * endpoints by the camox plugin's dev-only `afterSync` hook. Listed oldest first, and
+ * created in this order.
  */
 const DEMO_ARTICLES = [
   {
@@ -30,16 +30,9 @@ const DEMO_ARTICLES = [
     excerpt: "Writers fix more typos when they can see the page they are changing.",
     body: "When editors change text directly on the page, they notice awkward line breaks, repeated words and headlines that are too long. Forms hide all of that. Inline editing is not only friendlier; it produces better copy because the reader's view is the editor's view.",
   },
-  {
-    title: "Notes on our next release (draft)",
-    slug: "next-release-notes",
-    excerpt: "Unpublished: a draft that only shows up in preview.",
-    body: "This article is intentionally left as a draft. It appears in Studio and in preview, and never on the live site until someone publishes it.",
-  },
 ];
-const PUBLISHED_COUNT = 4;
-/** Publication times have millisecond precision; spacing keeps newest-first order stable. */
-const PUBLICATION_GAP_MS = 10;
+/** Creation times have millisecond precision; spacing keeps newest-first order stable. */
+const CREATION_GAP_MS = 10;
 
 interface ArticlesScope {
   projectSlug: string;
@@ -53,12 +46,7 @@ export interface DemoArticlesContext {
   client: {
     collectionDefinitions: {
       listRecords: (input: ArticlesScope) => Promise<readonly unknown[]>;
-      createRecord: (
-        input: ArticlesScope & { content: unknown },
-      ) => Promise<{ id: string; version: number }>;
-      publishRecord: (
-        input: ArticlesScope & { id: string; expectedVersion: number },
-      ) => Promise<unknown>;
+      createRecord: (input: ArticlesScope & { content: unknown }) => Promise<{ id: string }>;
     };
   };
 }
@@ -69,26 +57,12 @@ export async function seedDemoArticles({ client, projectSlug, logger }: DemoArti
   const existing = await client.collectionDefinitions.listRecords(scope);
   if (existing.length > 0) return;
 
-  const records = [];
-  for (const article of DEMO_ARTICLES) {
-    records.push(
-      await client.collectionDefinitions.createRecord({
-        ...scope,
-        content: { ...article, cover: null, author: null },
-      }),
-    );
-  }
-  for (const [index, record] of records.slice(0, PUBLISHED_COUNT).entries()) {
-    if (index > 0) await sleep(PUBLICATION_GAP_MS);
-    await client.collectionDefinitions.publishRecord({
+  for (const [index, article] of DEMO_ARTICLES.entries()) {
+    if (index > 0) await sleep(CREATION_GAP_MS);
+    await client.collectionDefinitions.createRecord({
       ...scope,
-      id: record.id,
-      expectedVersion: record.version,
+      content: { ...article, cover: null, author: null },
     });
   }
-
-  const drafts = records.length - PUBLISHED_COUNT;
-  logger.info(
-    `[playground] Seeded ${records.length} demo articles (${PUBLISHED_COUNT} published, ${drafts} draft)`,
-  );
+  logger.info(`[playground] Seeded ${DEMO_ARTICLES.length} demo articles`);
 }

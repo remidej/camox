@@ -77,7 +77,6 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
         apiUrl,
         environmentName: "dev:test@example.test",
       });
-      assert.equal(data.source, "draft");
       assert.doesNotMatch(result.stdout, /long-lived-secret/);
     }
     const before = requests;

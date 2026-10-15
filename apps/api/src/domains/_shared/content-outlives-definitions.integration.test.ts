@@ -98,7 +98,7 @@ async function fixture() {
     {
       projectId: base.project.id,
       pathSegment: "home",
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
     },
     options,
   );
@@ -123,23 +123,19 @@ describe("content outlives its definitions", () => {
     };
     await f.release.blocks([withoutSubtitle, cards({ cards: cardsRepeater })]);
 
-    const read = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const read = await call(router.blocks.get, { id: block.id }, f.options);
     expect(read.block.content).toEqual({ title: "Kept" });
     const page = await call(
       router.pages.getByPath,
-      { projectSlug: f.project.slug, path: f.page.fullPath, source: "draft" },
+      { projectSlug: f.project.slug, path: f.page.fullPath },
       f.options,
     );
     expect(page.blocks.find((b) => b.id === block.id)?.content).toEqual({ title: "Kept" });
-    const markdown = await call(
-      router.blocks.getPageMarkdown,
-      { pageId: f.page.id, source: "draft" },
-      f.options,
-    );
+    const markdown = await call(router.blocks.getPageMarkdown, { pageId: f.page.id }, f.options);
     expect(markdown.markdown).not.toContain("Stored");
 
     await f.release.blocks([hero, cards({ cards: cardsRepeater })]);
-    const restored = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const restored = await call(router.blocks.get, { id: block.id }, f.options);
     expect(restored.block.content).toEqual({ title: "Kept", subtitle: "Stored" });
   });
 
@@ -159,7 +155,7 @@ describe("content outlives its definitions", () => {
     };
     await f.release.blocks([withEyebrow, cards({ cards: cardsRepeater })]);
 
-    const read = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const read = await call(router.blocks.get, { id: block.id }, f.options);
     expect(read.block.content).toEqual({ eyebrow: "New", title: "Kept", subtitle: "Stored" });
   });
 
@@ -191,12 +187,12 @@ describe("content outlives its definitions", () => {
     };
     await f.release.blocks([changedKinds, cards({ cards: cardsRepeater })]);
 
-    const read = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const read = await call(router.blocks.get, { id: block.id }, f.options);
     expect(read.block.content).toEqual({ title: "Kept", subtitle: 3 });
     expect(read.block.settings).toEqual({ theme: "light" });
 
     await f.release.blocks([hero, cards({ cards: cardsRepeater })]);
-    const restored = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const restored = await call(router.blocks.get, { id: block.id }, f.options);
     expect(restored.block.content).toEqual({ title: "Kept", subtitle: "Stored" });
     expect(restored.block.settings).toEqual({ theme: "dark" });
   });
@@ -223,7 +219,7 @@ describe("content outlives its definitions", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     await f.release.blocks([hero, cards({ cards: cardsRepeater })]);
-    const restored = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const restored = await call(router.blocks.get, { id: block.id }, f.options);
     expect(restored.block.content).toEqual({ title: "Edited", subtitle: "Stored" });
   });
 
@@ -238,16 +234,16 @@ describe("content outlives its definitions", () => {
       },
       f.options,
     );
-    const before = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const before = await call(router.blocks.get, { id: block.id }, f.options);
     const [item] = before.repeatableItems;
 
     await f.release.blocks([hero, cards({})]);
-    const read = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const read = await call(router.blocks.get, { id: block.id }, f.options);
     expect(read.block.content).toEqual({ heading: "Team" });
     expect(read.repeatableItems).toEqual([]);
     const page = await call(
       router.pages.getByPath,
-      { projectSlug: f.project.slug, path: f.page.fullPath, source: "draft" },
+      { projectSlug: f.project.slug, path: f.page.fullPath },
       f.options,
     );
     expect(page.repeatableItems).toEqual([]);
@@ -256,7 +252,7 @@ describe("content outlives its definitions", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     await f.release.blocks([hero, cards({ cards: cardsRepeater })]);
-    const restored = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const restored = await call(router.blocks.get, { id: block.id }, f.options);
     expect(restored.repeatableItems.map((i) => i.content)).toEqual([
       { label: "Ada" },
       { label: "Grace" },
@@ -266,7 +262,7 @@ describe("content outlives its definitions", () => {
 
 describe("pages whose layout is gone", () => {
   const read = (f: Awaited<ReturnType<typeof fixture>>, path = f.page.fullPath) =>
-    call(router.pages.getByPath, { projectSlug: f.project.slug, path, source: "draft" }, f.options);
+    call(router.pages.getByPath, { projectSlug: f.project.slug, path }, f.options);
   const listed = async (f: Awaited<ReturnType<typeof fixture>>) => {
     const pages = await call(router.pages.list, { projectId: f.project.id }, f.options);
     return pages.find((page) => page.id === f.page.id);
@@ -285,12 +281,12 @@ describe("pages whose layout is gone", () => {
     await expect(
       call(
         router.pages.getStructure,
-        { projectSlug: f.project.slug, path: f.page.fullPath, source: "draft" },
+        { projectSlug: f.project.slug, path: f.page.fullPath },
         f.options,
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      call(router.blocks.getPageMarkdown, { pageId: f.page.id, source: "draft" }, f.options),
+      call(router.blocks.getPageMarkdown, { pageId: f.page.id }, f.options),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await listed(f)).toMatchObject({ needsLayout: true, shadowed: false });
     await expect(
@@ -306,7 +302,7 @@ describe("pages whose layout is gone", () => {
     const f = await fixture();
     const sync = await f.release.layouts([{ layoutId: "other" }]);
     const other = sync.layouts.find((result) => result.layout.layoutId === "other")!.layout;
-    await call(router.pages.setLayout, { id: f.page.id, layoutId: other.id }, f.options);
+    await call(router.pages.setLayout, { id: f.page.id, layoutId: other.layoutId }, f.options);
     expect((await read(f)).layout?.layoutId).toBe("other");
     expect(await listed(f)).toMatchObject({ needsLayout: false });
   });
@@ -385,8 +381,7 @@ describe("collection records", () => {
       f.options,
     );
     const referenced = async () =>
-      (await call(router.blocks.get, { id: block.id, source: "draft" }, f.options)).block.references
-        .person;
+      (await call(router.blocks.get, { id: block.id }, f.options)).block.references.person;
     const get = () =>
       call(router.collectionDefinitions.getRecord, { ...scope, id: record.id }, f.options);
     return { ...f, syncCollections, scope, record, referenced, get };
@@ -396,17 +391,17 @@ describe("collection records", () => {
     const f = await collectionFixture();
     await f.syncCollections([people({})]);
 
-    expect((await f.get()).draft).toEqual({ name: "Ada" });
+    expect((await f.get()).content).toEqual({ name: "Ada" });
     expect(await f.referenced()).toMatchObject({ content: { name: "Ada" } });
     const found = await call(
       router.collectionDefinitions.findRecordsByField,
-      { ...f.scope, field: "name", value: "Ada", source: "draft" },
+      { ...f.scope, field: "name", value: "Ada" },
       f.options,
     );
     expect(found.map((record) => record.content)).toEqual([{ name: "Ada" }]);
 
     await f.syncCollections([withRole]);
-    expect((await f.get()).draft).toEqual({ name: "Ada", role: "Engineer" });
+    expect((await f.get()).content).toEqual({ name: "Ada", role: "Engineer" });
   });
 
   it("syncs a changed field while records exist, and reads a value of the wrong kind as the default", async () => {
@@ -414,14 +409,14 @@ describe("collection records", () => {
     await f.syncCollections([
       people({ role: { type: "boolean", fieldType: "Boolean", default: true } }),
     ]);
-    expect((await f.get()).draft).toEqual({ name: "Ada", role: true });
+    expect((await f.get()).content).toEqual({ name: "Ada", role: true });
     expect(await f.referenced()).toMatchObject({ content: { name: "Ada", role: true } });
 
     await f.syncCollections([people({ role: { type: "boolean", fieldType: "Boolean" } })]);
-    expect((await f.get()).draft).toEqual({ name: "Ada", role: false });
+    expect((await f.get()).content).toEqual({ name: "Ada", role: false });
 
     await f.syncCollections([withRole]);
-    expect((await f.get()).draft).toEqual({ name: "Ada", role: "Engineer" });
+    expect((await f.get()).content).toEqual({ name: "Ada", role: "Engineer" });
   });
 
   it("fills a field added after records exist, with its default or an empty value of its kind", async () => {
@@ -441,7 +436,7 @@ describe("collection records", () => {
         },
       }),
     ]);
-    expect((await f.get()).draft).toEqual({
+    expect((await f.get()).content).toEqual({
       name: "Ada",
       role: "Engineer",
       bio: "",
@@ -455,19 +450,13 @@ describe("collection records", () => {
   it("keeps a removed field's value stored through edits", async () => {
     const f = await collectionFixture();
     await f.syncCollections([people({})]);
-    const current = await f.get();
     await call(
       router.collectionDefinitions.editRecord,
-      {
-        ...f.scope,
-        id: f.record.id,
-        expectedVersion: current.version,
-        content: { name: "Ada L." },
-      },
+      { ...f.scope, id: f.record.id, content: { name: "Ada L." } },
       f.options,
     );
     await f.syncCollections([withRole]);
-    expect((await f.get()).draft).toEqual({ name: "Ada L.", role: "Engineer" });
+    expect((await f.get()).content).toEqual({ name: "Ada L.", role: "Engineer" });
   });
 
   it("hides records of a removed collection from lists and references, and rejects writes to them", async () => {
@@ -482,24 +471,24 @@ describe("collection records", () => {
     await expect(
       call(
         router.collectionDefinitions.findRecordsByField,
-        { ...f.scope, field: "name", value: "Ada", source: "draft" },
+        { ...f.scope, field: "name", value: "Ada" },
         f.options,
       ),
-    ).resolves.toEqual([]);
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
       call(
         router.collectionDefinitions.editRecord,
-        { ...f.scope, id: f.record.id, expectedVersion: f.record.version, content: { name: "X" } },
+        { ...f.scope, id: f.record.id, content: { name: "X" } },
         f.options,
       ),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
       call(
         router.collectionDefinitions.createRecord,
         { ...f.scope, content: { name: "X" } },
         f.options,
       ),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     await f.syncCollections([withRole]);
     expect(await f.referenced()).toMatchObject({ content: { name: "Ada", role: "Engineer" } });
@@ -525,7 +514,7 @@ describe("blocks of a removed block definition", () => {
 
     const page = await call(
       router.pages.getByPath,
-      { projectSlug: f.project.slug, path: f.page.fullPath, source: "draft" },
+      { projectSlug: f.project.slug, path: f.page.fullPath },
       f.options,
     );
     expect(page.page.blockIds).toContain(block.id);
@@ -535,16 +524,12 @@ describe("blocks of a removed block definition", () => {
       settings: null,
     });
     expect(page.repeatableItems).toEqual([]);
-    const markdown = await call(
-      router.blocks.getPageMarkdown,
-      { pageId: f.page.id, source: "draft" },
-      f.options,
-    );
+    const markdown = await call(router.blocks.getPageMarkdown, { pageId: f.page.id }, f.options);
     expect(markdown.blocks.map((b) => b.id)).not.toContain(block.id);
     expect(markdown.markdown).not.toContain("Team");
 
     await f.release.blocks([hero, cards({ cards: cardsRepeater })]);
-    const restored = await call(router.blocks.get, { id: block.id, source: "draft" }, f.options);
+    const restored = await call(router.blocks.get, { id: block.id }, f.options);
     expect(restored.block.content).toMatchObject({ heading: "Team" });
     expect(restored.repeatableItems.map((i) => i.content)).toEqual([{ label: "Ada" }]);
   });
@@ -560,7 +545,7 @@ describe("blocks of a removed block definition", () => {
     await call(router.blocks.delete, { id: block.id }, f.options);
     const page = await call(
       router.pages.getByPath,
-      { projectSlug: f.project.slug, path: f.page.fullPath, source: "draft" },
+      { projectSlug: f.project.slug, path: f.page.fullPath },
       f.options,
     );
     expect(page.page.blockIds).not.toContain(block.id);
@@ -576,7 +561,7 @@ describe("blocks of a removed block definition", () => {
     await f.release.blocks([{ ...hero, layoutOnly: true }, cards({ cards: cardsRepeater })]);
     const page = await call(
       router.pages.getByPath,
-      { projectSlug: f.project.slug, path: f.page.fullPath, source: "draft" },
+      { projectSlug: f.project.slug, path: f.page.fullPath },
       f.options,
     );
     expect(page.blocks.find((b) => b.id === block.id)?.content).toEqual({

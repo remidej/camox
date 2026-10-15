@@ -35,8 +35,6 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import { optimizedVideoKey } from "../files/video-optimization";
-import { writeLayoutCheckpointAndPoint } from "../layouts/service";
-import { writePageCheckpointAndPoint } from "../pages/service";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -249,7 +247,10 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
       .from(collectionRecords)
       .innerJoin(
         collectionDefinitions,
-        eq(collectionRecords.definitionId, collectionDefinitions.id),
+        and(
+          eq(collectionDefinitions.environmentId, collectionRecords.environmentId),
+          eq(collectionDefinitions.collectionId, collectionRecords.collectionId),
+        ),
       )
       .where(eq(collectionDefinitions.projectId, projectId))
       .get(),
@@ -257,7 +258,7 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   if (collection) {
     return yield* new ConflictError({
       message:
-        "Deleting projects with collection history is not supported yet; no content was changed.",
+        "Deleting projects with collection records is not supported yet; no content was changed.",
     });
   }
 
@@ -267,24 +268,21 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   );
   const pageIds = pageRows.map((r) => r.id);
 
-  const layoutRows = yield* Effect.promise(() =>
-    ctx.db.select({ id: layouts.id }).from(layouts).where(eq(layouts.projectId, projectId)),
-  );
-  const layoutIds = layoutRows.map((r) => r.id);
-
-  const blockConditions = [
-    ...(pageIds.length > 0 ? [inArray(blocks.pageId, pageIds)] : []),
-    ...(layoutIds.length > 0 ? [inArray(blocks.layoutId, layoutIds)] : []),
-  ];
-  const blockRows =
-    blockConditions.length > 0
-      ? yield* Effect.promise(() =>
+  // Blocks on pages and in layouts both belong to one of the project's environments.
+  const blockRows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: blocks.id })
+      .from(blocks)
+      .where(
+        inArray(
+          blocks.environmentId,
           ctx.db
-            .select({ id: blocks.id })
-            .from(blocks)
-            .where(or(...blockConditions)),
-        )
-      : [];
+            .select({ id: environments.id })
+            .from(environments)
+            .where(eq(environments.projectId, projectId)),
+        ),
+      ),
+  );
   const blockIds = blockRows.map((r) => r.id);
 
   const repeatableItemRows =
@@ -468,10 +466,12 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     const scope = { projectId: project.id, environmentId: environment.id };
     const schema = definitionsByType.get(block.type)?.contentSchema;
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
-    const live = yield* resolveReferences(ctx, scope, schema, block.content, "live");
-    if (referenceFields(schema).some(([name, field]) => field.required === true && !live[name])) {
+    const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
+    if (
+      referenceFields(schema).some(([name, field]) => field.required === true && !resolved[name])
+    ) {
       return yield* new InvalidInputError({
-        message: "Bootstrap requires published required references",
+        message: "Bootstrap requires its required references to link existing records",
       });
     }
   }
@@ -485,7 +485,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
         environmentId: environment.id,
         pathSegment: "",
         fullPath: "/",
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         nickname: "Home",
         metaTitle: "Untitled page",
         metaDescription:
@@ -510,6 +510,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       ctx.db
         .insert(blocks)
         .values({
+          environmentId: environment.id,
           pageId: homepage.id,
           type: blockDef.type,
           content: blockDef.content,
@@ -571,18 +572,6 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     yield* syncBlockData(ctx, block.id, true);
     blockCount++;
   }
-
-  // Auto-publish the homepage (and its layout, if it hasn't been published
-  // yet) so the public site is immediately live after `camox init`. Without
-  // this, the SDK page route 404s on every path until the user manually hits
-  // publish in the studio. We only do it here — once the project exists, the
-  // regular draft → publish UX takes over for new pages.
-  //
-  const syncUserId = ctx.user?.id ?? null;
-  if (layout.livePublishedCheckpointId == null) {
-    yield* writeLayoutCheckpointAndPoint(ctx, { layout, userId: syncUserId });
-  }
-  yield* writePageCheckpointAndPoint(ctx, { page: homepage, userId: syncUserId });
 
   return { created: true, pageId: homepage.id, blockCount };
 });

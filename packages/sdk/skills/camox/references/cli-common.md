@@ -1,6 +1,6 @@
 # Camox CLI common guidance
 
-Use the Camox CLI for CRUD operations on Pages, Blocks, Layout assignments, metadata, drafts, and published content. Use the code references instead when changing Block Definitions or Layout Definitions in `src/blocks/` or `src/layouts/`.
+Use the Camox CLI for CRUD operations on Pages, Blocks, Layout assignments, and metadata. Use the code references instead when changing Block Definitions or Layout Definitions in `src/blocks/` or `src/layouts/`.
 
 If a change should be visible without a code deployment, it is usually a CLI content operation. Some requests require both code and CLI work: define the new type first, wait for the dev server to discover it, then create or assign its content through the CLI.
 
@@ -26,27 +26,26 @@ Before a write, verify the relevant subcommand's `--help` unless already checked
 
 Use root or group help only to discover unfamiliar commands. Reuse verified help within the session; recheck if the installed version changes. Installed help overrides these examples—do not guess commands or flags.
 
-## Draft-first workflow
+## Dev-first workflow
 
-By default, reads and writes operate on the draft in the current developer's isolated dev Environment. Make content changes in draft, summarize them for review, and publish only after the user asks or approves.
+By default, reads and writes operate on the current developer's isolated dev Environment. Make content changes there and summarize them for review.
 
-- Omit `--live` while editing. `--live` only reads the published snapshot.
-- Omit `--production` unless the user explicitly asks to operate on the production Environment.
-- Publishing a draft and replicating an Environment are different operations. Read the Environment reference before using `env push` or `env pull`.
+- Omit `--production` unless the user explicitly asks to operate on the production Environment: edits there are live on the public site right away.
+- Read the Environment reference before using `env push` or `env pull`.
 
-## Verify drafts in a browser
+## Verify changes in a browser
 
-CLI credentials and browser sessions are separate. A fresh browser shows published content until it signs in, even when CLI draft writes succeeded.
+CLI credentials and browser sessions are separate. A fresh browser isn't signed in, even when CLI writes succeeded.
 
 1. Start the app's dev server and check `{{CAMOX_CMD}} preview --help`.
 2. Generate a handoff for the page you changed:
    `{{CAMOX_CMD}} preview --url http://localhost:3000/about --json`
    (Use the actual port; add `--cwd apps/site` in a monorepo.)
 3. Open the returned `url` in your verification browser, not a separate default browser.
-4. Wait for `[data-camox-preview="ready"]`. Its text identifies the project and developer environment; the server has loaded authenticated draft content. `[data-camox-preview="error"]` means verification failed, not that the write failed.
-5. Inspect the changed content. Do not publish merely to make it visible.
+4. Wait for `[data-camox-preview="ready"]`. Its text identifies the project and developer environment; the server has loaded authenticated content. `[data-camox-preview="error"]` means verification failed, not that the write failed.
+5. Inspect the changed content.
 
-The URL is a single-use sign-in credential valid for three minutes. Do not share, commit, or include it in reports. Generate a new URL if expired or consumed. Only loopback HTTP(S) destinations are supported; production preview is intentionally unsupported. The SDK must support this handoff: if the ready marker never appears, check the installed SDK version rather than assuming the page is a draft. A project/backend/environment mismatch requires correcting `--cwd` or `--url` (or restarting a dev server running under another account).
+The URL is a single-use sign-in credential valid for three minutes. Do not share, commit, or include it in reports. Generate a new URL if expired or consumed. Only loopback HTTP(S) destinations are supported; production preview is intentionally unsupported. The SDK must support this handoff: if the ready marker never appears, check the installed SDK version rather than assuming the write failed. A project/backend/environment mismatch requires correcting `--cwd` or `--url` (or restarting a dev server running under another account).
 
 ## Write grounded content
 

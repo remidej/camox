@@ -8,9 +8,9 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { CamoxApp } from "../../core/createApp";
 import type { Layout } from "../../core/createLayout";
 
-export type PageSource = "draft" | "live";
-
 type PageWithBlocks = Awaited<ReturnType<RouterClient<Router>["pages"]["getByPath"]>>;
+
+export type MemberProject = Awaited<ReturnType<RouterClient<Router>["projects"]["getBySlug"]>>;
 
 export type PageStructure = {
   page: PageWithBlocks["page"];
@@ -32,7 +32,6 @@ interface LoadPageOptions {
   pathname: string;
   projectSlug: string;
   queryClient: QueryClient;
-  source: PageSource;
 }
 
 interface LoadPageForRequestOptions {
@@ -47,8 +46,9 @@ interface LoadPageForRequestOptions {
 
 interface LoadPageForRequestResult {
   data: CamoxPageLoaderData;
+  /** The project, when the request carries a valid session of one of its members. */
+  project?: MemberProject;
   shouldClearAuthCookie: boolean;
-  source: PageSource;
 }
 
 interface ErrorDetails {
@@ -159,7 +159,6 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<st
 export function seedBlockCaches(
   queryClient: QueryClient,
   pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
-  source: PageSource = "draft",
 ) {
   const filesById = new Map(pageData.files.map((f) => [f.id, f]));
 
@@ -172,7 +171,7 @@ export function seedBlockCaches(
     }
     const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
 
-    queryClient.setQueryData(queryKeys.blocks.get(block.id, source), {
+    queryClient.setQueryData(queryKeys.blocks.get(block.id), {
       block,
       repeatableItems: blockItems,
       files: blockFiles,
@@ -191,36 +190,16 @@ export async function loadCamoxPage({
   pathname,
   projectSlug,
   queryClient,
-  source,
 }: LoadPageOptions): Promise<PageStructure> {
   const serverApi = createServerApiClient(apiUrl, environmentName, { authCookieHeader });
   return queryClient.ensureQueryData({
-    queryKey: queryKeys.pages.getByPath(pathname, source),
+    queryKey: queryKeys.pages.getByPath(pathname),
     queryFn: async () => {
       const [data, pagesList] = await Promise.all([
-        serverApi.pages.getByPath({
-          path: pathname,
-          projectSlug,
-          source,
-        }),
+        serverApi.pages.getByPath({ path: pathname, projectSlug }),
         serverApi.pages.listBySlug({ projectSlug }).catch(() => null),
       ]);
-      seedBlockCaches(queryClient, data, source);
-      queryClient.setQueryData(queryKeys.pages.getByPath(pathname, source), {
-        page: data.page,
-        layout: data.layout,
-        projectName: data.projectName,
-        project: data.project,
-      });
-      if (source === "live") {
-        seedBlockCaches(queryClient, data, "draft");
-        queryClient.setQueryData(queryKeys.pages.getByPath(pathname, "draft"), {
-          page: data.page,
-          layout: data.layout,
-          projectName: data.projectName,
-          project: data.project,
-        });
-      }
+      seedBlockCaches(queryClient, data);
       if (pagesList) {
         queryClient.setQueryData(queryKeys.pages.list, pagesList);
       }
@@ -235,10 +214,32 @@ export async function loadCamoxPage({
   });
 }
 
-async function loadLivePage(
-  options: Omit<LoadPageOptions, "authCookieHeader" | "source">,
-): Promise<PageStructure> {
-  return loadCamoxPage({ ...options, source: "live" });
+/**
+ * The project, when the auth cookie is a valid session of one of its members. A successful
+ * protected project lookup validates both session and project access: cookie presence alone
+ * is not proof of authentication. An invalid session asks for the cookie to be cleared.
+ */
+export async function resolveMemberProject({
+  apiUrl,
+  authCookieHeader,
+  environmentName,
+  projectSlug,
+}: {
+  apiUrl: string;
+  authCookieHeader?: string;
+  environmentName?: string;
+  projectSlug: string;
+}): Promise<{ project?: MemberProject; clearAuthCookie: boolean }> {
+  if (!authCookieHeader) return { clearAuthCookie: false };
+  try {
+    const project = await createServerApiClient(apiUrl, environmentName, {
+      authCookieHeader,
+    }).projects.getBySlug({ slug: projectSlug });
+    return { project, clearAuthCookie: false };
+  } catch (error) {
+    if (!isAuthSessionError(error)) throw error;
+    return { clearAuthCookie: true };
+  }
 }
 
 export function buildFaviconUrl(
@@ -265,41 +266,28 @@ export async function loadCamoxPageForRequest({
   projectSlug,
   queryClient,
 }: LoadPageForRequestOptions): Promise<LoadPageForRequestResult> {
-  const loadOptions = {
+  // Every reader sees the page's current content. The session only decides whether the
+  // Studio shows, and which version of linked collection records the API resolves.
+  const member = await resolveMemberProject({
     apiUrl,
+    authCookieHeader,
+    environmentName,
+    projectSlug,
+  });
+  if (member.clearAuthCookie) console.warn("[camox] Ignoring stale camox_auth_cookie.");
+  const page = await loadCamoxPage({
+    apiUrl,
+    authCookieHeader: member.project ? authCookieHeader : undefined,
     environmentName,
     pathname,
     projectSlug,
     queryClient,
+  });
+  return {
+    data: buildCamoxPageLoaderData(apiUrl, page, origin),
+    project: member.project,
+    shouldClearAuthCookie: member.clearAuthCookie,
   };
-
-  if (!authCookieHeader) {
-    const page = await loadLivePage(loadOptions);
-    return {
-      data: buildCamoxPageLoaderData(apiUrl, page, origin),
-      shouldClearAuthCookie: false,
-      source: "live",
-    };
-  }
-
-  try {
-    const page = await loadCamoxPage({ ...loadOptions, authCookieHeader, source: "draft" });
-    return {
-      data: buildCamoxPageLoaderData(apiUrl, page, origin),
-      shouldClearAuthCookie: false,
-      source: "draft",
-    };
-  } catch (error) {
-    if (!isAuthSessionError(error)) throw error;
-
-    console.warn("[camox] Ignoring stale camox_auth_cookie and retrying published page load.");
-    const page = await loadLivePage(loadOptions);
-    return {
-      data: buildCamoxPageLoaderData(apiUrl, page, origin),
-      shouldClearAuthCookie: true,
-      source: "live",
-    };
-  }
 }
 
 export async function createMarkdownResponse({
@@ -324,8 +312,8 @@ export async function createMarkdownResponse({
   const api = createServerApiClient(apiUrl, environmentName);
   const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
-    const page = await api.pages.getByPath({ path: requestPathname, projectSlug, source: "live" });
-    const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id, source: "live" });
+    const page = await api.pages.getByPath({ path: requestPathname, projectSlug });
+    const { markdown } = await api.blocks.getPageMarkdown({ pageId: page.page.id });
     if (!markdown) return null;
 
     return new Response(markdown, {

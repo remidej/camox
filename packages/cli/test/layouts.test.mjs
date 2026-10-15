@@ -13,7 +13,7 @@ const exec = promisify(execFile);
 const binary = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
 const calls = [];
 const bundle = {
-  layout: { id: 39, layoutId: "default", beforeBlockIds: [99], afterBlockIds: [100] },
+  layout: { layoutId: "default", beforeBlockIds: [99], afterBlockIds: [100] },
   blocks: [
     { id: 99, type: "navigation", slot: "before", content: {} },
     { id: 100, type: "footer", slot: "after", content: {} },
@@ -39,7 +39,7 @@ before(async () => {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }
-    if (input?.arguments?.id === 999) {
+    if (input?.arguments?.layoutId === "missing") {
       res.end(
         JSON.stringify({
           json: { ok: false, error: { code: "NOT_FOUND", message: "Layout not found" } },
@@ -47,7 +47,7 @@ before(async () => {
       );
       return;
     }
-    const result = input.name === "listLayouts" ? [{ id: 39, layoutId: "default" }] : bundle;
+    const result = input.name === "listLayouts" ? [{ layoutId: "default" }] : bundle;
     res.end(JSON.stringify({ json: { ok: true, result } }));
   });
   server.listen(0, "127.0.0.1");
@@ -90,44 +90,31 @@ async function cli(...args) {
   }
 }
 
-void test("discovers layout block IDs through list and draft get", async () => {
+void test("discovers layout block IDs through list and get by layout name", async () => {
   const listed = await cli("list", "--json");
   assert.equal(listed.code, 0, listed.stderr);
   assert.equal(calls.at(-1).input.name, "listLayouts");
-  const [{ id }] = JSON.parse(listed.stdout);
-  const result = await cli("get", "--id", String(id), "--json");
+  const [{ layoutId }] = JSON.parse(listed.stdout);
+  const result = await cli("get", "--layout-id", layoutId, "--json");
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), bundle);
   assert.equal(calls.at(-1).input.name, "getLayout");
-  assert.deepEqual(calls.at(-1).input.arguments, { id: 39, source: "draft" });
+  assert.deepEqual(calls.at(-1).input.arguments, { layoutId: "default" });
   assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
 });
 
-void test("forwards live source independently of project and production targeting", async () => {
-  for (const live of [false, true]) {
-    const result = await cli(
-      "get",
-      "--id",
-      "39",
-      "--project",
-      "other",
-      "--production",
-      ...(live ? ["--live"] : []),
-    );
-    assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), bundle);
-    assert.deepEqual(calls.at(-1).input.arguments, {
-      id: 39,
-      source: live ? "live" : "draft",
-    });
-    assert.equal(calls.at(-1).input.projectId, 7);
-    assert.equal(calls.at(-1).headers["x-environment-name"], "production");
-    assert.equal(calls.at(-2).input.slug, "other");
-  }
+void test("forwards project and production targeting", async () => {
+  const result = await cli("get", "--layout-id", "default", "--project", "other", "--production");
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), bundle);
+  assert.deepEqual(calls.at(-1).input.arguments, { layoutId: "default" });
+  assert.equal(calls.at(-1).input.projectId, 7);
+  assert.equal(calls.at(-1).headers["x-environment-name"], "production");
+  assert.equal(calls.at(-2).input.slug, "other");
 });
 
-void test("rejects missing or invalid numeric layout IDs before making requests", async () => {
-  for (const flags of [[], ["--id", "default"], ["--id", "0"], ["--id", "-1"], ["--id", "1.5"]]) {
+void test("rejects a missing layout name, or a numeric layout ID, before making requests", async () => {
+  for (const flags of [[], ["--id", "39"], ["--layout-id"]]) {
     const count = calls.length;
     const result = await cli("get", ...flags);
     assert.notEqual(result.code, 0);
@@ -137,7 +124,7 @@ void test("rejects missing or invalid numeric layout IDs before making requests"
 });
 
 void test("prints structured server errors and exposes discovery guidance in help", async () => {
-  const failed = await cli("get", "--id", "999", "--json");
+  const failed = await cli("get", "--layout-id", "missing", "--json");
   assert.equal(failed.code, 1);
   assert.equal(JSON.parse(failed.stderr).code, "NOT_FOUND");
   assert.equal(failed.stdout, "");
@@ -146,8 +133,7 @@ void test("prints structured server errors and exposes discovery guidance in hel
   const help = await cli("get", "--help");
   assert.equal(help.code, 0);
   for (const text of [
-    "--id",
-    "--live",
+    "--layout-id",
     "--cwd",
     "--project",
     "--production",

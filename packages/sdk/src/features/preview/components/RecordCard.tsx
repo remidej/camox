@@ -1,23 +1,19 @@
 import * as React from "react";
 
-import { PageStatusBadge, type PublicationStatus } from "./PageStatusBadge";
-
 /**
- * A linked collection record: label, publication badge and collection title.
+ * A linked collection record: label and collection title.
  * `leading` holds controls before it, such as a drag handle; `actions` holds trailing
  * controls such as unlink.
  */
 export function RecordCard({
   label,
   collectionTitle,
-  status,
   onOpen,
   leading,
   actions,
 }: {
   label: string;
   collectionTitle: string;
-  status?: PublicationStatus;
   onOpen?: () => void;
   leading?: React.ReactNode;
   actions?: React.ReactNode;
@@ -25,14 +21,7 @@ export function RecordCard({
   const body = (
     <>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium">{label}</span>
-          {status && (
-            <span className="shrink-0">
-              <PageStatusBadge status={status} size="sm" />
-            </span>
-          )}
-        </span>
+        <span className="truncate text-sm font-medium">{label}</span>
         <span className="text-muted-foreground truncate text-xs">{collectionTitle}</span>
       </span>
     </>

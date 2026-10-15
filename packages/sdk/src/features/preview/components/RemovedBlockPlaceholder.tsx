@@ -4,7 +4,6 @@ import { useMutation } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 
 import { useIsEditable } from "@/core/hooks/useIsEditable";
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { blockMutations } from "@/lib/queries";
 
 /**
@@ -22,12 +21,10 @@ export function RemovedBlockPlaceholder({
   mode: "site" | "peek" | "layout";
 }) {
   const isEditable = useIsEditable(mode);
-  const requireDraft = useRequireDraftSource();
   const deleteBlock = useMutation(blockMutations.delete());
   if (!isEditable) return null;
 
   const handleDelete = async () => {
-    if (!requireDraft()) return;
     try {
       await deleteBlock.mutateAsync({ id: blockId });
       toast.success(`Deleted "${type}" block`);

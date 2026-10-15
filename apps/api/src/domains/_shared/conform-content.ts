@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 import { z } from "zod";
 
@@ -6,6 +6,7 @@ import { isLexicalState, lexicalStateToPlainText } from "../../lib/lexical-state
 import { blockDefinitions } from "../block-definitions/schema";
 import { normalizeFieldValue } from "../blocks/asset-value";
 import { validateContent } from "../blocks/validate-content";
+import { assetFileId } from "../collections/record-files";
 import type { ServiceContext } from "./service-context";
 
 /**
@@ -175,7 +176,7 @@ export const conformBlocksIn = Effect.fn("conformBlocksIn")(function* <
   I extends ConformableItem,
 >(
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: { environmentId: number },
   blocks: readonly B[],
   items: readonly I[],
 ) {
@@ -187,19 +188,12 @@ export const conformBlocksIn = Effect.fn("conformBlocksIn")(function* <
         settingsSchema: blockDefinitions.settingsSchema,
       })
       .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, scope.projectId),
-          eq(blockDefinitions.environmentId, scope.environmentId),
-        ),
-      ),
+      .where(eq(blockDefinitions.environmentId, scope.environmentId)),
   );
   return conformBlocks(new Map(rows.map((row) => [row.blockId, row])), blocks, items);
 });
 
 const uuid = z.uuid();
-const assetValue = z.object({ url: z.string(), mimeType: z.string() }).loose();
-
 function textOf(value: unknown): string | null {
   if (typeof value === "string") {
     return isLexicalState(value) ? lexicalStateToPlainText(value) : value;
@@ -220,10 +214,9 @@ function listHasKind(field: Field, value: unknown[]) {
   return value.length <= (typeof field.maxItems === "number" ? field.maxItems : 100);
 }
 
-function assetHasKind(field: Field, value: unknown) {
-  const asset = assetValue.safeParse(value);
-  if (!asset.success) return false;
-  return !field.fieldType?.startsWith("Image") || asset.data.mimeType.startsWith("image/");
+/** Records store assets as `{ _fileId }`; a file that is gone reads as empty on resolve. */
+function assetHasKind(value: unknown) {
+  return assetFileId(value) !== undefined;
 }
 
 /** The shapes collection writes store for each field kind. */
@@ -250,13 +243,13 @@ function recordValueHasKind(field: Field, value: unknown): boolean {
       );
     case "Image":
     case "File":
-      return value === null || assetHasKind(field, value);
+      return value === null || assetHasKind(value);
     case "ImageList":
     case "FileList":
       return (
         Array.isArray(value) &&
         listHasKind(field, value) &&
-        value.every((asset) => assetHasKind(field, asset))
+        value.every((asset) => assetHasKind(asset))
       );
     default:
       return false;

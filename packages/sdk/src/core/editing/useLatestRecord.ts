@@ -4,7 +4,7 @@ import * as React from "react";
 import { useProjectSlug } from "@/lib/auth";
 import { collectionQueries } from "@/lib/queries";
 
-import { latestDraft, type ReferenceRecord, type SavedRecord } from "../lib/reference";
+import { latestContent, type ReferenceRecord, type SavedRecord } from "../lib/reference";
 import { fieldPlainText } from "../recordItem";
 import type { LoadedRecord } from "../requestContext";
 
@@ -29,14 +29,14 @@ export function useLatestRecord({
   });
   return React.useMemo(() => {
     if (!loaded) return undefined;
-    const { content, version } = latestDraft(loaded, saved);
+    const { content, updatedAt } = latestContent(loaded, saved);
     return {
       id: loaded.id,
       collectionId,
       label: fieldPlainText(content[labelField]),
       content,
       references: loaded.references,
-      version,
+      updatedAt,
     };
   }, [collectionId, labelField, loaded, saved]);
 }

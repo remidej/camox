@@ -7,6 +7,7 @@ import { z } from "zod";
 import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { assetFileId } from "./record-files";
 import { missingReference, recordInScope } from "./references";
 import { decodeContent, validateText } from "./text-content";
 
@@ -136,64 +137,56 @@ export const collectionDefinitionInput = z
     }
   });
 
-const assetInput = z
-  .object({
-    url: z.url().refine((url) => ["https:", "http:"].includes(new URL(url).protocol)),
-    alt: z.string(),
-    filename: z.string(),
-    mimeType: z.string(),
-    size: z.number().int().nonnegative().optional(),
-    _fileId: uuidv7Schema.optional(),
-  })
-  .strict();
+/** A stored asset: a reference to a file, resolved on read like a block's. */
+export type AssetValue = { _fileId: string };
 
-/** Materialize managed assets once; snapshots never dereference mutable file metadata. */
+/**
+ * Stores an asset as its file reference only. A new reference must name a file in scope that
+ * the field accepts; one the record already held is kept even if its file is gone since.
+ */
 const validateAsset = Effect.fn("collections.validateAsset")(function* (
   ctx: ServiceContext,
   projectId: number,
   environmentId: number,
   field: z.infer<typeof property>,
   value: unknown,
+  previous: ReadonlySet<string>,
 ) {
-  let asset = yield* decodeContent(assetInput, value);
-  const fileId = asset._fileId;
-  if (fileId) {
-    const file = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(files)
-        .where(
-          and(
-            eq(files.id, fileId),
-            eq(files.projectId, projectId),
-            eq(files.environmentId, environmentId),
-          ),
-        )
-        .get(),
-    );
-    if (!file)
-      return yield* new InvalidInputError({
-        message: "Asset is outside this project/environment or missing",
-      });
-    asset = {
-      url: file.url,
-      alt: asset.alt,
-      filename: file.filename,
-      mimeType: file.mimeType,
-      size: file.size,
-      _fileId: file.id,
-    };
+  const fileId = assetFileId(value);
+  if (fileId === undefined) {
+    return yield* new InvalidInputError({
+      message: "Invalid collection content: assets are stored as { _fileId } file references",
+    });
   }
-  if (field.fieldType.startsWith("Image") && !asset.mimeType.startsWith("image/")) {
+  const asset: AssetValue = { _fileId: fileId };
+  if (previous.has(fileId)) return asset;
+  const file = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(files)
+      .where(
+        and(
+          eq(files.id, fileId),
+          eq(files.projectId, projectId),
+          eq(files.environmentId, environmentId),
+        ),
+      )
+      .get(),
+  );
+  if (!file)
+    return yield* new InvalidInputError({
+      message: "Asset is outside this project/environment or missing",
+    });
+  if (field.fieldType.startsWith("Image") && !file.mimeType.startsWith("image/")) {
     return yield* new InvalidInputError({ message: "Image requires an image asset" });
   }
   if (
     field.accept?.length &&
     !field.accept.some((type) => {
       if (type === "*/*") return true;
-      if (type.startsWith(".")) return asset.filename.toLowerCase().endsWith(type.toLowerCase());
-      if (type.endsWith("/*")) return asset.mimeType.startsWith(type.slice(0, -1));
-      return asset.mimeType === type;
+      if (type.startsWith(".")) return file.filename.toLowerCase().endsWith(type.toLowerCase());
+      if (type.endsWith("/*")) return file.mimeType.startsWith(type.slice(0, -1));
+      return file.mimeType === type;
     })
   ) {
     return yield* new InvalidInputError({ message: "Asset MIME type is not accepted" });
@@ -201,10 +194,25 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
   return asset;
 });
 
+/** The record ids and file ids a field's stored value already holds. */
+function heldIds(value: unknown) {
+  const values = Array.isArray(value) ? value : [value];
+  return {
+    records: new Set(values.filter((entry): entry is string => typeof entry === "string")),
+    files: new Set(values.map(assetFileId).filter((id): id is string => id !== undefined)),
+  };
+}
+
+/**
+ * Validates a record's whole content against its definition. `previous` is the content the record
+ * holds: references and files it already links are kept as they are, even if their target was
+ * deleted since, so an edit elsewhere in the record still saves.
+ */
 export const validateContent = Effect.fn("collections.validateContent")(function* (
   ctx: ServiceContext,
   definition: { projectId: number; environmentId: number; contentSchema: unknown },
   value: unknown,
+  previous: Record<string, unknown> = {},
 ) {
   const schema = yield* decodeContent(contentSchemaInput, definition.contentSchema);
   const content = yield* decodeContent(z.record(z.string(), z.unknown()), value);
@@ -214,9 +222,14 @@ export const validateContent = Effect.fn("collections.validateContent")(function
   const result: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(schema.properties)) {
     const value = content[key];
+    const held = heldIds(previous[key]);
     if (field.fieldType === "Reference") {
       const id = yield* decodeContent(uuidv7Schema.nullable(), value);
-      if (id !== null && !(yield* recordInScope(ctx, definition, field, id)))
+      if (
+        id !== null &&
+        !held.records.has(id) &&
+        !(yield* recordInScope(ctx, definition, field, id))
+      )
         return yield* missingReference(key);
       result[key] = id;
       continue;
@@ -228,7 +241,7 @@ export const validateContent = Effect.fn("collections.validateContent")(function
           message: `${key}: reference list links the same record more than once`,
         });
       for (const id of ids) {
-        if (!(yield* recordInScope(ctx, definition, field, id)))
+        if (!held.records.has(id) && !(yield* recordInScope(ctx, definition, field, id)))
           return yield* missingReference(key);
       }
       result[key] = ids;
@@ -264,7 +277,15 @@ export const validateContent = Effect.fn("collections.validateContent")(function
       const item = yield* decodeContent(property, field.items);
       result[key] = yield* Effect.forEach(
         values,
-        (value) => validateAsset(ctx, definition.projectId, definition.environmentId, item, value),
+        (value) =>
+          validateAsset(
+            ctx,
+            definition.projectId,
+            definition.environmentId,
+            item,
+            value,
+            held.files,
+          ),
         { concurrency: "unbounded" },
       );
       continue;
@@ -273,7 +294,14 @@ export const validateContent = Effect.fn("collections.validateContent")(function
     result[key] =
       value === null
         ? null
-        : yield* validateAsset(ctx, definition.projectId, definition.environmentId, field, value);
+        : yield* validateAsset(
+            ctx,
+            definition.projectId,
+            definition.environmentId,
+            field,
+            value,
+            held.files,
+          );
   }
   return result;
 });

@@ -22,9 +22,9 @@ resolve against the shell's current directory. Missing or non-directory paths fa
 instead of falling back to the shell's directory. Environment selection is unchanged:
 your development environment by default, with explicit `--production` where supported.
 
-## Authenticated local draft preview
+## Authenticated local preview
 
-CLI login does not sign in a fresh browser. To verify draft writes without publishing:
+CLI login does not sign in a fresh browser. To verify writes in your development environment:
 
 ```sh
 camox preview --url http://localhost:3000/about --json
@@ -33,7 +33,7 @@ camox preview --cwd apps/site --url http://localhost:3000/about --json
 
 Open the returned `url` in the browser you use for verification. Wait for
 `[data-camox-preview="ready"]`, which identifies the project and developer
-environment after authenticated draft rendering. Errors appear as
+environment after authenticated rendering. Errors appear as
 `[data-camox-preview="error"]`; expired or consumed links require a fresh command.
 The CLI and SDK must both support the preview handoff.
 
@@ -53,8 +53,6 @@ camox pages update --path /about --meta-title "About us" --meta-description "Mee
 camox pages update --id 42 --meta-description ""
 camox pages update --id 42 --ai-seo on
 camox pages update --id 42 --ai-seo off
-camox pages get --path /about --live
-camox pages publish --path /about
 ```
 
 - Updates require exactly one of `--id` or `--path` and at least one update field.
@@ -64,11 +62,10 @@ camox pages publish --path /about
 - `--ai-seo off` preserves current metadata. `--ai-seo on` schedules asynchronous
   generation; the returned page contains current values, not necessarily generated
   values. Use `pages get` to inspect them later.
-- Changes affect the draft only. Publish separately to update live metadata.
-  `pages get --live` reads the published snapshot; without it, reads use the draft.
+- Changes are visible on the site right away.
 - Commands support `--project SLUG`, `--production`, and `--json`, with the usual
   development-environment default and structured JSON output/errors. `--production`
-  selects the environment; it does not publish the draft.
+  selects the environment.
 
 See `camox pages update --help` for options and examples.
 
@@ -78,25 +75,22 @@ See `camox pages update --help` for options and examples.
 
 ```sh
 camox layouts list
-camox layouts get --id 39 --json
+camox layouts get --layout-id default --json
 camox blocks get --id 99
 camox blocks edit --id 99 --content '{"title": "Updated title"}'
 ```
 
-Use the numeric layout `id` from `layouts list` (or the page's numeric
-`layoutId`), not the code-defined string `layoutId`. `layouts get` returns
+A layout is identified by the name its code gives it: the `layoutId` from
+`layouts list`, which is also a page's `layoutId`. `layouts get` returns
 `blocks` with IDs, types, layout slot, and content, along with ordered
 `layout.beforeBlockIds` and `layout.afterBlockIds`. Use a returned block `id`
 with `blocks get` and `blocks edit`, inspecting its schema and current content
 before editing.
 
-Reads use the draft by default; `layouts get --id 39 --live` reads the published
-snapshot (an unpublished layout returns no blocks). Commands accept `--cwd`,
-`--project`, `--production`, and `--json`.
+Commands accept `--cwd`, `--project`, `--production`, and `--json`.
 Keep the project and environment consistent when using discovered IDs.
-`--production` selects the environment, not the published state. Editing a
-shared layout block changes the draft for all pages using that layout; publish
-separately only when intended.
+`--production` selects the environment. Editing a shared layout block changes it
+for all pages using that layout.
 
 ## Media
 
@@ -152,8 +146,8 @@ camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp -
   explicit metadata changes are saved together. If AI remains enabled, raster
   replacements schedule generation on the original file ID; other types skip
   generation. Disable AI to prevent future automatic renaming or alt changes.
-- Files are shared assets, not page drafts: replacing one affects every reference
-  to it in the selected environment. No page publish step is required.
+- Files are shared assets: replacing one affects every reference
+  to it in the selected environment.
 - Failed replacements leave the original file unchanged and remove the unused
   uploaded binary. After a network timeout, use `files get --id ID` before retrying
   because the server may already have completed the operation.

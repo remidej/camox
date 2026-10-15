@@ -20,7 +20,6 @@ export function DeleteCollectionItemButton({
   projectSlug,
   collectionId,
   id,
-  version,
   label,
   compact = false,
   disabled = false,
@@ -29,25 +28,19 @@ export function DeleteCollectionItemButton({
   projectSlug: string;
   collectionId: string;
   id: string;
-  version: number;
   label: string;
   compact?: boolean;
   disabled?: boolean;
   onDeleted?: () => Promise<void> | void;
 }) {
-  const [target, setTarget] = useState<{ version: number; label: string } | null>(null);
+  const [target, setTarget] = useState<{ label: string } | null>(null);
   const queryClient = useQueryClient();
   const deletion = useMutation(collectionMutations.delete());
 
   const confirmDelete = async () => {
     if (!target || deletion.isPending) return;
     try {
-      await deletion.mutateAsync({
-        projectSlug,
-        collectionId,
-        id,
-        expectedVersion: target.version,
-      });
+      await deletion.mutateAsync({ projectSlug, collectionId, id });
     } catch {
       // Keep the dialog open so the error can be read and the operation retried.
       return;
@@ -68,7 +61,7 @@ export function DeleteCollectionItemButton({
       onOpenChange={(open) => {
         if (deletion.isPending) return;
         deletion.reset();
-        setTarget(open ? { version, label: label || "Untitled item" } : null);
+        setTarget(open ? { label: label || "Untitled item" } : null);
       }}
     >
       <AlertDialogTrigger
@@ -94,8 +87,7 @@ export function DeleteCollectionItemButton({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete item?</AlertDialogTitle>
           <AlertDialogDescription>
-            Delete “{target?.label}” and all its revision history? This cannot be undone.
-            Media-library files will be kept.
+            Delete “{target?.label}”? This cannot be undone. Media-library files will be kept.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {deletion.isError && (

@@ -69,7 +69,7 @@ async function fixture(suffix: string) {
     .values({
       projectId: base.project.id,
       environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",
@@ -82,6 +82,7 @@ async function fixture(suffix: string) {
   const block = await base.db
     .insert(blocks)
     .values({
+      environmentId: base.environment.id,
       pageId: page.id,
       type: "list",
       content: {},

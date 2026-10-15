@@ -25,7 +25,6 @@ import { useSelector } from "@xstate/store-react";
 import { Ellipsis, GripVertical, LayoutTemplate, Plus } from "lucide-react";
 import * as React from "react";
 
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
 
@@ -33,16 +32,9 @@ import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import type { OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import {
-  previewStore,
-  selectPreviewSource,
-  selectionBlockId,
-  selectionForOwner,
-} from "../previewStore";
+import { previewStore, selectionBlockId, selectionForOwner } from "../previewStore";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useUpdateBlockPosition } from "./useUpdateBlockPosition";
-
-const usePreviewSource = () => useSelector(previewStore, selectPreviewSource);
 
 /* -------------------------------------------------------------------------------------------------
  * useBlockTreeItem
@@ -296,13 +288,11 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
 
 const PageTree = () => {
   const page = usePreviewedPage();
-  const previewSource = usePreviewSource();
-  const requireDraft = useRequireDraftSource();
   const {
     pageBlocks,
     beforeBlocks: layoutBeforeBlocks,
     afterBlocks: layoutAfterBlocks,
-  } = usePageBlocks(page, previewSource);
+  } = usePageBlocks(page);
   const camoxApp = useCamoxApp();
 
   const updatePosition = useUpdateBlockPosition();
@@ -329,12 +319,6 @@ const PageTree = () => {
     const { active, over } = event;
 
     if (!over || active.id === over.id || !page) {
-      setActiveId(null);
-      return;
-    }
-
-    // A drag may finish after switching to live preview.
-    if (!requireDraft()) {
       setActiveId(null);
       return;
     }
@@ -441,7 +425,6 @@ const PageTree = () => {
       <Button
         variant="secondary"
         onClick={() => {
-          if (!requireDraft()) return;
           previewStore.send({
             type: "openAddBlockDialog",
           });

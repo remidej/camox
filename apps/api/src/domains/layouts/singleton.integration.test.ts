@@ -5,15 +5,9 @@ import { createProjectFixture, createServiceContext } from "../../../test/fixtur
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
-import {
-  createPage,
-  discardPageChanges,
-  listPages,
-  publishPage,
-  setPageLayout,
-  updatePage,
-} from "../pages/service";
-import { getLayout, publishLayout, syncLayouts, unpublishLayout } from "./service";
+import { createPage, listPages, setPageLayout, updatePage } from "../pages/service";
+import { blocksOfLayout, layoutNamed } from "./identity";
+import { getLayout, syncLayouts } from "./service";
 
 async function setup(suffix: string) {
   const fixture = await createProjectFixture(suffix);
@@ -45,24 +39,30 @@ describe("singleton page ownership", () => {
     for (const record of [singleton, derived]) {
       await expect(
         runService(
-          createPage(ctx, { projectId: project.id, layoutId: record.id, pathSegment: "other" }),
+          createPage(ctx, {
+            projectId: project.id,
+            layoutId: record.layoutId,
+            pathSegment: "other",
+          }),
         ),
       ).rejects.toMatchObject({ status: 400 });
     }
     for (const pathSegment of ["pokedex", "%70okedex", "pokedex/"]) {
       await expect(
-        runService(createPage(ctx, { projectId: project.id, layoutId: layout.id, pathSegment })),
+        runService(
+          createPage(ctx, { projectId: project.id, layoutId: layout.layoutId, pathSegment }),
+        ),
       ).rejects.toMatchObject({ status: 409 });
     }
     const { page } = await runService(
       createPage(ctx, {
         projectId: project.id,
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         pathSegment: "about",
       }),
     );
     await expect(
-      runService(setPageLayout(ctx, { id: page.id, layoutId: singleton.id })),
+      runService(setPageLayout(ctx, { id: page.id, layoutId: singleton.layoutId })),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
       runService(updatePage(ctx, { id: page.id, pathSegment: "pokedex" })),
@@ -77,7 +77,7 @@ describe("singleton page ownership", () => {
   it("syncs over existing URL and layout-use collisions, which content never blocks", async () => {
     const { ctx, project, layout, db, definitions, sync } = await setup("singleton-collision");
     await runService(
-      createPage(ctx, { projectId: project.id, layoutId: layout.id, pathSegment: "pokedex" }),
+      createPage(ctx, { projectId: project.id, layoutId: layout.layoutId, pathSegment: "pokedex" }),
     );
     await sync();
     expect(await db.select().from(layouts).where(eq(layouts.projectId, project.id))).toHaveLength(
@@ -87,40 +87,37 @@ describe("singleton page ownership", () => {
       { fullPath: "/pokedex", shadowed: true, needsLayout: false },
     ]);
     await sync([{ ...definitions[0], kind: "singleton" }]);
-    expect((await db.select().from(layouts).where(eq(layouts.id, layout.id)).get())?.kind).toBe(
-      "singleton",
-    );
+    expect(
+      (
+        await db
+          .select()
+          .from(layouts)
+          .where(layoutNamed(layout.environmentId, layout.layoutId))
+          .get()
+      )?.kind,
+    ).toBe("singleton");
     expect(await runService(listPages(ctx, { projectId: project.id }))).toMatchObject([
       { fullPath: "/pokedex", needsLayout: true },
     ]);
   });
 
-  it("protects nested singleton paths when moving an ancestor and restoring a published page", async () => {
+  it("protects nested singleton paths when moving an ancestor", async () => {
     const { ctx, project, layout, definitions, sync, db } = await setup("singleton-moves");
     const { page: parent } = await runService(
       createPage(ctx, {
         projectId: project.id,
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         pathSegment: "old",
       }),
     );
     const { page: child } = await runService(
       createPage(ctx, {
         projectId: project.id,
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         pathSegment: "pokedex",
         parentPageId: parent.id,
       }),
     );
-    const { page: legacy } = await runService(
-      createPage(ctx, {
-        projectId: project.id,
-        layoutId: layout.id,
-        pathSegment: "pokedex",
-      }),
-    );
-    await runService(publishPage(ctx, { id: legacy.id }));
-    await runService(updatePage(ctx, { id: legacy.id, pathSegment: "legacy" }));
     await sync([...definitions, { ...definitions[1], layoutId: "guide.pokedex" }]);
     await expect(
       runService(updatePage(ctx, { id: parent.id, pathSegment: "guide" })),
@@ -130,17 +127,14 @@ describe("singleton page ownership", () => {
     expect((await db.select().from(pages).where(eq(pages.id, child.id)).get())?.fullPath).toBe(
       "/old/pokedex",
     );
-    await expect(runService(discardPageChanges(ctx, { id: legacy.id }))).rejects.toMatchObject({
-      status: 409,
-    });
     await runService(updatePage(ctx, { id: parent.id, pathSegment: "new" }));
     expect((await db.select().from(pages).where(eq(pages.id, child.id)).get())?.fullPath).toBe(
       "/new/pokedex",
     );
   });
 
-  it("publishes only singleton blocks, keeps drafts private, and releases removed routes", async () => {
-    const { ctx, project, layout, definitions, sync, db } = await setup("singleton-publishing");
+  it("serves current singleton blocks to everyone and releases removed routes", async () => {
+    const { ctx, project, layout, definitions, sync, db } = await setup("singleton-reads");
     await runService(
       upsertBlockDefinition(createServiceContext(db, null), {
         projectSlug: project.slug,
@@ -155,38 +149,29 @@ describe("singleton page ownership", () => {
       definitions[0],
       {
         ...definitions[1],
-        blocks: [{ type: "intro", slot: "before" as const, content: { title: "Published" } }],
+        blocks: [{ type: "intro", slot: "before" as const, content: { title: "First" } }],
       },
     ]);
     const singleton = result.layouts.find((item) => item.layout.kind === "singleton")!.layout;
-    const publicCtx = createServiceContext(db, null);
     const input = { projectSlug: project.slug, layoutId: "pokedex" };
-    await expect(
-      runService(getLayout(publicCtx, { ...input, source: "draft" })),
-    ).rejects.toMatchObject({
-      status: 401,
-    });
-    expect((await runService(getLayout(publicCtx, input))).blocks).toEqual([]);
-    await runService(publishLayout(ctx, { id: singleton.id }));
     await db
       .update(blocks)
-      .set({ content: { title: "Draft" } })
-      .where(eq(blocks.layoutId, singleton.id));
-    expect((await runService(getLayout(publicCtx, input))).blocks[0].content).toEqual({
-      title: "Published",
-    });
-    expect(
-      (await runService(getLayout(ctx, { ...input, source: "draft" }))).blocks[0].content,
-    ).toEqual({
-      title: "Draft",
-    });
-    await runService(unpublishLayout(ctx, { id: singleton.id }));
-    expect((await runService(getLayout(publicCtx, input))).blocks).toEqual([]);
+      .set({ content: { title: "Edited" } })
+      .where(blocksOfLayout(singleton));
+    for (const reader of [createServiceContext(db, null), ctx]) {
+      expect((await runService(getLayout(reader, input))).blocks[0].content).toEqual({
+        title: "Edited",
+      });
+    }
     expect(await db.select().from(pages).where(eq(pages.projectId, project.id))).toEqual([]);
     await sync([definitions[0]]);
     await expect(
       runService(
-        createPage(ctx, { projectId: project.id, layoutId: layout.id, pathSegment: "pokedex" }),
+        createPage(ctx, {
+          projectId: project.id,
+          layoutId: layout.layoutId,
+          pathSegment: "pokedex",
+        }),
       ),
     ).resolves.toMatchObject({ fullPath: "/pokedex" });
   });
