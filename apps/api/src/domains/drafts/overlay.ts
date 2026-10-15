@@ -22,6 +22,7 @@ import type { Database } from "../../db";
 import { blocks, sharedContents } from "../blocks/schema";
 import { collectionRecords } from "../collections/schema";
 import { comments } from "../comments/schema";
+import { files } from "../files/schema";
 import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
 import { environments } from "../projects/schema";
@@ -184,6 +185,15 @@ registerContentTable(repeatableItems, {
   // An item's tree is rooted in a shared content of the environment, or in a block.
   inProject: (projectId) =>
     sql`(${repeatableItems.environmentId} in ${environmentsOf(projectId)} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."environment_id" in ${environmentsOf(projectId)}))`,
+});
+
+// A file belongs to its project only; content points at it by `_fileId`, which publishing checks.
+registerContentTable(files, {
+  entity: "file",
+  parents: [],
+  rewritable: [],
+  dependents: [],
+  inProject: (projectId) => eq(files.projectId, projectId),
 });
 
 // A record names its collection, a definition, which no draft deletes: a record has no parent.
@@ -815,21 +825,28 @@ export const lostOf = Effect.fn("overlay.lostOf")(function* (
  * error that aborts it.
  */
 function guardStatement(draftId: string, shown: ConflictKey[]): BatchItem {
-  const current = () =>
-    sql.join(
-      tables().map((table) => conflictsIn(table, draftId)),
-      sql` union all `,
-    );
+  // Each table's conflicts are queried apart, never as one `union all`: D1 caps a compound
+  // select at a few terms, fewer than there are registered tables.
+  const count = sql.join(
+    tables().map((table) => sql`(select count(*) from (${conflictsIn(table, draftId)}))`),
+    sql` + `,
+  );
   const shownJson = JSON.stringify(shown);
-  return sql`select case when
-      exists (select 1 from ${drafts} where ${drafts.id} = ${draftId})
-      and (select count(*) from (${current()})) = json_array_length(${shownJson})
-      and not exists (
-        select 1 from json_each(${shownJson}) as "shown" where not exists (
-          select 1 from (${current()}) as "current"
+  const matchesShown = sql.join(
+    tables().map(
+      (table) => sql`exists (
+          select 1 from (${conflictsIn(table, draftId)}) as "current"
           where "current"."entity" = json_extract("shown"."value", '$[0]')
             and "current"."id" = json_extract("shown"."value", '$[1]')
-            and "current"."live_version" is json_extract("shown"."value", '$[2]')))
+            and "current"."live_version" is json_extract("shown"."value", '$[2]'))`,
+    ),
+    sql` or `,
+  );
+  return sql`select case when
+      exists (select 1 from ${drafts} where ${drafts.id} = ${draftId})
+      and ${count} = json_array_length(${shownJson})
+      and not exists (
+        select 1 from json_each(${shownJson}) as "shown" where not (${matchesShown}))
     then 1 else json('the draft or its conflicts changed') end`;
 }
 

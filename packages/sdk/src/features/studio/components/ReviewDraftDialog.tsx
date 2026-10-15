@@ -28,23 +28,26 @@ type Subject = Preview["changes"][number];
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
-function ownerName(owner: Subject["owner"]): string {
-  if (!owner) return "Elsewhere";
+/** Where a subject sits: its page or layout, or the files, which belong to neither. */
+function ownerName(owner: Subject["owner"], entity: string): string {
+  if (!owner) return entity === "file" ? "Files" : "Elsewhere";
   if (owner.kind === "layout") return `Layout ${owner.name}`;
   if (owner.kind === "syncedBlock") return `Synced block ${owner.title}`;
   if (owner.kind === "collection") return owner.title;
   return owner.nickname || owner.path;
 }
 
-// The order of change groups: pages first, then layouts, then collections.
-const GROUP_ORDER: (NonNullable<Subject["owner"]>["kind"] | "elsewhere")[] = [
+// The order of change groups: pages first, then layouts, then collections, then files.
+const GROUP_ORDER: (NonNullable<Subject["owner"]>["kind"] | "files" | "elsewhere")[] = [
   "page",
   "layout",
   "syncedBlock",
   "collection",
+  "files",
   "elsewhere",
 ];
-const groupRank = (owner: Subject["owner"]) => GROUP_ORDER.indexOf(owner?.kind ?? "elsewhere");
+const groupRank = ({ owner, entity }: Subject) =>
+  GROUP_ORDER.indexOf(owner?.kind ?? (entity === "file" ? "files" : "elsewhere"));
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -76,7 +79,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
         <Section title="Fix before publishing">
           {blockers.map((blocker) => (
             <li key={`${blocker.id}:${blocker.field}`}>
-              {blocker.label} on {ownerName(blocker.owner)}: {blocker.message}
+              {blocker.label} on {ownerName(blocker.owner, blocker.entity)}: {blocker.message}
             </li>
           ))}
         </Section>
@@ -85,7 +88,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
         <Section title="Changed on Live since this draft">
           {conflicts.map((conflict) => (
             <li key={conflict.id}>
-              {conflict.label} on {ownerName(conflict.owner)}:{" "}
+              {conflict.label} on {ownerName(conflict.owner, conflict.entity)}:{" "}
               {conflict.liveVersion === null ? "deleted" : "changed"}
               {changedBy(conflict)}
               {conflict.publishedAt ? `, ${dateFormat.format(conflict.publishedAt)}` : ""}
@@ -97,7 +100,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
         <Section title="Changes that will be lost">
           {lost.map((change) => (
             <li key={change.id}>
-              {change.label} on {ownerName(change.owner)}
+              {change.label} on {ownerName(change.owner, change.entity)}
             </li>
           ))}
         </Section>
@@ -106,7 +109,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
         <Section title="Already on Live">
           {warnings.map((warning) => (
             <li key={`${warning.id}:${warning.field}`}>
-              {warning.label} on {ownerName(warning.owner)}: {warning.message}
+              {warning.label} on {ownerName(warning.owner, warning.entity)}: {warning.message}
             </li>
           ))}
         </Section>
@@ -118,9 +121,9 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
 /** The right column: the draft's changes, grouped by page, then layout, then collection. */
 function Changes({ changes }: { changes: Preview["changes"] }) {
   const groups = new Map<string, Preview["changes"]>();
-  const sorted = [...changes].sort((a, b) => groupRank(a.owner) - groupRank(b.owner));
+  const sorted = [...changes].sort((a, b) => groupRank(a) - groupRank(b));
   for (const change of sorted) {
-    const name = ownerName(change.owner);
+    const name = ownerName(change.owner, change.entity);
     groups.set(name, [...(groups.get(name) ?? []), change]);
   }
   if (groups.size === 0) {

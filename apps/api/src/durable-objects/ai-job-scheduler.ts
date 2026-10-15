@@ -6,13 +6,13 @@ import { Effect } from "effect";
 import { createDb } from "../db";
 import { runBlockSummaryJob } from "../domains/blocks/service";
 import { storedIn, storedInLiveOrDraft } from "../domains/drafts/overlay";
-import { executeFileMetadata } from "../domains/files/service";
+import { runFileMetadataJob } from "../domains/files/service";
 import { executePageSeo } from "../domains/pages/ai";
 import { rootOfItem } from "../domains/repeatable-items/roots";
 import { runRepeatableItemSummaryJob } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
-import { blocks, environments, files, pages, repeatableItems } from "../schema";
+import { blocks, environments, pages, repeatableItems } from "../schema";
 import type { Bindings } from "../types";
 
 type JobParams = {
@@ -156,19 +156,16 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         }
       }
     } else if (entityTable === "files" && type === "fileMetadata") {
-      yield* retryAiCall(label, (abortController) =>
-        executeFileMetadata(db, apiKey, entityId, abortController),
+      const draftId = job.draftId ?? null;
+      const projectId = yield* retryAiCall(label, (abortController) =>
+        runFileMetadataJob(db, apiKey, { entityId, draftId }, abortController),
       );
-
-      const file = yield* Effect.promise(() =>
-        db.select().from(files).where(eq(files.id, entityId)).get(),
-      );
-      if (file?.projectId) {
+      if (projectId) {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
           projectRoomNamespace: this.env.ProjectRoom,
-          draftId: null,
-          projectId: file.projectId,
+          draftId,
+          projectId,
           targets: [queryKeys.files.list, queryKeys.files.get(entityId)],
         });
       }

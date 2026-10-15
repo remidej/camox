@@ -238,7 +238,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     collectFileIds(value.content as Record<string, unknown>, fileIds);
     collectFileIds(value.references, fileIds);
   }
-  const fileRows = yield* buildFileMap(ctx.db, fileIds);
+  const fileRows = yield* buildFileMap(ctx.db, fileIds, scope);
 
   const view = composePageView({
     page,

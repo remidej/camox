@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { getApiUrl, getEnvironmentName } from "@/lib/api-client";
 import { getAuthCookieHeader } from "@/lib/auth";
+import { getUploadDraftHeaders } from "@/lib/studio-draft";
 
 export interface UploadItem {
   id: string;
@@ -42,6 +43,8 @@ export function useFileUpload(options?: UseFileUploadOptions) {
         mimeType: string;
       }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
+        // An upload on Live starts a draft, like any other content write.
+        const draft = getUploadDraftHeaders();
 
         xhr.upload.addEventListener("progress", (event) => {
           if (!event.lengthComputable) return;
@@ -50,6 +53,7 @@ export function useFileUpload(options?: UseFileUploadOptions) {
         });
 
         xhr.addEventListener("load", () => {
+          draft.settle(xhr.status >= 200 && xhr.status < 300);
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
               resolve(JSON.parse(xhr.responseText));
@@ -62,6 +66,7 @@ export function useFileUpload(options?: UseFileUploadOptions) {
         });
 
         xhr.addEventListener("error", () => {
+          draft.settle(false);
           reject(new Error("Upload failed"));
         });
 
@@ -76,6 +81,9 @@ export function useFileUpload(options?: UseFileUploadOptions) {
         if (authCookieHeader) xhr.setRequestHeader("Better-Auth-Cookie", authCookieHeader);
         const envName = getEnvironmentName();
         if (envName) xhr.setRequestHeader("x-environment-name", envName);
+        for (const [name, value] of Object.entries(draft.headers)) {
+          xhr.setRequestHeader(name, value);
+        }
         xhr.send(formData);
       });
 

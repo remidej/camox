@@ -1,64 +1,98 @@
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { ORPCError } from "@orpc/server";
 import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { isRasterImage } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { runService } from "../../lib/run-service";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { authed, pub } from "../../orpc";
-import { files } from "../../schema";
 import type { AppEnv } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
+import { inScope } from "../blocks/draft-scope";
+import type { DraftRequest } from "../drafts/scope";
+import { inDraftScope } from "../drafts/service";
 import * as service from "./service";
 import { optimizeVideo } from "./video-optimization";
+
+// Every procedure reads and writes files in the draft the request names (`x-camox-draft`),
+// once the file's project is known. Writes on Live start a draft with the create header.
 
 // Public procedures
 
 const list = pub
   .input(service.listFilesInput)
-  .handler(({ context, input }) => runService(service.listFiles(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, input.projectId, (scope) => service.listFiles(context, input, scope)),
+  );
 
 const get = pub
   .input(service.getFileInput)
-  .handler(({ context, input }) => runService(service.getFile(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+      service.getFile(context, input, scope),
+    ),
+  );
 
 const getUsageCount = pub
   .input(service.getFileUsageCountInput)
-  .handler(({ context, input }) => runService(service.getFileUsageCount(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+      service.getFileUsageCount(context, input, scope),
+    ),
+  );
 
 // Protected procedures
 
 const setAlt = authed
   .input(service.setFileAltInput)
-  .handler(({ context, input }) => runService(service.setFileAlt(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+      service.setFileAlt(context, input, scope),
+    ),
+  );
 
 const setFilename = authed
   .input(service.setFileFilenameInput)
-  .handler(({ context, input }) => runService(service.setFileFilename(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+      service.setFileFilename(context, input, scope),
+    ),
+  );
 
 const deleteFn = authed
   .input(service.deleteFileInput)
-  .handler(({ context, input }) => runService(service.deleteFile(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+      service.deleteFile(context, input, scope),
+    ),
+  );
 
-const deleteMany = authed
-  .input(service.deleteFilesInput)
-  .handler(({ context, input }) => runService(service.deleteFiles(context, input)));
-
-const replace = authed
-  .input(service.replaceFileInput)
-  .handler(({ context, input }) => runService(service.replaceFile(context, input)));
+const deleteMany = authed.input(service.deleteFilesInput).handler(({ context, input }) => {
+  const [first] = input.ids;
+  const project = first === undefined ? undefined : service.projectOfFile(context, first);
+  return inScope(context, project ?? Effect.succeed(undefined), (scope) =>
+    service.deleteFiles(context, input, scope),
+  );
+});
 
 const setAiMetadata = authed
   .input(service.setFileAiMetadataInput)
-  .handler(({ context, input }) => runService(service.setFileAiMetadata(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+      service.setFileAiMetadata(context, input, scope),
+    ),
+  );
 
 const generateMetadata = authed
   .input(service.generateFileMetadataInput)
-  .handler(({ context, input }) => runService(service.generateFileMetadata(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+      service.generateFileMetadata(context, input, scope),
+    ),
+  );
 
 export const fileProcedures = {
   list,
@@ -68,10 +102,17 @@ export const fileProcedures = {
   setFilename,
   delete: deleteFn,
   deleteMany,
-  replace,
   setAiMetadata,
   generateMetadata,
 };
+
+/** The draft an upload names in its headers, like any oRPC request (ADR 0011). */
+function draftRequestOf(headers: Headers): DraftRequest | null | "invalid" {
+  const id = headers.get(DRAFT_HEADER);
+  if (!id) return null;
+  if (!uuidv7Schema.safeParse(id).success) return "invalid";
+  return { id, create: headers.get(DRAFT_CREATE_HEADER) === "1" };
+}
 
 // --- Hono routes (binary serving + multipart upload) ---
 
@@ -133,13 +174,19 @@ fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
   return new Response(object.body, { status: range ? 206 : 200, headers });
 });
 
+/**
+ * Uploads a new file, or replaces a file's content keeping its id (`/:id/content`), in the
+ * draft the request names. Uploading on Live with the create header starts a draft. The blob
+ * is stored before the row is written, and deleted again when the write fails.
+ */
 const uploadContent: Handler<AppEnv> = async (c) => {
   if (!c.var.user) return c.json({ error: "Unauthorized" }, 401);
-  const idParam = c.req.param("id");
-  if (idParam !== undefined && !uuidv7Schema.safeParse(idParam).success) {
+  const id = c.req.param("id");
+  if (id !== undefined && !uuidv7Schema.safeParse(id).success) {
     return c.json({ error: "Invalid file id" }, 400);
   }
-  const id = idParam;
+  const draft = draftRequestOf(c.req.raw.headers);
+  if (draft === "invalid") return c.json({ error: `${DRAFT_HEADER} must be a UUIDv7` }, 400);
   const ctx: ServiceContext = {
     db: c.var.db,
     user: c.var.user,
@@ -147,8 +194,7 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     environmentName: c.var.environmentName,
     client: c.var.client ?? "unknown",
     telemetryDisabled: c.var.telemetryDisabled ?? false,
-    // Files don't live in drafts yet, so uploads write Live.
-    draft: null,
+    draft,
     waitUntil: (promise) => c.executionCtx.waitUntil(promise),
   };
 
@@ -181,114 +227,64 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   let aiMetadataEnabled = metadata.data.aiMetadataEnabled ?? null;
   if (metadata.data.alt !== undefined || !canGenerateAiMetadata) aiMetadataEnabled = false;
 
-  // Reject incorrect project/environment targets before creating any stored object.
-  const target =
-    id !== undefined
-      ? Effect.asVoid(service.getProjectFile(ctx, { projectId, id }))
-      : Effect.asVoid(getAuthorizedProject(c.var.db, projectId, c.var.user.id));
-  const rejection = await runService(
-    target.pipe(
-      Effect.as(null),
-      Effect.catchTags({
-        NotFoundError: () => Effect.succeed(c.json({ error: "Not found" }, 404)),
-        ForbiddenError: () => Effect.succeed(c.json({ error: "Forbidden" }, 403)),
-      }),
-    ),
-  );
-  if (rejection) return rejection;
-
-  const environment = await runService(
-    resolveEnvironment(c.var.db, projectId, c.var.environmentName),
-  );
-
-  const now = Date.now();
-  const filename = file.name.split(/[\\/]/).pop() || "upload";
-  // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
-  const key = `${projectId}/${crypto.randomUUID()}`;
-
-  await c.env.FILES_BUCKET.put(key, file.stream(), {
-    httpMetadata: { contentType: file.type },
-  });
-
   const apiOrigin = new URL(c.req.url).origin;
-  const optimized = await Effect.runPromise(
-    optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA),
-  );
-  const url = `${apiOrigin}/files/serve/${optimized?.key ?? key}`;
+  const filename = file.name.split(/[\\/]/).pop() || "upload";
 
-  if (id !== undefined) {
-    try {
-      const result = await runService(
-        service.replaceFileContent(
-          ctx,
-          { projectId, id },
-          {
-            blobId: key,
-            path: key,
-            url,
-            filename,
-            mimeType: file.type,
-            size: file.size,
-            optimizedSize: optimized?.size ?? null,
-          },
-          metadata.data,
-        ),
-      );
-      return c.json(result);
-    } catch (error) {
-      // A failed database transaction must not leave an orphaned upload. Check
-      // references first so a post-commit error cannot remove the active image.
-      await Effect.runPromise(service.deleteUnreferencedFileBlob(ctx, key));
-      throw error;
-    }
-  }
+  const upload = Effect.gen(function* () {
+    yield* getAuthorizedProject(ctx.db, projectId, c.var.user!.id);
+    const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+    return yield* inDraftScope(ctx, projectId, (scope) =>
+      Effect.gen(function* () {
+        // Reject a missing target before storing any blob.
+        if (id !== undefined) yield* service.getProjectFile(ctx, { projectId, id }, scope);
 
-  let result: typeof files.$inferSelect;
-  try {
-    result = await c.var.db
-      .insert(files)
-      .values({
-        ...(typeof newId === "string" ? { id: newId } : {}),
-        projectId,
-        environmentId: environment.id,
-        blobId: key,
-        filename,
-        mimeType: file.type,
-        size: file.size,
-        optimizedSize: optimized?.size ?? null,
-        path: key,
-        url,
-        alt: metadata.data.alt ?? "",
-        aiMetadataEnabled,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-  } catch (error) {
-    await Effect.runPromise(service.deleteUnreferencedFileBlob(ctx, key));
-    throw error;
-  }
+        // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
+        const key = `${projectId}/${crypto.randomUUID()}`;
+        yield* Effect.promise(() =>
+          c.env.FILES_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } }),
+        );
+        const optimized = yield* optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
+        const asset = {
+          blobId: key,
+          path: key,
+          url: `${apiOrigin}/files/serve/${optimized?.key ?? key}`,
+          filename,
+          mimeType: file.type,
+          size: file.size,
+          optimizedSize: optimized?.size ?? null,
+        };
 
-  if (aiMetadataEnabled !== false) {
-    c.executionCtx.waitUntil(
-      scheduleAiJob(c.env.AI_JOB_SCHEDULER, {
-        entityTable: "files",
-        entityId: result.id,
-        type: "fileMetadata",
-        delayMs: 0,
+        const now = Date.now();
+        const write =
+          id !== undefined
+            ? service.replaceFileContent(ctx, { projectId, id }, asset, metadata.data, scope)
+            : service.createFile(
+                ctx,
+                {
+                  ...(typeof newId === "string" ? { id: newId } : {}),
+                  ...asset,
+                  projectId,
+                  environmentId: environment.id,
+                  alt: metadata.data.alt ?? "",
+                  aiMetadataEnabled,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                scope,
+              );
+        // A failed write must not leave an orphaned blob.
+        return yield* write.pipe(Effect.onError(() => service.deleteUnreferencedBlobs(ctx, [key])));
       }),
     );
-  }
-  broadcastInvalidation({
-    waitUntil: (p) => c.executionCtx.waitUntil(p),
-    projectRoomNamespace: c.env.ProjectRoom,
-    draftId: null,
-    projectId,
-    targets: [queryKeys.files.list, queryKeys.files.get(result.id)],
   });
 
-  return c.json(result, 201);
+  try {
+    const result = await runService(upload);
+    return c.json(result, id !== undefined ? 200 : 201);
+  } catch (error) {
+    if (!(error instanceof ORPCError)) throw error;
+    return c.json({ error: error.message, data: error.data }, error.status as 400);
+  }
 };
 
 fileHonoRoutes.post("/upload", uploadContent);

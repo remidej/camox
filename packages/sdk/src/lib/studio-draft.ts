@@ -51,6 +51,20 @@ const COLLECTIONS_START_DRAFT: Record<keyof Router["collectionDefinitions"], boo
   sync: false,
 };
 
+// Uploads and replacements go through `getUploadDraftHeaders`, outside oRPC.
+const FILES_START_DRAFT: Record<keyof Router["files"], boolean> = {
+  list: false,
+  get: false,
+  getUsageCount: false,
+  setAlt: true,
+  setFilename: true,
+  delete: true,
+  deleteMany: true,
+  // Switching AI metadata on or off changes content (ADR 0012); generating only fills it.
+  setAiMetadata: true,
+  generateMetadata: false,
+};
+
 const PAGES_START_DRAFT: Record<keyof Router["pages"], boolean> = {
   getByPath: false,
   getStructure: false,
@@ -81,6 +95,7 @@ const ITEMS_START_DRAFT: Record<keyof Router["repeatableItems"], boolean> = {
 const STARTS_DRAFT: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCKS_START_DRAFT,
   collectionDefinitions: COLLECTIONS_START_DRAFT,
+  files: FILES_START_DRAFT,
   pages: PAGES_START_DRAFT,
   repeatableItems: ITEMS_START_DRAFT,
 };
@@ -151,14 +166,28 @@ function startsDraft(path: readonly string[]) {
   return STARTS_DRAFT[path[0] as keyof Router]?.[path[1]] === true;
 }
 
-/** Headers for an API call at `path`, and a callback to report whether the call succeeded. */
-export function getDraftRequestHeaders(path: readonly string[]): {
+type DraftRequestHeaders = {
   headers: Record<string, string>;
   settle: (ok: boolean) => void;
-} {
+};
+
+/** Headers for an API call at `path`, and a callback to report whether the call succeeded. */
+export function getDraftRequestHeaders(path: readonly string[]): DraftRequestHeaders {
+  return headersFor(startsDraft(path));
+}
+
+/**
+ * Headers for a file upload or replacement, which writes content outside oRPC: on Live it
+ * starts a draft like any other content write.
+ */
+export function getUploadDraftHeaders(): DraftRequestHeaders {
+  return headersFor(true);
+}
+
+function headersFor(write: boolean): DraftRequestHeaders {
   const noop = () => {};
   if (currentDraftId) return { headers: { [DRAFT_HEADER]: currentDraftId }, settle: noop };
-  if (!startsDraft(path)) return { headers: {}, settle: noop };
+  if (!write) return { headers: {}, settle: noop };
 
   pending ??= { id: generateUuidv7(), inFlight: 0 };
   const started = pending;

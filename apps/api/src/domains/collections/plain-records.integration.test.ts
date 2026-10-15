@@ -214,7 +214,9 @@ describe("used in counts", () => {
       createdAt: 1,
       updatedAt: 1,
     });
-    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }))).toEqual({ count: 0 });
+    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }, null))).toEqual({
+      count: 0,
+    });
 
     await runService(
       createBlock(
@@ -227,7 +229,9 @@ describe("used in counts", () => {
         null,
       ),
     );
-    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }))).toEqual({ count: 1 });
+    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }, null))).toEqual({
+      count: 1,
+    });
   });
 
   it("counts a record's uses exactly, never those of an id it is a prefix of", async () => {
@@ -372,7 +376,7 @@ describe("files in records", () => {
     });
 
     await runService(
-      updateFile(f.ctx, { projectId: f.project.id, id: file.id, alt: "Ada at her desk" }),
+      updateFile(f.ctx, { projectId: f.project.id, id: file.id, alt: "Ada at her desk" }, null),
     );
 
     const read = await runService(getCollectionRecord(f.ctx, { ...f.authors, id: ada.id }));
@@ -397,9 +401,9 @@ describe("files in records", () => {
     const f = await fixture();
     const file = await f.insertFile(freshFileId());
     const ada = await f.createAuthor("Ada", { _fileId: file.id });
-    expect(await runService(getFileUsageCount(f.ctx, { id: file.id }))).toEqual({ count: 1 });
+    expect(await runService(getFileUsageCount(f.ctx, { id: file.id }, null))).toEqual({ count: 1 });
 
-    await runService(deleteFile(f.ctx, { id: file.id }));
+    await runService(deleteFile(f.ctx, { id: file.id }, null));
 
     const read = await runService(getCollectionRecord(f.ctx, { ...f.authors, id: ada.id }));
     expect(read.content.portrait).toBeNull();

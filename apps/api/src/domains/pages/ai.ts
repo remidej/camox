@@ -11,6 +11,7 @@ import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../s
 import { conformBlocks } from "../_shared/conform-content";
 import { withSharedContent } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 
 // --- AI Executors ---
 
@@ -300,16 +301,13 @@ export function nestChildItems(
   }
 }
 
+/** The files content uses, by id, as the scope reads them: a draft shows its replaced bytes. */
 export const buildFileMap = Effect.fn("pages.buildFileMap")(function* (
   db: Database,
   fileIds: Set<string>,
+  scope: DraftScope,
 ) {
   if (fileIds.size === 0) return new Map<string, typeof files.$inferSelect>();
-  const rows = yield* Effect.promise(() =>
-    db
-      .select()
-      .from(files)
-      .where(inArray(files.id, [...fileIds])),
-  );
+  const rows = yield* overlay.select(db, scope, files, inArray(files.id, [...fileIds]));
   return new Map(rows.map((f) => [f.id, f]));
 });
