@@ -48,6 +48,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** Who made Live's version of a conflicting entity: a member, a release, or nobody known. */
+function changedBy(conflict: Preview["conflicts"][number]) {
+  if (conflict.release) return " by a release";
+  if (conflict.publishedBy) return ` by ${conflict.publishedBy.name}`;
+  return "";
+}
+
 /** The left column: what publishing will do, in the order ADR 0009 lists it. */
 function BeforeYouPublish({ preview }: { preview: Preview }) {
   const { blockers, conflicts, lost, warnings } = preview;
@@ -73,7 +80,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
             <li key={conflict.id}>
               {conflict.label} on {ownerName(conflict.owner)}:{" "}
               {conflict.liveVersion === null ? "deleted" : "changed"}
-              {conflict.publishedBy ? ` by ${conflict.publishedBy.name}` : ""}
+              {changedBy(conflict)}
               {conflict.publishedAt ? `, ${dateFormat.format(conflict.publishedAt)}` : ""}
             </li>
           ))}
