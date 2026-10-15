@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "./db";
@@ -228,8 +228,15 @@ export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess"
         pagePath: pages.fullPath,
       })
       .from(repeatableItems)
-      .innerJoin(blocks, eq(repeatableItems.blockId, blocks.id))
-      .innerJoin(environments, eq(environments.id, blocks.environmentId))
+      // An item's tree is rooted in a block or in a synced definition's shared content.
+      .leftJoin(blocks, eq(repeatableItems.blockId, blocks.id))
+      .innerJoin(
+        environments,
+        eq(
+          environments.id,
+          sql`coalesce(${blocks.environmentId}, ${repeatableItems.environmentId})`,
+        ),
+      )
       .leftJoin(pages, eq(blocks.pageId, pages.id))
       .where(eq(repeatableItems.id, itemId))
       .get(),

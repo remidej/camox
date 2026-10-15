@@ -1,25 +1,26 @@
 import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
+import { blocksProvider } from "../../../../../packages/ai-tools/src/providers/blocks";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blocks, environments, layouts, pages, repeatableItems } from "../../schema";
+import { blocks, layouts, pages, repeatableItems } from "../../schema";
 import { syncBlockDefinitions, upsertBlockDefinition } from "../block-definitions/service";
 import { blocksOfLayout } from "../layouts/identity";
-import { getLayout, syncLayouts } from "../layouts/service";
+import { syncLayouts } from "../layouts/service";
 import {
   createRepeatableItem,
   deleteRepeatableItem,
   updateRepeatableItemContent,
   updateRepeatableItemPosition,
-  updateRepeatableItemSettings,
 } from "../repeatable-items/service";
 import {
   createBlock,
-  deleteBlock,
   duplicateBlock,
   getBlock,
+  getLayoutMarkdown,
+  getPageMarkdown,
   getSyncedBlockContent,
   updateBlockContent,
   updateBlockSettings,
@@ -45,7 +46,7 @@ async function fixture(suffix: string, synced?: boolean) {
     contentSchema: {
       type: "object",
       properties: {
-        title: { type: "string" },
+        title: { type: "string", fieldType: "String" },
         links: {
           type: "array",
           fieldType: "Repeater",
@@ -66,6 +67,7 @@ async function fixture(suffix: string, synced?: boolean) {
           },
         },
       },
+      toMarkdown: ["# {{title}}"],
     },
     settingsSchema: { type: "object", properties: { sticky: { type: "boolean" } } },
   };
@@ -113,57 +115,37 @@ async function fixture(suffix: string, synced?: boolean) {
   const first = (await base.db.select().from(blocks).where(blocksOfLayout(base.layout)).get())!;
   const otherLayout = rows.find((row) => row.layoutId === "other")!;
   const second = (await base.db.select().from(blocks).where(blocksOfLayout(otherLayout)).get())!;
-  return { ...base, ctx, syncCtx, definition, first, second, otherLayout };
+  const now = Date.now();
+  const page = await base.db
+    .insert(pages)
+    .values({
+      projectId: base.project.id,
+      environmentId: base.environment.id,
+      layoutId: base.layout.layoutId,
+      pathSegment: "",
+      fullPath: "/",
+      nickname: "Home",
+      contentUpdatedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+  return { ...base, ctx, syncCtx, definition, first, second, otherLayout, page };
 }
 
-describe("synced blocks", () => {
-  it("defaults to independent data, reconciles when enabled, and detaches when disabled", async () => {
-    const { ctx, syncCtx, definition, first, second } = await fixture("sync-toggle");
-    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Edited" } }));
-    expect((await runService(getBlock(ctx, { id: second.id }))).block.content).toMatchObject({
-      title: "other",
-    });
-    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: true }));
-    expect((await runService(getBlock(ctx, { id: second.id }))).block.content).toMatchObject({
-      title: "Edited",
-    });
-    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: false }));
-    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "Independent" } }));
-    expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
-      title: "Edited",
-    });
-  });
+describe("a synced block's shared content", () => {
+  it("shows an edit made through one placement in every placement, each keeping its position and slot", async () => {
+    const { ctx, first, second } = await fixture("shared-edit", true);
+    const parent = (await runService(getBlock(ctx, { id: first.id }))).repeatableItems.find(
+      (item) => item.parentItemId === null,
+    )!;
 
-  it("shares nested data and settings bidirectionally without changing placement or item identity", async () => {
-    const { db, ctx, first, second } = await fixture("sync-tree", true);
-    expect(second.content).toEqual(first.content);
-    const firstBundle = await runService(getBlock(ctx, { id: first.id }));
-    const secondBundle = await runService(getBlock(ctx, { id: second.id }));
-    const firstChild = firstBundle.repeatableItems.find((item) => item.parentItemId !== null)!;
-    const secondChild = secondBundle.repeatableItems.find((item) => item.parentItemId !== null)!;
-    expect(firstChild.id).not.toBe(secondChild.id);
-    await runService(
-      updateRepeatableItemContent(ctx, {
-        id: secondChild.id,
-        content: { label: "Shared child" },
-      }),
-    );
-    await runService(
-      updateRepeatableItemSettings(ctx, { id: firstChild.id, settings: { visible: false } }),
-    );
+    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }));
     await runService(updateBlockSettings(ctx, { id: second.id, settings: { sticky: false } }));
-    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared title" } }));
-    const result = await runService(getBlock(ctx, { id: second.id }));
-    expect(result.block).toMatchObject({
-      layoutId: second.layoutId,
-      position: second.position,
-      content: { title: "Shared title" },
-      settings: { sticky: false },
-    });
-    expect(result.repeatableItems.find((item) => item.id === secondChild.id)).toMatchObject({
-      content: { label: "Shared child" },
-      settings: { visible: false },
-    });
+    await runService(
+      updateRepeatableItemContent(ctx, { id: parent.id, content: { label: "Start" } }),
+    );
     const added = await runService(
       createRepeatableItem(ctx, {
         blockId: second.id,
@@ -172,106 +154,195 @@ describe("synced blocks", () => {
       }),
     );
     await runService(updateRepeatableItemPosition(ctx, { id: added.id, beforePosition: "a0" }));
-    const copied = (
-      await db.select().from(repeatableItems).where(eq(repeatableItems.blockId, first.id))
-    ).find((item) => (item.content as { label: string }).label === "New")!;
-    expect(copied.position < "a0").toBe(true);
+
+    for (const placement of [first, second]) {
+      const { block, repeatableItems: items } = await runService(
+        getBlock(ctx, { id: placement.id }),
+      );
+      expect(block, placement.layoutId!).toMatchObject({
+        id: placement.id,
+        layoutId: placement.layoutId,
+        slot: placement.slot,
+        position: placement.position,
+        content: { title: "Shared" },
+        settings: { sticky: false },
+      });
+      expect(
+        items.filter((item) => item.parentItemId === null).map((item) => item.id),
+        placement.layoutId!,
+      ).toEqual([added.id, parent.id]);
+      expect(items.find((item) => item.id === parent.id)?.content).toMatchObject({
+        label: "Start",
+      });
+    }
+
     await runService(deleteRepeatableItem(ctx, { id: added.id }));
     expect(
-      await db.select().from(repeatableItems).where(eq(repeatableItems.id, copied.id)),
-    ).toEqual([]);
-    await runService(deleteBlock(ctx, { id: first.id }));
-    expect((await runService(getBlock(ctx, { id: second.id }))).block.content).toMatchObject({
-      title: "Shared title",
-    });
+      (await runService(getBlock(ctx, { id: first.id }))).repeatableItems.map((item) => item.id),
+    ).not.toContain(added.id);
   });
 
-  it("reuses data for new page placements and duplicates, without crossing environments", async () => {
-    const { db, ctx, project, environment, layout, first } = await fixture("sync-scope", true);
-    const now = Date.now();
-    const page = await db
-      .insert(pages)
-      .values({
-        projectId: project.id,
-        environmentId: environment.id,
-        layoutId: layout.layoutId,
-        pathSegment: "",
-        fullPath: "/",
-        nickname: "Home",
-        contentUpdatedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    const otherEnvironment = await db
-      .insert(environments)
-      .values({
-        projectId: project.id,
-        name: "dev",
-        type: "development",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    const otherLayout = await db
-      .insert(layouts)
-      .values({
-        projectId: project.id,
-        environmentId: otherEnvironment.id,
-        layoutId: "default",
-        contentUpdatedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    const isolated = await db
-      .insert(blocks)
-      .values({
-        environmentId: otherEnvironment.id,
-        layoutId: otherLayout.layoutId,
-        type: "navbar",
-        content: { title: "Isolated" },
-        position: "a0",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Existing" } }));
-    const created = await runService(
-      createBlock(ctx, {
-        pageId: page.id,
-        type: "navbar",
-        content: { title: "Ignored seed" },
-      }),
+  it("stores nothing but identity, position and slot in placements, and no sync key", async () => {
+    const { db, ctx, page, first, second } = await fixture("shared-storage", true);
+    const onPage = await runService(
+      createBlock(ctx, { pageId: page.id, type: "navbar", content: { title: "Own" } }),
     );
-    expect(created.content).toEqual({ title: "Existing" });
-    const duplicate = await runService(duplicateBlock(ctx, { id: created.id }));
-    expect((await runService(getBlock(ctx, { id: duplicate.id }))).repeatableItems).toHaveLength(2);
+    const duplicate = await runService(duplicateBlock(ctx, { id: onPage.id }));
+    await runService(updateBlockContent(ctx, { id: duplicate.id, content: { title: "Shared" } }));
+
+    const ids = [first.id, second.id, onPage.id, duplicate.id];
+    const placements = await db.select().from(blocks).where(inArray(blocks.id, ids));
+    expect(placements.map(({ content, settings }) => ({ content, settings }))).toEqual(
+      ids.map(() => ({ content: {}, settings: null })),
+    );
+    expect(
+      await db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, ids)),
+    ).toEqual([]);
+    expect((await runService(getBlock(ctx, { id: onPage.id }))).block.content).toMatchObject({
+      title: "Shared",
+    });
+
+    const columns = await db.all<{ name: string }>(
+      sql`select name from pragma_table_info('repeatable_items')`,
+    );
+    expect(columns.map(({ name }) => name)).not.toContain("sync_key");
+  });
+});
+
+/** Lets the clock move on, so the next write is strictly the most recent. */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+describe("a definition sync making a block synced", () => {
+  it("builds the shared content from the most recently updated placement and clears every placement", async () => {
+    const { db, ctx, syncCtx, definition, first, second } = await fixture("become-synced");
+    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "Older" } }));
+    await tick();
+    const firstItems = (await runService(getBlock(ctx, { id: first.id }))).repeatableItems;
+    const firstChild = firstItems.find((item) => item.parentItemId !== null)!;
     await runService(
-      updateBlockContent(ctx, { id: duplicate.id, content: { title: "From page" } }),
+      updateRepeatableItemContent(ctx, { id: firstChild.id, content: { label: "Latest" } }),
     );
+
+    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: true }));
+
+    for (const placement of [first, second]) {
+      const { block, repeatableItems: items } = await runService(
+        getBlock(ctx, { id: placement.id }),
+      );
+      expect(block.content, placement.layoutId!).toMatchObject({ title: "default" });
+      expect(items.map((item) => item.id).sort(), placement.layoutId!).toEqual(
+        firstItems.map((item) => item.id).sort(),
+      );
+      expect(items.find((item) => item.id === firstChild.id)?.content).toMatchObject({
+        label: "Latest",
+      });
+    }
+    const stored = await db
+      .select()
+      .from(blocks)
+      .where(inArray(blocks.id, [first.id, second.id]));
+    expect(stored.map(({ content, settings }) => ({ content, settings }))).toEqual([
+      { content: {}, settings: null },
+      { content: {}, settings: null },
+    ]);
+  });
+
+  it("builds the shared content from the definition's defaults when nothing places it", async () => {
+    const { ctx, syncCtx, definition, page } = await fixture("become-synced-defaults");
+    const hero = {
+      ...definition,
+      blockId: "hero",
+      title: "Hero",
+      defaultContent: { title: "Default title" },
+      defaultSettings: { sticky: true },
+    };
+    await runService(upsertBlockDefinition(syncCtx, hero));
+
+    await runService(upsertBlockDefinition(syncCtx, { ...hero, synced: true }));
+    const placed = await runService(
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "Own title" } }),
+    );
+
+    expect((await runService(getBlock(ctx, { id: placed.id }))).block).toMatchObject({
+      content: { title: "Default title" },
+      settings: { sticky: true },
+    });
+  });
+});
+
+describe("a definition sync making a block no longer synced", () => {
+  it("gives each placement its own copy, with distinct repeatable item ids, and deletes the shared content", async () => {
+    const { db, ctx, syncCtx, project, definition, first, second } = await fixture(
+      "stop-synced",
+      true,
+    );
+    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }));
+    const sharedIds = (await runService(getBlock(ctx, { id: first.id }))).repeatableItems.map(
+      (item) => item.id,
+    );
+
+    await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: false }));
+
+    const [firstCopy, secondCopy] = await Promise.all(
+      [first, second].map((placement) => runService(getBlock(ctx, { id: placement.id }))),
+    );
+    for (const copy of [firstCopy, secondCopy]) {
+      expect(copy.block).toMatchObject({
+        content: { title: "Shared" },
+        settings: { sticky: true },
+      });
+      expect(copy.repeatableItems.map((item) => item.content)).toEqual([
+        expect.objectContaining({ label: "Home" }),
+        expect.objectContaining({ label: "Nested" }),
+      ]);
+    }
+    const copiedIds = [...firstCopy.repeatableItems, ...secondCopy.repeatableItems].map(
+      (item) => item.id,
+    );
+    expect(new Set([...copiedIds, ...sharedIds]).size).toBe(copiedIds.length + sharedIds.length);
+
+    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "Own" } }));
     expect((await runService(getBlock(ctx, { id: first.id }))).block.content).toMatchObject({
-      title: "From page",
+      title: "Shared",
     });
     expect(
-      (await db.select().from(blocks).where(eq(blocks.id, isolated.id)).get())?.content,
-    ).toEqual({ title: "Isolated" });
+      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" })),
+    ).toBeNull();
+    expect(
+      await db.select().from(repeatableItems).where(inArray(repeatableItems.id, sharedIds)),
+    ).toEqual([]);
   });
+});
 
-  it("renders the current shared content in every placement, for visitors too", async () => {
-    const { db, ctx, project, second } = await fixture("sync-current", true);
-    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "Shared" } }));
+describe("reading a synced placement", () => {
+  it("shows the shared content in the Block Catalog, Markdown and AI tools", async () => {
+    const { ctx, project, page, second } = await fixture("shared-readers", true);
+    const onPage = await runService(
+      createBlock(ctx, { pageId: page.id, type: "navbar", content: {} }),
+    );
+    const context = { ...ctx, projectId: project.id };
+    const tools = await blocksProvider(context);
+    const tool = (name: string) => tools.find((entry) => entry.name === name)!;
 
-    const visitorCtx = createServiceContext(db, null);
-    for (const layoutId of ["default", "other"]) {
-      const view = await runService(getLayout(visitorCtx, { projectSlug: project.slug, layoutId }));
-      expect(view.blocks[0].content, layoutId).toMatchObject({ title: "Shared" });
-      expect(view.repeatableItems, layoutId).toHaveLength(2);
-    }
+    await tool("editBlock").handler({ id: second.id, content: { title: "Shared title" } }, context);
+
+    const catalog = await runService(
+      getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }),
+    );
+    expect(catalog?.block.content).toMatchObject({ title: "Shared title" });
+    expect((await runService(getPageMarkdown(ctx, { pageId: page.id }))).markdown).toContain(
+      "# Shared title",
+    );
+    expect(
+      (await runService(getLayoutMarkdown(ctx, { projectSlug: project.slug, layoutId: "other" })))
+        .before,
+    ).toContain("# Shared title");
+    const fetched = (await tool("getBlock").handler({ id: onPage.id }, context)) as {
+      block: { content: unknown };
+      repeatableItems: unknown[];
+    };
+    expect(fetched.block.content).toMatchObject({ title: "Shared title" });
+    expect(fetched.repeatableItems).toHaveLength(2);
   });
 });
 

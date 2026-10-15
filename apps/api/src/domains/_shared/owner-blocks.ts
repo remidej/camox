@@ -2,6 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { blocks, repeatableItems } from "../../schema";
+import { withSharedContent } from "../blocks/shared-content";
 import { blocksOfLayout } from "../layouts/identity";
 import { sortByPosition } from "../pages/ai";
 import { conformBlocksIn } from "./conform-content";
@@ -9,7 +10,7 @@ import type { ServiceContext } from "./service-context";
 
 /**
  * A page's or layout's current blocks, sorted, with every repeatable item they own, conformed
- * to the block definitions in effect (ADR 0007).
+ * to the block definitions in effect (ADR 0007). Synced placements show their shared content.
  */
 export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
   ctx: ServiceContext,
@@ -25,10 +26,12 @@ export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
   );
   if (ownerBlocks.length === 0) return { blocks: ownerBlocks, items: [] };
   const blockIds = ownerBlocks.map((block) => block.id);
-  const items = sortByPosition(
+  const shown = yield* withSharedContent(
+    ctx.db,
+    ownerBlocks,
     yield* Effect.promise(() =>
       ctx.db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
     ),
   );
-  return yield* conformBlocksIn(ctx, ownerBlocks[0], ownerBlocks, items);
+  return yield* conformBlocksIn(ctx, ownerBlocks[0], shown.blocks, sortByPosition(shown.items));
 });

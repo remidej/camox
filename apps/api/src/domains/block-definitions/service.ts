@@ -8,7 +8,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { blockDefinitions } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { applySyncedFlagChange } from "../blocks/synced";
+import { applySyncedFlag } from "../blocks/shared-content";
 import { validateReferenceSchema } from "../collections/references";
 
 // --- Input Schemas ---
@@ -153,7 +153,7 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
           .get(),
       );
       if (updated.synced !== existing.synced) {
-        yield* applySyncedFlagChange(ctx, {
+        yield* applySyncedFlag(ctx, {
           projectId,
           environmentId: environment.id,
           type: def.blockId,
@@ -185,14 +185,14 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
         .returning()
         .get(),
     );
-    if (created.synced) {
-      yield* applySyncedFlagChange(ctx, {
-        projectId,
-        environmentId: environment.id,
-        type: def.blockId,
-        synced: true,
-      });
-    }
+    // A definition that comes back finds its stored shared content, synced or not.
+    yield* applySyncedFlag(ctx, {
+      projectId,
+      environmentId: environment.id,
+      type: def.blockId,
+      synced: created.synced,
+      created: true,
+    });
     results.push(created);
   }
 
@@ -272,7 +272,7 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
         .get(),
     );
     if (result.synced !== existing.synced) {
-      yield* applySyncedFlagChange(ctx, {
+      yield* applySyncedFlag(ctx, {
         projectId,
         environmentId: environment.id,
         type: body.blockId,
@@ -300,14 +300,13 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
       .returning()
       .get(),
   );
-  if (result.synced) {
-    yield* applySyncedFlagChange(ctx, {
-      projectId,
-      environmentId: environment.id,
-      type: body.blockId,
-      synced: true,
-    });
-  }
+  yield* applySyncedFlag(ctx, {
+    projectId,
+    environmentId: environment.id,
+    type: body.blockId,
+    synced: result.synced,
+    created: true,
+  });
   return { ...result, action: "created" as const };
 });
 

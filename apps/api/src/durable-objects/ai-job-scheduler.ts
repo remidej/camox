@@ -116,7 +116,12 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         db.select().from(repeatableItems).where(eq(repeatableItems.id, entityId)).get(),
       );
       if (item) {
-        const projectId = yield* Effect.promise(() => this.getBlockProjectId(db, item.blockId));
+        // A shared content's item names its environment instead of a block.
+        const projectId = yield* Effect.promise(() =>
+          item.blockId !== null
+            ? this.getBlockProjectId(db, item.blockId)
+            : this.getEnvironmentProjectId(db, item.environmentId!),
+        );
         if (projectId) {
           broadcastInvalidation({
             waitUntil: (p) => this.ctx.waitUntil(p),
@@ -160,6 +165,18 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       }
     }
   });
+
+  private async getEnvironmentProjectId(
+    db: ReturnType<typeof createDb>,
+    environmentId: number,
+  ): Promise<number | null> {
+    const result = await db
+      .select({ projectId: environments.projectId })
+      .from(environments)
+      .where(eq(environments.id, environmentId))
+      .get();
+    return result?.projectId ?? null;
+  }
 
   private async getBlockProjectId(
     db: ReturnType<typeof createDb>,

@@ -200,11 +200,24 @@ CREATE TABLE `blocks` (
 CREATE INDEX `blocks_page_idx` ON `blocks` (`page_id`);--> statement-breakpoint
 CREATE INDEX `blocks_layout_idx` ON `blocks` (`environment_id`,`layout_id`);--> statement-breakpoint
 CREATE INDEX `blocks_type_idx` ON `blocks` (`type`);--> statement-breakpoint
+CREATE TABLE `shared_contents` (
+	`environment_id` integer NOT NULL,
+	`type` text NOT NULL,
+	`content` text NOT NULL,
+	`settings` text,
+	`summary` text DEFAULT '' NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	PRIMARY KEY(`environment_id`, `type`),
+	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
 CREATE TABLE `repeatable_items` (
 	`id` text PRIMARY KEY NOT NULL,
-	`block_id` text NOT NULL,
+	`block_id` text,
+	`environment_id` integer,
+	`shared_content_type` text,
 	`parent_item_id` text,
-	`sync_key` text,
 	`field_name` text NOT NULL,
 	`content` text NOT NULL,
 	`settings` text,
@@ -213,12 +226,15 @@ CREATE TABLE `repeatable_items` (
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`block_id`) REFERENCES `blocks`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`parent_item_id`) REFERENCES `repeatable_items`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`parent_item_id`) REFERENCES `repeatable_items`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "repeatable_items_one_root" CHECK(("repeatable_items"."block_id" is null) != ("repeatable_items"."shared_content_type" is null) and ("repeatable_items"."environment_id" is null) = ("repeatable_items"."shared_content_type" is null))
 );
 --> statement-breakpoint
 CREATE INDEX `repeatable_items_block_field_idx` ON `repeatable_items` (`block_id`,`field_name`);--> statement-breakpoint
 CREATE INDEX `repeatable_items_block_idx` ON `repeatable_items` (`block_id`);--> statement-breakpoint
 CREATE INDEX `repeatable_items_parent_idx` ON `repeatable_items` (`parent_item_id`);--> statement-breakpoint
+CREATE INDEX `repeatable_items_shared_content_idx` ON `repeatable_items` (`environment_id`,`shared_content_type`);--> statement-breakpoint
 CREATE TABLE `files` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` integer,

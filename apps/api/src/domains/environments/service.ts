@@ -20,6 +20,7 @@ import {
   layouts,
   pages,
   repeatableItems,
+  sharedContents,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 
@@ -321,16 +322,25 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     ctx.db.select().from(blocks).where(eq(blocks.environmentId, source.id)),
   );
 
+  const sourceSharedContents = yield* Effect.promise(() =>
+    ctx.db.select().from(sharedContents).where(eq(sharedContents.environmentId, source.id)),
+  );
+
+  // Items of blocks, and items of the environment's shared contents.
   const sourceBlockIds = sourceBlocks.map((b) => b.id);
-  const sourceItems: (typeof repeatableItems.$inferSelect)[] =
-    sourceBlockIds.length > 0
+  const sourceItems: (typeof repeatableItems.$inferSelect)[] = [
+    ...(sourceBlockIds.length > 0
       ? yield* Effect.promise(() =>
           ctx.db
             .select()
             .from(repeatableItems)
             .where(inArray(repeatableItems.blockId, sourceBlockIds)),
         )
-      : [];
+      : []),
+    ...(yield* Effect.promise(() =>
+      ctx.db.select().from(repeatableItems).where(eq(repeatableItems.environmentId, source.id)),
+    )),
+  ];
   const takenAt = Date.now();
   const snapshot = {
     schemaVersion: 1 as const,
@@ -342,6 +352,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     files: sourceFiles,
     pages: sourcePages,
     blocks: sourceBlocks,
+    sharedContents: sourceSharedContents,
     repeatableItems: sourceItems,
     comments: sourceComments,
   };
@@ -357,6 +368,12 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // ON DELETE CASCADE), and the files DELETE bypasses the per-row service so
   // R2 blobs are preserved for re-insertion below.
   yield* Effect.promise(() => ctx.db.delete(comments).where(eq(comments.environmentId, target.id)));
+  yield* Effect.promise(() =>
+    ctx.db.delete(repeatableItems).where(eq(repeatableItems.environmentId, target.id)),
+  );
+  yield* Effect.promise(() =>
+    ctx.db.delete(sharedContents).where(eq(sharedContents.environmentId, target.id)),
+  );
   yield* Effect.promise(() => ctx.db.delete(blocks).where(eq(blocks.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.environmentId, target.id)));
@@ -441,10 +458,25 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     blocksMap.set(id, inserted.id);
   }
 
+  for (const row of sourceSharedContents) {
+    const { environmentId: _envId, content, settings, ...rest } = row;
+    yield* Effect.promise(() =>
+      ctx.db.insert(sharedContents).values({
+        ...rest,
+        environmentId: target.id,
+        content: remapContentReferences(content, filesMap, pagesMap),
+        settings:
+          settings !== null && settings !== undefined
+            ? remapContentReferences(settings, filesMap, pagesMap)
+            : settings,
+      }),
+    );
+  }
+
   const itemsMap = new Map<string, string>();
   for (const row of topoSortItems(sourceItems)) {
-    const { id, blockId, parentItemId, content, settings, ...rest } = row;
-    const newBlockId = blocksMap.get(blockId);
+    const { id, blockId, environmentId, parentItemId, content, settings, ...rest } = row;
+    const newBlockId = blockId === null ? null : blocksMap.get(blockId);
     if (newBlockId === undefined) {
       return yield* Effect.die(
         new Error(`Repeatable item ${id} references missing block ${blockId} during replication.`),
@@ -462,6 +494,8 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
         .values({
           ...rest,
           blockId: newBlockId,
+          // A shared content's item moves with its shared content into the target.
+          environmentId: environmentId === null ? null : target.id,
           parentItemId: newParentItemId,
           content: newContent,
           settings: newSettings,

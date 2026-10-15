@@ -43,6 +43,31 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
   };
 });
 
+/** The schemas of a block definition, named within an environment. */
+export const loadDefinitionSchemas = Effect.fn("loadDefinitionSchemas")(function* (
+  db: Database,
+  environmentId: number,
+  type: string,
+) {
+  const definition = yield* Effect.promise(() =>
+    db
+      .select({
+        contentSchema: blockDefinitions.contentSchema,
+        settingsSchema: blockDefinitions.settingsSchema,
+      })
+      .from(blockDefinitions)
+      .where(
+        and(eq(blockDefinitions.environmentId, environmentId), eq(blockDefinitions.blockId, type)),
+      )
+      .get(),
+  );
+  if (!definition) return null;
+  return {
+    contentSchema: definition.contentSchema as FieldSchema | null,
+    settingsSchema: definition.settingsSchema as FieldSchema | null,
+  };
+});
+
 export const loadBlockContentSchema = Effect.fn("loadBlockContentSchema")(function* (
   db: Database,
   projectId: number,

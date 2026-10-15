@@ -14,7 +14,7 @@ import { decodeInput, ForbiddenError, InvalidInputError, NotFoundError } from ".
 import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { blocks, files, member, projects, repeatableItems } from "../../schema";
+import { blocks, files, member, projects, repeatableItems, sharedContents } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import { readMetadataImage } from "./metadata-image";
@@ -246,6 +246,8 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
         id: repeatableItems.id,
         content: repeatableItems.content,
         blockId: repeatableItems.blockId,
+        environmentId: repeatableItems.environmentId,
+        sharedContentType: repeatableItems.sharedContentType,
       })
       .from(repeatableItems)
       .where(sql`INSTR(${repeatableItems.content}, ${marker}) > 0`),
@@ -268,7 +270,49 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
     );
   }
 
-  const itemBlockIds = affectedItems.map((i) => i.blockId);
+  // A synced definition's shared content, and its items, show in every placement.
+  const affectedShared = yield* Effect.promise(() =>
+    db
+      .select()
+      .from(sharedContents)
+      .where(sql`INSTR(${sharedContents.content}, ${marker}) > 0`),
+  );
+  for (const shared of affectedShared) {
+    const cleaned = cleanFileReferences(shared.content as JsonValue, fileId);
+    yield* Effect.promise(() =>
+      db
+        .update(sharedContents)
+        .set({ content: cleaned, updatedAt: now })
+        .where(
+          and(
+            eq(sharedContents.environmentId, shared.environmentId),
+            eq(sharedContents.type, shared.type),
+          ),
+        ),
+    );
+  }
+  const sharedRoots = [
+    ...affectedShared.map((shared) => ({ environmentId: shared.environmentId, type: shared.type })),
+    ...affectedItems
+      .filter((item) => item.blockId === null)
+      .map((item) => ({ environmentId: item.environmentId!, type: item.sharedContentType! })),
+  ];
+  const placements = [];
+  for (const root of sharedRoots) {
+    placements.push(
+      ...(yield* Effect.promise(() =>
+        db
+          .select({ id: blocks.id })
+          .from(blocks)
+          .where(and(eq(blocks.environmentId, root.environmentId), eq(blocks.type, root.type))),
+      )),
+    );
+  }
+
+  const itemBlockIds = [
+    ...affectedItems.flatMap((i) => (i.blockId === null ? [] : [i.blockId])),
+    ...placements.map((placement) => placement.id),
+  ];
   const allBlockIds = [...new Set([...affectedBlocks.map((b) => b.id), ...itemBlockIds])];
 
   // Look up pageIds for blocks referenced by affected repeatable items
@@ -611,10 +655,15 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
   const now = Date.now();
   // Blocks on pages and in layouts both belong to the file's environment.
   const scopedBlocks = eq(blocks.environmentId, oldFile.environmentId);
-  const scopedItems = inArray(
-    repeatableItems.blockId,
-    ctx.db.select({ id: blocks.id }).from(blocks).where(scopedBlocks),
+  // Items belong to a block of the environment, or to one of its shared contents.
+  const scopedItems = or(
+    inArray(
+      repeatableItems.blockId,
+      ctx.db.select({ id: blocks.id }).from(blocks).where(scopedBlocks),
+    ),
+    eq(repeatableItems.environmentId, oldFile.environmentId),
   );
+  const scopedShared = eq(sharedContents.environmentId, oldFile.environmentId);
 
   // Include direct URLs as well as _fileId references in invalidation.
   const marker = fileIdMarker(id);
@@ -647,7 +696,24 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
       ),
   );
 
-  const itemBlockIds = [...new Set(affectedItems.map((i) => i.blockId))];
+  const affectedShared = yield* Effect.promise(() =>
+    ctx.db
+      .select({ type: sharedContents.type })
+      .from(sharedContents)
+      .where(
+        and(
+          scopedShared,
+          or(
+            sql`INSTR(${sharedContents.content}, ${marker}) > 0`,
+            sql`INSTR(${sharedContents.content}, ${oldUrl}) > 0`,
+          ),
+        ),
+      ),
+  );
+
+  const itemBlockIds = [
+    ...new Set(affectedItems.flatMap((i) => (i.blockId === null ? [] : [i.blockId]))),
+  ];
   let itemBlockPageIds: string[] = [];
   if (itemBlockIds.length > 0) {
     const parentBlocks = yield* Effect.promise(() =>
@@ -701,6 +767,13 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
           updatedAt: now,
         })
         .where(and(scopedItems, sql`INSTR(${repeatableItems.content}, ${oldUrl}) > 0`)),
+      ctx.db
+        .update(sharedContents)
+        .set({
+          content: sql`REPLACE(CAST(${sharedContents.content} AS TEXT), ${oldUrl}, ${asset.url})`,
+          updatedAt: now,
+        })
+        .where(and(scopedShared, sql`INSTR(${sharedContents.content}, ${oldUrl}) > 0`)),
       ...(temporaryFileId === undefined
         ? []
         : [ctx.db.delete(files).where(eq(files.id, temporaryFileId))]),
@@ -729,7 +802,8 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
     ...allBlockIds.map((bid) => queryKeys.blocks.get(bid)),
     ...allPageIds.map((pid) => queryKeys.blocks.getPageMarkdown(pid)),
     ...affectedItems.map((i) => queryKeys.repeatableItems.get(i.id)),
-    ...(allBlockIds.length > 0 || affectedItems.length > 0
+    ...affectedShared.map((shared) => queryKeys.blocks.getSyncedContent(shared.type)),
+    ...(allBlockIds.length > 0 || affectedItems.length > 0 || affectedShared.length > 0
       ? [queryKeys.blocks.getUsageCounts, queryKeys.pages.getByPathAll]
       : []),
   ]);
