@@ -538,6 +538,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId,
     targets: [
       queryKeys.pages.list,

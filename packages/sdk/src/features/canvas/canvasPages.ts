@@ -1,6 +1,7 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { getPageDestinations } from "../../core/pageDestinations";
+import { scopedKey } from "../../lib/studio-draft";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 
@@ -29,15 +30,15 @@ export function canvasPageQuery(
 ) {
   return {
     queryKey: derivedLayoutId
-      ? [
+      ? scopedKey([
           ...queryKeys.layouts.all,
           "canvas",
           projectSlug,
           runtimeBasePath,
           pathname,
           derivedLayoutId,
-        ]
-      : ["camox", "canvas", projectSlug, runtimeBasePath, pathname, null],
+        ])
+      : scopedKey(["camox", "canvas", projectSlug, runtimeBasePath, pathname]),
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const response = await fetchRuntimeJson(
         "/_camox/data",

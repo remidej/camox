@@ -457,6 +457,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId,
     targets: [queryKeys.layouts.all, queryKeys.pages.getByPathAll],
   });

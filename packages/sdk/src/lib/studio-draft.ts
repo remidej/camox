@@ -1,6 +1,10 @@
 import type { Router } from "@camox/api-contract";
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { inScope, LIVE_KEY_SCOPE, scopeOfKey, type QueryKey } from "@camox/api-contract/query-keys";
+import type { QueryClient } from "@tanstack/react-query";
+
+import type { DraftNotice } from "../features/routes/pageRuntime";
 
 /**
  * The draft the studio reads and writes (ADR 0011). The URL's `camox-draft` param names it;
@@ -34,6 +38,7 @@ let currentDraftId: string | null = null;
 let pending: { id: string; inFlight: number } | null = null;
 const listeners = new Set<(draftId: string) => void>();
 
+/** Follows the URL: the draft its param names, or Live. Navigations call it once they commit. */
 export function readDraftFromUrl() {
   pending = null;
   currentDraftId =
@@ -44,6 +49,43 @@ export function readDraftFromUrl() {
 
 export function getCurrentDraftId(): string | null {
   return currentDraftId;
+}
+
+/**
+ * A query key as the studio caches it: ending in the draft it reads, or `live` (ADR 0011). Each
+ * draft's queries are cached apart, so a draft's realtime invalidations refetch only its own.
+ */
+export function scopedKey(key: QueryKey): QueryKey {
+  return inScope(key, currentDraftId);
+}
+
+/**
+ * Seeds a draft the studio just started with what it showed on Live: the draft is Live plus the
+ * first edit, so the studio keeps showing it while its queries refetch from the draft.
+ */
+export function seedStartedDraft(queryClient: QueryClient, draftId: string) {
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ["camox"] })) {
+    if (scopeOfKey(query.queryKey) !== LIVE_KEY_SCOPE || query.state.data === undefined) continue;
+    queryClient.setQueryData([...query.queryKey.slice(0, -1), draftId], query.state.data);
+  }
+}
+
+const noticeListeners = new Set<(notice: DraftNotice) => void>();
+const pendingNotices: DraftNotice[] = [];
+
+/**
+ * Tells a member why the page shows Live instead of the draft its URL named. Notices reported
+ * before anyone listens wait for the first listener, which mounts with the studio's toaster.
+ */
+export function reportDraftNotice(notice: DraftNotice) {
+  if (noticeListeners.size === 0) return void pendingNotices.push(notice);
+  for (const listener of noticeListeners) listener(notice);
+}
+
+export function onDraftNotice(listener: (notice: DraftNotice) => void): () => void {
+  noticeListeners.add(listener);
+  for (const notice of pendingNotices.splice(0)) listener(notice);
+  return () => noticeListeners.delete(listener);
 }
 
 /** Called once the first block write has created a draft and the studio switched into it. */

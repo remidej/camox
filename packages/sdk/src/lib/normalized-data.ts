@@ -4,6 +4,7 @@ import { useQueries } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { BlockBundle, PageStructure, PageWithBlocks } from "./queries";
+import { scopedKey } from "./studio-draft";
 import { viewBlockQueries } from "./view-queries";
 
 /* -------------------------------------------------------------------------------------------------
@@ -314,14 +315,14 @@ export function seedBlockCaches(
     }
     const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
 
-    queryClient.setQueryData(queryKeys.blocks.get(block.id), {
+    queryClient.setQueryData(scopedKey(queryKeys.blocks.get(block.id)), {
       block,
       repeatableItems: blockItems,
       files: blockFiles,
     });
 
     for (const file of blockFiles) {
-      queryClient.setQueryData(queryKeys.files.get(file.id), file);
+      queryClient.setQueryData(scopedKey(queryKeys.files.get(file.id)), file);
     }
   }
 }

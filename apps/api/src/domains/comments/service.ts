@@ -95,6 +95,7 @@ export const setCommentResolved = Effect.fn("comments.setCommentResolved")(funct
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId: access.projectId,
     targets: [queryKeys.comments.list(pageId)],
   });
@@ -268,6 +269,7 @@ export const createComment = Effect.fn("comments.createComment")(function* (
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
+      draftId: null,
       projectId: access.projectId,
       targets: [queryKeys.comments.list(input.pageId)],
     });

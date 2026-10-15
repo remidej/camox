@@ -16,7 +16,7 @@ export function toORPCError(error: ServiceError) {
     case "ForbiddenError":
       return new ORPCError("FORBIDDEN", { message: error.message });
     case "NotFoundError":
-      return new ORPCError("NOT_FOUND", { message: error.message });
+      return new ORPCError("NOT_FOUND", { message: error.message, data: error.data });
     case "InvalidInputError":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: error.data });
     case "ConflictError":

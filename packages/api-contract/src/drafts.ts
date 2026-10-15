@@ -16,10 +16,7 @@ export type DraftKind = "regular" | "development";
 /** How a regular draft ended. */
 export type DraftOutcome = "published" | "discarded";
 
-/**
- * A regular draft that was published or discarded: who ended it and when. Requests naming it
- * fail with `DRAFT_ENDED_ERROR_CODE` (status 410) carrying this as `data`.
- */
+/** Who ended a draft, how and when, from its ended-drafts record (ADR 0009, ADR 0011). */
 export type EndedDraft = {
   draftId: string;
   outcome: DraftOutcome;
@@ -27,7 +24,10 @@ export type EndedDraft = {
   endedAt: number;
 };
 
-/** oRPC error code for a request naming a draft that was published or discarded. */
+/**
+ * The oRPC error code a request naming an ended draft fails with. Its `data` is an `EndedDraft`,
+ * so a page can render Live and say who published or discarded the draft.
+ */
 export const DRAFT_ENDED_ERROR_CODE = "DRAFT_ENDED";
 
 /**

@@ -53,7 +53,10 @@ const missingDraft = Effect.fn("missingDraft")(function* (
 ) {
   const ended = yield* findEndedDraft(db, projectId, draftId);
   if (ended) return yield* new DraftEndedError({ ended });
-  return yield* new NotFoundError({ message: `Draft ${draftId} not found in this project` });
+  return yield* new NotFoundError({
+    message: `Draft ${draftId} not found in this project`,
+    data: { draftId },
+  });
 });
 
 /**

@@ -8,6 +8,7 @@ import { asCollectionItem } from "@/core/recordItem";
 import type { CollectionRecordId } from "@/core/requestContext";
 import { collectionQueries } from "@/lib/queries";
 
+import { scopedKey } from "../../lib/studio-draft";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
@@ -29,7 +30,7 @@ export function getPageRecord(result: AnyLayoutLoaderResult | undefined): PageRe
  */
 export function derivedPageQuery(projectSlug: string, runtimeBasePath: string, pathname: string) {
   return {
-    queryKey: [...queryKeys.layouts.all, "data", projectSlug, runtimeBasePath, pathname] as const,
+    queryKey: scopedKey([...queryKeys.layouts.all, "data", projectSlug, runtimeBasePath, pathname]),
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const response = await fetchRuntimeJson(
         "/_camox/data",

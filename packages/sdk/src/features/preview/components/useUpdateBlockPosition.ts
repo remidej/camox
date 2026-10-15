@@ -5,6 +5,8 @@ import { generateKeyBetween } from "fractional-indexing";
 import { useLocation } from "@/features/navigation/navigation";
 import { type BlockBundle, type PageStructure, blockMutations } from "@/lib/queries";
 
+import { scopedKey } from "../../../lib/studio-draft";
+
 export function useUpdateBlockPosition() {
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
@@ -12,7 +14,7 @@ export function useUpdateBlockPosition() {
   return useMutation({
     ...blockMutations.updatePosition(),
     onMutate: (variables) => {
-      const pageQueryKey = queryKeys.pages.getByPath(pathname);
+      const pageQueryKey = scopedKey(queryKeys.pages.getByPath(pathname));
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return {};
 
@@ -22,7 +24,7 @@ export function useUpdateBlockPosition() {
       );
 
       // Update the moved block's position in its individual cache
-      const blockKey = queryKeys.blocks.get(variables.id);
+      const blockKey = scopedKey(queryKeys.blocks.get(variables.id));
       const prevBundle = queryClient.getQueryData<BlockBundle>(blockKey);
       if (prevBundle) {
         queryClient.setQueryData(blockKey, {
@@ -38,7 +40,7 @@ export function useUpdateBlockPosition() {
         if (id === variables.id) {
           positions.set(id, newPosition);
         } else {
-          const bundle = queryClient.getQueryData<BlockBundle>(queryKeys.blocks.get(id));
+          const bundle = queryClient.getQueryData<BlockBundle>(scopedKey(queryKeys.blocks.get(id)));
           if (bundle) positions.set(id, bundle.block.position);
         }
       }
@@ -58,15 +60,18 @@ export function useUpdateBlockPosition() {
     },
     onError: (_error, variables, context) => {
       if (context?.previousPage) {
-        queryClient.setQueryData(queryKeys.pages.getByPath(pathname), context.previousPage);
+        queryClient.setQueryData(
+          scopedKey(queryKeys.pages.getByPath(pathname)),
+          context.previousPage,
+        );
       }
       if (context?.prevBundle) {
-        queryClient.setQueryData(queryKeys.blocks.get(variables.id), context.prevBundle);
+        queryClient.setQueryData(scopedKey(queryKeys.blocks.get(variables.id)), context.prevBundle);
       }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.pages.getByPath(pathname),
+        queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
       });
     },
   });

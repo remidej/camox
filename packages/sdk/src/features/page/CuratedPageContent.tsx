@@ -5,6 +5,7 @@ import * as React from "react";
 import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
 import { NormalizedDataProvider, usePageBlocks } from "../../lib/normalized-data";
+import { scopedKey } from "../../lib/studio-draft";
 import { viewBlockQueries } from "../../lib/view-queries";
 import { useLocation } from "../navigation/navigation";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
@@ -52,7 +53,7 @@ export function CuratedPageContent() {
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
   const { data: pageData } = useSuspenseQuery({
-    queryKey: queryKeys.pages.getByPath(pathname),
+    queryKey: scopedKey(queryKeys.pages.getByPath(pathname)),
     queryFn: pageStructureQueryFn(pathname, projectSlug),
     staleTime: Infinity,
   });
