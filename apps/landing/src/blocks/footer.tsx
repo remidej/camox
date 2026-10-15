@@ -40,44 +40,48 @@ const ridge =
 /**
  * A nod to the chamois in the logo: the footer's top border, drawn as a
  * mountain ridgeline across the container, with a faint primary-colour glow in
- * the sky behind it, like the hour before sunrise. It stretches horizontally to
- * the container's width; the stroke stays 1px in the block-border colour.
+ * the sky behind it, like the hour before sunrise. It keeps the proportions it
+ * has in the full-width (1280px) container on every screen: narrower screens
+ * render it wider than the container (`--ridge-span`) and crop the flat
+ * baseline, so the range itself spans the container on mobile. The stroke stays
+ * 1px in the block-border colour.
  */
 function Ridgeline() {
   const id = useId();
 
   return (
-    <svg
-      aria-hidden
-      viewBox="0 0 1440 112"
-      preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-x-0 top-0 h-28 w-full"
-    >
-      <defs>
-        <radialGradient
-          id={`${id}-glow`}
-          cx="0.5"
-          cy="1"
-          r="1"
-          gradientTransform="translate(0.5 1) scale(0.55 1) translate(-0.5 -1)"
-        >
-          <stop offset="0" stopColor="var(--primary)" stopOpacity={0.22} />
-          <stop offset="0.5" stopColor="var(--primary)" stopOpacity={0.08} />
-          <stop offset="1" stopColor="var(--primary)" stopOpacity={0} />
-        </radialGradient>
-        <clipPath id={`${id}-sky`}>
-          <path d={`${ridge} V0 H0 Z`} />
-        </clipPath>
-      </defs>
-      <rect width={1440} height={104} fill={`url(#${id}-glow)`} clipPath={`url(#${id}-sky)`} />
-      <path
-        d={ridge}
-        fill="none"
-        stroke="var(--border)"
-        strokeWidth={1}
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
+    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 overflow-hidden">
+      <svg
+        viewBox="0 0 1440 112"
+        preserveAspectRatio="none"
+        className="relative left-1/2 aspect-[1280/112] w-(--ridge-span) max-w-none -translate-x-1/2"
+      >
+        <defs>
+          <radialGradient
+            id={`${id}-glow`}
+            cx="0.5"
+            cy="1"
+            r="1"
+            gradientTransform="translate(0.5 1) scale(0.55 1) translate(-0.5 -1)"
+          >
+            <stop offset="0" stopColor="var(--primary)" stopOpacity={0.22} />
+            <stop offset="0.5" stopColor="var(--primary)" stopOpacity={0.08} />
+            <stop offset="1" stopColor="var(--primary)" stopOpacity={0} />
+          </radialGradient>
+          <clipPath id={`${id}-sky`}>
+            <path d={`${ridge} V0 H0 Z`} />
+          </clipPath>
+        </defs>
+        <rect width={1440} height={104} fill={`url(#${id}-glow)`} clipPath={`url(#${id}-sky)`} />
+        <path
+          d={ridge}
+          fill="none"
+          stroke="var(--border)"
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    </div>
   );
 }
 
@@ -86,7 +90,14 @@ function FooterComponent() {
     // The ridgeline is the separator, so the footer overlaps and hides the bottom
     // border of the block above (2px rather than 1px to survive fractional offsets).
     <footer className="dark bg-background relative -mt-0.5">
-      <div className={cn("relative container pt-36 pb-10 sm:pb-12", blockSideBorder)}>
+      <div
+        className={cn(
+          // The content clears the ridgeline (as tall as `--ridge-span` × 112/1280 of
+          // the container's width) by 2rem. From xl the container stops growing.
+          "relative container pt-[calc(var(--ridge-span)*112/1280+2rem)] pb-10 [--ridge-span:185%] sm:pb-12 md:[--ridge-span:140%] lg:[--ridge-span:100%] xl:pt-36",
+          blockSideBorder,
+        )}
+      >
         <Ridgeline />
         <div className="flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-4">
