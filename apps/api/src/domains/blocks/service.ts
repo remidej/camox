@@ -430,6 +430,24 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
  * In a draft, the summary is written only onto a block the draft already holds, never copying
  * one into it, and nothing cascades to Live: pages and shared content are Live-only until #238.
  */
+/** Saves a generated summary where the block's content lives: its shared content, or itself. */
+const saveSummary = Effect.fn("blocks.saveSummary")(function* (
+  db: Database,
+  scope: DraftScope,
+  blockId: string,
+  shared: SharedContentRow | null,
+  summary: string,
+) {
+  const updatedAt = Date.now();
+  if (!shared) {
+    yield* overlay.updateExisting(db, scope, blocks, blockId, { summary, updatedAt });
+    return;
+  }
+  yield* Effect.promise(() =>
+    db.update(sharedContents).set({ summary, updatedAt }).where(sharedContentWhere(shared)),
+  );
+});
+
 export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
   db: Database,
   apiKey: string,
@@ -437,16 +455,8 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   scope: DraftScope,
   abortController?: AbortController,
 ): Effect.fn.Return<{ pageId: string } | null> {
-  if (scope) {
-    const held = yield* Effect.promise(() =>
-      db
-        .select({ id: blocks.id })
-        .from(blocks)
-        .where(and(overlay.storedIn(blocks, scope), eq(blocks.id, blockId)))
-        .get(),
-    );
-    if (!held) return null;
-  }
+  // A draft summarises only the blocks it holds; the others are Live's to summarise.
+  if (scope && !(yield* overlay.getStored(db, scope, blocks, blockId))) return null;
   const assembled = yield* assembleBlockContent(db, blockId, scope);
   if (!assembled) return null;
 
@@ -468,17 +478,7 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
     abortController,
   );
 
-  const shared = owner.shared;
-  if (shared) {
-    yield* Effect.promise(() =>
-      db
-        .update(sharedContents)
-        .set({ summary, updatedAt: Date.now() })
-        .where(sharedContentWhere(shared)),
-    );
-  } else {
-    yield* overlay.updateExisting(db, scope, blocks, blockId, { summary, updatedAt: Date.now() });
-  }
+  yield* saveSummary(db, scope, blockId, owner.shared, summary);
 
   // Check if we should cascade to page SEO
   const pageId = block.pageId;
@@ -779,10 +779,10 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
 export const getBlock = Effect.fn("blocks.getBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlockInput>,
-  draft: DraftScope,
+  scope: DraftScope,
 ) {
   const { id } = yield* decodeInput(getBlockInput, rawInput);
-  const stored = yield* overlay.get(ctx.db, draft, blocks, id);
+  const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   if (!stored) return yield* new NotFoundError();
   const shown = yield* withSharedContent(
     ctx.db,
@@ -837,9 +837,9 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     (item as any).content = itemContent;
   }
 
-  const scope = yield* blockScope(ctx, block);
-  const hydratedBlock = (yield* hydrateReferences(ctx, scope, [{ ...block, content }]))[0];
-  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted);
+  const referenceScope = yield* blockScope(ctx, block);
+  const hydratedBlock = (yield* hydrateReferences(ctx, referenceScope, [{ ...block, content }]))[0];
+  const hydratedItems = yield* hydrateItemReferences(ctx, referenceScope, [block], sorted);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<string>();

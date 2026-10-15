@@ -130,7 +130,11 @@ export const get = Effect.fn("overlay.get")(function* <T extends ContentTable>(
   )) as Row<T> | undefined;
 });
 
-const getStored = (db: Database, scope: DraftScope, table: ContentTable, id: string) =>
+/**
+ * The row a scope itself stores for an entity, tombstone included: unlike `get`, a draft finds
+ * no row for an entity it reads from Live.
+ */
+export const getStored = (db: Database, scope: DraftScope, table: ContentTable, id: string) =>
   Effect.promise(
     () =>
       db
@@ -253,17 +257,8 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
     );
     return shown;
   }
-  if (shown.draftId === scope.id) {
-    yield* Effect.promise(() =>
-      db
-        .update(table as SQLiteTable)
-        .set({ deleted: true } as Partial<Values<T>>)
-        .where(and(storedIn(table, scope), eq(table.id, id))),
-    );
-    return shown;
-  }
-  yield* copyIntoDraft(db, scope, table, id, { deleted: true });
-  // A concurrent write may have copied it first.
+  if (shown.draftId !== scope.id) yield* copyIntoDraft(db, scope, table, id, { deleted: true });
+  // Marks the draft's copy, also when a concurrent write copied it first.
   yield* Effect.promise(() =>
     db
       .update(table as SQLiteTable)
