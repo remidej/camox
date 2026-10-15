@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -194,7 +195,7 @@ describe("block JSON Schema writes", () => {
       .from(repeatableItems)
       .where(eq(repeatableItems.blockId, block.id))
       .get())!;
-    for (const second of [{ _itemId: 999999 }, { _itemId: item.id }, { title: 42 }]) {
+    for (const second of [{ _itemId: generateUuidv7() }, { _itemId: item.id }, { title: 42 }]) {
       const before = await snapshot(db);
       await expect(
         runService(

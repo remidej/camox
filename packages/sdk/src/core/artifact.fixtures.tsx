@@ -133,7 +133,7 @@ function ArtifactBlock({
           <block._internal.Component
             mode="site"
             blockData={{
-              _id: 1,
+              _id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b",
               type: block._internal.id,
               position: "a0",
               content: content as never,

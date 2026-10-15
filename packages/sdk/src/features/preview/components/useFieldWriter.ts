@@ -31,8 +31,8 @@ import { contentFieldSchema } from "./contentFieldSchema";
  * collection record placed by one of its reference fields).
  */
 export type FieldWriteTarget =
-  | { kind: "block"; blockId: number }
-  | { kind: "item"; blockId: number; itemId: number }
+  | { kind: "block"; blockId: string }
+  | { kind: "item"; blockId: string; itemId: string }
   | { kind: "record"; record: ReferenceRecord };
 
 /** Saves one field of the write target. Awaitable for reference and reference list fields only. */
@@ -42,7 +42,7 @@ const fieldTypeOf = (schema: unknown, fieldName: string) =>
   contentFieldSchema(schema, fieldName)?.fieldType;
 
 /** The block or repeatable item of a bundle that owns a reference list. */
-type ListOwner = { kind: "block" } | { kind: "item"; itemId: number };
+type ListOwner = { kind: "block" } | { kind: "item"; itemId: string };
 
 type ReferenceOwner = { content: unknown; references?: NormalizedReferences };
 
@@ -85,7 +85,7 @@ function withReferenceList(
  */
 function applyReferenceListOptimistically(
   queryClient: QueryClient,
-  blockId: number,
+  blockId: string,
   owner: ListOwner,
   fieldName: string,
   ids: string[],

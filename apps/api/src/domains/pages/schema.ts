@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { user } from "../auth/schema";
@@ -6,7 +7,7 @@ import { environments, projects } from "../projects/schema";
 export const pages = sqliteTable(
   "pages",
   {
-    id: int().primaryKey({ autoIncrement: true }),
+    id: text().primaryKey().$defaultFn(generateUuidv7),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
@@ -15,7 +16,7 @@ export const pages = sqliteTable(
       .references(() => environments.id),
     pathSegment: text("path_segment").notNull(),
     fullPath: text("full_path").notNull(),
-    parentPageId: int("parent_page_id"),
+    parentPageId: text("parent_page_id"),
     // The layout's name.
     layoutId: text("layout_id").notNull(),
     nickname: text("nickname").notNull(),

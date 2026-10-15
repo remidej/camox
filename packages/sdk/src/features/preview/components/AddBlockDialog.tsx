@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { Badge } from "@camox/ui/badge";
 import {
@@ -94,7 +95,8 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       }
 
       const now = Date.now();
-      const optimisticId = -now;
+      // The client mints the id, so the optimistic block is the block the server creates.
+      const optimisticId = variables.id ?? generateUuidv7();
       const optimisticBlock = {
         id: optimisticId,
         pageId: variables.pageId,
@@ -148,6 +150,12 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       void queryClient.invalidateQueries({
         queryKey: context.pageQueryKey,
       });
+      // The optimistic bundle lacks the block's repeatable items; refetch the created block.
+      if (context.optimisticId) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.blocks.get(context.optimisticId),
+        });
+      }
     },
   });
 
@@ -209,6 +217,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     try {
       const bundle = block._internal.getInitialBundle();
       const { id: blockId } = await createBlock.mutateAsync({
+        id: generateUuidv7(),
         pageId: page.page.id,
         type: block._internal.id,
         content: bundle.content,

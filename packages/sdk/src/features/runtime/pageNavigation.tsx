@@ -33,7 +33,7 @@ function preserveStableLayoutBlockCaches(
         key?.[0] === "camox" &&
         key[1] === "blocks" &&
         key[2] === "get" &&
-        typeof key[3] === "number" &&
+        typeof key[3] === "string" &&
         ids.has(key[3])
       );
     }),

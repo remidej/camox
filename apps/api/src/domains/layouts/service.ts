@@ -328,7 +328,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
 
       const itemSeeds = blockDef.repeatableItems;
       if (itemSeeds && itemSeeds.length > 0) {
-        const tempIdToRealId = new Map<string, number>();
+        const tempIdToRealId = new Map<string, string>();
         for (const seed of itemSeeds) {
           const parentItemId = seed.parentTempId
             ? (tempIdToRealId.get(seed.parentTempId) ?? null)
@@ -362,7 +362,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     const declaredKeys = new Set(def.blocks.map((bd) => `${bd.type}:${bd.slot ?? ""}`));
     const removedBlockTypes: string[] = [];
     const skippedOrphanTypes: string[] = [];
-    const orphanIdsToDelete: number[] = [];
+    const orphanIdsToDelete: string[] = [];
     for (const existing of existingBlocks) {
       const key = `${existing.type}:${existing.slot ?? ""}`;
       if (declaredKeys.has(key)) continue;

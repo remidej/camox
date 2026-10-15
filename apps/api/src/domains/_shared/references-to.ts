@@ -8,8 +8,8 @@ export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; i
 
 /** Content that references a target: a block, a repeatable item, or another collection record. */
 export type ReferencingContent =
-  | { kind: "block"; id: number }
-  | { kind: "repeatableItem"; id: number }
+  | { kind: "block"; id: string }
+  | { kind: "repeatableItem"; id: string }
   | { kind: "record"; id: string };
 
 /**

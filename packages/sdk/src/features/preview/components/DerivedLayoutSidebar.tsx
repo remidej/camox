@@ -10,7 +10,7 @@ import { PagePicker } from "./PagePicker";
 import { LayoutBlockItem } from "./PageTree";
 
 export type DerivedLayoutStructure = NonNullable<PageRenderInput["derived"]>["layout"];
-const EMPTY_PAGE = { blockIds: [] as number[] };
+const EMPTY_PAGE = { blockIds: [] as string[] };
 
 /** Where this page's content is edited, and what its layout's blocks change. */
 function layoutNotice(singleton: boolean, recordPage: boolean) {

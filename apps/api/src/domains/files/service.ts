@@ -272,7 +272,7 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
   const allBlockIds = [...new Set([...affectedBlocks.map((b) => b.id), ...itemBlockIds])];
 
   // Look up pageIds for blocks referenced by affected repeatable items
-  let itemBlockPageIds: number[] = [];
+  let itemBlockPageIds: string[] = [];
   if (itemBlockIds.length > 0) {
     const uniqueItemBlockIds = [...new Set(itemBlockIds)];
     const parentBlocks = yield* Effect.promise(() =>
@@ -516,9 +516,9 @@ export const deleteFiles = Effect.fn("files.deleteFiles")(function* (
     return yield* new ForbiddenError();
   }
 
-  const allBlockIds: number[] = [];
-  const allBlockPageIds: number[] = [];
-  const allItemIds: number[] = [];
+  const allBlockIds: string[] = [];
+  const allBlockPageIds: string[] = [];
+  const allItemIds: string[] = [];
   for (const id of ids) {
     const { blockIds, blockPageIds, itemIds } = yield* removeFileReferences(ctx.db, id);
     allBlockIds.push(...blockIds);
@@ -648,7 +648,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
   );
 
   const itemBlockIds = [...new Set(affectedItems.map((i) => i.blockId))];
-  let itemBlockPageIds: number[] = [];
+  let itemBlockPageIds: string[] = [];
   if (itemBlockIds.length > 0) {
     const parentBlocks = yield* Effect.promise(() =>
       ctx.db
@@ -656,12 +656,12 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
         .from(blocks)
         .where(inArray(blocks.id, itemBlockIds)),
     );
-    itemBlockPageIds = parentBlocks.map((b) => b.pageId).filter((id): id is number => id != null);
+    itemBlockPageIds = parentBlocks.map((b) => b.pageId).filter((id): id is string => id != null);
   }
   const allBlockIds = [...new Set([...affectedBlocks.map((b) => b.id), ...itemBlockIds])];
   const allPageIds = [
     ...new Set([
-      ...affectedBlocks.map((b) => b.pageId).filter((id): id is number => id != null),
+      ...affectedBlocks.map((b) => b.pageId).filter((id): id is string => id != null),
       ...itemBlockPageIds,
     ]),
   ];

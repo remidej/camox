@@ -17,10 +17,10 @@ import type { FieldType } from "../lib/fieldTypes.tsx";
  * Matches when the selection points to this exact field (type + name + optional repeatable item).
  */
 export function useFieldSelection(
-  blockId: number,
+  blockId: string,
   fieldName: string,
   fieldType: FieldType,
-  repeatableItemId?: number,
+  repeatableItemId?: string,
 ): boolean {
   const owner = useContext(PreviewEditingOwnerContext);
   return useSelector(previewStore, (state) => {

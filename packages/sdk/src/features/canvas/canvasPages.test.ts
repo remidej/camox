@@ -5,7 +5,7 @@ import { CANVAS_DEVICES, getCanvasPages, validateCanvasPageInput } from "./canva
 
 void test("canvas contains curated pages, singleton pages, and one frame per derived layout", () => {
   const pages = getCanvasPages(
-    [{ id: 7, nickname: "Home", fullPath: "/" }],
+    [{ id: "7", nickname: "Home", fullPath: "/" }],
     [
       { _internal: { id: "regular", kind: "curated", title: "Regular" } },
       { _internal: { id: "about", kind: "singleton", title: "About" } },
@@ -13,7 +13,7 @@ void test("canvas contains curated pages, singleton pages, and one frame per der
     ],
   );
   assert.deepEqual(pages, [
-    { key: "page:7", title: "Home", pathname: "/", pageId: 7 },
+    { key: "page:7", title: "Home", pathname: "/", pageId: "7" },
     {
       key: "singleton:about",
       title: "About",

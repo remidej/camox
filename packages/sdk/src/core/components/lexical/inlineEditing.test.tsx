@@ -127,7 +127,7 @@ void test("clicking links captures their destination and selection before popove
     root.render(
       <LexicalComposer
         initialConfig={createEditorConfig(
-          "before [**external**](https://example.com) and [page](camox:page:42) after",
+          "before [**external**](https://example.com) and [page](camox:page:019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b) after",
         )}
       >
         <RichTextPlugin
@@ -141,7 +141,7 @@ void test("clicking links captures their destination and selection before popove
   const anchors = host.querySelectorAll("a");
   for (const [index, target, text] of [
     [0, "https://example.com", "external"],
-    [1, "camox:page:42", "page"],
+    [1, "camox:page:019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b", "page"],
   ] as const) {
     await act(async () => {
       // Simulate a stale editor selection outside the clicked link.

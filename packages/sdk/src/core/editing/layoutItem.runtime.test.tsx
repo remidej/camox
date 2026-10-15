@@ -213,7 +213,7 @@ function setup() {
                     <featured._internal.Component
                       mode="site"
                       blockData={{
-                        _id: 9,
+                        _id: "9",
                         type: "featured",
                         position: "a0",
                         content: { article: ARTICLE_ID },

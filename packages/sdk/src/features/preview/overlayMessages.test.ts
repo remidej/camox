@@ -13,31 +13,37 @@ const cases: {
   { name: "page", selection: null, type: "CAMOX_HOVER_PAGE", target: {} },
   {
     name: "block",
-    selection: { type: "block", blockId: 1 },
+    selection: { type: "block", blockId: "1" },
     type: "CAMOX_HOVER_BLOCK",
     target: { blockId: "1" },
   },
   {
     name: "repeatable item",
-    selection: { type: "item", blockId: 1, itemId: 2 },
+    selection: { type: "item", blockId: "1", itemId: "2" },
     type: "CAMOX_HOVER_REPEATABLE_ITEM",
     target: { blockId: "1", itemId: "2" },
   },
   {
     name: "block field",
-    selection: { type: "block-field", blockId: 1, fieldName: "image", fieldType: "Image" },
+    selection: { type: "block-field", blockId: "1", fieldName: "image", fieldType: "Image" },
     type: "CAMOX_HOVER_FIELD",
     target: { fieldId: "1__image" },
   },
   {
     name: "item field",
-    selection: { type: "item-field", blockId: 1, itemId: 2, fieldName: "link", fieldType: "Link" },
+    selection: {
+      type: "item-field",
+      blockId: "1",
+      itemId: "2",
+      fieldName: "link",
+      fieldType: "Link",
+    },
     type: "CAMOX_HOVER_FIELD",
     target: { fieldId: "1__2__link" },
   },
   {
     name: "repeater",
-    selection: { type: "block-field", blockId: 1, fieldName: "items", fieldType: "Repeater" },
+    selection: { type: "block-field", blockId: "1", fieldName: "items", fieldType: "Repeater" },
     type: "CAMOX_HOVER_REPEATER",
     target: { blockId: "1", fieldName: "items" },
   },
@@ -45,8 +51,8 @@ const cases: {
     name: "nested repeater",
     selection: {
       type: "item-field",
-      blockId: 1,
-      itemId: 2,
+      blockId: "1",
+      itemId: "2",
       fieldName: "children",
       fieldType: "Repeater",
     },
@@ -55,7 +61,7 @@ const cases: {
   },
   {
     name: "record",
-    selection: { type: "record", blockId: 1, fieldName: "company", recordId: "acme" },
+    selection: { type: "record", blockId: "1", fieldName: "company", recordId: "acme" },
     type: "CAMOX_HOVER_FIELD",
     target: { fieldId: "1__company__acme" },
   },
@@ -63,7 +69,7 @@ const cases: {
     name: "record field",
     selection: {
       type: "record-field",
-      blockId: 1,
+      blockId: "1",
       fieldName: "company",
       recordId: "acme",
       recordFieldName: "quote",
@@ -74,7 +80,13 @@ const cases: {
   },
   {
     name: "record placed by an item",
-    selection: { type: "record", blockId: 1, itemId: 2, fieldName: "sponsor", recordId: "acme" },
+    selection: {
+      type: "record",
+      blockId: "1",
+      itemId: "2",
+      fieldName: "sponsor",
+      recordId: "acme",
+    },
     type: "CAMOX_HOVER_FIELD",
     target: { fieldId: "1__2__sponsor__acme" },
   },
@@ -82,8 +94,8 @@ const cases: {
     name: "record field placed by an item",
     selection: {
       type: "record-field",
-      blockId: 1,
-      itemId: 2,
+      blockId: "1",
+      itemId: "2",
       fieldName: "sponsor",
       recordId: "acme",
       recordFieldName: "quote",
@@ -96,7 +108,7 @@ const cases: {
     name: "record linked by a placed record",
     selection: {
       type: "record",
-      blockId: 1,
+      blockId: "1",
       fieldName: "article",
       recordId: "launch",
       nested: { fieldName: "author", recordId: "jane" },
@@ -146,7 +158,7 @@ void test("a layout-owned placement and a block-owned placement of the same reco
   const layoutOwned: Selection = { type: "record", layoutId: "articles", recordId: "launch" };
   const blockOwned: Selection = {
     type: "record",
-    blockId: 4,
+    blockId: "4",
     fieldName: "article",
     recordId: "launch",
   };

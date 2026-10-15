@@ -204,7 +204,7 @@ void test("local upload, empty alt, reads, updates, and use in block content", a
       "blocks",
       "edit",
       "--id",
-      "20",
+      "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c",
       "--content",
       JSON.stringify({ image: { _fileId: file.id } }),
     ),

@@ -25,14 +25,15 @@ type AdaptContext = {
   namespace: string;
 };
 
-const { $schema: _, ...fileIdSchema } = z.toJSONSchema(uuidv7Schema) as Schema;
+// An entity id (`_fileId`, `_itemId`) as JSON Schema.
+const { $schema: _, ...entityIdSchema } = z.toJSONSchema(uuidv7Schema) as Schema;
 const assetTypes = new Set(["Image", "File", "ImageList", "FileList"]);
 const assetSchema: Schema = {
   anyOf: [
     { type: "null" },
     {
       type: "object",
-      properties: { _fileId: fileIdSchema },
+      properties: { _fileId: entityIdSchema },
       required: ["_fileId"],
       additionalProperties: false,
     },
@@ -233,7 +234,7 @@ function adaptSchema(
     delete out.oneOf;
   }
   if (itemReference) {
-    out.properties = { ...out.properties, _itemId: { type: "integer", minimum: 1 } };
+    out.properties = { ...out.properties, _itemId: entityIdSchema };
   }
   for (const keyword of [
     "additionalProperties",
@@ -287,7 +288,7 @@ function adaptSchema(
   reference.type = "object";
   reference.properties = {
     ...reference.properties,
-    _itemId: { type: "integer", minimum: 1 },
+    _itemId: entityIdSchema,
   };
   out.items = {
     if: { required: ["_itemId"] },

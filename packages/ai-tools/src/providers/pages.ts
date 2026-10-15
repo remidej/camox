@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -25,11 +26,11 @@ import type { ToolDefinition, ToolProvider } from "../types";
 
 const listPagesToolInput = z.object({});
 const createPageToolInput = createPageInput.omit({ projectId: true });
-const getPageToolInput = z.union([z.object({ id: z.number() }), z.object({ path: z.string() })]);
+const getPageToolInput = z.union([z.object({ id: uuidv7Schema }), z.object({ path: z.string() })]);
 // Mutations accept either `id` or `path` so the CLI can mirror `pages get`'s flags.
 const pageMutationTargetInput = z
   .object({
-    id: z.number().optional(),
+    id: uuidv7Schema.optional(),
     path: z.string().optional(),
   })
   .refine((d) => (d.id != null) !== (d.path != null), {
@@ -39,7 +40,7 @@ const pageMutationTargetInput = z
 const updatePageToolInput = z
   .object({
     ...updatePageInput.shape,
-    id: z.number().optional(),
+    id: uuidv7Schema.optional(),
     path: z.string().optional(),
   })
   .refine((input) => (input.id != null) !== (input.path != null), {

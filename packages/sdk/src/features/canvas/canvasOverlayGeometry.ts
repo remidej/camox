@@ -12,7 +12,7 @@ export type OverlayRect = { x: number; y: number; width: number; height: number 
 export type CanvasOverlayTarget = {
   /** Repeatable items have no element of their own; this is their first one. */
   element: Element;
-  item?: { blockId: number; itemId: number };
+  item?: { blockId: string; itemId: string };
   rects: OverlayRect[];
   bounds: OverlayRect;
   visible: boolean;

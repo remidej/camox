@@ -33,7 +33,7 @@ export type NormalizedReferences = Record<
 
 /** A block or repeatable item, with the records its reference fields link. */
 type ReferenceBlock = {
-  id?: number;
+  id?: string;
   references?: NormalizedReferences;
 };
 const EMPTY_REFERENCE_BLOCKS: ReferenceBlock[] = [];
@@ -77,10 +77,10 @@ export function placedRecords(references: NormalizedReferences | undefined, fiel
 
 interface NormalizedDataContextValue {
   filesMap: Map<string, NormalizedFile>;
-  itemsMap: Map<number, NormalizedItem>;
+  itemsMap: Map<string, NormalizedItem>;
   recordsMap: Map<string, NormalizedCollectionRecord>;
   /** Each block's resolved references, by block id. */
-  blockReferences: Map<number, NormalizedReferences>;
+  blockReferences: Map<string, NormalizedReferences>;
 }
 
 const NormalizedDataContext = React.createContext<NormalizedDataContextValue>({
@@ -96,7 +96,7 @@ const NormalizedDataContext = React.createContext<NormalizedDataContextValue>({
  */
 export function queryResultIds(
   data: NormalizedDataContextValue,
-  owner: { blockId: number; itemId?: number },
+  owner: { blockId: string; itemId?: string },
   fieldName: string,
 ) {
   const references =
@@ -175,7 +175,7 @@ export const LinkedRecordsProvider = ({
  * Uses useQueries to subscribe to each block's cache entry.
  * -----------------------------------------------------------------------------------------------*/
 
-const EMPTY_IDS: number[] = [];
+const EMPTY_IDS: string[] = [];
 
 /**
  * Returns the previously-returned array when `next` is element-wise identical to
@@ -212,7 +212,7 @@ export function usePageBlocks(pageStructure: {
   });
 
   const bundleMap = React.useMemo(() => {
-    const map = new Map<number, BlockBundle>();
+    const map = new Map<string, BlockBundle>();
     for (let i = 0; i < allIds.length; i++) {
       const data = results[i]?.data;
       if (data) map.set(allIds[i], data);
@@ -222,7 +222,7 @@ export function usePageBlocks(pageStructure: {
 
   const layoutIds = React.useMemo(() => [...beforeIds, ...afterIds], [beforeIds, afterIds]);
 
-  const resolveBlocks = (ids: readonly number[]) =>
+  const resolveBlocks = (ids: readonly string[]) =>
     ids.map((id) => bundleMap.get(id)?.block).filter((b): b is NormalizedBlock => b != null);
 
   const pageBlocks = useStableArray(resolveBlocks(blockIds));
@@ -255,7 +255,7 @@ export function isFileMarker(value: unknown): value is { _fileId: string } {
 }
 
 /** Check if a value is a { _itemId } marker */
-export function isItemMarker(value: unknown): value is { _itemId: number } {
+export function isItemMarker(value: unknown): value is { _itemId: string } {
   return (
     value != null &&
     typeof value === "object" &&

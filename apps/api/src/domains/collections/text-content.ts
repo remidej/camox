@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -89,10 +90,7 @@ export const validateText = Effect.fn("collections.validateText")(function* (
     if (node.type === "link") {
       const url = yield* decodeContent(z.string(), node.url);
       if (url.startsWith("camox:page:")) {
-        const id = yield* decodeContent(
-          z.coerce.number().int().positive(),
-          url.slice("camox:page:".length),
-        );
+        const id = yield* decodeContent(uuidv7Schema, url.slice("camox:page:".length));
         const page = yield* Effect.promise(() =>
           ctx.db
             .select({ id: pages.id })

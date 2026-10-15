@@ -467,7 +467,7 @@ export function CanvasCommentIndicators({
 }
 
 type CanvasPageCommentIndicatorsProps = {
-  pageId: number;
+  pageId: string;
   targets: CanvasOverlayTarget[];
   activate: () => void;
   placement?: "preview" | "header";

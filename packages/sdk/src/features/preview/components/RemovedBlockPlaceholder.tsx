@@ -16,7 +16,7 @@ export function RemovedBlockPlaceholder({
   type,
   mode,
 }: {
-  blockId: number;
+  blockId: string;
   type: string;
   mode: "site" | "peek" | "layout";
 }) {

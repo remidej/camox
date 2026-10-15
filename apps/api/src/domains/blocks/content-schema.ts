@@ -13,7 +13,7 @@ import type { FieldSchema } from "./normalize-content";
 export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
   db: Database,
   projectId: number | null,
-  blockId: number,
+  blockId: string,
 ): Effect.fn.Return<{
   contentSchema: FieldSchema | null;
   settingsSchema: FieldSchema | null;
@@ -46,7 +46,7 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
 export const loadBlockContentSchema = Effect.fn("loadBlockContentSchema")(function* (
   db: Database,
   projectId: number,
-  blockId: number,
+  blockId: string,
 ) {
   return (yield* loadBlockSchemas(db, projectId, blockId))?.contentSchema ?? null;
 });

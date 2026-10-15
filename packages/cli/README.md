@@ -50,9 +50,11 @@ Use `pages get` to read metadata and `pages update` to edit it:
 ```sh
 camox pages get --path /about --json
 camox pages update --path /about --meta-title "About us" --meta-description "Meet the team."
-camox pages update --id 42 --meta-description ""
-camox pages update --id 42 --ai-seo on
-camox pages update --id 42 --ai-seo off
+# Page and block IDs are UUIDv7s; anything else is rejected.
+PAGE_ID=0199f1c2-7b3e-7a10-9c4d-5e6f7a8b9c0a
+camox pages update --id "$PAGE_ID" --meta-description ""
+camox pages update --id "$PAGE_ID" --ai-seo on
+camox pages update --id "$PAGE_ID" --ai-seo off
 ```
 
 - Updates require exactly one of `--id` or `--path` and at least one update field.
@@ -76,8 +78,9 @@ See `camox pages update --help` for options and examples.
 ```sh
 camox layouts list
 camox layouts get --layout-id default --json
-camox blocks get --id 99
-camox blocks edit --id 99 --content '{"title": "Updated title"}'
+BLOCK_ID=0199f1c2-7b3e-7a10-9c4d-5e6f7a8b9c0b
+camox blocks get --id "$BLOCK_ID"
+camox blocks edit --id "$BLOCK_ID" --content '{"title": "Updated title"}'
 ```
 
 A layout is identified by the name its code gives it: the `layoutId` from

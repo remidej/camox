@@ -15,7 +15,7 @@ function pageStructureQueryFn(path: string, projectSlug: string) {
   return () => getApiClient().pages.getStructure({ path, projectSlug });
 }
 
-function PageBlock({ blockId, mode }: { blockId: number; mode: "site" | "layout" }) {
+function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout" }) {
   const { data } = useSuspenseQuery(viewBlockQueries.get(blockId));
   const camoxApp = useCamoxApp();
   // Hydration and navigation load a page's blocks first; this only waits for one they missed.

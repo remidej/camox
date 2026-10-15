@@ -97,9 +97,9 @@ const buildNestedItemSeeds = (
 };
 
 type UseRepeatableItemActionsArgs = {
-  blockId: number;
+  blockId: string;
   fieldName: string;
-  parentItemId?: number | null;
+  parentItemId?: string | null;
   arraySchema: RepeatableArraySchema | null;
   siblingCount: number;
 };
@@ -151,7 +151,7 @@ export const useRepeatableItemActions = ({
     );
   };
 
-  const removeItem = (itemId: number, options?: { onSuccess?: () => void }) => {
+  const removeItem = (itemId: string, options?: { onSuccess?: () => void }) => {
     deleteRepeatableItem.mutate(
       { id: itemId },
       {
@@ -165,8 +165,8 @@ export const useRepeatableItemActions = ({
 
 const getArraySchemaForItem = (
   contentSchema: unknown,
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): RepeatableArraySchema | null => {
   const path: string[] = [];
   let current = itemsMap.get(itemId);
@@ -192,7 +192,7 @@ const getArraySchemaForItem = (
  * counting siblings. Hook is safe to call when ids are null — it'll just
  * return disabled actions.
  */
-export const useCurrentItemActions = (blockId: number | null, itemId: number | null) => {
+export const useCurrentItemActions = (blockId: string | null, itemId: string | null) => {
   const camoxApp = useCamoxApp();
   const { data: blockBundle } = useQuery({
     ...blockQueries.get(blockId!),
@@ -225,7 +225,7 @@ export const useCurrentItemActions = (blockId: number | null, itemId: number | n
   }, [currentItem, itemsMap]);
 
   const actions = useRepeatableItemActions({
-    blockId: block?.id ?? -1,
+    blockId: block?.id ?? "",
     fieldName: currentItem?.fieldName ?? "",
     parentItemId: currentItem?.parentItemId ?? null,
     arraySchema,

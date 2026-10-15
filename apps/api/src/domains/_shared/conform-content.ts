@@ -97,11 +97,11 @@ function conformSettings(settings: unknown, schema: unknown, rootSchema: unknown
 
 export type BlockDefinitionSchemas = { contentSchema: unknown; settingsSchema?: unknown };
 
-type ConformableBlock = { id: number; type: string; content: unknown; settings: unknown };
+type ConformableBlock = { id: string; type: string; content: unknown; settings: unknown };
 type ConformableItem = {
-  id: number;
-  blockId: number;
-  parentItemId: number | null;
+  id: string;
+  blockId: string;
+  parentItemId: string | null;
   fieldName: string;
   content: unknown;
   settings: unknown;
@@ -120,8 +120,8 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
   const blockById = new Map(blocks.map((block) => [block.id, block]));
   const itemById = new Map(items.map((item) => [item.id, item]));
   // An item's repeater field, found by walking up to its block; null when the path is gone.
-  const repeaterOf = new Map<number, Field | null>();
-  const resolve = (item: I, seen: Set<number>): Field | null => {
+  const repeaterOf = new Map<string, Field | null>();
+  const resolve = (item: I, seen: Set<string>): Field | null => {
     const known = repeaterOf.get(item.id);
     if (known !== undefined) return known;
     if (seen.has(item.id)) return null;

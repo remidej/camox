@@ -6,7 +6,7 @@ import { collection as articles } from "../../../../playground/src/collections/a
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { markdownToLexicalState, plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
-import { environments, files, layouts } from "../../schema";
+import { environments, files, layouts, pages } from "../../schema";
 import { checkCompatibility, replicateEnvironment } from "../environments/service";
 import { deleteProject } from "../projects/service";
 import { collectionDefinitions } from "./schema";
@@ -435,9 +435,37 @@ describe("collection record lifecycle", () => {
           root: { type: "root", version: 1, children: [{ type: "unsupported", version: 1 }] },
         },
       },
-      { ...article, body: markdownToLexicalState("[Cross project](camox:page:999999)") },
+      {
+        ...article,
+        body: markdownToLexicalState(`[Missing page](camox:page:${generateUuidv7()})`),
+      },
+      { ...article, body: markdownToLexicalState("[Integer page id](camox:page:1)") },
     ])
       await expect(runService(createRecord(f.ctx, { ...f.scope, content: bad }))).rejects.toThrow();
+  });
+
+  it("stores a text link to a page by the page's UUIDv7", async () => {
+    const f = await fixture("page-text-link");
+    const page = await f.db
+      .insert(pages)
+      .values({
+        projectId: f.project.id,
+        environmentId: f.environment.id,
+        layoutId: f.layout.layoutId,
+        pathSegment: "about",
+        fullPath: "/about",
+        nickname: "About",
+        contentUpdatedAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .returning()
+      .get();
+    const body = markdownToLexicalState(`[About](camox:page:${page.id})`);
+    const record = await runService(
+      createRecord(f.ctx, { ...f.scope, content: { ...article, body } }),
+    );
+    expect(record.content).toMatchObject({ body });
   });
 
   it("does not block existing replication/deletion workflows for empty definitions", async () => {

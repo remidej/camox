@@ -11,7 +11,7 @@ describe("feedback invalidation dependencies", () => {
       get: vi.fn(() => ({ broadcastInvalidation: send })),
     } as unknown as DurableObjectNamespace;
     const pending: Promise<unknown>[] = [];
-    const targets: QueryKey[] = [queryKeys.blocks.get(3)];
+    const targets: QueryKey[] = [queryKeys.blocks.get("3")];
     const broadcast = (keys: QueryKey[]) =>
       broadcastInvalidation({
         projectId: 1,
@@ -26,16 +26,16 @@ describe("feedback invalidation dependencies", () => {
       type: "invalidate",
       targets: [...targets, queryKeys.comments.all],
     });
-    expect(targets).toEqual([queryKeys.blocks.get(3)]);
+    expect(targets).toEqual([queryKeys.blocks.get("3")]);
     broadcast([...targets, queryKeys.comments.all]);
     expect(send).toHaveBeenLastCalledWith({
       type: "invalidate",
       targets: [...targets, queryKeys.comments.all],
     });
-    broadcast([queryKeys.comments.list(2)]);
+    broadcast([queryKeys.comments.list("2")]);
     expect(send).toHaveBeenLastCalledWith({
       type: "invalidate",
-      targets: [queryKeys.comments.list(2)],
+      targets: [queryKeys.comments.list("2")],
     });
     await Promise.all(pending);
   });

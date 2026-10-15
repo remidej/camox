@@ -24,8 +24,8 @@ void test("editing context starts unresolved and clearing cannot invent a page",
     const [next] = store.transition(initial, { type });
     assert.equal(next.context.editingContext, null);
   }
-  const [loaded] = store.transition(initial, { type: "activatePage", pageId: 3 });
-  assert.deepEqual(loaded.context.editingContext, { kind: "page", pageId: 3, selection: null });
+  const [loaded] = store.transition(initial, { type: "activatePage", pageId: "3" });
+  assert.deepEqual(loaded.context.editingContext, { kind: "page", pageId: "3", selection: null });
   const [unresolved] = store.transition(loaded, { type: "activatePage", pageId: null });
   assert.equal(unresolved.context.editingContext, null);
 });
@@ -34,27 +34,27 @@ void test("page activation preserves same-page selection and clears a different 
   const { previewStore: store, selectionForPage } = await import("./previewStore");
   const selection: Selection = {
     type: "item-field",
-    blockId: 7,
-    itemId: 12,
+    blockId: "7",
+    itemId: "12",
     fieldName: "title",
     fieldType: "String",
   };
   const [selected] = store.transition(store.getInitialSnapshot(), {
     type: "selectTarget",
     kind: "page",
-    pageId: 3,
+    pageId: "3",
     selection,
   });
-  const [samePage] = store.transition(selected, { type: "activatePage", pageId: 3 });
+  const [samePage] = store.transition(selected, { type: "activatePage", pageId: "3" });
   assert.equal(samePage.context.editingContext, selected.context.editingContext);
-  assert.equal(selectionForPage(samePage.context, 3), selection);
+  assert.equal(selectionForPage(samePage.context, "3"), selection);
   // Shared layout block IDs must not highlight the same block on another page.
-  assert.equal(selectionForPage(samePage.context, 4), null);
+  assert.equal(selectionForPage(samePage.context, "4"), null);
   assert.equal(selectionForPage(samePage.context, null), null);
-  const [differentPage] = store.transition(samePage, { type: "activatePage", pageId: 4 });
+  const [differentPage] = store.transition(samePage, { type: "activatePage", pageId: "4" });
   assert.deepEqual(differentPage.context.editingContext, {
     kind: "page",
-    pageId: 4,
+    pageId: "4",
     selection: null,
   });
 });
@@ -64,8 +64,8 @@ void test("block dialog preserves insertion intent and closing leaves selection 
   const [selected] = store.transition(store.getInitialSnapshot(), {
     type: "setFocusedBlock",
     kind: "page",
-    pageId: 3,
-    blockId: 7,
+    pageId: "3",
+    blockId: "7",
   });
 
   for (const afterPosition of [undefined, null, "", "a0"]) {
@@ -76,9 +76,9 @@ void test("block dialog preserves insertion intent and closing leaves selection 
     assert.equal(closed.context.addBlockDialog, null);
     assert.equal(closed.context.editingContext, selected.context.editingContext);
 
-    const [samePage] = store.transition(opened, { type: "activatePage", pageId: 3 });
+    const [samePage] = store.transition(opened, { type: "activatePage", pageId: "3" });
     assert.equal(samePage.context.addBlockDialog, opened.context.addBlockDialog);
-    const [otherPage] = store.transition(opened, { type: "activatePage", pageId: 4 });
+    const [otherPage] = store.transition(opened, { type: "activatePage", pageId: "4" });
     assert.equal(otherPage.context.addBlockDialog, null);
     const [layout] = store.transition(opened, { type: "activateLayout", layoutId: "news" });
     assert.equal(layout.context.addBlockDialog, null);
@@ -87,31 +87,31 @@ void test("block dialog preserves insertion intent and closing leaves selection 
 
 void test("target selection changes page and target in one observable transition", async () => {
   const { previewStore: store } = await import("./previewStore");
-  store.send({ type: "activatePage", pageId: 3 });
-  store.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 7 });
+  store.send({ type: "activatePage", pageId: "3" });
+  store.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "7" });
   const observed: unknown[] = [];
   const subscription = store.subscribe((snapshot) =>
     observed.push(snapshot.context.editingContext),
   );
   const selection: Selection = {
     type: "block-field",
-    blockId: 9,
+    blockId: "9",
     fieldName: "image",
     fieldType: "Image",
   };
   try {
-    store.send({ type: "selectTarget", kind: "page", pageId: 4, selection });
-    assert.deepEqual(observed, [{ kind: "page", pageId: 4, selection }]);
-    store.send({ type: "activatePage", pageId: 4 });
+    store.send({ type: "selectTarget", kind: "page", pageId: "4", selection });
+    assert.deepEqual(observed, [{ kind: "page", pageId: "4", selection }]);
+    store.send({ type: "activatePage", pageId: "4" });
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 4,
+      pageId: "4",
       selection,
     });
     store.send({ type: "clearSelection" });
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 4,
+      pageId: "4",
       selection: null,
     });
   } finally {
@@ -122,7 +122,7 @@ void test("target selection changes page and target in one observable transition
 
 void test("derived layout targets use real layout IDs and never alias pages with the same ID", async () => {
   const { previewStore: store, selectionForOwner } = await import("./previewStore");
-  const selection: Selection = { type: "block", blockId: 7 };
+  const selection: Selection = { type: "block", blockId: "7" };
   let snapshot = store.getInitialSnapshot();
   [snapshot] = store.transition(snapshot, { type: "activateLayout", layoutId: "default" });
   assert.deepEqual(snapshot.context.editingContext, {
@@ -143,29 +143,29 @@ void test("derived layout targets use real layout IDs and never alias pages with
     selectionForOwner(snapshot.context, { kind: "layout", layoutId: "default" }),
     selection,
   );
-  assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: 3 }), null);
+  assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: "3" }), null);
   [snapshot] = store.transition(snapshot, { type: "clearSelection" });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "layout",
     layoutId: "default",
     selection: null,
   });
-  [snapshot] = store.transition(snapshot, { type: "activatePage", pageId: 3 });
-  assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: 3, selection: null });
+  [snapshot] = store.transition(snapshot, { type: "activatePage", pageId: "3" });
+  assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: "3", selection: null });
 });
 
 void test("parent navigation, insertion focus and modal state remain independent of the active page", async () => {
   const { previewStore: store } = await import("./previewStore");
   let snapshot = store.getInitialSnapshot();
-  [snapshot] = store.transition(snapshot, { type: "openEditPageModal", pageId: 99 });
+  [snapshot] = store.transition(snapshot, { type: "openEditPageModal", pageId: "99" });
   [snapshot] = store.transition(snapshot, {
     type: "selectTarget",
     kind: "page",
-    pageId: 3,
+    pageId: "3",
     selection: {
       type: "item-field",
-      blockId: 7,
-      itemId: 12,
+      blockId: "7",
+      itemId: "12",
       fieldName: "title",
       fieldType: "String",
     },
@@ -173,62 +173,62 @@ void test("parent navigation, insertion focus and modal state remain independent
   [snapshot] = store.transition(snapshot, { type: "selectParent" });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "page",
-    pageId: 3,
-    selection: { type: "item", blockId: 7, itemId: 12 },
+    pageId: "3",
+    selection: { type: "item", blockId: "7", itemId: "12" },
   });
   [snapshot] = store.transition(snapshot, { type: "selectParent" });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "page",
-    pageId: 3,
-    selection: { type: "block", blockId: 7 },
+    pageId: "3",
+    selection: { type: "block", blockId: "7" },
   });
   [snapshot] = store.transition(snapshot, { type: "openAddBlockDialog", afterPosition: "a0" });
   [snapshot] = store.transition(snapshot, {
     type: "focusCreatedBlock",
     kind: "page",
-    pageId: 4,
-    blockId: 9,
+    pageId: "4",
+    blockId: "9",
   });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "page",
-    pageId: 4,
-    selection: { type: "block", blockId: 9 },
+    pageId: "4",
+    selection: { type: "block", blockId: "9" },
   });
   assert.equal(snapshot.context.addBlockDialog, null);
-  assert.equal(snapshot.context.editingPageId, 99);
+  assert.equal(snapshot.context.editingPageId, "99");
   [snapshot] = store.transition(snapshot, { type: "clearSelection" });
-  assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: 4, selection: null });
-  assert.equal(snapshot.context.editingPageId, 99);
+  assert.deepEqual(snapshot.context.editingContext, { kind: "page", pageId: "4", selection: null });
+  assert.equal(snapshot.context.editingPageId, "99");
 });
 
 void test("preview clicks select the containing page, and unresolved or nonediting clicks do nothing", async () => {
   const { previewStore: store } = await import("./previewStore");
   const { selectPreviewTarget } = await import("./previewSelection");
   store.send({ type: "enterEditMode" });
-  store.send({ type: "activatePage", pageId: 3 });
+  store.send({ type: "activatePage", pageId: "3" });
   const selection: Selection = {
     type: "block-field",
-    blockId: 7,
+    blockId: "7",
     fieldName: "title",
     fieldType: "String",
   };
-  selectPreviewTarget(selection, { kind: "page", pageId: 4 });
+  selectPreviewTarget(selection, { kind: "page", pageId: "4" });
   assert.deepEqual(store.getSnapshot().context.editingContext, {
     kind: "page",
-    pageId: 4,
+    pageId: "4",
     selection,
   });
-  selectPreviewTarget({ type: "block", blockId: 8 }, { kind: "page", pageId: 5 });
+  selectPreviewTarget({ type: "block", blockId: "8" }, { kind: "page", pageId: "5" });
   assert.deepEqual(store.getSnapshot().context.editingContext, {
     kind: "page",
-    pageId: 5,
-    selection: { type: "block", blockId: 8 },
+    pageId: "5",
+    selection: { type: "block", blockId: "8" },
   });
   const selected = store.getSnapshot().context.editingContext;
   selectPreviewTarget(selection, null);
   assert.equal(store.getSnapshot().context.editingContext, selected);
   store.send({ type: "exitEditMode" });
-  selectPreviewTarget(selection, { kind: "page", pageId: 6 });
+  selectPreviewTarget(selection, { kind: "page", pageId: "6" });
   assert.equal(store.getSnapshot().context.editingContext, selected);
   store.send({ type: "activatePage", pageId: null });
 });
@@ -247,7 +247,7 @@ void test("comment mode is available with experimental features unset or disable
       previewStore.send({ type: "setCommentMode", enabled: true });
       assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
       previewStore.send({ type: "enterEditMode" });
-      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 1 });
+      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "1" });
       previewStore.send({ type: "setCommentMode", enabled: true });
       assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
       assert.equal(previewStore.getSnapshot().context.editingContext?.selection, null);
@@ -266,7 +266,7 @@ void test("comment mode is draft-editing only and clears editing selection", asy
   assert.equal(previewStore.getSnapshot().context.mode, "previewing-draft");
 
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 1 });
+  previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "1" });
   previewStore.send({ type: "setCommentMode", enabled: true });
   assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
   assert.equal(previewStore.getSnapshot().context.editingContext?.selection, null);
@@ -280,24 +280,24 @@ void test("comments reveal the existing editor and retain their page and field t
   const { previewCommentsStore, revealCommentTarget } = await import("./previewCommentsStore");
   const target = {
     kind: "item-field" as const,
-    blockId: 7,
-    itemId: 12,
+    blockId: "7",
+    itemId: "12",
     fieldName: "title",
   };
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "openAddBlockDialog" });
   previewStore.send({ type: "setCommentMode", enabled: true });
-  previewCommentsStore.send({ type: "startComment", pageId: 3, target, focusComposer: true });
+  previewCommentsStore.send({ type: "startComment", pageId: "3", target, focusComposer: true });
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, target);
   previewCommentsStore.send({ type: "composerFocused" });
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, null);
-  revealCommentTarget(3, target, "String");
+  revealCommentTarget("3", target, "String");
   assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
   assert.equal(previewStore.getSnapshot().context.addBlockDialog, null);
   assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
     type: "item-field",
-    blockId: 7,
-    itemId: 12,
+    blockId: "7",
+    itemId: "12",
     fieldName: "title",
     fieldType: "String",
   });
@@ -309,7 +309,7 @@ void test("comments reveal the existing editor and retain their page and field t
   assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
   assert.equal(previewCommentsStore.getSnapshot().context.activeId, draft.id);
   assert.equal("comments" in previewCommentsStore.getSnapshot().context, false);
-  previewCommentsStore.send({ type: "startComment", pageId: 3, target });
+  previewCommentsStore.send({ type: "startComment", pageId: "3", target });
   assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, null);
   previewCommentsStore.send({ type: "cancelDraft" });
 
@@ -318,24 +318,24 @@ void test("comments reveal the existing editor and retain their page and field t
     keyof typeof fieldTypesDictionary
   >) {
     assert.equal(fieldTypesDictionary[fieldType].hasOwnView, true);
-    revealCommentTarget(3, { kind: "block-field", blockId: 7, fieldName: "title" }, fieldType);
+    revealCommentTarget("3", { kind: "block-field", blockId: "7", fieldName: "title" }, fieldType);
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "block-field",
-      blockId: 7,
+      blockId: "7",
       fieldName: "title",
       fieldType,
     });
     previewStore.send({ type: "selectParent" });
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "block",
-      blockId: 7,
+      blockId: "7",
     });
   }
 
-  revealCommentTarget(3, { kind: "block", blockId: 7 });
+  revealCommentTarget("3", { kind: "block", blockId: "7" });
   assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
     type: "block",
-    blockId: 7,
+    blockId: "7",
   });
   previewStore.send({ type: "exitEditMode" });
 });
@@ -345,32 +345,32 @@ void test("page comments retain their page without a block target", async () => 
   const { previewCommentsStore, revealCommentTarget } = await import("./previewCommentsStore");
   const target = { kind: "page" as const };
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 4, blockId: 7 });
-  revealCommentTarget(3, target);
+  previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "4", blockId: "7" });
+  revealCommentTarget("3", target);
   assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
     kind: "page",
-    pageId: 3,
+    pageId: "3",
     selection: null,
   });
 
-  previewCommentsStore.send({ type: "startComment", pageId: 3, target });
+  previewCommentsStore.send({ type: "startComment", pageId: "3", target });
   previewCommentsStore.send({ type: "setMessage", message: "Review the whole page" });
   const comment = previewCommentsStore.getSnapshot().context.draft!;
   previewCommentsStore.send({ type: "postSucceeded", draft: comment });
-  assert.equal(comment.pageId, 3);
+  assert.equal(comment.pageId, "3");
   assert.deepEqual(comment.target, { kind: "page" });
   assert.equal(comment.message, "Review the whole page");
 
-  previewCommentsStore.send({ type: "startComment", pageId: 4, target });
-  assert.equal(previewCommentsStore.getSnapshot().context.draft?.pageId, 4);
-  assert.equal(comment.pageId, 3);
+  previewCommentsStore.send({ type: "startComment", pageId: "4", target });
+  assert.equal(previewCommentsStore.getSnapshot().context.draft?.pageId, "4");
+  assert.equal(comment.pageId, "3");
   previewCommentsStore.send({ type: "clearSelection" });
   previewStore.send({ type: "exitEditMode" });
 });
 
 void test("draft IDs are stable for retries and stale successes cannot replace current UI", async () => {
   const { previewCommentsStore: store } = await import("./previewCommentsStore");
-  store.send({ type: "startComment", pageId: 3, target: { kind: "page" }, focusComposer: true });
+  store.send({ type: "startComment", pageId: "3", target: { kind: "page" }, focusComposer: true });
   const empty = store.getSnapshot().context.draft!;
   assert.match(empty.id, /^[0-9a-f-]{36}$/);
   store.send({ type: "setMessage", message: "First version" });
@@ -384,7 +384,7 @@ void test("draft IDs are stable for retries and stale successes cannot replace c
   store.send({ type: "postSucceeded", draft: submitted });
   assert.equal(store.getSnapshot().context, revised);
 
-  store.send({ type: "startComment", pageId: 4, target: { kind: "page" } });
+  store.send({ type: "startComment", pageId: "4", target: { kind: "page" } });
   const replacement = store.getSnapshot().context;
   store.send({ type: "postSucceeded", draft: revised.draft! });
   assert.equal(store.getSnapshot().context, replacement);
@@ -413,10 +413,10 @@ void test("comment field types follow current definitions and nested item ancest
   });
   const app = createApp({ blocks: [definition] });
   const bundle = {
-    block: { id: 7, type: "test" },
+    block: { id: "7", type: "test" },
     repeatableItems: [
-      { id: 12, fieldName: "rows", parentItemId: null },
-      { id: 13, fieldName: "cells", parentItemId: 12 },
+      { id: "12", fieldName: "rows", parentItemId: null },
+      { id: "13", fieldName: "cells", parentItemId: "12" },
     ],
   } as unknown as import("@/lib/queries").BlockBundle;
   const schema = definition._internal.contentSchema as any;
@@ -424,22 +424,26 @@ void test("comment field types follow current definitions and nested item ancest
     items: { properties: { cells: { items: { properties: { image: { fieldType: "Image" } } } } } },
   };
   assert.equal(
-    getCommentTargetFieldType({ kind: "block-field", blockId: 7, fieldName: "title" }, bundle, app),
+    getCommentTargetFieldType(
+      { kind: "block-field", blockId: "7", fieldName: "title" },
+      bundle,
+      app,
+    ),
     "String",
   );
-  const target = { kind: "item-field" as const, blockId: 7, itemId: 13, fieldName: "image" };
+  const target = { kind: "item-field" as const, blockId: "7", itemId: "13", fieldName: "image" };
   assert.equal(getCommentTargetFieldType(target, bundle, app), "Image");
   schema.properties.rows.items.properties.cells.items.properties.image.fieldType = "Link";
   assert.equal(getCommentTargetFieldType(target, bundle, app), "Link");
-  assert.equal(getCommentTargetFieldType({ ...target, itemId: 99 }, bundle, app), undefined);
+  assert.equal(getCommentTargetFieldType({ ...target, itemId: "99" }, bundle, app), undefined);
   delete schema.properties.rows;
   assert.equal(getCommentTargetFieldType(target, bundle, app), undefined);
   previewStore.send({ type: "enterEditMode" });
-  revealCommentTarget(3, target);
+  revealCommentTarget("3", target);
   assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
     type: "item",
-    blockId: 7,
-    itemId: 13,
+    blockId: "7",
+    itemId: "13",
   });
   previewStore.send({ type: "exitEditMode" });
 });
@@ -467,8 +471,8 @@ void test("comment mode shares normal hover and redirects native preview clicks"
   field.addEventListener("wheel", () => wheels++);
   let selection: Selection = {
     type: "item-field",
-    blockId: 7,
-    itemId: 12,
+    blockId: "7",
+    itemId: "12",
     fieldName: "title",
     fieldType: "Link",
   };
@@ -477,7 +481,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     (event) => {
       selectPreviewTarget(
         selection,
-        { kind: "page", pageId: 3 },
+        { kind: "page", pageId: "3" },
         event as unknown as MouseEvent & { currentTarget: Element },
       );
     },
@@ -487,8 +491,8 @@ void test("comment mode shares normal hover and redirects native preview clicks"
   block.addEventListener("click", (event) => {
     if (event.target !== block) return;
     selectPreviewTarget(
-      { type: "block", blockId: 7 },
-      { kind: "page", pageId: 3 },
+      { type: "block", blockId: "7" },
+      { kind: "page", pageId: "3" },
       event as unknown as MouseEvent & { currentTarget: Element },
     );
   });
@@ -524,12 +528,12 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, selection);
     const draft = previewCommentsStore.getSnapshot().context.draft!;
-    assert.equal(draft.pageId, 3);
+    assert.equal(draft.pageId, "3");
     assert.equal(previewCommentsStore.getSnapshot().context.focusTarget, draft.target);
     assert.deepEqual(draft.target, {
       kind: "item-field",
-      blockId: 7,
-      itemId: 12,
+      blockId: "7",
+      itemId: "12",
       fieldName: "title",
     });
     assert.ok(
@@ -551,11 +555,11 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     doc.querySelector("div")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "block",
-      blockId: 7,
+      blockId: "7",
     });
     assert.deepEqual(previewCommentsStore.getSnapshot().context.popover?.target, {
       kind: "block",
-      blockId: 7,
+      blockId: "7",
     });
 
     const item = doc.createElement("div");
@@ -563,8 +567,8 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     block.append(item);
     item.addEventListener("click", (event) => {
       selectPreviewTarget(
-        { type: "item", blockId: 7, itemId: 12 },
-        { kind: "page", pageId: 3 },
+        { type: "item", blockId: "7", itemId: "12" },
+        { kind: "page", pageId: "3" },
         event as unknown as MouseEvent & { currentTarget: Element },
       );
     });
@@ -574,17 +578,17 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     assert.equal(itemClick.defaultPrevented, true);
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "item",
-      blockId: 7,
-      itemId: 12,
+      blockId: "7",
+      itemId: "12",
     });
     assert.deepEqual(previewCommentsStore.getSnapshot().context.popover?.target, {
       kind: "item",
-      blockId: 7,
-      itemId: 12,
+      blockId: "7",
+      itemId: "12",
     });
     const itemDraft = previewCommentsStore.getSnapshot().context.draft!;
-    assert.equal(itemDraft.pageId, 3);
-    assert.deepEqual(itemDraft.target, { kind: "item", blockId: 7, itemId: 12 });
+    assert.equal(itemDraft.pageId, "3");
+    assert.deepEqual(itemDraft.target, { kind: "item", blockId: "7", itemId: "12" });
 
     previewCommentsStore.send({ type: "cancelDraft" });
     previewStore.send({ type: "setCommentMode", enabled: true });
@@ -592,7 +596,7 @@ void test("comment mode shares normal hover and redirects native preview clicks"
     assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
     assert.equal(previewStore.getSnapshot().context.mode, "commenting-draft");
     // Focusing an editor while commenting must neither select it nor place a comment.
-    selectPreviewTarget(selection, { kind: "page", pageId: 3 });
+    selectPreviewTarget(selection, { kind: "page", pageId: "3" });
     assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
     selectPreviewTarget(selection, null);
     assert.equal(previewCommentsStore.getSnapshot().context.draft, null);
@@ -647,16 +651,16 @@ void test("record field selections are owner-scoped and step up through the reco
     type: "selectRecordField",
     kind: "layout",
     layoutId: "news",
-    blockId: 7,
+    blockId: "7",
     fieldName: "company",
     recordId: "acme",
     recordFieldName: "quote",
     recordFieldType: "String",
   });
-  assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: 5 }), null);
+  assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: "5" }), null);
   assert.deepEqual(selectionForOwner(snapshot.context, { kind: "layout", layoutId: "news" }), {
     type: "record-field",
-    blockId: 7,
+    blockId: "7",
     fieldName: "company",
     recordId: "acme",
     recordFieldName: "quote",
@@ -668,24 +672,24 @@ void test("record field selections are owner-scoped and step up through the reco
     path.push(snapshot.context.editingContext?.selection);
   }
   assert.deepEqual(path, [
-    { type: "record", blockId: 7, fieldName: "company", recordId: "acme" },
-    { type: "block-field", blockId: 7, fieldName: "company", fieldType: "Reference" },
-    { type: "block", blockId: 7 },
+    { type: "record", blockId: "7", fieldName: "company", recordId: "acme" },
+    { type: "block-field", blockId: "7", fieldName: "company", fieldType: "Reference" },
+    { type: "block", blockId: "7" },
   ]);
   assert.equal(snapshot.context.editingContext?.kind, "layout");
 
   [snapshot] = store.transition(snapshot, {
     type: "selectRecord",
     kind: "page",
-    pageId: 3,
-    blockId: 8,
+    pageId: "3",
+    blockId: "8",
     fieldName: "company",
     recordId: "globex",
   });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "page",
-    pageId: 3,
-    selection: { type: "record", blockId: 8, fieldName: "company", recordId: "globex" },
+    pageId: "3",
+    selection: { type: "record", blockId: "8", fieldName: "company", recordId: "globex" },
   });
 });
 
@@ -695,25 +699,31 @@ void test("records placed by an item step up through the item's reference field 
   [snapshot] = store.transition(snapshot, {
     type: "selectRecordField",
     kind: "page",
-    pageId: 3,
-    blockId: 7,
-    itemId: 12,
+    pageId: "3",
+    blockId: "7",
+    itemId: "12",
     fieldName: "sponsor",
     recordId: "acme",
     recordFieldName: "quote",
     recordFieldType: "String",
   });
-  assert.equal(selectionItemId(snapshot.context.editingContext!.selection), 12);
+  assert.equal(selectionItemId(snapshot.context.editingContext!.selection), "12");
   const path: Array<Selection | null | undefined> = [];
   for (let step = 0; step < 4; step++) {
     [snapshot] = store.transition(snapshot, { type: "selectParent" });
     path.push(snapshot.context.editingContext?.selection);
   }
   assert.deepEqual(path, [
-    { type: "record", blockId: 7, itemId: 12, fieldName: "sponsor", recordId: "acme" },
-    { type: "item-field", blockId: 7, itemId: 12, fieldName: "sponsor", fieldType: "Reference" },
-    { type: "item", blockId: 7, itemId: 12 },
-    { type: "block", blockId: 7 },
+    { type: "record", blockId: "7", itemId: "12", fieldName: "sponsor", recordId: "acme" },
+    {
+      type: "item-field",
+      blockId: "7",
+      itemId: "12",
+      fieldName: "sponsor",
+      fieldType: "Reference",
+    },
+    { type: "item", blockId: "7", itemId: "12" },
+    { type: "block", blockId: "7" },
   ]);
 });
 
@@ -723,8 +733,8 @@ void test("records linked by a placed record step up through that record's refer
   [snapshot] = store.transition(snapshot, {
     type: "selectRecordField",
     kind: "page",
-    pageId: 3,
-    blockId: 7,
+    pageId: "3",
+    blockId: "7",
     fieldName: "article",
     recordId: "launch",
     nested: { fieldName: "author", recordId: "jane" },
@@ -736,12 +746,12 @@ void test("records linked by a placed record step up through that record's refer
     [snapshot] = store.transition(snapshot, { type: "selectParent" });
     path.push(snapshot.context.editingContext?.selection);
   }
-  const article = { blockId: 7, fieldName: "article", recordId: "launch" };
+  const article = { blockId: "7", fieldName: "article", recordId: "launch" };
   assert.deepEqual(path, [
     { type: "record", ...article, nested: { fieldName: "author", recordId: "jane" } },
     { type: "record-field", ...article, recordFieldName: "author", recordFieldType: "Reference" },
     { type: "record", ...article },
-    { type: "block-field", blockId: 7, fieldName: "article", fieldType: "Reference" },
+    { type: "block-field", blockId: "7", fieldName: "article", fieldType: "Reference" },
   ]);
 });
 
@@ -782,7 +792,7 @@ void test("a layout-owned record placement is its own selection target and the r
   assert.equal(samePlacement(layoutOwned, { layoutId: "events", recordId: "launch" }), false);
   // A layout block placing the same record on the same page is another placement.
   assert.equal(
-    samePlacement(layoutOwned, { blockId: 5, fieldName: "article", recordId: "launch" }),
+    samePlacement(layoutOwned, { blockId: "5", fieldName: "article", recordId: "launch" }),
     false,
   );
 });

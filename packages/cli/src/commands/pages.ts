@@ -2,11 +2,12 @@ import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { choice, integer, string } from "@optique/core/valueparser";
+import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, printError } from "../lib/output";
 import { cwdFlag } from "../lib/runtime-options";
+import { uuidv7 } from "../lib/uuidv7";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
@@ -27,7 +28,7 @@ const get = command(
   "get",
   object({
     command: constant("pages.get" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
+    id: optional(option("--id", uuidv7("ID"))),
     path: optional(option("--path", string({ metavar: "PATH" }))),
     cwd: cwdFlag,
     project: projectFlag,
@@ -43,7 +44,7 @@ const create = command(
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: option("--path-segment", string({ metavar: "SEGMENT" })),
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
-    parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
+    parentPageId: optional(option("--parent-page-id", uuidv7("ID"))),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -55,7 +56,7 @@ const update = command(
   "update",
   object({
     command: constant("pages.update" as const),
-    id: optional(option("--id", integer({ min: 1, metavar: "ID" }))),
+    id: optional(option("--id", uuidv7("ID"))),
     path: optional(option("--path", string({ metavar: "PATH" }))),
     metaTitle: optional(
       option("--meta-title", string({ metavar: "TEXT" }), {
@@ -74,7 +75,7 @@ const update = command(
     ),
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: optional(option("--path-segment", string({ metavar: "SEGMENT" }))),
-    parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
+    parentPageId: optional(option("--parent-page-id", uuidv7("ID"))),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -89,7 +90,7 @@ const setLayout = command(
   "set-layout",
   object({
     command: constant("pages.set-layout" as const),
-    id: option("--id", integer({ metavar: "ID" })),
+    id: option("--id", uuidv7("ID")),
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
@@ -102,7 +103,7 @@ const del = command(
   "delete",
   object({
     command: constant("pages.delete" as const),
-    id: option("--id", integer({ metavar: "ID" })),
+    id: option("--id", uuidv7("ID")),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -116,27 +117,27 @@ type CommonFlags = { cwd?: string; project?: string; production: boolean; json: 
 
 type Args =
   | ({ command: "pages.list" } & CommonFlags)
-  | ({ command: "pages.get"; id?: number; path?: string } & CommonFlags)
+  | ({ command: "pages.get"; id?: string; path?: string } & CommonFlags)
   | ({
       command: "pages.create";
       nickname?: string;
       pathSegment: string;
       layoutId: string;
-      parentPageId?: number;
+      parentPageId?: string;
     } & CommonFlags)
   | ({
       command: "pages.update";
-      id?: number;
+      id?: string;
       path?: string;
       metaTitle?: string;
       metaDescription?: string;
       aiSeo?: "on" | "off";
       nickname?: string;
       pathSegment?: string;
-      parentPageId?: number;
+      parentPageId?: string;
     } & CommonFlags)
-  | ({ command: "pages.set-layout"; id: number; layoutId: string } & CommonFlags)
-  | ({ command: "pages.delete"; id: number } & CommonFlags);
+  | ({ command: "pages.set-layout"; id: string; layoutId: string } & CommonFlags)
+  | ({ command: "pages.delete"; id: string } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";

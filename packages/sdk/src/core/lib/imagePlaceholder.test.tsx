@@ -200,7 +200,7 @@ void test("normal runtime renders image, list and repeatable defaults with uncha
   const html = renderToStaticMarkup(
     <block._internal.Component
       mode="site"
-      blockData={{ _id: 1, type: "placeholder-test", position: "a0", content: {} as never }}
+      blockData={{ _id: "1", type: "placeholder-test", position: "a0", content: {} as never }}
     />,
   );
   assert.equal((html.match(/<svg/g) ?? []).length, 6);
@@ -236,7 +236,7 @@ void test("normal runtime preserves authored images and custom callback URL fall
     <block._internal.Component
       mode="site"
       blockData={{
-        _id: 1,
+        _id: "1",
         type: "authored-test",
         position: "a0",
         content: { real: authored } as never,

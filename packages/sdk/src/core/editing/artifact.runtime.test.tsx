@@ -130,7 +130,7 @@ async function mount(content: Record<string, unknown>, editMode: boolean) {
           <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
             <artifactBlock._internal.Component
               mode="site"
-              blockData={{ _id: 4, type: "visual", position: "a0", content: content as never }}
+              blockData={{ _id: "4", type: "visual", position: "a0", content: content as never }}
             />
           </NormalizedDataProvider>
         </CompleteBlockEditingRuntimeProvider>
@@ -157,7 +157,7 @@ async function mount(content: Record<string, unknown>, editMode: boolean) {
 
 const withItem = {
   visual: source,
-  slides: [{ id: 12, content: { scene: "<title>Scene</title>" } }],
+  slides: [{ id: "12", content: { scene: "<title>Scene</title>" } }],
 };
 
 void test("in Edit Mode, clicking an artifact selects its field instead of reaching the frame", async () => {
@@ -169,8 +169,8 @@ void test("in Edit Mode, clicking an artifact selects its field instead of reach
     await preview.click(preview.pointerTarget(visual));
     await preview.click(preview.pointerTarget(scene));
     assert.deepEqual(selections, [
-      { type: "block-field", blockId: 4, fieldName: "visual", fieldType: "Artifact" },
-      { type: "item-field", blockId: 4, itemId: 12, fieldName: "scene", fieldType: "Artifact" },
+      { type: "block-field", blockId: "4", fieldName: "visual", fieldType: "Artifact" },
+      { type: "item-field", blockId: "4", itemId: "12", fieldName: "scene", fieldType: "Artifact" },
     ]);
   } finally {
     await preview.unmount();
@@ -184,7 +184,7 @@ void test("in Edit Mode, an empty artifact's placeholder selects its field too",
     const [placeholder] = preview.frames();
     await preview.click(preview.pointerTarget(placeholder));
     assert.deepEqual(selections, [
-      { type: "block-field", blockId: 4, fieldName: "visual", fieldType: "Artifact" },
+      { type: "block-field", blockId: "4", fieldName: "visual", fieldType: "Artifact" },
     ]);
   } finally {
     await preview.unmount();

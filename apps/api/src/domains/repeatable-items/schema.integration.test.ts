@@ -252,7 +252,7 @@ describe("direct repeatable item schema enforcement", () => {
       runService(
         createRepeatableItem(ctx, {
           blockId: block.id,
-          parentItemId: 999999,
+          parentItemId: "999999",
           fieldName: "entries",
           content: { count: 1 },
         }),

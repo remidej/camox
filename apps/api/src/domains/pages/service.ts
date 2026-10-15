@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -5,7 +6,7 @@ import { z } from "zod";
 
 import { assertPageAccess, getAuthorizedProject, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
+import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, layouts, pages, projects, repeatableItems, user } from "../../schema";
@@ -48,24 +49,26 @@ export const getPageStructureInput = z.object({ projectSlug: z.string(), path: z
 export const listPagesInput = z.object({ projectId: z.number() });
 export const listPagesBySlugInput = z.object({ projectSlug: z.string() });
 export const getPageInput = z.union([
-  z.object({ id: z.number() }),
+  z.object({ id: uuidv7Schema }),
   z.object({ projectId: z.number(), path: z.string() }),
 ]);
 
+/** The server mints the id; a client may mint one for an optimistic insert. */
 export const createPageInput = z.object({
+  id: uuidv7Schema.optional(),
   projectId: z.number(),
   nickname: pageNicknameSchema.optional(),
   pathSegment: z.string(),
-  parentPageId: z.number().optional(),
+  parentPageId: uuidv7Schema.optional(),
   /** The name of the page's layout. */
   layoutId: z.string(),
 });
 export const updatePageInput = z
   .object({
-    id: z.number(),
+    id: uuidv7Schema,
     nickname: pageNicknameSchema.optional(),
     pathSegment: z.string().optional(),
-    parentPageId: z.number().nullable().optional(),
+    parentPageId: uuidv7Schema.nullable().optional(),
     metaTitle: z.string().optional(),
     metaDescription: z.string().optional(),
     aiSeoEnabled: z.boolean().optional(),
@@ -79,17 +82,17 @@ export const updatePageInput = z
       (input.metaTitle === undefined && input.metaDescription === undefined),
     { message: "Cannot enable automatic SEO alongside manual metadata." },
   );
-export const deletePageInput = z.object({ id: z.number() });
-export const setPageAiSeoInput = z.object({ id: z.number(), enabled: z.boolean() });
-export const setPageMetaTitleInput = z.object({ id: z.number(), metaTitle: z.string() });
+export const deletePageInput = z.object({ id: uuidv7Schema });
+export const setPageAiSeoInput = z.object({ id: uuidv7Schema, enabled: z.boolean() });
+export const setPageMetaTitleInput = z.object({ id: uuidv7Schema, metaTitle: z.string() });
 export const setPageMetaDescriptionInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   metaDescription: z.string(),
 });
 /** `layoutId` names the page's new layout. */
-export const setPageLayoutInput = z.object({ id: z.number(), layoutId: z.string() });
-export const generatePageSeoInput = z.object({ id: z.number() });
-function invalidatePage(ctx: ServiceContext, projectId: number, pageId: number) {
+export const setPageLayoutInput = z.object({ id: uuidv7Schema, layoutId: z.string() });
+export const generatePageSeoInput = z.object({ id: uuidv7Schema });
+function invalidatePage(ctx: ServiceContext, projectId: number, pageId: string) {
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -143,7 +146,7 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
 
 function layoutView(
   layout: typeof layouts.$inferSelect | null,
-  layoutBlocks: { id: number; slot: "before" | "after" | null }[],
+  layoutBlocks: { id: string; slot: "before" | "after" | null }[],
 ) {
   if (!layout) return null;
   return {
@@ -166,7 +169,7 @@ function composePageView(args: {
 }) {
   const { page, project, layout, pageBlocks, layoutBlocks, allItems, fileRows } = args;
 
-  const itemsByBlock = new Map<number, ViewItem[]>();
+  const itemsByBlock = new Map<string, ViewItem[]>();
   for (const item of allItems) {
     const list = itemsByBlock.get(item.blockId) ?? [];
     list.push(item);
@@ -347,7 +350,7 @@ export const createPage = Effect.fn("pages.createPage")(function* (
   rawInput: z.input<typeof createPageInput>,
 ) {
   const user = yield* requireUser(ctx);
-  const { projectId, nickname, pathSegment, parentPageId, layoutId } = yield* decodeInput(
+  const { id, projectId, nickname, pathSegment, parentPageId, layoutId } = yield* decodeInput(
     createPageInput,
     rawInput,
   );
@@ -374,6 +377,7 @@ export const createPage = Effect.fn("pages.createPage")(function* (
     ctx.db
       .insert(pages)
       .values({
+        id,
         projectId,
         environmentId: environment.id,
         pathSegment,
@@ -386,9 +390,11 @@ export const createPage = Effect.fn("pages.createPage")(function* (
         createdAt: now,
         updatedAt: now,
       })
+      .onConflictDoNothing({ target: pages.id })
       .returning()
       .get(),
   );
+  if (!page) return yield* new ConflictError({ message: `Page ${id} already exists` });
 
   invalidatePage(ctx, projectId, page.id);
 
@@ -406,7 +412,7 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
   }
   const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  const pathChanges = new Map<number, string>();
+  const pathChanges = new Map<string, string>();
   if (body.pathSegment !== undefined || body.parentPageId !== undefined) {
     const environmentPages = yield* Effect.promise(() =>
       ctx.db.select().from(pages).where(eq(pages.environmentId, access.page.environmentId)),
@@ -422,7 +428,7 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
       ancestor = environmentPages.find((page) => page.id === ancestor!.parentPageId);
     }
     const fullPath = `${parent?.fullPath.replace(/\/$/, "") ?? ""}/${body.pathSegment ?? access.page.pathSegment}`;
-    const visit = (pageId: number, path: string) => {
+    const visit = (pageId: string, path: string) => {
       pathChanges.set(pageId, path);
       for (const child of environmentPages.filter((page) => page.parentPageId === pageId))
         visit(child.id, `${path.replace(/\/$/, "")}/${child.pathSegment}`);

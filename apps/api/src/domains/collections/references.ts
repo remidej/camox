@@ -155,7 +155,7 @@ export function referenceQuery(field: Field): NormalizedReferenceQuery | null {
   };
 }
 
-type ItemRow = { id: number; parentItemId: number | null; fieldName: string };
+type ItemRow = { id: string; parentItemId: string | null; fieldName: string };
 
 /**
  * Each repeatable item's content schema, found by walking its repeater path from the block's
@@ -163,8 +163,8 @@ type ItemRow = { id: number; parentItemId: number | null; fieldName: string };
  */
 export function itemSchemas(blockSchema: unknown, items: readonly ItemRow[]) {
   const byId = new Map(items.map((item) => [item.id, item]));
-  const schemas = new Map<number, unknown>();
-  const schemaOf = (item: ItemRow, seen: Set<number>): unknown => {
+  const schemas = new Map<string, unknown>();
+  const schemaOf = (item: ItemRow, seen: Set<string>): unknown => {
     if (schemas.has(item.id)) return schemas.get(item.id);
     if (seen.has(item.id)) return undefined;
     seen.add(item.id);
@@ -408,16 +408,16 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
  * Each item's schema comes from its block's type and its repeater path.
  */
 export const hydrateItemReferences = Effect.fn("collections.hydrateItemReferences")(function* <
-  T extends ItemRow & { blockId: number; content: unknown },
+  T extends ItemRow & { blockId: string; content: unknown },
 >(
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
-  blocks: readonly { id: number; type: string }[],
+  blocks: readonly { id: string; type: string }[],
   items: T[],
 ): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
   if (!items.length) return [];
   const definitions = yield* blockDefinitionsIn(ctx, scope);
-  const schemas = new Map<number, unknown>();
+  const schemas = new Map<string, unknown>();
   for (const block of blocks) {
     const blockSchema = definitions.find(
       (definition) => definition.blockId === block.type,

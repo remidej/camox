@@ -13,8 +13,8 @@ void test("record edits invalidate the collection's placements and statuses, not
   initApiClient("http://localhost:8788", "development");
   const client = new QueryClient();
   const placementKeys = [
-    queryKeys.blocks.get(1),
-    queryKeys.blocks.get(2),
+    queryKeys.blocks.get("1"),
+    queryKeys.blocks.get("2"),
     queryKeys.pages.getByPath("/"),
     ["camox", "layouts", "get", "site", "layout"],
     queryKeys.pages.list,

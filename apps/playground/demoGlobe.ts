@@ -15,10 +15,10 @@ export interface HeroGlobeContext {
       getByPath: (input: {
         projectSlug: string;
         path: string;
-      }) => Promise<{ blocks: readonly { id: number; type: string; content: unknown }[] }>;
+      }) => Promise<{ blocks: readonly { id: string; type: string; content: unknown }[] }>;
     };
     blocks: {
-      updateContent: (input: { id: number; content: unknown }) => Promise<unknown>;
+      updateContent: (input: { id: string; content: unknown }) => Promise<unknown>;
     };
   };
 }

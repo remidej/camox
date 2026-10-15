@@ -3,7 +3,7 @@ import { usePageBlocks } from "../../lib/normalized-data";
 import type { PageRenderInput } from "../runtime/runtime";
 import { SharedLayoutContent } from "./SharedLayoutContent";
 
-const EMPTY_PAGE = { blockIds: [] as number[] };
+const EMPTY_PAGE = { blockIds: [] as string[] };
 
 export function DerivedPageContent({
   camoxApp,

@@ -352,7 +352,7 @@ const PageTree = () => {
     // mutate() triggers onMutate synchronously, reordering the list
     // before dnd-kit resets transforms on neighboring items
     updatePosition.mutate({
-      id: Number(active.id),
+      id: String(active.id),
       afterPosition,
       beforePosition,
     });

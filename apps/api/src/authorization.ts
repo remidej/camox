@@ -155,7 +155,7 @@ export const getAuthorizedProjectBySlug = Effect.fn("getAuthorizedProjectBySlug"
 
 export const assertPageAccess = Effect.fn("assertPageAccess")(function* (
   db: Database,
-  pageId: number,
+  pageId: string,
   userId: string,
 ) {
   const result = yield* Effect.promise(() =>
@@ -198,7 +198,7 @@ export const assertLayoutAccess = Effect.fn("assertLayoutAccess")(function* (
 
 export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
   db: Database,
-  blockId: number,
+  blockId: string,
   userId: string,
 ) {
   const result = yield* Effect.promise(() =>
@@ -217,7 +217,7 @@ export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
 
 export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess")(function* (
   db: Database,
-  itemId: number,
+  itemId: string,
   userId: string,
 ) {
   const result = yield* Effect.promise(() =>

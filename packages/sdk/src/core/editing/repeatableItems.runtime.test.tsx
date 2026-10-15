@@ -54,9 +54,9 @@ registerHooks({
 });
 const { createEditableBlock } = await import("./createEditableBlock");
 
-const item = (id: number, label: string, value: string) => ({
+const item = (id: string, label: string, value: string) => ({
   id,
-  blockId: 3,
+  blockId: "3",
   parentItemId: null,
   fieldName: "specs",
   content: { label, value },
@@ -117,15 +117,15 @@ void test("editable repeatable items render the author's elements as-is and stay
           <NormalizedDataProvider
             files={[]}
             blocks={[]}
-            repeatableItems={[item(7, "Weight", "2 kg"), item(8, "Width", "40 cm")] as never}
+            repeatableItems={[item("7", "Weight", "2 kg"), item("8", "Width", "40 cm")] as never}
           >
             <block._internal.Component
               mode="site"
               blockData={{
-                _id: 3,
+                _id: "3",
                 type: "specs",
                 position: "a0",
-                content: { specs: [{ _itemId: 7 }, { _itemId: 8 }] } as never,
+                content: { specs: [{ _itemId: "7" }, { _itemId: "8" }] } as never,
               }}
             />
           </NormalizedDataProvider>
@@ -141,16 +141,16 @@ void test("editable repeatable items render the author's elements as-is and stay
       "no wrapper element between the list and its items",
     );
     const [firstLabel, firstValue, , secondValue] = Array.from(dl.children) as unknown as Element[];
-    assert.equal(closestRepeatableItem(firstValue!)?.itemId, 7);
-    assert.equal(closestRepeatableItem(firstValue!.firstElementChild!)?.itemId, 7);
-    assert.equal(closestRepeatableItem(secondValue!)?.itemId, 8);
+    assert.equal(closestRepeatableItem(firstValue!)?.itemId, "7");
+    assert.equal(closestRepeatableItem(firstValue!.firstElementChild!)?.itemId, "7");
+    assert.equal(closestRepeatableItem(secondValue!)?.itemId, "8");
     assert.equal(closestRepeatableItem(dl as unknown as Element), undefined);
 
     assert.deepEqual(
       itemTargets().map((target) => target.item),
       [
-        { blockId: 3, itemId: 7 },
-        { blockId: 3, itemId: 8 },
+        { blockId: "3", itemId: "7" },
+        { blockId: "3", itemId: "8" },
       ],
     );
     assert.equal(itemTargets()[0]!.element, firstLabel);
@@ -162,7 +162,7 @@ void test("editable repeatable items render the author's elements as-is and stay
     await window.happyDOM.waitUntilComplete();
     assert.deepEqual(
       targets.filter((target) => target.hovered).map((target) => target.item?.itemId),
-      [7],
+      ["7"],
     );
     await act(async () => {
       firstValue!.dispatchEvent(new window.MouseEvent("mouseleave") as unknown as Event);
@@ -181,7 +181,7 @@ void test("editable repeatable items render the author's elements as-is and stay
     await act(async () => {
       (secondValue as unknown as HTMLElement).click();
     });
-    assert.deepEqual(selections.at(-1), { type: "item", blockId: 3, itemId: 8 });
+    assert.deepEqual(selections.at(-1), { type: "item", blockId: "3", itemId: "8" });
   } finally {
     await act(async () => previewStore.send({ type: "exitEditMode" }));
     stop();

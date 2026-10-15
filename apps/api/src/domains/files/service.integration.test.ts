@@ -490,10 +490,10 @@ describe("media persistence", () => {
       })
       .returning()
       .get();
-    const triggerName = `fail_replace_${block.id}`;
+    const triggerName = `fail_replace_${block.id.replaceAll("-", "_")}`;
     await db.run(
       sql.raw(
-        `CREATE TRIGGER ${triggerName} BEFORE UPDATE ON blocks WHEN OLD.id = ${block.id} BEGIN SELECT RAISE(ABORT, 'test rollback'); END`,
+        `CREATE TRIGGER ${triggerName} BEFORE UPDATE ON blocks WHEN OLD.id = '${block.id}' BEGIN SELECT RAISE(ABORT, 'test rollback'); END`,
       ),
     );
     const before = await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` });

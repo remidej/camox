@@ -36,24 +36,24 @@ void test("hit-testing finds the innermost item and stops at the enclosing block
     registerRepeatableItem(document, {
       ...idle,
       fragment: inner,
-      blockId: 1,
-      itemId: 2,
+      blockId: "1",
+      itemId: "2",
       nesting: 1,
     }),
     registerRepeatableItem(document, {
       ...idle,
       fragment: outer,
-      blockId: 1,
-      itemId: 1,
+      blockId: "1",
+      itemId: "1",
       nesting: 0,
     }),
   ];
   try {
-    assert.equal(closestRepeatableItem(element("text"))?.itemId, 2);
+    assert.equal(closestRepeatableItem(element("text"))?.itemId, "2");
     assert.equal(closestRepeatableItem(element("nested-block-content")), undefined);
     assert.equal(closestRepeatableItem(element("outer-block")), undefined);
     registrations[0]!.unregister();
-    assert.equal(closestRepeatableItem(element("text"))?.itemId, 1);
+    assert.equal(closestRepeatableItem(element("text"))?.itemId, "1");
   } finally {
     for (const registration of registrations) registration.unregister();
     await window.happyDOM.close();

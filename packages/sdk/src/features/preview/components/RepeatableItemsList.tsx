@@ -35,7 +35,7 @@ import { useRepeatableItemActions, type RepeatableArraySchema } from "./useRepea
  * -----------------------------------------------------------------------------------------------*/
 
 type RepeatableItem = {
-  id: number;
+  id: string;
   summary: string;
   position: string;
   content: Record<string, unknown>;
@@ -43,10 +43,10 @@ type RepeatableItem = {
 
 interface SortableRepeatableItemProps {
   item: RepeatableItem;
-  blockId: number;
+  blockId: string;
   fieldName: string;
   canRemove: boolean;
-  onRemove: (itemId: number) => void;
+  onRemove: (itemId: string) => void;
 }
 
 const SortableRepeatableItem = ({
@@ -170,7 +170,7 @@ const SortableRepeatableItem = ({
 
 interface RepeatableItemsListProps {
   items: RepeatableItem[];
-  blockId: number;
+  blockId: string;
   fieldName: string;
   schema: unknown;
 }
@@ -212,7 +212,7 @@ const RepeatableItemsList = ({ items, blockId, fieldName, schema }: RepeatableIt
     }
 
     await updateRepeatablePosition.mutateAsync({
-      id: Number(active.id),
+      id: String(active.id),
       afterPosition,
       beforePosition,
     });

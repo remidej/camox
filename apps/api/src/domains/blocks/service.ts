@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
@@ -15,7 +16,13 @@ import {
   bumpContentUpdatedAtForBlocks,
 } from "../../lib/bump-content-updated-at";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
-import { decodeInput, InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
+import {
+  ConflictError,
+  decodeInput,
+  InvalidInputError,
+  NotFoundError,
+  type ServiceError,
+} from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
@@ -63,8 +70,8 @@ const repeatableItemSeedSchema = z.object({
   position: z.string(),
 });
 
-export const getBlockInput = z.object({ id: z.number() });
-export const getPageMarkdownInput = z.object({ pageId: z.number() });
+export const getBlockInput = z.object({ id: uuidv7Schema });
+export const getPageMarkdownInput = z.object({ pageId: uuidv7Schema });
 export const getLayoutMarkdownInput = z.object({
   projectSlug: z.string(),
   layoutId: z.string(),
@@ -72,8 +79,10 @@ export const getLayoutMarkdownInput = z.object({
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
 // A Block Definition within a project's current environment.
 export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });
+/** The server mints the id; a client may mint one for an optimistic insert. */
 export const createBlockInput = z.object({
-  pageId: z.number(),
+  id: uuidv7Schema.optional(),
+  pageId: uuidv7Schema,
   type: z.string(),
   content: z.unknown(),
   settings: z.unknown().optional(),
@@ -81,26 +90,26 @@ export const createBlockInput = z.object({
   beforePosition: z.string().nullable().optional(),
   repeatableItems: z.array(repeatableItemSeedSchema).optional(),
 });
-export const updateBlockContentInput = z.object({ id: z.number(), content: z.unknown() });
-export const updateBlockSettingsInput = z.object({ id: z.number(), settings: z.unknown() });
+export const updateBlockContentInput = z.object({ id: uuidv7Schema, content: z.unknown() });
+export const updateBlockSettingsInput = z.object({ id: uuidv7Schema, settings: z.unknown() });
 export const updateBlockPositionInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   afterPosition: z.string().nullable().optional(),
   beforePosition: z.string().nullable().optional(),
 });
-export const deleteBlockInput = z.object({ id: z.number() });
+export const deleteBlockInput = z.object({ id: uuidv7Schema });
 export const resolveBlockPositionInput = z.object({
-  pageId: z.number().optional(),
-  blockId: z.number().optional(),
+  pageId: uuidv7Schema.optional(),
+  blockId: uuidv7Schema.optional(),
   afterPosition: z.string().nullable().optional(),
   beforePosition: z.string().nullable().optional(),
-  afterId: z.number().optional(),
-  beforeId: z.number().optional(),
+  afterId: uuidv7Schema.optional(),
+  beforeId: uuidv7Schema.optional(),
   position: z.enum(["first", "last"]).optional(),
 });
-export const deleteBlocksInput = z.object({ blockIds: z.array(z.number()) });
-export const generateBlockSummaryInput = z.object({ id: z.number() });
-export const duplicateBlockInput = z.object({ id: z.number() });
+export const deleteBlocksInput = z.object({ blockIds: z.array(uuidv7Schema) });
+export const generateBlockSummaryInput = z.object({ id: uuidv7Schema });
+export const duplicateBlockInput = z.object({ id: uuidv7Schema });
 
 // --- Internal helpers ---
 
@@ -150,7 +159,7 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
     return { afterPosition: input.afterPosition, beforePosition: input.beforePosition };
   }
 
-  const lookupSibling = Effect.fn("lookupSibling")(function* (id: number) {
+  const lookupSibling = Effect.fn("lookupSibling")(function* (id: string) {
     const sibling = yield* Effect.promise(() =>
       ctx.db
         .select({ position: blocks.position, pageId: blocks.pageId })
@@ -214,9 +223,9 @@ function findLastIndexLe<T extends { position: string }>(items: T[], target: str
 
 /** Recursively nest child items into their parent item's content. */
 function nestChildItems(
-  allItems: { id: number; parentItemId: number | null; fieldName: string; content: unknown }[],
+  allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
 ) {
-  const childrenByParent = new Map<number, Map<string, typeof allItems>>();
+  const childrenByParent = new Map<string, Map<string, typeof allItems>>();
   for (const item of allItems) {
     if (item.parentItemId === null) continue;
     let fieldMap = childrenByParent.get(item.parentItemId);
@@ -310,7 +319,7 @@ const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
 
 const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   db: Database,
-  blockId: number,
+  blockId: string,
 ) {
   const stored = yield* Effect.promise(() =>
     db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
@@ -389,9 +398,9 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
 export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
   db: Database,
   apiKey: string,
-  blockId: number,
+  blockId: string,
   abortController?: AbortController,
-): Effect.fn.Return<{ pageId: number } | null> {
+): Effect.fn.Return<{ pageId: string } | null> {
   const assembled = yield* assembleBlockContent(db, blockId);
   if (!assembled) return null;
 
@@ -445,7 +454,7 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
  */
 const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   ctx: ServiceContext,
-  block: { id: number; content: unknown },
+  block: { id: string; content: unknown },
   patch: Record<string, unknown>,
   contentSchema: unknown,
   now: number,
@@ -490,7 +499,7 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
 
 const fetchBlockItems = Effect.fn("fetchBlockItems")(function* (
   ctx: ServiceContext,
-  blockId: number,
+  blockId: string,
 ) {
   return yield* Effect.promise(() =>
     ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
@@ -500,8 +509,8 @@ const fetchBlockItems = Effect.fn("fetchBlockItems")(function* (
 const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(function* (
   ctx: ServiceContext,
   args: {
-    blockId: number;
-    parentItemId: number | null;
+    blockId: string;
+    parentItemId: string | null;
     fieldName: string;
     newArray: unknown;
     allItems: Effect.Success<ReturnType<typeof fetchBlockItems>>;
@@ -535,7 +544,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     (i) => i.parentItemId === parentItemId && i.fieldName === fieldName,
   );
   const existingById = new Map(scopeItems.map((i) => [i.id, i]));
-  const referenced = new Set<number>();
+  const referenced = new Set<string>();
 
   let prevPos: string | null = null;
   for (const element of newArray) {
@@ -547,7 +556,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     }
     const elementObj = element as Record<string, unknown>;
     const rawItemId = elementObj._itemId;
-    const itemId = typeof rawItemId === "number" ? rawItemId : null;
+    const itemId = uuidv7Schema.safeParse(rawItemId).success ? (rawItemId as string) : null;
     const position = generateKeyBetween(prevPos, null);
     prevPos = position;
 
@@ -655,7 +664,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
         );
 
         if (childSeeds.length > 0) {
-          const tempIdToRealId = new Map<string, number>();
+          const tempIdToRealId = new Map<string, string>();
           for (const seed of childSeeds) {
             // parentTempId === null → child of the just-inserted item; otherwise resolve.
             const seedParent = seed.parentTempId
@@ -713,7 +722,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   const sorted = conformed.items.sort((a, b) => comparePositions(a.position, b.position));
 
   // Build a map of parentItemId → grouped children by fieldName
-  const childrenByParent = new Map<number | null, Map<string, typeof sorted>>();
+  const childrenByParent = new Map<string | null, Map<string, typeof sorted>>();
   for (const item of sorted) {
     let fieldMap = childrenByParent.get(item.parentItemId);
     if (!fieldMap) {
@@ -829,7 +838,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
 
   const items: RenderableItem[] = yield* hydrateItemReferences(ctx, scope, blockRows, itemRows);
   nestChildItems(items);
-  const itemsByBlock = new Map<number, RenderableItem[]>();
+  const itemsByBlock = new Map<string, RenderableItem[]>();
   for (const item of items) {
     if (item.parentItemId !== null) continue;
     const list = itemsByBlock.get(item.blockId) ?? [];
@@ -1030,6 +1039,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 ) {
   const user = yield* requireUser(ctx);
   const {
+    id,
     pageId,
     type,
     content,
@@ -1109,6 +1119,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     ctx.db
       .insert(blocks)
       .values({
+        id,
         environmentId: access.page.environmentId,
         pageId,
         type,
@@ -1119,13 +1130,15 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
         createdAt: now,
         updatedAt: now,
       })
+      .onConflictDoNothing({ target: blocks.id })
       .returning()
       .get(),
   );
+  if (!result) return yield* new ConflictError({ message: `Block ${id} already exists` });
 
   // Insert repeatable item seeds in topological order (parents before children)
   if (allSeeds.length > 0) {
-    const tempIdToRealId = new Map<string, number>();
+    const tempIdToRealId = new Map<string, string>();
 
     for (const seed of allSeeds) {
       const parentItemId = seed.parentTempId
@@ -1186,7 +1199,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 /** CLI/AI edits may submit both fields; reject either invalid patch before writing either. */
 export const editBlock = Effect.fn("blocks.editBlock")(function* (
   ctx: ServiceContext,
-  input: { id: number; content?: unknown; settings?: unknown },
+  input: { id: string; content?: unknown; settings?: unknown },
 ) {
   const user = yield* requireUser(ctx);
   const access = yield* assertBlockAccess(ctx.db, input.id, user.id);

@@ -53,7 +53,7 @@ import { ShikiMarkdown } from "./ShikiMarkdown";
 
 type PageMetadataData = ReturnType<typeof usePageMetadataData>;
 
-const usePageMetadataData = (pageId: number) => {
+const usePageMetadataData = (pageId: string) => {
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
   const { data: page } = useQuery(pageQueries.getById(pageId));
@@ -93,7 +93,7 @@ const PageInfoSidebar = ({
   scrollable = true,
   aboutOnly = false,
 }: {
-  pageId: number;
+  pageId: string;
   scrollable?: boolean;
   aboutOnly?: boolean;
 }) => {
@@ -314,7 +314,7 @@ const PageStructureModal = ({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  pageId: number;
+  pageId: string;
 }) => {
   const data = usePageMetadataData(pageId);
   const { page } = data;
@@ -506,7 +506,7 @@ const PageSeoModal = ({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  pageId: number;
+  pageId: string;
 }) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -523,7 +523,7 @@ const PageSeoModal = ({
   );
 };
 
-export const PageSeoContent = ({ pageId }: { pageId: number }) => {
+export const PageSeoContent = ({ pageId }: { pageId: string }) => {
   const { page, metaTitle, pageLayoutRecord, project } = usePageMetadataData(pageId);
   return page ? (
     <PageSeoEditor
@@ -615,7 +615,7 @@ const PageMarkdownModal = ({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  pageId: number;
+  pageId: string;
   metaTitle: string;
   metaDescription: string;
 }) => (
@@ -634,7 +634,7 @@ const PageMarkdownModal = ({
   </Dialog>
 );
 
-export const PageMarkdownContent = ({ pageId }: { pageId: number }) => {
+export const PageMarkdownContent = ({ pageId }: { pageId: string }) => {
   const { page, metaTitle } = usePageMetadataData(pageId);
   if (!page) return <Spinner className="size-4" />;
   return (
@@ -824,7 +824,7 @@ const PageMarkdownPreview = ({
   metaTitle,
   metaDescription,
 }: {
-  pageId: number;
+  pageId: string;
   metaTitle: string;
   metaDescription: string;
 }) => {

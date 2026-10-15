@@ -99,7 +99,7 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
             value={{ window: frame?.contentWindow ?? null, iframeElement: frame }}
           >
             <div ref={setContent} style={{ display: "flow-root" }}>
-              <BlockErrorBoundary blockId={0} blockType={block._internal.id}>
+              <BlockErrorBoundary blockId="thumbnail" blockType={block._internal.id}>
                 <React.Suspense fallback={null}>
                   <NormalizedDataProvider
                     files={bundle.files}
@@ -107,7 +107,7 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
                   >
                     <block._internal.Component
                       blockData={{
-                        _id: 0,
+                        _id: "thumbnail",
                         type: block._internal.id,
                         content: bundle.block.content as Record<string, unknown>,
                         settings: bundle.block.settings as Record<string, unknown> | undefined,

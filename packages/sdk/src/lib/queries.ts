@@ -96,7 +96,7 @@ export const collectionMutations = {
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
 
 export const commentQueries = {
-  list: (pageId: number) => ({
+  list: (pageId: string) => ({
     ...getOrpc().comments.list.queryOptions({ input: { pageId }, staleTime: 30_000 }),
     queryKey: [...queryKeys.comments.list(pageId), getEnvironmentName() ?? "production"],
   }),
@@ -121,7 +121,7 @@ export const pageQueries = {
     queryKey: queryKeys.pages.getByPath(fullPath),
   }),
 
-  getById: (id: number) => ({
+  getById: (id: string) => ({
     ...getOrpc().pages.get.queryOptions({
       input: { id },
       staleTime: Infinity,
@@ -173,7 +173,7 @@ export const layoutQueries = {
 };
 
 export const blockQueries = {
-  get: (id: number) => ({
+  get: (id: string) => ({
     ...getOrpc().blocks.get.queryOptions({
       input: { id },
       staleTime: Infinity,
@@ -214,7 +214,7 @@ export const blockQueries = {
     queryKey: queryKeys.blocks.getSyncedContent(type),
   }),
 
-  getPageMarkdown: (pageId: number) => ({
+  getPageMarkdown: (pageId: string) => ({
     ...getOrpc().blocks.getPageMarkdown.queryOptions({
       input: { pageId },
       staleTime: Infinity,
@@ -242,7 +242,7 @@ export const environmentMutations = {
 };
 
 export const repeatableItemQueries = {
-  get: (id: number) => ({
+  get: (id: string) => ({
     ...getOrpc().repeatableItems.get.queryOptions({
       input: { id },
       staleTime: Infinity,
@@ -288,7 +288,7 @@ export const pageMutations = {
   setMetaTitle: () => getOrpc().pages.setMetaTitle.mutationOptions(),
   setMetaDescription: () => getOrpc().pages.setMetaDescription.mutationOptions(),
   uploadCustomOgImage: () => ({
-    mutationFn: async ({ pageId, file }: { pageId: number; file: globalThis.File }) => {
+    mutationFn: async ({ pageId, file }: { pageId: string; file: globalThis.File }) => {
       const formData = new FormData();
       formData.append("file", file);
       const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
@@ -305,7 +305,7 @@ export const pageMutations = {
     },
   }),
   deleteCustomOgImage: () => ({
-    mutationFn: async ({ pageId }: { pageId: number }) => {
+    mutationFn: async ({ pageId }: { pageId: string }) => {
       const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
         method: "DELETE",
         headers: ogImageHeaders(),

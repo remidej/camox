@@ -57,29 +57,29 @@ export const queryKeys = {
   },
   comments: {
     all: ["camox", "comments"],
-    list: (pageId: number) => ["camox", "comments", "list", pageId],
+    list: (pageId: string) => ["camox", "comments", "list", pageId],
   },
   pages: {
     list: ["camox", "pages", "list"],
     getByPath: (path: string) => ["camox", "pages", "getByPath", path],
     getByPathAll: ["camox", "pages", "getByPath"],
-    getById: (id: number) => ["camox", "pages", "getById", id],
+    getById: (id: string) => ["camox", "pages", "getById", id],
   },
   files: {
     list: ["camox", "files", "list"],
     get: (id: string) => ["camox", "files", "get", id],
   },
   blocks: {
-    get: (id: number) => ["camox", "blocks", "get", id],
+    get: (id: string) => ["camox", "blocks", "get", id],
     getUsageCounts: ["camox", "blocks", "getUsageCounts"],
     // Under the usage counts prefix, so every usage invalidation refreshes it too.
     getPagesUsing: (type: string) => ["camox", "blocks", "getUsageCounts", "pages", type],
     // Also under that prefix, so placing or removing the block refreshes it.
     getSyncedContent: (type: string) => ["camox", "blocks", "getUsageCounts", "synced", type],
-    getPageMarkdown: (pageId: number) => ["camox", "blocks", "getPageMarkdown", pageId],
+    getPageMarkdown: (pageId: string) => ["camox", "blocks", "getPageMarkdown", pageId],
   },
   repeatableItems: {
-    get: (id: number) => ["camox", "repeatableItems", "get", id],
+    get: (id: string) => ["camox", "repeatableItems", "get", id],
   },
   layouts: {
     all: ["camox", "layouts"],

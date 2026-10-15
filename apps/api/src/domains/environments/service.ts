@@ -200,8 +200,8 @@ function sortPagesByDepth<T extends { fullPath: string }>(rows: T[]): T[] {
  * not in the input set) are appended at the end and will be remapped to a
  * null parent at insert time.
  */
-function topoSortItems<T extends { id: number; parentItemId: number | null }>(items: T[]): T[] {
-  const byParent = new Map<number | null, T[]>();
+function topoSortItems<T extends { id: string; parentItemId: string | null }>(items: T[]): T[] {
+  const byParent = new Map<string | null, T[]>();
   for (const item of items) {
     const list = byParent.get(item.parentItemId) ?? [];
     list.push(item);
@@ -209,10 +209,10 @@ function topoSortItems<T extends { id: number; parentItemId: number | null }>(it
   }
 
   const sorted: T[] = [];
-  const seen = new Set<number>();
-  const queue: Array<number | null> = [null];
+  const seen = new Set<string>();
+  const queue: Array<string | null> = [null];
   while (queue.length > 0) {
-    const parent = queue.shift() as number | null;
+    const parent = queue.shift() as string | null;
     const children = byParent.get(parent) ?? [];
     for (const child of children) {
       if (seen.has(child.id)) continue;
@@ -231,13 +231,13 @@ function topoSortItems<T extends { id: number; parentItemId: number | null }>(it
   return sorted;
 }
 
-type IdMap = Map<number, number>;
-type FileIdMap = Map<string, string>;
+/** A source entity's id to its copy's id. */
+type IdMap = Map<string, string>;
 const PAGE_TEXT_LINK_PREFIX = "camox:page:";
 
 function remapMarkdownPageReferences(value: string, pagesMap: IdMap): string {
-  return value.replaceAll(/camox:page:(\d+)/g, (match, pageId: string) => {
-    const remapped = pagesMap.get(Number(pageId));
+  return value.replaceAll(/camox:page:([0-9a-f-]{36})/g, (match, pageId: string) => {
+    const remapped = pagesMap.get(pageId);
     if (remapped === undefined) return match;
     return `${PAGE_TEXT_LINK_PREFIX}${remapped}`;
   });
@@ -254,8 +254,7 @@ function remapPageReferences(value: JsonValue, pagesMap: IdMap): JsonValue {
   const out: Record<string, JsonValue> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (key === "pageId" && typeof entry === "string") {
-      const remapped = pagesMap.get(Number(entry));
-      out[key] = remapped === undefined ? entry : String(remapped);
+      out[key] = pagesMap.get(entry) ?? entry;
       continue;
     }
     out[key] = remapPageReferences(entry, pagesMap);
@@ -263,7 +262,7 @@ function remapPageReferences(value: JsonValue, pagesMap: IdMap): JsonValue {
   return out;
 }
 
-function remapContentReferences(value: unknown, filesMap: FileIdMap, pagesMap: IdMap) {
+function remapContentReferences(value: unknown, filesMap: IdMap, pagesMap: IdMap) {
   const withFiles = remapFileReferences(value as JsonValue, filesMap);
   return remapPageReferences(withFiles, pagesMap);
 }
@@ -386,7 +385,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // Files: `blobId`, `path`, `url`, etc. are copied verbatim. Multiple rows
   // pointing at the same R2 object is intentional — refcount-aware deletion
   // (Phase 1) keeps blobs alive while any env still references them.
-  const filesMap: FileIdMap = new Map();
+  const filesMap: IdMap = new Map();
   for (const row of sourceFiles) {
     const { id, environmentId: _envId, ...rest } = row;
     const inserted = yield* Effect.promise(() =>
@@ -399,7 +398,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     filesMap.set(id, inserted.id);
   }
 
-  const pagesMap = new Map<number, number>();
+  const pagesMap = new Map<string, string>();
   for (const row of sortPagesByDepth(sourcePages)) {
     const { id, environmentId: _envId, parentPageId, ...rest } = row;
     const newParentPageId = parentPageId !== null ? (pagesMap.get(parentPageId) ?? null) : null;
@@ -417,7 +416,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     pagesMap.set(id, inserted.id);
   }
 
-  const blocksMap = new Map<number, number>();
+  const blocksMap = new Map<string, string>();
   for (const row of sourceBlocks) {
     const { id, environmentId: _envId, pageId, content, settings, ...rest } = row;
     const newPageId = pageId !== null ? (pagesMap.get(pageId) ?? null) : null;
@@ -442,7 +441,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     blocksMap.set(id, inserted.id);
   }
 
-  const itemsMap = new Map<number, number>();
+  const itemsMap = new Map<string, string>();
   for (const row of topoSortItems(sourceItems)) {
     const { id, blockId, parentItemId, content, settings, ...rest } = row;
     const newBlockId = blocksMap.get(blockId);

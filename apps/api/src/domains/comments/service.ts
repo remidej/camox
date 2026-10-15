@@ -24,7 +24,7 @@ import {
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 
-export const listCommentsInput = z.strictObject({ pageId: z.number().int().positive() });
+export const listCommentsInput = z.strictObject({ pageId: uuidv7Schema });
 /** The server mints the id; a client may mint one for an optimistic insert. */
 export const createCommentInput = listCommentsInput.extend({
   id: uuidv7Schema.optional(),
@@ -36,7 +36,7 @@ export const setCommentResolvedInput = listCommentsInput.extend({
   resolved: z.boolean(),
 });
 
-const authorize = Effect.fn("authorize")(function* (ctx: ServiceContext, pageId: number) {
+const authorize = Effect.fn("authorize")(function* (ctx: ServiceContext, pageId: string) {
   const currentUser = yield* requireUser(ctx);
   const access = yield* assertPageAccess(ctx.db, pageId, currentUser.id);
   const environment = yield* Effect.promise(() =>
@@ -180,7 +180,7 @@ const validateTarget = Effect.fn("validateTarget")(function* (
   let schema = definition?.contentSchema as FieldSchema | undefined;
   const path: string[] = [];
   let ancestor = item;
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   while (ancestor) {
     if (seen.has(ancestor.id) || ancestor.blockId !== block.id) {
       return yield* new InvalidInputError({ message: "Invalid item ancestry" });

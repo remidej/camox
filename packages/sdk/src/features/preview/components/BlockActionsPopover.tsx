@@ -322,13 +322,13 @@ const BlockActionsPopover = ({
 /** The page's selection when it is inside a block, which block actions apply to. */
 function blockSelectionForPage(
   context: Parameters<typeof selectionForPage>[0],
-  pageId: number,
+  pageId: string,
 ): BlockSelection | null {
   const selection = selectionForPage(context, pageId);
   return isBlockSelection(selection) ? selection : null;
 }
 
-function isLayoutBlockId(page: ReturnType<typeof usePreviewedPage>, blockId: number): boolean {
+function isLayoutBlockId(page: ReturnType<typeof usePreviewedPage>, blockId: string): boolean {
   if (!page?.layout) return false;
   const layoutBlockIds = new Set([...page.layout.beforeBlockIds, ...page.layout.afterBlockIds]);
   return layoutBlockIds.has(blockId);

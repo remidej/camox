@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { pages } from "../pages/schema";
@@ -6,11 +7,11 @@ import { environments } from "../projects/schema";
 export const blocks = sqliteTable(
   "blocks",
   {
-    id: int().primaryKey({ autoIncrement: true }),
+    id: text().primaryKey().$defaultFn(generateUuidv7),
     environmentId: int("environment_id")
       .notNull()
       .references(() => environments.id),
-    pageId: int("page_id").references(() => pages.id, { onDelete: "cascade" }),
+    pageId: text("page_id").references(() => pages.id, { onDelete: "cascade" }),
     // The name of the layout whose slot holds this block. Deleting a layout deletes its blocks.
     layoutId: text("layout_id"),
     type: text().notNull(),

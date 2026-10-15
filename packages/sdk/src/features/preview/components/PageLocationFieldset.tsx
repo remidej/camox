@@ -25,14 +25,14 @@ import type { Page } from "@/lib/queries";
 const NO_PARENT_VALUE = "__no_parent__";
 
 type PageLocationFieldsetProps = {
-  parentPageId: number | undefined;
-  onParentPageIdChange: (value: number | undefined) => void;
+  parentPageId: string | undefined;
+  onParentPageIdChange: (value: string | undefined) => void;
   pathSegment: string;
   onPathSegmentChange: (value: string) => void;
   disabled?: boolean;
   pages: Page[] | undefined;
   /** Page ID to exclude from the parent page list (the page being edited). */
-  excludePageId?: number;
+  excludePageId?: string;
   autoFocusPathSegment?: boolean;
 };
 
@@ -62,11 +62,11 @@ const PageLocationFieldset = ({
           Parent page <span className="text-muted-foreground">(optional)</span>
         </Label>
         <Select
-          value={parentPageId != null ? String(parentPageId) : ""}
+          value={parentPageId ?? ""}
           disabled={disabled || !hasParentOptions}
           onValueChange={(value) =>
             onParentPageIdChange(
-              !value || ["", NO_PARENT_VALUE].includes(value) ? undefined : Number(value),
+              !value || ["", NO_PARENT_VALUE].includes(value) ? undefined : value,
             )
           }
         >
