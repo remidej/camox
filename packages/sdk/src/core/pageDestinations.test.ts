@@ -36,6 +36,21 @@ void test("destination lists include concrete singletons, never derived layouts 
   assert.equal(getPageDestinations([], layouts).length, 1, "Singleton-only apps remain navigable");
 });
 
+void test("pages that need a layout or that a singleton shadows aren't destinations", () => {
+  const destinations = getPageDestinations(
+    [
+      { id: 1, nickname: "About", fullPath: "/about" },
+      { id: 2, nickname: "Orphan", fullPath: "/orphan", needsLayout: true },
+      { id: 3, nickname: "Old Pokédex", fullPath: "/guide/pokedex", shadowed: true },
+    ],
+    layouts,
+  );
+  assert.deepEqual(
+    destinations.map((destination) => destination.key),
+    ["page:1", "singleton:guide.pokedex"],
+  );
+});
+
 void test("singleton text links resolve without page records and stay in the current tab", () => {
   assert.ok(isValidTextLinkTarget("/guide/pokedex"));
   assert.equal(resolveTextLinkHref("/guide/pokedex", undefined, "/current"), "/guide/pokedex");

@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { blockDefinitions, environments } from "../../schema";
+import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { collectionOfRecord, recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
@@ -348,16 +349,17 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
   );
   if (!record) return null;
   const { contentSchema } = definition;
+  const content = conformRecordContent(contentSchema, record.content);
   // A record placed at the first hop resolves its own references; the second hop stops.
   const linked =
     hop === 1
-      ? { references: yield* resolveReferences(ctx, definition, contentSchema, record.content, 2) }
+      ? { references: yield* resolveReferences(ctx, definition, contentSchema, content, 2) }
       : {};
   return {
     id: record.id,
     collectionId: definition.collectionId,
-    content: yield* resolveRecordFiles(ctx, definition, contentSchema, record.content),
-    label: lexicalStateToPlainText(record.content[definition.label] as string),
+    content: yield* resolveRecordFiles(ctx, definition, contentSchema, content),
+    label: lexicalStateToPlainText(content[definition.label] as string),
     contentSchema,
     ...linked,
   } satisfies ResolvedReference;

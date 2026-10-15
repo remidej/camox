@@ -60,3 +60,37 @@ export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPage
       return yield* new ConflictError({ message: `URL ${path} is owned by a singleton page` });
   }
 });
+
+/**
+ * Pages are served only through a curated layout. A page whose layout was removed (no layout
+ * of that name) or is no longer curated needs a layout.
+ */
+export function servesPages(layout: { kind: string } | null | undefined) {
+  return layout?.kind === "curated";
+}
+
+/**
+ * For each curated page, whether it can't be served: its layout was removed or is no longer
+ * curated (it needs a layout), or a singleton serves its URL instead (it's shadowed).
+ */
+export const pageServingProblems = Effect.fn("layouts.pageServingProblems")(function* (
+  ctx: ServiceContext,
+  environmentId: number,
+) {
+  const rows = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(eq(layouts.environmentId, environmentId)),
+  );
+  const byName = new Map(rows.map((layout) => [layout.layoutId, layout]));
+  const pathOf = (path: Effect.Effect<string, InvalidInputError>) =>
+    Effect.runSync(Effect.orElseSucceed(path, () => null));
+  const singletonPaths = new Set<string | null>(
+    rows
+      .filter((layout) => layout.kind === "singleton")
+      .map((layout) => pathOf(singletonPath(layout.layoutId))),
+  );
+  singletonPaths.delete(null);
+  return (page: { layoutId: string; fullPath: string }) => ({
+    needsLayout: !servesPages(byName.get(page.layoutId)),
+    shadowed: singletonPaths.has(pathOf(normalizePagePath(page.fullPath))),
+  });
+});

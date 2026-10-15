@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Database } from "../../db";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
+import { conformBlocks } from "../_shared/conform-content";
 
 // --- AI Executors ---
 
@@ -117,11 +118,23 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   const pageBlocks = yield* Effect.promise(() =>
     db.select().from(blocks).where(eq(blocks.pageId, pageId)),
   );
-  const sorted = pageBlocks.sort((a, b) => comparePositions(a.position, b.position));
 
   const defs = yield* Effect.promise(() =>
-    db.select().from(blockDefinitions).where(eq(blockDefinitions.projectId, page.projectId)),
+    db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(
+          eq(blockDefinitions.projectId, page.projectId),
+          eq(blockDefinitions.environmentId, page.environmentId),
+        ),
+      ),
   );
+  const definitions = new Map(defs.map((def) => [def.blockId, def]));
+  // Blocks of a removed definition render nothing, so they say nothing about the page either.
+  const sorted = pageBlocks
+    .filter((block) => definitions.has(block.type))
+    .sort((a, b) => comparePositions(a.position, b.position));
   const contentSchemaByType = new Map<string, any>();
   const fieldOrderByType = new Map<string, string[]>();
   for (const def of defs) {
@@ -133,7 +146,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   }
 
   const blockIds = sorted.map((b) => b.id);
-  const allItems =
+  const storedItems =
     blockIds.length > 0
       ? sortByPosition(
           yield* Effect.promise(() =>
@@ -141,6 +154,8 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
           ),
         )
       : [];
+  const conformed = conformBlocks(definitions, sorted, storedItems);
+  const allItems = conformed.items;
 
   nestChildItems(allItems);
 
@@ -152,7 +167,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
     itemsByBlock.set(item.blockId, list);
   }
 
-  const markdownBlocks = sorted.map((block) => {
+  const markdownBlocks = conformed.blocks.map((block) => {
     const content = { ...(block.content as Record<string, unknown>) };
     const items = itemsByBlock.get(block.id) ?? [];
     const fieldNames = new Set(items.map((i) => i.fieldName));

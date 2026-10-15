@@ -80,184 +80,6 @@ async function fixture(suffix: string) {
   return { ...base, ctx, publicCtx, scope, sync, insertFile };
 }
 
-function withAddedFields(properties: typeof definition.contentSchema.properties) {
-  return {
-    ...definition,
-    contentSchema: {
-      ...definition.contentSchema,
-      properties: { ...definition.contentSchema.properties, ...properties },
-      required: [...definition.contentSchema.required, ...Object.keys(properties)],
-    },
-  };
-}
-
-describe("additive collection schema sync", () => {
-  it("adds a logo to existing records as unset", async () => {
-    const f = await fixture("sync-logo");
-    const created = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
-    const read = { ...f.scope, id: created.id };
-    const expanded = withAddedFields({
-      logo: { type: "object", fieldType: "Image", default: placeholder },
-    });
-    await f.sync([expanded]);
-    const backfilled = await runService(getCollectionRecord(f.ctx, read));
-    expect(backfilled.content).toEqual({ ...article, logo: null });
-    expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toMatchObject({
-      contentSchema: expanded.contentSchema,
-    });
-    await f.sync([expanded]);
-    expect(await runService(getCollectionRecord(f.ctx, read))).toEqual(backfilled);
-    const logo = await f.insertFile("logo.png");
-    const linked = await runService(
-      editRecord(f.ctx, { ...read, content: { ...article, logo: { _fileId: logo.id } } }),
-    );
-    expect(linked.content.logo).toMatchObject({ _fileId: logo.id, url: logo.url });
-  });
-
-  it("backfills all supported field initial values and preserves each record's old fields", async () => {
-    const f = await fixture("sync-defaults");
-    const records = await Promise.all(
-      ["First", "Second"].map((title) =>
-        runService(createRecord(f.ctx, { ...f.scope, content: { ...article, title } })),
-      ),
-    );
-    const expanded = withAddedFields({
-      image: { type: "object", fieldType: "Image", default: placeholder },
-      file: { type: "object", fieldType: "File", default: placeholder },
-      images: {
-        type: "array",
-        fieldType: "ImageList",
-        items: { type: "object", fieldType: "Image" },
-        default: [placeholder],
-      },
-      files: {
-        type: "array",
-        fieldType: "FileList",
-        items: { type: "object", fieldType: "File" },
-        default: [placeholder],
-      },
-      text: { type: "string", fieldType: "String" },
-      embed: { type: "string", fieldType: "Embed" },
-      enabled: { type: "boolean", fieldType: "Boolean" },
-      choice: { type: "string", fieldType: "Enum", enum: ["first", "second"] },
-      defaultText: { type: "string", fieldType: "String", minLength: 1, default: "Initial" },
-      defaultEmbed: { type: "string", fieldType: "Embed", default: "https://example.com/embed" },
-      defaultEnabled: { type: "boolean", fieldType: "Boolean", default: true },
-      defaultChoice: {
-        type: "string",
-        fieldType: "Enum",
-        enum: ["first", "second"],
-        default: "second",
-      },
-    });
-    const defaults = {
-      image: null,
-      file: null,
-      images: [],
-      files: [],
-      text: "",
-      embed: "",
-      enabled: false,
-      choice: "first",
-      defaultText: "Initial",
-      defaultEmbed: "https://example.com/embed",
-      defaultEnabled: true,
-      defaultChoice: "second",
-    };
-    await f.sync([expanded]);
-    for (const record of records) {
-      const backfilled = await runService(
-        getCollectionRecord(f.ctx, { ...f.scope, id: record.id }),
-      );
-      expect(backfilled.content).toEqual({ ...record.content, ...defaults });
-    }
-    const beforeRepeat = await Promise.all(
-      records.map(({ id }) => runService(getCollectionRecord(f.ctx, { ...f.scope, id }))),
-    );
-    await f.sync([expanded]);
-    expect(
-      await Promise.all(
-        records.map(({ id }) => runService(getCollectionRecord(f.ctx, { ...f.scope, id }))),
-      ),
-    ).toEqual(beforeRepeat);
-  });
-
-  it.each([
-    { type: "string", fieldType: "String", minLength: 1 },
-    { type: "string", fieldType: "Embed", pattern: "^https://" },
-    { type: "string", fieldType: "String", maxLength: 2, default: "Too long" },
-    { type: "string", fieldType: "Enum", enum: ["allowed"], default: "unknown" },
-    { type: "boolean", fieldType: "Boolean", default: "true" },
-    {
-      type: "array",
-      fieldType: "ImageList",
-      minItems: 1,
-      items: { type: "object", fieldType: "Image" },
-    },
-  ] satisfies Array<(typeof definition.contentSchema.properties)[string]>)(
-    "rejects additions without a valid initial value: %j",
-    async (field) => {
-      const f = await fixture(`sync-invalid-default-${crypto.randomUUID()}`);
-      const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
-      const before = await runService(getCollectionDefinition(f.ctx, f.scope));
-      await expect(
-        f.sync([withAddedFields({ safe: { type: "string", fieldType: "String" }, unsafe: field })]),
-      ).rejects.toMatchObject({ code: "CONFLICT" });
-      expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toEqual(before);
-      expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: record.id }))).toEqual(
-        record,
-      );
-    },
-  );
-
-  it.each(["change", "remove"] as const)(
-    "rolls back every definition and record when another populated collection has an unsafe %s",
-    async (operation) => {
-      const f = await fixture(`sync-rollback-${operation}`);
-      const other = { ...definition, collectionId: "other", title: "Other" };
-      await f.sync([definition, other]);
-      const first = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
-      const otherScope = { ...f.scope, collectionId: other.collectionId };
-      const second = await runService(createRecord(f.ctx, { ...otherScope, content: article }));
-      const properties = { ...other.contentSchema.properties };
-      if (operation === "remove") delete properties.excerpt;
-      if (operation === "change")
-        properties.excerpt = { ...properties.excerpt, title: "New title" };
-      const unsafe = {
-        ...other,
-        contentSchema: {
-          ...other.contentSchema,
-          properties,
-          required: other.contentSchema.required.filter((key) => key in properties),
-        },
-      };
-      const definitionsBefore = await f.db
-        .select()
-        .from(collectionDefinitions)
-        .where(eq(collectionDefinitions.projectId, f.project.id));
-      await expect(
-        f.sync([
-          withAddedFields({ logo: { type: "object", fieldType: "Image" } }),
-          { ...definition, collectionId: "new-collection" },
-          unsafe,
-        ]),
-      ).rejects.toMatchObject({ code: "CONFLICT" });
-      expect(
-        await f.db
-          .select()
-          .from(collectionDefinitions)
-          .where(eq(collectionDefinitions.projectId, f.project.id)),
-      ).toEqual(definitionsBefore);
-      expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: first.id }))).toEqual(
-        first,
-      );
-      expect(
-        await runService(getCollectionRecord(f.ctx, { ...otherScope, id: second.id })),
-      ).toEqual(second);
-    },
-  );
-});
-
 describe("authenticated collection browsing", () => {
   it("stores empty and unlinked assets as null without materializing preview defaults", async () => {
     const f = await fixture("empty-assets");
@@ -749,7 +571,7 @@ describe("collection record lifecycle", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("syncs reversibly, rejects schema changes with records, and authorizes sync", async () => {
+  it("syncs reversibly and authorizes sync", async () => {
     const f = await fixture("sync");
     await expect(
       runService(
@@ -772,20 +594,6 @@ describe("collection record lifecycle", () => {
     await expect(f.sync([{ ...definition, label: "cover" }])).rejects.toThrow();
     await expect(f.sync([definition, definition])).rejects.toThrow();
     const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
-    await expect(
-      f.sync([
-        {
-          ...definition,
-          contentSchema: {
-            ...definition.contentSchema,
-            properties: {
-              ...definition.contentSchema.properties,
-              title: { type: "string", fieldType: "String", maxLength: 2 },
-            },
-          },
-        },
-      ]),
-    ).rejects.toMatchObject({ status: 409 });
     await f.sync([{ ...definition, title: "Renamed articles", label: "slug" }]);
     await f.sync();
     expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: record.id }))).toEqual(

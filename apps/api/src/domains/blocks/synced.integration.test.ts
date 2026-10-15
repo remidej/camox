@@ -42,7 +42,32 @@ async function fixture(suffix: string, synced?: boolean) {
     title: "Navbar",
     description: "Navigation",
     synced,
-    contentSchema: { type: "object", properties: { title: { type: "string" } } },
+    contentSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        links: {
+          type: "array",
+          fieldType: "Repeater",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              children: {
+                type: "array",
+                fieldType: "Repeater",
+                items: { type: "object", properties: { label: { type: "string" } } },
+                itemSettingsSchema: {
+                  type: "object",
+                  properties: { visible: { type: "boolean" } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    settingsSchema: { type: "object", properties: { sticky: { type: "boolean" } } },
   };
   await runService(upsertBlockDefinition(syncCtx, definition));
   const layoutDefinitions = ["default", "other"].map((layoutId) => ({

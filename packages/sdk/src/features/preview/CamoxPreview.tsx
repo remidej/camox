@@ -28,6 +28,7 @@ import { CreatePageModal } from "./components/CreatePageModal";
 import type { DerivedLayoutStructure } from "./components/DerivedLayoutSidebar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { PreviewToolbar } from "./components/PreviewToolbar";
+import { RemovedBlockPlaceholder } from "./components/RemovedBlockPlaceholder";
 import {
   getPageRecord,
   PageRecordContext,
@@ -116,7 +117,9 @@ const BlockRenderer = ({
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(data.block.type);
 
-  if (!blockDef) return null;
+  if (!blockDef) {
+    return <RemovedBlockPlaceholder blockId={blockId} type={data.block.type} mode={mode} />;
+  }
 
   return (
     <NormalizedDataProvider

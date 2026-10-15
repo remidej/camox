@@ -12,13 +12,13 @@ import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
+import { conformRecordContent } from "../_shared/conform-content";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import { collectionNamed, recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
 import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords } from "./schema";
-import { collectionAdditionDefaults } from "./schema-evolution";
 import { collectionDefinitionInput, validateContent } from "./validation";
 
 export const syncCollectionDefinitionsInput = z
@@ -65,66 +65,7 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
     const existing = yield* Effect.promise(() =>
       ctx.db.select().from(collectionDefinitions).where(scope),
     );
-    // Validate the whole sync first. Backfills and schema updates then commit in
-    // one batch; the DB guard also catches races with first-record creation.
-    const backfills = [];
-    for (const definition of input.definitions) {
-      const previous = existing.find((d) => d.collectionId === definition.collectionId);
-      if (
-        !previous ||
-        stableStringify(previous.contentSchema) === stableStringify(definition.contentSchema)
-      )
-        continue;
-      const record = yield* Effect.promise(() =>
-        ctx.db
-          .select({ id: collectionRecords.id })
-          .from(collectionRecords)
-          .where(recordsOf(previous))
-          .get(),
-      );
-      if (!record) continue;
-      const defaults = JSON.stringify(
-        yield* collectionAdditionDefaults(ctx, previous.contentSchema, {
-          ...previous,
-          contentSchema: definition.contentSchema,
-        }),
-      );
-      backfills.push(
-        ctx.db
-          .update(collectionRecords)
-          .set({
-            // Merge only missing keys, including nulls. json_patch would delete
-            // null asset fields; json_each also handles arbitrary field names.
-            content: sql`(
-            select json_group_object(key, case type
-              when 'object' then json(value) when 'array' then json(value)
-              when 'true' then json('true') when 'false' then json('false')
-              else value end)
-            from (
-              select key, value, type from json_each(${collectionRecords.content})
-              union all
-              select key, value, type from json_each(${defaults}) as addition
-              where not exists (
-                select 1 from json_each(${collectionRecords.content}) as current
-                where current.key = addition.key
-              )
-            )
-          )`,
-            updatedAt: Date.now(),
-          })
-          .where(
-            and(
-              recordsOf(previous),
-              sql`exists (select 1 from ${collectionDefinitions}
-            where ${collectionNamed(previous)}
-            and ${collectionDefinitions.contentSchema} = ${JSON.stringify(previous.contentSchema)})`,
-              sql`exists (select 1 from json_each(${defaults}) as addition
-            where not exists (select 1 from json_each(${collectionRecords.content}) as current
-              where current.key = addition.key))`,
-            ),
-          ),
-      );
-    }
+    // Content never blocks a sync: records keep their stored shape and conform on read.
     // A collection code no longer declares goes. Its records stay stored under its name, hidden
     // because nothing reads a collection without a definition, and come back with it (ADR 0007).
     const statements = [
@@ -139,7 +80,6 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
             : undefined,
         ),
       ),
-      ...backfills,
       ...input.definitions.map((definition) =>
         ctx.db
           .insert(collectionDefinitions)
@@ -202,7 +142,10 @@ export const deleteRecordInput = recordInput;
 type Definition = typeof collectionDefinitions.$inferSelect;
 type RecordRow = typeof collectionRecords.$inferSelect;
 
-/** A record as reads return it: its current content, with its files resolved. */
+/**
+ * A record as reads return it: its current content conformed to its collection's definition
+ * (ADR 0007), with its files resolved.
+ */
 const recordView = Effect.fn("collections.recordView")(function* (
   ctx: ServiceContext,
   definition: Definition,
@@ -213,7 +156,7 @@ const recordView = Effect.fn("collections.recordView")(function* (
     ctx,
     definition,
     definition.contentSchema,
-    record.content,
+    conformRecordContent(definition.contentSchema, record.content),
   );
   return { id, collectionId, content, createdAt, updatedAt };
 });
@@ -297,7 +240,9 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
   return records.map((record) => ({
     id: record.id,
     label: lexicalStateToPlainText(
-      record.content[definition.label] as string | Record<string, unknown>,
+      conformRecordContent(definition.contentSchema, record.content)[definition.label] as
+        | string
+        | Record<string, unknown>,
     ),
   }));
 });
@@ -362,8 +307,8 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
   const definition = yield* definitionFor(ctx, input, true);
   const content = yield* validateContent(ctx, definition, input.content);
   const now = Date.now();
-  // INSERT SELECT closes the race with syncing a schema while its first record is
-  // being validated. Once inserted, the schema-change DB guard owns this invariant.
+  // INSERT SELECT closes the race with syncing a schema while the record is being
+  // validated. Once inserted, reads conform it to whatever schema follows.
   const record = yield* Effect.promise(() =>
     ctx.db
       .insert(collectionRecords)
@@ -441,7 +386,10 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
     ctx.db.select().from(collectionRecords).where(recordsOf(definition)),
   );
   const records = rows.flatMap((row) => {
-    const value = pageValue(row.content, input.field);
+    const value = pageValue(
+      conformRecordContent(definition.contentSchema, row.content),
+      input.field,
+    );
     return value === null ? [] : [{ row, value }];
   });
   return { definition, records };
@@ -467,7 +415,7 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
           ctx,
           definition,
           definition.contentSchema,
-          row.content,
+          conformRecordContent(definition.contentSchema, row.content),
           2,
         );
         return { id, content, updatedAt, references };
@@ -505,7 +453,13 @@ export const recordMarkdown = Effect.fn("collections.recordMarkdown")(function* 
   if (!record) return yield* new NotFoundError();
   const { content } = yield* recordView(ctx, definition, record);
   const contentSchema = definition.contentSchema as { properties?: object };
-  const references = yield* resolveReferences(ctx, definition, contentSchema, record.content, 2);
+  const references = yield* resolveReferences(
+    ctx,
+    definition,
+    contentSchema,
+    conformRecordContent(contentSchema, record.content),
+    2,
+  );
   return contentToMarkdown(
     input.toMarkdown,
     (contentSchema.properties ?? {}) as Record<string, unknown>,
@@ -521,7 +475,11 @@ export const editRecord = Effect.fn("collections.editRecord")(function* (
   const input = yield* decodeInput(editRecordInput, rawInput);
   const { definition, record } = yield* recordFor(ctx, input, true);
   if (!record) return yield* new NotFoundError();
-  const content = yield* validateContent(ctx, definition, input.content, record.content);
+  // Keys of removed fields stay stored, unread, for when their field comes back.
+  const content = {
+    ...record.content,
+    ...(yield* validateContent(ctx, definition, input.content, record.content)),
+  };
   const updated = yield* Effect.promise(() =>
     ctx.db
       .update(collectionRecords)

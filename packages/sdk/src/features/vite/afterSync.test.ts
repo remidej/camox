@@ -48,7 +48,6 @@ async function devCheckout(t: TestContext, { failCollectionSync = false } = {}) 
       sync: base.handler(() => ({
         environmentCreated: false,
         deletedDefinitionTypes: [],
-        blockedDefinitionDeletions: [],
       })),
     },
     collectionDefinitions: {

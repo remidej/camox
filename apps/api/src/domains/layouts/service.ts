@@ -6,9 +6,9 @@ import { z } from "zod";
 
 import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import { ConflictError, decodeInput, NotFoundError } from "../../lib/errors";
+import { decodeInput, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
-import { blockDefinitions, blocks, layouts, pages, projects, repeatableItems } from "../../schema";
+import { blockDefinitions, blocks, layouts, projects, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
@@ -21,7 +21,6 @@ import {
 } from "../collections/references";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { blocksOfLayout, layoutNamed } from "./identity";
-import { normalizePagePath, singletonPath } from "./route-ownership";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -185,30 +184,9 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName, {
     autoCreate,
   });
-  // Validate the complete submission before writing anything. Existing curated
-  // pages must be moved explicitly before code can claim their URLs/layouts.
-  const existingPages = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.environmentId, environment.id)),
-  );
   const existingLayouts = yield* Effect.promise(() =>
     ctx.db.select().from(layouts).where(eq(layouts.environmentId, environment.id)),
   );
-  for (const def of layoutDefs) {
-    if (def.kind === "curated") continue;
-    if (existingPages.some((page) => page.layoutId === def.layoutId))
-      return yield* new ConflictError({
-        message: `Layout ${def.layoutId} is still assigned to curated pages`,
-      });
-    if (def.kind !== "singleton") continue;
-    const path = yield* singletonPath(def.layoutId);
-    for (const page of existingPages) {
-      if ((yield* normalizePagePath(page.fullPath)) !== path) continue;
-      return yield* new ConflictError({
-        message: `Singleton URL ${path} conflicts with an existing curated page`,
-      });
-    }
-  }
-
   const now = Date.now();
   const results = [];
 
@@ -426,28 +404,13 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         ),
   );
 
-  const deletedLayoutIds: string[] = [];
-  const blockedLayoutDeletions: Array<{ layoutId: string; pageCount: number }> = [];
-  for (const orphan of orphanLayouts) {
-    const pagesUsing = yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: pages.id })
-        .from(pages)
-        .where(and(eq(pages.layoutId, orphan.layoutId), eq(pages.environmentId, environment.id))),
-    );
-    if (pagesUsing.length > 0) {
-      blockedLayoutDeletions.push({ layoutId: orphan.layoutId, pageCount: pagesUsing.length });
-      continue;
-    }
-    // A layout's blocks go with it.
-    const key = { environmentId: environment.id, layoutId: orphan.layoutId };
+  // A removed layout's pages and blocks stay stored under its name and come back with it.
+  // Meanwhile its pages aren't served, and the studio lists them as needing a layout.
+  const removedLayoutIds = orphanLayouts.map((orphan) => orphan.layoutId);
+  for (const layoutId of removedLayoutIds) {
     yield* Effect.promise(() =>
-      ctx.db.batch([
-        ctx.db.delete(blocks).where(blocksOfLayout(key)),
-        ctx.db.delete(layouts).where(layoutNamed(key.environmentId, key.layoutId)),
-      ]),
+      ctx.db.delete(layouts).where(layoutNamed(environment.id, layoutId)),
     );
-    deletedLayoutIds.push(orphan.layoutId);
   }
 
   // A layoutOnly block definition only makes sense while at least one
@@ -491,8 +454,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
 
   return {
     layouts: results,
-    deletedLayoutIds,
-    blockedLayoutDeletions,
+    removedLayoutIds,
     deletedDefinitionTypes,
   };
 });

@@ -29,6 +29,7 @@ import {
   projects,
   repeatableItems,
 } from "../../schema";
+import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import {
@@ -38,7 +39,8 @@ import {
   type ResolvedReferences,
   validateReferenceValues,
 } from "../collections/references";
-import { blocksOfOwner } from "../layouts/identity";
+import { blocksOfOwner, layoutNamed } from "../layouts/identity";
+import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
@@ -310,15 +312,15 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   db: Database,
   blockId: number,
 ) {
-  const block = yield* Effect.promise(() =>
+  const stored = yield* Effect.promise(() =>
     db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
   );
-  if (!block) return null;
+  if (!stored) return null;
 
   // Get block definition for content schema and field order. Scope by
   // environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
-  const environmentId = block.environmentId;
+  const environmentId = stored.environmentId;
   const environment = yield* Effect.promise(() =>
     db.select().from(environments).where(eq(environments.id, environmentId)).get(),
   );
@@ -333,7 +335,7 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
             and(
               eq(blockDefinitions.projectId, projectId),
               eq(blockDefinitions.environmentId, environmentId),
-              eq(blockDefinitions.blockId, block.type),
+              eq(blockDefinitions.blockId, stored.type),
             ),
           )
           .get(),
@@ -346,11 +348,14 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
     : undefined;
 
   // Merge repeatable items into content
-  const items = sortByPosition(
+  const storedItems = sortByPosition(
     yield* Effect.promise(() =>
       db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
     ),
   );
+  const conformed = conformBlocks(new Map(def ? [[def.blockId, def]] : []), [stored], storedItems);
+  const block = conformed.blocks[0];
+  const items = conformed.items;
 
   nestChildItems(items);
 
@@ -696,14 +701,16 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   rawInput: z.input<typeof getBlockInput>,
 ) {
   const { id } = yield* decodeInput(getBlockInput, rawInput);
-  const block = yield* Effect.promise(() =>
+  const stored = yield* Effect.promise(() =>
     ctx.db.select().from(blocks).where(eq(blocks.id, id)).get(),
   );
-  if (!block) return yield* new NotFoundError();
-  const blockItems = yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
+  if (!stored) return yield* new NotFoundError();
+  const storedItems = yield* Effect.promise(() =>
+    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, stored.id)),
   );
-  const sorted = blockItems.sort((a, b) => comparePositions(a.position, b.position));
+  const conformed = yield* conformBlocksIn(ctx, stored, [stored], storedItems);
+  const block = conformed.blocks[0];
+  const sorted = conformed.items.sort((a, b) => comparePositions(a.position, b.position));
 
   // Build a map of parentItemId → grouped children by fieldName
   const childrenByParent = new Map<number | null, Map<string, typeof sorted>>();
@@ -870,7 +877,10 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
       },
     )}`;
   };
-  return { markdown, json };
+  /** A block whose definition is gone renders nothing, not even its JSON. */
+  const rendersNothing = (block: RenderableBlock) =>
+    !defs.some((def) => def.blockId === block.type);
+  return { markdown, json, rendersNothing };
 });
 
 /** Joins the Markdown of a layout's before and after slots, skipping blocks without Markdown. */
@@ -899,6 +909,10 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
   );
   if (!page) return yield* new NotFoundError();
+  const pageLayout = yield* Effect.promise(() =>
+    ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
+  );
+  if (!servesPages(pageLayout)) return yield* new NotFoundError();
 
   const { blocks: sorted, items: allItems } = yield* readOwnerBlocks(ctx, { pageId });
   const { blocks: sortedLayout, items: layoutAllItems } = yield* readOwnerBlocks(ctx, {
@@ -915,11 +929,13 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
   // Convert page blocks to markdown
-  const blockMarkdowns = sorted.map((block) => ({
-    id: block.id,
-    position: block.position,
-    markdown: render.markdown(block) ?? render.json(block),
-  }));
+  const blockMarkdowns = sorted
+    .filter((block) => !render.rendersNothing(block))
+    .map((block) => ({
+      id: block.id,
+      position: block.position,
+      markdown: render.markdown(block) ?? render.json(block),
+    }));
 
   const parts = [before, ...blockMarkdowns.map((b) => b.markdown), after].filter(Boolean);
   return { markdown: parts.join("\n\n"), blocks: blockMarkdowns };

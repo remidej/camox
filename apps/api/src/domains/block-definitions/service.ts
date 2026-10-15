@@ -6,7 +6,7 @@ import { assertSyncAccess } from "../../authorization";
 import { decodeInput } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
-import { blockDefinitions, blocks } from "../../schema";
+import { blockDefinitions } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { applySyncedFlagChange } from "../blocks/synced";
 import { validateReferenceSchema } from "../collections/references";
@@ -217,36 +217,19 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
   );
   const orphans = existingDefs.filter((d) => !incomingIds.has(d.blockId) && d.layoutOnly !== true);
 
-  const deletedDefinitionTypes: string[] = [];
-  const blockedDefinitionDeletions: Array<{ blockId: string; blockCount: number }> = [];
-
-  for (const orphan of orphans) {
-    // Blocks on pages and in layouts both belong to this environment.
-    const uses = yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: blocks.id })
-        .from(blocks)
-        .where(and(eq(blocks.type, orphan.blockId), eq(blocks.environmentId, environment.id))),
-    );
-    const usageCount = uses.length;
-
-    if (usageCount > 0) {
-      blockedDefinitionDeletions.push({ blockId: orphan.blockId, blockCount: usageCount });
-      continue;
-    }
+  // Blocks of a removed definition stay stored under its name, render nothing, and come
+  // back with it.
+  const deletedDefinitionTypes = orphans.map((orphan) => orphan.blockId);
+  for (const blockId of deletedDefinitionTypes) {
     yield* Effect.promise(() =>
-      ctx.db
-        .delete(blockDefinitions)
-        .where(definitionScope(projectId, environment.id, orphan.blockId)),
+      ctx.db.delete(blockDefinitions).where(definitionScope(projectId, environment.id, blockId)),
     );
-    deletedDefinitionTypes.push(orphan.blockId);
   }
 
   return {
     results,
     environmentCreated: environment.created,
     deletedDefinitionTypes,
-    blockedDefinitionDeletions,
   };
 });
 

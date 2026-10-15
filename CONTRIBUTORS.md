@@ -138,22 +138,16 @@ The seed prints the dev credentials. Site content comes back on the next
 
 ### Regenerating the baseline
 
-`0000_baseline.sql` is the Drizzle schema (`apps/api/src/schema.ts`) plus a
-hand-written section at the end with the triggers Drizzle can't express. After changing the schema, from `apps/api`:
+`0000_baseline.sql` is generated from the Drizzle schema (`apps/api/src/schema.ts`)
+and holds no hand-written SQL: no views or guard triggers, since content never blocks
+a definition sync (ADR 0007). After changing the schema, from `apps/api`:
 
 ```sh
-sed -n '/^-- Hand-written:/,$p' migrations/0000_baseline.sql > /tmp/hand-written.sql &&
-  test -s /tmp/hand-written.sql &&
-  rm -rf migrations &&
-  pnpm db:generate --name baseline &&
-  printf '\n--> statement-breakpoint\n' >> migrations/0000_baseline.sql &&
-  cat /tmp/hand-written.sql >> migrations/0000_baseline.sql
+rm -rf migrations && pnpm db:generate --name baseline
 ```
 
-If the change touches a table or column the triggers read, edit the
-hand-written section too. Then check that `pnpm db:generate` prints "No schema
-changes", run the API tests, and reset the local D1. Commit the SQL together
-with `migrations/meta`.
+Then check that `pnpm db:generate` prints "No schema changes", run the API tests,
+and reset the local D1. Commit the SQL together with `migrations/meta`.
 
 ### Unpublished packages
 

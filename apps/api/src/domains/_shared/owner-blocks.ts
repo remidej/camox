@@ -4,9 +4,13 @@ import { Effect } from "effect";
 import { blocks, repeatableItems } from "../../schema";
 import { blocksOfLayout } from "../layouts/identity";
 import { sortByPosition } from "../pages/ai";
+import { conformBlocksIn } from "./conform-content";
 import type { ServiceContext } from "./service-context";
 
-/** A page's or layout's current blocks, sorted, with every repeatable item they own. */
+/**
+ * A page's or layout's current blocks, sorted, with every repeatable item they own, conformed
+ * to the block definitions in effect (ADR 0007).
+ */
 export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
   ctx: ServiceContext,
   owner: { pageId: number } | { environmentId: number; layoutId: string },
@@ -19,14 +23,12 @@ export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
         .where("pageId" in owner ? eq(blocks.pageId, owner.pageId) : blocksOfLayout(owner)),
     ),
   );
+  if (ownerBlocks.length === 0) return { blocks: ownerBlocks, items: [] };
   const blockIds = ownerBlocks.map((block) => block.id);
-  const items =
-    blockIds.length > 0
-      ? sortByPosition(
-          yield* Effect.promise(() =>
-            ctx.db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
-          ),
-        )
-      : [];
-  return { blocks: ownerBlocks, items };
+  const items = sortByPosition(
+    yield* Effect.promise(() =>
+      ctx.db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
+    ),
+  );
+  return yield* conformBlocksIn(ctx, ownerBlocks[0], ownerBlocks, items);
 });

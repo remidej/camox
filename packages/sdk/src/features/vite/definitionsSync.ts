@@ -100,7 +100,6 @@ export async function syncDefinitionsToApi(options: {
 
   let environmentCreated = false;
   let deletedDefinitionTypes: string[] = [];
-  let blockedDefinitionDeletions: Array<{ blockId: string; blockCount: number }> = [];
   try {
     const result = await client.blockDefinitions.sync({
       projectSlug,
@@ -110,7 +109,6 @@ export async function syncDefinitionsToApi(options: {
     });
     environmentCreated = result.environmentCreated;
     deletedDefinitionTypes = result.deletedDefinitionTypes;
-    blockedDefinitionDeletions = result.blockedDefinitionDeletions;
   } catch (error) {
     throwIfSyncAuthError(error);
     if (!autoCreate && isNotFoundError(error)) throwUnknownEnvironmentError(environmentName);
@@ -129,13 +127,7 @@ export async function syncDefinitionsToApi(options: {
   if (deletedDefinitionTypes.length > 0) {
     const blockList = deletedDefinitionTypes.map((t) => `"${t}"`).join(", ");
     logger.info(
-      `[camox] Removed ${deletedDefinitionTypes.length} orphaned block definition${deletedDefinitionTypes.length === 1 ? "" : "s"} (no longer in code): ${blockList}`,
-      { timestamp: true },
-    );
-  }
-  for (const blocked of blockedDefinitionDeletions) {
-    logger.warn(
-      `[camox] Cannot delete block definition "${blocked.blockId}": still used by ${blocked.blockCount} block${blocked.blockCount === 1 ? "" : "s"}. Delete those blocks first.`,
+      `[camox] Removed ${deletedDefinitionTypes.length} block definition${deletedDefinitionTypes.length === 1 ? "" : "s"} no longer in code: ${blockList}. Their blocks are kept and render nothing until the definition comes back.`,
       { timestamp: true },
     );
   }
@@ -150,7 +142,7 @@ export async function syncDefinitionsToApi(options: {
     timestamp: true,
   });
   for (const id of collectionResult.retired) {
-    logger.warn(`[camox] Retired collection "${id}"; records and history are preserved`, {
+    logger.warn(`[camox] Removed collection "${id}"; its records are kept and hidden`, {
       timestamp: true,
     });
   }
@@ -197,12 +189,9 @@ export async function syncDefinitionsToApi(options: {
         );
       }
     }
-    for (const layoutId of layoutSyncResults.deletedLayoutIds) {
-      logger.info(`[camox] Deleted layout "${layoutId}"`, { timestamp: true });
-    }
-    for (const blocked of layoutSyncResults.blockedLayoutDeletions) {
-      logger.warn(
-        `[camox] Cannot delete layout "${blocked.layoutId}": still used by ${blocked.pageCount} page${blocked.pageCount === 1 ? "" : "s"}. Reassign or delete those pages first.`,
+    for (const layoutId of layoutSyncResults.removedLayoutIds) {
+      logger.info(
+        `[camox] Removed layout "${layoutId}"; its pages are kept and listed as needing a layout`,
         { timestamp: true },
       );
     }

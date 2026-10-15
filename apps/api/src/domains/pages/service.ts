@@ -18,7 +18,12 @@ import {
   type ResolvedReferences,
 } from "../collections/references";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
-import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
+import {
+  assertCuratedLayout,
+  assertUnreservedPagePaths,
+  pageServingProblems,
+  servesPages,
+} from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
 
 const PAGE_NICKNAME_MAX_LENGTH = 80;
@@ -131,6 +136,8 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
     (yield* Effect.promise(() =>
       ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
     )) ?? null;
+  // A page whose layout was removed or is no longer curated isn't served (ADR 0007).
+  if (!servesPages(layout)) return yield* new NotFoundError();
   return { project, page, layout };
 });
 
@@ -265,12 +272,14 @@ export const listPages = Effect.fn("pages.listPages")(function* (
 ) {
   const { projectId } = yield* decodeInput(listPagesInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  return yield* Effect.promise(() =>
+  const rows = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(pages)
       .where(and(eq(pages.projectId, projectId), eq(pages.environmentId, environment.id))),
   );
+  const problems = yield* pageServingProblems(ctx, environment.id);
+  return rows.map((page) => ({ ...page, ...problems(page) }));
 });
 
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
@@ -284,12 +293,14 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   if (!project) return yield* new NotFoundError();
 
   const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
-  return yield* Effect.promise(() =>
+  const rows = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(pages)
       .where(and(eq(pages.projectId, project.id), eq(pages.environmentId, environment.id))),
   );
+  const problems = yield* pageServingProblems(ctx, environment.id);
+  return rows.map((page) => ({ ...page, ...problems(page) }));
 });
 
 export const getPage = Effect.fn("pages.getPage")(function* (
