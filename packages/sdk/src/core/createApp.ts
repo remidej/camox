@@ -171,6 +171,7 @@ export function createApp({
         kind: layout._internal.kind,
         description: layout._internal.description,
         blocks: layout._internal.blockDefinitions,
+        ...(layout._internal.recordPages && { recordPages: layout._internal.recordPages }),
       }));
     },
     /** Loads the initial blocks' modules: only syncing needs them, never a page. */

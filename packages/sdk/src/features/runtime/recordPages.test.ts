@@ -426,3 +426,20 @@ void test("meta callbacks get the record's fields as plain text", async (t) => {
     { name: "description", content: "About rich" },
   ]);
 });
+
+void test("a record page layout syncs the collection and field its pages are found by", () => {
+  const recordLayout = createLayout("articles.$slug")({
+    ...layoutOptions,
+    kind: "derived",
+    ...articles.pages({ by: "slug", param: "slug" }),
+  });
+  const plain = createLayout("about")({ ...layoutOptions, kind: "singleton" });
+  const app = createApp({ blocks: [], layouts: [recordLayout, plain], collections: [articles] });
+
+  const synced = app.getSerializableLayoutDefinitions();
+  assert.deepEqual(synced.find((layout) => layout.layoutId === "articles.$slug")?.recordPages, {
+    collectionId: "articles",
+    field: "slug",
+  });
+  assert.equal(synced.find((layout) => layout.layoutId === "about")?.recordPages, undefined);
+});

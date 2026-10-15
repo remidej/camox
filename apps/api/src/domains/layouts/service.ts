@@ -30,6 +30,7 @@ import { releasedNew, visibleIn } from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { blocksOfLayout, layoutNamed } from "./identity";
+import type { RecordPages } from "./schema";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -56,6 +57,8 @@ export const syncLayoutsInput = z.object({
       layoutId: z.string(),
       kind: z.enum(["curated", "derived", "singleton"]).default("curated"),
       description: z.string(),
+      /** A derived layout's record pages: the collection they render, found by `field`. */
+      recordPages: z.object({ collectionId: z.string(), field: z.string() }).optional(),
       blocks: z.array(
         z.preprocess(
           // SDKs before 0.45 send the layout slot as `placement`.
@@ -165,14 +168,21 @@ type LayoutRow = typeof layouts.$inferSelect;
 const updateSyncedLayout = Effect.fn("layouts.updateSyncedLayout")(function* (
   ctx: ServiceContext,
   existing: LayoutRow,
-  def: { description: string; kind: LayoutRow["kind"] },
+  def: { description: string; kind: LayoutRow["kind"]; recordPages?: RecordPages },
   now: number,
 ) {
-  if (existing.description === def.description && existing.kind === def.kind) return existing;
+  const recordPages = def.recordPages ?? null;
+  if (
+    existing.description === def.description &&
+    existing.kind === def.kind &&
+    JSON.stringify(existing.recordPages) === JSON.stringify(recordPages)
+  ) {
+    return existing;
+  }
   return yield* Effect.promise(() =>
     ctx.db
       .update(layouts)
-      .set({ description: def.description, kind: def.kind, updatedAt: now })
+      .set({ description: def.description, kind: def.kind, recordPages, updatedAt: now })
       .where(layoutNamed(existing.environmentId, existing.layoutId))
       .returning()
       .get(),
@@ -277,6 +287,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
               layoutId: def.layoutId,
               kind: def.kind,
               description: def.description,
+              recordPages: def.recordPages ?? null,
               contentUpdatedAt: now,
               createdAt: now,
               updatedAt: now,

@@ -123,7 +123,7 @@ describe("authenticated collection browsing", () => {
       "Updated title",
     );
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
-      { id: created.id, label: "Updated title" },
+      { id: created.id, label: "Updated title", duplicatePageValue: false },
     ]);
     await expect(
       runService(createRecord(f.ctx, { ...f.scope, content: {} })),
@@ -274,8 +274,8 @@ describe("authenticated collection browsing", () => {
     );
     const newer = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
-      { id: newer.id, label: "Hello" },
-      { id: record.id, label: "Rich title" },
+      { id: newer.id, label: "Hello", duplicatePageValue: false },
+      { id: record.id, label: "Rich title", duplicatePageValue: false },
     ]);
     await f.sync([definition, { ...definition, collectionId: "other" }]);
     expect(
@@ -319,7 +319,7 @@ describe("collection record lifecycle", () => {
       code: "NOT_FOUND",
     });
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([
-      { id: other.id, label: "Hello" },
+      { id: other.id, label: "Hello", duplicatePageValue: false },
     ]);
     await expect(runService(deleteRecord(f.ctx, input))).rejects.toMatchObject({
       code: "NOT_FOUND",

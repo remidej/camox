@@ -26,6 +26,7 @@ import type { DraftScope } from "../drafts/scope";
 import { inDraftScope } from "../drafts/service";
 import { recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
+import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
 import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords } from "./schema";
 import { collectionDefinitionInput, validateContent } from "./validation";
@@ -244,7 +245,10 @@ export const getCollectionDefinition = Effect.fn("collections.getCollectionDefin
   return { collectionId, title, description, label, contentSchema };
 });
 
-/** The studio's record list: each record's id and plain text label, newest first. */
+/**
+ * The studio's record list: each record's id and plain text label, newest first, and whether
+ * another record's page is found by the same value (ADR 0009).
+ */
 export const listCollectionRecords = Effect.fn("collections.listCollectionRecords")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listCollectionRecordsInput>,
@@ -259,13 +263,28 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
           .where(recordsOf(definition, definition.draft))
           .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id)),
       );
+      const contents = new Map(
+        records.map((record) => [
+          record.id,
+          conformRecordContent(definition.contentSchema, record.content),
+        ]),
+      );
+      const recordPages = (yield* recordPageLayouts(ctx.db, definition)).filter(
+        (layout) => layout.collectionId === definition.collectionId,
+      );
+      const duplicates = new Set(
+        recordPages.flatMap(({ field }) =>
+          recordsSharingPageValues(records, (record) =>
+            pageValue(contents.get(record.id)!, field),
+          ).flatMap((group) => group.map((record) => record.id)),
+        ),
+      );
       return records.map((record) => ({
         id: record.id,
         label: lexicalStateToPlainText(
-          conformRecordContent(definition.contentSchema, record.content)[definition.label] as
-            | string
-            | Record<string, unknown>,
+          contents.get(record.id)![definition.label] as string | Record<string, unknown>,
         ),
+        duplicatePageValue: duplicates.has(record.id),
       }));
     }),
   );
@@ -376,15 +395,6 @@ function invalidateRecord(
 
 export const listRecordPageValuesInput = scopeInput.extend({ field: z.string() });
 export const findRecordsByFieldInput = listRecordPageValuesInput.extend({ value: z.string() });
-
-/** A record's String field as a path segment, or null when it can't be one. */
-function pageValue(content: Record<string, unknown> | null, field: string) {
-  const value = content?.[field];
-  if (typeof value !== "string" && (typeof value !== "object" || value === null)) return null;
-  const text = lexicalStateToPlainText(value as string | Record<string, unknown>);
-  // Empty values and values containing `/` can't be a path segment.
-  return text && !text.includes("/") ? text : null;
-}
 
 /** Each record with its String field's plain text, when that text can be a path segment. */
 const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(function* (

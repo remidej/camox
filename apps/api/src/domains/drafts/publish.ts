@@ -29,6 +29,11 @@ import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as draftComments from "../comments/drafts";
+import {
+  checkContentProblems,
+  type ContentFinding,
+  type ContentProblemCode,
+} from "./content-checks";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
 import { findEndedDraft, resolveDraftScope } from "./service";
@@ -75,7 +80,7 @@ export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletio
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject & {
-  code: "emptyRequiredReference" | "unresolvedComment" | "commentDeleted";
+  code: "emptyRequiredReference" | "unresolvedComment" | "commentDeleted" | ContentProblemCode;
   field: string;
   message: string;
 };
@@ -406,6 +411,28 @@ const checkComments = Effect.fn("drafts.checkComments")(function* (
   };
 });
 
+/** Content findings as problems, each naming the entity it's in and where that sits. */
+const findingDescriber = Effect.fn("drafts.findingDescriber")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  findings: ContentFinding[],
+  records: RecordRow[],
+) {
+  const describeContent = yield* describer(ctx, scope, findings);
+  const ids = new Set(findings.flatMap((f) => (f.entity === "record" ? [f.id] : [])));
+  const describeRecord = yield* recordDescriber(
+    ctx,
+    scope.projectId,
+    records.filter((record) => ids.has(record.id)),
+  );
+  return ({ entity, id, code, field, message }: ContentFinding): Problem => ({
+    ...(entity === "record" ? describeRecord(id) : describeContent(entity, id)),
+    code,
+    field,
+    message,
+  });
+});
+
 // --- Preview ---
 
 const computePreview = Effect.fn("drafts.computePreview")(function* (
@@ -434,8 +461,23 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const changed = blockRows.filter((row) => !row.deleted);
   const content = yield* checkProblems(ctx, scope, changed);
   const feedback = yield* checkComments(ctx, scope);
-  const blockers = [...content.blockers, ...feedback.blockers];
-  const warnings = [...content.warnings, ...feedback.warnings];
+  const checked = yield* checkContentProblems(ctx, scope);
+  const describeFinding = yield* findingDescriber(
+    ctx,
+    scope,
+    [...checked.blockers, ...checked.warnings],
+    checked.records,
+  );
+  const blockers = [
+    ...content.blockers,
+    ...checked.blockers.map(describeFinding),
+    ...feedback.blockers,
+  ];
+  const warnings = [
+    ...content.warnings,
+    ...checked.warnings.map(describeFinding),
+    ...feedback.warnings,
+  ];
 
   const publisherIds = [
     ...new Set(storedConflicts.flatMap((c) => (c.publishedBy ? [c.publishedBy] : []))),

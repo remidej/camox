@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "037f9a31-da89-4855-8a21-39a262752581",
+  "id": "4ba019b3-8647-431c-a3ca-ee329c4d7fda",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -789,6 +789,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'curated'"
+        },
+        "record_pages": {
+          "name": "record_pages",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "content_updated_at": {
           "name": "content_updated_at",
