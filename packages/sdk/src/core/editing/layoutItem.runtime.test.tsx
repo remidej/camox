@@ -22,7 +22,7 @@ import type { ReferenceRecord } from "../lib/reference";
 // reference editing tests.
 const editors: Array<{ onChange: (value: string) => void; externalState: unknown }> = [];
 const selections: unknown[] = [];
-const owner = { kind: "layout", layoutId: 4 } as const;
+const owner = { kind: "layout", layoutId: "articles" } as const;
 const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
 const ARTICLE_ID = "00000000-0000-4000-8000-000000000001";
 const AUTHOR_ID = "00000000-0000-4000-8000-000000000002";
@@ -242,17 +242,17 @@ void test("a record page's fields are purple, select its record, and save to it 
   assert.match(
     html,
     new RegExp(
-      `data-camox-field-id="layout-4__${ARTICLE_ID}"[^>]*data-camox-overlay-mode="reference"`,
+      `data-camox-field-id="layout-articles__${ARTICLE_ID}"[^>]*data-camox-overlay-mode="reference"`,
     ),
   );
-  assert.match(html, new RegExp(`<h1 data-camox-field-id="layout-4__${ARTICLE_ID}__title"`));
+  assert.match(html, new RegExp(`<h1 data-camox-field-id="layout-articles__${ARTICLE_ID}__title"`));
   // The author is the record's link: a nested placement of the same page record.
-  assert.match(html, new RegExp(`layout-4__${ARTICLE_ID}__author__${AUTHOR_ID}__name`));
+  assert.match(html, new RegExp(`layout-articles__${ARTICLE_ID}__author__${AUTHOR_ID}__name`));
 
   pageTitleClicks[0]!();
   assert.deepEqual(selections.at(-1), {
     type: "record-field",
-    layoutId: 4,
+    layoutId: "articles",
     recordId: ARTICLE_ID,
     recordFieldName: "title",
     recordFieldType: "String",

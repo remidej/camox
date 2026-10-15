@@ -119,7 +119,6 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
     projectName: "Test",
   } as ShellProps["pageData"];
   const derivedLayout = {
-    id: 7,
     layoutId: "article",
     contentUpdatedAt: 0,
     updatedAt: 0,
@@ -176,7 +175,7 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
         if (name === "derived layout") {
           assert.equal(
             dom.host.querySelector("[data-preview]")?.getAttribute("data-layout-id"),
-            "7",
+            "article",
           );
         }
         await React.act(async () => store.send({ type: "enterEditMode" }));

@@ -279,7 +279,8 @@ describe("media persistence", () => {
     const block = await db
       .insert(blocks)
       .values({
-        layoutId: layout.id,
+        environmentId: layout.environmentId,
+        layoutId: layout.layoutId,
         type: "hero",
         content: { image: { _fileId: original.id }, html: `<img src="${original.url}">` },
         position: "a0",
@@ -326,7 +327,8 @@ describe("media persistence", () => {
     const devBlock = await db
       .insert(blocks)
       .values({
-        layoutId: devLayout.id,
+        environmentId: devLayout.environmentId,
+        layoutId: devLayout.layoutId,
         type: "hero",
         content: { url: original.url },
         position: "a0",
@@ -478,7 +480,8 @@ describe("media persistence", () => {
     const block = await db
       .insert(blocks)
       .values({
-        layoutId: layout.id,
+        environmentId: layout.environmentId,
+        layoutId: layout.layoutId,
         type: "hero",
         content: { url: original.url },
         position: "a0",
@@ -651,7 +654,8 @@ describe("stable file identity", () => {
     const block = await db
       .insert(blocks)
       .values({
-        layoutId: layout.id,
+        environmentId: layout.environmentId,
+        layoutId: layout.layoutId,
         type: "hero",
         content: {
           image: { _fileId: deleted.id },

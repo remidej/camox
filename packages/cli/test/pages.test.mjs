@@ -173,3 +173,22 @@ void test("prints structured server errors and documents SEO workflow in help", 
     assert.ok(help.stdout.includes(text), text);
   }
 });
+
+void test("names the layout when creating a page or changing its layout", async () => {
+  const created = await cli(
+    "create",
+    "--path-segment",
+    "about",
+    "--layout-id",
+    "default",
+    "--json",
+  );
+  assert.equal(created.code, 0, created.stderr);
+  assert.equal(calls.at(-1).input.name, "createPage");
+  assert.deepEqual(calls.at(-1).input.arguments, { pathSegment: "about", layoutId: "default" });
+
+  const moved = await cli("set-layout", "--id", "42", "--layout-id", "landing", "--json");
+  assert.equal(moved.code, 0, moved.stderr);
+  assert.equal(calls.at(-1).input.name, "setPageLayout");
+  assert.deepEqual(calls.at(-1).input.arguments, { id: 42, layoutId: "landing" });
+});

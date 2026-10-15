@@ -45,7 +45,7 @@ async function fixture(suffix: string) {
     .values({
       projectId: base.project.id,
       environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",
@@ -84,7 +84,7 @@ describe("createBlock defaults", () => {
     );
     await db
       .update(blocks)
-      .set({ pageId: null, layoutId: layout.id, slot: "before" })
+      .set({ pageId: null, layoutId: layout.layoutId, slot: "before" })
       .where(eq(blocks.id, created.id));
     await runService(updateBlockContent(ctx, { id: created.id, content: { title: "Edited" } }));
 

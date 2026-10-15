@@ -17,6 +17,7 @@ import {
   hydrateReferences,
   type ResolvedReferences,
 } from "../collections/references";
+import { blocksOfLayout, layoutNamed } from "../layouts/identity";
 import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
 
@@ -51,7 +52,8 @@ export const createPageInput = z.object({
   nickname: pageNicknameSchema.optional(),
   pathSegment: z.string(),
   parentPageId: z.number().optional(),
-  layoutId: z.number(),
+  /** The name of the page's layout. */
+  layoutId: z.string(),
 });
 export const updatePageInput = z
   .object({
@@ -79,7 +81,8 @@ export const setPageMetaDescriptionInput = z.object({
   id: z.number(),
   metaDescription: z.string(),
 });
-export const setPageLayoutInput = z.object({ id: z.number(), layoutId: z.number() });
+/** `layoutId` names the page's new layout. */
+export const setPageLayoutInput = z.object({ id: z.number(), layoutId: z.string() });
 export const generatePageSeoInput = z.object({ id: z.number() });
 function invalidatePage(ctx: ServiceContext, projectId: number, pageId: number) {
   broadcastInvalidation({
@@ -126,7 +129,7 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
   if (!page) return yield* new NotFoundError();
   const layout =
     (yield* Effect.promise(() =>
-      ctx.db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
+      ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
     )) ?? null;
   return { project, page, layout };
 });
@@ -137,7 +140,6 @@ function layoutView(
 ) {
   if (!layout) return null;
   return {
-    id: layout.id,
     layoutId: layout.layoutId,
     contentUpdatedAt: layout.contentUpdatedAt,
     updatedAt: layout.updatedAt,
@@ -189,9 +191,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   const { project, page, layout } = yield* findPageByPath(ctx, projectSlug, path);
 
   const pageContent = yield* readOwnerBlocks(ctx, { pageId: page.id });
-  const layoutContent = layout
-    ? yield* readOwnerBlocks(ctx, { layoutId: layout.id })
-    : { blocks: [], items: [] };
+  const layoutContent = layout ? yield* readOwnerBlocks(ctx, layout) : { blocks: [], items: [] };
   const allBlocks = [...pageContent.blocks, ...layoutContent.blocks];
 
   const source = yield* referenceSource(ctx, page.projectId);
@@ -250,7 +250,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
           ctx.db
             .select({ id: blocks.id, position: blocks.position, slot: blocks.slot })
             .from(blocks)
-            .where(eq(blocks.layoutId, layout.id)),
+            .where(blocksOfLayout(layout)),
         ),
       )
     : [];

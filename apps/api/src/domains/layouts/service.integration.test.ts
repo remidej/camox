@@ -32,7 +32,8 @@ describe("standalone shared layout reads", () => {
     const footer = await db
       .insert(blocks)
       .values({
-        layoutId: layout.id,
+        environmentId: environment.id,
+        layoutId: layout.layoutId,
         type: "footer",
         slot: "after",
         content: { title: "Footer" },
@@ -45,7 +46,8 @@ describe("standalone shared layout reads", () => {
     const navbar = await db
       .insert(blocks)
       .values({
-        layoutId: layout.id,
+        environmentId: environment.id,
+        layoutId: layout.layoutId,
         type: "navbar",
         slot: "before",
         content: { title: "Navigation" },
@@ -83,7 +85,11 @@ describe("standalone shared layout reads", () => {
     const input = { projectSlug: project.slug, layoutId: layout.layoutId };
     const readTool = () =>
       runService(
-        callTool(ctx, { projectId: project.id, name: "getLayout", arguments: { id: layout.id } }),
+        callTool(ctx, {
+          projectId: project.id,
+          name: "getLayout",
+          arguments: { layoutId: layout.layoutId },
+        }),
       );
     await db
       .update(blocks)
@@ -112,10 +118,11 @@ describe("standalone shared layout reads", () => {
     expect(await db.select().from(pages)).toEqual([]);
   });
 
-  it("scopes numeric tool IDs to the selected project and environment", async () => {
+  it("scopes layout names in the tool to the selected project and environment", async () => {
     const { db, layout, memberUser, project } = await createProjectFixture("layout-tool-scope");
     const ctx = createServiceContext(db, memberUser);
-    const other = await createProjectFixture("layout-tool-other");
+    // Another project's layout has the same name.
+    await createProjectFixture("layout-tool-other");
     const now = Date.now();
     const development = await db
       .insert(environments)
@@ -133,37 +140,41 @@ describe("standalone shared layout reads", () => {
       .values({
         projectId: project.id,
         environmentId: development.id,
-        layoutId: layout.layoutId,
+        layoutId: "development-only",
         contentUpdatedAt: now,
         createdAt: now,
         updatedAt: now,
       })
       .returning()
       .get();
-    const read = (id: unknown, environmentName = ctx.environmentName) =>
+    const read = (layoutId: unknown, environmentName = ctx.environmentName) =>
       runService(
         callTool(
           { ...ctx, environmentName },
-          { projectId: project.id, name: "getLayout", arguments: { id } },
+          { projectId: project.id, name: "getLayout", arguments: { layoutId } },
         ),
       );
-    for (const id of [999999, other.layout.id, devLayout.id]) {
-      expect(await read(id)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    for (const layoutId of ["missing", devLayout.layoutId]) {
+      expect(await read(layoutId)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     }
-    expect(await read(layout.id, development.name)).toMatchObject({
+    expect(await read(layout.layoutId, development.name)).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
-    expect(await read(layout.id, "missing")).toMatchObject({
+    expect(await read(layout.layoutId, "missing")).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
-    expect(await read(devLayout.id, development.name)).toMatchObject({
+    expect(await read(layout.layoutId)).toMatchObject({
       ok: true,
-      result: { layout: { id: devLayout.id } },
+      result: { layout: { layoutId: layout.layoutId } },
     });
-    for (const id of [0, -1, 1.5, String(layout.id), undefined]) {
-      expect(await read(id)).toMatchObject({ ok: false });
+    expect(await read(devLayout.layoutId, development.name)).toMatchObject({
+      ok: true,
+      result: { layout: { layoutId: devLayout.layoutId } },
+    });
+    for (const layoutId of ["", 1, undefined]) {
+      expect(await read(layoutId)).toMatchObject({ ok: false });
     }
   });
 

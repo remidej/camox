@@ -75,13 +75,13 @@ See `camox pages update --help` for options and examples.
 
 ```sh
 camox layouts list
-camox layouts get --id 39 --json
+camox layouts get --layout-id default --json
 camox blocks get --id 99
 camox blocks edit --id 99 --content '{"title": "Updated title"}'
 ```
 
-Use the numeric layout `id` from `layouts list` (or the page's numeric
-`layoutId`), not the code-defined string `layoutId`. `layouts get` returns
+A layout is identified by the name its code gives it: the `layoutId` from
+`layouts list`, which is also a page's `layoutId`. `layouts get` returns
 `blocks` with IDs, types, layout slot, and content, along with ordered
 `layout.beforeBlockIds` and `layout.afterBlockIds`. Use a returned block `id`
 with `blocks get` and `blocks edit`, inspecting its schema and current content

@@ -89,7 +89,7 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "createPage",
     description:
-      "Create a new page. `layoutId` is required — call listLayouts to discover available layouts. " +
+      "Create a new page. `layoutId` is required: the name of a layout, as listed by listLayouts. " +
       "`nickname` is the short internal Studio name for the page. The page starts empty; create blocks explicitly after creating it.",
     inputSchema: createPageToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
@@ -121,7 +121,8 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   },
   {
     name: "setPageLayout",
-    description: "Change a page's layout. Use listLayouts to discover layout ids.",
+    description:
+      "Change a page's layout. `layoutId` is the new layout's name; use listLayouts to discover them.",
     inputSchema: setPageLayoutInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => runService(setPageLayout(ctx, setPageLayoutInput.parse(input))),

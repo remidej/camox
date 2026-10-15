@@ -1,7 +1,6 @@
 import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { user } from "../auth/schema";
-import { layouts } from "../layouts/schema";
 import { environments, projects } from "../projects/schema";
 
 export const pages = sqliteTable(
@@ -17,9 +16,8 @@ export const pages = sqliteTable(
     pathSegment: text("path_segment").notNull(),
     fullPath: text("full_path").notNull(),
     parentPageId: int("parent_page_id"),
-    layoutId: int("layout_id")
-      .notNull()
-      .references(() => layouts.id),
+    // The layout's name.
+    layoutId: text("layout_id").notNull(),
     nickname: text("nickname").notNull(),
     metaTitle: text("meta_title"),
     metaDescription: text("meta_description"),

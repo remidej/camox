@@ -6,6 +6,7 @@ import { createProjectFixture, createServiceContext } from "../../../test/fixtur
 import { runService } from "../../lib/run-service";
 import { blocks, environments, layouts, pages, repeatableItems } from "../../schema";
 import { syncBlockDefinitions, upsertBlockDefinition } from "../block-definitions/service";
+import { blocksOfLayout } from "../layouts/identity";
 import { getLayout, syncLayouts } from "../layouts/service";
 import {
   createRepeatableItem,
@@ -84,17 +85,9 @@ async function fixture(suffix: string, synced?: boolean) {
     .select()
     .from(layouts)
     .where(eq(layouts.environmentId, base.environment.id));
-  const first = (await base.db
-    .select()
-    .from(blocks)
-    .where(eq(blocks.layoutId, base.layout.id))
-    .get())!;
+  const first = (await base.db.select().from(blocks).where(blocksOfLayout(base.layout)).get())!;
   const otherLayout = rows.find((row) => row.layoutId === "other")!;
-  const second = (await base.db
-    .select()
-    .from(blocks)
-    .where(eq(blocks.layoutId, otherLayout.id))
-    .get())!;
+  const second = (await base.db.select().from(blocks).where(blocksOfLayout(otherLayout)).get())!;
   return { ...base, ctx, syncCtx, definition, first, second, otherLayout };
 }
 
@@ -176,7 +169,7 @@ describe("synced blocks", () => {
       .values({
         projectId: project.id,
         environmentId: environment.id,
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         pathSegment: "",
         fullPath: "/",
         nickname: "Home",
@@ -212,7 +205,8 @@ describe("synced blocks", () => {
     const isolated = await db
       .insert(blocks)
       .values({
-        layoutId: otherLayout.id,
+        environmentId: otherEnvironment.id,
+        layoutId: otherLayout.layoutId,
         type: "navbar",
         content: { title: "Isolated" },
         position: "a0",

@@ -1,5 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -20,6 +20,7 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import { buildFileMap, collectFileIds } from "../pages/ai";
+import { blocksOfLayout, layoutNamed } from "./identity";
 import { normalizePagePath, singletonPath } from "./route-ownership";
 
 // --- Input Schemas ---
@@ -103,7 +104,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   );
   if (!layout) return yield* new NotFoundError();
 
-  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, { layoutId: layout.id });
+  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout);
   const source = yield* referenceSource(ctx, layout.projectId);
   const normalized = layoutBlocks.map((block) =>
     injectRepeatableItemMarkers(
@@ -134,7 +135,6 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     // Enough for the SDK to build a cache-busted favicon URL, as for pages.
     project: { id: project.id, updatedAt: project.updatedAt },
     layout: {
-      id: layout.id,
       layoutId: layout.layoutId,
       contentUpdatedAt: layout.contentUpdatedAt,
       updatedAt: layout.updatedAt,
@@ -152,6 +152,26 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
 });
 
 // --- Writes ---
+
+type LayoutRow = typeof layouts.$inferSelect;
+
+/** Syncing an unchanged layout writes nothing to it. */
+const updateSyncedLayout = Effect.fn("layouts.updateSyncedLayout")(function* (
+  ctx: ServiceContext,
+  existing: LayoutRow,
+  def: { description: string; kind: LayoutRow["kind"] },
+  now: number,
+) {
+  if (existing.description === def.description && existing.kind === def.kind) return existing;
+  return yield* Effect.promise(() =>
+    ctx.db
+      .update(layouts)
+      .set({ description: def.description, kind: def.kind, updatedAt: now })
+      .where(layoutNamed(existing.environmentId, existing.layoutId))
+      .returning()
+      .get(),
+  );
+});
 
 export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   ctx: ServiceContext,
@@ -178,8 +198,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   );
   for (const def of layoutDefs) {
     if (def.kind === "curated") continue;
-    const existing = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
-    if (existingPages.some((page) => page.layoutId === existing?.id))
+    if (existingPages.some((page) => page.layoutId === def.layoutId))
       return yield* new ConflictError({
         message: `Layout ${def.layoutId} is still assigned to curated pages`,
       });
@@ -245,29 +264,9 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   }
 
   for (const def of preparedLayouts) {
-    const existingLayout = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(layouts)
-        .where(
-          and(
-            eq(layouts.projectId, projectId),
-            eq(layouts.environmentId, environment.id),
-            eq(layouts.layoutId, def.layoutId),
-          ),
-        )
-        .get(),
-    );
-
+    const existingLayout = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
     const layout = existingLayout
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .update(layouts)
-            .set({ description: def.description, kind: def.kind, updatedAt: now })
-            .where(eq(layouts.id, existingLayout.id))
-            .returning()
-            .get(),
-        )
+      ? yield* updateSyncedLayout(ctx, existingLayout, def, now)
       : yield* Effect.promise(() =>
           ctx.db
             .insert(layouts)
@@ -300,7 +299,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           position: blocks.position,
         })
         .from(blocks)
-        .where(eq(blocks.layoutId, layout.id)),
+        .where(blocksOfLayout(layout)),
     );
 
     const existingByKey = new Map<string, string>();
@@ -337,7 +336,8 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         ctx.db
           .insert(blocks)
           .values({
-            layoutId: layout.id,
+            environmentId: layout.environmentId,
+            layoutId: layout.layoutId,
             type: blockDef.type,
             content: blockDef.content,
             settings: blockDef.settings ?? null,
@@ -414,9 +414,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   }
 
   const submittedLayoutIds = layoutDefs.map((d) => d.layoutId);
-  const orphanLayoutQuery = ctx.db
-    .select({ id: layouts.id, layoutId: layouts.layoutId })
-    .from(layouts);
+  const orphanLayoutQuery = ctx.db.select({ layoutId: layouts.layoutId }).from(layouts);
   const orphanLayouts = yield* Effect.promise(() =>
     submittedLayoutIds.length > 0
       ? orphanLayoutQuery.where(
@@ -438,13 +436,20 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       ctx.db
         .select({ id: pages.id })
         .from(pages)
-        .where(and(eq(pages.layoutId, orphan.id), eq(pages.environmentId, environment.id))),
+        .where(and(eq(pages.layoutId, orphan.layoutId), eq(pages.environmentId, environment.id))),
     );
     if (pagesUsing.length > 0) {
       blockedLayoutDeletions.push({ layoutId: orphan.layoutId, pageCount: pagesUsing.length });
       continue;
     }
-    yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.id, orphan.id)));
+    // A layout's blocks go with it.
+    const key = { environmentId: environment.id, layoutId: orphan.layoutId };
+    yield* Effect.promise(() =>
+      ctx.db.batch([
+        ctx.db.delete(blocks).where(blocksOfLayout(key)),
+        ctx.db.delete(layouts).where(layoutNamed(key.environmentId, key.layoutId)),
+      ]),
+    );
     deletedLayoutIds.push(orphan.layoutId);
   }
 
@@ -456,8 +461,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     ctx.db
       .selectDistinct({ type: blocks.type })
       .from(blocks)
-      .innerJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .where(eq(layouts.environmentId, environment.id)),
+      .where(and(eq(blocks.environmentId, environment.id), isNotNull(blocks.layoutId))),
   );
   const usedTypeSet = new Set(usedTypes.map((r) => r.type));
 

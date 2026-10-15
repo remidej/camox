@@ -14,6 +14,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { collectionNamed, recordsOf } from "./identity";
 import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
 import { collectionAdditionDefaults } from "./schema-evolution";
@@ -77,7 +78,7 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
         ctx.db
           .select({ id: collectionRecords.id })
           .from(collectionRecords)
-          .where(eq(collectionRecords.definitionId, previous.id))
+          .where(recordsOf(previous))
           .get(),
       );
       if (!record) continue;
@@ -113,9 +114,9 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
           })
           .where(
             and(
-              eq(collectionRecords.definitionId, previous.id),
+              recordsOf(previous),
               sql`exists (select 1 from ${collectionDefinitions}
-            where ${collectionDefinitions.id} = ${previous.id}
+            where ${collectionNamed(previous)}
             and ${collectionDefinitions.contentSchema} = ${JSON.stringify(previous.contentSchema)})`,
               sql`exists (select 1 from json_each(${defaults}) as addition
             where not exists (select 1 from json_each(${collectionRecords.draft}) as current
@@ -237,8 +238,8 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
             eq(collectionDefinitions.active, true),
           ),
         )
-        // Definitions have no creation timestamp; their auto-increment ID preserves creation order.
-        .orderBy(desc(collectionDefinitions.id)),
+        // Definitions have no creation timestamp; their row order preserves creation order.
+        .orderBy(desc(sql`${collectionDefinitions}.rowid`)),
     );
   },
 );
@@ -275,7 +276,7 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
         collectionRevisions,
         eq(collectionRecords.publishedRevisionId, collectionRevisions.id),
       )
-      .where(eq(collectionRecords.definitionId, definition.id))
+      .where(recordsOf(definition))
       .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id)),
   );
   return records.map((record) => ({
@@ -333,9 +334,7 @@ const recordFor = Effect.fn("collections.recordFor")(function* (
     ctx.db
       .select()
       .from(collectionRecords)
-      .where(
-        and(eq(collectionRecords.id, input.id), eq(collectionRecords.definitionId, definition.id)),
-      )
+      .where(and(eq(collectionRecords.id, input.id), recordsOf(definition)))
       .get(),
   );
   return { definition, record };
@@ -364,7 +363,8 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
         ctx.db
           .select({
             id: sql<string>`${input.id ?? generateUuidv7()}`.as("id"),
-            definitionId: collectionDefinitions.id,
+            environmentId: collectionDefinitions.environmentId,
+            collectionId: collectionDefinitions.collectionId,
             draft: sql<Record<string, unknown>>`${JSON.stringify(draft)}`.as("draft"),
             version: sql<number>`1`.as("version"),
             publishedRevisionId: sql<string | null>`null`.as("published_revision_id"),
@@ -374,7 +374,7 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
           .from(collectionDefinitions)
           .where(
             and(
-              eq(collectionDefinitions.id, definition.id),
+              collectionNamed(definition),
               eq(collectionDefinitions.active, true),
               sql`${collectionDefinitions.contentSchema} = ${JSON.stringify(definition.contentSchema)}`,
             ),
@@ -490,7 +490,7 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
       )
       .where(
         and(
-          eq(collectionRecords.definitionId, definition.id),
+          recordsOf(definition),
           input.source === "live" ? isNotNull(publishedRevisions.id) : undefined,
         ),
       ),
@@ -622,7 +622,7 @@ const update = Effect.fn("collections.update")(function* (
           eq(collectionRecords.id, record.id),
           eq(collectionRecords.version, record.version),
           sql`exists (select 1 from ${collectionDefinitions}
-          where ${collectionDefinitions.id} = ${record.definitionId}
+          where ${collectionNamed(record)}
           and ${collectionDefinitions.active} = 1
           and ${collectionDefinitions.contentSchema} = ${JSON.stringify(definition.contentSchema)})`,
         ),
@@ -659,7 +659,7 @@ export const deleteRecord = Effect.fn("collections.deleteRecord")(function* (
   const guard = and(
     eq(collectionRecords.id, record.id),
     eq(collectionRecords.version, input.expectedVersion),
-    sql`exists (select 1 from ${collectionDefinitions} where ${collectionDefinitions.id} = ${record.definitionId} and ${collectionDefinitions.active} = 1)`,
+    sql`exists (select 1 from ${collectionDefinitions} where ${collectionNamed(record)} and ${collectionDefinitions.active} = 1)`,
   );
   // D1 batches are atomic. Every step is guarded, so a concurrent edit cannot
   // leave a partially deleted item or remove its history on a version conflict.

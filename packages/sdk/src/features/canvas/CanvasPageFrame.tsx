@@ -77,7 +77,7 @@ function PageFrame({
   const camoxApp = useCamoxApp();
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const href = canvasPageHref(input);
-  const layoutId = input.derived?.layout.id;
+  const layoutId = input.derived?.layout.layoutId;
   const owner = React.useMemo<EditingOwner | null>(() => {
     if (layoutId != null) return { kind: "layout", layoutId };
     if (pageId != null) return { kind: "page", pageId };

@@ -1,10 +1,10 @@
 import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlocks } from "../../lib/bump-content-updated-at";
-import { blockDefinitions, blocks, layouts, pages, repeatableItems } from "../../schema";
+import { blockDefinitions, blocks, environments, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 
 /** Placements keep their own identity/order; only data is shared, within an environment. */
@@ -17,14 +17,7 @@ const placements = Effect.fn("placements")(function* (
     ctx.db
       .select({ block: blocks })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .where(
-        and(
-          eq(blocks.type, type),
-          or(eq(pages.environmentId, environmentId), eq(layouts.environmentId, environmentId)),
-        ),
-      )
+      .where(and(eq(blocks.type, type), eq(blocks.environmentId, environmentId)))
       .orderBy(blocks.id),
   );
 });
@@ -161,15 +154,14 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
 ) {
   const row = yield* Effect.promise(() =>
     ctx.db
-      .select({ block: blocks, page: pages, layout: layouts })
+      .select({ block: blocks, projectId: environments.projectId })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
+      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .where(eq(blocks.id, blockId))
       .get(),
   );
-  const owner = row?.page ?? row?.layout;
-  if (!row || !owner) return;
+  if (!row) return;
+  const owner = { projectId: row.projectId, environmentId: row.block.environmentId };
   if (!(yield* isSynced(ctx, owner.environmentId, row.block.type))) return;
 
   // Every shared data change refreshes the shared content shown in the Block Catalog.

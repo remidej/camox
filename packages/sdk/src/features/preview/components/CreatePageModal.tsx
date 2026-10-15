@@ -88,7 +88,7 @@ const CreatePageModal = () => {
           nickname,
           pathSegment: values.value.pathSegment,
           parentPageId: values.value.parentPageId,
-          layoutId: Number(values.value.layoutId),
+          layoutId: values.value.layoutId,
         });
 
         toast.promise(createPagePromise, {
@@ -113,7 +113,7 @@ const CreatePageModal = () => {
 
   useEffect(() => {
     if (layouts && layouts.length > 0 && !form.getFieldValue("layoutId")) {
-      form.setFieldValue("layoutId", String(layouts[0].id));
+      form.setFieldValue("layoutId", layouts[0].layoutId);
     }
   }, [layouts, form]);
 
@@ -181,7 +181,7 @@ const CreatePageModal = () => {
                   }}
                   disabled={layouts != null && layouts.length <= 1}
                   items={layouts?.map((t) => ({
-                    value: String(t.id),
+                    value: t.layoutId,
                     label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
                   }))}
                 >
@@ -190,7 +190,7 @@ const CreatePageModal = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {layouts?.map((t) => (
-                      <SelectItem key={t.id} value={String(t.id)}>
+                      <SelectItem key={t.layoutId} value={t.layoutId}>
                         {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
                       </SelectItem>
                     ))}

@@ -2,7 +2,7 @@ import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { integer, string } from "@optique/core/valueparser";
+import { string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import type { OutputMode } from "../lib/output";
@@ -22,7 +22,7 @@ const list = command(
     json: jsonFlag,
   }),
   {
-    description: message`List layout metadata. Use layouts get --id ID with a returned numeric id to discover its blocks.`,
+    description: message`List layout metadata. Use layouts get --layout-id NAME with a returned layoutId to discover its blocks.`,
   },
 );
 
@@ -30,14 +30,14 @@ const get = command(
   "get",
   object({
     command: constant("layouts.get" as const),
-    id: option("--id", integer({ min: 1, metavar: "ID" })),
+    layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
     json: jsonFlag,
   }),
   {
-    description: message`Inspect a layout and its blocks, including shared navigation and footer IDs for blocks get and blocks edit. Use the numeric id from layouts list, not the code-defined layoutId. --production selects the environment.`,
+    description: message`Inspect a layout and its blocks, including shared navigation and footer IDs for blocks get and blocks edit. A layout is named by the layoutId its code gives it, as listed by layouts list. --production selects the environment.`,
   },
 );
 
@@ -52,7 +52,7 @@ type CommonFlags = {
 
 type Args =
   | ({ command: "layouts.list" } & CommonFlags)
-  | ({ command: "layouts.get"; id: number } & CommonFlags);
+  | ({ command: "layouts.get"; layoutId: string } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
@@ -72,7 +72,7 @@ export async function handler(args: Args): Promise<never> {
     case "layouts.get":
       return dispatch({
         toolName: "getLayout",
-        args: { id: args.id },
+        args: { layoutId: args.layoutId },
         cwd,
         projectFlag,
         production,

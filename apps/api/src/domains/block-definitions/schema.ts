@@ -1,17 +1,17 @@
-import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, int, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { environments, projects } from "../projects/schema";
 
 export const blockDefinitions = sqliteTable(
   "block_definitions",
   {
-    id: int().primaryKey({ autoIncrement: true }),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
     environmentId: int("environment_id")
       .notNull()
       .references(() => environments.id),
+    // The block definition's name, given by code. It identifies the definition within a project.
     blockId: text("block_id").notNull(),
     title: text().notNull(),
     description: text().notNull(),
@@ -25,8 +25,7 @@ export const blockDefinitions = sqliteTable(
     updatedAt: int("updated_at").notNull(),
   },
   (table) => [
-    index("block_definitions_project_idx").on(table.projectId),
-    index("block_definitions_project_block_idx").on(table.projectId, table.blockId),
+    primaryKey({ columns: [table.projectId, table.environmentId, table.blockId] }),
     index("block_definitions_environment_block_idx").on(table.environmentId, table.blockId),
   ],
 );

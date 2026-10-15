@@ -2404,7 +2404,7 @@ export function createEditableBlock<
   type ReferenceFieldOwner = {
     itemId: number | undefined;
     outer: RecordPlacement | null;
-    layoutId?: number;
+    layoutId?: string;
   };
 
   /** The placement of `recordId` through the owner's reference field. */
@@ -2751,7 +2751,7 @@ export function createEditableBlock<
     properties,
     children,
   }: {
-    layoutId: number;
+    layoutId: string;
     record: ReferenceRecord;
     properties: Record<string, unknown>;
     children: (scope: any) => React.ReactNode;

@@ -1,6 +1,6 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { eq, inArray, or } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -13,7 +13,6 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import {
   blockDefinitions,
-  collectionDefinitions,
   collectionRecords,
   blocks,
   comments,
@@ -79,11 +78,7 @@ const collectCompatibilityReasons = Effect.fn("collectCompatibilityReasons")(fun
     db
       .select({ id: collectionRecords.id })
       .from(collectionRecords)
-      .innerJoin(
-        collectionDefinitions,
-        eq(collectionRecords.definitionId, collectionDefinitions.id),
-      )
-      .where(inArray(collectionDefinitions.environmentId, [sourceEnvId, targetEnvId]))
+      .where(inArray(collectionRecords.environmentId, [sourceEnvId, targetEnvId]))
       .get(),
   );
   if (collection) reasons.push({ kind: "collections-replication-unsupported" });
@@ -322,30 +317,10 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     ctx.db.select().from(comments).where(eq(comments.environmentId, source.id)),
   );
 
-  const sourcePageIds = sourcePages.map((p) => p.id);
-  const sourceLayoutPkIds = sourceLayouts.map((l) => l.id);
-
-  // Blocks live under either a page or a layout. Skip the SQL entirely when
-  // both parent sets are empty — `inArray(col, [])` would generate `IN ()`.
-  let sourceBlocks: (typeof blocks.$inferSelect)[] = [];
-  if (sourcePageIds.length > 0 && sourceLayoutPkIds.length > 0) {
-    sourceBlocks = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(blocks)
-        .where(
-          or(inArray(blocks.pageId, sourcePageIds), inArray(blocks.layoutId, sourceLayoutPkIds)),
-        ),
-    );
-  } else if (sourcePageIds.length > 0) {
-    sourceBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(inArray(blocks.pageId, sourcePageIds)),
-    );
-  } else if (sourceLayoutPkIds.length > 0) {
-    sourceBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(inArray(blocks.layoutId, sourceLayoutPkIds)),
-    );
-  }
+  // Blocks on pages and in layouts both belong to the environment.
+  const sourceBlocks = yield* Effect.promise(() =>
+    ctx.db.select().from(blocks).where(eq(blocks.environmentId, source.id)),
+  );
 
   const sourceBlockIds = sourceBlocks.map((b) => b.id);
   const sourceItems: (typeof repeatableItems.$inferSelect)[] =
@@ -383,6 +358,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // ON DELETE CASCADE), and the files DELETE bypasses the per-row service so
   // R2 blobs are preserved for re-insertion below.
   yield* Effect.promise(() => ctx.db.delete(comments).where(eq(comments.environmentId, target.id)));
+  yield* Effect.promise(() => ctx.db.delete(blocks).where(eq(blocks.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.environmentId, target.id)));
   yield* Effect.promise(() =>
@@ -391,24 +367,17 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   yield* Effect.promise(() => ctx.db.delete(files).where(eq(files.environmentId, target.id)));
 
   // Phase 4 — re-insert into target, with ID remapping -----------------------
+  // Definitions keep their names, so nothing that points at them needs remapping.
 
-  const layoutsMap = new Map<number, number>();
   for (const row of sourceLayouts) {
-    const { id, environmentId: _envId, ...rest } = row;
-    const inserted = yield* Effect.promise(() =>
-      ctx.db
-        .insert(layouts)
-        .values({ ...rest, environmentId: target.id })
-        .returning()
-        .get(),
+    const { environmentId: _envId, ...rest } = row;
+    yield* Effect.promise(() =>
+      ctx.db.insert(layouts).values({ ...rest, environmentId: target.id }),
     );
-    layoutsMap.set(id, inserted.id);
   }
 
-  // Block definitions have no incoming FKs from env-scoped tables, so there's
-  // nothing to remap after insert.
   for (const row of sourceBlockDefs) {
-    const { id: _id, environmentId: _envId, ...rest } = row;
+    const { environmentId: _envId, ...rest } = row;
     yield* Effect.promise(() =>
       ctx.db.insert(blockDefinitions).values({ ...rest, environmentId: target.id }),
     );
@@ -432,13 +401,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const pagesMap = new Map<number, number>();
   for (const row of sortPagesByDepth(sourcePages)) {
-    const { id, environmentId: _envId, parentPageId, layoutId, ...rest } = row;
-    const newLayoutId = layoutsMap.get(layoutId);
-    if (newLayoutId === undefined) {
-      return yield* Effect.die(
-        new Error(`Page ${id} references missing layout ${layoutId} during replication.`),
-      );
-    }
+    const { id, environmentId: _envId, parentPageId, ...rest } = row;
     const newParentPageId = parentPageId !== null ? (pagesMap.get(parentPageId) ?? null) : null;
     const inserted = yield* Effect.promise(() =>
       ctx.db
@@ -447,7 +410,6 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
           ...rest,
           environmentId: target.id,
           parentPageId: newParentPageId,
-          layoutId: newLayoutId,
         })
         .returning()
         .get(),
@@ -457,9 +419,8 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const blocksMap = new Map<number, number>();
   for (const row of sourceBlocks) {
-    const { id, pageId, layoutId, content, settings, ...rest } = row;
+    const { id, environmentId: _envId, pageId, content, settings, ...rest } = row;
     const newPageId = pageId !== null ? (pagesMap.get(pageId) ?? null) : null;
-    const newLayoutId = layoutId !== null ? (layoutsMap.get(layoutId) ?? null) : null;
     const newContent = remapContentReferences(content, filesMap, pagesMap);
     const newSettings =
       settings !== null && settings !== undefined
@@ -470,8 +431,8 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
         .insert(blocks)
         .values({
           ...rest,
+          environmentId: target.id,
           pageId: newPageId,
-          layoutId: newLayoutId,
           content: newContent,
           settings: newSettings,
         })

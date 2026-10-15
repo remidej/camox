@@ -42,7 +42,7 @@ const create = command(
     command: constant("pages.create" as const),
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: option("--path-segment", string({ metavar: "SEGMENT" })),
-    layoutId: option("--layout-id", integer({ metavar: "ID" })),
+    layoutId: option("--layout-id", string({ metavar: "NAME" })),
     parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
     cwd: cwdFlag,
     project: projectFlag,
@@ -90,7 +90,7 @@ const setLayout = command(
   object({
     command: constant("pages.set-layout" as const),
     id: option("--id", integer({ metavar: "ID" })),
-    layoutId: option("--layout-id", integer({ metavar: "ID" })),
+    layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -121,7 +121,7 @@ type Args =
       command: "pages.create";
       nickname?: string;
       pathSegment: string;
-      layoutId: number;
+      layoutId: string;
       parentPageId?: number;
     } & CommonFlags)
   | ({
@@ -135,7 +135,7 @@ type Args =
       pathSegment?: string;
       parentPageId?: number;
     } & CommonFlags)
-  | ({ command: "pages.set-layout"; id: number; layoutId: number } & CommonFlags)
+  | ({ command: "pages.set-layout"; id: number; layoutId: string } & CommonFlags)
   | ({ command: "pages.delete"; id: number } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
