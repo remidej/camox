@@ -103,10 +103,15 @@ describe("block JSON Schema writes", () => {
       createBlock(ctx, {
         pageId: page.id,
         type: "schema",
-        content: { gallery: [{ _fileId: "4", url: "invented" }] },
+        content: {
+          gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b", url: "invented" }],
+        },
       }),
     );
-    expect(block.content).toEqual({ title: "Default", gallery: [{ _fileId: 4 }] });
+    expect(block.content).toEqual({
+      title: "Default",
+      gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b" }],
+    });
     expect(block.settings).toEqual({ visible: true, align: "left" });
     const items = await db
       .select()

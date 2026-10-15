@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2d2cc661-52e2-4c9b-b06d-9cab71209c1a",
+  "id": "301f0642-5701-4dce-af30-40e4cdefbc7d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1645,10 +1645,10 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": true
+          "autoincrement": false
         },
         "project_id": {
           "name": "project_id",

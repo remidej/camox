@@ -364,7 +364,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     normalized.flatMap(({ items }) => items),
     source,
   );
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   for (const value of [...layoutBlocks, ...items])
     collectFileIds(value.content as Record<string, unknown>, fileIds);
   for (const value of [...hydrated, ...hydratedItems]) collectFileIds(value.references, fileIds);

@@ -15,6 +15,10 @@
     "./query-keys": {
       "types": "./src/query-keys.ts",
       "default": "./src/query-keys.ts"
+    },
+    "./ids": {
+      "types": "./src/ids.ts",
+      "default": "./src/ids.ts"
     }
   },
   "publishConfig": {
@@ -26,6 +30,10 @@
       "./query-keys": {
         "types": "./dist/query-keys.d.ts",
         "default": "./dist/query-keys.js"
+      },
+      "./ids": {
+        "types": "./dist/ids.d.ts",
+        "default": "./dist/ids.js"
       }
     }
   },

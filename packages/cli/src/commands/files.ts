@@ -3,12 +3,13 @@ import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import type { InferValue } from "@optique/core/parser";
 import { command, constant, option } from "@optique/core/primitives";
-import { choice, integer, string } from "@optique/core/valueparser";
+import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch, resolveCommandContext } from "../lib/dispatch";
 import { uploadFile, validateFilename, validateMetadata, validateUpload } from "../lib/file-upload";
 import { asCliError, printError, printResult } from "../lib/output";
 import { cwdFlag } from "../lib/runtime-options";
+import { uuidv7 } from "../lib/uuidv7";
 
 const common = {
   cwd: cwdFlag,
@@ -62,7 +63,7 @@ export const parser = command(
       "update",
       object({
         command: constant("files.update" as const),
-        id: option("--id", integer({ min: 1, metavar: "ID" })),
+        id: option("--id", uuidv7("ID")),
         file: optional(
           option("--file", string({ metavar: "PATH" }), {
             description: message`Replace file content from a local path, keeping its ID and references. Mutually exclusive with --url.`,
@@ -82,14 +83,14 @@ export const parser = command(
         ...common,
       }),
       {
-        description: message`Update metadata or replace file content with --file or --url (maximum 100 MiB). Replacing affects every reference to this file in the selected environment; its ID stays unchanged but its URL changes. Omitted alt text and AI settings are preserved. Example: camox files update --id 123 --file ./hero.jpg --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
+        description: message`Update metadata or replace file content with --file or --url (maximum 100 MiB). Replacing affects every reference to this file in the selected environment; its ID stays unchanged but its URL changes. Omitted alt text and AI settings are preserved. Example: camox files update --id <FILE_ID> --file ./hero.jpg --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
       },
     ),
     command(
       "get",
       object({
         command: constant("files.get" as const),
-        id: option("--id", integer({ min: 1, metavar: "ID" })),
+        id: option("--id", uuidv7("ID")),
         ...common,
       }),
       { description: message`Inspect a file in the selected project and environment.` },
