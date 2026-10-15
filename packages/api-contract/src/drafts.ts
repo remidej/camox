@@ -110,9 +110,8 @@ const PAGE_WRITES: Record<keyof Router["pages"], boolean> = {
   create: true,
   update: true,
   delete: true,
-  setAiSeo: true,
-  setMetaTitle: true,
-  setMetaDescription: true,
+  // Switching AI SEO on or off changes content (ADR 0012), like writing either field.
+  setSeo: true,
   setLayout: true,
   generateSeo: false,
 };

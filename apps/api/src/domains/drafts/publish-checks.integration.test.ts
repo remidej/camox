@@ -109,12 +109,19 @@ async function fixture() {
     updatedAt: 1,
   });
 
-  const createPage = (pathSegment: string, headers: Headers = {}) =>
-    callSeedingLive(
+  // Pages get a manual meta title, so their SEO (ADR 0012) stays out of these checks.
+  const createPage = async (pathSegment: string, headers: Headers = {}) => {
+    const { page } = await callSeedingLive(
       router.pages.create,
       { projectId, pathSegment, layoutId: base.layout.layoutId, nickname: pathSegment || "Home" },
       member(headers),
-    ).then((result) => result.page);
+    );
+    return callSeedingLive(
+      router.pages.setSeo,
+      { id: page.id, metaTitle: page.nickname },
+      member(headers),
+    );
+  };
   const renamePage = (id: string, pathSegment: string, headers: Headers = {}) =>
     callSeedingLive(router.pages.update, { id, pathSegment }, member(headers));
   const listPages = (headers: Headers = {}) =>

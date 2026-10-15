@@ -11,7 +11,7 @@ import { drizzle } from "drizzle-orm/libsql";
 
 import {
   account,
-  aiJobs,
+  generatedValues,
   blockDefinitions,
   blocks,
   collectionDefinitions,
@@ -63,7 +63,7 @@ function getLocalD1Db(): string {
 // ---------------------------------------------------------------------------
 
 async function clearAll(db: ReturnType<typeof createDrizzle>) {
-  await db.delete(aiJobs).run();
+  await db.delete(generatedValues).run();
   await db.delete(comments).run();
   await db.delete(repeatableItems).run();
   await db.delete(blocks).run();
@@ -118,7 +118,7 @@ function createDrizzle(sqlitePath: string) {
       files,
       repeatableItems,
       comments,
-      aiJobs,
+      generatedValues,
       collectionDefinitions,
       collectionRecords,
     },

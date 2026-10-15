@@ -38,7 +38,7 @@ export function toORPCError(error: ServiceError) {
       return new ORPCError(LIVE_READ_ONLY_ERROR, {
         status: 409,
         message:
-          error.message ?? `Live is read-only: content writes name a draft with ${DRAFT_HEADER}`,
+          error.message || `Live is read-only: content writes name a draft with ${DRAFT_HEADER}`,
       });
     case "ConflictsChangedError":
       return new ORPCError(CONFLICTS_CHANGED_ERROR, { status: 409, message: error.message });

@@ -40,9 +40,9 @@ export const pages = sqliteTable(
     // The layout's name.
     layoutId: text("layout_id").notNull(),
     nickname: text("nickname").notNull(),
+    // Manual SEO, all null or all set (ADR 0012): null means the generated values apply.
     metaTitle: text("meta_title"),
     metaDescription: text("meta_description"),
-    aiSeoEnabled: int("ai_seo_enabled", { mode: "boolean" }),
     customOgImageBlobId: text("custom_og_image_blob_id"),
     customOgImageUrl: text("custom_og_image_url"),
     contentUpdatedAt: int("content_updated_at").notNull(),

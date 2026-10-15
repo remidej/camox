@@ -28,7 +28,7 @@ export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
       "pageId" in owner ? eq(blocks.pageId, owner.pageId) : blocksOfLayout(owner),
     ),
   );
-  if (ownerBlocks.length === 0) return { blocks: ownerBlocks, items: [] };
+  if (ownerBlocks.length === 0) return { blocks: [], items: [] };
   const blockIds = ownerBlocks.map((block) => block.id);
   const shown = yield* withSharedContent(
     ctx.db,

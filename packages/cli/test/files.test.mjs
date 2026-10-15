@@ -62,6 +62,7 @@ before(async () => {
           body,
         }).formData();
         const file = form.get("file");
+        calls.at(-1).aiMetadataField = form.get("aiMetadata");
         assert.deepEqual(Buffer.from(await file.arrayBuffer()), image);
         assert.equal(form.get("projectId"), "7");
         const existing = contentTarget
@@ -81,9 +82,10 @@ before(async () => {
           filename: file.name,
           mimeType: file.type,
           alt: form.get("alt") ?? existing?.alt ?? "",
-          aiMetadataEnabled: form.has("aiMetadataEnabled")
-            ? form.get("aiMetadataEnabled") === "true"
-            : (existing?.aiMetadataEnabled ?? null),
+          // Raster uploads without alt or aiMetadata default to generated metadata.
+          aiMetadata: form.has("aiMetadata")
+            ? form.get("aiMetadata") === "true"
+            : (existing?.aiMetadata ?? (!form.has("alt") && file.type.startsWith("image/"))),
         };
         if (existing) Object.assign(existing, record);
         else records.push(record);
@@ -103,7 +105,9 @@ before(async () => {
         if (input.name === "updateFile") {
           result = records.find((file) => file.id === input.arguments.id);
           Object.assign(result, input.arguments);
-          if (input.arguments.alt !== undefined) result.aiMetadataEnabled = false;
+          if (input.arguments.alt !== undefined || input.arguments.filename !== undefined) {
+            result.aiMetadata = false;
+          }
         }
         if (input.name === "editBlock")
           result = { id: input.arguments.id, content: input.arguments.content };
@@ -188,7 +192,7 @@ void test("local upload, empty alt, reads, updates, and use in block content", a
   );
   assert.equal(file.mimeType, "image/webp");
   assert.equal(file.alt, "");
-  assert.equal(file.aiMetadataEnabled, false);
+  assert.equal(file.aiMetadata, false);
   assert.equal(success(await cli("files", "get", "--id", file.id)).id, file.id);
   assert.equal(success(await cli("files", "list"))[0].id, file.id);
   assert.equal(success(await cli("files", "update", "--id", file.id, "--alt", "Hero")).alt, "Hero");
@@ -198,7 +202,7 @@ void test("local upload, empty alt, reads, updates, and use in block content", a
   assert.equal(renamed.filename, "dummy-hero.webp");
   assert.equal(renamed.url, file.url);
   assert.equal(renamed.alt, "Hero");
-  assert.equal(renamed.aiMetadataEnabled, false);
+  assert.equal(renamed.aiMetadata, false);
   const block = success(
     await cli(
       "blocks",
@@ -233,7 +237,7 @@ void test("URL upload follows redirects, stores a copy, and uses the shared prod
     ),
   );
   assert.equal(file.filename, "hero.webp");
-  assert.equal(file.aiMetadataEnabled, false);
+  assert.equal(file.aiMetadata, false);
   assert.equal(
     calls.filter((call) => call.url === "/files/upload").at(-1).headers["x-environment-name"],
     "production",
@@ -244,7 +248,8 @@ void test("URL upload follows redirects, stores a copy, and uses the shared prod
     await cli("files", "upload", "--url", `${origin}/source.webp?signature=secret`),
   );
   assert.equal(automatic.filename, "source.webp");
-  assert.equal(automatic.aiMetadataEnabled, null);
+  assert.equal(automatic.aiMetadata, true);
+  assert.equal(calls.filter((call) => call.url === "/files/upload").at(-1).aiMetadataField, null);
 });
 
 void test("rejects missing/conflicting sources and metadata before making requests", async () => {
@@ -260,6 +265,7 @@ void test("rejects missing/conflicting sources and metadata before making reques
     ["update", "--id", fileId(1), "--filename", "../invalid.webp"],
     ["update", "--id", fileId(1), "--filename", ""],
     ["update", "--id", fileId(1), "--alt", "Manual", "--ai-metadata", "on"],
+    ["update", "--id", fileId(1), "--filename", "manual.webp", "--ai-metadata", "on"],
   ]) {
     const count = calls.length;
     const result = await cli("files", ...args);
@@ -312,7 +318,7 @@ void test("update replaces local and remote content in one request, keeping IDs 
   assert.equal(replacement.id, original.id);
   assert.notEqual(replacement.url, original.url);
   assert.equal(replacement.alt, "Keep me");
-  assert.equal(replacement.aiMetadataEnabled, false);
+  assert.equal(replacement.aiMetadata, false);
   assert.equal(records.length, count);
   const remote = success(
     await cli(
@@ -332,7 +338,7 @@ void test("update replaces local and remote content in one request, keeping IDs 
   assert.equal(remote.id, original.id);
   assert.equal(remote.filename, "updated.webp");
   assert.equal(remote.alt, "");
-  assert.equal(remote.aiMetadataEnabled, false);
+  assert.equal(remote.aiMetadata, false);
   assert.equal(records.length, count);
   const request = calls.filter((call) => call.url === `/files/${id}/content`).at(-1);
   assert.equal(request.headers["x-environment-name"], "production");
@@ -343,7 +349,7 @@ void test("update replaces local and remote content in one request, keeping IDs 
   const enabled = success(
     await cli("files", "update", "--id", id, "--file", "hero.webp", "--ai-metadata", "on"),
   );
-  assert.equal(enabled.aiMetadataEnabled, true);
+  assert.equal(enabled.aiMetadata, true);
   for (const args of [
     ["--url", `${origin}/missing?signature=secret`],
     ["--file", "hero.webp", "--filename", "fail.webp"],

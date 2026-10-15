@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7c62a908-d91d-48ea-87ef-48003d8b3807",
+  "id": "ff4ba725-1afd-4168-b696-df2bddc77e7b",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -538,65 +538,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "ai_jobs": {
-      "name": "ai_jobs",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "entity_table": {
-          "name": "entity_table",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'pending'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "ai_jobs_entity_idx": {
-          "name": "ai_jobs_entity_idx",
-          "columns": ["entity_table", "entity_id", "type"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "environments": {
       "name": "environments",
       "columns": {
@@ -986,13 +927,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "ai_seo_enabled": {
-          "name": "ai_seo_enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "custom_og_image_blob_id": {
           "name": "custom_og_image_blob_id",
           "type": "text",
@@ -1361,14 +1295,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
         "position": {
           "name": "position",
           "type": "text",
@@ -1539,14 +1465,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
         },
         "created_at": {
           "name": "created_at",
@@ -1722,14 +1640,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
         },
         "position": {
           "name": "position",
@@ -1909,15 +1819,14 @@
           "name": "alt",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
+          "notNull": false,
+          "autoincrement": false
         },
         "filename": {
           "name": "filename",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "mime_type": {
@@ -1953,13 +1862,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "ai_metadata_enabled": {
-          "name": "ai_metadata_enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -2552,6 +2454,116 @@
           "tableFrom": "ended_drafts",
           "tableTo": "projects",
           "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "generated_values": {
+      "name": "generated_values",
+      "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "entity": {
+          "name": "entity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "generated_at": {
+          "name": "generated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "generated_values_live_idx": {
+          "name": "generated_values_live_idx",
+          "columns": ["entity", "entity_id", "type"],
+          "isUnique": true,
+          "where": "\"generated_values\".\"draft_id\" is null"
+        },
+        "generated_values_draft_idx": {
+          "name": "generated_values_draft_idx",
+          "columns": ["draft_id", "entity", "entity_id", "type"],
+          "isUnique": true,
+          "where": "\"generated_values\".\"draft_id\" is not null"
+        },
+        "generated_values_project_idx": {
+          "name": "generated_values_project_idx",
+          "columns": ["project_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "generated_values_project_id_projects_id_fk": {
+          "name": "generated_values_project_id_projects_id_fk",
+          "tableFrom": "generated_values",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "generated_values_draft_id_drafts_id_fk": {
+          "name": "generated_values_draft_id_drafts_id_fk",
+          "tableFrom": "generated_values",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

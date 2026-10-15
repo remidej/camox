@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { files } from "../../schema";
-import { executeFileMetadata } from "./service";
+import { executeFileMetadata, getFile } from "./service";
 
 const { chat } = vi.hoisted(() => {
   vi.resetModules();
@@ -27,13 +27,12 @@ async function fixture() {
       projectId: project.id,
       environmentId: environment.id,
       url: "http://localhost/files/serve/test.png",
-      alt: "Existing description",
-      filename: "existing.png",
+      alt: null,
+      filename: null,
       mimeType: "image/png",
       size: png.length,
       blobId: crypto.randomUUID(),
       path: "/",
-      aiMetadataEnabled: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })
@@ -145,8 +144,10 @@ describe("metadata image validation", () => {
         ],
       }),
     );
-    expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toMatchObject(
-      metadata,
-    );
+    // Generated beside the file, which stays as it was (ADR 0012).
+    expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
+    expect(
+      await runService(getFile(createServiceContext(db, null), { id: file.id }, null)),
+    ).toMatchObject({ ...metadata, aiMetadata: true });
   });
 });

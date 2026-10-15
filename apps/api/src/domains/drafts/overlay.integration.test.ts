@@ -153,25 +153,4 @@ describe("the draft overlay", () => {
 
     expect(rows.map((row) => row.id)).toEqual([live.id, ...ids].sort());
   });
-
-  it("writes generated values only to rows already in the scope, without copying", async () => {
-    const { db, openDraft, live } = await fixture("overlay-existing");
-    const draft = await openDraft();
-
-    const skipped = await run(overlay.updateExisting(db, draft, blocks, live.id, { summary: "x" }));
-    expect(skipped).toBeUndefined();
-    expect(await db.select().from(blocks).where(eq(blocks.id, live.id))).toHaveLength(1);
-
-    await run(overlay.update(db, draft, blocks, live.id, { content: { title: "Draft" } }));
-    await run(overlay.updateExisting(db, draft, blocks, live.id, { summary: "Draft summary" }));
-    await run(overlay.updateExisting(db, null, blocks, live.id, { summary: "Live summary" }));
-
-    expect(await run(overlay.get(db, draft, blocks, live.id))).toMatchObject({
-      summary: "Draft summary",
-    });
-    expect(await run(overlay.get(db, null, blocks, live.id))).toMatchObject({
-      summary: "Live summary",
-      version: 1,
-    });
-  });
 });

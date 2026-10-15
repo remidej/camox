@@ -101,8 +101,7 @@ describe("Live is read-only", () => {
         "createPage",
         "updatePage",
         "setPageLayout",
-        "setPageMetaTitle",
-        "setPageMetaDescription",
+        "setPageSeo",
         "deletePage",
       ].sort(),
     );

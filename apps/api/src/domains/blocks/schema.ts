@@ -7,7 +7,7 @@ import { environments } from "../projects/schema";
 
 /**
  * A block. A placement of a synced block definition holds only its identity, position and
- * slot: its content, settings and summary live in the definition's shared content.
+ * slot: its content and settings live in the definition's shared content.
  *
  * Live and every draft store blocks side by side (ADR 0005): a Live row has no draft, a draft
  * row is the draft's copy of a block, a block the draft created, or a tombstone. An id is unique
@@ -40,7 +40,6 @@ export const blocks = sqliteTable(
     content: text({ mode: "json" }).notNull(),
     settings: text({ mode: "json" }),
     slot: text().$type<"before" | "after">(),
-    summary: text().notNull().default(""),
     position: text().notNull(),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
@@ -88,7 +87,6 @@ export const sharedContents = sqliteTable(
     type: text().notNull(),
     content: text({ mode: "json" }).notNull(),
     settings: text({ mode: "json" }),
-    summary: text().notNull().default(""),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

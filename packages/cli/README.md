@@ -45,23 +45,25 @@ The local dev server must already be running.
 
 ## Page SEO
 
-Use `pages get` to read metadata and `pages update` to edit it:
+Use `pages get` to read metadata and `pages set-seo` to edit it:
 
 ```sh
 camox pages get --path /about --json
-camox pages update --path /about --meta-title "About us" --meta-description "Meet the team."
+camox pages set-seo --path /about --meta-title "About us" --meta-description "Meet the team."
 # Page and block IDs are UUIDv7s; anything else is rejected.
 PAGE_ID=0199f1c2-7b3e-7a10-9c4d-5e6f7a8b9c0a
-camox pages update --id "$PAGE_ID" --meta-description ""
-camox pages update --id "$PAGE_ID" --ai-seo on
-camox pages update --id "$PAGE_ID" --ai-seo off
+camox pages set-seo --id "$PAGE_ID" --meta-description ""
+camox pages set-seo --id "$PAGE_ID" --ai-seo on
+camox pages set-seo --id "$PAGE_ID" --ai-seo off
 ```
 
-- Updates require exactly one of `--id` or `--path` and at least one update field.
-  Omitted fields are preserved; empty strings clear metadata.
-- Setting either metadata field disables automatic SEO for **both** fields.
-  Manual metadata cannot be combined with `--ai-seo on`.
-- `--ai-seo off` preserves current metadata. `--ai-seo on` schedules asynchronous
+- `set-seo` requires exactly one of `--id` or `--path` and at least one of
+  `--meta-title`, `--meta-description` or `--ai-seo`. An empty meta title blocks
+  publishing.
+- The meta title and description are one group: both generated or both manual.
+  Writing either field makes **both** manual, keeping the current value of the
+  other. Manual metadata cannot be combined with `--ai-seo on`.
+- `--ai-seo off` keeps current metadata as manual. `--ai-seo on` schedules asynchronous
   generation; the returned page contains current values, not necessarily generated
   values. Use `pages get` to inspect them later.
 - Changes are visible on the site right away.
@@ -130,7 +132,8 @@ camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp -
 ```
 
 - Upload requires exactly one of `--file` or `--url`. URLs are copied, not linked.
-- `--alt` disables AI metadata, including when its value is an empty string.
+- Alt text and filename are one group: both generated or both manual. `--alt`
+  (even an empty string) makes both manual, keeping the current filename.
   It cannot be combined with `--ai-metadata on`. Manual edits are protected from
   already-running AI jobs.
 - Without metadata flags, raster-image uploads use automatic metadata. Other
@@ -139,7 +142,8 @@ camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp -
   generation has completed. Use `files get` to inspect the current record.
 - Update requires at least one of `--file`, `--url`, `--filename`, `--alt` or
   `--ai-metadata`. `--file` and `--url` are mutually exclusive; without either,
-  only metadata changes. Renaming alone preserves the file ID, URL and AI setting.
+  only metadata changes. Renaming alone preserves the file ID and URL and makes
+  both alt text and filename manual.
 - Replacing content preserves the file ID and all `_fileId` references in the
   selected environment. The URL changes to avoid stale caches. Direct URLs in
   stored block/repeatable-item content are migrated within that environment;
@@ -158,7 +162,7 @@ camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp -
   environment is `dev:<your-email>`, not production. IDs are scoped to the selected
   project and environment.
 - Uploads return the stored file record, including `id`, `url`, `mimeType`, `alt`,
-  and `aiMetadataEnabled`. Output is JSON; errors are structured JSON on stderr.
+  and `aiMetadata`. Output is JSON; errors are structured JSON on stderr.
 - Files are limited to 100 MiB. URL downloads allow at most five redirects and
   have a two-minute timeout; uploads have a separate two-minute timeout.
   Downloads stream through a temporary file that is removed afterward.

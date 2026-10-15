@@ -1,7 +1,6 @@
 import { drizzle } from "drizzle-orm/d1";
 
 import {
-  aiJobs,
   account,
   invitation,
   member,
@@ -16,6 +15,7 @@ import {
   drafts,
   environments,
   files,
+  generatedValues,
   layouts,
   pages,
   projects,
@@ -31,7 +31,7 @@ const schema = {
   blocks,
   repeatableItems,
   files,
-  aiJobs,
+  generatedValues,
   blockDefinitions,
   collectionDefinitions,
   collectionRecords,

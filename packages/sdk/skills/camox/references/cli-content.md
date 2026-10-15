@@ -21,17 +21,19 @@ Use `--parent-page-id <ID>` to nest the Page under another Page.
 
 ```sh
 {{CAMOX_CMD}} pages get --path /about
-{{CAMOX_CMD}} pages update --path /about --meta-title "About us" --meta-description "Meet the team."
-{{CAMOX_CMD}} pages update --id <PAGE_UUID> --meta-description ""
-{{CAMOX_CMD}} pages update --id <PAGE_UUID> --ai-seo on
-{{CAMOX_CMD}} pages update --id <PAGE_UUID> --ai-seo off
+{{CAMOX_CMD}} pages set-seo --path /about --meta-title "About us" --meta-description "Meet the team."
+{{CAMOX_CMD}} pages set-seo --id <PAGE_UUID> --meta-description ""
+{{CAMOX_CMD}} pages set-seo --id <PAGE_UUID> --ai-seo on
+{{CAMOX_CMD}} pages set-seo --id <PAGE_UUID> --ai-seo off
 ```
 
-Updates accept exactly one of `--id` or `--path` and require at least one update
-field. Omitted fields are preserved; an empty string clears a metadata field.
-Setting either metadata field disables automatic SEO for both fields and cannot
-be combined with `--ai-seo on`. Disabling AI preserves current metadata; enabling
-it schedules asynchronous generation, so read the Page again to inspect results.
+`set-seo` accepts exactly one of `--id` or `--path` and requires at least one of
+`--meta-title`, `--meta-description` or `--ai-seo`. The meta title and
+description are one group: writing either field makes both manual, keeping the
+current value of the other, and cannot be combined with `--ai-seo on`.
+`--ai-seo off` keeps current metadata as manual; `--ai-seo on` schedules
+asynchronous generation, so read the Page again to inspect results. An empty
+meta title blocks publishing.
 
 Metadata edits apply right away in the selected Environment. Read metadata
 with `pages get`.

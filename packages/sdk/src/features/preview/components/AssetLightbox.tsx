@@ -468,7 +468,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                   <Switch
                     id="ai-metadata"
                     disabled={!canUseAiMetadata}
-                    checked={canUseAiMetadata && file.aiMetadataEnabled !== false}
+                    checked={canUseAiMetadata && file.aiMetadata}
                     onCheckedChange={(checked) => {
                       setAiMetadata.mutate({ id: fileId, enabled: checked });
                     }}
@@ -488,14 +488,14 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
                 label="File name"
                 placeholder="File name..."
                 initialValue={file.filename}
-                disabled={canUseAiMetadata && file.aiMetadataEnabled !== false}
+                disabled={canUseAiMetadata && file.aiMetadata}
                 onSave={(value) => setFilename.mutate({ id: fileId, filename: value })}
               />
               <DebouncedFieldEditor
                 label="Alt text"
                 placeholder="Describe this file..."
                 initialValue={file.alt}
-                disabled={canUseAiMetadata && file.aiMetadataEnabled !== false}
+                disabled={canUseAiMetadata && file.aiMetadata}
                 rows={2}
                 onSave={(value) => setAlt.mutate({ id: fileId, alt: value })}
               />

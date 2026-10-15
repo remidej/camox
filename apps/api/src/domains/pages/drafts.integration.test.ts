@@ -203,7 +203,7 @@ describe("pages in a draft", () => {
       member(inDraft(draft)),
     );
     await callSeedingLive(
-      router.pages.setMetaTitle,
+      router.pages.setSeo,
       { id: page.id, metaTitle: "About us" },
       member(inDraft(draft)),
     );
