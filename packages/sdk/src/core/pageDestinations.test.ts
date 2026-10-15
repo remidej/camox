@@ -82,3 +82,11 @@ void test("singleton text links resolve without page records and stay in the cur
     assert.equal(resolveTextLinkHref(unsafe, undefined, "/current"), null, unsafe);
   }
 });
+
+void test("a text link to a missing page has no href, so it renders as plain text", () => {
+  const pages = [{ id: ABOUT_ID, fullPath: "/about" }];
+  const missing = "019a0000-0000-7000-8000-000000000000";
+  assert.equal(resolveTextLinkHref(`camox:page:${missing}`, pages, "/current"), null);
+  // Until pages load, nothing says the page is missing.
+  assert.equal(resolveTextLinkHref(`camox:page:${missing}`, undefined, "/current"), "/current");
+});

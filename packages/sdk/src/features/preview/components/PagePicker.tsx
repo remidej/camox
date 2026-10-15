@@ -133,6 +133,14 @@ const PagePicker = () => {
                 Shadowed
               </span>
             )}
+            {page.duplicatePath && (
+              <span
+                className="text-destructive shrink-0 text-xs"
+                title="Another page uses this URL. Change one of them before publishing."
+              >
+                Duplicate URL
+              </span>
+            )}
           </div>
           <p className="text-muted-foreground truncate font-mono text-xs">{page.fullPath}</p>
         </div>

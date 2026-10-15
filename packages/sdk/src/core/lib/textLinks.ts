@@ -38,8 +38,9 @@ export function resolveTextLinkHref(
     return isValidTextLinkTarget(target) ? target : null;
   }
 
-  const page = pages?.find((p) => p.id === pageId);
-  return page?.fullPath ?? fallbackHref;
+  // Until pages load, the fallback stands in; a link to a missing page has no href (ADR 0009).
+  if (!pages) return fallbackHref;
+  return pages.find((p) => p.id === pageId)?.fullPath ?? null;
 }
 
 export function shouldOpenTextLinkInNewTab(target: string): boolean {

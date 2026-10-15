@@ -37,9 +37,13 @@ import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
 import type { GeneratedEntity } from "../generated-values/schema";
 import * as generatedValueStatements from "../generated-values/service";
 import { homeOf, readValues, requestGeneration } from "../generated-values/service";
-import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
 import { requestPageSeo } from "../pages/service";
 import { rootOfItem } from "../repeatable-items/roots";
+import {
+  checkContentProblems,
+  type ContentFinding,
+  type ContentProblemCode,
+} from "./content-checks";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
 import { findEndedDraft, resolveDraftScope } from "./service";
@@ -91,9 +95,8 @@ export type Problem = Subject & {
     | "emptyRequiredReference"
     | "unresolvedComment"
     | "commentDeleted"
-    | "missingMetaTitle"
-    | "metaTitlePending"
-    | FileProblemCode;
+    | FileProblemCode
+    | ContentProblemCode;
   field: string;
   message: string;
 };
@@ -455,63 +458,26 @@ const checkComments = Effect.fn("drafts.checkComments")(function* (
   };
 });
 
-/**
- * A page the draft creates or changes with no meta title blocks publishing: manual and empty, or
- * generated with nothing generated and no job pending. While generation is pending it's a
- * warning, so a model outage never stops publishing (ADR 0009, 0012).
- */
-const checkMetaTitles = Effect.fn("drafts.checkMetaTitles")(function* (
+/** Content findings as problems, each naming the entity it's in and where that sits. */
+const findingDescriber = Effect.fn("drafts.findingDescriber")(function* (
   ctx: ServiceContext,
   scope: Scope,
-  stored: overlay.StoredChange[],
+  findings: ContentFinding[],
+  records: RecordRow[],
 ) {
-  const changedPages = stored.flatMap((change) =>
-    change.table === pages && change.change !== "deleted"
-      ? [change.row as typeof pages.$inferSelect]
-      : [],
+  const describeContent = yield* describer(ctx, scope, findings);
+  const ids = new Set(findings.flatMap((f) => (f.entity === "record" ? [f.id] : [])));
+  const describeRecord = yield* recordDescriber(
+    ctx,
+    scope.projectId,
+    records.filter((record) => ids.has(record.id)),
   );
-  const generated = yield* generatedSeoOf(
-    ctx.db,
-    scope,
-    changedPages.filter(seoGenerated).map((page) => page.id),
-  );
-  const found = { blockers: [] as Problem[], warnings: [] as Problem[] };
-  for (const page of changedPages) {
-    const subject: Subject = {
-      entity: "page",
-      id: page.id,
-      label: "Page",
-      owner: { kind: "page", id: page.id, path: page.fullPath, nickname: page.nickname },
-    };
-    if (!seoGenerated(page)) {
-      if (page.metaTitle?.trim()) continue;
-      found.blockers.push({
-        ...subject,
-        code: "missingMetaTitle",
-        field: "metaTitle",
-        message: "The page has no meta title: write one or let AI generate it",
-      });
-      continue;
-    }
-    const shown = generated.get(page.id);
-    if (shown?.value?.metaTitle.trim()) continue;
-    if (shown?.pending) {
-      found.warnings.push({
-        ...subject,
-        code: "metaTitlePending",
-        field: "metaTitle",
-        message: "The page's meta title is still being generated",
-      });
-      continue;
-    }
-    found.blockers.push({
-      ...subject,
-      code: "missingMetaTitle",
-      field: "metaTitle",
-      message: "The page has no meta title: write one or generate it",
-    });
-  }
-  return found;
+  return ({ entity, id, code, field, message }: ContentFinding): Problem => ({
+    ...(entity === "record" ? describeRecord(id) : describeContent(entity, id)),
+    code,
+    field,
+    message,
+  });
 });
 
 // --- Preview ---
@@ -552,9 +518,23 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const changed = blockRows.filter((row) => !row.deleted);
   const content = yield* checkProblems(ctx, scope, changed);
   const feedback = yield* checkComments(ctx, scope);
-  const seo = yield* checkMetaTitles(ctx, scope, stored);
-  const blockers = [...content.blockers, ...seo.blockers, ...feedback.blockers];
-  const warnings = [...content.warnings, ...seo.warnings, ...feedback.warnings];
+  const checked = yield* checkContentProblems(ctx, scope);
+  const describeFinding = yield* findingDescriber(
+    ctx,
+    scope,
+    [...checked.blockers, ...checked.warnings],
+    checked.records,
+  );
+  const blockers = [
+    ...content.blockers,
+    ...checked.blockers.map(describeFinding),
+    ...feedback.blockers,
+  ];
+  const warnings = [
+    ...content.warnings,
+    ...checked.warnings.map(describeFinding),
+    ...feedback.warnings,
+  ];
 
   const publisherIds = [
     ...new Set(storedConflicts.flatMap((c) => (c.publishedBy ? [c.publishedBy] : []))),

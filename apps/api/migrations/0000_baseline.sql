@@ -114,6 +114,7 @@ CREATE TABLE `layouts` (
 	`layout_id` text NOT NULL,
 	`description` text,
 	`kind` text DEFAULT 'curated' NOT NULL,
+	`record_pages` text,
 	`content_updated_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
