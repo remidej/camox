@@ -321,4 +321,14 @@ CREATE TABLE `drafts` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `drafts_project_idx` ON `drafts` (`project_id`);
+CREATE INDEX `drafts_project_idx` ON `drafts` (`project_id`);--> statement-breakpoint
+CREATE TABLE `ended_drafts` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` integer NOT NULL,
+	`outcome` text NOT NULL,
+	`ended_by` text NOT NULL,
+	`ended_at` integer NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `ended_drafts_project_idx` ON `ended_drafts` (`project_id`);

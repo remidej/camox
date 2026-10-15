@@ -1,3 +1,4 @@
+import type { EndedDraft } from "@camox/api-contract/drafts";
 import { Data, Effect } from "effect";
 import type { z } from "zod";
 
@@ -52,13 +53,31 @@ export class IncompatibleEnvironmentsError extends Data.TaggedError(
   readonly reasons: CompatibilityReason[];
 }> {}
 
+/** The request names a draft that was published or discarded (ADR 0009). */
+export class DraftEndedError extends Data.TaggedError("DraftEndedError")<{
+  readonly ended: EndedDraft;
+}> {}
+
+/** Live changed since the publish preview the caller confirmed, so nothing was published. */
+export class ConflictsChangedError extends Data.TaggedError("ConflictsChangedError")<{
+  readonly message: string;
+}> {}
+
+/** The draft still has blockers, so it can't be published. */
+export class PublishBlockedError extends Data.TaggedError("PublishBlockedError")<{
+  readonly message: string;
+}> {}
+
 export type ServiceError =
   | UnauthenticatedError
   | ForbiddenError
   | NotFoundError
   | InvalidInputError
   | ConflictError
-  | IncompatibleEnvironmentsError;
+  | IncompatibleEnvironmentsError
+  | DraftEndedError
+  | ConflictsChangedError
+  | PublishBlockedError;
 
 // --- Helpers ---
 
