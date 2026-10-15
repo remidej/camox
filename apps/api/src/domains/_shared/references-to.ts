@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { itemsInEnvironment } from "../repeatable-items/roots";
 
 /** What content can reference: a collection record by its id, or a file by its `_fileId`. */
 export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; id: string };
@@ -42,10 +43,9 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
       select 'sharedContent', s.type from shared_contents s
       where s.environment_id = ${scope.environmentId} and ${matches(sql.raw("s.content"))}
       union all
-      select 'repeatableItem', i.id from repeatable_items i
-      left join blocks b on b.id = i.block_id
-      where coalesce(b.environment_id, i.environment_id) = ${scope.environmentId}
-        and ${matches(sql.raw("i.content"))}
+      select 'repeatableItem', repeatable_items.id from repeatable_items
+      where ${itemsInEnvironment(scope.environmentId)}
+        and ${matches(sql.raw("repeatable_items.content"))}
       union all
       select 'record', r.id from collection_records r
       join collection_definitions d

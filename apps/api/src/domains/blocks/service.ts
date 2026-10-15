@@ -50,6 +50,7 @@ import {
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds } from "../pages/ai";
+import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
@@ -60,11 +61,11 @@ import {
   broadcastSharedContentChange,
   bumpPlacementOwners,
   contentOwnerOf,
-  itemsUnder,
-  rootColumns,
+  definitionOf,
+  sharedContentWhere,
   sharedPlacementId,
+  shownBlock,
   withSharedContent,
-  type ItemRoot,
   type SharedContentRow,
 } from "./shared-content";
 import { validateContent } from "./validate-content";
@@ -444,12 +445,7 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
       ? db
           .update(sharedContents)
           .set({ summary, updatedAt: Date.now() })
-          .where(
-            and(
-              eq(sharedContents.environmentId, owner.shared.environmentId),
-              eq(sharedContents.type, owner.shared.type),
-            ),
-          )
+          .where(sharedContentWhere(owner.shared))
       : db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId)),
   );
 
@@ -1062,7 +1058,7 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const id = yield* sharedPlacementId(ctx.db, environment.id, type);
+  const id = yield* sharedPlacementId(ctx.db, { environmentId: environment.id, type });
   if (id === null) return null;
   return yield* getBlock(ctx, { id });
 });
@@ -1088,19 +1084,9 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
     return result;
   }
   const updated = yield* Effect.promise(() =>
-    ctx.db
-      .update(sharedContents)
-      .set(values)
-      .where(
-        and(
-          eq(sharedContents.environmentId, shared.environmentId),
-          eq(sharedContents.type, shared.type),
-        ),
-      )
-      .returning()
-      .get(),
+    ctx.db.update(sharedContents).set(values).where(sharedContentWhere(shared)).returning().get(),
   );
-  yield* bumpPlacementOwners(ctx.db, shared.environmentId, shared.type);
+  yield* bumpPlacementOwners(ctx.db, definitionOf(shared));
   broadcastSharedContentChange(ctx, projectId, shared.type);
   return {
     ...block,
@@ -1270,7 +1256,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   const stored = (yield* Effect.promise(() =>
     ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get(),
   ))!;
-  const [created] = (yield* withSharedContent(ctx.db, [stored], [])).blocks;
+  const created = yield* shownBlock(ctx.db, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 });
 
@@ -1448,7 +1434,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return result;
+  return yield* shownBlock(ctx.db, result);
 });
 
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
@@ -1617,5 +1603,5 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return result;
+  return yield* shownBlock(ctx.db, result);
 });

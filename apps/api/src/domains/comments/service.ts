@@ -23,6 +23,7 @@ import {
   user,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { rootOfItem, sharedContentItemsIn } from "../repeatable-items/roots";
 
 export const listCommentsInput = z.strictObject({ pageId: uuidv7Schema });
 /** The server mints the id; a client may mint one for an optimistic insert. */
@@ -147,7 +148,7 @@ const loadTargets = Effect.fn("loadTargets")(function* (
             ctx.db.select({ id: blocks.id }).from(blocks).where(scope),
           ),
           // Synced placements show their shared content's items.
-          eq(repeatableItems.environmentId, page.environmentId),
+          sharedContentItemsIn(page.environmentId),
         ),
       ),
   );
@@ -168,8 +169,10 @@ type TargetLookups = Effect.Success<ReturnType<typeof loadTargets>>;
 
 /** Whether a block shows an item: its own, or its synced definition's shared content's. */
 function blockShows(block: typeof blocks.$inferSelect, item: typeof repeatableItems.$inferSelect) {
-  if (item.blockId !== null) return item.blockId === block.id;
-  return item.environmentId === block.environmentId && item.sharedContentType === block.type;
+  const root = rootOfItem(item);
+  if ("blockId" in root) return root.blockId === block.id;
+  const { environmentId, type } = root.sharedContent;
+  return environmentId === block.environmentId && type === block.type;
 }
 
 const validateTarget = Effect.fn("validateTarget")(function* (

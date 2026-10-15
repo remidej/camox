@@ -23,6 +23,7 @@ import {
   getPageMarkdown,
   getSyncedBlockContent,
   updateBlockContent,
+  updateBlockPosition,
   updateBlockSettings,
 } from "./service";
 
@@ -182,6 +183,20 @@ describe("a synced block's shared content", () => {
     ).not.toContain(added.id);
   });
 
+  it("returns the shared content from placement writes that don't touch it", async () => {
+    const { ctx, page, first } = await fixture("shared-write-results", true);
+    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }));
+    const placed = await runService(
+      createBlock(ctx, { pageId: page.id, type: "navbar", content: {} }),
+    );
+    const expected = { content: { title: "Shared" }, settings: { sticky: true } };
+
+    expect(await runService(duplicateBlock(ctx, { id: placed.id }))).toMatchObject(expected);
+    expect(
+      await runService(updateBlockPosition(ctx, { id: placed.id, beforePosition: null })),
+    ).toMatchObject(expected);
+  });
+
   it("stores nothing but identity, position and slot in placements, and no sync key", async () => {
     const { db, ctx, page, first, second } = await fixture("shared-storage", true);
     const onPage = await runService(
@@ -245,6 +260,31 @@ describe("a definition sync making a block synced", () => {
       { content: {}, settings: null },
       { content: {}, settings: null },
     ]);
+  });
+
+  it("leaves a new synced definition's shared content to its first placement", async () => {
+    const { ctx, syncCtx, definition, page } = await fixture("created-synced");
+    const hero = {
+      ...definition,
+      blockId: "hero",
+      title: "Hero",
+      synced: true,
+      defaultContent: { title: "Default title" },
+    };
+    await runService(upsertBlockDefinition(syncCtx, hero));
+
+    const first = await runService(
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "First title" } }),
+    );
+    const second = await runService(
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "Second title" } }),
+    );
+
+    for (const placed of [first, second]) {
+      expect((await runService(getBlock(ctx, { id: placed.id }))).block.content).toMatchObject({
+        title: "First title",
+      });
+    }
   });
 
   it("builds the shared content from the definition's defaults when nothing places it", async () => {

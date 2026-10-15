@@ -17,6 +17,8 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, member, projects, repeatableItems, sharedContents } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
+import { definitionOf, placementsOf, sharedContentWhere } from "../blocks/shared-content";
+import { blockIdsOf, itemsInEnvironment, rootOfItem } from "../repeatable-items/roots";
 import { readMetadataImage } from "./metadata-image";
 import { optimizedVideoKey } from "./video-optimization";
 
@@ -283,34 +285,21 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
       db
         .update(sharedContents)
         .set({ content: cleaned, updatedAt: now })
-        .where(
-          and(
-            eq(sharedContents.environmentId, shared.environmentId),
-            eq(sharedContents.type, shared.type),
-          ),
-        ),
+        .where(sharedContentWhere(shared)),
     );
   }
-  const sharedRoots = [
-    ...affectedShared.map((shared) => ({ environmentId: shared.environmentId, type: shared.type })),
-    ...affectedItems
-      .filter((item) => item.blockId === null)
-      .map((item) => ({ environmentId: item.environmentId!, type: item.sharedContentType! })),
+  const changedSharedContents = [
+    ...affectedShared.map(definitionOf),
+    ...affectedItems.flatMap((item) => {
+      const root = rootOfItem(item);
+      return "sharedContent" in root ? [root.sharedContent] : [];
+    }),
   ];
   const placements = [];
-  for (const root of sharedRoots) {
-    placements.push(
-      ...(yield* Effect.promise(() =>
-        db
-          .select({ id: blocks.id })
-          .from(blocks)
-          .where(and(eq(blocks.environmentId, root.environmentId), eq(blocks.type, root.type))),
-      )),
-    );
-  }
+  for (const key of changedSharedContents) placements.push(...(yield* placementsOf(db, key)));
 
   const itemBlockIds = [
-    ...affectedItems.flatMap((i) => (i.blockId === null ? [] : [i.blockId])),
+    ...blockIdsOf(affectedItems),
     ...placements.map((placement) => placement.id),
   ];
   const allBlockIds = [...new Set([...affectedBlocks.map((b) => b.id), ...itemBlockIds])];
@@ -655,14 +644,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
   const now = Date.now();
   // Blocks on pages and in layouts both belong to the file's environment.
   const scopedBlocks = eq(blocks.environmentId, oldFile.environmentId);
-  // Items belong to a block of the environment, or to one of its shared contents.
-  const scopedItems = or(
-    inArray(
-      repeatableItems.blockId,
-      ctx.db.select({ id: blocks.id }).from(blocks).where(scopedBlocks),
-    ),
-    eq(repeatableItems.environmentId, oldFile.environmentId),
-  );
+  const scopedItems = itemsInEnvironment(oldFile.environmentId);
   const scopedShared = eq(sharedContents.environmentId, oldFile.environmentId);
 
   // Include direct URLs as well as _fileId references in invalidation.
@@ -711,9 +693,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
       ),
   );
 
-  const itemBlockIds = [
-    ...new Set(affectedItems.flatMap((i) => (i.blockId === null ? [] : [i.blockId]))),
-  ];
+  const itemBlockIds = [...new Set(blockIdsOf(affectedItems))];
   let itemBlockPageIds: string[] = [];
   if (itemBlockIds.length > 0) {
     const parentBlocks = yield* Effect.promise(() =>

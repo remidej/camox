@@ -8,7 +8,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { blockDefinitions } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { applySyncedFlag } from "../blocks/shared-content";
+import { applyNewDefinitionSyncedFlag, applySyncedFlagChange } from "../blocks/shared-content";
 import { validateReferenceSchema } from "../collections/references";
 
 // --- Input Schemas ---
@@ -153,10 +153,9 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
           .get(),
       );
       if (updated.synced !== existing.synced) {
-        yield* applySyncedFlag(ctx, {
+        yield* applySyncedFlagChange(ctx, {
           projectId,
-          environmentId: environment.id,
-          type: def.blockId,
+          key: { environmentId: environment.id, type: def.blockId },
           synced: updated.synced,
         });
       }
@@ -186,12 +185,10 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
         .get(),
     );
     // A definition that comes back finds its stored shared content, synced or not.
-    yield* applySyncedFlag(ctx, {
+    yield* applyNewDefinitionSyncedFlag(ctx, {
       projectId,
-      environmentId: environment.id,
-      type: def.blockId,
+      key: { environmentId: environment.id, type: def.blockId },
       synced: created.synced,
-      created: true,
     });
     results.push(created);
   }
@@ -272,10 +269,9 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
         .get(),
     );
     if (result.synced !== existing.synced) {
-      yield* applySyncedFlag(ctx, {
+      yield* applySyncedFlagChange(ctx, {
         projectId,
-        environmentId: environment.id,
-        type: body.blockId,
+        key: { environmentId: environment.id, type: body.blockId },
         synced: result.synced,
       });
     }
@@ -300,12 +296,10 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
       .returning()
       .get(),
   );
-  yield* applySyncedFlag(ctx, {
+  yield* applyNewDefinitionSyncedFlag(ctx, {
     projectId,
-    environmentId: environment.id,
-    type: body.blockId,
+    key: { environmentId: environment.id, type: body.blockId },
     synced: result.synced,
-    created: true,
   });
   return { ...result, action: "created" as const };
 });

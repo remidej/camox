@@ -1,12 +1,20 @@
-import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, max, type SQL } from "drizzle-orm";
+import { queryKeys } from "@camox/api-contract/query-keys";
+import { and, eq, inArray, max } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlocks } from "../../lib/bump-content-updated-at";
-import { blockDefinitions, blocks, repeatableItems, sharedContents } from "../../schema";
+import { blocks, repeatableItems, sharedContents } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import {
+  itemsUnder,
+  rootColumns,
+  rootOfItem,
+  type DefinitionKey,
+  type ItemRoot,
+} from "../repeatable-items/roots";
+import { findDefinition } from "./content-schema";
 import { prepareBlockContent } from "./prepare-content";
 
 /**
@@ -20,53 +28,41 @@ type BlockRow = typeof blocks.$inferSelect;
 type ItemRow = typeof repeatableItems.$inferSelect;
 export type SharedContentRow = typeof sharedContents.$inferSelect;
 
-/** The root of a repeatable item tree: a block, or a synced definition's shared content. */
-export type ItemRoot = { blockId: string } | { environmentId: number; sharedContentType: string };
-
-/** The items in the tree under a root. */
-export function itemsUnder(root: ItemRoot): SQL {
-  if ("blockId" in root) return eq(repeatableItems.blockId, root.blockId);
+/** The shared content of a definition. */
+export function sharedContentWhere(key: DefinitionKey) {
   return and(
-    eq(repeatableItems.environmentId, root.environmentId),
-    eq(repeatableItems.sharedContentType, root.sharedContentType),
+    eq(sharedContents.environmentId, key.environmentId),
+    eq(sharedContents.type, key.type),
   )!;
 }
 
-/** The columns placing an item in a root's tree. */
-export function rootColumns(root: ItemRoot) {
-  if ("blockId" in root) {
-    return { blockId: root.blockId, environmentId: null, sharedContentType: null };
-  }
-  return {
-    blockId: null,
-    environmentId: root.environmentId,
-    sharedContentType: root.sharedContentType,
-  };
+/** The placements of a definition. */
+function placementsWhere(key: DefinitionKey) {
+  return and(eq(blocks.environmentId, key.environmentId), eq(blocks.type, key.type))!;
 }
 
-export function rootOfItem(item: Pick<ItemRow, "blockId" | "environmentId" | "sharedContentType">) {
-  if (item.blockId !== null) return { blockId: item.blockId } satisfies ItemRoot;
-  return {
-    environmentId: item.environmentId!,
-    sharedContentType: item.sharedContentType!,
-  } satisfies ItemRoot;
+/** The definition a block places. */
+export function definitionOf(block: { environmentId: number; type: string }): DefinitionKey {
+  return { environmentId: block.environmentId, type: block.type };
 }
 
-function sharedRoot(environmentId: number, type: string): ItemRoot {
-  return { environmentId, sharedContentType: type };
-}
-
-export const findSharedContent = Effect.fn("findSharedContent")(function* (
+const findSharedContent = Effect.fn("findSharedContent")(function* (
   db: Database,
-  environmentId: number,
-  type: string,
+  key: DefinitionKey,
 ) {
   return yield* Effect.promise(() =>
-    db
-      .select()
-      .from(sharedContents)
-      .where(and(eq(sharedContents.environmentId, environmentId), eq(sharedContents.type, type)))
-      .get(),
+    db.select().from(sharedContents).where(sharedContentWhere(key)).get(),
+  );
+});
+
+const insertSharedContent = Effect.fn("insertSharedContent")(function* (
+  db: Database,
+  key: DefinitionKey,
+  data: { content: unknown; settings: unknown; summary: string },
+) {
+  const now = Date.now();
+  yield* Effect.promise(() =>
+    db.insert(sharedContents).values({ ...key, ...data, createdAt: now, updatedAt: now }),
   );
 });
 
@@ -78,25 +74,16 @@ export const contentOwnerOf = Effect.fn("contentOwnerOf")(function* (
   db: Database,
   block: { id: string; environmentId: number; type: string },
 ) {
-  const shared = yield* findSharedContent(db, block.environmentId, block.type);
-  if (shared) {
-    return { shared, root: sharedRoot(block.environmentId, block.type) } as const;
-  }
-  return { shared: null, root: { blockId: block.id } satisfies ItemRoot } as const;
+  const key = definitionOf(block);
+  const shared = yield* findSharedContent(db, key);
+  const root: ItemRoot = shared ? { sharedContent: key } : { blockId: block.id };
+  return { shared: shared ?? null, root };
 });
 
-/** The placements of a definition in an environment, oldest first. */
-const placementsOf = Effect.fn("placementsOf")(function* (
-  db: Database,
-  environmentId: number,
-  type: string,
-) {
+/** The placements of a definition, oldest first. */
+export const placementsOf = Effect.fn("placementsOf")(function* (db: Database, key: DefinitionKey) {
   return yield* Effect.promise(() =>
-    db
-      .select()
-      .from(blocks)
-      .where(and(eq(blocks.environmentId, environmentId), eq(blocks.type, type)))
-      .orderBy(blocks.id),
+    db.select().from(blocks).where(placementsWhere(key)).orderBy(blocks.id),
   );
 });
 
@@ -128,8 +115,8 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
       ),
   );
   if (shared.length === 0) return { blocks: [...blockRows], items: ownItems(itemRows) };
-  const key = (environmentId: number, type: string) => `${environmentId}:${type}`;
-  const sharedByKey = new Map(shared.map((row) => [key(row.environmentId, row.type), row]));
+  const keyOf = ({ environmentId, type }: DefinitionKey) => `${environmentId}:${type}`;
+  const sharedByKey = new Map(shared.map((row) => [keyOf(row), row]));
   const sharedItems = yield* Effect.promise(() =>
     db
       .select()
@@ -146,14 +133,16 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   );
   const itemsByKey = new Map<string, ItemRow[]>();
   for (const item of sharedItems) {
-    const itemKey = key(item.environmentId!, item.sharedContentType!);
+    const root = rootOfItem(item);
+    if (!("sharedContent" in root)) continue;
+    const itemKey = keyOf(root.sharedContent);
     if (!sharedByKey.has(itemKey)) continue;
     itemsByKey.set(itemKey, [...(itemsByKey.get(itemKey) ?? []), item]);
   }
 
   const placed = new Set<string>();
   const projectedBlocks = blockRows.map((block) => {
-    const content = sharedByKey.get(key(block.environmentId, block.type));
+    const content = sharedByKey.get(keyOf(block));
     if (!content) return block;
     placed.add(block.id);
     return {
@@ -166,20 +155,23 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   const items = ownItems(itemRows).filter((item) => !placed.has(item.blockId));
   for (const block of blockRows) {
     if (!placed.has(block.id)) continue;
-    for (const item of itemsByKey.get(key(block.environmentId, block.type)) ?? []) {
+    for (const item of itemsByKey.get(keyOf(block)) ?? []) {
       items.push({ ...item, blockId: block.id });
     }
   }
   return { blocks: projectedBlocks, items };
 });
 
-/** Invalidates every read showing a definition's shared content. */
-export function broadcastSharedContentChange(
-  ctx: ServiceContext,
-  projectId: number,
-  type: string,
-  targets: QueryKey[] = [],
+/** A block as readers see it. */
+export const shownBlock = Effect.fn("shownBlock")(function* <B extends BlockRow>(
+  db: Database,
+  block: B,
 ) {
+  return (yield* withSharedContent(db, [block], [])).blocks[0];
+});
+
+/** Invalidates every read showing a definition's shared content. */
+export function broadcastSharedContentChange(ctx: ServiceContext, projectId: number, type: string) {
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -192,7 +184,6 @@ export function broadcastSharedContentChange(
       ["camox", "blocks", "get"],
       ["camox", "blocks", "getPageMarkdown"],
       ["camox", "repeatableItems", "get"],
-      ...targets,
     ],
   });
 }
@@ -200,10 +191,9 @@ export function broadcastSharedContentChange(
 /** Bumps the pages and layouts placing a definition, whose content changed with its shared content. */
 export const bumpPlacementOwners = Effect.fn("bumpPlacementOwners")(function* (
   db: Database,
-  environmentId: number,
-  type: string,
+  key: DefinitionKey,
 ) {
-  const placements = yield* placementsOf(db, environmentId, type);
+  const placements = yield* placementsOf(db, key);
   yield* bumpContentUpdatedAtForBlocks(
     db,
     placements.map((block) => block.id),
@@ -250,9 +240,8 @@ const copyItemTree = Effect.fn("copyItemTree")(function* (
 });
 
 /** The content a definition's defaults give a new block, with its repeatable item seeds. */
-const defaultBundle = Effect.fn("defaultBundle")(function* (
-  definition: typeof blockDefinitions.$inferSelect | undefined,
-) {
+const defaultBundle = Effect.fn("defaultBundle")(function* (db: Database, key: DefinitionKey) {
+  const definition = yield* findDefinition(db, key);
   return yield* prepareBlockContent(
     definition?.defaultContent ?? undefined,
     definition?.defaultSettings ?? undefined,
@@ -268,105 +257,25 @@ const defaultBundle = Effect.fn("defaultBundle")(function* (
   );
 });
 
-/**
- * Becoming synced (ADR 0007): the shared content is taken from the most recently updated
- * placement, items included, or from the definition's defaults when there is none. Every
- * placement's own content is cleared.
- */
-const becomeSynced = Effect.fn("becomeSynced")(function* (
-  ctx: ServiceContext,
-  environmentId: number,
-  type: string,
+/** Shared content from the definition's defaults, with their repeatable items. */
+const sharedContentFromDefaults = Effect.fn("sharedContentFromDefaults")(function* (
+  db: Database,
+  key: DefinitionKey,
 ) {
   const now = Date.now();
-  const root = sharedRoot(environmentId, type);
-  const placements = yield* placementsOf(ctx.db, environmentId, type);
-  const itemUpdates =
-    placements.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select({ blockId: repeatableItems.blockId, updatedAt: max(repeatableItems.updatedAt) })
-            .from(repeatableItems)
-            .where(
-              inArray(
-                repeatableItems.blockId,
-                placements.map((block) => block.id),
-              ),
-            )
-            .groupBy(repeatableItems.blockId),
-        )
-      : [];
-  const lastUpdate = (block: BlockRow) =>
-    Math.max(block.updatedAt, itemUpdates.find((row) => row.blockId === block.id)?.updatedAt ?? 0);
-  // Ties go to the newest placement, whose UUIDv7 sorts last.
-  const latest = placements.reduce<BlockRow | undefined>(
-    (best, block) => (!best || lastUpdate(block) >= lastUpdate(best) ? block : best),
-    undefined,
-  );
-
-  if (latest) {
-    yield* Effect.promise(() =>
-      ctx.db.insert(sharedContents).values({
-        environmentId,
-        type,
-        content: latest.content,
-        settings: latest.settings,
-        summary: latest.summary,
-        createdAt: now,
-        updatedAt: now,
-      }),
-    );
-    yield* Effect.promise(() =>
-      ctx.db
-        .update(repeatableItems)
-        .set(rootColumns(root))
-        .where(eq(repeatableItems.blockId, latest.id)),
-    );
-    yield* Effect.promise(() =>
-      ctx.db.delete(repeatableItems).where(
-        inArray(
-          repeatableItems.blockId,
-          placements.map((block) => block.id),
-        ),
-      ),
-    );
-    yield* Effect.promise(() =>
-      ctx.db
-        .update(blocks)
-        .set(clearedPlacement)
-        .where(and(eq(blocks.environmentId, environmentId), eq(blocks.type, type))),
-    );
-    return;
-  }
-
-  const definition = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blockDefinitions)
-      .where(
-        and(eq(blockDefinitions.environmentId, environmentId), eq(blockDefinitions.blockId, type)),
-      )
-      .get(),
-  );
-  const defaults = yield* defaultBundle(definition);
-  yield* Effect.promise(() =>
-    ctx.db.insert(sharedContents).values({
-      environmentId,
-      type,
-      content: defaults.content,
-      settings: defaults.settings ?? null,
-      summary: "",
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
+  const defaults = yield* defaultBundle(db, key);
+  yield* insertSharedContent(db, key, {
+    content: defaults.content,
+    settings: defaults.settings ?? null,
+    summary: "",
+  });
   const ids = new Map<string, string>();
   for (const seed of defaults.seeds) {
     const inserted = yield* Effect.promise(() =>
-      ctx.db
+      db
         .insert(repeatableItems)
         .values({
-          ...rootColumns(root),
+          ...rootColumns({ sharedContent: key }),
           parentItemId: seed.parentTempId ? (ids.get(seed.parentTempId) ?? null) : null,
           fieldName: seed.fieldName,
           content: seed.content,
@@ -383,66 +292,118 @@ const becomeSynced = Effect.fn("becomeSynced")(function* (
   }
 });
 
+/** Shared content taken from a placement: its content, and its items, which keep their ids. */
+const sharedContentFromPlacement = Effect.fn("sharedContentFromPlacement")(function* (
+  db: Database,
+  placement: BlockRow,
+) {
+  const key = definitionOf(placement);
+  const { content, settings, summary } = placement;
+  yield* insertSharedContent(db, key, { content, settings, summary });
+  yield* Effect.promise(() =>
+    db
+      .update(repeatableItems)
+      .set(rootColumns({ sharedContent: key }))
+      .where(eq(repeatableItems.blockId, placement.id)),
+  );
+});
+
+/**
+ * Becoming synced (ADR 0007): the shared content is taken from the most recently updated
+ * placement, items included, or from the definition's defaults when there is none. Every
+ * placement's own content is cleared.
+ */
+const becomeSynced = Effect.fn("becomeSynced")(function* (db: Database, key: DefinitionKey) {
+  const placements = yield* placementsOf(db, key);
+  if (placements.length === 0) return yield* sharedContentFromDefaults(db, key);
+
+  const placementIds = placements.map((block) => block.id);
+  const itemUpdates = yield* Effect.promise(() =>
+    db
+      .select({ blockId: repeatableItems.blockId, updatedAt: max(repeatableItems.updatedAt) })
+      .from(repeatableItems)
+      .where(inArray(repeatableItems.blockId, placementIds))
+      .groupBy(repeatableItems.blockId),
+  );
+  const lastUpdate = (block: BlockRow) =>
+    Math.max(block.updatedAt, itemUpdates.find((row) => row.blockId === block.id)?.updatedAt ?? 0);
+  // Ties go to the newest placement, whose UUIDv7 sorts last.
+  const latest = placements.reduce((best, block) =>
+    lastUpdate(block) >= lastUpdate(best) ? block : best,
+  );
+  yield* sharedContentFromPlacement(db, latest);
+  yield* Effect.promise(() =>
+    db.delete(repeatableItems).where(inArray(repeatableItems.blockId, placementIds)),
+  );
+  yield* Effect.promise(() => db.update(blocks).set(clearedPlacement).where(placementsWhere(key)));
+});
+
 /**
  * No longer synced (ADR 0007): every placement gets its own copy of the shared content, with
  * fresh ids for the copied repeatable items, and the shared content is deleted.
  */
 const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
-  ctx: ServiceContext,
+  db: Database,
   shared: SharedContentRow,
 ) {
   const now = Date.now();
-  const root = sharedRoot(shared.environmentId, shared.type);
+  const key = definitionOf(shared);
+  const root: ItemRoot = { sharedContent: key };
   const items = yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(itemsUnder(root)),
+    db.select().from(repeatableItems).where(itemsUnder(root)),
   );
-  const placements = yield* placementsOf(ctx.db, shared.environmentId, shared.type);
-  for (const placement of placements) {
+  for (const placement of yield* placementsOf(db, key)) {
     yield* Effect.promise(() =>
-      ctx.db
+      db
         .update(blocks)
         .set({ content: shared.content, settings: shared.settings, summary: shared.summary })
         .where(eq(blocks.id, placement.id)),
     );
-    yield* copyItemTree(ctx.db, items, { blockId: placement.id }, now);
+    yield* copyItemTree(db, items, { blockId: placement.id }, now);
   }
-  yield* Effect.promise(() => ctx.db.delete(repeatableItems).where(itemsUnder(root)));
-  yield* Effect.promise(() =>
-    ctx.db
-      .delete(sharedContents)
-      .where(
-        and(
-          eq(sharedContents.environmentId, shared.environmentId),
-          eq(sharedContents.type, shared.type),
-        ),
-      ),
-  );
+  yield* Effect.promise(() => db.delete(repeatableItems).where(itemsUnder(root)));
+  yield* Effect.promise(() => db.delete(sharedContents).where(sharedContentWhere(key)));
 });
 
 /**
- * Brings a definition's shared content in line with its synced flag after a definition sync
- * creates the definition or changes the flag: a synced definition without shared content
- * becomes synced, and shared content of a definition that isn't synced is copied back into its
- * placements. A new synced definition that isn't placed yet gets its shared content from its
- * first placement instead, like a layout declaring it.
+ * Brings a definition's shared content in line with its synced flag: a synced definition
+ * without shared content becomes synced, and shared content of a definition that isn't synced
+ * is copied back into its placements.
  */
-export const applySyncedFlag = Effect.fn("blocks.applySyncedFlag")(function* (
+const alignSharedContent = Effect.fn("alignSharedContent")(function* (
   ctx: ServiceContext,
-  {
-    projectId,
-    environmentId,
-    type,
-    synced,
-    created = false,
-  }: { projectId: number; environmentId: number; type: string; synced: boolean; created?: boolean },
+  { projectId, key, synced, seedFromDefaults }: SyncedFlag & { seedFromDefaults: boolean },
 ) {
-  const shared = yield* findSharedContent(ctx.db, environmentId, type);
-  const placed = (yield* placementsOf(ctx.db, environmentId, type)).length > 0;
-  if (shared && !synced) yield* stopBeingSynced(ctx, shared);
-  if (!shared && synced && (placed || !created)) yield* becomeSynced(ctx, environmentId, type);
-  yield* bumpPlacementOwners(ctx.db, environmentId, type);
-  broadcastSharedContentChange(ctx, projectId, type);
+  const shared = yield* findSharedContent(ctx.db, key);
+  if (shared && !synced) yield* stopBeingSynced(ctx.db, shared);
+  if (!shared && synced) {
+    const placed = (yield* placementsOf(ctx.db, key)).length > 0;
+    if (placed || seedFromDefaults) yield* becomeSynced(ctx.db, key);
+  }
+  yield* bumpPlacementOwners(ctx.db, key);
+  broadcastSharedContentChange(ctx, projectId, key.type);
 });
+
+type SyncedFlag = { projectId: number; key: DefinitionKey; synced: boolean };
+
+/** A definition sync changed a definition's synced flag. */
+export const applySyncedFlagChange = Effect.fn("blocks.applySyncedFlagChange")(function* (
+  ctx: ServiceContext,
+  flag: SyncedFlag,
+) {
+  yield* alignSharedContent(ctx, { ...flag, seedFromDefaults: true });
+});
+
+/**
+ * A definition sync created a definition, maybe one coming back to content stored under its
+ * name. A new synced definition that isn't placed yet gets its shared content from its first
+ * placement, like a layout declaring it, rather than from its defaults.
+ */
+export const applyNewDefinitionSyncedFlag = Effect.fn("blocks.applyNewDefinitionSyncedFlag")(
+  function* (ctx: ServiceContext, flag: SyncedFlag) {
+    yield* alignSharedContent(ctx, { ...flag, seedFromDefaults: false });
+  },
+);
 
 /**
  * Makes a new placement show its definition's shared content. The placement's own content seeds
@@ -452,59 +413,30 @@ export const adoptSharedContent = Effect.fn("blocks.adoptSharedContent")(functio
   ctx: ServiceContext,
   block: BlockRow,
 ) {
-  const shared = yield* findSharedContent(ctx.db, block.environmentId, block.type);
-  if (shared) {
+  const key = definitionOf(block);
+  const clear = Effect.promise(() =>
+    ctx.db.update(blocks).set(clearedPlacement).where(eq(blocks.id, block.id)),
+  );
+  if (yield* findSharedContent(ctx.db, key)) {
     yield* Effect.promise(() =>
       ctx.db.delete(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
     );
-  } else {
-    const definition = yield* Effect.promise(() =>
-      ctx.db
-        .select({ synced: blockDefinitions.synced })
-        .from(blockDefinitions)
-        .where(
-          and(
-            eq(blockDefinitions.environmentId, block.environmentId),
-            eq(blockDefinitions.blockId, block.type),
-          ),
-        )
-        .get(),
-    );
-    if (!definition?.synced) return;
-    const now = Date.now();
-    yield* Effect.promise(() =>
-      ctx.db.insert(sharedContents).values({
-        environmentId: block.environmentId,
-        type: block.type,
-        content: block.content,
-        settings: block.settings,
-        summary: block.summary,
-        createdAt: now,
-        updatedAt: now,
-      }),
-    );
-    yield* Effect.promise(() =>
-      ctx.db
-        .update(repeatableItems)
-        .set(rootColumns(sharedRoot(block.environmentId, block.type)))
-        .where(eq(repeatableItems.blockId, block.id)),
-    );
+    return yield* clear;
   }
-  yield* Effect.promise(() =>
-    ctx.db.update(blocks).set(clearedPlacement).where(eq(blocks.id, block.id)),
-  );
+  if (!(yield* findDefinition(ctx.db, key))?.synced) return;
+  yield* sharedContentFromPlacement(ctx.db, block);
+  yield* clear;
 });
 
 /**
- * A placement through which a synced definition's shared content reads, in an environment.
- * Nothing when the definition isn't synced or isn't placed.
+ * A placement through which a synced definition's shared content reads. Nothing when the
+ * definition isn't synced or isn't placed.
  */
 export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function* (
   db: Database,
-  environmentId: number,
-  type: string,
+  key: DefinitionKey,
 ) {
-  if (!(yield* findSharedContent(db, environmentId, type))) return null;
-  const [first] = yield* placementsOf(db, environmentId, type);
+  if (!(yield* findSharedContent(db, key))) return null;
+  const [first] = yield* placementsOf(db, key);
   return first?.id ?? null;
 });

@@ -23,6 +23,7 @@ import {
   sharedContents,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { itemsInEnvironment, sharedContentItemsIn } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
 
@@ -326,21 +327,9 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     ctx.db.select().from(sharedContents).where(eq(sharedContents.environmentId, source.id)),
   );
 
-  // Items of blocks, and items of the environment's shared contents.
-  const sourceBlockIds = sourceBlocks.map((b) => b.id);
-  const sourceItems: (typeof repeatableItems.$inferSelect)[] = [
-    ...(sourceBlockIds.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(repeatableItems)
-            .where(inArray(repeatableItems.blockId, sourceBlockIds)),
-        )
-      : []),
-    ...(yield* Effect.promise(() =>
-      ctx.db.select().from(repeatableItems).where(eq(repeatableItems.environmentId, source.id)),
-    )),
-  ];
+  const sourceItems = yield* Effect.promise(() =>
+    ctx.db.select().from(repeatableItems).where(itemsInEnvironment(source.id)),
+  );
   const takenAt = Date.now();
   const snapshot = {
     schemaVersion: 1 as const,
@@ -369,7 +358,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // R2 blobs are preserved for re-insertion below.
   yield* Effect.promise(() => ctx.db.delete(comments).where(eq(comments.environmentId, target.id)));
   yield* Effect.promise(() =>
-    ctx.db.delete(repeatableItems).where(eq(repeatableItems.environmentId, target.id)),
+    ctx.db.delete(repeatableItems).where(sharedContentItemsIn(target.id)),
   );
   yield* Effect.promise(() =>
     ctx.db.delete(sharedContents).where(eq(sharedContents.environmentId, target.id)),

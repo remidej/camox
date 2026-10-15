@@ -3,6 +3,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { blockDefinitions, blocks } from "../../schema";
+import type { DefinitionKey } from "../repeatable-items/roots";
 import type { FieldSchema } from "./normalize-content";
 
 /**
@@ -43,24 +44,31 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
   };
 });
 
-/** The schemas of a block definition, named within an environment. */
-export const loadDefinitionSchemas = Effect.fn("loadDefinitionSchemas")(function* (
+/** A block definition named within an environment, or nothing when it's gone. */
+export const findDefinition = Effect.fn("findDefinition")(function* (
   db: Database,
-  environmentId: number,
-  type: string,
+  definition: DefinitionKey,
 ) {
-  const definition = yield* Effect.promise(() =>
+  return yield* Effect.promise(() =>
     db
-      .select({
-        contentSchema: blockDefinitions.contentSchema,
-        settingsSchema: blockDefinitions.settingsSchema,
-      })
+      .select()
       .from(blockDefinitions)
       .where(
-        and(eq(blockDefinitions.environmentId, environmentId), eq(blockDefinitions.blockId, type)),
+        and(
+          eq(blockDefinitions.environmentId, definition.environmentId),
+          eq(blockDefinitions.blockId, definition.type),
+        ),
       )
       .get(),
   );
+});
+
+/** The schemas of a block definition, named within an environment. */
+export const loadDefinitionSchemas = Effect.fn("loadDefinitionSchemas")(function* (
+  db: Database,
+  key: DefinitionKey,
+) {
+  const definition = yield* findDefinition(db, key);
   if (!definition) return null;
   return {
     contentSchema: definition.contentSchema as FieldSchema | null,

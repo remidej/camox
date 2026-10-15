@@ -36,6 +36,7 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import { optimizedVideoKey } from "../files/video-optimization";
+import { itemsInEnvironment } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -290,17 +291,11 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
     .select({ id: environments.id })
     .from(environments)
     .where(eq(environments.projectId, projectId));
-  // Items of the project's blocks, and of its synced definitions' shared contents.
   const repeatableItemRows = yield* Effect.promise(() =>
     ctx.db
       .select({ id: repeatableItems.id })
       .from(repeatableItems)
-      .where(
-        or(
-          blockIds.length > 0 ? inArray(repeatableItems.blockId, blockIds) : undefined,
-          inArray(repeatableItems.environmentId, projectEnvironmentIds),
-        ),
-      ),
+      .where(itemsInEnvironment(projectEnvironmentIds)),
   );
   const repeatableItemIds = repeatableItemRows.map((r) => r.id);
 

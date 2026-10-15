@@ -30,15 +30,13 @@ import {
   broadcastSharedContentChange,
   bumpPlacementOwners,
   contentOwnerOf,
-  itemsUnder,
-  rootColumns,
-  rootOfItem,
+  definitionOf,
   sharedPlacementId,
-  type ItemRoot,
 } from "../blocks/shared-content";
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
 import { collectFileIds } from "../pages/ai";
+import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -192,27 +190,15 @@ const resolveItemFieldNamePath = Effect.fn("resolveItemFieldNamePath")(function*
  * The item tree under a root, with the block definition shaping it: a block's, or a synced
  * definition's shared content, which every placement of the definition shows.
  */
-type ItemTree = { root: ItemRoot; environmentId: number; type: string; blockId: string | null };
+type ItemTree = { root: ItemRoot; definition: DefinitionKey };
 
 const treeOfRoot = Effect.fn("treeOfRoot")(function* (db: Database, root: ItemRoot) {
-  if (!("blockId" in root)) {
-    return {
-      root,
-      environmentId: root.environmentId,
-      type: root.sharedContentType,
-      blockId: null,
-    } satisfies ItemTree;
-  }
+  if ("sharedContent" in root) return { root, definition: root.sharedContent } satisfies ItemTree;
   const block = yield* Effect.promise(() =>
     db.select().from(blocks).where(eq(blocks.id, root.blockId)).get(),
   );
   if (!block) return yield* new NotFoundError();
-  return {
-    root,
-    environmentId: block.environmentId,
-    type: block.type,
-    blockId: block.id,
-  } satisfies ItemTree;
+  return { root, definition: definitionOf(block) } satisfies ItemTree;
 });
 
 /** The tree new items of a block go in: the block's own, or its shared content's. */
@@ -221,32 +207,29 @@ const treeOfBlock = Effect.fn("treeOfBlock")(function* (
   block: typeof blocks.$inferSelect,
 ) {
   const owner = yield* contentOwnerOf(db, block);
-  return yield* treeOfRoot(db, owner.root);
+  return { root: owner.root, definition: definitionOf(block) } satisfies ItemTree;
 });
 
 const treeSchema = Effect.fn("treeSchema")(function* (db: Database, tree: ItemTree) {
-  return (yield* loadDefinitionSchemas(db, tree.environmentId, tree.type))?.contentSchema;
+  return (yield* loadDefinitionSchemas(db, tree.definition))?.contentSchema;
 });
 
 /** The block bundle an item edit refreshes: its block's, or the shared content's. */
-function treeBundleKey(tree: ItemTree) {
-  return tree.blockId === null
-    ? queryKeys.blocks.getSyncedContent(tree.type)
-    : queryKeys.blocks.get(tree.blockId);
+function treeBundleKey({ root, definition }: ItemTree) {
+  return "blockId" in root
+    ? queryKeys.blocks.get(root.blockId)
+    : queryKeys.blocks.getSyncedContent(definition.type);
 }
 
 /** Records that a tree's content changed, for every page and layout showing it. */
 const touchTree = Effect.fn("touchTree")(function* (
   ctx: ServiceContext,
-  tree: ItemTree,
+  { root, definition }: ItemTree,
   projectId: number,
 ) {
-  if (tree.blockId !== null) {
-    yield* bumpContentUpdatedAtForBlock(ctx.db, tree.blockId);
-    return;
-  }
-  yield* bumpPlacementOwners(ctx.db, tree.environmentId, tree.type);
-  broadcastSharedContentChange(ctx, projectId, tree.type);
+  if ("blockId" in root) return yield* bumpContentUpdatedAtForBlock(ctx.db, root.blockId);
+  yield* bumpPlacementOwners(ctx.db, definition);
+  broadcastSharedContentChange(ctx, projectId, definition.type);
 });
 
 function comparePositions(a: string, b: string): number {
@@ -367,7 +350,11 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
 
   const summary = yield* generateObjectSummary(
     apiKey,
-    { type: tree.type, markdown: JSON.stringify(content), previousSummary: item.summary },
+    {
+      type: tree.definition.type,
+      markdown: JSON.stringify(content),
+      previousSummary: item.summary,
+    },
     abortController,
   );
 
@@ -380,7 +367,8 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
 
   if (summary === item.summary) return null;
   // A shared content's summary is written through any of its placements.
-  const blockId = tree.blockId ?? (yield* sharedPlacementId(db, tree.environmentId, tree.type));
+  const blockId =
+    "blockId" in tree.root ? tree.root.blockId : yield* sharedPlacementId(db, tree.definition);
   return blockId === null ? null : { blockId };
 });
 
@@ -398,15 +386,16 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   // An item conforms through its repeater path, which runs through its tree's definition and
   // its ancestors.
   const tree = yield* treeOfRoot(ctx.db, rootOfItem(stored));
-  const root = { id: id, type: tree.type, content: {}, settings: null };
+  // Conforming walks items up to a block: a stand-in block of the tree's definition holds them.
+  const treeOwner = { id: "tree-owner", type: tree.definition.type, content: {}, settings: null };
   const siblings = yield* Effect.promise(() =>
     ctx.db.select().from(repeatableItems).where(itemsUnder(tree.root)),
   );
   const conformed = yield* conformBlocksIn(
     ctx,
-    tree,
-    [root],
-    siblings.map((sibling) => ({ ...sibling, blockId: root.id })),
+    tree.definition,
+    [treeOwner],
+    siblings.map((sibling) => ({ ...sibling, blockId: treeOwner.id })),
   );
   const found = conformed.items.find((candidate) => candidate.id === id);
   if (!found) return yield* new NotFoundError();
@@ -632,7 +621,12 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       rootSchema: schema,
     });
     const sanitizedPatch = yield* sanitizeItemContent(content, itemSchema?.properties, schema);
-    yield* validateReferenceValues(ctx, yield* blockScope(ctx, tree), itemSchema, sanitizedPatch);
+    yield* validateReferenceValues(
+      ctx,
+      yield* blockScope(ctx, tree.definition),
+      itemSchema,
+      sanitizedPatch,
+    );
 
     // Merge partial content into existing content (frontend sends single-field patches)
     const merged = {

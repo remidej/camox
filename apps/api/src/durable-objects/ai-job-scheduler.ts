@@ -7,6 +7,7 @@ import { createDb } from "../db";
 import { executeBlockSummary } from "../domains/blocks/service";
 import { executeFileMetadata } from "../domains/files/service";
 import { executePageSeo } from "../domains/pages/ai";
+import { rootOfItem } from "../domains/repeatable-items/roots";
 import { executeRepeatableItemSummary } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
@@ -117,10 +118,11 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       );
       if (item) {
         // A shared content's item names its environment instead of a block.
+        const root = rootOfItem(item);
         const projectId = yield* Effect.promise(() =>
-          item.blockId !== null
-            ? this.getBlockProjectId(db, item.blockId)
-            : this.getEnvironmentProjectId(db, item.environmentId!),
+          "blockId" in root
+            ? this.getBlockProjectId(db, root.blockId)
+            : this.getEnvironmentProjectId(db, root.sharedContent.environmentId),
         );
         if (projectId) {
           broadcastInvalidation({
