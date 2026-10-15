@@ -8,7 +8,9 @@ import { lexicalStateToPlainText, pageTextLinkIds } from "../../lib/lexical-stat
 import { blockDefinitions, environments } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
-import { collectionOfRecord, recordsOf } from "./identity";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
+import { collectionOfRecord, type ContentScope, recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
 import { collectionDefinitions, collectionRecords } from "./schema";
 import { validatePageLink } from "./text-content";
@@ -189,7 +191,7 @@ export function itemSchemas(blockSchema: unknown, items: readonly ItemRow[]) {
  */
 export const resolveReferences = Effect.fn("collections.resolveReferences")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   schema: unknown,
   content: unknown,
   hop: 1 | 2 = 1,
@@ -228,14 +230,15 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
  */
 const textOrder = new Intl.Collator("en", { numeric: true, sensitivity: "accent" });
 
-type Definition = typeof collectionDefinitions.$inferSelect;
+/** A collection as read in a scope, so its records are read in the same one. */
+type Definition = typeof collectionDefinitions.$inferSelect & { draft: DraftScope };
 type Direction = "asc" | "desc";
 
 /**
- * The records a query-backed list resolves to, in order. `publishedAt` orders by creation time
- * until records are drafted, so editing a record never reorders it. Empty text sorts last in
- * either direction, and ties break by record id. Without `orderBy`, records keep their creation
- * order.
+ * The records a query-backed list resolves to, in order. `publishedAt` orders by when each
+ * record was first published, so editing and republishing a record never reorders it. Empty
+ * text sorts last in either direction, and ties break by record id. Without `orderBy`, records
+ * keep their creation order.
  */
 function queryRecordIds(
   ctx: ServiceContext,
@@ -244,24 +247,36 @@ function queryRecordIds(
 ) {
   const { key, direction } = query.orderBy ?? { key: "createdAt", direction: "asc" };
   if (key === "createdAt" || key === "publishedAt") {
-    return recordIdsByCreation(ctx, definition, direction, query.limit);
+    return recordIdsByTime(ctx, definition, key, direction, query.limit);
   }
   return recordIdsByText(ctx, definition, key, direction, query.limit);
 }
 
-/** Orders by creation time in SQL, so only `limit` ids load. */
-const recordIdsByCreation = Effect.fn("collections.recordIdsByCreation")(function* (
+/**
+ * When a record was first published. A record the draft created sorts as published now, where
+ * publishing would put it. A Live record written before publish times were kept falls back to
+ * its creation time.
+ */
+const firstPublished = (now: number) =>
+  sql`coalesce(${collectionRecords.firstPublishedAt}, case
+    when ${collectionRecords.draftId} is not null and ${collectionRecords.baseVersion} is null
+    then ${now} else ${collectionRecords.createdAt} end)`;
+
+/** Orders by creation or first publish time in SQL, so only `limit` ids load. */
+const recordIdsByTime = Effect.fn("collections.recordIdsByTime")(function* (
   ctx: ServiceContext,
   definition: Definition,
+  key: "createdAt" | "publishedAt",
   direction: Direction,
   limit: number,
 ) {
-  const sortKey = collectionRecords.createdAt;
+  const sortKey =
+    key === "createdAt" ? sql`${collectionRecords.createdAt}` : firstPublished(Date.now());
   const rows = yield* Effect.promise(() =>
     ctx.db
       .select({ id: collectionRecords.id })
       .from(collectionRecords)
-      .where(recordsOf(definition))
+      .where(recordsOf(definition, definition.draft))
       .orderBy(direction === "asc" ? asc(sortKey) : desc(sortKey), asc(collectionRecords.id))
       .limit(limit),
   );
@@ -289,7 +304,7 @@ const recordIdsByText = Effect.fn("collections.recordIdsByText")(function* (
           then json_extract(${content}, ${path}) end`,
       })
       .from(collectionRecords)
-      .where(recordsOf(definition)),
+      .where(recordsOf(definition, definition.draft)),
   );
   const sign = direction === "asc" ? 1 : -1;
   const keyed = rows.map((row) => {
@@ -312,12 +327,12 @@ function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1) {
 }
 
 /** The collection a reference field names, in the scope of the content holding it. */
-function definitionIn(
+const definitionIn = Effect.fn("collections.definitionIn")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   field: Field,
 ) {
-  return Effect.promise(() =>
+  const definition = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(collectionDefinitions)
@@ -330,7 +345,8 @@ function definitionIn(
       )
       .get(),
   );
-}
+  return definition && { ...definition, draft: scope.draft };
+});
 
 /** A linked record with its current content, or null when it is missing. */
 const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
@@ -345,7 +361,7 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
     ctx.db
       .select()
       .from(collectionRecords)
-      .where(and(eq(collectionRecords.id, validId.data), recordsOf(definition)))
+      .where(and(eq(collectionRecords.id, validId.data), recordsOf(definition, definition.draft)))
       .get(),
   );
   if (!record) return null;
@@ -368,7 +384,7 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
 
 const blockDefinitionsIn = Effect.fn("collections.blockDefinitionsIn")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
 ) {
   return yield* Effect.promise(() =>
     ctx.db
@@ -387,7 +403,7 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
   T extends { type: string; content: unknown },
 >(
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   values: T[],
 ): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
   const definitions = yield* blockDefinitionsIn(ctx, scope);
@@ -412,7 +428,7 @@ export const hydrateItemReferences = Effect.fn("collections.hydrateItemReference
   T extends ItemRow & { blockId: string; content: unknown },
 >(
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   blocks: readonly { id: string; type: string }[],
   items: T[],
 ): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
@@ -443,7 +459,7 @@ export const hydrateItemReferences = Effect.fn("collections.hydrateItemReference
  */
 export const validateReferenceValues = Effect.fn("collections.validateReferenceValues")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   schema: unknown,
   content: unknown,
   path = "",
@@ -497,7 +513,7 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
 
 export const recordInScope = Effect.fn("collections.recordInScope")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   field: Field,
   value: unknown,
 ) {
@@ -511,6 +527,7 @@ export const recordInScope = Effect.fn("collections.recordInScope")(function* (
       .where(
         and(
           eq(collectionRecords.id, validId.data),
+          overlay.visibleIn(collectionRecords, scope.draft),
           eq(collectionDefinitions.projectId, scope.projectId),
           eq(collectionDefinitions.environmentId, scope.environmentId),
           eq(collectionDefinitions.collectionId, String(field.collectionId)),
@@ -531,14 +548,22 @@ export function missingReference(name: string) {
   });
 }
 
-/** The project and environment a block belongs to, whether on a page or in a layout. */
+/**
+ * The project and environment a block belongs to, whether on a page or in a layout, read as
+ * Live or as `draft`.
+ */
 export const blockScope = Effect.fn("collections.blockScope")(function* (
   ctx: ServiceContext,
   block: { environmentId: number },
+  draft: DraftScope,
 ) {
   const environment = yield* Effect.promise(() =>
     ctx.db.select().from(environments).where(eq(environments.id, block.environmentId)).get(),
   );
   if (!environment) return yield* new NotFoundError();
-  return { projectId: environment.projectId, environmentId: environment.id };
+  return {
+    projectId: environment.projectId,
+    environmentId: environment.id,
+    draft,
+  } satisfies ContentScope;
 });

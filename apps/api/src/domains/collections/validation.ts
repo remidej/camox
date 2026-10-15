@@ -8,6 +8,8 @@ import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
+import type { ContentScope } from "./identity";
 import { assetFileId } from "./record-files";
 import { missingReference, recordInScope } from "./references";
 import { decodeContent, validateText } from "./text-content";
@@ -149,6 +151,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
   ctx: ServiceContext,
   projectId: number,
   environmentId: number,
+  draft: DraftScope,
   field: z.infer<typeof property>,
   value: unknown,
   previous: ReadonlySet<string>,
@@ -167,7 +170,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
       .from(files)
       .where(
         and(
-          overlay.visibleIn(files, null),
+          overlay.visibleIn(files, draft),
           eq(files.id, fileId),
           eq(files.projectId, projectId),
           eq(files.environmentId, environmentId),
@@ -212,7 +215,7 @@ function heldIds(value: unknown) {
  */
 export const validateContent = Effect.fn("collections.validateContent")(function* (
   ctx: ServiceContext,
-  definition: { projectId: number; environmentId: number; contentSchema: unknown },
+  definition: ContentScope & { contentSchema: unknown },
   value: unknown,
   previous: Record<string, unknown> = {},
 ) {
@@ -284,6 +287,7 @@ export const validateContent = Effect.fn("collections.validateContent")(function
             ctx,
             definition.projectId,
             definition.environmentId,
+            definition.draft,
             item,
             value,
             held.files,
@@ -300,6 +304,7 @@ export const validateContent = Effect.fn("collections.validateContent")(function
             ctx,
             definition.projectId,
             definition.environmentId,
+            definition.draft,
             field,
             value,
             held.files,

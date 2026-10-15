@@ -318,15 +318,26 @@ CREATE TABLE `collection_definitions` (
 );
 --> statement-breakpoint
 CREATE TABLE `collection_records` (
-	`id` text PRIMARY KEY NOT NULL,
+	`row_id` integer PRIMARY KEY NOT NULL,
+	`id` text NOT NULL,
+	`draft_id` text,
+	`version` integer DEFAULT 1 NOT NULL,
+	`base_version` integer,
+	`deleted` integer DEFAULT false NOT NULL,
+	`first_published_at` integer,
+	`published_at` integer,
+	`published_by` text,
 	`environment_id` integer NOT NULL,
 	`collection_id` text NOT NULL,
 	`content` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `collection_records_live_id_idx` ON `collection_records` (`id`) WHERE "collection_records"."draft_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX `collection_records_draft_id_idx` ON `collection_records` (`draft_id`,`id`) WHERE "collection_records"."draft_id" is not null;--> statement-breakpoint
 CREATE INDEX `collection_records_collection` ON `collection_records` (`environment_id`,`collection_id`);--> statement-breakpoint
 CREATE TABLE `drafts` (
 	`id` text PRIMARY KEY NOT NULL,

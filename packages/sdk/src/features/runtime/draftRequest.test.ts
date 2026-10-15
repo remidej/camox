@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { DRAFT_ENDED_ERROR_CODE, DRAFT_HEADER, type EndedDraft } from "@camox/api-contract/drafts";
 
+import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
 const MEMBER_SESSION = "camox_auth_cookie=valid";
@@ -71,6 +72,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
     }
     if (url.pathname.endsWith("/getPageMarkdown"))
       return Response.json({ json: { markdown: `# ${source}` } });
+    if (url.pathname.endsWith("/findRecordsByField")) return Response.json({ json: [] });
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({ json: { before: "", after: "" } });
     if (url.pathname.endsWith("/layouts/get"))
@@ -112,7 +114,15 @@ const pokedex = {
     kind: "singleton",
     title: "Pokédex",
     buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
-    loader: async () => ({ kind: "data", data: {} }),
+    // Looks up a record, as a record page's loader does.
+    loader: async ({ context }: { context: LayoutRequestContext }) => {
+      await getRecordLookup(context).findByField({
+        collectionId: "pokemon",
+        field: "slug",
+        value: "pikachu",
+      });
+      return { kind: "data", data: {} };
+    },
     toMarkdown: () => ["Pokédex"],
   },
 };
@@ -154,6 +164,22 @@ void test("a member visiting a page with the draft param gets the draft on the f
     const live = await request(path, { cookie: MEMBER_SESSION });
     assert.equal(await renderedHtml(live), "Live", path);
   }
+});
+
+void test("a record page in a draft looks up the draft's records, and Live's when the draft is refused", async (t) => {
+  const requests = mockApi(t);
+  const recordLookups = () =>
+    requests
+      .splice(0)
+      .filter((entry) => entry.path.endsWith("/findRecordsByField"))
+      .map((entry) => entry.draft);
+
+  await request("/pokedex?camox-draft=d1", { cookie: MEMBER_SESSION });
+  assert.deepEqual(recordLookups(), ["d1"]);
+  await request(`/pokedex?camox-draft=${MISSING_DRAFT}`, { cookie: MEMBER_SESSION });
+  assert.deepEqual(recordLookups(), [null]);
+  await request("/pokedex", { cookie: MEMBER_SESSION });
+  assert.deepEqual(recordLookups(), [null]);
 });
 
 void test("a visitor without a session naming a draft gets Live, and never names the draft", async (t) => {

@@ -40,6 +40,7 @@ import {
 import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
+import type { ContentScope } from "../collections/identity";
 import {
   blockScope,
   hydrateItemReferences,
@@ -836,7 +837,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     (item as any).content = itemContent;
   }
 
-  const referenceScope = yield* blockScope(ctx, block);
+  const referenceScope = yield* blockScope(ctx, block, scope);
   const hydratedBlock = (yield* hydrateReferences(ctx, referenceScope, [{ ...block, content }]))[0];
   const hydratedItems = yield* hydrateItemReferences(ctx, referenceScope, [block], sorted);
 
@@ -871,10 +872,9 @@ type RenderableItem = typeof repeatableItems.$inferSelect & {
  */
 const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   blockRows: RenderableBlock[],
   itemRows: RenderableItem[],
-  draft: DraftScope,
 ) {
   // Get block definitions for content schemas and Markdown representations. Scope
   // by environmentId — the same blockId can exist with different shapes across
@@ -926,7 +926,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     collectFileIds(item.content as Record<string, unknown>, fileIds);
     collectFileIds(item.references ?? {}, fileIds);
   }
-  const fileMap = yield* buildFileMap(ctx.db, fileIds, draft);
+  const fileMap = yield* buildFileMap(ctx.db, fileIds, scope.draft);
 
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const json = (block: RenderableBlock) =>
@@ -1002,10 +1002,9 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
 
   const render = yield* renderBlocksMarkdown(
     ctx,
-    page,
+    { ...page, draft: scope },
     [...sorted, ...sortedLayout],
     [...allItems, ...layoutAllItems],
-    scope,
   );
   const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
@@ -1046,7 +1045,7 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
   );
   if (!layout) return yield* new NotFoundError();
   const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
-  const render = yield* renderBlocksMarkdown(ctx, layout, layoutBlocks, items, scope);
+  const render = yield* renderBlocksMarkdown(ctx, { ...layout, draft: scope }, layoutBlocks, items);
   return layoutSlotsMarkdown(layoutBlocks, render.markdown);
 });
 
@@ -1194,7 +1193,12 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     def?.settingsSchema,
   );
   const allSeeds = prepared.seeds;
-  yield* validateReferenceValues(ctx, access.page, def?.contentSchema, prepared.bundle);
+  yield* validateReferenceValues(
+    ctx,
+    { ...access.page, draft: scope },
+    def?.contentSchema,
+    prepared.bundle,
+  );
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(
@@ -1348,7 +1352,12 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 
   const patch = yield* prepareContentPatch(content, contentSchema);
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
-  yield* validateReferenceValues(ctx, yield* blockScope(ctx, access.block), contentSchema, patch);
+  yield* validateReferenceValues(
+    ctx,
+    yield* blockScope(ctx, access.block, scope),
+    contentSchema,
+    patch,
+  );
   const owner = yield* contentOwnerOf(ctx.db, access.block);
   // Repeater patches write the Live repeatable items, even from a draft, until items move into
   // drafts (#238).

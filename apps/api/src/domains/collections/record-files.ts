@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 
 type Field = { fieldType?: string };
 
@@ -35,7 +36,7 @@ const isAssetListField = (field: Field) =>
  */
 export const resolveRecordFiles = Effect.fn("collections.resolveRecordFiles")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: { projectId: number; environmentId: number; draft?: DraftScope },
   schema: unknown,
   content: Record<string, unknown>,
 ) {
@@ -63,7 +64,7 @@ export const resolveRecordFiles = Effect.fn("collections.resolveRecordFiles")(fu
       .from(files)
       .where(
         and(
-          overlay.visibleIn(files, null),
+          overlay.visibleIn(files, scope.draft ?? null),
           inArray(files.id, [...ids]),
           eq(files.projectId, scope.projectId),
           eq(files.environmentId, scope.environmentId),

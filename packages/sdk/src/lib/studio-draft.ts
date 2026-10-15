@@ -8,48 +8,69 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
 
 /**
  * The draft the studio reads and writes (ADR 0011). The URL's `camox-draft` param names it;
- * without one the studio is on Live. Block and file writes start a draft: the first one on
+ * without one the studio is on Live. Block, record and file writes start a draft: the first one on
  * Live mints an id and asks the API to create it, and the param lands in the URL once a write
  * succeeds. Edits fired before it settles share the same pending id so they land in one draft.
  */
 
-// Whether each block procedure is a content write that starts a draft. Every procedure is
-// listed, so a new one fails the type check until it's classified and can't be forgotten.
-// `generateSummary` only fills a generated value (ADR 0012), so it doesn't start one.
-const STARTS_DRAFT: { [R in "blocks" | "files"]: Record<keyof Router[R], boolean> } = {
-  blocks: {
-    get: false,
-    getPageMarkdown: false,
-    getLayoutMarkdown: false,
-    getUsageCounts: false,
-    getPagesUsing: false,
-    getSyncedContent: false,
-    create: true,
-    updateContent: true,
-    updateSettings: true,
-    updatePosition: true,
-    delete: true,
-    deleteMany: true,
-    generateSummary: false,
-    duplicate: true,
-  },
-  // Uploads and replacements go through `getUploadDraftHeaders`, outside oRPC.
-  files: {
-    list: false,
-    get: false,
-    getUsageCount: false,
-    setAlt: true,
-    setFilename: true,
-    delete: true,
-    deleteMany: true,
-    // Switching AI metadata on or off changes content (ADR 0012); generating only fills it.
-    setAiMetadata: true,
-    generateMetadata: false,
-  },
+// Whether each procedure of a router that follows drafts is a content write that starts a draft.
+// Every procedure is listed, so a new one fails the type check until it's classified and can't
+// be forgotten. `generateSummary` only fills a generated value (ADR 0012), so it doesn't start one.
+const BLOCKS_START_DRAFT: Record<keyof Router["blocks"], boolean> = {
+  get: false,
+  getPageMarkdown: false,
+  getLayoutMarkdown: false,
+  getUsageCounts: false,
+  getPagesUsing: false,
+  getSyncedContent: false,
+  create: true,
+  updateContent: true,
+  updateSettings: true,
+  updatePosition: true,
+  delete: true,
+  deleteMany: true,
+  generateSummary: false,
+  duplicate: true,
+};
+
+// A release syncs collection definitions; it never runs in the studio.
+const COLLECTIONS_START_DRAFT: Record<keyof Router["collectionDefinitions"], boolean> = {
+  list: false,
+  get: false,
+  listRecords: false,
+  getRecord: false,
+  getRecordUsageCount: false,
+  findRecordsByField: false,
+  listRecordPageValues: false,
+  recordMarkdown: false,
+  createRecord: true,
+  editRecord: true,
+  deleteRecord: true,
+  sync: false,
+};
+
+// Uploads and replacements go through `getUploadDraftHeaders`, outside oRPC.
+const FILES_START_DRAFT: Record<keyof Router["files"], boolean> = {
+  list: false,
+  get: false,
+  getUsageCount: false,
+  setAlt: true,
+  setFilename: true,
+  delete: true,
+  deleteMany: true,
+  // Switching AI metadata on or off changes content (ADR 0012); generating only fills it.
+  setAiMetadata: true,
+  generateMetadata: false,
+};
+
+const STARTS_DRAFT: Partial<Record<keyof Router, Record<string, boolean>>> = {
+  blocks: BLOCKS_START_DRAFT,
+  collectionDefinitions: COLLECTIONS_START_DRAFT,
+  files: FILES_START_DRAFT,
 };
 
 let currentDraftId: string | null = null;
-/** The id the first block writes on Live share, and how many of them are still in flight. */
+/** The id the first writes on Live share, and how many of them are still in flight. */
 let pending: { id: string; inFlight: number } | null = null;
 const listeners = new Set<(draftId: string) => void>();
 
@@ -103,7 +124,7 @@ export function onDraftNotice(listener: (notice: DraftNotice) => void): () => vo
   return () => noticeListeners.delete(listener);
 }
 
-/** Called once the first block write has created a draft and the studio switched into it. */
+/** Called once the first write has created a draft and the studio switched into it. */
 export function onDraftStarted(listener: (draftId: string) => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -111,10 +132,7 @@ export function onDraftStarted(listener: (draftId: string) => void): () => void 
 
 function startsDraft(path: readonly string[]) {
   if (path.length !== 2) return false;
-  const [router, procedure] = path as [string, string];
-  if (!(router in STARTS_DRAFT)) return false;
-  const table = STARTS_DRAFT[router as keyof typeof STARTS_DRAFT] as Record<string, boolean>;
-  return table[procedure] === true;
+  return STARTS_DRAFT[path[0] as keyof Router]?.[path[1]] === true;
 }
 
 type DraftRequestHeaders = {

@@ -395,6 +395,52 @@ describe("files in drafts", () => {
     expect(f.codes(warnings)).toEqual([["emptyRequiredFile", emptyOnLive.id]]);
   });
 
+  it("a record in a draft can use a file uploaded in the same draft, and shows the draft's bytes", async () => {
+    const f = await fixture();
+    await call(
+      router.collectionDefinitions.sync,
+      {
+        projectSlug: f.project.slug,
+        deployToken: f.project.deployToken,
+        autoCreate: false,
+        definitions: [
+          {
+            collectionId: "people",
+            title: "People",
+            description: "",
+            label: "name",
+            contentSchema: {
+              type: "object",
+              properties: {
+                name: { type: "string", fieldType: "String" },
+                photo: imageField(false),
+              },
+              required: ["name", "photo"],
+              additionalProperties: false,
+            },
+          },
+        ],
+      },
+      { context: createRpcContext(f.db, null) },
+    );
+    const draftId = generateUuidv7();
+    const photo = await f.upload(startingDraft(draftId), { bytes: "portrait" });
+    const people = { projectSlug: f.project.slug, collectionId: "people" };
+    const ada = await call(
+      router.collectionDefinitions.createRecord,
+      { ...people, content: { name: "Ada", photo: { _fileId: photo.id } } },
+      f.member(inDraft(draftId)),
+    );
+
+    const read = await call(
+      router.collectionDefinitions.getRecord,
+      { ...people, id: ada.id },
+      f.member(inDraft(draftId)),
+    );
+    const shown = read.content.photo as { url: string };
+    expect(await f.bytesAt(shown.url)).toBe("portrait");
+  });
+
   it("counts a file's uses as the current draft sees them", async () => {
     const f = await fixture();
     const image = await f.upload();
