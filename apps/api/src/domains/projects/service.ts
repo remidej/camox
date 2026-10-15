@@ -35,6 +35,7 @@ import {
   resolveReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { releasedNew } from "../drafts/overlay";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { itemsInEnvironment } from "../repeatable-items/roots";
 
@@ -525,6 +526,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
           settings: blockDef.settings ?? null,
           position,
           summary: "",
+          ...releasedNew(now),
           createdAt: now,
           updatedAt: now,
         })

@@ -49,6 +49,8 @@ export type Conflict = Subject & {
   liveVersion: number | null;
   publishedBy: { id: string; name: string } | null;
   publishedAt: number | null;
+  /** Whether a release made Live's version, which no member published (ADR 0006). */
+  release: boolean;
 };
 
 export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletion" };
@@ -277,6 +279,7 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     liveVersion: conflict.liveVersion,
     publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
+    release: conflict.publishedAt !== null && conflict.publishedBy === null,
   }));
   const lost: LostChange[] = losses.map((loss) => {
     if (loss.reason === "parentGone") {
@@ -359,6 +362,8 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       queryKeys.layouts.all,
       ["camox", "files"],
       ["camox", "blocks"],
+      // Every draft's conflicts, and the list's latest publish and change counts.
+      queryKeys.drafts.all,
     ],
   });
 
@@ -366,6 +371,14 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
 const broadcastEnded = (ctx: ServiceContext, projectId: number, ended: EndedDraft | null) => {
   if (ended) broadcastDraftEnded({ ...roomOf(ctx, projectId), ended });
 };
+
+/** Refreshes every viewer's drafts list, which a discard changed. */
+const broadcastDiscarded = (ctx: ServiceContext, projectId: number) =>
+  broadcastInvalidation({
+    ...roomOf(ctx, projectId),
+    draftId: null,
+    targets: [queryKeys.drafts.list],
+  });
 
 /**
  * Publishes the request's draft whole, once it has no blockers, if its conflicts are still
@@ -438,6 +451,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
   if (result._tag === "Success") {
     yield* deleteUnreferencedBlobs(ctx, blobs);
+    broadcastDiscarded(ctx, projectId);
     broadcastEnded(ctx, projectId, ended);
   }
   return { ended };
