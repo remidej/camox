@@ -9,6 +9,8 @@ import {
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
+import { getCurrentDraftId } from "../../lib/studio-draft";
+import { isSettledIn } from "../preview/commentStatus";
 import { AttachedComments } from "../preview/components/AttachedComments";
 import { previewCommentsStore, type CommentPopover } from "../preview/previewCommentsStore";
 import { usePageComments } from "../preview/usePageComments";
@@ -75,7 +77,7 @@ export function canvasCommentIndicators(
   });
 
   return comments.flatMap((comment) => {
-    if (comment.resolved || !comment.target) return [];
+    if (isSettledIn(comment, getCurrentDraftId()) || !comment.target) return [];
     const target = comment.target;
     return (anchors.get(commentTargetKey(target)) ?? []).map(({ target: anchor, index }) => ({
       key: `${comment.id}:${index}`,
@@ -347,7 +349,8 @@ export function CanvasCommentIndicators({
   const indicators =
     placement === "header"
       ? comments.flatMap((comment): CanvasCommentIndicator[] => {
-          if (comment.resolved || comment.target?.kind !== "page") return [];
+          if (isSettledIn(comment, getCurrentDraftId()) || comment.target?.kind !== "page")
+            return [];
           return [
             {
               key: comment.id,
