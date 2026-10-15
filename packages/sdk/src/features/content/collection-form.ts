@@ -85,15 +85,14 @@ export function serializeAssetField(fieldType: unknown, value: unknown) {
 
 function editorAsset(value: unknown) {
   if (!value || typeof value !== "object") return null;
-  const asset = value as Record<string, unknown>;
-  return { ...asset, ...(asset._fileId != null ? { _fileId: Number(asset._fileId) } : {}) };
+  return { ...(value as Record<string, unknown>) };
 }
 
 function serializeAsset(value: unknown) {
   if (!value || typeof value !== "object") return null;
   // Editors include the file's metadata; records store the file reference only, like blocks.
-  const fileId = Number((value as Record<string, unknown>)._fileId);
-  return Number.isSafeInteger(fileId) && fileId > 0 ? { _fileId: fileId } : null;
+  const fileId = (value as Record<string, unknown>)._fileId;
+  return typeof fileId === "string" && fileId ? { _fileId: fileId } : null;
 }
 
 export function collectionFormContent(

@@ -187,8 +187,8 @@ describe("single collection references", () => {
         }),
       );
       for (const result of [block, page]) {
-        expect(result.files.map((file) => file.id).sort((a, b) => a - b)).toEqual(
-          managed.map((file) => file.id).sort((a, b) => a - b),
+        expect(result.files.map((file) => file.id).sort()).toEqual(
+          managed.map((file) => file.id).sort(),
         );
       }
       expect(customer(block.block)?.content.logo).toEqual({
@@ -219,8 +219,8 @@ describe("single collection references", () => {
           source,
         }),
       );
-      expect(layout.files.map((file) => file.id).sort((a, b) => a - b)).toEqual(
-        managed.map((file) => file.id).sort((a, b) => a - b),
+      expect(layout.files.map((file) => file.id).sort()).toEqual(
+        managed.map((file) => file.id).sort(),
       );
       expect(customer(layout.blocks[0])?.content.document).toMatchObject({
         _fileId: managed[1].id,
@@ -1386,7 +1386,7 @@ describe("query-backed reference lists", () => {
     await f.db.run(sql`
       WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 95)
       INSERT INTO collection_records (id, definition_id, content, created_at, updated_at)
-      SELECT lower(printf('%s-%s-4%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
+      SELECT lower(printf('%s-%s-7%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
           substr(hex(randomblob(2)), 2), substr(hex(randomblob(2)), 2), hex(randomblob(6)))),
         ${definitionId},
         json_object('title', 'Extra ' || i, 'excerpt', '', 'cover', json('null')), 10 + i, 10 + i

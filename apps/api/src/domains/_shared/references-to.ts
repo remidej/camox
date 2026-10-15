@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 
 /** What content can reference: a collection record by its id, or a file by its `_fileId`. */
-export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; id: number };
+export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; id: string };
 
 /** Content that references a target: a block, a repeatable item, or another collection record. */
 export type ReferencingContent =

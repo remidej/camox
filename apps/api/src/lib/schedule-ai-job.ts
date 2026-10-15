@@ -3,12 +3,10 @@ type EntityTable = "blocks" | "repeatableItems" | "files" | "pages";
 
 export function scheduleAiJob(
   doNamespace: DurableObjectNamespace,
-  options: {
-    entityTable: EntityTable;
-    entityId: number;
-    type: AiJobType;
-    delayMs: number;
-  },
+  options: { type: AiJobType; delayMs: number } & (
+    | { entityTable: "files"; entityId: string }
+    | { entityTable: Exclude<EntityTable, "files">; entityId: number }
+  ),
 ) {
   const name = `${options.entityTable}:${options.entityId}:${options.type}`;
   const id = doNamespace.idFromName(name);

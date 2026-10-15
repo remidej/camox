@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
-    entry: ["src/index.ts", "src/query-keys.ts"],
+    entry: ["src/index.ts", "src/ids.ts", "src/query-keys.ts"],
     format: "esm",
     platform: "neutral",
     outDir: "dist",

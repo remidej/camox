@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -9,14 +10,13 @@ type Field = { fieldType?: string };
 /** The `_fileId` of an asset value, as stored or as resolved on read. */
 export function assetFileId(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const raw = (value as Record<string, unknown>)._fileId;
-  const id = typeof raw === "string" && /^[1-9]\d*$/.test(raw) ? Number(raw) : raw;
-  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : undefined;
+  const id = uuidv7Schema.safeParse((value as Record<string, unknown>)._fileId);
+  return id.success ? id.data : undefined;
 }
 
 /** An asset as reads return it: its file reference and the file's current metadata. */
 export type ResolvedAsset = {
-  _fileId: number;
+  _fileId: string;
   url: string;
   alt: string;
   filename: string;
@@ -41,7 +41,7 @@ export const resolveRecordFiles = Effect.fn("collections.resolveRecordFiles")(fu
   const properties = Object.entries(
     (schema as { properties?: Record<string, Field> } | null)?.properties ?? {},
   );
-  const ids = new Set<number>();
+  const ids = new Set<string>();
   for (const [key, field] of properties) {
     const value = content[key];
     if (isAssetField(field)) {

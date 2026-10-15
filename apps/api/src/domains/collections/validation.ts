@@ -1,4 +1,5 @@
 import { isQueryBacked, isSystemOrderKey } from "@camox/api-contract";
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -137,7 +138,7 @@ export const collectionDefinitionInput = z
   });
 
 /** A stored asset: a reference to a file, resolved on read like a block's. */
-export type AssetValue = { _fileId: number };
+export type AssetValue = { _fileId: string };
 
 /**
  * Stores an asset as its file reference only. A new reference must name a file in scope that
@@ -149,7 +150,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
   environmentId: number,
   field: z.infer<typeof property>,
   value: unknown,
-  previous: ReadonlySet<number>,
+  previous: ReadonlySet<string>,
 ) {
   const fileId = assetFileId(value);
   if (fileId === undefined) {
@@ -198,7 +199,7 @@ function heldIds(value: unknown) {
   const values = Array.isArray(value) ? value : [value];
   return {
     records: new Set(values.filter((entry): entry is string => typeof entry === "string")),
-    files: new Set(values.map(assetFileId).filter((id): id is number => id !== undefined)),
+    files: new Set(values.map(assetFileId).filter((id): id is string => id !== undefined)),
   };
 }
 
@@ -223,7 +224,7 @@ export const validateContent = Effect.fn("collections.validateContent")(function
     const value = content[key];
     const held = heldIds(previous[key]);
     if (field.fieldType === "Reference") {
-      const id = yield* decodeContent(z.uuid().nullable(), value);
+      const id = yield* decodeContent(uuidv7Schema.nullable(), value);
       if (
         id !== null &&
         !held.records.has(id) &&
@@ -234,7 +235,7 @@ export const validateContent = Effect.fn("collections.validateContent")(function
       continue;
     }
     if (field.fieldType === "ReferenceList") {
-      const ids = yield* decodeContent(z.array(z.uuid()).max(field.maxItems ?? 100), value);
+      const ids = yield* decodeContent(z.array(uuidv7Schema).max(field.maxItems ?? 100), value);
       if (new Set(ids).size !== ids.length)
         return yield* new InvalidInputError({
           message: `${key}: reference list links the same record more than once`,

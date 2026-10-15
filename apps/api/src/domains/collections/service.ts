@@ -1,3 +1,4 @@
+import { generateUuidv7, uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, desc, eq, notExists, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -192,10 +193,14 @@ export const listCollectionRecordsInput = listCollectionDefinitionsInput.extend(
 });
 export const getCollectionDefinitionInput = listCollectionRecordsInput;
 const scopeInput = listCollectionRecordsInput;
-const recordInput = scopeInput.extend({ id: z.uuid() });
+const recordInput = scopeInput.extend({ id: uuidv7Schema });
 export const getCollectionRecordInput = recordInput;
 export const getRecordUsageCountInput = recordInput;
-export const createRecordInput = scopeInput.extend({ content: z.unknown() });
+/** The server mints the id; a client may mint one for an optimistic insert. */
+export const createRecordInput = scopeInput.extend({
+  id: uuidv7Schema.optional(),
+  content: z.unknown(),
+});
 export const editRecordInput = recordInput.extend({ content: z.unknown() });
 export const deleteRecordInput = recordInput;
 
@@ -358,7 +363,7 @@ const definitionUnchanged = (definition: Definition) =>
 
 export const createRecord = Effect.fn("collections.createRecord")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof scopeInput> & { content: unknown },
+  rawInput: z.input<typeof createRecordInput>,
 ) {
   const input = yield* decodeInput(createRecordInput, rawInput);
   const definition = yield* definitionFor(ctx, input, true);
@@ -372,7 +377,7 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
       .select(
         ctx.db
           .select({
-            id: sql<string>`${crypto.randomUUID()}`.as("id"),
+            id: sql<string>`${input.id ?? generateUuidv7()}`.as("id"),
             definitionId: collectionDefinitions.id,
             content: sql<Record<string, unknown>>`${JSON.stringify(content)}`.as("content"),
             createdAt: sql<number>`${now}`.as("created_at"),

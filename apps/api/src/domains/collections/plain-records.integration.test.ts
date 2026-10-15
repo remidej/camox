@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
@@ -159,7 +160,7 @@ async function fixture() {
     );
   };
   /** A file row with the given id, so tests can pick ids that are prefixes of each other. */
-  const insertFile = (id: number, mimeType = "image/png") =>
+  const insertFile = (id: string, mimeType = "image/png") =>
     base.db
       .insert(files)
       .values({
@@ -191,24 +192,50 @@ async function fixture() {
   };
 }
 
-/** A file id no other test file uses, with room for longer ids that start with it. */
-const freshFileId = () => 100_000 + Math.floor(Math.random() * 800_000);
+const freshFileId = () => generateUuidv7();
 
 describe("used in counts", () => {
-  it("counts a file's uses exactly, never those of a file whose id it is a prefix of", async () => {
+  it("counts a file's uses exactly, never those of an id it is a prefix of", async () => {
     const f = await fixture();
     const short = await f.insertFile(freshFileId());
-    const long = await f.insertFile(Number(`${short.id}7`));
+    // Stored as is, as content written before validation or by another tool could be.
+    const long = await f.insertFile(`${short.id}7`);
+    await f.db.insert(blocks).values({
+      pageId: f.page.id,
+      type: "picture",
+      content: { image: { _fileId: long.id } },
+      settings: {},
+      position: "a0",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }))).toEqual({ count: 0 });
+
     await runService(
       createBlock(f.ctx, {
         pageId: f.page.id,
         type: "picture",
-        content: { image: { _fileId: long.id } },
+        content: { image: { _fileId: short.id } },
       }),
     );
+    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }))).toEqual({ count: 1 });
+  });
 
-    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }))).toEqual({ count: 0 });
-    expect(await runService(getFileUsageCount(f.ctx, { id: long.id }))).toEqual({ count: 1 });
+  it("counts a record's uses exactly, never those of an id it is a prefix of", async () => {
+    const f = await fixture();
+    const ada = await f.createAuthor("Ada");
+    await f.db.insert(blocks).values({
+      pageId: f.page.id,
+      type: "byline",
+      content: { author: `${ada.id}7` },
+      settings: {},
+      position: "a0",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(await runService(getRecordUsageCount(f.ctx, { ...f.authors, id: ada.id }))).toEqual({
+      count: 0,
+    });
   });
 });
 

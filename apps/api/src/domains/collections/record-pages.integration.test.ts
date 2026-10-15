@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { describe, expect, it } from "vitest";
 
 import { collection as articles } from "../../../../playground/src/collections/articles";
@@ -210,9 +211,7 @@ describe("the Markdown of a record page's record", () => {
     await f.edit(record, { title: "Edited", author: ada.id });
     expect(await markdown(["# {{title}}"], f.ctx)).toBe("# Edited");
     await expect(
-      runService(
-        recordMarkdown(f.publicCtx, { ...f.scope, id: crypto.randomUUID(), toMarkdown: [] }),
-      ),
+      runService(recordMarkdown(f.publicCtx, { ...f.scope, id: generateUuidv7(), toMarkdown: [] })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

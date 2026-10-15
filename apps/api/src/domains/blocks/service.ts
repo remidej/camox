@@ -855,7 +855,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   collectFileIds(content, fileIds);
   collectFileIds(hydratedBlock.references, fileIds);
   for (const item of hydratedItems) {
@@ -935,7 +935,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
 
   const hydrated = yield* hydrateReferences(ctx, scope, blockRows);
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   for (const block of hydrated) {
     collectFileIds(block.content as Record<string, unknown>, fileIds);
     collectFileIds(block.references, fileIds);

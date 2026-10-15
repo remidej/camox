@@ -487,7 +487,7 @@ void test("collection form values round-trip assets and preserve unchanged rich 
     filename: "a.png",
     mimeType: "image/png",
     size: 5,
-    _fileId: 12,
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c",
   };
   const richText = {
     root: {
@@ -498,8 +498,15 @@ void test("collection form values round-trip assets and preserve unchanged rich 
   const original = { title: richText, cover: asset, gallery: [asset], category: "news" };
   const defaults = collectionFormDefaults(fields, original);
   assert.equal(defaults.title, "Hello");
-  assert.equal((defaults.cover as { _fileId: number })._fileId, 12);
-  const stored = { title: richText, cover: { _fileId: 12 }, gallery: [{ _fileId: 12 }] };
+  assert.equal(
+    (defaults.cover as { _fileId: string })._fileId,
+    "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c",
+  );
+  const stored = {
+    title: richText,
+    cover: { _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c" },
+    gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c" }],
+  };
   assert.deepEqual(collectionFormContent(fields, defaults, original), {
     ...stored,
     category: "news",
@@ -508,10 +515,16 @@ void test("collection form values round-trip assets and preserve unchanged rich 
     collectionFormContent(fields, { ...defaults, title: "Changed" }, original).title,
     "Changed",
   );
-  const uploaded = { ...asset, _fileId: 13, fileId: "13", id: 13, projectId: 3 };
+  const uploaded = {
+    ...asset,
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d",
+    fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d",
+    id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d",
+    projectId: 3,
+  };
   assert.deepEqual(
     collectionFormContent(fields, { ...defaults, cover: uploaded }, original).cover,
-    { _fileId: 13 },
+    { _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d" },
   );
   // An asset that isn't a file reference is never stored.
   assert.equal(

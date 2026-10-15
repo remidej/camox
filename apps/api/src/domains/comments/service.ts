@@ -4,6 +4,7 @@ import {
   commentTargetSchema,
   type CommentTarget,
 } from "@camox/api-contract";
+import { generateUuidv7, uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import { Effect } from "effect";
@@ -24,13 +25,14 @@ import {
 import type { ServiceContext } from "../_shared/service-context";
 
 export const listCommentsInput = z.strictObject({ pageId: z.number().int().positive() });
+/** The server mints the id; a client may mint one for an optimistic insert. */
 export const createCommentInput = listCommentsInput.extend({
-  id: z.uuid(),
+  id: uuidv7Schema.optional(),
   message: z.string().trim().min(1).max(COMMENT_MESSAGE_MAX_LENGTH),
   target: commentTargetSchema,
 });
 export const setCommentResolvedInput = listCommentsInput.extend({
-  id: z.uuid(),
+  id: uuidv7Schema,
   resolved: z.boolean(),
 });
 
@@ -199,7 +201,8 @@ export const createComment = Effect.fn("comments.createComment")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createCommentInput>,
 ) {
-  const input = yield* decodeInput(createCommentInput, rawInput);
+  const decoded = yield* decodeInput(createCommentInput, rawInput);
+  const input = { ...decoded, id: decoded.id ?? generateUuidv7() };
   const access = yield* authorize(ctx, input.pageId);
   const existing = yield* Effect.promise(() =>
     ctx.db.select().from(comments).where(eq(comments.id, input.id)).get(),

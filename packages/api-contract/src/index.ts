@@ -1,5 +1,6 @@
 export * from "./artifact.ts";
 export * from "./icons.ts";
 export * from "./comments.ts";
+export * from "./ids.ts";
 export * from "./reference-query.ts";
 export type { Router } from "../../../apps/api/src/router";

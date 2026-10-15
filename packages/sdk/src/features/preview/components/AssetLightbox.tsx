@@ -108,7 +108,7 @@ async function measureContentLength(url: string, signal: AbortSignal): Promise<n
 interface AssetLightboxProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  fileId: number;
+  fileId: string;
 }
 
 const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
@@ -229,7 +229,7 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
 
         setUploadState((prev) => (prev ? { ...prev, status: "committing", progress: 100 } : prev));
 
-        const { id: newFileId } = (await uploadRes.json()) as { id: number };
+        const { id: newFileId } = (await uploadRes.json()) as { id: string };
 
         await replaceFile.mutateAsync({ id: fileId, newFileId });
 

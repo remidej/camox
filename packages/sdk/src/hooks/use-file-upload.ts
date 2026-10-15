@@ -36,7 +36,7 @@ export function useFileUpload(options?: UseFileUploadOptions) {
     async (file: File, itemId: string) => {
       // Upload via XHR for progress tracking
       const result = await new Promise<{
-        id: number;
+        id: string;
         url: string;
         filename: string;
         mimeType: string;
@@ -80,7 +80,7 @@ export function useFileUpload(options?: UseFileUploadOptions) {
       });
 
       onFileCommittedRef.current?.({
-        fileId: String(result.id),
+        fileId: result.id,
         url: result.url,
         filename: result.filename,
         mimeType: result.mimeType,

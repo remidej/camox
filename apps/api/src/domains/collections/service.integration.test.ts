@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -291,7 +292,7 @@ describe("authenticated collection browsing", () => {
       runService(getCollectionRecord(f.ctx, { ...input, collectionId: "other" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      runService(getCollectionRecord(f.ctx, { ...input, id: crypto.randomUUID() })),
+      runService(getCollectionRecord(f.ctx, { ...input, id: generateUuidv7() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await runService(
       editRecord(f.ctx, { ...input, content: { ...article, title: "Updated title" } }),

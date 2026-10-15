@@ -496,7 +496,7 @@ function composePageView(args: {
   pageBlocks: RawBlock[];
   layoutBlocks: RawBlock[];
   allItems: ViewItem[];
-  fileRows: Map<number, typeof import("../../schema").files.$inferSelect>;
+  fileRows: Map<string, typeof import("../../schema").files.$inferSelect>;
 }) {
   const { page, project, layout, pageBlocks, layoutBlocks, allItems, fileRows } = args;
 
@@ -624,7 +624,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     allItems,
   );
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   for (const block of hydrated) {
     collectFileIds(block.content as Record<string, unknown>, fileIds);
     collectFileIds(block.references, fileIds);
