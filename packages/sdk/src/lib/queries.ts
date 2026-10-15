@@ -237,6 +237,20 @@ export const environmentQueries = {
   }),
 };
 
+export const draftQueries = {
+  // What publishing the draft will do. Always refetched when the review opens, since conflicts
+  // depend on Live at that moment.
+  previewPublish: (projectId: number, draftId: string) => ({
+    ...getOrpc().drafts.previewPublish.queryOptions({ input: { projectId }, staleTime: 0 }),
+    queryKey: ["camox", "drafts", "previewPublish", draftId] as const,
+  }),
+};
+
+export const draftMutations = {
+  publish: () => getOrpc().drafts.publish.mutationOptions(),
+  discard: () => getOrpc().drafts.discard.mutationOptions(),
+};
+
 export const environmentMutations = {
   replicate: () => getOrpc().environments.replicate.mutationOptions(),
 };
