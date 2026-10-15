@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2d2cc661-52e2-4c9b-b06d-9cab71209c1a",
+  "id": "644a3cff-cb9b-46cd-bd8d-2000bedfded1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -754,13 +754,6 @@
     "layouts": {
       "name": "layouts",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
         "project_id": {
           "name": "project_id",
           "type": "integer",
@@ -827,16 +820,6 @@
         }
       },
       "indexes": {
-        "layouts_project_idx": {
-          "name": "layouts_project_idx",
-          "columns": ["project_id"],
-          "isUnique": false
-        },
-        "layouts_project_layout_idx": {
-          "name": "layouts_project_layout_idx",
-          "columns": ["project_id", "layout_id"],
-          "isUnique": false
-        },
         "layouts_environment_layout_idx": {
           "name": "layouts_environment_layout_idx",
           "columns": ["environment_id", "layout_id"],
@@ -863,7 +846,12 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "layouts_project_id_environment_id_layout_id_pk": {
+          "columns": ["project_id", "environment_id", "layout_id"],
+          "name": "layouts_project_id_environment_id_layout_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -877,9 +865,16 @@
           "notNull": true,
           "autoincrement": true
         },
+        "environment_id": {
+          "name": "environment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "layout_id": {
           "name": "layout_id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -930,18 +925,18 @@
       "indexes": {
         "layout_checkpoints_layout_created_idx": {
           "name": "layout_checkpoints_layout_created_idx",
-          "columns": ["layout_id", "created_at"],
+          "columns": ["environment_id", "layout_id", "created_at"],
           "isUnique": false
         }
       },
       "foreignKeys": {
-        "layout_checkpoints_layout_id_layouts_id_fk": {
-          "name": "layout_checkpoints_layout_id_layouts_id_fk",
+        "layout_checkpoints_environment_id_environments_id_fk": {
+          "name": "layout_checkpoints_environment_id_environments_id_fk",
           "tableFrom": "layout_checkpoints",
-          "tableTo": "layouts",
-          "columnsFrom": ["layout_id"],
+          "tableTo": "environments",
+          "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "layout_checkpoints_created_by_user_id_fk": {
@@ -1005,7 +1000,7 @@
         },
         "layout_id": {
           "name": "layout_id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -1129,15 +1124,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "pages_layout_id_layouts_id_fk": {
-          "name": "pages_layout_id_layouts_id_fk",
-          "tableFrom": "pages",
-          "tableTo": "layouts",
-          "columnsFrom": ["layout_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "pages_created_by_id_user_id_fk": {
           "name": "pages_created_by_id_user_id_fk",
           "tableFrom": "pages",
@@ -1246,13 +1232,6 @@
     "block_definitions": {
       "name": "block_definitions",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
         "project_id": {
           "name": "project_id",
           "type": "integer",
@@ -1354,16 +1333,6 @@
         }
       },
       "indexes": {
-        "block_definitions_project_idx": {
-          "name": "block_definitions_project_idx",
-          "columns": ["project_id"],
-          "isUnique": false
-        },
-        "block_definitions_project_block_idx": {
-          "name": "block_definitions_project_block_idx",
-          "columns": ["project_id", "block_id"],
-          "isUnique": false
-        },
         "block_definitions_environment_block_idx": {
           "name": "block_definitions_environment_block_idx",
           "columns": ["environment_id", "block_id"],
@@ -1390,7 +1359,12 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "block_definitions_project_id_environment_id_block_id_pk": {
+          "columns": ["project_id", "environment_id", "block_id"],
+          "name": "block_definitions_project_id_environment_id_block_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -1404,6 +1378,13 @@
           "notNull": true,
           "autoincrement": true
         },
+        "environment_id": {
+          "name": "environment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "page_id": {
           "name": "page_id",
           "type": "integer",
@@ -1413,7 +1394,7 @@
         },
         "layout_id": {
           "name": "layout_id",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1484,7 +1465,7 @@
         },
         "blocks_layout_idx": {
           "name": "blocks_layout_idx",
-          "columns": ["layout_id"],
+          "columns": ["environment_id", "layout_id"],
           "isUnique": false
         },
         "blocks_type_idx": {
@@ -1494,20 +1475,20 @@
         }
       },
       "foreignKeys": {
+        "blocks_environment_id_environments_id_fk": {
+          "name": "blocks_environment_id_environments_id_fk",
+          "tableFrom": "blocks",
+          "tableTo": "environments",
+          "columnsFrom": ["environment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "blocks_page_id_pages_id_fk": {
           "name": "blocks_page_id_pages_id_fk",
           "tableFrom": "blocks",
           "tableTo": "pages",
           "columnsFrom": ["page_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "blocks_layout_id_layouts_id_fk": {
-          "name": "blocks_layout_id_layouts_id_fk",
-          "tableFrom": "blocks",
-          "tableTo": "layouts",
-          "columnsFrom": ["layout_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1935,13 +1916,6 @@
     "collection_definitions": {
       "name": "collection_definitions",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
         "project_id": {
           "name": "project_id",
           "type": "integer",
@@ -2000,13 +1974,7 @@
           "default": true
         }
       },
-      "indexes": {
-        "collection_definition_scope": {
-          "name": "collection_definition_scope",
-          "columns": ["project_id", "environment_id", "collection_id"],
-          "isUnique": true
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "collection_definitions_project_id_projects_id_fk": {
           "name": "collection_definitions_project_id_projects_id_fk",
@@ -2027,7 +1995,12 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "collection_definitions_project_id_environment_id_collection_id_pk": {
+          "columns": ["project_id", "environment_id", "collection_id"],
+          "name": "collection_definitions_project_id_environment_id_collection_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -2041,9 +2014,16 @@
           "notNull": true,
           "autoincrement": false
         },
-        "definition_id": {
-          "name": "definition_id",
+        "environment_id": {
+          "name": "environment_id",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "collection_id": {
+          "name": "collection_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -2086,18 +2066,18 @@
         }
       },
       "indexes": {
-        "collection_records_definition": {
-          "name": "collection_records_definition",
-          "columns": ["definition_id"],
+        "collection_records_collection": {
+          "name": "collection_records_collection",
+          "columns": ["environment_id", "collection_id"],
           "isUnique": false
         }
       },
       "foreignKeys": {
-        "collection_records_definition_id_collection_definitions_id_fk": {
-          "name": "collection_records_definition_id_collection_definitions_id_fk",
+        "collection_records_environment_id_environments_id_fk": {
+          "name": "collection_records_environment_id_environments_id_fk",
           "tableFrom": "collection_records",
-          "tableTo": "collection_definitions",
-          "columnsFrom": ["definition_id"],
+          "tableTo": "environments",
+          "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"

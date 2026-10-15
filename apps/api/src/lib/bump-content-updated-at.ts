@@ -2,7 +2,11 @@ import { eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../db";
+import { layoutNamed } from "../domains/layouts/identity";
 import { blocks, layouts, pages } from "../schema";
+
+/** A block's owner: a page, or a layout named within the block's environment. */
+type BlockParent = { environmentId?: number; pageId?: number | null; layoutId?: string | null };
 
 /**
  * Bumps `content_updated_at` on the parent page or layout that owns these
@@ -12,19 +16,19 @@ import { blocks, layouts, pages } from "../schema";
  */
 export const bumpContentUpdatedAt = Effect.fn("bumpContentUpdatedAt")(function* (
   db: Database,
-  parent: { pageId?: number | null; layoutId?: number | null },
+  parent: BlockParent,
 ) {
   const now = Date.now();
-  const { pageId, layoutId } = parent;
+  const { environmentId, pageId, layoutId } = parent;
   if (pageId != null) {
     yield* Effect.promise(() =>
       db.update(pages).set({ contentUpdatedAt: now }).where(eq(pages.id, pageId)),
     );
     return;
   }
-  if (layoutId != null) {
+  if (layoutId != null && environmentId != null) {
     yield* Effect.promise(() =>
-      db.update(layouts).set({ contentUpdatedAt: now }).where(eq(layouts.id, layoutId)),
+      db.update(layouts).set({ contentUpdatedAt: now }).where(layoutNamed(environmentId, layoutId)),
     );
   }
 });
@@ -36,7 +40,11 @@ export const bumpContentUpdatedAtForBlock = Effect.fn("bumpContentUpdatedAtForBl
 ) {
   const row = yield* Effect.promise(() =>
     db
-      .select({ pageId: blocks.pageId, layoutId: blocks.layoutId })
+      .select({
+        environmentId: blocks.environmentId,
+        pageId: blocks.pageId,
+        layoutId: blocks.layoutId,
+      })
       .from(blocks)
       .where(eq(blocks.id, blockId))
       .get(),
@@ -53,15 +61,23 @@ export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForB
   if (blockIds.length === 0) return;
   const rows = yield* Effect.promise(() =>
     db
-      .select({ pageId: blocks.pageId, layoutId: blocks.layoutId })
+      .select({
+        environmentId: blocks.environmentId,
+        pageId: blocks.pageId,
+        layoutId: blocks.layoutId,
+      })
       .from(blocks)
       .where(inArray(blocks.id, blockIds)),
   );
   const pageIds = new Set<number>();
-  const layoutIds = new Set<number>();
+  const layoutKeys = new Map<string, { environmentId: number; layoutId: string }>();
   for (const row of rows) {
     if (row.pageId != null) pageIds.add(row.pageId);
-    else if (row.layoutId != null) layoutIds.add(row.layoutId);
+    else if (row.layoutId != null)
+      layoutKeys.set(`${row.environmentId}:${row.layoutId}`, {
+        environmentId: row.environmentId,
+        layoutId: row.layoutId,
+      });
   }
   const now = Date.now();
   if (pageIds.size > 0) {
@@ -72,12 +88,12 @@ export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForB
         .where(inArray(pages.id, [...pageIds])),
     );
   }
-  if (layoutIds.size > 0) {
+  for (const layout of layoutKeys.values()) {
     yield* Effect.promise(() =>
       db
         .update(layouts)
         .set({ contentUpdatedAt: now })
-        .where(inArray(layouts.id, [...layoutIds])),
+        .where(layoutNamed(layout.environmentId, layout.layoutId)),
     );
   }
 });

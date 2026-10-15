@@ -80,7 +80,7 @@ void test("block dialog preserves insertion intent and closing leaves selection 
     assert.equal(samePage.context.addBlockDialog, opened.context.addBlockDialog);
     const [otherPage] = store.transition(opened, { type: "activatePage", pageId: 4 });
     assert.equal(otherPage.context.addBlockDialog, null);
-    const [layout] = store.transition(opened, { type: "activateLayout", layoutId: 5 });
+    const [layout] = store.transition(opened, { type: "activateLayout", layoutId: "news" });
     assert.equal(layout.context.addBlockDialog, null);
   }
 });
@@ -124,27 +124,30 @@ void test("derived layout targets use real layout IDs and never alias pages with
   const { previewStore: store, selectionForOwner } = await import("./previewStore");
   const selection: Selection = { type: "block", blockId: 7 };
   let snapshot = store.getInitialSnapshot();
-  [snapshot] = store.transition(snapshot, { type: "activateLayout", layoutId: 3 });
+  [snapshot] = store.transition(snapshot, { type: "activateLayout", layoutId: "default" });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "layout",
-    layoutId: 3,
+    layoutId: "default",
     selection: null,
   });
   [snapshot] = store.transition(snapshot, {
     type: "selectTarget",
     kind: "layout",
-    layoutId: 3,
+    layoutId: "default",
     selection,
   });
   const selected = snapshot.context.editingContext;
-  [snapshot] = store.transition(snapshot, { type: "activateLayout", layoutId: 3 });
+  [snapshot] = store.transition(snapshot, { type: "activateLayout", layoutId: "default" });
   assert.equal(snapshot.context.editingContext, selected);
-  assert.equal(selectionForOwner(snapshot.context, { kind: "layout", layoutId: 3 }), selection);
+  assert.equal(
+    selectionForOwner(snapshot.context, { kind: "layout", layoutId: "default" }),
+    selection,
+  );
   assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: 3 }), null);
   [snapshot] = store.transition(snapshot, { type: "clearSelection" });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "layout",
-    layoutId: 3,
+    layoutId: "default",
     selection: null,
   });
   [snapshot] = store.transition(snapshot, { type: "activatePage", pageId: 3 });
@@ -672,7 +675,7 @@ void test("record field selections are owner-scoped and step up through the reco
   [snapshot] = store.transition(snapshot, {
     type: "selectRecordField",
     kind: "layout",
-    layoutId: 5,
+    layoutId: "news",
     blockId: 7,
     fieldName: "company",
     recordId: "acme",
@@ -680,7 +683,7 @@ void test("record field selections are owner-scoped and step up through the reco
     recordFieldType: "String",
   });
   assert.equal(selectionForOwner(snapshot.context, { kind: "page", pageId: 5 }), null);
-  assert.deepEqual(selectionForOwner(snapshot.context, { kind: "layout", layoutId: 5 }), {
+  assert.deepEqual(selectionForOwner(snapshot.context, { kind: "layout", layoutId: "news" }), {
     type: "record-field",
     blockId: 7,
     fieldName: "company",
@@ -777,17 +780,17 @@ void test("a layout-owned record placement is its own selection target and the r
   [snapshot] = store.transition(snapshot, {
     type: "selectRecordField",
     kind: "layout",
-    layoutId: 5,
+    layoutId: "news",
     recordId: "launch",
     recordFieldName: "title",
     recordFieldType: "String",
   });
   assert.deepEqual(snapshot.context.editingContext, {
     kind: "layout",
-    layoutId: 5,
+    layoutId: "news",
     selection: {
       type: "record-field",
-      layoutId: 5,
+      layoutId: "news",
       recordId: "launch",
       recordFieldName: "title",
       recordFieldType: "String",
@@ -799,13 +802,13 @@ void test("a layout-owned record placement is its own selection target and the r
     path.push(snapshot.context.editingContext?.selection);
   }
   assert.deepEqual(path, [
-    { type: "record", layoutId: 5, recordId: "launch" },
-    { type: "record", layoutId: 5, recordId: "launch" },
+    { type: "record", layoutId: "news", recordId: "launch" },
+    { type: "record", layoutId: "news", recordId: "launch" },
   ]);
 
-  const layoutOwned = { layoutId: 5, recordId: "launch" };
-  assert.equal(samePlacement(layoutOwned, { layoutId: 5, recordId: "launch" }), true);
-  assert.equal(samePlacement(layoutOwned, { layoutId: 6, recordId: "launch" }), false);
+  const layoutOwned = { layoutId: "news", recordId: "launch" };
+  assert.equal(samePlacement(layoutOwned, { layoutId: "news", recordId: "launch" }), true);
+  assert.equal(samePlacement(layoutOwned, { layoutId: "events", recordId: "launch" }), false);
   // A layout block placing the same record on the same page is another placement.
   assert.equal(
     samePlacement(layoutOwned, { blockId: 5, fieldName: "article", recordId: "launch" }),
@@ -819,7 +822,7 @@ void test("a record linked by a layout-owned placement steps up to the page reco
   [snapshot] = store.transition(snapshot, {
     type: "selectRecord",
     kind: "layout",
-    layoutId: 5,
+    layoutId: "news",
     recordId: "launch",
     nested: { fieldName: "author", recordId: "jane" },
   });
@@ -831,11 +834,11 @@ void test("a record linked by a layout-owned placement steps up to the page reco
   assert.deepEqual(path, [
     {
       type: "record-field",
-      layoutId: 5,
+      layoutId: "news",
       recordId: "launch",
       recordFieldName: "author",
       recordFieldType: "Reference",
     },
-    { type: "record", layoutId: 5, recordId: "launch" },
+    { type: "record", layoutId: "news", recordId: "launch" },
   ]);
 });

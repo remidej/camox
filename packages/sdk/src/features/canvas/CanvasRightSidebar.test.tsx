@@ -208,7 +208,7 @@ void test("canvas uses the active frame owner to edit selected page and layout b
   try {
     for (const [url, owner] of [
       ["/", { kind: "page", pageId: 7 }],
-      ["/about", { kind: "layout", layoutId: 21 }],
+      ["/about", { kind: "layout", layoutId: "docs" }],
     ] as const) {
       dom.store.send({ type: "setFocusedBlock", ...owner, blockId: 42 });
       await dom.render(url, owner);
@@ -224,12 +224,12 @@ void test("canvas uses the active frame owner to edit selected page and layout b
 void test("a record page's selected record opens the editor, with no block selected", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
-  const owner = { kind: "layout", layoutId: 21 } as const;
+  const owner = { kind: "layout", layoutId: "docs" } as const;
   try {
     dom.store.send({
       type: "selectTarget",
       ...owner,
-      selection: { type: "record", layoutId: 21, recordId: "article" },
+      selection: { type: "record", layoutId: "docs", recordId: "article" },
     });
     await dom.render("/articles/example", owner);
     assert.ok(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'));

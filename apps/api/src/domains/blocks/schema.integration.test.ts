@@ -75,7 +75,7 @@ async function fixture(suffix: string) {
     .values({
       projectId: base.project.id,
       environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",

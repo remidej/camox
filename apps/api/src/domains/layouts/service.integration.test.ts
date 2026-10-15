@@ -32,7 +32,8 @@ describe("standalone shared layout reads", () => {
     const footer = await db
       .insert(blocks)
       .values({
-        layoutId: layout.id,
+        environmentId: environment.id,
+        layoutId: layout.layoutId,
         type: "footer",
         slot: "after",
         content: { title: "Footer" },
@@ -45,7 +46,8 @@ describe("standalone shared layout reads", () => {
     const navbar = await db
       .insert(blocks)
       .values({
-        layoutId: layout.id,
+        environmentId: environment.id,
+        layoutId: layout.layoutId,
         type: "navbar",
         slot: "before",
         content: { title: "Published navigation" },
@@ -87,20 +89,20 @@ describe("standalone shared layout reads", () => {
         callTool(ctx, {
           projectId: project.id,
           name: "getLayout",
-          arguments: { id: layout.id, ...(source ? { source } : {}) },
+          arguments: { layoutId: layout.layoutId, ...(source ? { source } : {}) },
         }),
       );
     expect((await runService(getLayout(publicCtx, input))).blocks).toEqual([]);
     expect(await readTool("live")).toMatchObject({
       ok: true,
       result: {
-        layout: { id: layout.id, beforeBlockIds: [], afterBlockIds: [] },
+        layout: { layoutId: layout.layoutId, beforeBlockIds: [], afterBlockIds: [] },
         blocks: [],
         repeatableItems: [],
         files: [],
       },
     });
-    await runService(publishLayout(ctx, { id: layout.id }));
+    await runService(publishLayout(ctx, { projectId: project.id, layoutId: layout.layoutId }));
     await db
       .update(blocks)
       .set({ content: { title: "Draft navigation" } })
@@ -135,7 +137,7 @@ describe("standalone shared layout reads", () => {
     expect(live.files.map((file) => file.id)).toEqual([file.id]);
     expect(await db.select().from(pages)).toEqual([]);
 
-    await runService(unpublishLayout(ctx, { id: layout.id }));
+    await runService(unpublishLayout(ctx, { projectId: project.id, layoutId: layout.layoutId }));
     expect((await runService(getLayout(publicCtx, input))).blocks).toEqual([]);
     expect(await readTool("live")).toMatchObject({ ok: true, result: { blocks: [] } });
     expect((await runService(getLayout(ctx, { ...input, source: "draft" }))).blocks).toHaveLength(
@@ -143,10 +145,11 @@ describe("standalone shared layout reads", () => {
     );
   });
 
-  it("scopes numeric tool IDs to the selected project and environment for both sources", async () => {
+  it("scopes layout names in the tool to the selected project and environment for both sources", async () => {
     const { db, layout, memberUser, project } = await createProjectFixture("layout-tool-scope");
     const ctx = createServiceContext(db, memberUser);
-    const other = await createProjectFixture("layout-tool-other");
+    // Another project's layout has the same name.
+    await createProjectFixture("layout-tool-other");
     const now = Date.now();
     const development = await db
       .insert(environments)
@@ -164,44 +167,48 @@ describe("standalone shared layout reads", () => {
       .values({
         projectId: project.id,
         environmentId: development.id,
-        layoutId: layout.layoutId,
+        layoutId: "development-only",
         contentUpdatedAt: now,
         createdAt: now,
         updatedAt: now,
       })
       .returning()
       .get();
-    const read = (id: unknown, source: string, environmentName = ctx.environmentName) =>
+    const read = (layoutId: unknown, source: string, environmentName = ctx.environmentName) =>
       runService(
         callTool(
           { ...ctx, environmentName },
-          { projectId: project.id, name: "getLayout", arguments: { id, source } },
+          { projectId: project.id, name: "getLayout", arguments: { layoutId, source } },
         ),
       );
     for (const source of ["draft", "live"]) {
-      for (const id of [999999, other.layout.id, devLayout.id]) {
-        expect(await read(id, source)).toMatchObject({
+      for (const layoutId of ["missing", devLayout.layoutId]) {
+        expect(await read(layoutId, source)).toMatchObject({
           ok: false,
           error: { code: "NOT_FOUND" },
         });
       }
-      expect(await read(layout.id, source, development.name)).toMatchObject({
+      expect(await read(layout.layoutId, source, development.name)).toMatchObject({
         ok: false,
         error: { code: "NOT_FOUND" },
       });
-      expect(await read(layout.id, source, "missing")).toMatchObject({
+      expect(await read(layout.layoutId, source, "missing")).toMatchObject({
         ok: false,
         error: { code: "NOT_FOUND" },
       });
-      expect(await read(devLayout.id, source, development.name)).toMatchObject({
+      expect(await read(layout.layoutId, source)).toMatchObject({
         ok: true,
-        result: { layout: { id: devLayout.id } },
+        result: { layout: { layoutId: layout.layoutId } },
+      });
+      expect(await read(devLayout.layoutId, source, development.name)).toMatchObject({
+        ok: true,
+        result: { layout: { layoutId: devLayout.layoutId } },
       });
     }
-    for (const id of [0, -1, 1.5, String(layout.id), undefined]) {
-      expect(await read(id, "draft")).toMatchObject({ ok: false });
+    for (const layoutId of ["", 1, undefined]) {
+      expect(await read(layoutId, "draft")).toMatchObject({ ok: false });
     }
-    expect(await read(layout.id, "invalid")).toMatchObject({ ok: false });
+    expect(await read(layout.layoutId, "invalid")).toMatchObject({ ok: false });
   });
 
   it("protects drafts and scopes file identities to their project and environment", async () => {

@@ -53,7 +53,7 @@ export type BlockRecordPlacement = LinkedRecord & {
 };
 
 /** The record a layout renders on one of its record pages, placed by no block. */
-export type LayoutRecordPlacement = LinkedRecord & { layoutId: number; recordId: string };
+export type LayoutRecordPlacement = LinkedRecord & { layoutId: string; recordId: string };
 
 /**
  * The block id of what no block places, like a record page's record: it equals no id, itself
@@ -105,7 +105,7 @@ export function samePlacement(a: RecordPlacement, b: RecordPlacement): boolean {
 }
 
 /** Derived routes have no page row, but their persisted layout remains editable. */
-export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: number };
+export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: string };
 export type EditingContext = EditingOwner & { selection: Selection | null };
 
 export function sameEditingOwner(a: EditingOwner | null, b: EditingOwner | null): boolean {
@@ -288,7 +288,7 @@ export const previewStore = createStore({
         addBlockDialog: null,
       };
     },
-    activateLayout: (context, event: { layoutId: number }) => {
+    activateLayout: (context, event: { layoutId: string }) => {
       const owner: EditingOwner = { kind: "layout", layoutId: event.layoutId };
       if (sameEditingOwner(context.editingContext, owner)) return context;
       return {

@@ -1,5 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -33,6 +33,7 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
+import { blocksOfLayout, layoutNamed } from "./identity";
 import { normalizePagePath, singletonPath } from "./route-ownership";
 
 // --- Input Schemas ---
@@ -46,13 +47,14 @@ export const getLayoutInput = z.object({
 });
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
-export const publishLayoutInput = z.object({
-  id: z.number(),
+/** A layout is named within a project, in the request's environment. */
+export const layoutKeyInput = z.object({ projectId: z.number(), layoutId: z.string() });
+export const publishLayoutInput = layoutKeyInput.extend({
   collections: collectionSelection,
   pageRecord: pageRecordInput.optional(),
   includeLayout: z.boolean().optional(),
 });
-export const unpublishLayoutInput = z.object({ id: z.number() });
+export const unpublishLayoutInput = layoutKeyInput;
 
 // Snapshot shape version written into `layout_checkpoints.schema_version`.
 // One-way ratchet — bump and add a migration when the snapshot shape changes.
@@ -132,7 +134,7 @@ const fetchLayoutStatuses = Effect.fn("layouts.fetchLayoutStatuses")(function* (
   layoutRows: LayoutRow[],
   environmentId: number,
 ) {
-  const result = new Map<number, LayoutStatusInfo>();
+  const result = new Map<string, LayoutStatusInfo>();
   if (layoutRows.length === 0) return result;
   const db = ctx.db;
 
@@ -152,8 +154,8 @@ const fetchLayoutStatuses = Effect.fn("layouts.fetchLayoutStatuses")(function* (
 
   // One GROUP BY for "how many pages use each layout" — same shape as
   // fetchPageStatuses uses for the cascade tooltip.
-  const layoutIds = layoutRows.map((l) => l.id);
-  const pageCounts = new Map<number, number>();
+  const layoutIds = layoutRows.map((l) => l.layoutId);
+  const pageCounts = new Map<string, number>();
   const rows = yield* Effect.promise(() =>
     db
       .select({ layoutId: pages.layoutId, count: sql<number>`count(*)` })
@@ -172,12 +174,12 @@ const fetchLayoutStatuses = Effect.fn("layouts.fetchLayoutStatuses")(function* (
         ? (checkpointCreatedAt.get(layout.livePublishedCheckpointId) ?? null)
         : null;
     result.set(
-      layout.id,
+      layout.layoutId,
       deriveLayoutStatus({
         layout,
         checkpointCreatedAt: cpAt,
-        affectedPagesCount: pageCounts.get(layout.id) ?? 0,
-        referenceModified: references.layoutIds.has(layout.id),
+        affectedPagesCount: pageCounts.get(layout.layoutId) ?? 0,
+        referenceModified: references.layoutIds.has(layout.layoutId),
       }),
     );
   }
@@ -196,7 +198,7 @@ export const buildLayoutSnapshotFromDraft = Effect.fn("layouts.buildLayoutSnapsh
     layout: typeof layouts.$inferSelect,
   ): Effect.fn.Return<LayoutSnapshot> {
     const layoutBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(eq(blocks.layoutId, layout.id)),
+      ctx.db.select().from(blocks).where(blocksOfLayout(layout)),
     );
     const blockIds = layoutBlocks.map((b) => b.id);
     const items =
@@ -208,7 +210,6 @@ export const buildLayoutSnapshotFromDraft = Effect.fn("layouts.buildLayoutSnapsh
 
     return {
       layout: {
-        id: layout.id,
         projectId: layout.projectId,
         environmentId: layout.environmentId,
         layoutId: layout.layoutId,
@@ -218,6 +219,7 @@ export const buildLayoutSnapshotFromDraft = Effect.fn("layouts.buildLayoutSnapsh
       },
       blocks: layoutBlocks.map((b) => ({
         id: b.id,
+        environmentId: b.environmentId,
         pageId: b.pageId,
         layoutId: b.layoutId,
         type: b.type,
@@ -256,7 +258,7 @@ const invalidateLayoutPublish = Effect.fn("layouts.invalidateLayoutPublish")(fun
   args: {
     projectId: number;
     environmentId: number;
-    layoutId: number;
+    layoutId: string;
   },
 ) {
   const dependentPages = yield* Effect.promise(() =>
@@ -275,7 +277,7 @@ const invalidateLayoutPublish = Effect.fn("layouts.invalidateLayoutPublish")(fun
       : [];
 
   const layoutBlockIds = (yield* Effect.promise(() =>
-    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.layoutId, args.layoutId)),
+    ctx.db.select({ id: blocks.id }).from(blocks).where(blocksOfLayout(args)),
   )).map((b) => b.id);
 
   broadcastInvalidation({
@@ -313,7 +315,7 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
   const statuses = yield* fetchLayoutStatuses(ctx, rows, environment.id);
   return rows.map((layout) => ({
     ...layout,
-    ...(statuses.get(layout.id) ?? { status: "draft" as const, affectedPagesCount: 0 }),
+    ...(statuses.get(layout.layoutId) ?? { status: "draft" as const, affectedPagesCount: 0 }),
   }));
 });
 
@@ -337,7 +339,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
-  if (user) yield* assertLayoutAccess(ctx.db, layout.id, user.id);
+  if (user) yield* assertLayoutAccess(ctx.db, layout, user.id);
 
   const snapshot =
     source === "draft"
@@ -374,7 +376,6 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     // Enough for the SDK to build a cache-busted favicon URL, as for pages.
     project: { id: project.id, updatedAt: project.updatedAt },
     layout: {
-      id: layout.id,
       layoutId: layout.layoutId,
       contentUpdatedAt: layout.contentUpdatedAt,
       updatedAt: layout.updatedAt,
@@ -393,6 +394,38 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
 });
 
 // --- Writes ---
+
+/** Syncing an unchanged layout writes nothing to it. */
+const updateSyncedLayout = Effect.fn("layouts.updateSyncedLayout")(function* (
+  ctx: ServiceContext,
+  existing: LayoutRow,
+  def: { description: string; kind: LayoutRow["kind"] },
+  now: number,
+) {
+  if (existing.description === def.description && existing.kind === def.kind) return existing;
+  return yield* Effect.promise(() =>
+    ctx.db
+      .update(layouts)
+      .set({ description: def.description, kind: def.kind, updatedAt: now })
+      .where(layoutNamed(existing.environmentId, existing.layoutId))
+      .returning()
+      .get(),
+  );
+});
+
+/** A layout named in a request, found in the request's environment. */
+const layoutFromInput = Effect.fn("layouts.layoutFromInput")(function* (
+  ctx: ServiceContext,
+  input: z.infer<typeof layoutKeyInput>,
+  userId: string,
+) {
+  const environment = yield* resolveEnvironment(ctx.db, input.projectId, ctx.environmentName);
+  return yield* assertLayoutAccess(
+    ctx.db,
+    { projectId: input.projectId, environmentId: environment.id, layoutId: input.layoutId },
+    userId,
+  );
+});
 
 export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   ctx: ServiceContext,
@@ -419,8 +452,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   );
   for (const def of layoutDefs) {
     if (def.kind === "curated") continue;
-    const existing = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
-    if (existingPages.some((page) => page.layoutId === existing?.id))
+    if (existingPages.some((page) => page.layoutId === def.layoutId))
       return yield* new ConflictError({
         message: `Layout ${def.layoutId} is still assigned to curated pages`,
       });
@@ -486,29 +518,9 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   }
 
   for (const def of preparedLayouts) {
-    const existingLayout = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(layouts)
-        .where(
-          and(
-            eq(layouts.projectId, projectId),
-            eq(layouts.environmentId, environment.id),
-            eq(layouts.layoutId, def.layoutId),
-          ),
-        )
-        .get(),
-    );
-
+    const existingLayout = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
     const layout = existingLayout
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .update(layouts)
-            .set({ description: def.description, kind: def.kind, updatedAt: now })
-            .where(eq(layouts.id, existingLayout.id))
-            .returning()
-            .get(),
-        )
+      ? yield* updateSyncedLayout(ctx, existingLayout, def, now)
       : yield* Effect.promise(() =>
           ctx.db
             .insert(layouts)
@@ -541,7 +553,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           position: blocks.position,
         })
         .from(blocks)
-        .where(eq(blocks.layoutId, layout.id)),
+        .where(blocksOfLayout(layout)),
     );
 
     const existingByKey = new Map<string, string>();
@@ -578,7 +590,8 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         ctx.db
           .insert(blocks)
           .values({
-            layoutId: layout.id,
+            environmentId: layout.environmentId,
+            layoutId: layout.layoutId,
             type: blockDef.type,
             content: blockDef.content,
             settings: blockDef.settings ?? null,
@@ -655,9 +668,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   }
 
   const submittedLayoutIds = layoutDefs.map((d) => d.layoutId);
-  const orphanLayoutQuery = ctx.db
-    .select({ id: layouts.id, layoutId: layouts.layoutId })
-    .from(layouts);
+  const orphanLayoutQuery = ctx.db.select({ layoutId: layouts.layoutId }).from(layouts);
   const orphanLayouts = yield* Effect.promise(() =>
     submittedLayoutIds.length > 0
       ? orphanLayoutQuery.where(
@@ -679,13 +690,28 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       ctx.db
         .select({ id: pages.id })
         .from(pages)
-        .where(and(eq(pages.layoutId, orphan.id), eq(pages.environmentId, environment.id))),
+        .where(and(eq(pages.layoutId, orphan.layoutId), eq(pages.environmentId, environment.id))),
     );
     if (pagesUsing.length > 0) {
       blockedLayoutDeletions.push({ layoutId: orphan.layoutId, pageCount: pagesUsing.length });
       continue;
     }
-    yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.id, orphan.id)));
+    // A layout's blocks and checkpoints go with it.
+    const key = { environmentId: environment.id, layoutId: orphan.layoutId };
+    yield* Effect.promise(() =>
+      ctx.db.batch([
+        ctx.db.delete(blocks).where(blocksOfLayout(key)),
+        ctx.db
+          .delete(layoutCheckpoints)
+          .where(
+            and(
+              eq(layoutCheckpoints.environmentId, key.environmentId),
+              eq(layoutCheckpoints.layoutId, key.layoutId),
+            ),
+          ),
+        ctx.db.delete(layouts).where(layoutNamed(key.environmentId, key.layoutId)),
+      ]),
+    );
     deletedLayoutIds.push(orphan.layoutId);
   }
 
@@ -697,8 +723,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     ctx.db
       .selectDistinct({ type: blocks.type })
       .from(blocks)
-      .innerJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .where(eq(layouts.environmentId, environment.id)),
+      .where(and(eq(blocks.environmentId, environment.id), isNotNull(blocks.layoutId))),
   );
   const usedTypeSet = new Set(usedTypes.map((r) => r.type));
 
@@ -747,7 +772,6 @@ export const publishLayout = Effect.fn("layouts.publishLayout")(function* (
 ) {
   const user = yield* requireUser(ctx);
   const input = yield* decodeInput(publishLayoutInput, rawInput);
-  const { id } = input;
   const references = yield* referenceTargets(ctx, input, "layout");
   if (
     input.includeLayout === false ||
@@ -757,23 +781,22 @@ export const publishLayout = Effect.fn("layouts.publishLayout")(function* (
   ) {
     return (yield* publishWithReferences(ctx, input, "layout")) as typeof layouts.$inferSelect;
   }
-  const access = yield* assertLayoutAccess(ctx.db, id, user.id);
-
-  const layoutRow = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
-  );
-  if (!layoutRow) return yield* new NotFoundError();
+  const { layout: layoutRow, projectId } = yield* layoutFromInput(ctx, input, user.id);
 
   yield* writeLayoutCheckpointAndPoint(ctx, { layout: layoutRow, userId: user.id });
 
   yield* invalidateLayoutPublish(ctx, {
-    projectId: access.projectId,
+    projectId,
     environmentId: layoutRow.environmentId,
-    layoutId: id,
+    layoutId: layoutRow.layoutId,
   });
 
   const updated = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(layoutNamed(layoutRow.environmentId, layoutRow.layoutId))
+      .get(),
   );
   return updated;
 });
@@ -796,7 +819,8 @@ export const writeLayoutCheckpointAndPoint = Effect.fn("layouts.writeLayoutCheck
       ctx.db
         .insert(layoutCheckpoints)
         .values({
-          layoutId: args.layout.id,
+          environmentId: args.layout.environmentId,
+          layoutId: args.layout.layoutId,
           kind: "auto-publish",
           label: null,
           snapshot: JSON.stringify(snapshot),
@@ -812,7 +836,7 @@ export const writeLayoutCheckpointAndPoint = Effect.fn("layouts.writeLayoutCheck
       ctx.db
         .update(layouts)
         .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
-        .where(eq(layouts.id, args.layout.id)),
+        .where(layoutNamed(args.layout.environmentId, args.layout.layoutId)),
     );
 
     yield* publishSyncedData(ctx, args.layout.environmentId, snapshot);
@@ -831,13 +855,8 @@ export const unpublishLayout = Effect.fn("layouts.unpublishLayout")(function* (
   rawInput: z.input<typeof unpublishLayoutInput>,
 ) {
   const user = yield* requireUser(ctx);
-  const { id } = yield* decodeInput(unpublishLayoutInput, rawInput);
-  const access = yield* assertLayoutAccess(ctx.db, id, user.id);
-
-  const layoutRow = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
-  );
-  if (!layoutRow) return yield* new NotFoundError();
+  const input = yield* decodeInput(unpublishLayoutInput, rawInput);
+  const { layout: layoutRow, projectId } = yield* layoutFromInput(ctx, input, user.id);
 
   // Surface a clear error rather than silently no-op when the user hits
   // unpublish on a never-published layout — the menu should already be
@@ -851,15 +870,15 @@ export const unpublishLayout = Effect.fn("layouts.unpublishLayout")(function* (
     ctx.db
       .update(layouts)
       .set({ livePublishedCheckpointId: null, updatedAt: now })
-      .where(eq(layouts.id, id))
+      .where(layoutNamed(layoutRow.environmentId, layoutRow.layoutId))
       .returning()
       .get(),
   );
 
   yield* invalidateLayoutPublish(ctx, {
-    projectId: access.projectId,
+    projectId,
     environmentId: layoutRow.environmentId,
-    layoutId: id,
+    layoutId: layoutRow.layoutId,
   });
 
   return updated;

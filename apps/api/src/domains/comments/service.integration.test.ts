@@ -30,7 +30,7 @@ async function fixture() {
     .values({
       projectId: base.project.id,
       environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "about",
       fullPath: "/about",
       nickname: "About",
@@ -66,6 +66,7 @@ async function fixture() {
   const block = await base.db
     .insert(blocks)
     .values({
+      environmentId: base.environment.id,
       pageId: page.id,
       type: "hero",
       content: {},
@@ -182,7 +183,7 @@ describe("comments", () => {
     const f = await fixture();
     const layoutBlock = await f.db
       .insert(blocks)
-      .values({ ...f.block, id: undefined, pageId: null, layoutId: f.layout.id })
+      .values({ ...f.block, id: undefined, pageId: null, layoutId: f.layout.layoutId })
       .returning()
       .get();
     const targets: CommentTarget[] = [
@@ -238,7 +239,7 @@ describe("comments", () => {
         ...f.block,
         id: undefined,
         pageId: null,
-        layoutId: f.layout.id,
+        layoutId: f.layout.layoutId,
       })
       .returning()
       .get();
@@ -385,11 +386,7 @@ describe("comments", () => {
       .get();
     const layout = await f.db
       .insert(layouts)
-      .values({
-        ...f.layout,
-        id: undefined,
-        environmentId: destination.id,
-      })
+      .values({ ...f.layout, environmentId: destination.id })
       .returning()
       .get();
     const definition = await f.db
@@ -397,16 +394,14 @@ describe("comments", () => {
       .from(blockDefinitions)
       .where(eq(blockDefinitions.environmentId, f.environment.id))
       .get();
-    await f.db
-      .insert(blockDefinitions)
-      .values({ ...definition!, id: undefined, environmentId: destination.id });
+    await f.db.insert(blockDefinitions).values({ ...definition!, environmentId: destination.id });
     const page = await f.db
       .insert(pages)
       .values({
         ...f.page,
         id: undefined,
         environmentId: destination.id,
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
       })
       .returning()
       .get();

@@ -12,6 +12,7 @@ import {
   repeatableItems,
 } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
+import { blocksOfLayout } from "../layouts/identity";
 import { syncLayouts } from "../layouts/service";
 import { initializeProjectContent } from "./service";
 
@@ -51,11 +52,14 @@ async function fixture(suffix: string) {
 
 async function snapshot(db: Awaited<ReturnType<typeof fixture>>["db"]) {
   return {
-    layouts: await db.select().from(layouts).orderBy(layouts.id),
+    layouts: await db.select().from(layouts).orderBy(layouts.layoutId),
     pages: await db.select().from(pages).orderBy(pages.id),
     blocks: await db.select().from(blocks).orderBy(blocks.id),
     items: await db.select().from(repeatableItems).orderBy(repeatableItems.id),
-    definitions: await db.select().from(blockDefinitions).orderBy(blockDefinitions.id),
+    definitions: await db
+      .select()
+      .from(blockDefinitions)
+      .orderBy(blockDefinitions.environmentId, blockDefinitions.blockId),
   };
 }
 
@@ -81,7 +85,6 @@ describe("bootstrap schema validation", () => {
       .get();
     await db.insert(blockDefinitions).values({
       ...definition!,
-      id: undefined,
       environmentId: development.id,
       contentSchema: {
         type: "object",
@@ -201,7 +204,7 @@ describe("bootstrap schema validation", () => {
         ],
       }),
     );
-    const block = await db.select().from(blocks).where(eq(blocks.layoutId, layout.id)).get();
+    const block = await db.select().from(blocks).where(blocksOfLayout(layout)).get();
     expect(block?.content).toMatchObject({ title: "Default title" });
     expect(block?.settings).toEqual({ theme: "light" });
     const items = await db

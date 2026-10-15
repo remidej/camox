@@ -9,6 +9,7 @@ import { environments, files, layouts } from "../../schema";
 import { checkCompatibility, replicateEnvironment } from "../environments/service";
 import { deleteFile, deleteFiles } from "../files/service";
 import { deleteProject } from "../projects/service";
+import { collectionNamed } from "./identity";
 import { collectionDefinitions, collectionRevisions } from "./schema";
 import {
   checkpointRecord,
@@ -355,7 +356,7 @@ describe("additive collection schema sync", () => {
         f.db
           .update(collectionDefinitions)
           .set({ contentSchema: unsafe.contentSchema })
-          .where(eq(collectionDefinitions.id, second.definitionId)),
+          .where(collectionNamed(second)),
       ).rejects.toThrow();
     },
   );

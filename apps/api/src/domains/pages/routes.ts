@@ -1,6 +1,6 @@
 import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
-import { referenceTargets, referenceTargetsInput } from "../collections/reference-publication";
+import { pageReferenceTargetsInput, referenceTargets } from "../collections/reference-publication";
 import * as service from "./service";
 
 // Public procedures
@@ -73,7 +73,7 @@ const discardChanges = authed
 
 export const pageProcedures = {
   referenceTargets: authed
-    .input(referenceTargetsInput)
+    .input(pageReferenceTargetsInput)
     .handler(({ context, input }) => runService(referenceTargets(context, input, "page"))),
   getByPath,
   getStructure,

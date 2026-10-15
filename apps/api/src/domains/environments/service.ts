@@ -1,5 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -12,7 +12,6 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import {
   blockDefinitions,
-  collectionDefinitions,
   collectionRecords,
   blocks,
   comments,
@@ -25,6 +24,7 @@ import {
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { layoutSnapshotSchema, pageSnapshotSchema } from "../_shared/snapshot-schemas";
+import { layoutNamed } from "../layouts/identity";
 
 // --- Input Schemas ---
 
@@ -81,11 +81,7 @@ const collectCompatibilityReasons = Effect.fn("collectCompatibilityReasons")(fun
     db
       .select({ id: collectionRecords.id })
       .from(collectionRecords)
-      .innerJoin(
-        collectionDefinitions,
-        eq(collectionRecords.definitionId, collectionDefinitions.id),
-      )
-      .where(inArray(collectionDefinitions.environmentId, [sourceEnvId, targetEnvId]))
+      .where(inArray(collectionRecords.environmentId, [sourceEnvId, targetEnvId]))
       .get(),
   );
   if (collection) reasons.push({ kind: "collections-replication-unsupported" });
@@ -338,29 +334,11 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   );
 
   const sourcePageIds = sourcePages.map((p) => p.id);
-  const sourceLayoutPkIds = sourceLayouts.map((l) => l.id);
 
-  // Blocks live under either a page or a layout. Skip the SQL entirely when
-  // both parent sets are empty — `inArray(col, [])` would generate `IN ()`.
-  let sourceBlocks: (typeof blocks.$inferSelect)[] = [];
-  if (sourcePageIds.length > 0 && sourceLayoutPkIds.length > 0) {
-    sourceBlocks = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(blocks)
-        .where(
-          or(inArray(blocks.pageId, sourcePageIds), inArray(blocks.layoutId, sourceLayoutPkIds)),
-        ),
-    );
-  } else if (sourcePageIds.length > 0) {
-    sourceBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(inArray(blocks.pageId, sourcePageIds)),
-    );
-  } else if (sourceLayoutPkIds.length > 0) {
-    sourceBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(inArray(blocks.layoutId, sourceLayoutPkIds)),
-    );
-  }
+  // Blocks on pages and in layouts both belong to the environment.
+  const sourceBlocks = yield* Effect.promise(() =>
+    ctx.db.select().from(blocks).where(eq(blocks.environmentId, source.id)),
+  );
 
   const sourceBlockIds = sourceBlocks.map((b) => b.id);
   const sourceItems: (typeof repeatableItems.$inferSelect)[] =
@@ -381,15 +359,9 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
             .where(inArray(pageCheckpoints.pageId, sourcePageIds)),
         )
       : [];
-  const sourceLayoutCheckpoints =
-    sourceLayoutPkIds.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(layoutCheckpoints)
-            .where(inArray(layoutCheckpoints.layoutId, sourceLayoutPkIds)),
-        )
-      : [];
+  const sourceLayoutCheckpoints = yield* Effect.promise(() =>
+    ctx.db.select().from(layoutCheckpoints).where(eq(layoutCheckpoints.environmentId, source.id)),
+  );
 
   const takenAt = Date.now();
   const snapshot = {
@@ -421,22 +393,17 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   const targetPages = yield* Effect.promise(() =>
     ctx.db.select().from(pages).where(eq(pages.environmentId, target.id)),
   );
-  const targetLayouts = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.environmentId, target.id)),
-  );
   const targetPageIds = targetPages.map((p) => p.id);
-  const targetLayoutIds = targetLayouts.map((l) => l.id);
   yield* Effect.promise(() => ctx.db.delete(comments).where(eq(comments.environmentId, target.id)));
   if (targetPageIds.length > 0) {
     yield* Effect.promise(() =>
       ctx.db.delete(pageCheckpoints).where(inArray(pageCheckpoints.pageId, targetPageIds)),
     );
   }
-  if (targetLayoutIds.length > 0) {
-    yield* Effect.promise(() =>
-      ctx.db.delete(layoutCheckpoints).where(inArray(layoutCheckpoints.layoutId, targetLayoutIds)),
-    );
-  }
+  yield* Effect.promise(() =>
+    ctx.db.delete(layoutCheckpoints).where(eq(layoutCheckpoints.environmentId, target.id)),
+  );
+  yield* Effect.promise(() => ctx.db.delete(blocks).where(eq(blocks.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.environmentId, target.id)));
   yield* Effect.promise(() =>
@@ -445,24 +412,19 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   yield* Effect.promise(() => ctx.db.delete(files).where(eq(files.environmentId, target.id)));
 
   // Phase 4 — re-insert into target, with ID remapping -----------------------
+  // Definitions keep their names, so nothing that points at them needs remapping.
 
-  const layoutsMap = new Map<number, number>();
   for (const row of sourceLayouts) {
-    const { id, environmentId: _envId, livePublishedCheckpointId: _liveCk, ...rest } = row;
-    const inserted = yield* Effect.promise(() =>
+    const { environmentId: _envId, livePublishedCheckpointId: _liveCk, ...rest } = row;
+    yield* Effect.promise(() =>
       ctx.db
         .insert(layouts)
-        .values({ ...rest, environmentId: target.id, livePublishedCheckpointId: null })
-        .returning()
-        .get(),
+        .values({ ...rest, environmentId: target.id, livePublishedCheckpointId: null }),
     );
-    layoutsMap.set(id, inserted.id);
   }
 
-  // Block definitions have no incoming FKs from env-scoped tables, so there's
-  // nothing to remap after insert.
   for (const row of sourceBlockDefs) {
-    const { id: _id, environmentId: _envId, ...rest } = row;
+    const { environmentId: _envId, ...rest } = row;
     yield* Effect.promise(() =>
       ctx.db.insert(blockDefinitions).values({ ...rest, environmentId: target.id }),
     );
@@ -490,16 +452,9 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
       id,
       environmentId: _envId,
       parentPageId,
-      layoutId,
       livePublishedCheckpointId: _liveCk,
       ...rest
     } = row;
-    const newLayoutId = layoutsMap.get(layoutId);
-    if (newLayoutId === undefined) {
-      return yield* Effect.die(
-        new Error(`Page ${id} references missing layout ${layoutId} during replication.`),
-      );
-    }
     const newParentPageId = parentPageId !== null ? (pagesMap.get(parentPageId) ?? null) : null;
     const inserted = yield* Effect.promise(() =>
       ctx.db
@@ -508,7 +463,6 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
           ...rest,
           environmentId: target.id,
           parentPageId: newParentPageId,
-          layoutId: newLayoutId,
           livePublishedCheckpointId: null,
         })
         .returning()
@@ -519,9 +473,8 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const blocksMap = new Map<number, number>();
   for (const row of sourceBlocks) {
-    const { id, pageId, layoutId, content, settings, ...rest } = row;
+    const { id, environmentId: _envId, pageId, content, settings, ...rest } = row;
     const newPageId = pageId !== null ? (pagesMap.get(pageId) ?? null) : null;
-    const newLayoutId = layoutId !== null ? (layoutsMap.get(layoutId) ?? null) : null;
     const newContent = remapContentReferences(content, filesMap, pagesMap);
     const newSettings =
       settings !== null && settings !== undefined
@@ -532,8 +485,8 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
         .insert(blocks)
         .values({
           ...rest,
+          environmentId: target.id,
           pageId: newPageId,
-          layoutId: newLayoutId,
           content: newContent,
           settings: newSettings,
         })
@@ -620,8 +573,8 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
             block: {
               ...shared.block,
               id: blocksMap.get(shared.block.id) ?? shared.block.id,
+              environmentId: target.id,
               pageId: remapMaybeNullableId(shared.block.pageId, pagesMap),
-              layoutId: remapMaybeNullableId(shared.block.layoutId, layoutsMap),
               content: remapData(shared.block.content),
               settings: remapData(shared.block.settings),
             },
@@ -646,23 +599,17 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const layoutCheckpointsMap = new Map<number, number>();
   for (const row of sourceLayoutCheckpoints) {
-    const { id, layoutId, snapshot: rawSnapshot, ...rest } = row;
-    const newLayoutId = layoutsMap.get(layoutId);
-    if (newLayoutId === undefined) continue;
+    const { id, environmentId: _envId, snapshot: rawSnapshot, ...rest } = row;
 
     const parsed = layoutSnapshotSchema.parse(JSON.parse(rawSnapshot));
     const remappedSnapshot = {
       ...parsed,
-      layout: {
-        ...parsed.layout,
-        id: newLayoutId,
-        environmentId: target.id,
-      },
+      layout: { ...parsed.layout, environmentId: target.id },
       blocks: parsed.blocks.map((block) => ({
         ...block,
         id: blocksMap.get(block.id) ?? block.id,
+        environmentId: target.id,
         pageId: remapMaybeNullableId(block.pageId, pagesMap),
-        layoutId: remapMaybeNullableId(block.layoutId, layoutsMap),
         content: remapCheckpointContent(block.content, filesMap, pagesMap),
         settings:
           block.settings !== null
@@ -685,7 +632,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     const inserted = yield* Effect.promise(() =>
       ctx.db
         .insert(layoutCheckpoints)
-        .values({ ...rest, layoutId: newLayoutId, snapshot: JSON.stringify(remappedSnapshot) })
+        .values({ ...rest, environmentId: target.id, snapshot: JSON.stringify(remappedSnapshot) })
         .returning()
         .get(),
     );
@@ -706,13 +653,12 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
         id: newPageId,
         environmentId: target.id,
         parentPageId: remapMaybeNullableId(parsed.page.parentPageId, pagesMap),
-        layoutId: layoutsMap.get(parsed.page.layoutId) ?? parsed.page.layoutId,
       },
       blocks: parsed.blocks.map((block) => ({
         ...block,
         id: blocksMap.get(block.id) ?? block.id,
+        environmentId: target.id,
         pageId: remapMaybeNullableId(block.pageId, pagesMap),
-        layoutId: remapMaybeNullableId(block.layoutId, layoutsMap),
         content: remapCheckpointContent(block.content, filesMap, pagesMap),
         settings:
           block.settings !== null
@@ -744,14 +690,13 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   for (const sourceLayout of sourceLayouts) {
     if (sourceLayout.livePublishedCheckpointId === null) continue;
-    const newLayoutId = layoutsMap.get(sourceLayout.id);
     const newCheckpointId = layoutCheckpointsMap.get(sourceLayout.livePublishedCheckpointId);
-    if (newLayoutId === undefined || newCheckpointId === undefined) continue;
+    if (newCheckpointId === undefined) continue;
     yield* Effect.promise(() =>
       ctx.db
         .update(layouts)
         .set({ livePublishedCheckpointId: newCheckpointId })
-        .where(eq(layouts.id, newLayoutId)),
+        .where(layoutNamed(target.id, sourceLayout.layoutId)),
     );
   }
 

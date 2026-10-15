@@ -38,6 +38,7 @@ import {
   referenceChanges,
   type ResolvedReferences,
 } from "../collections/references";
+import { blocksOfLayout, layoutNamed } from "../layouts/identity";
 import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
 import { writeLayoutCheckpointAndPoint } from "../layouts/service";
 import { buildFileMap, collectFileIds, executePageSeo, sortByPosition } from "./ai";
@@ -93,7 +94,8 @@ export const createPageInput = z.object({
   nickname: pageNicknameSchema.optional(),
   pathSegment: z.string(),
   parentPageId: z.number().optional(),
-  layoutId: z.number(),
+  /** The name of the page's layout. */
+  layoutId: z.string(),
 });
 export const updatePageInput = z
   .object({
@@ -121,7 +123,8 @@ export const setPageMetaDescriptionInput = z.object({
   id: z.number(),
   metaDescription: z.string(),
 });
-export const setPageLayoutInput = z.object({ id: z.number(), layoutId: z.number() });
+/** `layoutId` names the page's new layout. */
+export const setPageLayoutInput = z.object({ id: z.number(), layoutId: z.string() });
 export const generatePageSeoInput = z.object({ id: z.number() });
 // `alsoPublishLayout` bundles the page's layout into the same publish in one
 // transaction — checkbox in the page publish dialog. When `true` and the page
@@ -218,8 +221,8 @@ function invalidatePagePublish(
 export type PageStatus = "draft" | "published" | "modified";
 export type ModifiedReason =
   | { reason: "self" }
-  | { reason: "layout"; layoutId: number; layoutHandle: string; affectedPagesCount: number }
-  | { reason: "both"; layoutId: number; layoutHandle: string; affectedPagesCount: number };
+  | { reason: "layout"; layoutHandle: string; affectedPagesCount: number }
+  | { reason: "both"; layoutHandle: string; affectedPagesCount: number };
 
 export type PageStatusInfo = {
   status: PageStatus;
@@ -232,10 +235,7 @@ type LayoutRow = typeof layouts.$inferSelect;
 function deriveStatus(args: {
   page: Pick<PageRow, "livePublishedCheckpointId" | "contentUpdatedAt">;
   pageCheckpointCreatedAt: number | null;
-  layout: Pick<
-    LayoutRow,
-    "id" | "layoutId" | "livePublishedCheckpointId" | "contentUpdatedAt"
-  > | null;
+  layout: Pick<LayoutRow, "layoutId" | "livePublishedCheckpointId" | "contentUpdatedAt"> | null;
   layoutCheckpointCreatedAt: number | null;
   layoutAffectedPagesCount: number;
   referenceModified?: boolean;
@@ -275,7 +275,6 @@ function deriveStatus(args: {
       status: "modified",
       modifiedReason: {
         reason: "both",
-        layoutId: layout.id,
         layoutHandle: layout.layoutId,
         affectedPagesCount: layoutAffectedPagesCount,
       },
@@ -286,7 +285,6 @@ function deriveStatus(args: {
       status: "modified",
       modifiedReason: {
         reason: "layout",
-        layoutId: layout.id,
         layoutHandle: layout.layoutId,
         affectedPagesCount: layoutAffectedPagesCount,
       },
@@ -318,15 +316,16 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
     for (const row of rows) pageCheckpointCreatedAt.set(row.id, row.createdAt);
   }
 
-  const layoutIds = [
-    ...new Set(pageRows.map((p) => p.layoutId).filter((id): id is number => id != null)),
-  ];
-  const layoutById = new Map<number, LayoutRow>();
+  const layoutIds = [...new Set(pageRows.map((p) => p.layoutId))];
+  const layoutById = new Map<string, LayoutRow>();
   if (layoutIds.length > 0) {
     const rows = yield* Effect.promise(() =>
-      db.select().from(layouts).where(inArray(layouts.id, layoutIds)),
+      db
+        .select()
+        .from(layouts)
+        .where(and(eq(layouts.environmentId, environmentId), inArray(layouts.layoutId, layoutIds))),
     );
-    for (const row of rows) layoutById.set(row.id, row);
+    for (const row of rows) layoutById.set(row.layoutId, row);
   }
 
   const layoutCheckpointIds = [...layoutById.values()]
@@ -345,7 +344,7 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
 
   // Count pages per layout in this environment — surfaces in the "affects N
   // pages" cascade tooltip. One GROUP BY, all layouts at once.
-  const layoutPageCounts = new Map<number, number>();
+  const layoutPageCounts = new Map<string, number>();
   if (layoutIds.length > 0) {
     const rows = yield* Effect.promise(() =>
       db
@@ -361,7 +360,7 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
 
   const references = yield* referenceChanges(ctx, environmentId);
   for (const page of pageRows) {
-    const layout = page.layoutId != null ? (layoutById.get(page.layoutId) ?? null) : null;
+    const layout = layoutById.get(page.layoutId) ?? null;
     const pageCpAt =
       page.livePublishedCheckpointId != null
         ? (pageCheckpointCreatedAt.get(page.livePublishedCheckpointId) ?? null)
@@ -370,7 +369,7 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
       layout?.livePublishedCheckpointId != null
         ? (layoutCheckpointCreatedAt.get(layout.livePublishedCheckpointId) ?? null)
         : null;
-    const affected = layout != null ? (layoutPageCounts.get(layout.id) ?? 0) : 0;
+    const affected = layout != null ? (layoutPageCounts.get(layout.layoutId) ?? 0) : 0;
     result.set(
       page.id,
       deriveStatus({
@@ -380,7 +379,7 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
         layoutCheckpointCreatedAt: layoutCpAt,
         layoutAffectedPagesCount: affected,
         referenceModified: references.pageIds.has(page.id),
-        layoutReferenceModified: layout != null && references.layoutIds.has(layout.id),
+        layoutReferenceModified: layout != null && references.layoutIds.has(layout.layoutId),
       }),
     );
   }
@@ -470,6 +469,7 @@ export const buildPageSnapshotFromDraft = Effect.fn("pages.buildPageSnapshotFrom
     },
     blocks: pageBlocks.map((b) => ({
       id: b.id,
+      environmentId: b.environmentId,
       pageId: b.pageId,
       layoutId: b.layoutId,
       type: b.type,
@@ -534,7 +534,6 @@ function composePageView(args: {
     project: { id: project.id, updatedAt: project.updatedAt },
     layout: layout
       ? {
-          id: layout.id,
           layoutId: layout.layoutId,
           contentUpdatedAt: layout.contentUpdatedAt,
           livePublishedCheckpointId: layout.livePublishedCheckpointId,
@@ -573,11 +572,10 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   );
   if (!page) return yield* new NotFoundError();
 
-  const layout = page.layoutId
-    ? ((yield* Effect.promise(() =>
-        db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
-      )) ?? null)
-    : null;
+  const layout =
+    (yield* Effect.promise(() =>
+      db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
+    )) ?? null;
 
   let pageBlocks: RawBlock[];
   let layoutBlocks: RawBlock[];
@@ -589,9 +587,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     );
     layoutBlocks = layout
       ? sortByPosition(
-          yield* Effect.promise(() =>
-            db.select().from(blocks).where(eq(blocks.layoutId, layout.id)),
-          ),
+          yield* Effect.promise(() => db.select().from(blocks).where(blocksOfLayout(layout))),
         )
       : [];
     const allBlockIds = [...pageBlocks, ...layoutBlocks].map((b) => b.id);
@@ -700,11 +696,10 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   );
   if (!page) return yield* new NotFoundError();
 
-  const layout = page.layoutId
-    ? ((yield* Effect.promise(() =>
-        db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
-      )) ?? null)
-    : null;
+  const layout =
+    (yield* Effect.promise(() =>
+      db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
+    )) ?? null;
 
   let pageBlockOrder: { id: number; position: string }[];
   let layoutBlockOrder: { id: number; position: string; slot: "before" | "after" | null }[];
@@ -724,7 +719,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
             db
               .select({ id: blocks.id, position: blocks.position, slot: blocks.slot })
               .from(blocks)
-              .where(eq(blocks.layoutId, layout.id)),
+              .where(blocksOfLayout(layout)),
           ),
         )
       : [];
@@ -753,7 +748,6 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
     project: { id: project.id, updatedAt: project.updatedAt },
     layout: layout
       ? {
-          id: layout.id,
           layoutId: layout.layoutId,
           contentUpdatedAt: layout.contentUpdatedAt,
           livePublishedCheckpointId: layout.livePublishedCheckpointId,
@@ -1154,9 +1148,13 @@ export const publishPage = Effect.fn("pages.publishPage")(function* (
     layoutBlockIds: number[];
   } | null = null;
 
-  if (alsoPublishLayout && pageRow.layoutId != null) {
+  if (alsoPublishLayout) {
     const layoutRow = yield* Effect.promise(() =>
-      ctx.db.select().from(layouts).where(eq(layouts.id, pageRow.layoutId)).get(),
+      ctx.db
+        .select()
+        .from(layouts)
+        .where(layoutNamed(pageRow.environmentId, pageRow.layoutId))
+        .get(),
     );
     if (layoutRow) {
       yield* writeLayoutCheckpointAndPoint(ctx, { layout: layoutRow, userId: user.id });
@@ -1171,7 +1169,10 @@ export const publishPage = Effect.fn("pages.publishPage")(function* (
           .select({ id: pages.id, fullPath: pages.fullPath })
           .from(pages)
           .where(
-            and(eq(pages.layoutId, layoutRow.id), eq(pages.environmentId, layoutRow.environmentId)),
+            and(
+              eq(pages.layoutId, layoutRow.layoutId),
+              eq(pages.environmentId, layoutRow.environmentId),
+            ),
           ),
       );
       const otherPageIds = dependentPages.map((p) => p.id).filter((pid) => pid !== id);
@@ -1186,7 +1187,7 @@ export const publishPage = Effect.fn("pages.publishPage")(function* (
             )).map((b) => b.id)
           : [];
       const layoutBlockIds = (yield* Effect.promise(() =>
-        ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.layoutId, layoutRow.id)),
+        ctx.db.select({ id: blocks.id }).from(blocks).where(blocksOfLayout(layoutRow)),
       )).map((b) => b.id);
 
       layoutCascade = {
@@ -1336,6 +1337,7 @@ export const discardPageChanges = Effect.fn("pages.discardPageChanges")(function
     yield* Effect.promise(() =>
       ctx.db.insert(blocks).values({
         id: block.id,
+        environmentId: pageRow.environmentId,
         pageId: id,
         layoutId: null,
         type: block.type,

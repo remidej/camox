@@ -5,7 +5,8 @@ import { z } from "zod";
 import { assertSyncAccess } from "../../authorization";
 import { decodeInput } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
-import { blockDefinitions, blocks, layouts, pages } from "../../schema";
+import { stableStringify } from "../../lib/stable-stringify";
+import { blockDefinitions, blocks } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { applySyncedFlagChange } from "../blocks/synced";
 import { validateReferenceSchema } from "../collections/references";
@@ -46,6 +47,41 @@ export const deleteBlockDefinitionInput = z.object({
   deployToken: z.string().optional(),
   blockId: z.string(),
 });
+
+/** A block definition is identified by its name within a project's environment. */
+function definitionScope(projectId: number, environmentId: number, blockId: string) {
+  return and(
+    eq(blockDefinitions.projectId, projectId),
+    eq(blockDefinitions.environmentId, environmentId),
+    eq(blockDefinitions.blockId, blockId),
+  );
+}
+
+type DefinitionFields = z.infer<z.ZodObject<typeof definitionFields>>;
+
+/** The stored columns a synced definition sets. */
+function definitionColumns(def: DefinitionFields) {
+  return {
+    title: def.title,
+    description: def.description,
+    contentSchema: def.contentSchema,
+    settingsSchema: def.settingsSchema ?? null,
+    defaultContent: def.defaultContent ?? null,
+    defaultSettings: def.defaultSettings ?? null,
+    layoutOnly: def.layoutOnly ?? null,
+    synced: def.synced ?? false,
+  };
+}
+
+function definitionChanged(
+  existing: typeof blockDefinitions.$inferSelect,
+  columns: ReturnType<typeof definitionColumns>,
+) {
+  return Object.entries(columns).some(
+    ([key, value]) =>
+      stableStringify(existing[key as keyof typeof columns]) !== stableStringify(value),
+  );
+}
 
 // --- Reads ---
 
@@ -97,32 +133,22 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
       ctx.db
         .select()
         .from(blockDefinitions)
-        .where(
-          and(
-            eq(blockDefinitions.projectId, projectId),
-            eq(blockDefinitions.environmentId, environment.id),
-            eq(blockDefinitions.blockId, def.blockId),
-          ),
-        )
+        .where(definitionScope(projectId, environment.id, def.blockId))
         .get(),
     );
 
     if (existing) {
+      const fields = definitionColumns(def);
+      // Syncing an unchanged definition writes nothing.
+      if (!definitionChanged(existing, fields)) {
+        results.push(existing);
+        continue;
+      }
       const updated = yield* Effect.promise(() =>
         ctx.db
           .update(blockDefinitions)
-          .set({
-            title: def.title,
-            description: def.description,
-            contentSchema: def.contentSchema,
-            settingsSchema: def.settingsSchema ?? null,
-            defaultContent: def.defaultContent ?? null,
-            defaultSettings: def.defaultSettings ?? null,
-            layoutOnly: def.layoutOnly ?? null,
-            synced: def.synced ?? false,
-            updatedAt: now,
-          })
-          .where(eq(blockDefinitions.id, existing.id))
+          .set({ ...fields, updatedAt: now })
+          .where(definitionScope(projectId, environment.id, def.blockId))
           .returning()
           .get(),
       );
@@ -178,7 +204,6 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
   const existingDefs = yield* Effect.promise(() =>
     ctx.db
       .select({
-        id: blockDefinitions.id,
         blockId: blockDefinitions.blockId,
         layoutOnly: blockDefinitions.layoutOnly,
       })
@@ -196,31 +221,23 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
   const blockedDefinitionDeletions: Array<{ blockId: string; blockCount: number }> = [];
 
   for (const orphan of orphans) {
-    // A block is attached to either a page or a layout (the column
-    // not in use is null), so usage is the union of both joins scoped to this
-    // environment.
-    const pageUses = yield* Effect.promise(() =>
+    // Blocks on pages and in layouts both belong to this environment.
+    const uses = yield* Effect.promise(() =>
       ctx.db
         .select({ id: blocks.id })
         .from(blocks)
-        .innerJoin(pages, eq(blocks.pageId, pages.id))
-        .where(and(eq(blocks.type, orphan.blockId), eq(pages.environmentId, environment.id))),
+        .where(and(eq(blocks.type, orphan.blockId), eq(blocks.environmentId, environment.id))),
     );
-    const layoutUses = yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: blocks.id })
-        .from(blocks)
-        .innerJoin(layouts, eq(blocks.layoutId, layouts.id))
-        .where(and(eq(blocks.type, orphan.blockId), eq(layouts.environmentId, environment.id))),
-    );
-    const usageCount = pageUses.length + layoutUses.length;
+    const usageCount = uses.length;
 
     if (usageCount > 0) {
       blockedDefinitionDeletions.push({ blockId: orphan.blockId, blockCount: usageCount });
       continue;
     }
     yield* Effect.promise(() =>
-      ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.id, orphan.id)),
+      ctx.db
+        .delete(blockDefinitions)
+        .where(definitionScope(projectId, environment.id, orphan.blockId)),
     );
     deletedDefinitionTypes.push(orphan.blockId);
   }
@@ -258,13 +275,7 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
     ctx.db
       .select()
       .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, projectId),
-          eq(blockDefinitions.environmentId, environment.id),
-          eq(blockDefinitions.blockId, body.blockId),
-        ),
-      )
+      .where(definitionScope(projectId, environment.id, body.blockId))
       .get(),
   );
 
@@ -272,18 +283,8 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
     const result = yield* Effect.promise(() =>
       ctx.db
         .update(blockDefinitions)
-        .set({
-          title: body.title,
-          description: body.description,
-          contentSchema: body.contentSchema,
-          settingsSchema: body.settingsSchema ?? null,
-          defaultContent: body.defaultContent ?? null,
-          defaultSettings: body.defaultSettings ?? null,
-          layoutOnly: body.layoutOnly ?? null,
-          synced: body.synced ?? false,
-          updatedAt: now,
-        })
-        .where(eq(blockDefinitions.id, existing.id))
+        .set({ ...definitionColumns(body), updatedAt: now })
+        .where(definitionScope(projectId, environment.id, body.blockId))
         .returning()
         .get(),
     );
@@ -344,13 +345,7 @@ export const deleteBlockDefinition = Effect.fn("blockDefinitions.deleteBlockDefi
   const result = yield* Effect.promise(() =>
     ctx.db
       .delete(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, project.id),
-          eq(blockDefinitions.environmentId, environment.id),
-          eq(blockDefinitions.blockId, blockId),
-        ),
-      )
+      .where(definitionScope(project.id, environment.id, blockId))
       .returning()
       .get(),
   );

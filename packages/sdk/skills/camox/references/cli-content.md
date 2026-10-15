@@ -10,8 +10,10 @@ Use these commands for Pages, metadata, Layout assignments, Blocks and their Con
 
 ```sh
 {{CAMOX_CMD}} layouts list
-{{CAMOX_CMD}} pages create --path-segment about --layout-id 39
+{{CAMOX_CMD}} pages create --path-segment about --layout-id default
 ```
+
+`--layout-id` takes a Layout's name, the `layoutId` listed by `layouts list`.
 
 Use `--parent-page-id <ID>` to nest the Page under another Page.
 
@@ -63,13 +65,13 @@ the Layout to discover navigation, footer, and other layout-owned block IDs:
 
 ```sh
 {{CAMOX_CMD}} layouts list
-{{CAMOX_CMD}} layouts get --id 39
+{{CAMOX_CMD}} layouts get --layout-id default
 {{CAMOX_CMD}} blocks get --id 99
 {{CAMOX_CMD}} blocks edit --id 99 --content '{"title": "Updated title"}'
 ```
 
-Use the numeric `id` from `layouts list` (or the Page's numeric `layoutId`)
-for `layouts get --id`, not the code-defined string `layoutId`. The response
+Pass the Layout's name, the `layoutId` from `layouts list` (also the Page's
+`layoutId`), to `layouts get --layout-id`. The response
 includes `blocks` with `id`, `type`, `slot`, and Content, plus
 `layout.beforeBlockIds` and `layout.afterBlockIds`. Pass a Block's `id` to
 `blocks get` and `blocks edit`; do not use the Layout ID or Block type.

@@ -154,7 +154,7 @@ interface PreviewPanelProps {
   active?: boolean;
   isMobileExperience?: boolean;
   page?: PreviewedPage;
-  layoutId?: number;
+  layoutId?: string;
   projectName?: string;
   toolbarProps?: React.ComponentProps<typeof PreviewToolbar>;
 }

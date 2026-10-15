@@ -1,6 +1,9 @@
 import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
-import { referenceTargets, referenceTargetsInput } from "../collections/reference-publication";
+import {
+  layoutReferenceTargetsInput,
+  referenceTargets,
+} from "../collections/reference-publication";
 import * as service from "./service";
 
 // Public procedures
@@ -34,6 +37,6 @@ export const layoutProcedures = {
   publish,
   unpublish,
   referenceTargets: authed
-    .input(referenceTargetsInput)
+    .input(layoutReferenceTargetsInput)
     .handler(({ context, input }) => runService(referenceTargets(context, input, "layout"))),
 };

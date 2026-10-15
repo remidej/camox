@@ -84,7 +84,7 @@ async function fixture(required = false, assets = false) {
     .values({
       projectId: f.project.id,
       environmentId: f.environment.id,
-      layoutId: f.layout.id,
+      layoutId: f.layout.layoutId,
       pathSegment: "reference",
       fullPath: "/reference",
       nickname: "",
@@ -373,9 +373,11 @@ describe("single collection references", () => {
     }
     await f.db
       .update(blocks)
-      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
+      .set({ pageId: null, layoutId: f.layout.layoutId, slot: "before" })
       .where(eq(blocks.id, f.block.id));
-    await runService(publishLayout(f.ctx, { id: f.layout.id }));
+    await runService(
+      publishLayout(f.ctx, { projectId: f.project.id, layoutId: f.layout.layoutId }),
+    );
     for (const source of ["draft", "live"] as const) {
       const ctx = source === "draft" ? f.ctx : f.publicCtx;
       const layout = await runService(
@@ -584,7 +586,7 @@ describe("single collection references", () => {
     const f = await fixture(true);
     await f.db
       .update(blocks)
-      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
+      .set({ pageId: null, layoutId: f.layout.layoutId, slot: "before" })
       .where(eq(blocks.id, f.block.id));
     expect(
       (await runService(referenceTargets(f.ctx, { id: f.page.id }, "page"))).targets,
@@ -604,12 +606,15 @@ describe("single collection references", () => {
       }),
     );
     expect(customer(draft.blocks[0])?.content.name).toBe("Original");
-    await expect(runService(publishLayout(f.ctx, { id: f.layout.id }))).rejects.toMatchObject({
+    await expect(
+      runService(publishLayout(f.ctx, { projectId: f.project.id, layoutId: f.layout.layoutId })),
+    ).rejects.toMatchObject({
       code: "CONFLICT",
     });
     await runService(
       publishLayout(f.ctx, {
-        id: f.layout.id,
+        projectId: f.project.id,
+        layoutId: f.layout.layoutId,
         collections: [{ id: f.record.id, collectionId: "customers", expectedVersion: 1 }],
       }),
     );
@@ -1243,7 +1248,7 @@ async function relationFixture() {
     .values({
       projectId: f.project.id,
       environmentId: f.environment.id,
-      layoutId: f.layout.id,
+      layoutId: f.layout.layoutId,
       pathSegment: "relations",
       fullPath: "/relations",
       nickname: "",
@@ -1520,7 +1525,7 @@ async function queryFixture() {
     .values({
       projectId: f.project.id,
       environmentId: f.environment.id,
-      layoutId: f.layout.id,
+      layoutId: f.layout.layoutId,
       pathSegment: "articles",
       fullPath: "/articles",
       nickname: "",
@@ -1823,18 +1828,21 @@ describe("query-backed reference lists", () => {
     expect(await f.titles("recent", "draft")).toHaveLength(3);
     // Seed the 96 extra drafts in one statement: going through createRecord one at a time
     // (each mocking the clock) takes seconds, and record creation is covered elsewhere.
-    const { definitionId } = await f.db
-      .select({ definitionId: collectionRecords.definitionId })
+    const { environmentId, collectionId } = await f.db
+      .select({
+        environmentId: collectionRecords.environmentId,
+        collectionId: collectionRecords.collectionId,
+      })
       .from(collectionRecords)
       .where(eq(collectionRecords.id, f.records.bravo.id))
       .get()
       .then((row) => row!);
     await f.db.run(sql`
       WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 95)
-      INSERT INTO collection_records (id, definition_id, draft, version, created_at, updated_at)
+      INSERT INTO collection_records (id, environment_id, collection_id, draft, version, created_at, updated_at)
       SELECT lower(printf('%s-%s-4%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
           substr(hex(randomblob(2)), 2), substr(hex(randomblob(2)), 2), hex(randomblob(6)))),
-        ${definitionId},
+        ${environmentId}, ${collectionId},
         json_object('title', 'Extra ' || i, 'excerpt', '', 'cover', json('null')), 1, 10 + i, 10 + i
       FROM n
     `);

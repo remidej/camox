@@ -1,6 +1,6 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { DurableObject } from "cloudflare:workers";
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createDb } from "../db";
@@ -10,7 +10,7 @@ import { executePageSeo } from "../domains/pages/ai";
 import { executeRepeatableItemSummary } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
-import { blocks, files, layouts, pages, projects, repeatableItems } from "../schema";
+import { blocks, environments, files, pages, repeatableItems } from "../schema";
 import type { Bindings } from "../types";
 
 type JobParams = {
@@ -166,11 +166,9 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     blockId: number,
   ): Promise<number | null> {
     const result = await db
-      .select({ projectId: projects.id })
+      .select({ projectId: environments.projectId })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
+      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .where(eq(blocks.id, blockId))
       .get();
     return result?.projectId ?? null;

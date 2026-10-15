@@ -20,6 +20,7 @@ import {
   blocks,
   environments,
   files,
+  layoutCheckpoints,
   layouts,
   organizationTable,
   pages,
@@ -249,7 +250,10 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
       .from(collectionRecords)
       .innerJoin(
         collectionDefinitions,
-        eq(collectionRecords.definitionId, collectionDefinitions.id),
+        and(
+          eq(collectionDefinitions.environmentId, collectionRecords.environmentId),
+          eq(collectionDefinitions.collectionId, collectionRecords.collectionId),
+        ),
       )
       .where(eq(collectionDefinitions.projectId, projectId))
       .get(),
@@ -267,24 +271,21 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   );
   const pageIds = pageRows.map((r) => r.id);
 
-  const layoutRows = yield* Effect.promise(() =>
-    ctx.db.select({ id: layouts.id }).from(layouts).where(eq(layouts.projectId, projectId)),
-  );
-  const layoutIds = layoutRows.map((r) => r.id);
-
-  const blockConditions = [
-    ...(pageIds.length > 0 ? [inArray(blocks.pageId, pageIds)] : []),
-    ...(layoutIds.length > 0 ? [inArray(blocks.layoutId, layoutIds)] : []),
-  ];
-  const blockRows =
-    blockConditions.length > 0
-      ? yield* Effect.promise(() =>
+  // Blocks on pages and in layouts both belong to one of the project's environments.
+  const blockRows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: blocks.id })
+      .from(blocks)
+      .where(
+        inArray(
+          blocks.environmentId,
           ctx.db
-            .select({ id: blocks.id })
-            .from(blocks)
-            .where(or(...blockConditions)),
-        )
-      : [];
+            .select({ id: environments.id })
+            .from(environments)
+            .where(eq(environments.projectId, projectId)),
+        ),
+      ),
+  );
   const blockIds = blockRows.map((r) => r.id);
 
   const repeatableItemRows =
@@ -384,6 +385,19 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   // Delete project favicon from R2 (no DB row to clean up — favicons are R2-only)
   yield* Effect.promise(() => ctx.env.FILES_BUCKET.delete(`favicons/${projectId}`));
 
+  yield* Effect.promise(() =>
+    ctx.db
+      .delete(layoutCheckpoints)
+      .where(
+        inArray(
+          layoutCheckpoints.environmentId,
+          ctx.db
+            .select({ id: environments.id })
+            .from(environments)
+            .where(eq(environments.projectId, projectId)),
+        ),
+      ),
+  );
   yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.projectId, projectId)));
   yield* Effect.promise(() =>
     ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.projectId, projectId)),
@@ -493,7 +507,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
         environmentId: environment.id,
         pathSegment: "",
         fullPath: "/",
-        layoutId: layout.id,
+        layoutId: layout.layoutId,
         nickname: "Home",
         metaTitle: "Untitled page",
         metaDescription:
@@ -518,6 +532,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       ctx.db
         .insert(blocks)
         .values({
+          environmentId: environment.id,
           pageId: homepage.id,
           type: blockDef.type,
           content: blockDef.content,

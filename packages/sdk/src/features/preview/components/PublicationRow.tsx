@@ -44,7 +44,7 @@ type Operation = "publish" | "unpublish" | "discard";
 function targetIdentity(target: PublicationTarget | null) {
   if (!target) return "loading";
   if (target.kind === "page") return `page:${target.page.id}`;
-  return `layout:${target.layout.id}:${target.record?.id ?? ""}`;
+  return `layout:${target.layout.layoutId}:${target.record?.id ?? ""}`;
 }
 
 export function PublicationRow({ target }: { target: PublicationTarget | null }) {
@@ -83,7 +83,10 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
         return;
       }
       if (target.kind === "layout") {
-        await api.layouts.unpublish({ id: target.layout.id });
+        await api.layouts.unpublish({
+          projectId: target.layout.projectId,
+          layoutId: target.layout.layoutId,
+        });
         return;
       }
       if (operation === "discard") {
@@ -277,7 +280,8 @@ function ReferencePublicationDialog({
       reviewedTarget.kind === "page"
         ? api.pages.referenceTargets({ id: reviewedTarget.page.id, alsoPublishLayout })
         : api.layouts.referenceTargets({
-            id: reviewedTarget.layout.id,
+            projectId: reviewedTarget.layout.projectId,
+            layoutId: reviewedTarget.layout.layoutId,
             ...getLayoutPublicationScope(reviewedTarget, alsoPublishLayout),
           });
     void request.then(

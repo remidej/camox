@@ -46,7 +46,7 @@ export function DerivedLayoutSidebar({
     ...layoutQueries.list(project?.id ?? 0),
     enabled: !!project,
   });
-  const record = layouts?.find((item) => item.id === layout.id);
+  const record = layouts?.find((item) => item.layoutId === layout.layoutId);
   // Publication refreshes this list, so the switch follows the record's status.
   const { data: pageRecordStatus } = useQuery({
     ...collectionQueries.records(projectSlug, pageRecord?.collectionId ?? ""),
