@@ -13,56 +13,76 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
  * Edits fired before it settles share the same pending id so they land in one draft.
  */
 
-/** The routers whose procedures are classified as starting a draft or not. */
-type DraftedRouter = "blocks" | "pages" | "repeatableItems";
+// Whether each procedure of a router that follows drafts is a content write that starts a draft.
+// Every procedure is listed, so a new one fails the type check until it's classified and can't
+// be forgotten. Procedures that only fill a generated value (ADR 0012), like `generateSummary`,
+// don't start one. A synced block's shared content is written through `blocks` and
+// `repeatableItems`.
+const BLOCKS_START_DRAFT: Record<keyof Router["blocks"], boolean> = {
+  get: false,
+  getPageMarkdown: false,
+  getLayoutMarkdown: false,
+  getUsageCounts: false,
+  getPagesUsing: false,
+  getSyncedContent: false,
+  create: true,
+  updateContent: true,
+  updateSettings: true,
+  updatePosition: true,
+  delete: true,
+  deleteMany: true,
+  generateSummary: false,
+  duplicate: true,
+};
 
-// Whether each procedure is a content write that starts a draft. Every procedure of a listed
-// router is classified, so a new one fails the type check until it's classified and can't be
-// forgotten. Add a router here once its content lives in drafts. Procedures that only fill a
-// generated value (ADR 0012), like `generateSummary`, don't start one. A synced block's shared
-// content is written through `blocks` and `repeatableItems`.
-const STARTS_DRAFT: { [R in DraftedRouter]: Record<keyof Router[R], boolean> } = {
-  blocks: {
-    get: false,
-    getPageMarkdown: false,
-    getLayoutMarkdown: false,
-    getUsageCounts: false,
-    getPagesUsing: false,
-    getSyncedContent: false,
-    create: true,
-    updateContent: true,
-    updateSettings: true,
-    updatePosition: true,
-    delete: true,
-    deleteMany: true,
-    generateSummary: false,
-    duplicate: true,
-  },
-  pages: {
-    getByPath: false,
-    getStructure: false,
-    list: false,
-    listBySlug: false,
-    get: false,
-    create: true,
-    update: true,
-    delete: true,
-    setAiSeo: true,
-    setMetaTitle: true,
-    setMetaDescription: true,
-    setLayout: true,
-    generateSeo: false,
-  },
-  repeatableItems: {
-    get: false,
-    create: true,
-    updateContent: true,
-    updateSettings: true,
-    updatePosition: true,
-    duplicate: true,
-    generateSummary: false,
-    delete: true,
-  },
+// A release syncs collection definitions; it never runs in the studio.
+const COLLECTIONS_START_DRAFT: Record<keyof Router["collectionDefinitions"], boolean> = {
+  list: false,
+  get: false,
+  listRecords: false,
+  getRecord: false,
+  getRecordUsageCount: false,
+  findRecordsByField: false,
+  listRecordPageValues: false,
+  recordMarkdown: false,
+  createRecord: true,
+  editRecord: true,
+  deleteRecord: true,
+  sync: false,
+};
+
+const PAGES_START_DRAFT: Record<keyof Router["pages"], boolean> = {
+  getByPath: false,
+  getStructure: false,
+  list: false,
+  listBySlug: false,
+  get: false,
+  create: true,
+  update: true,
+  delete: true,
+  setAiSeo: true,
+  setMetaTitle: true,
+  setMetaDescription: true,
+  setLayout: true,
+  generateSeo: false,
+};
+
+const ITEMS_START_DRAFT: Record<keyof Router["repeatableItems"], boolean> = {
+  get: false,
+  create: true,
+  updateContent: true,
+  updateSettings: true,
+  updatePosition: true,
+  duplicate: true,
+  generateSummary: false,
+  delete: true,
+};
+
+const STARTS_DRAFT: Partial<Record<keyof Router, Record<string, boolean>>> = {
+  blocks: BLOCKS_START_DRAFT,
+  collectionDefinitions: COLLECTIONS_START_DRAFT,
+  pages: PAGES_START_DRAFT,
+  repeatableItems: ITEMS_START_DRAFT,
 };
 
 let currentDraftId: string | null = null;
@@ -127,9 +147,8 @@ export function onDraftStarted(listener: (draftId: string) => void): () => void 
 }
 
 function startsDraft(path: readonly string[]) {
-  if (path.length !== 2 || !Object.hasOwn(STARTS_DRAFT, path[0])) return false;
-  const procedures: Record<string, boolean> = STARTS_DRAFT[path[0] as DraftedRouter];
-  return procedures[path[1]] === true;
+  if (path.length !== 2) return false;
+  return STARTS_DRAFT[path[0] as keyof Router]?.[path[1]] === true;
 }
 
 /** Headers for an API call at `path`, and a callback to report whether the call succeeded. */

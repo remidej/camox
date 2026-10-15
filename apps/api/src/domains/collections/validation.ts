@@ -7,6 +7,7 @@ import { z } from "zod";
 import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import type { ContentScope } from "./identity";
 import { assetFileId } from "./record-files";
 import { missingReference, recordInScope } from "./references";
 import { decodeContent, validateText } from "./text-content";
@@ -210,7 +211,7 @@ function heldIds(value: unknown) {
  */
 export const validateContent = Effect.fn("collections.validateContent")(function* (
   ctx: ServiceContext,
-  definition: { projectId: number; environmentId: number; contentSchema: unknown },
+  definition: ContentScope & { contentSchema: unknown },
   value: unknown,
   previous: Record<string, unknown> = {},
 ) {

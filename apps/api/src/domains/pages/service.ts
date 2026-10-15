@@ -227,8 +227,8 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     : { blocks: [], items: [] };
   const allBlocks = [...pageContent.blocks, ...layoutContent.blocks];
 
-  const hydrated = yield* hydrateReferences(ctx, page, allBlocks);
-  const hydratedItems = yield* hydrateItemReferences(ctx, page, allBlocks, [
+  const hydrated = yield* hydrateReferences(ctx, { ...page, draft: scope }, allBlocks);
+  const hydratedItems = yield* hydrateItemReferences(ctx, { ...page, draft: scope }, allBlocks, [
     ...pageContent.items,
     ...layoutContent.items,
   ]);

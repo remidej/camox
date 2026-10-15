@@ -578,7 +578,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   });
   yield* validateReferenceValues(
     ctx,
-    yield* blockScope(ctx, access.block),
+    yield* blockScope(ctx, access.block, scope),
     repeater?.items,
     contentWithItems,
   );
@@ -679,7 +679,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
     const sanitizedPatch = yield* sanitizeItemContent(content, itemSchema?.properties, schema);
     yield* validateReferenceValues(
       ctx,
-      yield* blockScope(ctx, tree.definition),
+      yield* blockScope(ctx, tree.definition, scope),
       itemSchema,
       sanitizedPatch,
     );

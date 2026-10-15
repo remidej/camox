@@ -390,7 +390,8 @@ export const getFileUsageCount = Effect.fn("files.getFileUsageCount")(function* 
 
   const uses = yield* referencesTo(
     ctx.db,
-    { projectId: file.projectId!, environmentId: file.environmentId },
+    // Files follow drafts in #240; until then their uses are counted as Live sees them.
+    { projectId: file.projectId!, environmentId: file.environmentId, draft: null },
     { kind: "file", id: file.id },
   );
   return { count: uses.length };

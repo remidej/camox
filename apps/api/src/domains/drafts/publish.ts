@@ -13,15 +13,19 @@ import {
   InvalidInputError,
   PublishBlockedError,
 } from "../../lib/errors";
+import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import {
   blockDefinitions,
   blocks,
+  collectionDefinitions,
+  collectionRecords,
   comments,
   environments,
   pages,
   repeatableItems,
   sharedContents,
 } from "../../schema";
+import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as draftComments from "../comments/drafts";
@@ -34,12 +38,17 @@ import { findEndedDraft, resolveDraftScope } from "./service";
 
 type Scope = NonNullable<DraftScope>;
 type BlockRow = typeof blocks.$inferSelect;
+type RecordRow = typeof collectionRecords.$inferSelect;
 
-/** Where an entity sits, so people can find it: its page, its layout, or its synced block. */
+/**
+ * Where an entity sits, so people can find it: its page, its layout, its synced block or its
+ * collection.
+ */
 export type Owner =
   | { kind: "page"; id: string; path: string; nickname: string }
   | { kind: "layout"; name: string }
   | { kind: "syncedBlock"; name: string; title: string }
+  | { kind: "collection"; name: string; title: string }
   | null;
 
 /** An entity as people know it. */
@@ -213,6 +222,48 @@ const describer = Effect.fn("drafts.describer")(function* (
   };
 });
 
+/** Labels for records, from the rows the draft holds, each under its collection. */
+const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  rows: RecordRow[],
+) {
+  const definitions = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionDefinitions)
+      .where(eq(collectionDefinitions.projectId, projectId)),
+  );
+  const definitionOf = (row: RecordRow) =>
+    definitions.find(
+      (definition) =>
+        definition.environmentId === row.environmentId &&
+        definition.collectionId === row.collectionId,
+    );
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  return (id: string): Subject => {
+    const row = byId.get(id);
+    if (!row) return { entity: "record", id, label: "Record", owner: null };
+    const definition = definitionOf(row);
+    // A record of a removed collection is still named by its collection's name (ADR 0007).
+    if (!definition) {
+      const owner: Owner = { kind: "collection", name: row.collectionId, title: row.collectionId };
+      return { entity: "record", id, label: "Record", owner };
+    }
+    const content = conformRecordContent(definition.contentSchema, row.content);
+    const label = lexicalStateToPlainText(
+      content[definition.label] as string | Record<string, unknown>,
+    );
+    return {
+      entity: "record",
+      id,
+      label: label || "Untitled record",
+      owner: { kind: "collection", name: definition.collectionId, title: definition.title },
+    };
+  };
+});
+
 // --- Blockers ---
 
 /** Live blocks of a project the draft doesn't store: untouched Live content. */
@@ -367,11 +418,18 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const blockRows = stored
     .filter((change) => change.table === blocks)
     .map((c) => c.row as BlockRow);
-  const describe = yield* describer(ctx, scope, [
+  const describeContent = yield* describer(ctx, scope, [
     ...stored.map(({ entity, row }) => ({ entity, id: row.id })),
     ...storedConflicts,
     ...losses.flatMap((loss) => (loss.reason === "parentGone" ? [loss] : [loss, loss.parent])),
   ]);
+  const describeRecord = yield* recordDescriber(
+    ctx,
+    scope.projectId,
+    stored.filter((change) => change.table === collectionRecords).map((c) => c.row as RecordRow),
+  );
+  const describe = (entity: string, id: string) =>
+    entity === "record" ? describeRecord(id) : describeContent(entity, id);
 
   const changed = blockRows.filter((row) => !row.deleted);
   const content = yield* checkProblems(ctx, scope, changed);
@@ -479,6 +537,7 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       queryKeys.layouts.all,
       ["camox", "blocks"],
       ["camox", "repeatableItems"],
+      ["camox", "collections"],
       // Every draft's conflicts, and the list's latest publish and change counts.
       queryKeys.drafts.all,
     ],

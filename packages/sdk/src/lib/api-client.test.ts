@@ -191,3 +191,27 @@ void test("a studio opened on a draft reads and writes it without creating it", 
     ],
   );
 });
+
+void test("a record edit on Live starts a draft, while reading records doesn't", async (t) => {
+  openStudio("/about");
+  const sent = mockApi(t);
+  const records = getApiClient().collectionDefinitions;
+
+  await records.listRecords({ projectSlug: "p", collectionId: "authors" });
+  await records.editRecord({ projectSlug: "p", collectionId: "authors", id: "r" } as never);
+  await records.deleteRecord({ projectSlug: "p", collectionId: "authors", id: "r" } as never);
+
+  assert.deepEqual(sent[0], {
+    path: "collectionDefinitions/listRecords",
+    draft: null,
+    create: null,
+  });
+  assert.match(sent[1].draft ?? "", UUIDV7);
+  assert.equal(sent[1].create, "1");
+  assert.deepEqual(sent[2], {
+    path: "collectionDefinitions/deleteRecord",
+    draft: sent[1].draft,
+    create: null,
+  });
+  assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), sent[1].draft);
+});
