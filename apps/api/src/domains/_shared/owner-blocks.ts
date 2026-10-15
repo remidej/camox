@@ -32,9 +32,13 @@ export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
   const blockIds = ownerBlocks.map((block) => block.id);
   const shown = yield* withSharedContent(
     ctx.db,
+    scope,
     ownerBlocks,
-    yield* Effect.promise(() =>
-      ctx.db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
+    yield* overlay.select(
+      ctx.db,
+      scope,
+      repeatableItems,
+      inArray(repeatableItems.blockId, blockIds),
     ),
   );
   return yield* conformBlocksIn(

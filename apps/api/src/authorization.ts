@@ -155,20 +155,24 @@ export const getAuthorizedProjectBySlug = Effect.fn("getAuthorizedProjectBySlug"
   return project;
 });
 
+/** The page as a scope reads it (Live when `null`), if the user is a member of its project. */
 export const assertPageAccess = Effect.fn("assertPageAccess")(function* (
   db: Database,
   pageId: string,
   userId: string,
+  scope: DraftScope,
 ) {
   const result = yield* Effect.promise(() =>
     db
       .select({ page: pages, projectId: projects.id })
       .from(pages)
       .innerJoin(projects, eq(projects.id, pages.projectId))
-      .where(eq(pages.id, pageId))
+      .where(and(visibleIn(pages, scope), eq(pages.id, pageId)))
       .get(),
   );
   if (!result) return yield* new NotFoundError();
+  // A draft holds content of its own project only.
+  if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
   yield* assertProjectMembership(db, result.projectId, userId);
   return result;
 });
@@ -210,7 +214,7 @@ export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
       .select({ block: blocks, projectId: environments.projectId, pagePath: pages.fullPath })
       .from(blocks)
       .innerJoin(environments, eq(environments.id, blocks.environmentId))
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
+      .leftJoin(pages, and(eq(blocks.pageId, pages.id), visibleIn(pages, scope)))
       .where(and(visibleIn(blocks, scope), eq(blocks.id, blockId)))
       .get(),
   );
@@ -221,10 +225,12 @@ export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
   return result;
 });
 
+/** The item as a scope reads it (Live when `null`), if the user is a member of its project. */
 export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess")(function* (
   db: Database,
   itemId: string,
   userId: string,
+  scope: DraftScope,
 ) {
   const result = yield* Effect.promise(() =>
     db
@@ -235,7 +241,7 @@ export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess"
       })
       .from(repeatableItems)
       // An item's tree is rooted in a block or in a synced definition's shared content.
-      .leftJoin(blocks, eq(repeatableItems.blockId, blocks.id))
+      .leftJoin(blocks, and(eq(repeatableItems.blockId, blocks.id), visibleIn(blocks, scope)))
       .innerJoin(
         environments,
         eq(
@@ -243,11 +249,12 @@ export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess"
           sql`coalesce(${blocks.environmentId}, ${repeatableItems.environmentId})`,
         ),
       )
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .where(eq(repeatableItems.id, itemId))
+      .leftJoin(pages, and(eq(blocks.pageId, pages.id), visibleIn(pages, scope)))
+      .where(and(visibleIn(repeatableItems, scope), eq(repeatableItems.id, itemId)))
       .get(),
   );
   if (!result) return yield* new NotFoundError();
+  if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
   yield* assertProjectMembership(db, result.projectId, userId);
   return result;
 });

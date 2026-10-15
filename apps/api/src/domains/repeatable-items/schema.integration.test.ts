@@ -256,14 +256,20 @@ describe("direct repeatable item schema enforcement", () => {
       })
       .where(eq(repeatableItems.id, item.id));
     await unchanged(db, () =>
-      runService(updateRepeatableItemContent(ctx, { id: item.id, content: { count: "bad" } })),
+      runService(
+        updateRepeatableItemContent(ctx, { id: item.id, content: { count: "bad" } }, null),
+      ),
     );
     await unchanged(db, () =>
-      runService(updateRepeatableItemSettings(ctx, { id: item.id, settings: { enabled: 1 } })),
+      runService(
+        updateRepeatableItemSettings(ctx, { id: item.id, settings: { enabled: 1 } }, null),
+      ),
     );
-    await runService(updateRepeatableItemContent(ctx, { id: item.id, content: { count: 2 } }));
     await runService(
-      updateRepeatableItemSettings(ctx, { id: item.id, settings: { historical: "updated" } }),
+      updateRepeatableItemContent(ctx, { id: item.id, content: { count: 2 } }, null),
+    );
+    await runService(
+      updateRepeatableItemSettings(ctx, { id: item.id, settings: { historical: "updated" } }, null),
     );
     const updated = await db
       .select()
@@ -301,9 +307,9 @@ describe("direct repeatable item schema enforcement", () => {
         null,
       ),
     );
-    await unchanged(db, () => runService(deleteRepeatableItem(ctx, { id: first.id })));
-    const second = await runService(duplicateRepeatableItem(ctx, { id: first.id }));
-    await unchanged(db, () => runService(duplicateRepeatableItem(ctx, { id: first.id })));
+    await unchanged(db, () => runService(deleteRepeatableItem(ctx, { id: first.id }, null)));
+    const second = await runService(duplicateRepeatableItem(ctx, { id: first.id }, null));
+    await unchanged(db, () => runService(duplicateRepeatableItem(ctx, { id: first.id }, null)));
     await unchanged(db, () =>
       runService(
         createRepeatableItem(
@@ -317,6 +323,6 @@ describe("direct repeatable item schema enforcement", () => {
         ),
       ),
     );
-    await runService(deleteRepeatableItem(ctx, { id: second.id }));
+    await runService(deleteRepeatableItem(ctx, { id: second.id }, null));
   });
 });

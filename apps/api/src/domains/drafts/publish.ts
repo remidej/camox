@@ -1,6 +1,7 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -12,7 +13,14 @@ import {
   InvalidInputError,
   PublishBlockedError,
 } from "../../lib/errors";
-import { blockDefinitions, blocks, environments, pages } from "../../schema";
+import {
+  blockDefinitions,
+  blocks,
+  environments,
+  pages,
+  repeatableItems,
+  sharedContents,
+} from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as overlay from "./overlay";
@@ -25,10 +33,11 @@ import { findEndedDraft, resolveDraftScope } from "./service";
 type Scope = NonNullable<DraftScope>;
 type BlockRow = typeof blocks.$inferSelect;
 
-/** Where an entity sits, so people can find it: its page or its layout. */
+/** Where an entity sits, so people can find it: its page, its layout, or its synced block. */
 export type Owner =
   | { kind: "page"; id: string; path: string; nickname: string }
   | { kind: "layout"; name: string }
+  | { kind: "syncedBlock"; name: string; title: string }
   | null;
 
 /** An entity as people know it. */
@@ -89,43 +98,113 @@ const decodeToken = (token: string) =>
 
 // --- Describing entities ---
 
-/** Labels and owners for blocks, from the rows the draft or Live holds. */
-const blockDescriber = Effect.fn("drafts.blockDescriber")(function* (
+/** The rows of `ids` the draft holds, or Live's where it holds none. */
+const rowsSeenBy = <T extends overlay.ContentTable>(
   ctx: ServiceContext,
-  projectId: number,
-  rows: BlockRow[],
+  scope: Scope,
+  table: T,
+  ids: string[],
+) =>
+  Effect.gen(function* () {
+    if (ids.length === 0) return new Map<string, T["$inferSelect"]>();
+    const rows = (yield* Effect.promise(() =>
+      ctx.db
+        .select()
+        .from(table as SQLiteTable)
+        .where(and(inArray(table.id, ids), overlay.storedInLiveOrDraft(table, scope.id))),
+    )) as T["$inferSelect"][];
+    const byId = new Map<string, T["$inferSelect"]>();
+    for (const row of rows) {
+      if (!byId.has(row.id) || row.draftId !== null) byId.set(row.id, row);
+    }
+    return byId;
+  });
+
+type Mention = { entity: string; id: string };
+
+/**
+ * Labels and owners for the entities a preview mentions, from the rows the draft holds or
+ * Live's: a block or item sits on its page or layout, or in its synced block; a page is its own.
+ */
+const describer = Effect.fn("drafts.describer")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  mentions: Mention[],
+  known: BlockRow[] = [],
 ) {
-  const pageIds = [...new Set(rows.flatMap((row) => (row.pageId ? [row.pageId] : [])))];
-  const pageRows = pageIds.length
-    ? yield* Effect.promise(() =>
-        ctx.db
-          .select({ id: pages.id, fullPath: pages.fullPath, nickname: pages.nickname })
-          .from(pages)
-          .where(inArray(pages.id, pageIds)),
-      )
-    : [];
-  const pagesById = new Map(pageRows.map((page) => [page.id, page]));
+  const idsOf = (entity: string) => [
+    ...new Set(mentions.filter((m) => m.entity === entity).map((m) => m.id)),
+  ];
+  const items = yield* rowsSeenBy(ctx, scope, repeatableItems, idsOf("repeatableItem"));
+  const knownBlocks = new Map(known.map((row) => [row.id, row]));
+  const blockIds = [
+    ...idsOf("block"),
+    ...[...items.values()].flatMap((item) => (item.blockId ? [item.blockId] : [])),
+  ].filter((id) => !knownBlocks.has(id));
+  const blockRows = new Map([
+    ...(yield* rowsSeenBy(ctx, scope, blocks, [...new Set(blockIds)])),
+    ...knownBlocks,
+  ]);
+  const pageIds = [
+    ...idsOf("page"),
+    ...[...blockRows.values()].flatMap((row) => (row.pageId ? [row.pageId] : [])),
+  ];
+  const pageRows = yield* rowsSeenBy(ctx, scope, pages, [...new Set(pageIds)]);
+  const shared = yield* rowsSeenBy(ctx, scope, sharedContents, idsOf("sharedContent"));
   const definitions = yield* Effect.promise(() =>
     ctx.db
       .select({ blockId: blockDefinitions.blockId, title: blockDefinitions.title })
       .from(blockDefinitions)
-      .where(eq(blockDefinitions.projectId, projectId)),
+      .where(eq(blockDefinitions.projectId, scope.projectId)),
   );
   const titles = new Map(definitions.map((definition) => [definition.blockId, definition.title]));
-  const byId = new Map(rows.map((row) => [row.id, row]));
 
-  return (id: string): Subject => {
-    const row = byId.get(id);
-    if (!row) return { entity: "block", id, label: "Block", owner: null };
-    const page = row.pageId ? pagesById.get(row.pageId) : undefined;
-    let owner: Owner = null;
-    if (page) owner = { kind: "page", id: page.id, path: page.fullPath, nickname: page.nickname };
-    else if (row.layoutId) owner = { kind: "layout", name: row.layoutId };
+  const pageOwner = (pageId: string | null): Owner => {
+    const page = pageId ? pageRows.get(pageId) : undefined;
+    return page
+      ? { kind: "page", id: page.id, path: page.fullPath, nickname: page.nickname }
+      : null;
+  };
+  const syncedOwner = (type: string): Owner => ({
+    kind: "syncedBlock",
+    name: type,
+    title: titles.get(type) ?? type,
+  });
+  const blockOwner = (block: BlockRow | undefined): Owner => {
+    if (!block) return null;
+    if (block.pageId) return pageOwner(block.pageId);
+    if (block.layoutId) return { kind: "layout", name: block.layoutId };
+    return null;
+  };
+
+  return (entity: string, id: string): Subject => {
+    if (entity === "page") {
+      return { entity, id, label: "Page", owner: pageOwner(id) };
+    }
+    if (entity === "sharedContent") {
+      const row = shared.get(id);
+      const type = row?.type ?? id;
+      return {
+        entity,
+        id,
+        label: row?.summary || "Shared content",
+        owner: syncedOwner(type),
+      };
+    }
+    if (entity === "repeatableItem") {
+      const item = items.get(id);
+      let owner: Owner = null;
+      if (item?.sharedContentType) owner = syncedOwner(item.sharedContentType);
+      else if (item?.blockId) owner = blockOwner(blockRows.get(item.blockId));
+      return { entity, id, label: item?.summary || "Item", owner };
+    }
+    const row = blockRows.get(id);
+    if (!row) return { entity, id, label: "Block", owner: null };
     return {
-      entity: "block",
+      entity,
       id,
       label: row.summary || titles.get(row.type) || row.type,
-      owner,
+      owner: blockOwner(row),
     };
   };
 });
@@ -195,10 +274,10 @@ const checkProblems = Effect.fn("drafts.checkProblems")(function* (
   changed: BlockRow[],
 ) {
   const untouched = yield* untouchedLiveBlocks(ctx, scope);
-  const describe = yield* blockDescriber(ctx, scope.projectId, [...changed, ...untouched]);
+  const describe = yield* describer(ctx, scope, [], [...changed, ...untouched]);
   const problems = (found: { id: string; field: string; title: string }[]): Problem[] =>
     found.map(({ id, field, title }) => ({
-      ...describe(id),
+      ...describe("block", id),
       code: "emptyRequiredReference",
       field,
       message: `"${title}" is required but empty`,
@@ -221,7 +300,11 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const blockRows = stored
     .filter((change) => change.table === blocks)
     .map((c) => c.row as BlockRow);
-  const describe = yield* blockDescriber(ctx, scope.projectId, blockRows);
+  const describe = yield* describer(ctx, scope, [
+    ...stored.map(({ entity, row }) => ({ entity, id: row.id })),
+    ...storedConflicts,
+    ...losses.flatMap((loss) => (loss.reason === "parentGone" ? [loss] : [loss, loss.parent])),
+  ]);
 
   const changed = blockRows.filter((row) => !row.deleted);
   const { blockers, warnings } = yield* checkProblems(ctx, scope, changed);
@@ -240,23 +323,27 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const publisherById = new Map(publishers.map((publisher) => [publisher.id, publisher]));
 
   const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
-    ...describe(conflict.id),
+    ...describe(conflict.entity, conflict.id),
     liveVersion: conflict.liveVersion,
     publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
   }));
   const lost: LostChange[] = losses.map((loss) => {
-    if (loss.reason === "parentGone") return { ...describe(loss.id), reason: loss.reason };
-    const parent = describe(loss.parent.id);
+    if (loss.reason === "parentGone") {
+      return { ...describe(loss.entity, loss.id), reason: loss.reason };
+    }
+    const parent = describe(loss.parent.entity, loss.parent.id);
     return {
-      entity: "repeatableItem",
-      id: loss.id,
-      label: `Item added to ${parent.label} after it was deleted`,
+      ...describe(loss.entity, loss.id),
+      label: `Added to ${parent.label} after it was deleted`,
       owner: parent.owner,
       reason: loss.reason,
     };
   });
-  const changes: Change[] = stored.map(({ row, change }) => ({ ...describe(row.id), change }));
+  const changes: Change[] = stored.map(({ entity, row, change }) => ({
+    ...describe(entity, row.id),
+    change,
+  }));
 
   return {
     blockers,
@@ -320,6 +407,7 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       queryKeys.pages.list,
       queryKeys.layouts.all,
       ["camox", "blocks"],
+      ["camox", "repeatableItems"],
     ],
   });
 

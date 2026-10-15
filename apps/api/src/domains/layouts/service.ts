@@ -357,7 +357,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         }
       }
 
-      yield* adoptSharedContent(ctx, block);
+      yield* adoptSharedContent(ctx, null, block);
       entry.position = newPos;
       lastPos = newPos;
     }
@@ -380,7 +380,14 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       // A release writes Live. Items hold no foreign key to their block (ADR 0005).
       yield* Effect.promise(() =>
         ctx.db.batch([
-          ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, orphanIdsToDelete)),
+          ctx.db
+            .delete(repeatableItems)
+            .where(
+              and(
+                visibleIn(repeatableItems, null),
+                inArray(repeatableItems.blockId, orphanIdsToDelete),
+              ),
+            ),
           ctx.db
             .delete(blocks)
             .where(and(visibleIn(blocks, null), inArray(blocks.id, orphanIdsToDelete))),

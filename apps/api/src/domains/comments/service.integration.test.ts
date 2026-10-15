@@ -159,7 +159,13 @@ describe("comments", () => {
     }
     const sibling = await f.db
       .insert(pages)
-      .values({ ...f.page, id: undefined, pathSegment: "sibling", fullPath: "/sibling" })
+      .values({
+        ...f.page,
+        rowId: undefined,
+        id: undefined,
+        pathSegment: "sibling",
+        fullPath: "/sibling",
+      })
       .returning()
       .get();
     await expect(
@@ -237,6 +243,7 @@ describe("comments", () => {
       .insert(pages)
       .values({
         ...f.page,
+        rowId: undefined,
         id: undefined,
         pathSegment: "sibling",
         fullPath: "/sibling",
@@ -364,8 +371,10 @@ describe("comments", () => {
   it("retains deleted targets as unavailable and cannot reattach a reused ID", async () => {
     const f = await fixture();
     await f.create({ kind: "item", blockId: f.block.id, itemId: f.item.id });
+    // Deleting an item unanchors its comments, as the services do: items hold no foreign keys.
     await f.db.delete(repeatableItems).where(eq(repeatableItems.id, f.item.id));
-    await f.db.insert(repeatableItems).values({ ...f.item });
+    await f.db.update(comments).set({ itemId: null }).where(eq(comments.itemId, f.item.id));
+    await f.db.insert(repeatableItems).values({ ...f.item, rowId: undefined });
     expect(await runService(listComments(f.ctx, { pageId: f.page.id }))).toMatchObject([
       { target: null },
     ]);
@@ -410,6 +419,7 @@ describe("comments", () => {
       .insert(pages)
       .values({
         ...f.page,
+        rowId: undefined,
         id: undefined,
         environmentId: destination.id,
         layoutId: layout.layoutId,

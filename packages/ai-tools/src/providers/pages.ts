@@ -56,9 +56,16 @@ const resolvePageTargetId = Effect.fn("resolvePageTargetId")(function* (
   if (target.path == null)
     return yield* Effect.die(new Error("Pass exactly one of `id` or `path`."));
 
-  const page = yield* getPage(ctx, { projectId: ctx.projectId, path: target.path });
+  const page = yield* getPage(
+    ctx,
+    { projectId: ctx.projectId, path: target.path },
+    yield* draftScope(ctx),
+  );
   return page.id;
 });
+
+/** Tools read and write pages in the draft the session names, if any. */
+const draftScope = (ctx: Parameters<ToolProvider>[0]) => resolveDraftScope(ctx, ctx.projectId);
 
 export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -66,7 +73,12 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description: "List all pages in the current project.",
     inputSchema: listPagesToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
-    handler: async () => runService(listPages(ctx, { projectId: ctx.projectId })),
+    handler: async () =>
+      runService(
+        Effect.flatMap(draftScope(ctx), (scope) =>
+          listPages(ctx, { projectId: ctx.projectId }, scope),
+        ),
+      ),
   },
   {
     name: "getPage",
@@ -78,11 +90,12 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const parsed = getPageToolInput.parse(input);
       return runService(
         Effect.gen(function* () {
+          const scope = yield* draftScope(ctx);
           const page = yield* getPage(
             ctx,
             "id" in parsed ? { id: parsed.id } : { projectId: ctx.projectId, path: parsed.path },
+            scope,
           );
-          const scope = yield* resolveDraftScope(ctx, ctx.projectId);
           const { blocks } = yield* getPageMarkdown(ctx, { pageId: page.id }, scope);
           return { page, blocks };
         }),
@@ -98,7 +111,11 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const data = createPageToolInput.parse(input);
-      return runService(createPage(ctx, { ...data, projectId: ctx.projectId }));
+      return runService(
+        Effect.flatMap(draftScope(ctx), (scope) =>
+          createPage(ctx, { ...data, projectId: ctx.projectId }, scope),
+        ),
+      );
     },
   },
   {
@@ -112,12 +129,13 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       return runService(
         Effect.gen(function* () {
           const id = yield* resolvePageTargetId(ctx, parsed);
-          const page = yield* getPage(ctx, { id });
+          const scope = yield* draftScope(ctx);
+          const page = yield* getPage(ctx, { id }, scope);
           const environment = yield* resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
           if (page.projectId !== ctx.projectId || page.environmentId !== environment.id) {
             return yield* new NotFoundError();
           }
-          return yield* updatePage(ctx, { ...parsed, id });
+          return yield* updatePage(ctx, { ...parsed, id }, scope);
         }),
       );
     },
@@ -128,14 +146,24 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "Change a page's layout. `layoutId` is the new layout's name; use listLayouts to discover them.",
     inputSchema: setPageLayoutInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: async (input) => runService(setPageLayout(ctx, setPageLayoutInput.parse(input))),
+    handler: async (input) =>
+      runService(
+        Effect.flatMap(draftScope(ctx), (scope) =>
+          setPageLayout(ctx, setPageLayoutInput.parse(input), scope),
+        ),
+      ),
   },
   {
     name: "setPageMetaTitle",
     description: "Set a page's SEO meta title.",
     inputSchema: setPageMetaTitleInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: async (input) => runService(setPageMetaTitle(ctx, setPageMetaTitleInput.parse(input))),
+    handler: async (input) =>
+      runService(
+        Effect.flatMap(draftScope(ctx), (scope) =>
+          setPageMetaTitle(ctx, setPageMetaTitleInput.parse(input), scope),
+        ),
+      ),
   },
   {
     name: "setPageMetaDescription",
@@ -143,13 +171,22 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     inputSchema: setPageMetaDescriptionInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) =>
-      runService(setPageMetaDescription(ctx, setPageMetaDescriptionInput.parse(input))),
+      runService(
+        Effect.flatMap(draftScope(ctx), (scope) =>
+          setPageMetaDescription(ctx, setPageMetaDescriptionInput.parse(input), scope),
+        ),
+      ),
   },
   {
     name: "deletePage",
     description: "Delete a page by id. The blocks on the page are deleted as well.",
     inputSchema: deletePageInput,
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
-    handler: async (input) => runService(deletePage(ctx, deletePageInput.parse(input))),
+    handler: async (input) =>
+      runService(
+        Effect.flatMap(draftScope(ctx), (scope) =>
+          deletePage(ctx, deletePageInput.parse(input), scope),
+        ),
+      ),
   },
 ];

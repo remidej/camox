@@ -1,11 +1,11 @@
-import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
-import { projectOfSlug, inScope } from "../blocks/draft-scope";
+import { inScope, projectOfPage, projectOfSlug } from "../blocks/draft-scope";
 import * as service from "./service";
+
+// Every procedure reads and writes pages in the draft the request names (ADR 0011).
 
 // Public procedures
 
-// A page's blocks are read in the request's draft; the page itself is Live's until #238.
 const getByPath = pub
   .input(service.getPageByPathInput)
   .handler(({ context, input }) =>
@@ -24,49 +24,89 @@ const getStructure = pub
 
 const list = pub
   .input(service.listPagesInput)
-  .handler(({ context, input }) => runService(service.listPages(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, input.projectId, (scope) => service.listPages(context, input, scope)),
+  );
 
 const listBySlug = pub
   .input(service.listPagesBySlugInput)
-  .handler(({ context, input }) => runService(service.listPagesBySlug(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
+      service.listPagesBySlug(context, input, scope),
+    ),
+  );
 
 const get = pub
   .input(service.getPageInput)
-  .handler(({ context, input }) => runService(service.getPage(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, "id" in input ? projectOfPage(context, input.id) : input.projectId, (scope) =>
+      service.getPage(context, input, scope),
+    ),
+  );
 
 // Protected procedures
 
 const create = authed
   .input(service.createPageInput)
-  .handler(({ context, input }) => runService(service.createPage(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, input.projectId, (scope) => service.createPage(context, input, scope)),
+  );
 
 const update = authed
   .input(service.updatePageInput)
-  .handler(({ context, input }) => runService(service.updatePage(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfPage(context, input.id), (scope) =>
+      service.updatePage(context, input, scope),
+    ),
+  );
 
 const deleteFn = authed
   .input(service.deletePageInput)
-  .handler(({ context, input }) => runService(service.deletePage(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfPage(context, input.id), (scope) =>
+      service.deletePage(context, input, scope),
+    ),
+  );
 
 const setAiSeo = authed
   .input(service.setPageAiSeoInput)
-  .handler(({ context, input }) => runService(service.setPageAiSeo(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfPage(context, input.id), (scope) =>
+      service.setPageAiSeo(context, input, scope),
+    ),
+  );
 
 const setMetaTitle = authed
   .input(service.setPageMetaTitleInput)
-  .handler(({ context, input }) => runService(service.setPageMetaTitle(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfPage(context, input.id), (scope) =>
+      service.setPageMetaTitle(context, input, scope),
+    ),
+  );
 
 const setMetaDescription = authed
   .input(service.setPageMetaDescriptionInput)
-  .handler(({ context, input }) => runService(service.setPageMetaDescription(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfPage(context, input.id), (scope) =>
+      service.setPageMetaDescription(context, input, scope),
+    ),
+  );
 
 const setLayout = authed
   .input(service.setPageLayoutInput)
-  .handler(({ context, input }) => runService(service.setPageLayout(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfPage(context, input.id), (scope) =>
+      service.setPageLayout(context, input, scope),
+    ),
+  );
 
 const generateSeo = authed
   .input(service.generatePageSeoInput)
-  .handler(({ context, input }) => runService(service.generatePageSeo(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfPage(context, input.id), (scope) =>
+      service.generatePageSeo(context, input, scope),
+    ),
+  );
 
 export const pageProcedures = {
   getByPath,

@@ -20,6 +20,7 @@ import {
   layouts,
   pages,
   repeatableItems,
+  sharedContentId,
   sharedContents,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
@@ -313,7 +314,10 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     ctx.db.select().from(files).where(eq(files.environmentId, source.id)),
   );
   const sourcePages = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.environmentId, source.id)),
+    ctx.db
+      .select()
+      .from(pages)
+      .where(and(visibleIn(pages, null), eq(pages.environmentId, source.id))),
   );
   const sourceComments = yield* Effect.promise(() =>
     ctx.db.select().from(comments).where(eq(comments.environmentId, source.id)),
@@ -328,11 +332,17 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   );
 
   const sourceSharedContents = yield* Effect.promise(() =>
-    ctx.db.select().from(sharedContents).where(eq(sharedContents.environmentId, source.id)),
+    ctx.db
+      .select()
+      .from(sharedContents)
+      .where(and(visibleIn(sharedContents, null), eq(sharedContents.environmentId, source.id))),
   );
 
   const sourceItems = yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(itemsInEnvironment(source.id)),
+    ctx.db
+      .select()
+      .from(repeatableItems)
+      .where(and(visibleIn(repeatableItems, null), itemsInEnvironment(source.id))),
   );
   const takenAt = Date.now();
   const snapshot = {
@@ -410,7 +420,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const pagesMap = new Map<string, string>();
   for (const row of sortPagesByDepth(sourcePages)) {
-    const { id, environmentId: _envId, parentPageId, ...rest } = row;
+    const { rowId: _rowId, id, environmentId: _envId, parentPageId, ...rest } = row;
     const newParentPageId = parentPageId !== null ? (pagesMap.get(parentPageId) ?? null) : null;
     const inserted = yield* Effect.promise(() =>
       ctx.db
@@ -452,10 +462,11 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   }
 
   for (const row of sourceSharedContents) {
-    const { environmentId: _envId, content, settings, ...rest } = row;
+    const { rowId: _rowId, environmentId: _envId, content, settings, ...rest } = row;
     yield* Effect.promise(() =>
       ctx.db.insert(sharedContents).values({
         ...rest,
+        id: sharedContentId({ environmentId: target.id, type: row.type }),
         environmentId: target.id,
         content: remapContentReferences(content, filesMap, pagesMap),
         settings:
@@ -468,7 +479,16 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const itemsMap = new Map<string, string>();
   for (const row of topoSortItems(sourceItems)) {
-    const { id, blockId, environmentId, parentItemId, content, settings, ...rest } = row;
+    const {
+      rowId: _rowId,
+      id,
+      blockId,
+      environmentId,
+      parentItemId,
+      content,
+      settings,
+      ...rest
+    } = row;
     const newBlockId = blockId === null ? null : blocksMap.get(blockId);
     if (newBlockId === undefined) {
       return yield* Effect.die(

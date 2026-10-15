@@ -40,7 +40,7 @@ export const setCommentResolvedInput = listCommentsInput.extend({
 
 const authorize = Effect.fn("authorize")(function* (ctx: ServiceContext, pageId: string) {
   const currentUser = yield* requireUser(ctx);
-  const access = yield* assertPageAccess(ctx.db, pageId, currentUser.id);
+  const access = yield* assertPageAccess(ctx.db, pageId, currentUser.id, null);
   const environment = yield* Effect.promise(() =>
     ctx.db.select().from(environments).where(eq(environments.id, access.page.environmentId)).get(),
   );
@@ -148,13 +148,16 @@ const loadTargets = Effect.fn("loadTargets")(function* (
       .select()
       .from(repeatableItems)
       .where(
-        or(
-          inArray(
-            repeatableItems.blockId,
-            ctx.db.select({ id: blocks.id }).from(blocks).where(scope),
+        and(
+          visibleIn(repeatableItems, null),
+          or(
+            inArray(
+              repeatableItems.blockId,
+              ctx.db.select({ id: blocks.id }).from(blocks).where(scope),
+            ),
+            // Synced placements show their shared content's items.
+            sharedContentItemsIn(page.environmentId),
           ),
-          // Synced placements show their shared content's items.
-          sharedContentItemsIn(page.environmentId),
         ),
       ),
   );

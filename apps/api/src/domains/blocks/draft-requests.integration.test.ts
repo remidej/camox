@@ -297,21 +297,4 @@ describe("block procedures in the draft a request names", () => {
     await editTitle(block.id, "Live again");
     expect(broadcastDrafts()).toEqual([null]);
   });
-
-  it("serves other content from Live to requests naming a draft", async () => {
-    const { member, project, createBlock } = await fixture();
-    await createBlock("Live");
-    const draft = generateUuidv7();
-
-    const created = await call(
-      router.pages.create,
-      { projectId: project.id, pathSegment: "about", layoutId: "default" },
-      member(startingDraft(draft)),
-    );
-    const listed = await call(router.pages.list, { projectId: project.id }, member(inDraft(draft)));
-
-    expect(listed.map((listedPage) => listedPage.id)).toContain(created.page.id);
-    const live = await call(router.pages.list, { projectId: project.id }, member());
-    expect(live.map((listedPage) => listedPage.id)).toContain(created.page.id);
-  });
 });

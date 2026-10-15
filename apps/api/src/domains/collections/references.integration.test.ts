@@ -626,10 +626,14 @@ describe("references in repeatable items", () => {
     expect((f.quote.references.speaker as ResolvedReference).id).toBe(f.beta.id);
 
     await runService(
-      updateRepeatableItemSettings(f.ctx, { id: f.logo.id, settings: { emphasized: true } }),
+      updateRepeatableItemSettings(f.ctx, { id: f.logo.id, settings: { emphasized: true } }, null),
     );
     await runService(
-      updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: f.gamma.id } }),
+      updateRepeatableItemContent(
+        f.ctx,
+        { id: f.logo.id, content: { customer: f.gamma.id } },
+        null,
+      ),
     );
     const read = await f.bundle(f.ctx);
     const logo = read.repeatableItems.find((item) => item.id === f.logo.id)!;
@@ -637,7 +641,7 @@ describe("references in repeatable items", () => {
     expect(customer(logo)?.id).toBe(f.gamma.id);
     // Unlinking the placement never touches the record.
     await runService(
-      updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: null } }),
+      updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: null } }, null),
     );
     expect(
       (await runService(getCollectionRecord(f.ctx, { ...f.scope, id: f.gamma.id }))).content,
@@ -654,7 +658,7 @@ describe("references in repeatable items", () => {
       { partners: [f.alpha.id, f.beta.id, f.gamma.id] },
     ]) {
       await expect(
-        runService(updateRepeatableItemContent(f.ctx, { id: f.logo.id, content })),
+        runService(updateRepeatableItemContent(f.ctx, { id: f.logo.id, content }, null)),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
     await expect(
@@ -1251,7 +1255,9 @@ describe("query-backed reference lists", () => {
       ),
     ).rejects.toMatchObject(rejection("features[0].latest"));
     await expect(
-      runService(updateRepeatableItemContent(f.ctx, { id: item.id, content: { latest: ids } })),
+      runService(
+        updateRepeatableItemContent(f.ctx, { id: item.id, content: { latest: ids } }, null),
+      ),
     ).rejects.toMatchObject(rejection("latest"));
     await expect(
       runService(

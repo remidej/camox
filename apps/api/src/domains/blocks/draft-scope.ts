@@ -1,9 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { ServiceError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
-import { blocks, environments, pages, projects } from "../../schema";
+import { blocks, environments, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
@@ -39,16 +39,51 @@ export const projectOfBlock = Effect.fn("blocks.projectOfBlock")(function* (
   return row?.projectId;
 });
 
-/** The project of a page. */
+/** The project of a page, found like a block's. */
 export const projectOfPage = Effect.fn("blocks.projectOfPage")(function* (
   ctx: ScopeContext,
   pageId: string,
 ) {
-  if (!ctx.draft) return undefined;
+  const draft = ctx.draft;
+  if (!draft) return undefined;
   const page = yield* Effect.promise(() =>
-    ctx.db.select({ projectId: pages.projectId }).from(pages).where(eq(pages.id, pageId)).get(),
+    ctx.db
+      .select({ projectId: pages.projectId })
+      .from(pages)
+      .where(and(eq(pages.id, pageId), overlay.storedInLiveOrDraft(pages, draft.id)))
+      .get(),
   );
   return page?.projectId;
+});
+
+/** The project of a repeatable item, through the block or shared content at its root. */
+export const projectOfItem = Effect.fn("blocks.projectOfItem")(function* (
+  ctx: ScopeContext,
+  itemId: string,
+) {
+  const draft = ctx.draft;
+  if (!draft) return undefined;
+  const row = yield* Effect.promise(() =>
+    ctx.db
+      .select({ projectId: environments.projectId })
+      .from(repeatableItems)
+      .leftJoin(
+        blocks,
+        and(eq(blocks.id, repeatableItems.blockId), overlay.storedInLiveOrDraft(blocks, draft.id)),
+      )
+      .innerJoin(
+        environments,
+        eq(
+          environments.id,
+          sql`coalesce(${blocks.environmentId}, ${repeatableItems.environmentId})`,
+        ),
+      )
+      .where(
+        and(eq(repeatableItems.id, itemId), overlay.storedInLiveOrDraft(repeatableItems, draft.id)),
+      )
+      .get(),
+  );
+  return row?.projectId;
 });
 
 /** The project named by a slug. */
