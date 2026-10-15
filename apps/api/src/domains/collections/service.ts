@@ -161,7 +161,7 @@ type RecordRow = typeof collectionRecords.$inferSelect;
  */
 const recordView = Effect.fn("collections.recordView")(function* (
   ctx: ServiceContext,
-  definition: Definition,
+  definition: ScopedDefinition,
   record: RecordRow,
 ) {
   const { id, collectionId, createdAt, updatedAt } = record;

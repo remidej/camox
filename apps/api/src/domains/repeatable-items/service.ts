@@ -15,7 +15,7 @@ import { bumpContentUpdatedAtForBlock } from "../../lib/bump-content-updated-at"
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { blocks, comments, files, repeatableItems } from "../../schema";
+import { blocks, comments, repeatableItems } from "../../schema";
 import { conformBlocksIn } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
@@ -38,7 +38,7 @@ import { blockScope, validateReferenceValues } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
-import { collectFileIds } from "../pages/ai";
+import { buildFileMap, collectFileIds } from "../pages/ai";
 import {
   descendantIdsOf,
   itemsUnder,
@@ -488,15 +488,7 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   const fileIds = new Set<string>();
   collectFileIds(item.content as Record<string, unknown>, fileIds);
 
-  const fileRows =
-    fileIds.size > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(files)
-            .where(inArray(files.id, [...fileIds])),
-        )
-      : [];
+  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, scope)).values()];
 
   return {
     item,

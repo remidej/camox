@@ -5,16 +5,7 @@ import type { Database } from "./db";
 import { visibleIn } from "./domains/drafts/overlay";
 import type { DraftScope } from "./domains/drafts/scope";
 import { ForbiddenError, NotFoundError, UnauthenticatedError } from "./lib/errors";
-import {
-  member,
-  blocks,
-  environments,
-  files,
-  layouts,
-  pages,
-  projects,
-  repeatableItems,
-} from "./schema";
+import { member, blocks, environments, layouts, pages, projects, repeatableItems } from "./schema";
 
 // --- Definition Sync ---
 
@@ -256,23 +247,5 @@ export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess"
   if (!result) return yield* new NotFoundError();
   if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
   yield* assertProjectMembership(db, result.projectId, userId);
-  return result;
-});
-
-export const assertFileAccess = Effect.fn("assertFileAccess")(function* (
-  db: Database,
-  fileId: string,
-  userId: string,
-) {
-  const result = yield* Effect.promise(() =>
-    db
-      .select({ file: files })
-      .from(files)
-      .innerJoin(projects, eq(projects.id, files.projectId))
-      .where(eq(files.id, fileId))
-      .get(),
-  );
-  if (!result) return yield* new NotFoundError();
-  yield* assertProjectMembership(db, result.file.projectId!, userId);
   return result;
 });

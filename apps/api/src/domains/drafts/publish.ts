@@ -29,6 +29,8 @@ import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as draftComments from "../comments/drafts";
+import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
+import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
 import {
   checkContentProblems,
   type ContentFinding,
@@ -80,7 +82,12 @@ export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletio
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject & {
-  code: "emptyRequiredReference" | "unresolvedComment" | "commentDeleted" | ContentProblemCode;
+  code:
+    | "emptyRequiredReference"
+    | "unresolvedComment"
+    | "commentDeleted"
+    | FileProblemCode
+    | ContentProblemCode;
   field: string;
   message: string;
 };
@@ -227,6 +234,14 @@ const describer = Effect.fn("drafts.describer")(function* (
   };
 });
 
+/** A file as people know it: by its filename. Files belong to no page or layout. */
+const describeFile = (id: string, file?: { filename: string }): Subject => ({
+  entity: "file",
+  id,
+  label: file?.filename ?? "File",
+  owner: null,
+});
+
 /** Labels for records, from the rows the draft holds, each under its collection. */
 const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
   ctx: ServiceContext,
@@ -342,9 +357,23 @@ const checkProblems = Effect.fn("drafts.checkProblems")(function* (
       field,
       message: `"${title}" is required but empty`,
     }));
+  const fileChecks = yield* checkFileProblems(ctx, scope, { changed, untouched });
+  const fileProblems = (found: Finding[]): Problem[] =>
+    found.map(({ entity, id, code, field, message }) => ({
+      ...(entity === "file" ? describeFile(id, fileChecks.files.get(id)) : describe("block", id)),
+      code,
+      field,
+      message,
+    }));
   return {
-    blockers: problems(yield* emptyRequiredReferences(ctx, scope.projectId, changed)),
-    warnings: problems(yield* emptyRequiredReferences(ctx, scope.projectId, untouched)),
+    blockers: [
+      ...problems(yield* emptyRequiredReferences(ctx, scope.projectId, changed)),
+      ...fileProblems(fileChecks.blockers),
+    ],
+    warnings: [
+      ...problems(yield* emptyRequiredReferences(ctx, scope.projectId, untouched)),
+      ...fileProblems(fileChecks.warnings),
+    ],
   };
 });
 
@@ -455,8 +484,18 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     scope.projectId,
     stored.filter((change) => change.table === collectionRecords).map((c) => c.row as RecordRow),
   );
-  const describe = (entity: string, id: string) =>
-    entity === "record" ? describeRecord(id) : describeContent(entity, id);
+  const fileNames = new Map(
+    stored.flatMap((change) =>
+      change.entity === "file"
+        ? [[change.row.id, change.row as unknown as { filename: string }] as const]
+        : [],
+    ),
+  );
+  const describe = (entity: string, id: string) => {
+    if (entity === "record") return describeRecord(id);
+    if (entity === "file") return describeFile(id, fileNames.get(id));
+    return describeContent(entity, id);
+  };
 
   const changed = blockRows.filter((row) => !row.deleted);
   const content = yield* checkProblems(ctx, scope, changed);
@@ -577,6 +616,7 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       queryKeys.pages.getByPathAll,
       queryKeys.pages.list,
       queryKeys.layouts.all,
+      ["camox", "files"],
       ["camox", "blocks"],
       ["camox", "repeatableItems"],
       ["camox", "collections"],
@@ -624,6 +664,8 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   }
 
   const user = yield* requireUser(ctx);
+  // Collected before the batch drops the draft's rows and replaces Live's.
+  const blobs = yield* blobsOfDraft(ctx.db, scope);
   const applied = yield* Effect.result(
     overlay.publish(ctx.db, scope, {
       shown,
@@ -641,6 +683,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
     });
   }
 
+  yield* deleteUnreferencedBlobs(ctx, blobs);
   broadcastPublished(ctx, projectId);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   broadcastEnded(ctx, projectId, ended);
@@ -662,6 +705,8 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
 
   const scope = yield* requireDraft(ctx, projectId);
   const user = yield* requireUser(ctx);
+  // Collected before the cascade drops the draft's rows.
+  const blobs = yield* blobsOfDraft(ctx.db, scope);
   const result = yield* Effect.result(
     overlay.discard(ctx.db, scope, {
       discardedBy: user.id,
@@ -672,6 +717,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
   if (result._tag === "Success") {
+    yield* deleteUnreferencedBlobs(ctx, blobs);
     broadcastDiscarded(ctx, projectId);
     broadcastEnded(ctx, projectId, ended);
   }

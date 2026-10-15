@@ -1,12 +1,34 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+import { drafts } from "../drafts/schema";
 import { environments, projects } from "../projects/schema";
 
+/**
+ * A file: an uploaded image, video or document whose bytes are a blob in R2.
+ *
+ * Live and every draft store files side by side (ADR 0005), like blocks: a draft row is the
+ * draft's copy of a file, a file the draft uploaded, or a tombstone. Replacing a file's content
+ * copies it with a new blob and keeps its id, so Live keeps serving the old blob until the draft
+ * is published. A blob is deleted once no row in Live or any draft names it. Read and write
+ * files through the draft overlay.
+ */
 export const files = sqliteTable(
   "files",
   {
-    id: text().primaryKey().$defaultFn(generateUuidv7),
+    rowId: int("row_id").primaryKey(),
+    id: text().notNull().$defaultFn(generateUuidv7),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    // Live: the number of changes made to the row. Unused on draft rows (last write wins).
+    version: int().notNull().default(1),
+    // The Live version a draft copy started from. Null on Live rows and on files a draft created.
+    baseVersion: int("base_version"),
+    // A draft's deletion of the file.
+    deleted: int({ mode: "boolean" }).notNull().default(false),
+    firstPublishedAt: int("first_published_at"),
+    publishedAt: int("published_at"),
+    publishedBy: text("published_by"),
     projectId: int("project_id").references(() => projects.id),
     environmentId: int("environment_id")
       .notNull()
@@ -24,6 +46,12 @@ export const files = sqliteTable(
     updatedAt: int("updated_at").notNull(),
   },
   (table) => [
+    uniqueIndex("files_live_id_idx")
+      .on(table.id)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("files_draft_id_idx")
+      .on(table.draftId, table.id)
+      .where(sql`${table.draftId} is not null`),
     index("files_blob_id_idx").on(table.blobId),
     index("files_project_idx").on(table.projectId),
     index("files_environment_idx").on(table.environmentId),

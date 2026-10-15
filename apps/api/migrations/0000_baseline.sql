@@ -279,7 +279,15 @@ CREATE INDEX `repeatable_items_block_idx` ON `repeatable_items` (`block_id`);-->
 CREATE INDEX `repeatable_items_parent_idx` ON `repeatable_items` (`parent_item_id`);--> statement-breakpoint
 CREATE INDEX `repeatable_items_shared_content_idx` ON `repeatable_items` (`environment_id`,`shared_content_type`);--> statement-breakpoint
 CREATE TABLE `files` (
-	`id` text PRIMARY KEY NOT NULL,
+	`row_id` integer PRIMARY KEY NOT NULL,
+	`id` text NOT NULL,
+	`draft_id` text,
+	`version` integer DEFAULT 1 NOT NULL,
+	`base_version` integer,
+	`deleted` integer DEFAULT false NOT NULL,
+	`first_published_at` integer,
+	`published_at` integer,
+	`published_by` text,
 	`project_id` integer,
 	`environment_id` integer NOT NULL,
 	`url` text NOT NULL,
@@ -293,10 +301,13 @@ CREATE TABLE `files` (
 	`ai_metadata_enabled` integer,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `files_live_id_idx` ON `files` (`id`) WHERE "files"."draft_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX `files_draft_id_idx` ON `files` (`draft_id`,`id`) WHERE "files"."draft_id" is not null;--> statement-breakpoint
 CREATE INDEX `files_blob_id_idx` ON `files` (`blob_id`);--> statement-breakpoint
 CREATE INDEX `files_project_idx` ON `files` (`project_id`);--> statement-breakpoint
 CREATE INDEX `files_environment_idx` ON `files` (`environment_id`);--> statement-breakpoint

@@ -30,7 +30,6 @@ import {
   blocks,
   comments,
   environments,
-  files,
   layouts,
   member,
   pages,
@@ -854,15 +853,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     collectFileIds(item.references, fileIds);
   }
 
-  const fileRows =
-    fileIds.size > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(files)
-            .where(inArray(files.id, [...fileIds])),
-        )
-      : [];
+  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, scope)).values()];
 
   return {
     block: hydratedBlock,
@@ -938,7 +929,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     collectFileIds(item.content as Record<string, unknown>, fileIds);
     collectFileIds(item.references ?? {}, fileIds);
   }
-  const fileMap = yield* buildFileMap(ctx.db, fileIds);
+  const fileMap = yield* buildFileMap(ctx.db, fileIds, scope.draft);
 
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const json = (block: RenderableBlock) =>

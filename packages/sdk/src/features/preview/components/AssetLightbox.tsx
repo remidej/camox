@@ -14,6 +14,7 @@ import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { getApiUrl, getEnvironmentName } from "@/lib/api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "@/lib/auth";
 import { fileMutations, fileQueries } from "@/lib/queries";
+import { getUploadDraftHeaders } from "@/lib/studio-draft";
 
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
@@ -105,6 +106,23 @@ async function measureContentLength(url: string, signal: AbortSignal): Promise<n
   }
 }
 
+/**
+ * What to tell an editor before replacing a file in use with one of another kind (an image with
+ * a PDF, say): a field using it may not accept the new type, which blocks publishing, even for
+ * content the draft never touched. Undefined when there's nothing to warn about.
+ */
+export function replacementTypeWarning(
+  currentType: string | undefined,
+  nextType: string,
+  uses: number,
+): string | undefined {
+  if (!currentType || uses === 0) return undefined;
+  const kind = (mimeType: string) => mimeType.split("/")[0] || mimeType;
+  if (kind(currentType) === kind(nextType)) return undefined;
+  const places = uses === 1 ? "1 block uses" : `${uses} blocks use`;
+  return `${places} this ${kind(currentType)}, and their fields may not accept a ${nextType || "file of unknown type"}. Publishing is blocked until each one accepts the new file. Replace anyway?`;
+}
+
 interface AssetLightboxProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -112,7 +130,6 @@ interface AssetLightboxProps {
 }
 
 const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
-  const replaceFile = useMutation(fileMutations.replace());
   const deleteFile = useMutation(fileMutations.delete());
   const setAiMetadata = useMutation(fileMutations.setAiMetadata());
   const setFilename = useMutation(fileMutations.setFilename());
@@ -200,6 +217,8 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
     async (files: FileList) => {
       const droppedFile = files[0];
       if (!droppedFile) return;
+      const warning = replacementTypeWarning(file?.mimeType, droppedFile.type, usageCount ?? 0);
+      if (warning && !window.confirm(warning)) return;
 
       setUploadState({
         status: "uploading",
@@ -207,31 +226,28 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
         filename: droppedFile.name,
       });
 
+      // Replacing keeps the file's id, so everything using it shows the new bytes. On Live it
+      // starts a draft, and Live keeps the old bytes until that draft is published.
+      const draft = getUploadDraftHeaders();
       try {
-        // Upload via API — we need the project ID from the current file
         const formData = new FormData();
         formData.append("file", droppedFile);
         formData.append("projectId", String(file?.projectId ?? 0));
 
         const envName = getEnvironmentName();
         const authCookieHeader = getAuthCookieHeader();
-        const uploadRes = await fetch(`${getApiUrl()}/files/upload`, {
+        const uploadRes = await fetch(`${getApiUrl()}/files/${fileId}/content`, {
           method: "POST",
           body: formData,
           credentials: getAuthRequestCredentials(authCookieHeader),
           headers: {
             ...(authCookieHeader ? { "Better-Auth-Cookie": authCookieHeader } : {}),
             ...(envName ? { "x-environment-name": envName } : {}),
+            ...draft.headers,
           },
         });
-
+        draft.settle(uploadRes.ok);
         if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
-
-        setUploadState((prev) => (prev ? { ...prev, status: "committing", progress: 100 } : prev));
-
-        const { id: newFileId } = (await uploadRes.json()) as { id: string };
-
-        await replaceFile.mutateAsync({ id: fileId, newFileId });
 
         setUploadState((prev) => (prev ? { ...prev, status: "complete" } : prev));
         toast.success("File replaced");
@@ -240,13 +256,14 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
           onOpenChange(false);
         }, 600);
       } catch (err) {
+        draft.settle(false);
         const message = err instanceof Error ? err.message : "Upload failed";
         setUploadState((prev) => (prev ? { ...prev, status: "error", error: message } : prev));
         toast.error(message);
         setTimeout(() => setUploadState(null), 3000);
       }
     },
-    [replaceFile, file?.projectId, fileId, onOpenChange],
+    [file?.projectId, file?.mimeType, usageCount, fileId, onOpenChange],
   );
 
   const handleCopyUrl = async () => {

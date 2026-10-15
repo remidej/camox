@@ -102,7 +102,9 @@ describe("metadata image validation", () => {
       const { db, file } = await fixture();
       vi.stubGlobal("fetch", vi.fn().mockImplementation(response));
 
-      await expect(runService(executeFileMetadata(db, "test-api-key", file.id))).rejects.toThrow();
+      await expect(
+        runService(executeFileMetadata(db, "test-api-key", file.id, null)),
+      ).rejects.toThrow();
 
       expect(chat).not.toHaveBeenCalled();
       expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
@@ -122,7 +124,7 @@ describe("metadata image validation", () => {
     const metadata = { filename: "generated", alt: "Generated description" };
     chat.mockResolvedValue(metadata);
 
-    await runService(executeFileMetadata(db, "test-api-key", file.id));
+    await runService(executeFileMetadata(db, "test-api-key", file.id, null));
 
     expect(chat).toHaveBeenCalledOnce();
     expect(chat).toHaveBeenCalledWith(
