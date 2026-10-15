@@ -10,23 +10,18 @@ import {
   AlertDialogTitle,
 } from "@camox/ui/alert-dialog";
 import { Button } from "@camox/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@camox/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@camox/ui/dialog";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Pencil, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import type { ApiClient } from "@/lib/api-client";
-import { AuthContext } from "@/lib/auth";
-import { draftMutations, draftQueries, projectQueries } from "@/lib/queries";
+import { draftMutations, draftQueries, type DraftSummary } from "@/lib/queries";
 import { getCurrentDraftId, switchToLive } from "@/lib/studio-draft";
+
+import { draftLabel, plural, timeAgo } from "../draftLabel";
 
 type Preview = Awaited<ReturnType<ApiClient["drafts"]["previewPublish"]>>;
 type Subject = Preview["changes"][number];
@@ -145,7 +140,7 @@ function Changes({ changes }: { changes: Preview["changes"] }) {
 }
 
 /** The draft the studio is in, following switches that the studio's navigation announces. */
-function useCurrentDraftId() {
+export function useCurrentDraftId() {
   return React.useSyncExternalStore(
     (onChange) => {
       window.addEventListener("camox:navigation", onChange);
@@ -160,35 +155,72 @@ function useCurrentDraftId() {
   );
 }
 
-/**
- * Opens the review of the draft the studio is in. Shown only in a draft; the full drafts
- * control replaces it (#203).
- */
-export function ReviewDraftButton() {
-  const draftId = useCurrentDraftId();
-  const [open, setOpen] = React.useState(false);
-  const authCtx = React.useContext(AuthContext);
-  const project = useQuery({
-    ...projectQueries.getBySlug(authCtx?.projectSlug ?? ""),
-    enabled: !!authCtx?.projectSlug && !!draftId,
-  });
-  if (!draftId || !project.data) return null;
-  return (
-    <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
-        Review and publish
-      </Button>
-      <ReviewDraftDialog
-        projectId={project.data.id}
-        draftId={draftId}
-        open={open}
-        onOpenChange={setOpen}
-      />
-    </>
-  );
+/** Switches the studio to Live once its draft ended here, replacing the draft's URL entry. */
+export function useLeaveDraft() {
+  const queryClient = useQueryClient();
+  return (ended: EndedDraft | null) => {
+    switchToLive();
+    void queryClient.invalidateQueries({ queryKey: ["camox"] });
+    if (ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
+  };
 }
 
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+/** The draft's name in the review's header, renamed in place by any member (#203). */
+function DraftName({ projectId, draft }: { projectId: number; draft: DraftSummary }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = React.useState(false);
+  const [value, setValue] = React.useState("");
+  const rename = useMutation({
+    ...draftMutations.rename(),
+    onSuccess: (renamed) => {
+      queryClient.setQueryData(draftQueries.get(projectId, draft.id).queryKey, renamed);
+      void queryClient.invalidateQueries({ queryKey: draftQueries.list(projectId).queryKey });
+    },
+    onError: (error) => toast.error(error.message || "Could not rename the draft"),
+  });
+
+  if (draft.kind === "development") return <>{draftLabel(draft)}</>;
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="group flex items-center gap-2 text-left"
+        onClick={() => {
+          setValue(draft.name ?? "");
+          setEditing(true);
+        }}
+      >
+        {draftLabel(draft)}
+        <Pencil className="text-muted-foreground size-3.5 opacity-0 group-hover:opacity-100" />
+      </button>
+    );
+  }
+
+  const commit = () => {
+    setEditing(false);
+    if ((value.trim() || null) === draft.name) return;
+    rename.mutate({ projectId, name: value });
+  };
+  return (
+    <input
+      autoFocus
+      aria-label="Draft name"
+      value={value}
+      placeholder="Name this draft (optional)"
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") commit();
+        if (event.key !== "Escape") return;
+        // Cancels the rename only, not the whole review.
+        event.stopPropagation();
+        setEditing(false);
+      }}
+      className="w-full bg-transparent outline-none"
+    />
+  );
+}
 
 /**
  * Reviews a draft before publishing it whole, or discards it (ADR 0009). Publishing sends back
@@ -206,19 +238,17 @@ export function ReviewDraftDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const queryClient = useQueryClient();
   const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
   const preview = useQuery({
     ...draftQueries.previewPublish(projectId, draftId),
     enabled: open,
   });
+  const draft = useQuery({ ...draftQueries.get(projectId, draftId), enabled: open });
+  const leaveDraft = useLeaveDraft();
 
   const leave = (ended: EndedDraft | null) => {
-    setConfirmingDiscard(false);
     onOpenChange(false);
-    switchToLive();
-    void queryClient.invalidateQueries({ queryKey: ["camox"] });
-    if (ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
+    leaveDraft(ended);
   };
 
   const publish = useMutation({
@@ -234,43 +264,52 @@ export function ReviewDraftDialog({
       void preview.refetch();
     },
   });
-  const discard = useMutation({
-    ...draftMutations.discard(),
-    onSuccess: ({ ended }) => leave(ended),
-    onError: (error) => toast.error(error.message || "Could not discard the draft"),
-  });
 
   const data = preview.data;
-  const busy = publish.isPending || discard.isPending;
+  const busy = publish.isPending;
   const canPublish = !!data && data.blockers.length === 0 && !busy && !preview.isFetching;
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Review and publish</DialogTitle>
-            <DialogDescription>Publishing applies this whole draft to Live.</DialogDescription>
-          </DialogHeader>
+        <DialogContent className="flex h-[min(42rem,calc(100dvh-4rem))] flex-col gap-0 p-0 sm:max-w-5xl">
+          <div className="border-b p-4 pr-12">
+            <DialogTitle>
+              {draft.data ? <DraftName projectId={projectId} draft={draft.data} /> : "Draft"}
+            </DialogTitle>
+            <DialogDescription>
+              {draft.data
+                ? `${draft.data.createdBy.name} · started ${timeAgo(draft.data.createdAt)} · ${plural(draft.data.changeCount, "change")}`
+                : "Publishing applies this whole draft to Live."}
+            </DialogDescription>
+          </div>
           {data ? (
-            <div className="grid grid-cols-2 gap-8">
-              <div className="flex flex-col gap-2">
-                <h2 className="font-medium">Before you publish</h2>
+            <div className="grid min-h-0 flex-1 grid-cols-2 gap-10 px-4">
+              <div className="flex min-h-0 flex-col gap-2 overflow-y-auto py-4">
+                <h2 className="text-sm font-medium">Before you publish</h2>
                 <BeforeYouPublish preview={data} />
               </div>
-              <div className="flex flex-col gap-2">
-                <h2 className="font-medium">Changes</h2>
+              <div className="flex min-h-0 flex-col gap-2 overflow-y-auto py-4">
+                <h2 className="text-sm font-medium">{plural(data.changes.length, "change")}</h2>
                 <Changes changes={data.changes} />
               </div>
             </div>
           ) : (
-            <Spinner className="text-muted-foreground" />
+            <div className="flex flex-1 items-center justify-center">
+              <Spinner className="text-muted-foreground" />
+            </div>
           )}
-          <DialogFooter className="items-center sm:justify-between">
-            <Button variant="outline" disabled={busy} onClick={() => setConfirmingDiscard(true)}>
+          <div className="flex items-center gap-2 border-t p-4">
+            <Button
+              variant="ghost"
+              className="text-destructive"
+              disabled={busy}
+              onClick={() => setConfirmingDiscard(true)}
+            >
+              <Trash2 />
               Discard draft
             </Button>
-            <div className="flex items-center gap-3">
+            <div className="ml-auto flex items-center gap-3">
               {data && data.conflicts.length > 0 && (
                 <span className="text-muted-foreground text-sm">
                   {plural(data.conflicts.length, "Live change")} will be overwritten
@@ -284,38 +323,70 @@ export function ReviewDraftDialog({
                 Publish all
               </Button>
             </div>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
+      <DiscardDraftDialog
+        projectId={projectId}
         open={confirmingDiscard}
-        onOpenChange={(next) => {
-          if (!discard.isPending) setConfirmingDiscard(next);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Discard this draft?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Every change in this draft is deleted. Live stays as it is. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel variant="outline" size="default" disabled={discard.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={discard.isPending}
-              onClick={() => discard.mutate({ projectId })}
-            >
-              {discard.isPending ? <Spinner /> : null}
-              Discard draft
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setConfirmingDiscard}
+        onDiscarded={leave}
+      />
     </>
+  );
+}
+
+/** Asks before discarding the draft the studio is in, then discards it. */
+export function DiscardDraftDialog({
+  projectId,
+  open,
+  onOpenChange,
+  onDiscarded,
+}: {
+  projectId: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDiscarded: (ended: EndedDraft | null) => void;
+}) {
+  const discard = useMutation({
+    ...draftMutations.discard(),
+    onSuccess: ({ ended }) => {
+      onOpenChange(false);
+      onDiscarded(ended);
+    },
+    onError: (error) => toast.error(error.message || "Could not discard the draft"),
+  });
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!discard.isPending) onOpenChange(next);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Discard this draft?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Every change in this draft is deleted for everyone. Live stays as it is. This can't be
+            undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel variant="outline" size="default" disabled={discard.isPending}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={discard.isPending}
+            onClick={() => discard.mutate({ projectId })}
+          >
+            {discard.isPending ? <Spinner /> : null}
+            Discard draft
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

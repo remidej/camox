@@ -73,11 +73,29 @@ const json = (body: unknown, status = 200) =>
 
 type Call = { path: string; input: unknown };
 
+const draft = {
+  id: draftId,
+  kind: "regular",
+  name: null as string | null,
+  createdBy: { id: "user-2", name: "Ada" },
+  createdAt: new Date(2026, 9, 13, 12).getTime(),
+  lastChangedAt: null,
+  changeCount: 1,
+};
+
+/** Answers the draft's own summary and renames; everything else goes to `respond`. */
 function mockApi(t: test.TestContext, respond: (path: string, calls: Call[]) => Response) {
   const calls: Call[] = [];
+  let name: string | null = null;
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
-    calls.push({ path, input: ((await request.json()) as { json: unknown }).json });
+    const input = ((await request.json()) as { json: unknown }).json;
+    calls.push({ path, input });
+    if (path === "drafts/get") return json({ ...draft, name });
+    if (path === "drafts/rename") {
+      name = (input as { name: string }).name.trim() || null;
+      return json({ ...draft, name });
+    }
     return respond(path, calls);
   });
   return calls;
@@ -283,6 +301,55 @@ void test("discards only after a second confirmation, then switches to Live", as
       [{ projectId: 1 }],
     );
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);
+  } finally {
+    await close();
+  }
+});
+
+const dialogTitle = () =>
+  window.document.querySelector('[role="dialog"] [data-slot="dialog-title"]')?.textContent ?? "";
+
+async function typeName(value: string, key: "Enter" | "Escape") {
+  const input = window.document.querySelector('input[aria-label="Draft name"]');
+  assert.ok(input, "expected the name to become editable");
+  await React.act(async () => {
+    // Through the prototype's setter, so React sees the change.
+    Reflect.set(window.HTMLInputElement.prototype, "value", value, input);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+void test("names an unnamed draft by its creator and creation date, and renames it from the header", async (t) => {
+  const calls = mockApi(t, () => json(emptyPreview));
+  const close = await openReview();
+  try {
+    assert.equal(dialogTitle(), "Ada, Oct 13");
+
+    await click(window.document.querySelector('[data-slot="dialog-title"] button'));
+    await typeName("Spring campaign", "Enter");
+    await settle();
+
+    assert.deepEqual(
+      calls.filter((call) => call.path === "drafts/rename").map((call) => call.input),
+      [{ projectId: 1, name: "Spring campaign" }],
+    );
+    assert.equal(dialogTitle(), "Spring campaign");
+  } finally {
+    await close();
+  }
+});
+
+void test("leaves the name as it is when editing is cancelled", async (t) => {
+  const calls = mockApi(t, () => json(emptyPreview));
+  const close = await openReview();
+  try {
+    await click(window.document.querySelector('[data-slot="dialog-title"] button'));
+    await typeName("Never mind", "Escape");
+
+    assert.equal(calls.filter((call) => call.path === "drafts/rename").length, 0);
+    assert.equal(dialogTitle(), "Ada, Oct 13");
   } finally {
     await close();
   }

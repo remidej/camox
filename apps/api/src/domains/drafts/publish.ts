@@ -389,6 +389,8 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       queryKeys.layouts.all,
       ["camox", "blocks"],
       ["camox", "collections"],
+      // Every draft's conflicts, and the list's latest publish and change counts.
+      queryKeys.drafts.all,
     ],
   });
 
@@ -396,6 +398,14 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
 const broadcastEnded = (ctx: ServiceContext, projectId: number, ended: EndedDraft | null) => {
   if (ended) broadcastDraftEnded({ ...roomOf(ctx, projectId), ended });
 };
+
+/** Refreshes every viewer's drafts list, which a discard changed. */
+const broadcastDiscarded = (ctx: ServiceContext, projectId: number) =>
+  broadcastInvalidation({
+    ...roomOf(ctx, projectId),
+    draftId: null,
+    targets: [queryKeys.drafts.list],
+  });
 
 /**
  * Publishes the request's draft whole, once it has no blockers, if its conflicts are still
@@ -461,6 +471,9 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   );
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
-  if (result._tag === "Success") broadcastEnded(ctx, projectId, ended);
+  if (result._tag === "Success") {
+    broadcastDiscarded(ctx, projectId);
+    broadcastEnded(ctx, projectId, ended);
+  }
   return { ended };
 });

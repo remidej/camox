@@ -71,6 +71,14 @@ export const queryKeys = {
   layouts: {
     all: ["camox", "layouts"],
   },
+  drafts: {
+    all: ["camox", "drafts"],
+    // Open drafts and Live's latest publish: the same for every viewer, whatever they're in.
+    list: ["camox", "drafts", "list"],
+    // The draft a viewer is in, scoped to it like content.
+    get: ["camox", "drafts", "get"],
+    previewPublish: ["camox", "drafts", "previewPublish"],
+  },
   environments: {
     all: ["camox", "environments"],
     checkCompatibility: ["camox", "environments", "checkCompatibility"],
