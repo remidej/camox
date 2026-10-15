@@ -166,11 +166,14 @@ void test("canvas URL selection targets page or layout info without inheriting s
       assert.equal(leaf?.getAttribute("data-editor") ?? null, editor, url);
       assert.equal(leaf?.getAttribute("data-page-id") ?? null, pageId, url);
       assert.equal(leaf?.getAttribute("data-layout-id") ?? null, layoutId, url);
-      assert.equal(dom.mount.querySelectorAll("aside").length, editor ? 1 : 0, url);
+      assert.equal(dom.mount.querySelectorAll("aside").length, 1, url);
       assert.equal(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'), null);
       assert.equal(store.getSnapshot(), snapshot, "canvas rendering must not change preview state");
     }
-    assert.equal(dom.mount.innerHTML, "", "an unmatched URL renders no sidebar");
+    assert.ok(
+      dom.mount.querySelector("[data-canvas-chat-sidebar]"),
+      "an unmatched URL shows the Canvas's chat",
+    );
     assert.deepEqual(observed, [], "canvas navigation must not send preview-store events");
   } finally {
     subscription.unsubscribe();
@@ -257,7 +260,7 @@ void test("comment mode targets the selected persisted page and keeps code layou
       assert.equal(dom.mount.querySelector('[data-editor="CommentSidebar"]'), null);
     }
     await dom.render("/missing");
-    assert.equal(dom.mount.innerHTML, "");
+    assert.ok(dom.mount.querySelector("[data-canvas-chat-sidebar]"));
     assert.equal(dom.store.getSnapshot(), snapshot);
   } finally {
     await dom.close();

@@ -31,13 +31,6 @@ code {
   text-decoration-line: underline;
 }
 
-/* The left sidebar's on-screen width over the Canvas; registered so it can transition with its slide. */
-@property --canvas-sidebar-left {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-
 :root {
   --preview-background: oklch(0.98 0.005 264.531);
   --color-checker-bg: #f8f9fa;

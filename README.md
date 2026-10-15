@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./art/logo-banner-dark.webp" />
-    <source media="(prefers-color-scheme: light)" srcset="./art/logo-banner-light.webp" />
-    <img src="./art/logo-banner-light.webp" alt="Camox logo" />
+    <source media="(prefers-color-scheme: dark)" srcset="./art/readme/banner-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="./art/readme/banner-light.png" />
+    <img src="./art/readme/banner-light.png" alt="Camox logo" />
   </picture>
 </p>
 

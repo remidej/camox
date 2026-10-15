@@ -6,6 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act, StrictMode } from "react";
 
+import { createApp } from "../core/createApp";
 import type { PageRenderInput } from "../features/runtime/runtime";
 
 const window = new Window({ url: "http://localhost:3000/about" });
@@ -92,7 +93,11 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
     await act(async () => {
       root.render(
         <StrictMode>
-          <PageNavigationProvider initialInput={input} queryClient={queryClient}>
+          <PageNavigationProvider
+            camoxApp={createApp({ blocks: [] })}
+            initialInput={input}
+            queryClient={queryClient}
+          >
             {() => <Harness />}
           </PageNavigationProvider>
         </StrictMode>,

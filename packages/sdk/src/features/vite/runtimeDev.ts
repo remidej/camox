@@ -25,6 +25,8 @@ const VIRTUAL_STUDIO_CLIENT = "virtual:camox/studio-client";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT = "\0" + VIRTUAL_STUDIO_CLIENT;
 const VIRTUAL_STUDIO_CLIENT_URL = "virtual:camox/studio-client-url";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT_URL = "\0" + VIRTUAL_STUDIO_CLIENT_URL;
+const VIRTUAL_BLOCK_CHUNKS = "virtual:camox/block-chunks";
+const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0" + VIRTUAL_BLOCK_CHUNKS;
 const VIRTUAL_APP_STYLESHEET_URL = "virtual:camox/app-stylesheet-url";
 const RESOLVED_VIRTUAL_APP_STYLESHEET_URL = "\0" + VIRTUAL_APP_STYLESHEET_URL;
 const VIRTUAL_STUDIO_CSS = "virtual:camox-studio-css";
@@ -72,20 +74,45 @@ function resolveCamoxSourceImport(id: string): string | undefined {
   return sourceImport;
 }
 
-function generateVirtualCamoxApp(): string {
+/**
+ * The server loads every block. The browser loads blocks on demand, one module each, so
+ * visitors only download the blocks of the pages they see.
+ */
+function generateVirtualCamoxApp(ssr: boolean): string {
+  const blocks = ssr
+    ? `const rootBlockModules = import.meta.glob("/src/blocks/*.{ts,tsx}", { eager: true });
+const legacyBlockModules = import.meta.glob("/src/camox/blocks/*.{ts,tsx}", { eager: true });
+const blockEntries = Object.entries({ ...rootBlockModules, ...legacyBlockModules }).filter(
+  ([, mod]) => mod.block,
+);
+const blocks = blockEntries.map(([, mod]) => mod.block);
+const lazyBlocks = {};
+
+/** Each block's module, which the browser loads, so pages can preload it. */
+export const blockModulePaths = Object.fromEntries(
+  blockEntries.map(([path, mod]) => [mod.block._internal.id, path]),
+);`
+    : `const blockLoaders = {
+  ...import.meta.glob("/src/blocks/*.{ts,tsx}", { import: "block" }),
+  ...import.meta.glob("/src/camox/blocks/*.{ts,tsx}", { import: "block" }),
+};
+const blocks = [];
+// Keyed by file name, which is the block's id by convention.
+const lazyBlocks = Object.fromEntries(
+  Object.entries(blockLoaders).map(([path, load]) => [
+    path.slice(path.lastIndexOf("/") + 1).replace(/\\.tsx?$/, ""),
+    load,
+  ]),
+);`;
   return `import { createApp } from "camox/createApp";
 import { camoxDocument } from "virtual:camox/document";
 
 const rootCollectionModules = import.meta.glob("/src/collections/*.{ts,tsx}", { eager: true });
 const legacyCollectionModules = import.meta.glob("/src/camox/collections/*.{ts,tsx}", { eager: true });
-const rootBlockModules = import.meta.glob("/src/blocks/*.{ts,tsx}", { eager: true });
-const legacyBlockModules = import.meta.glob("/src/camox/blocks/*.{ts,tsx}", { eager: true });
 const rootLayoutModules = import.meta.glob("/src/layouts/*.{ts,tsx}", { eager: true });
 const legacyLayoutModules = import.meta.glob("/src/camox/layouts/*.{ts,tsx}", { eager: true });
 
-const blocks = [...Object.values(rootBlockModules), ...Object.values(legacyBlockModules)]
-  .map((mod) => mod.block)
-  .filter(Boolean);
+${blocks}
 const layouts = [...Object.values(rootLayoutModules), ...Object.values(legacyLayoutModules)]
   .map((mod) => mod.Layout ?? mod.layout)
   .filter(Boolean);
@@ -96,7 +123,13 @@ const collections = [
   .map((mod) => mod.collection)
   .filter(Boolean);
 
-export const camoxApp = createApp({ blocks, layouts, collections, document: camoxDocument });
+export const camoxApp = createApp({
+  blocks,
+  lazyBlocks,
+  layouts,
+  collections,
+  document: camoxDocument,
+});
 `;
 }
 
@@ -167,7 +200,8 @@ export default stylesheetUrl;
 
 function generateVirtualCamoxServer(runtimeBasePath?: string): string {
   return `import { handleCamoxRequest as handleRuntimeRequest } from "camox/_internal/runtime";
-import { camoxApp } from "virtual:camox/app";
+import { blockModulePaths, camoxApp } from "virtual:camox/app";
+import blockChunks from "virtual:camox/block-chunks";
 import { camoxDocument } from "virtual:camox/document";
 import appStylesheetUrl from "virtual:camox/app-stylesheet-url";
 import studioStylesheetUrl from "virtual:camox-studio-css";
@@ -180,6 +214,7 @@ export async function handleCamoxRequest(request) {
   return handleRuntimeRequest(request, {
     apiUrl: __CAMOX_API_URL__,
     authenticationUrl: __CAMOX_AUTHENTICATION_URL__,
+    blockPreloads: { modulePaths: blockModulePaths, chunks: blockChunks },
     pageClientEntryUrl,
     studioClientEntryUrl,
     environmentName: __CAMOX_ENVIRONMENT_NAME__,
@@ -282,15 +317,18 @@ export function resolveRuntimeDevId(id: string, importer?: string): string | und
   if (id === VIRTUAL_STUDIO_CLIENT) return RESOLVED_VIRTUAL_STUDIO_CLIENT;
   if (id === VIRTUAL_STUDIO_CLIENT_URL) return RESOLVED_VIRTUAL_STUDIO_CLIENT_URL;
   if (id === VIRTUAL_APP_STYLESHEET_URL) return RESOLVED_VIRTUAL_APP_STYLESHEET_URL;
+  if (id === VIRTUAL_BLOCK_CHUNKS) return RESOLVED_VIRTUAL_BLOCK_CHUNKS;
   if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
   if (id === VIRTUAL_OVERLAY_CSS) return RESOLVED_VIRTUAL_OVERLAY_CSS;
 }
 
 export function loadRuntimeDevModule(
   id: string,
-  options: { runtimeBasePath?: string } = {},
+  options: { runtimeBasePath?: string; ssr?: boolean } = {},
 ): string | undefined {
-  if (id === RESOLVED_VIRTUAL_CAMOX_APP) return generateVirtualCamoxApp();
+  if (id === RESOLVED_VIRTUAL_CAMOX_APP) return generateVirtualCamoxApp(options.ssr !== false);
+  // Dev serves each block at its module path, so there are no chunks to map it to.
+  if (id === RESOLVED_VIRTUAL_BLOCK_CHUNKS) return "export default null;";
   if (id === RESOLVED_VIRTUAL_CAMOX_DOCUMENT) return generateVirtualCamoxDocument();
   if (id === RESOLVED_VIRTUAL_CAMOX_SERVER)
     return generateVirtualCamoxServer(options.runtimeBasePath);
@@ -318,8 +356,8 @@ export function createRuntimeRegistryPlugin(options: { runtimeBasePath?: string 
     name: "camox-runtime-registry",
     enforce: "pre",
     resolveId: resolveRuntimeDevId,
-    load(id) {
-      return loadRuntimeDevModule(id, options);
+    load(id, loadOptions) {
+      return loadRuntimeDevModule(id, { ...options, ssr: loadOptions?.ssr });
     },
   };
 }

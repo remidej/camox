@@ -9,7 +9,12 @@ import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
 import { NavigationProvider } from "../navigation/navigation";
+import { getCanvasShelves } from "./canvasItems";
 import type { CanvasPage } from "./canvasPages";
+
+type CanvasNavigator = React.ComponentProps<
+  typeof import("./CanvasLeftSidebar").CanvasLeftSidebar
+>["navigator"];
 
 const navigationUrl = new URL("../navigation/navigation.tsx", import.meta.url).href;
 const ownerUrl = new URL("../preview/previewSelection.ts", import.meta.url).href;
@@ -125,6 +130,10 @@ async function setup() {
     document: dom.document,
     Element: dom.Element,
     HTMLElement: dom.HTMLElement,
+    // The Canvas navigator's Command list measures itself.
+    ResizeObserver: dom.ResizeObserver,
+    requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
+    cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
     IS_REACT_ACT_ENVIRONMENT: true,
     canvasSidebarApi: api,
   };
@@ -153,7 +162,7 @@ async function setup() {
     async render(
       url: string,
       page: CanvasPage | undefined,
-      catalog?: { block: Block; blocks: Block[] },
+      navigator: Partial<CanvasNavigator> = {},
     ) {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
@@ -166,7 +175,10 @@ async function setup() {
               }}
             >
               <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
-                <CanvasLeftSidebar page={page} catalog={catalog} />
+                <CanvasLeftSidebar
+                  page={page}
+                  navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}
+                />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
             </NavigationProvider>
@@ -274,7 +286,10 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
       repeatableItems: [],
     });
     await dom.render("/missing", undefined);
-    assert.equal(dom.mount.querySelector("aside"), null);
+    assert.ok(
+      dom.mount.querySelector("[data-canvas-navigator-sidebar]"),
+      "without a Page, the Canvas navigator shows",
+    );
   } finally {
     await dom.close();
   }
@@ -304,35 +319,71 @@ void test("loading and failed sidebar requests leave the canvas visible; another
   }
 });
 
-void test("a selected block lists the Block Catalog and selects the clicked block", async () => {
+void test("the Canvas navigator lists every item under its shelf, searches, and shows the picked one", async () => {
   const dom = await setup();
   const block = (id: string, title: string) =>
     ({ _internal: { id, title, description: "", layoutOnly: false } }) as Block;
-  const blocks = [block("faq", "FAQ"), block("hero", "Hero"), block("tabs", "Tabs")];
+  const shelves = getCanvasShelves(
+    [home, singleton],
+    [block("tabs", "Tabs"), block("faq", "FAQ"), block("hero", "Hero")],
+  );
+  const shown: string[] = [];
+  const entries = () =>
+    [...dom.mount.querySelectorAll("[cmdk-item]")].map((entry) => ({
+      text: entry.textContent,
+      current: entry.getAttribute("aria-current"),
+      group: entry.closest("[cmdk-group]")?.querySelector("[cmdk-group-heading]")?.textContent,
+    }));
   try {
-    await dom.render("/camox/blocks/hero?zoom=2#top", undefined, { block: blocks[1]!, blocks });
-    const entries = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
+    await dom.render("/camox/blocks/hero", undefined, {
+      shelves,
+      selectedKey: "block:hero",
+      onShowItem: (key) => shown.push(key),
+    });
+    assert.equal(dom.mount.querySelector("[data-sidebar]"), null, "no Page sidebar on a block");
     assert.deepEqual(
-      entries.map((entry) => entry.textContent),
-      ["FAQ", "Hero", "Tabs"],
-      "every block of the Block Catalog is listed",
+      entries(),
+      [
+        { text: "Home", current: null, group: "Pages 2" },
+        { text: "About", current: null, group: "Pages 2" },
+        { text: "FAQ", current: null, group: "Blocks 3" },
+        { text: "Hero", current: "true", group: "Blocks 3" },
+        { text: "Tabs", current: null, group: "Blocks 3" },
+      ],
+      "every item, in Canvas order, under its shelf and its count, with the selected one marked",
     );
+
+    const search = dom.mount.querySelector("[cmdk-input]") as unknown as HTMLInputElement;
+    assert.equal(document.activeElement, search, "the search takes focus");
+    const type = (value: string) =>
+      React.act(async () => {
+        // Set the value past React's own tracking, as typing does.
+        Reflect.set(Object.getPrototypeOf(search), "value", value, search);
+        search.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+    await type("about");
     assert.deepEqual(
-      entries.map((entry) => entry.getAttribute("aria-current")),
-      [null, "true", null],
-      "the selected block is marked",
+      entries().map(({ text }) => text),
+      ["About"],
+      "searching matches labels",
     );
-    assert.equal(dom.mount.querySelector("[data-sidebar]"), null, "no Page sidebar");
-    await React.act(async () => entries[2]!.click());
-    assert.deepEqual(
-      dom.navigations,
-      [{ to: "/camox/blocks/tabs?zoom=2#top" }],
-      "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the block",
-    );
+    await type("block");
+    assert.deepEqual(entries(), [], "but never item keys");
+    await type("");
+
+    const tabs = [...dom.mount.querySelectorAll("[cmdk-item]")].find(
+      (entry) => entry.textContent === "Tabs",
+    ) as unknown as HTMLElement;
+    await React.act(async () => tabs.click());
+    assert.deepEqual(shown, ["block:tabs"], "picking an item shows it");
 
     await dom.render("/", home);
     await dom.settle();
-    assert.equal(dom.mount.querySelector("aside li button"), null, "a Page restores its sidebar");
+    assert.equal(
+      dom.mount.querySelector("[data-canvas-navigator-sidebar]"),
+      null,
+      "a Page restores its sidebar",
+    );
     assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-id"), "7");
   } finally {
     await dom.close();

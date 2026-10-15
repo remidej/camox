@@ -176,7 +176,11 @@ void test("real rendering, hydration and client navigation preserve loader envel
       root = hydrateRoot(
         document.getElementById("root")!,
         <QueryClientProvider client={queryClient}>
-          <PageNavigationProvider initialInput={input} queryClient={queryClient}>
+          <PageNavigationProvider
+            camoxApp={createApp({ blocks: [] })}
+            initialInput={input}
+            queryClient={queryClient}
+          >
             {(current) => (
               <>
                 <CaptureNavigation />

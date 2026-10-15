@@ -115,8 +115,8 @@ export const EnvironmentMenu = () => {
 
   const label = isProduction ? "PROD" : "DEV";
   const badgeClassName = isProduction
-    ? "bg-green-100 text-green-800 border border-green-300 hover:bg-green-100 dark:bg-green-900 dark:text-green-300 dark:border-green-700 dark:hover:bg-green-900 font-mono text-xs"
-    : "bg-yellow-100 text-yellow-800 border border-yellow-300 hover:bg-yellow-100 dark:bg-yellow-900 dark:text-yellow-300 dark:border-yellow-700 dark:hover:bg-yellow-900 font-mono text-xs";
+    ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-300 dark:border-green-700 font-mono text-xs"
+    : "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900 dark:text-yellow-300 dark:border-yellow-700 font-mono text-xs";
 
   const handleConfirm = () => {
     if (!pendingDirection || !canReplicate || !environmentName || !projectId) return;

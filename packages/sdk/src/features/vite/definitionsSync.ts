@@ -205,7 +205,7 @@ export async function syncDefinitionsToApi(options: {
   }
 
   // Initialize content for fresh environments (no-ops if pages already exist)
-  const initialPage = camoxApp.getInitialPageBundles();
+  const initialPage = await camoxApp.getInitialPageBundles();
   if (initialPage) {
     try {
       const result = await client.projects.initializeContent({

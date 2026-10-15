@@ -13,6 +13,21 @@ void test("the dev runtime app registers collections alongside blocks and layout
   assert.match(app, /mod\.collection/);
   assert.match(
     app,
-    /createApp\(\{\s*blocks,\s*layouts,\s*collections,\s*document: camoxDocument\s*\}\)/,
+    /createApp\(\{\s*blocks,\s*lazyBlocks,\s*layouts,\s*collections,\s*document: camoxDocument,\s*\}\)/,
   );
+});
+
+void test("the browser's app loads blocks on demand, keyed by file name", () => {
+  const app = loadRuntimeDevModule("\0virtual:camox/app", { ssr: false });
+  assert.ok(app);
+  assert.doesNotMatch(app, /"\/src\/blocks\/\*\.\{ts,tsx\}", \{ eager: true \}/);
+  assert.match(app, /"\/src\/blocks\/\*\.\{ts,tsx\}", \{ import: "block" \}/);
+  assert.doesNotMatch(app, /blockModulePaths/);
+});
+
+void test("the server's app loads every block and names their modules for preloading", () => {
+  const app = loadRuntimeDevModule("\0virtual:camox/app", { ssr: true });
+  assert.ok(app);
+  assert.match(app, /"\/src\/blocks\/\*\.\{ts,tsx\}", \{ eager: true \}/);
+  assert.match(app, /export const blockModulePaths/);
 });

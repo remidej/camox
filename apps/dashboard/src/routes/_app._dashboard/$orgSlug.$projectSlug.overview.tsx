@@ -10,6 +10,12 @@ import {
 } from "@camox/ui/alert-dialog";
 import { Button } from "@camox/ui/button";
 import { Input } from "@camox/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@camox/ui/input-group";
 import { Label } from "@camox/ui/label";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
@@ -257,56 +263,51 @@ function ProjectCredentialsSection({ slug, deployToken }: { slug: string; deploy
     <div className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="project-slug">Project slug</Label>
-        <div className="flex items-center gap-2">
-          <Input id="project-slug" readOnly value={slug} className="font-mono" />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(slug);
-                    toast.success("Slug copied to clipboard");
-                  }}
-                />
-              }
-            >
-              <CopyIcon className="size-4" />
-            </TooltipTrigger>
-            <TooltipContent>Copy slug</TooltipContent>
-          </Tooltip>
-        </div>
+        <InputGroup>
+          <InputGroupInput id="project-slug" readOnly value={slug} className="font-mono" />
+          <InputGroupAddon align="inline-end">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <InputGroupButton
+                    size="icon-xs"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(slug);
+                      toast.success("Slug copied to clipboard");
+                    }}
+                  />
+                }
+              >
+                <CopyIcon className="size-4" />
+              </TooltipTrigger>
+              <TooltipContent>Copy slug</TooltipContent>
+            </Tooltip>
+          </InputGroupAddon>
+        </InputGroup>
       </div>
       <div className="space-y-2">
         <Label htmlFor="deploy-token">Deploy token</Label>
         <p className="text-muted-foreground text-sm">
           Store this as <code>CAMOX_DEPLOY_TOKEN</code> in your CI environment.
         </p>
-        <div className="flex items-center gap-2">
-          <Input
+        <InputGroup>
+          <InputGroupInput
             id="deploy-token"
             readOnly
             value={revealed ? deployToken : "*".repeat(deployToken.length)}
             className="font-mono"
           />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setRevealed((v) => !v)}
-                />
-              }
-            >
-              {revealed ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
-            </TooltipTrigger>
-            <TooltipContent>{revealed ? "Hide secret" : "Reveal secret"}</TooltipContent>
-          </Tooltip>
-        </div>
+          <InputGroupAddon align="inline-end">
+            <Tooltip>
+              <TooltipTrigger
+                render={<InputGroupButton size="icon-xs" onClick={() => setRevealed((v) => !v)} />}
+              >
+                {revealed ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+              </TooltipTrigger>
+              <TooltipContent>{revealed ? "Hide secret" : "Reveal secret"}</TooltipContent>
+            </Tooltip>
+          </InputGroupAddon>
+        </InputGroup>
       </div>
       <Button
         type="button"

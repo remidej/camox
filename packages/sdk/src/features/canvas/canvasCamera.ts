@@ -20,55 +20,20 @@ export interface CanvasSnapTarget {
   width: number;
 }
 
-/**
- * Screen-space room the sidebars cover at each side of the Canvas once an item
- * is selected. Snapping always leaves it, so the item it selects is never under them.
- */
-export interface CanvasInsets {
-  left: number;
-  right: number;
-}
-
-const NO_INSETS: CanvasInsets = { left: 0, right: 0 };
-
-/** The screen-space span left between the sidebars. */
-function canvasPageArea(viewport: CanvasSize, insets: CanvasInsets) {
-  return { left: insets.left, width: Math.max(1, viewport.width - insets.left - insets.right) };
-}
-
-/** The camera x centering an item between the sidebars at a scale. */
-export function canvasPageCenterX(
-  viewport: CanvasSize,
-  page: { left: number; width: number },
-  scale: number,
-  insets = NO_INSETS,
-) {
-  const area = canvasPageArea(viewport, insets);
-  return area.left + area.width / 2 - (page.left + page.width / 2) * scale;
-}
-
-/**
- * Require 80% horizontal visibility between the sidebars; stable input order
- * breaks center-distance ties.
- */
+/** Require 80% horizontal visibility; stable input order breaks center-distance ties. */
 export function findCanvasSnapTarget<T extends CanvasSnapTarget>(
   camera: CanvasCamera,
   viewport: CanvasSize,
   targets: readonly T[],
-  insets = NO_INSETS,
 ): T | undefined {
-  const area = canvasPageArea(viewport, insets);
   let closest: T | undefined;
   let distance = Infinity;
   for (const target of targets) {
     const left = camera.x + target.left * camera.scale;
     const right = left + target.width * camera.scale;
-    const visible = Math.max(
-      0,
-      Math.min(right, area.left + area.width) - Math.max(left, area.left),
-    );
+    const visible = Math.max(0, Math.min(right, viewport.width) - Math.max(left, 0));
     if (visible + 1e-8 < (right - left) * 0.8) continue;
-    const nextDistance = Math.abs((left + right) / 2 - (area.left + area.width / 2));
+    const nextDistance = Math.abs((left + right - viewport.width) / 2);
     if (nextDistance >= distance) continue;
     closest = target;
     distance = nextDistance;
@@ -161,23 +126,18 @@ export function canvasVerticalRail(
   };
 }
 
-/**
- * Start at the selected page's top, fitting its width between the sidebars
- * rather than the whole site.
- */
+/** Start at the selected page's top, fitting its width rather than the whole site. */
 export function fitCanvasPage(
   viewport: CanvasSize,
   page: { left: number; width: number },
-  insets = NO_INSETS,
 ): CanvasCamera {
-  const area = canvasPageArea(viewport, insets);
-  const padding = Math.min(CANVAS_PAGE_FIT_PADDING, area.width / 4);
+  const padding = Math.min(CANVAS_PAGE_FIT_PADDING, viewport.width / 4);
   const scale = Math.max(
     Number.EPSILON,
-    Math.min(MAX_CANVAS_ZOOM, (area.width - padding * 2) / Math.max(1, page.width)),
+    Math.min(MAX_CANVAS_ZOOM, (viewport.width - padding * 2) / Math.max(1, page.width)),
   );
   return {
-    x: canvasPageCenterX(viewport, page, scale, insets),
+    x: (viewport.width - page.width * scale) / 2 - page.left * scale,
     y: Math.min(CANVAS_PAGE_FIT_PADDING + CANVAS_CHROME_HEIGHT, viewport.height / 3),
     scale,
   };
@@ -190,10 +150,9 @@ export function placeCanvasPageAnchor(
   documentY: number,
   scale: number,
   frameOffsetY = 0,
-  insets = NO_INSETS,
 ): CanvasCamera {
   return {
-    x: canvasPageCenterX(viewport, page, scale, insets),
+    x: viewport.width / 2 - (page.left + page.width / 2) * scale,
     // At document top retain room for the unscaled Shelf Markers and page headers.
     y: documentY > 0 ? -(documentY + frameOffsetY) * scale : fitCanvasPage(viewport, page).y,
     scale,
@@ -265,15 +224,11 @@ function constrainAxis(
   return Math.min(-start * scale, Math.max(viewport - end * scale, position));
 }
 
-/**
- * Project fixed world bounds; zoom must not redefine the padded area or recenter
- * a fitting axis. Items at either end can still pan out from under the sidebars.
- */
+/** Project fixed world bounds; zoom must not redefine the padded area or recenter a fitting axis. */
 export function constrainCanvasCamera(
   camera: CanvasCamera,
   viewport: CanvasSize,
   content: CanvasSize,
-  insets = NO_INSETS,
 ): CanvasCamera {
   const bounds = canvasBounds(viewport, content);
   const next = zoomCanvasAt(
@@ -283,14 +238,7 @@ export function constrainCanvasCamera(
     bounds.minimumScale,
   );
   return {
-    x:
-      constrainAxis(
-        next.x - insets.left,
-        viewport.width - insets.left - insets.right,
-        bounds.left,
-        bounds.right,
-        next.scale,
-      ) + insets.left,
+    x: constrainAxis(next.x, viewport.width, bounds.left, bounds.right, next.scale),
     y: constrainAxis(next.y, viewport.height, bounds.top, bounds.bottom, next.scale),
     scale: next.scale,
   };

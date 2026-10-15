@@ -1,5 +1,6 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import * as React from "react";
 
 import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
@@ -17,7 +18,10 @@ function pageStructureQueryFn(path: string, projectSlug: string) {
 function PageBlock({ blockId, mode }: { blockId: number; mode: "site" | "layout" }) {
   const { data } = useSuspenseQuery(viewBlockQueries.get(blockId));
   const camoxApp = useCamoxApp();
-  const blockDef = camoxApp.getBlockById(data.block.type);
+  // Hydration and navigation load a page's blocks first; this only waits for one they missed.
+  const blockDef =
+    camoxApp.getBlockById(data.block.type) ??
+    (camoxApp.canLoadMoreBlocks() ? React.use(camoxApp.loadBlock(data.block.type)) : undefined);
   if (!blockDef) return null;
 
   return (

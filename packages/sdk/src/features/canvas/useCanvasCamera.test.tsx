@@ -789,7 +789,7 @@ void test("page-fit gestures capture horizontal detents during input and retain 
   }
 });
 
-void test("snapping keeps items clear of the sidebars, and zooming out past it deselects", async () => {
+void test("zooming out past the selected item's page fit deselects it", async () => {
   const dom = new Window({ url: "http://localhost/about" });
   const callbacks = new Map<number, FrameRequestCallback>();
   let resize = () => {};
@@ -824,8 +824,6 @@ void test("snapping keeps items clear of the sidebars, and zooming out past it d
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement);
   const size = { width: 1600, height: 900 };
-  // Uneven, so the left and right sidebars can't be mistaken for each other.
-  const insets = { left: 250, right: 300 };
   const pages = [
     { key: "first", left: 0, width: 1366 },
     { key: "middle", left: 1606, width: 1366 },
@@ -836,12 +834,11 @@ void test("snapping keeps items clear of the sidebars, and zooming out past it d
   let deselections = 0;
   let controls!: ReturnType<typeof useCanvasCamera>;
   function Fixture() {
-    controls = useCanvasCamera("sidebar-insets", pages[1], {
+    controls = useCanvasCamera("deselect", pages[1], {
       targets: pages,
       onSelect: () => {},
       selected,
       onDeselect: () => deselections++,
-      insets,
     });
     return (
       <div ref={controls.viewportRef}>
@@ -886,23 +883,7 @@ void test("snapping keeps items clear of the sidebars, and zooming out past it d
       viewport.dispatchEvent(event);
       flush();
     };
-    const assertBetweenSidebars = (page: (typeof pages)[number], message: string) => {
-      const { x, scale } = read();
-      const left = x + page.left * scale;
-      const right = left + page.width * scale;
-      assert.ok(left > insets.left && right < size.width - insets.right, message);
-      const center = (insets.left + size.width - insets.right) / 2;
-      assert.ok(Math.abs((left + right) / 2 - center) < 1e-6, `${message}, centered`);
-    };
-
-    assertBetweenSidebars(pages[1]!, "the selected item opens between the sidebars");
-    controls.flyTo("first");
-    assertBetweenSidebars(pages[0]!, "the first item pans out from under the left sidebar");
-    controls.flyTo("last");
-    assertBetweenSidebars(pages[2]!, "the last item pans out from under the right sidebar");
-    controls.flyTo("middle");
-    wheel(40, 0);
-    assertBetweenSidebars(pages[1]!, "a horizontal detent centers between the sidebars");
+    assert.equal(read().scale, fitCanvasPage(size, pages[1]!).scale, "it opens at page fit");
 
     const pageScale = read().scale;
     wheel(0, -100, true);

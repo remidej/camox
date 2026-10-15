@@ -511,3 +511,73 @@ void test("the routes endpoint returns a derived layout's first discovered page"
   const unknown = await request("pokedex", () => ({ data: [] }));
   assert.equal(unknown?.status, 404);
 });
+
+async function renderPageWithBlocks(chunks: Record<string, string[]> | null) {
+  const response = await handleCamoxRequest(new Request("http://localhost:3000/about"), {
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectSlug: "test",
+    pageClientEntryUrl: "/client.js",
+    getCamoxApp: async () => app,
+    renderPage: async () => "<main>Site content</main>",
+    blockPreloads: {
+      modulePaths: {
+        hero: "/src/blocks/hero.tsx",
+        faq: "/src/blocks/faq.tsx",
+        footer: "/src/blocks/footer.tsx",
+      },
+      chunks,
+    },
+  });
+  assert.equal(response?.status, 200);
+  return response!.text();
+}
+
+function mockPageWithBlocks(
+  t: { mock: { method: typeof import("node:test").mock.method } },
+  types: string[],
+) {
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (path.endsWith("/getByPath"))
+      return Response.json({
+        json: {
+          page: { id: 1, fullPath: "/about", pathSegment: "about", status: "published" },
+          layout: null,
+          project,
+          projectName: project.name,
+          blocks: types.map((type, id) => ({ id, type, content: {}, settings: {}, position: "a" })),
+          files: [],
+          repeatableItems: [],
+        },
+      });
+    throw new Error(`Unexpected API request ${path}`);
+  });
+}
+
+function modulePreloads(html: string) {
+  return [...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map((match) => match[1]);
+}
+
+void test("a page preloads the built chunks of the blocks it renders, and only those", async (t) => {
+  mockPageWithBlocks(t, ["hero", "faq", "hero"]);
+  const html = await renderPageWithBlocks({
+    "/src/blocks/hero.tsx": ["_chunks/hero-1.mjs", "_chunks/shaders-2.mjs"],
+    "/src/blocks/faq.tsx": ["_chunks/faq-3.mjs", "_chunks/shaders-2.mjs"],
+    "/src/blocks/footer.tsx": ["_chunks/footer-4.mjs"],
+  });
+
+  assert.deepEqual(modulePreloads(html).sort(), [
+    "/_chunks/faq-3.mjs",
+    "/_chunks/hero-1.mjs",
+    "/_chunks/shaders-2.mjs",
+  ]);
+});
+
+void test("in dev, a page preloads its blocks' modules", async (t) => {
+  mockPageWithBlocks(t, ["hero"]);
+  const html = await renderPageWithBlocks(null);
+
+  assert.deepEqual(modulePreloads(html), ["/src/blocks/hero.tsx"]);
+});

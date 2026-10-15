@@ -7,6 +7,7 @@ import { RightSidebar } from "../preview/components/RightSidebar";
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
 import type { EditingOwner } from "../preview/previewStore";
+import { CanvasChatSidebar } from "./CanvasChatSidebar";
 import type { CanvasPage } from "./canvasPages";
 
 function PagesMessage({ role, children }: { role?: "status" | "alert"; children: string }) {
@@ -80,7 +81,7 @@ export function CanvasRightSidebar({
   owner?: EditingOwner | null;
 }) {
   if (catalog) return <BlockPlacementSidebar block={catalog.block} projectId={catalog.projectId} />;
-  if (!page) return null;
+  if (!page) return <CanvasChatSidebar />;
 
   return (
     <PreviewEditingOwnerContext value={owner}>
