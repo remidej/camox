@@ -1,4 +1,4 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { useSuspenseQuery } from "@tanstack/react-query";
 
 import { getApiClient } from "../../lib/api-client";
@@ -10,20 +10,12 @@ import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedLayoutContent } from "./SharedLayoutContent";
 
-function pageStructureQueryFn(path: string, projectSlug: string, source: ReadSource) {
-  return () => getApiClient().pages.getStructure({ path, projectSlug, source });
+function pageStructureQueryFn(path: string, projectSlug: string) {
+  return () => getApiClient().pages.getStructure({ path, projectSlug });
 }
 
-function PublishedBlock({
-  blockId,
-  mode,
-  source,
-}: {
-  blockId: number;
-  mode: "site" | "layout";
-  source: ReadSource;
-}) {
-  const { data } = useSuspenseQuery(viewBlockQueries.get(blockId, source));
+function PageBlock({ blockId, mode }: { blockId: number; mode: "site" | "layout" }) {
+  const { data } = useSuspenseQuery(viewBlockQueries.get(blockId));
   const camoxApp = useCamoxApp();
   const blockDef = camoxApp.getBlockById(data.block.type);
   if (!blockDef) return null;
@@ -50,24 +42,23 @@ function PublishedBlock({
   );
 }
 
-export function PublishedPageContent({ source }: { source: ReadSource }) {
+/** A curated page as visitors see it, without editing. */
+export function CuratedPageContent() {
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
   const { data: pageData } = useSuspenseQuery({
-    queryKey: queryKeys.pages.getByPath(pathname, source),
-    queryFn: pageStructureQueryFn(pathname, projectSlug, source),
+    queryKey: queryKeys.pages.getByPath(pathname),
+    queryFn: pageStructureQueryFn(pathname, projectSlug),
     staleTime: Infinity,
   });
-  const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } = usePageBlocks(
-    pageData,
-    source,
-  );
+  const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } =
+    usePageBlocks(pageData);
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;
 
   const pageBlocksContent = pageBlocks.map((block) => (
     <BlockErrorBoundary key={block.id} blockId={block.id} blockType={block.type}>
-      <PublishedBlock blockId={block.id} mode="site" source={source} />
+      <PageBlock blockId={block.id} mode="site" />
     </BlockErrorBoundary>
   ));
 

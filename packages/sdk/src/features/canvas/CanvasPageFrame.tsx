@@ -61,7 +61,7 @@ export interface CanvasPageFrameProps {
  * isolated, but their cache and editing runtime are shared with the studio.
  */
 export function CanvasPageFrame(props: CanvasPageFrameProps) {
-  return <PageFrame key={`${props.input.pathname}:${props.input.source}`} {...props} />;
+  return <PageFrame key={props.input.pathname} {...props} />;
 }
 
 function PageFrame({
@@ -77,7 +77,7 @@ function PageFrame({
   const camoxApp = useCamoxApp();
   const isCommentMode = useSelector(previewStore, selectIsCommentMode);
   const href = canvasPageHref(input);
-  const layoutId = input.derived?.layout.id;
+  const layoutId = input.derived?.layout.layoutId;
   const owner = React.useMemo<EditingOwner | null>(() => {
     if (layoutId != null) return { kind: "layout", layoutId };
     if (pageId != null) return { kind: "page", pageId };
@@ -155,11 +155,7 @@ function PageFrame({
                         onClick={preventLinkNavigation}
                       >
                         {input.derived ? (
-                          <DerivedPageContent
-                            camoxApp={camoxApp}
-                            derived={input.derived}
-                            source={input.source}
-                          />
+                          <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
                         ) : (
                           <EditablePageContent />
                         )}

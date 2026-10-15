@@ -353,7 +353,6 @@ async function renderSidebar(
     return Response.json({ json: null });
   });
 
-  previewStore.send({ type: "viewDraftSite" });
   previewStore.send({ type: "selectTarget", ...owner, selection });
 
   const host = document.createElement("div");
@@ -398,7 +397,6 @@ async function renderSidebar(
     host.remove();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "viewDraftSite" });
     await window.happyDOM.close();
   });
 
@@ -590,18 +588,6 @@ void test("repeater item asset field edits are saved to the item", async (t) => 
   ]);
 });
 
-void test("field edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, {
-    type: "block-field",
-    blockId: BLOCK_ID,
-    fieldName: "logo",
-    fieldType: "Image",
-  });
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.unlinkAsset();
-  assert.deepEqual(sidebar.writes, []);
-});
-
 /** Whether the sidebar offers any way to type into a field. */
 const hasEditor = (host: HTMLElement) =>
   host.querySelector("textarea, input, [contenteditable]") != null;
@@ -752,13 +738,6 @@ void test("record boolean field edits are saved to the record", async (t) => {
   );
 });
 
-void test("record field edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, recordField("quote", "String"));
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.typeText("Superb");
-  assert.deepEqual(sidebar.writes, []);
-});
-
 void test("a record selection falls back to the reference field view once the record is unlinked", async (t) => {
   const sidebar = await renderSidebar(t, {
     type: "record",
@@ -822,13 +801,6 @@ void test("record image list edits are saved to the record as file references", 
       ],
     ],
   );
-});
-
-void test("record asset edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, recordField("logo", "Image"));
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.unlinkAsset();
-  assert.deepEqual(sidebar.writes, []);
 });
 
 void test("unlinking a block asset used nowhere else offers to delete the file", async (t) => {
@@ -1236,21 +1208,6 @@ void test("dragging a card writes the new order", async (t) => {
   );
 });
 
-void test("reference list changes are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  const unlink = sidebar.host.querySelector<HTMLElement>("button[aria-label='Unlink']");
-  assert.ok(unlink);
-  await act(async () => unlink.click());
-  await sidebar.settle();
-  assert.deepEqual(sidebar.writes, []);
-  assert.deepEqual(
-    cards(sidebar.host).map((card) => card.label),
-    ["Open Globex", "Open Acme"],
-    "the list is unchanged",
-  );
-});
-
 void test("the preview's empty-list placeholder opens the list view with the picker focused", async (t) => {
   referencePickerFocus.send({ type: "request", fieldId: `${BLOCK_ID}__logos` });
   const sidebar = await renderSidebar(t, logosField);
@@ -1594,7 +1551,7 @@ void test("a selection on a record that left the query's results falls back to t
 
 /** The layout of a record page rendering Acme, as its loader returned it. */
 const acmePage = {
-  owner: { kind: "layout", layoutId: 4 },
+  owner: { kind: "layout", layoutId: "articles" },
   result: {
     kind: "collection-item",
     collectionId: "customers",
@@ -1607,7 +1564,7 @@ void test("a record page's record field opens the record's fields, saved to the 
     t,
     {
       type: "record-field",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: ACME,
       recordFieldName: "quote",
       recordFieldType: "String",
@@ -1630,7 +1587,7 @@ void test("a record page's record field opens the record's fields, saved to the 
   ]);
 
   await sidebar.click("Acme");
-  assert.deepEqual(sidebar.selection(), { type: "record", layoutId: 4, recordId: ACME });
+  assert.deepEqual(sidebar.selection(), { type: "record", layoutId: "articles", recordId: ACME });
   assert.match(sidebar.text(), /Quote\s*Superb/);
   assert.match(sidebar.text(), /Contact\s*Ada Lovelace/);
 });
@@ -1640,7 +1597,7 @@ void test("a record page's record opens the records it links", async (t) => {
     t,
     {
       type: "record",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: ACME,
       nested: { fieldName: "contact", recordId: ADA },
     },

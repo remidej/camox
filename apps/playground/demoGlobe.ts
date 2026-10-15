@@ -15,7 +15,6 @@ export interface HeroGlobeContext {
       getByPath: (input: {
         projectSlug: string;
         path: string;
-        source: "draft";
       }) => Promise<{ blocks: readonly { id: number; type: string; content: unknown }[] }>;
     };
     blocks: {
@@ -26,7 +25,7 @@ export interface HeroGlobeContext {
 
 /** Fills empty globes on the home page's heroes; a globe that has a source is left alone. */
 export async function seedHeroGlobe({ client, projectSlug, logger }: HeroGlobeContext) {
-  const page = await client.pages.getByPath({ projectSlug, path: "/", source: "draft" });
+  const page = await client.pages.getByPath({ projectSlug, path: "/" });
   const heroes = page.blocks.filter(
     (block) => block.type === "hero" && !(block.content as { globe?: unknown } | null)?.globe,
   );

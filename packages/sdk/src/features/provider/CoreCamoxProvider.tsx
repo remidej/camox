@@ -55,7 +55,7 @@ export function CoreCamoxProvider({
     seededProject.current = initialProject;
   }
 
-  // OTT processing deliberately does not blank the published tree. Successful
+  // OTT processing deliberately does not blank the public tree. Successful
   // exchange still reloads after mirroring the server cookie.
   const { ready, error } = useProcessOtt(
     authClient,

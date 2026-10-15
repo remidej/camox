@@ -1,6 +1,6 @@
 import { generateUuidv7, uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, desc, eq, notExists, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -14,6 +14,7 @@ import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
+import { collectionNamed, recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
 import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords } from "./schema";
@@ -78,7 +79,7 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
         ctx.db
           .select({ id: collectionRecords.id })
           .from(collectionRecords)
-          .where(eq(collectionRecords.definitionId, previous.id))
+          .where(recordsOf(previous))
           .get(),
       );
       if (!record) continue;
@@ -113,9 +114,9 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
           })
           .where(
             and(
-              eq(collectionRecords.definitionId, previous.id),
+              recordsOf(previous),
               sql`exists (select 1 from ${collectionDefinitions}
-            where ${collectionDefinitions.id} = ${previous.id}
+            where ${collectionNamed(previous)}
             and ${collectionDefinitions.contentSchema} = ${JSON.stringify(previous.contentSchema)})`,
               sql`exists (select 1 from json_each(${defaults}) as addition
             where not exists (select 1 from json_each(${collectionRecords.content}) as current
@@ -124,8 +125,8 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
           ),
       );
     }
-    // A collection code no longer declares goes, unless it holds records: those stay, with
-    // their definition, until a removed collection can keep its records hidden (ADR 0007).
+    // A collection code no longer declares goes. Its records stay stored under its name, hidden
+    // because nothing reads a collection without a definition, and come back with it (ADR 0007).
     const statements = [
       ctx.db.delete(collectionDefinitions).where(
         and(
@@ -136,12 +137,6 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
                 input.definitions.map((definition) => definition.collectionId),
               )
             : undefined,
-          notExists(
-            ctx.db
-              .select({ id: collectionRecords.id })
-              .from(collectionRecords)
-              .where(eq(collectionRecords.definitionId, collectionDefinitions.id)),
-          ),
         ),
       ),
       ...backfills,
@@ -213,14 +208,14 @@ const recordView = Effect.fn("collections.recordView")(function* (
   definition: Definition,
   record: RecordRow,
 ) {
-  const { id, createdAt, updatedAt } = record;
+  const { id, collectionId, createdAt, updatedAt } = record;
   const content = yield* resolveRecordFiles(
     ctx,
     definition,
     definition.contentSchema,
     record.content,
   );
-  return { id, content, createdAt, updatedAt };
+  return { id, collectionId, content, createdAt, updatedAt };
 });
 
 export const getCollectionRecord = Effect.fn("collections.getCollectionRecord")(function* (
@@ -269,8 +264,8 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
             eq(collectionDefinitions.environmentId, environment.id),
           ),
         )
-        // Definitions have no creation timestamp; their auto-increment ID preserves creation order.
-        .orderBy(desc(collectionDefinitions.id)),
+        // Definitions have no creation timestamp; their row order preserves creation order.
+        .orderBy(desc(sql`${collectionDefinitions}.rowid`)),
     );
   },
 );
@@ -296,7 +291,7 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
     ctx.db
       .select({ id: collectionRecords.id, content: collectionRecords.content })
       .from(collectionRecords)
-      .where(eq(collectionRecords.definitionId, definition.id))
+      .where(recordsOf(definition))
       .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id)),
   );
   return records.map((record) => ({
@@ -347,9 +342,7 @@ const recordFor = Effect.fn("collections.recordFor")(function* (
     ctx.db
       .select()
       .from(collectionRecords)
-      .where(
-        and(eq(collectionRecords.id, input.id), eq(collectionRecords.definitionId, definition.id)),
-      )
+      .where(and(eq(collectionRecords.id, input.id), recordsOf(definition)))
       .get(),
   );
   return { definition, record };
@@ -358,7 +351,7 @@ const recordFor = Effect.fn("collections.recordFor")(function* (
 /** Writes go through only while the definition still has the schema they were validated with. */
 const definitionUnchanged = (definition: Definition) =>
   sql`exists (select 1 from ${collectionDefinitions}
-    where ${collectionDefinitions.id} = ${definition.id}
+    where ${collectionNamed(definition)}
     and ${collectionDefinitions.contentSchema} = ${JSON.stringify(definition.contentSchema)})`;
 
 export const createRecord = Effect.fn("collections.createRecord")(function* (
@@ -378,13 +371,14 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
         ctx.db
           .select({
             id: sql<string>`${input.id ?? generateUuidv7()}`.as("id"),
-            definitionId: collectionDefinitions.id,
+            environmentId: collectionDefinitions.environmentId,
+            collectionId: collectionDefinitions.collectionId,
             content: sql<Record<string, unknown>>`${JSON.stringify(content)}`.as("content"),
             createdAt: sql<number>`${now}`.as("created_at"),
             updatedAt: sql<number>`${now}`.as("updated_at"),
           })
           .from(collectionDefinitions)
-          .where(and(eq(collectionDefinitions.id, definition.id), definitionUnchanged(definition))),
+          .where(and(collectionNamed(definition), definitionUnchanged(definition))),
       )
       .returning()
       .get(),
@@ -444,10 +438,7 @@ const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(fun
       message: `${input.collectionId}.${input.field} is not a String field`,
     });
   const rows = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(collectionRecords)
-      .where(eq(collectionRecords.definitionId, definition.id)),
+    ctx.db.select().from(collectionRecords).where(recordsOf(definition)),
   );
   const records = rows.flatMap((row) => {
     const value = pageValue(row.content, input.field);

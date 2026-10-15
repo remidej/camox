@@ -26,7 +26,7 @@ async function fixture(suffix: string) {
       .values({
         projectId: base.project.id,
         environmentId,
-        layoutId: base.layout.id,
+        layoutId: base.layout.layoutId,
         pathSegment: fullPath.slice(1),
         fullPath,
         nickname,
@@ -36,7 +36,11 @@ async function fixture(suffix: string) {
       })
       .returning()
       .get();
-  const place = (type: string, owner: { pageId: number } | { layoutId: number }, position = "a0") =>
+  const place = (
+    type: string,
+    owner: { environmentId: number } & ({ pageId: number } | { layoutId: string }),
+    position = "a0",
+  ) =>
     base.db
       .insert(blocks)
       .values({ ...owner, type, content: {}, position, createdAt: now, updatedAt: now })
@@ -50,10 +54,10 @@ describe("getPagesUsingBlock", () => {
     const about = await insertPage(environment.id, "/about", "About");
     const home = await insertPage(environment.id, "/home", "Home");
     const pricing = await insertPage(environment.id, "/pricing", "Pricing");
-    await place("hero", { pageId: home.id }, "a0");
-    await place("hero", { pageId: home.id }, "a1");
-    await place("hero", { pageId: about.id });
-    await place("faq", { pageId: pricing.id });
+    await place("hero", { environmentId: environment.id, pageId: home.id }, "a0");
+    await place("hero", { environmentId: environment.id, pageId: home.id }, "a1");
+    await place("hero", { environmentId: environment.id, pageId: about.id });
+    await place("faq", { environmentId: environment.id, pageId: pricing.id });
 
     const result = await runService(
       getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }),
@@ -71,8 +75,8 @@ describe("getPagesUsingBlock", () => {
   it("leaves out other environments and layout placements", async () => {
     const { ctx, project, layout, development, insertPage, place } = await fixture("pages-scope");
     const draft = await insertPage(development.id, "/draft", "Draft");
-    await place("hero", { pageId: draft.id });
-    await place("hero", { layoutId: layout.id });
+    await place("hero", { environmentId: development.id, pageId: draft.id });
+    await place("hero", { environmentId: layout.environmentId, layoutId: layout.layoutId });
 
     expect(
       await runService(getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" })),

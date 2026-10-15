@@ -11,9 +11,6 @@ import { cwdFlag } from "../lib/runtime-options";
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
 const productionFlag = option("--production");
-// `--live` flips read commands from the draft (default) to the published
-// snapshot. Orthogonal to `--production` (which selects the environment).
-const liveFlag = option("--live");
 
 const list = command(
   "list",
@@ -32,50 +29,6 @@ const get = command(
     command: constant("pages.get" as const),
     id: optional(option("--id", integer({ metavar: "ID" }))),
     path: optional(option("--path", string({ metavar: "PATH" }))),
-    live: liveFlag,
-    cwd: cwdFlag,
-    project: projectFlag,
-    production: productionFlag,
-    json: jsonFlag,
-  }),
-);
-
-const publish = command(
-  "publish",
-  object({
-    command: constant("pages.publish" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
-    path: optional(option("--path", string({ metavar: "PATH" }))),
-    // `--no-layout` opts out of the default layout cascade. The service no-ops
-    // the layout publish when there are no pending changes, so the cascade is
-    // safe to leave on by default.
-    noLayout: option("--no-layout"),
-    cwd: cwdFlag,
-    project: projectFlag,
-    production: productionFlag,
-    json: jsonFlag,
-  }),
-);
-
-const unpublish = command(
-  "unpublish",
-  object({
-    command: constant("pages.unpublish" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
-    path: optional(option("--path", string({ metavar: "PATH" }))),
-    cwd: cwdFlag,
-    project: projectFlag,
-    production: productionFlag,
-    json: jsonFlag,
-  }),
-);
-
-const discardChanges = command(
-  "discard-changes",
-  object({
-    command: constant("pages.discard-changes" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
-    path: optional(option("--path", string({ metavar: "PATH" }))),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -89,7 +42,7 @@ const create = command(
     command: constant("pages.create" as const),
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: option("--path-segment", string({ metavar: "SEGMENT" })),
-    layoutId: option("--layout-id", integer({ metavar: "ID" })),
+    layoutId: option("--layout-id", string({ metavar: "NAME" })),
     parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
     cwd: cwdFlag,
     project: projectFlag,
@@ -128,7 +81,7 @@ const update = command(
     json: jsonFlag,
   }),
   {
-    description: message`Update a page draft, including in --production. Pass exactly one of --id or --path and at least one update field. Omitted fields are preserved. Publish separately with pages publish. Example: camox pages update --path /about --meta-title "About us" --meta-description "Meet the team". Read metadata with pages get; add --live for published metadata.`,
+    description: message`Update a page, including in --production. Pass exactly one of --id or --path and at least one update field. Omitted fields are preserved. Example: camox pages update --path /about --meta-title "About us" --meta-description "Meet the team". Read metadata with pages get.`,
   },
 );
 
@@ -137,7 +90,7 @@ const setLayout = command(
   object({
     command: constant("pages.set-layout" as const),
     id: option("--id", integer({ metavar: "ID" })),
-    layoutId: option("--layout-id", integer({ metavar: "ID" })),
+    layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
     production: productionFlag,
@@ -157,21 +110,18 @@ const del = command(
   }),
 );
 
-export const parser = command(
-  "pages",
-  or(list, get, create, update, setLayout, del, publish, unpublish, discardChanges),
-);
+export const parser = command("pages", or(list, get, create, update, setLayout, del));
 
 type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
 
 type Args =
   | ({ command: "pages.list" } & CommonFlags)
-  | ({ command: "pages.get"; id?: number; path?: string; live: boolean } & CommonFlags)
+  | ({ command: "pages.get"; id?: number; path?: string } & CommonFlags)
   | ({
       command: "pages.create";
       nickname?: string;
       pathSegment: string;
-      layoutId: number;
+      layoutId: string;
       parentPageId?: number;
     } & CommonFlags)
   | ({
@@ -185,19 +135,8 @@ type Args =
       pathSegment?: string;
       parentPageId?: number;
     } & CommonFlags)
-  | ({ command: "pages.set-layout"; id: number; layoutId: number } & CommonFlags)
-  | ({ command: "pages.delete"; id: number } & CommonFlags)
-  | ({
-      command: "pages.publish";
-      id?: number;
-      path?: string;
-      noLayout: boolean;
-    } & CommonFlags)
-  | ({
-      command: "pages.unpublish" | "pages.discard-changes";
-      id?: number;
-      path?: string;
-    } & CommonFlags);
+  | ({ command: "pages.set-layout"; id: number; layoutId: string } & CommonFlags)
+  | ({ command: "pages.delete"; id: number } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
@@ -223,13 +162,9 @@ export async function handler(args: Args): Promise<never> {
         });
         process.exit(2);
       }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      // Read draft by default; `--live` flips to the published snapshot. The
-      // tool errors when the page has never been published.
-      const toolArgs = { ...target, source: args.live ? "live" : "draft" };
       return dispatch({
         toolName: "getPage",
-        args: toolArgs,
+        args: args.id != null ? { id: args.id } : { path: args.path },
         cwd,
         projectFlag,
         production,
@@ -313,59 +248,5 @@ export async function handler(args: Args): Promise<never> {
         production,
         outputMode,
       });
-    case "pages.publish": {
-      if ((args.id == null) === (args.path == null)) {
-        printError({
-          code: "INVALID_ARGS",
-          message: "Pass exactly one of --id or --path.",
-        });
-        process.exit(2);
-      }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      return dispatch({
-        toolName: "publishPage",
-        args: { ...target, alsoPublishLayout: !args.noLayout },
-        cwd,
-        projectFlag,
-        production,
-        outputMode,
-      });
-    }
-    case "pages.unpublish": {
-      if ((args.id == null) === (args.path == null)) {
-        printError({
-          code: "INVALID_ARGS",
-          message: "Pass exactly one of --id or --path.",
-        });
-        process.exit(2);
-      }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      return dispatch({
-        toolName: "unpublishPage",
-        args: target,
-        cwd,
-        projectFlag,
-        production,
-        outputMode,
-      });
-    }
-    case "pages.discard-changes": {
-      if ((args.id == null) === (args.path == null)) {
-        printError({
-          code: "INVALID_ARGS",
-          message: "Pass exactly one of --id or --path.",
-        });
-        process.exit(2);
-      }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      return dispatch({
-        toolName: "discardPageChanges",
-        args: target,
-        cwd,
-        projectFlag,
-        production,
-        outputMode,
-      });
-    }
   }
 }

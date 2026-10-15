@@ -364,7 +364,7 @@ void test("Synced Blocks show the environment's shared content in their Block Ca
     block: {
       id: 41,
       pageId: null,
-      layoutId: 3,
+      layoutId: "default",
       type,
       content: { title },
       settings: { dark: true },

@@ -70,7 +70,7 @@ const usePageMetadataData = (pageId: number) => {
   const layouts = allLayouts?.filter(
     (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind === "curated",
   );
-  const pageLayoutRecord = allLayouts?.find((l) => l.id === page?.layoutId);
+  const pageLayoutRecord = allLayouts?.find((l) => l.layoutId === page?.layoutId);
   const layoutDef = pageLayoutRecord
     ? camoxApp.getLayoutById(pageLayoutRecord.layoutId)
     : undefined;
@@ -168,12 +168,6 @@ const PageInfoSidebar = ({
           <MetadataRow label="Created">{formatRelativeTime(page.createdAt)}</MetadataRow>
           <MetadataRow label="Created by">{page.createdBy ?? "Unknown"}</MetadataRow>
           <MetadataRow label="Updated">{formatRelativeTime(page.updatedAt)}</MetadataRow>
-          <MetadataRow label="Published">
-            {page.publishedAt == null ? "Never" : formatRelativeTime(page.publishedAt)}
-          </MetadataRow>
-          {page.publishedAt != null && (
-            <MetadataRow label="Published by">{page.publishedBy ?? "Unknown"}</MetadataRow>
-          )}
         </Metadata>
         <div className="-mx-2">
           <AttachedComments pageId={pageId} />
@@ -281,10 +275,9 @@ const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
         </Tooltip>
       </div>
       <Select
-        value={page.layoutId ? String(page.layoutId) : ""}
-        onValueChange={(value) => {
-          const layoutId = Number(value);
-          if (layoutId === page.layoutId) return;
+        value={page.layoutId}
+        onValueChange={(layoutId) => {
+          if (layoutId == null || layoutId === page.layoutId) return;
           setLayout.mutate(
             { id: page.id, layoutId },
             {
@@ -295,7 +288,7 @@ const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
           );
         }}
         items={layouts.map((t) => ({
-          value: String(t.id),
+          value: t.layoutId,
           label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
         }))}
       >
@@ -304,7 +297,7 @@ const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
         </SelectTrigger>
         <SelectContent>
           {layouts.map((t) => (
-            <SelectItem key={t.id} value={String(t.id)}>
+            <SelectItem key={t.layoutId} value={t.layoutId}>
               {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
             </SelectItem>
           ))}
@@ -371,7 +364,7 @@ const PageStructureEditor = ({
       nickname: page?.nickname ?? "",
       pathSegment: page?.pathSegment ?? "",
       parentPageId: page?.parentPageId ?? undefined,
-      layoutId: page?.layoutId ?? 0,
+      layoutId: page?.layoutId ?? "",
     },
     onSubmit: async (values) => {
       if (!page) return;
@@ -410,7 +403,7 @@ const PageStructureEditor = ({
       nickname: page.nickname,
       pathSegment: page.pathSegment,
       parentPageId: page.parentPageId ?? undefined,
-      layoutId: page.layoutId ?? 0,
+      layoutId: page.layoutId ?? "",
     });
   }, [page?.id]);
 
@@ -462,10 +455,12 @@ const PageStructureEditor = ({
             <div className="space-y-2">
               <Label>Layout</Label>
               <Select
-                value={field.state.value ? String(field.state.value) : ""}
-                onValueChange={(value) => field.handleChange(Number(value))}
+                value={field.state.value}
+                onValueChange={(value) => {
+                  if (value != null) field.handleChange(value);
+                }}
                 items={layouts.map((t) => ({
-                  value: String(t.id),
+                  value: t.layoutId,
                   label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
                 }))}
               >
@@ -474,7 +469,7 @@ const PageStructureEditor = ({
                 </SelectTrigger>
                 <SelectContent>
                   {layouts.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
+                    <SelectItem key={t.layoutId} value={t.layoutId}>
                       {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
                     </SelectItem>
                   ))}

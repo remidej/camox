@@ -106,32 +106,32 @@ const cases: {
   },
   {
     name: "record placed by a layout",
-    selection: { type: "record", layoutId: 4, recordId: "launch" },
+    selection: { type: "record", layoutId: "articles", recordId: "launch" },
     type: "CAMOX_HOVER_FIELD",
-    target: { fieldId: "layout-4__launch" },
+    target: { fieldId: "layout-articles__launch" },
   },
   {
     name: "record field placed by a layout",
     selection: {
       type: "record-field",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: "launch",
       recordFieldName: "title",
       recordFieldType: "String",
     },
     type: "CAMOX_HOVER_FIELD",
-    target: { fieldId: "layout-4__launch__title" },
+    target: { fieldId: "layout-articles__launch__title" },
   },
   {
     name: "record linked by a record placed by a layout",
     selection: {
       type: "record",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: "launch",
       nested: { fieldName: "author", recordId: "jane" },
     },
     type: "CAMOX_HOVER_FIELD",
-    target: { fieldId: "layout-4__launch__author__jane" },
+    target: { fieldId: "layout-articles__launch__author__jane" },
   },
 ];
 
@@ -143,7 +143,7 @@ for (const { name, selection, type, target } of cases) {
 }
 
 void test("a layout-owned placement and a block-owned placement of the same record are distinct targets", () => {
-  const layoutOwned: Selection = { type: "record", layoutId: 4, recordId: "launch" };
+  const layoutOwned: Selection = { type: "record", layoutId: "articles", recordId: "launch" };
   const blockOwned: Selection = {
     type: "record",
     blockId: 4,

@@ -33,7 +33,6 @@ export function EditablePageExperience({
           <CamoxPreview
             derived={input.derived}
             canvasOnly={input.canvasOnly}
-            source={input.source}
             runtimeBasePath={input.runtimeBasePath}
           >
             {/* A Canvas-only location has no page content. */}

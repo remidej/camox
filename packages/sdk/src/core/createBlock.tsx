@@ -182,6 +182,7 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
+        syncKey: null,
         references: {},
       });
       markers.push({ _itemId: id });

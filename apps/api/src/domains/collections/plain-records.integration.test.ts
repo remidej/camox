@@ -80,7 +80,7 @@ async function fixture() {
     .values({
       projectId: base.project.id,
       environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "used-in",
       fullPath: "/used-in",
       nickname: "",
@@ -154,7 +154,7 @@ async function fixture() {
       );
     return Object.assign(
       async () =>
-        (await runService(getBlock(ctx, { id: block.id, source: "draft" }))).block.references
+        (await runService(getBlock(ctx, { id: block.id }))).block.references
           .author as ResolvedReference | null,
       { addCoauthor },
     );
@@ -201,6 +201,7 @@ describe("used in counts", () => {
     // Stored as is, as content written before validation or by another tool could be.
     const long = await f.insertFile(`${short.id}7`);
     await f.db.insert(blocks).values({
+      environmentId: f.environment.id,
       pageId: f.page.id,
       type: "picture",
       content: { image: { _fileId: long.id } },
@@ -225,6 +226,7 @@ describe("used in counts", () => {
     const f = await fixture();
     const ada = await f.createAuthor("Ada");
     await f.db.insert(blocks).values({
+      environmentId: f.environment.id,
       pageId: f.page.id,
       type: "byline",
       content: { author: `${ada.id}7` },
@@ -321,7 +323,7 @@ describe("used in counts for records", () => {
       .values({
         projectId: f.project.id,
         environmentId: other.id,
-        layoutId: f.layout.id,
+        layoutId: f.layout.layoutId,
         pathSegment: "elsewhere",
         fullPath: "/elsewhere",
         nickname: "",
@@ -332,6 +334,7 @@ describe("used in counts for records", () => {
       .returning()
       .get();
     await f.db.insert(blocks).values({
+      environmentId: other.id,
       pageId: elsewhere.id,
       type: "byline",
       content: { author: ada.id },

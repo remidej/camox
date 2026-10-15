@@ -4,21 +4,13 @@ import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
-import {
-  blockQueries,
-  layoutQueries,
-  pageMutations,
-  pageQueries,
-  projectQueries,
-} from "../../lib/queries";
+import { blockQueries, pageMutations, pageQueries, projectQueries } from "../../lib/queries";
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
-import { PageStatusBadge } from "../preview/components/PageStatusBadge";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
-import { PageRecordContext } from "../preview/pageRecord";
+import { getPageRecord, PageRecordContext } from "../preview/pageRecord";
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
-import { getPageRecord } from "../preview/publication";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { runtimePath } from "../runtime/navigationTarget";
 import { blockCatalogPath, matchBlockCatalogPath, STUDIO_CANVAS_PATH } from "../studio/routes";
@@ -232,16 +224,10 @@ function CanvasBlockUsageHeader({
   return <CanvasBlockHeader block={block} pageCount={pages.data?.length} onSelect={onSelect} />;
 }
 
-type CanvasPageStatus = Pick<
-  React.ComponentProps<typeof PageStatusBadge>,
-  "status" | "modifiedReason"
->;
-
 function CanvasWorkspace({
   projectId,
   pages,
   blocks,
-  statuses,
   selectedPage,
   selectedBlock,
   intendedItemKey,
@@ -254,7 +240,6 @@ function CanvasWorkspace({
   projectId: number;
   pages: CanvasPage[];
   blocks: Block[];
-  statuses: Map<string, CanvasPageStatus>;
   selectedPage: CanvasPage | undefined;
   selectedBlock: Block | undefined;
   /** The key of the item the Canvas is selecting, even before its location commits. */
@@ -516,11 +501,6 @@ function CanvasWorkspace({
               onRename={
                 page.pageId != null ? (nickname) => renamePage(page.pageId!, nickname) : undefined
               }
-              status={
-                statuses.has(page.key) ? (
-                  <PageStatusBadge size="sm" {...statuses.get(page.key)!} />
-                ) : null
-              }
               comments={
                 page.pageId != null && pathname ? (
                   <CanvasPageCommentIndicators
@@ -663,26 +643,10 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     ...pageQueries.list(project.data?.id ?? 0),
     enabled: !!project.data,
   });
-  const layouts = useQuery({
-    ...layoutQueries.list(project.data?.id ?? 0),
-    enabled: !!project.data,
-  });
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
   const canvasPages = pages.data
     ? getCanvasPages(pages.data, app.getLayouts(), discoveredPaths)
     : [];
-  const pageById = new Map(pages.data?.map((page) => [page.id, page]));
-  const layoutStatusById = new Map(layouts.data?.map((layout) => [layout.layoutId, layout.status]));
-  const statuses = new Map<string, CanvasPageStatus>();
-  for (const page of canvasPages) {
-    const record = page.pageId != null ? pageById.get(page.pageId) : undefined;
-    if (record) {
-      statuses.set(page.key, { status: record.status, modifiedReason: record.modifiedReason });
-      continue;
-    }
-    const status = page.layoutId && layoutStatusById.get(page.layoutId);
-    if (status) statuses.set(page.key, { status });
-  }
   // The Page or block of the Block Catalog a pathname selects, if any.
   const selectionAt = (pathname: string) => {
     if (pathname === STUDIO_CANVAS_PATH) return {};
@@ -784,7 +748,6 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         projectId={project.data.id}
         pages={canvasPages}
         blocks={blockCatalog}
-        statuses={statuses}
         selectedPage={selectedPage}
         selectedBlock={selectedBlock}
         leftSidebarOpen={sidebarsOpen}

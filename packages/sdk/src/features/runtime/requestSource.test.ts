@@ -120,7 +120,7 @@ void test("pages take the editor's source, while their record lookups name none"
       assert.match(await html!.text(), /<main>[^<]*"source":"none"/, `${path} ${cookie}`);
       const data = await request(`/_camox/data?path=${path}`, { cookie });
       const input = (await data!.json()) as PageRenderInput;
-      assert.equal(input.source, expected);
+      assert.equal(input.presentation, expected === "draft" ? "studio" : "public");
       assert.equal(
         (input.derived!.result!.data as { source: string }).source,
         "none",

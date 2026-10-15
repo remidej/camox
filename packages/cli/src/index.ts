@@ -83,9 +83,6 @@ switch (result.command) {
   case "pages.update":
   case "pages.set-layout":
   case "pages.delete":
-  case "pages.publish":
-  case "pages.unpublish":
-  case "pages.discard-changes":
     await pages.handler(result);
     break;
   case "blocks.types":

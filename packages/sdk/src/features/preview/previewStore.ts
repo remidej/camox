@@ -1,4 +1,3 @@
-import { toast } from "@camox/ui/toaster";
 import { createStore } from "@xstate/store-react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
@@ -53,7 +52,7 @@ export type BlockRecordPlacement = LinkedRecord & {
 };
 
 /** The record a layout renders on one of its record pages, placed by no block. */
-export type LayoutRecordPlacement = LinkedRecord & { layoutId: number; recordId: string };
+export type LayoutRecordPlacement = LinkedRecord & { layoutId: string; recordId: string };
 
 /**
  * The block id of what no block places, like a record page's record: it equals no id, itself
@@ -105,7 +104,7 @@ export function samePlacement(a: RecordPlacement, b: RecordPlacement): boolean {
 }
 
 /** Derived routes have no page row, but their persisted layout remains editable. */
-export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: number };
+export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: string };
 export type EditingContext = EditingOwner & { selection: Selection | null };
 
 export function sameEditingOwner(a: EditingOwner | null, b: EditingOwner | null): boolean {
@@ -175,27 +174,15 @@ export function selectionField(
   return null;
 }
 
-/**
- * Which side of the draft/publish split the studio is currently previewing.
- * 'draft' (default) shows in-flight editor changes; 'live' shows visitors'
- * view (the page's live published checkpoint snapshot).
- */
-export type PreviewSource = "draft" | "live";
-export type PreviewMode =
-  | "editing-draft"
-  | "commenting-draft"
-  | "previewing-draft"
-  | "previewing-live";
+export type PreviewMode = "editing-draft" | "commenting-draft" | "previewing-draft";
 
 export const selectIsCommentMode = (state: { context: { mode: PreviewMode } }) =>
   state.context.mode === "commenting-draft";
 
-/** Commenting is a draft-only editing submode. */
+/** Commenting is an editing submode. */
 export const selectIsEditMode = (state: { context: { mode: PreviewMode } }) =>
   state.context.mode === "editing-draft" || selectIsCommentMode(state);
 
-export const selectPreviewSource = (state: { context: { mode: PreviewMode } }): PreviewSource =>
-  state.context.mode === "previewing-live" ? "live" : "draft";
 export type ViewportMode = "full" | "tablet" | "mobile";
 
 interface PreviewContext {
@@ -253,16 +240,6 @@ export const previewStore = createStore({
       };
     },
     hideToolbar: (context) => ({ ...context, isToolbarHidden: true }),
-    viewLiveSite: (context, _, enqueue) => {
-      enqueue.effect(() => {
-        toast("Viewing live version of the site");
-      });
-      return {
-        ...context,
-        mode: "previewing-live" as const,
-        isToolbarHidden: true,
-      };
-    },
     setViewportMode: (context, event: { mode: ViewportMode }) => {
       if (context.viewportMode === event.mode) return context;
       return { ...context, viewportMode: event.mode };
@@ -288,7 +265,7 @@ export const previewStore = createStore({
         addBlockDialog: null,
       };
     },
-    activateLayout: (context, event: { layoutId: number }) => {
+    activateLayout: (context, event: { layoutId: string }) => {
       const owner: EditingOwner = { kind: "layout", layoutId: event.layoutId };
       if (sameEditingOwner(context.editingContext, owner)) return context;
       return {
@@ -479,16 +456,5 @@ export const previewStore = createStore({
       ...context,
       iframeElement: event.element,
     }),
-    viewDraftSite: (context, _, enqueue) => {
-      if (context.mode !== "previewing-live") return context;
-      enqueue.effect(() => {
-        toast("Previewing draft content", { duration: 2500 });
-      });
-      return {
-        ...context,
-        mode: "previewing-draft" as const,
-        isToolbarHidden: false,
-      };
-    },
   },
 });

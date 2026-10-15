@@ -18,8 +18,8 @@ export interface CanvasPage {
 
 /**
  * A Canvas frame's page data. The sidebar reads the same query for the selected page. A
- * code-owned page's data is its loader's draft result, which reloads with record edits and
- * publication, like other draft layout reads.
+ * code-owned page's data is its loader's result, which reloads with record edits and
+ * publication, like other layout reads.
  */
 export function canvasPageQuery(
   projectSlug: string,
@@ -36,7 +36,6 @@ export function canvasPageQuery(
           runtimeBasePath,
           pathname,
           derivedLayoutId,
-          "draft",
         ]
       : ["camox", "canvas", projectSlug, runtimeBasePath, pathname, null],
     queryFn: async ({ signal }: { signal: AbortSignal }) => {

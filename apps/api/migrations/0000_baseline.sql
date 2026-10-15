@@ -119,37 +119,20 @@ CREATE TABLE `projects` (
 CREATE UNIQUE INDEX `projects_slug_idx` ON `projects` (`slug`);--> statement-breakpoint
 CREATE INDEX `projects_organization_idx` ON `projects` (`organization_id`);--> statement-breakpoint
 CREATE TABLE `layouts` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
 	`layout_id` text NOT NULL,
 	`description` text,
 	`kind` text DEFAULT 'curated' NOT NULL,
-	`live_published_checkpoint_id` integer,
 	`content_updated_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
+	PRIMARY KEY(`project_id`, `environment_id`, `layout_id`),
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `layouts_project_idx` ON `layouts` (`project_id`);--> statement-breakpoint
-CREATE INDEX `layouts_project_layout_idx` ON `layouts` (`project_id`,`layout_id`);--> statement-breakpoint
 CREATE INDEX `layouts_environment_layout_idx` ON `layouts` (`environment_id`,`layout_id`);--> statement-breakpoint
-CREATE TABLE `layout_checkpoints` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`layout_id` integer NOT NULL,
-	`kind` text NOT NULL,
-	`label` text,
-	`snapshot` text NOT NULL,
-	`schema_version` integer NOT NULL,
-	`created_at` integer NOT NULL,
-	`created_by` text,
-	FOREIGN KEY (`layout_id`) REFERENCES `layouts`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-CREATE INDEX `layout_checkpoints_layout_created_idx` ON `layout_checkpoints` (`layout_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `pages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,
@@ -157,21 +140,19 @@ CREATE TABLE `pages` (
 	`path_segment` text NOT NULL,
 	`full_path` text NOT NULL,
 	`parent_page_id` integer,
-	`layout_id` integer NOT NULL,
+	`layout_id` text NOT NULL,
 	`nickname` text NOT NULL,
 	`meta_title` text,
 	`meta_description` text,
 	`ai_seo_enabled` integer,
 	`custom_og_image_blob_id` text,
 	`custom_og_image_url` text,
-	`live_published_checkpoint_id` integer,
 	`content_updated_at` integer NOT NULL,
 	`created_by_id` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`layout_id`) REFERENCES `layouts`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`created_by_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
@@ -179,22 +160,7 @@ CREATE INDEX `pages_full_path_idx` ON `pages` (`full_path`);--> statement-breakp
 CREATE INDEX `pages_parent_idx` ON `pages` (`parent_page_id`);--> statement-breakpoint
 CREATE INDEX `pages_project_idx` ON `pages` (`project_id`);--> statement-breakpoint
 CREATE INDEX `pages_environment_full_path_idx` ON `pages` (`environment_id`,`full_path`);--> statement-breakpoint
-CREATE TABLE `page_checkpoints` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`page_id` integer NOT NULL,
-	`kind` text NOT NULL,
-	`label` text,
-	`snapshot` text NOT NULL,
-	`schema_version` integer NOT NULL,
-	`created_at` integer NOT NULL,
-	`created_by` text,
-	FOREIGN KEY (`page_id`) REFERENCES `pages`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-CREATE INDEX `page_checkpoints_page_created_idx` ON `page_checkpoints` (`page_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `block_definitions` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
 	`block_id` text NOT NULL,
@@ -206,20 +172,19 @@ CREATE TABLE `block_definitions` (
 	`default_settings` text,
 	`layout_only` integer,
 	`synced` integer DEFAULT false NOT NULL,
-	`synced_published_data` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
+	PRIMARY KEY(`project_id`, `environment_id`, `block_id`),
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `block_definitions_project_idx` ON `block_definitions` (`project_id`);--> statement-breakpoint
-CREATE INDEX `block_definitions_project_block_idx` ON `block_definitions` (`project_id`,`block_id`);--> statement-breakpoint
 CREATE INDEX `block_definitions_environment_block_idx` ON `block_definitions` (`environment_id`,`block_id`);--> statement-breakpoint
 CREATE TABLE `blocks` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`environment_id` integer NOT NULL,
 	`page_id` integer,
-	`layout_id` integer,
+	`layout_id` text,
 	`type` text NOT NULL,
 	`content` text NOT NULL,
 	`settings` text,
@@ -228,12 +193,12 @@ CREATE TABLE `blocks` (
 	`position` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`page_id`) REFERENCES `pages`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`layout_id`) REFERENCES `layouts`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`page_id`) REFERENCES `pages`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE INDEX `blocks_page_idx` ON `blocks` (`page_id`);--> statement-breakpoint
-CREATE INDEX `blocks_layout_idx` ON `blocks` (`layout_id`);--> statement-breakpoint
+CREATE INDEX `blocks_layout_idx` ON `blocks` (`environment_id`,`layout_id`);--> statement-breakpoint
 CREATE INDEX `blocks_type_idx` ON `blocks` (`type`);--> statement-breakpoint
 CREATE TABLE `repeatable_items` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -299,7 +264,6 @@ CREATE INDEX `comments_environment_idx` ON `comments` (`environment_id`);--> sta
 CREATE INDEX `comments_block_idx` ON `comments` (`block_id`);--> statement-breakpoint
 CREATE INDEX `comments_item_idx` ON `comments` (`item_id`);--> statement-breakpoint
 CREATE TABLE `collection_definitions` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
 	`collection_id` text NOT NULL,
@@ -307,21 +271,22 @@ CREATE TABLE `collection_definitions` (
 	`description` text NOT NULL,
 	`label` text NOT NULL,
 	`content_schema` text NOT NULL,
+	PRIMARY KEY(`project_id`, `environment_id`, `collection_id`),
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `collection_definition_scope` ON `collection_definitions` (`project_id`,`environment_id`,`collection_id`);--> statement-breakpoint
 CREATE TABLE `collection_records` (
 	`id` text PRIMARY KEY NOT NULL,
-	`definition_id` integer NOT NULL,
+	`environment_id` integer NOT NULL,
+	`collection_id` text NOT NULL,
 	`content` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`definition_id`) REFERENCES `collection_definitions`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `collection_records_definition` ON `collection_records` (`definition_id`);
+CREATE INDEX `collection_records_collection` ON `collection_records` (`environment_id`,`collection_id`);
 --> statement-breakpoint
 -- Hand-written: the Drizzle schema can't express triggers.
 -- Keep this section when regenerating the baseline (see CONTRIBUTORS.md).
@@ -331,7 +296,10 @@ CREATE INDEX `collection_records_definition` ON `collection_records` (`definitio
 -- This also closes the race with creating a collection's first record.
 CREATE TRIGGER collection_schema_guard BEFORE UPDATE OF content_schema ON collection_definitions
 WHEN OLD.content_schema != NEW.content_schema
-AND EXISTS (SELECT 1 FROM collection_records WHERE definition_id = OLD.id)
+AND EXISTS (
+  SELECT 1 FROM collection_records
+  WHERE environment_id = OLD.environment_id AND collection_id = OLD.collection_id
+)
 AND (
   EXISTS (
     SELECT 1 FROM json_each(OLD.content_schema, '$.properties') AS previous
@@ -342,7 +310,8 @@ AND (
   OR EXISTS (
     SELECT 1 FROM collection_records AS record,
       json_each(NEW.content_schema, '$.properties') AS field
-    WHERE record.definition_id = OLD.id
+    WHERE record.environment_id = OLD.environment_id
+    AND record.collection_id = OLD.collection_id
     AND NOT EXISTS (
       SELECT 1 FROM json_each(record.content) AS content WHERE content.key = field.key
     )

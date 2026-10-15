@@ -112,7 +112,7 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
   const dom = await setup();
   const { PreviewPanel } = await import("./PreviewPanel");
   const { previewStore: store } = await import("../previewStore");
-  const render = (active: boolean, pageId?: number, layoutId?: number) =>
+  const render = (active: boolean, pageId?: number, layoutId?: string) =>
     dom.render(
       <PreviewPanel
         active={active}
@@ -135,7 +135,7 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
     store.send({ type: "setIframeElement", element: canvasFrame });
     const canvasOwner = store.getSnapshot().context.editingContext;
     await render(false, 4);
-    await render(false, undefined, 5);
+    await render(false, undefined, "news");
     ready(outgoingFrame);
     frameCallbacks.at(-1)!(outgoingFrame);
     assert.equal(store.getSnapshot().context.editingContext, canvasOwner);
@@ -216,7 +216,7 @@ void test("panel resolution, navigation and derived layouts synchronize selectio
       </button>
     );
   }
-  const render = (pageId?: number, layoutId?: number, mobile = false) =>
+  const render = (pageId?: number, layoutId?: string, mobile = false) =>
     dom.render(
       <React.StrictMode>
         <PreviewPanel
@@ -266,24 +266,24 @@ void test("panel resolution, navigation and derived layouts synchronize selectio
       selection,
     });
 
-    await render(undefined, 5);
+    await render(undefined, "news");
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "layout",
-      layoutId: 5,
+      layoutId: "news",
       selection: null,
     });
     await React.act(async () => dom.host.querySelector("button")!.click());
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "layout",
-      layoutId: 5,
+      layoutId: "news",
       selection,
     });
     await React.act(async () => store.send({ type: "cycleViewportMode" }));
     assert.equal(dom.host.querySelector("button")!.getAttribute("data-selected"), "true");
-    await render(undefined, 6);
+    await render(undefined, "events");
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "layout",
-      layoutId: 6,
+      layoutId: "events",
       selection: null,
     });
     await render();

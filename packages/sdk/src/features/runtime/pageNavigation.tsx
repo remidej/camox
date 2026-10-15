@@ -13,13 +13,7 @@ function preserveStableLayoutBlockCaches(
   current: LayoutIdentity | null,
   next: LayoutIdentity | null,
 ) {
-  if (
-    !current ||
-    !next ||
-    current.id !== next.id ||
-    current.layoutId !== next.layoutId ||
-    current.version !== next.version
-  )
+  if (!current || !next || current.layoutId !== next.layoutId || current.version !== next.version)
     return dehydratedState;
   if (
     !dehydratedState ||

@@ -1,8 +1,8 @@
 # Managing Pages and Blocks with the Camox CLI
 
-Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and draft-first rules.
+Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and the dev-first workflow.
 
-Use these commands for Pages, metadata, Layout assignments, Blocks and their Content, draft review, and publishing. To change Block schemas or rendering, read [Block Definitions](block-definitions.md); to create or change Layout Definitions, follow the code-definition routing in [the Camox skill](../SKILL.md).
+Use these commands for Pages, metadata, Layout assignments, Blocks and their Content, and review. To change Block schemas or rendering, read [Block Definitions](block-definitions.md); to create or change Layout Definitions, follow the code-definition routing in [the Camox skill](../SKILL.md).
 
 ## Pages
 
@@ -10,8 +10,10 @@ Use these commands for Pages, metadata, Layout assignments, Blocks and their Con
 
 ```sh
 {{CAMOX_CMD}} layouts list
-{{CAMOX_CMD}} pages create --path-segment about --layout-id 39
+{{CAMOX_CMD}} pages create --path-segment about --layout-id default
 ```
+
+`--layout-id` takes a Layout's name, the `layoutId` listed by `layouts list`.
 
 Use `--parent-page-id <ID>` to nest the Page under another Page.
 
@@ -31,8 +33,8 @@ Setting either metadata field disables automatic SEO for both fields and cannot
 be combined with `--ai-seo on`. Disabling AI preserves current metadata; enabling
 it schedules asynchronous generation, so read the Page again to inspect results.
 
-Metadata edits affect only the draft, even with `--production`. Read published
-metadata with `pages get --live`; publish only after user approval.
+Metadata edits apply right away in the selected Environment. Read metadata
+with `pages get`.
 
 ## Comments
 
@@ -43,7 +45,7 @@ List a Page's comments, then use a returned comment `id` to resolve one on that 
 {{CAMOX_CMD}} comments resolve --page-id 25 --id <COMMENT_UUID>
 ```
 
-`--page-id` is the numeric Page ID (find it with `pages get --path /about`); `--id` is the comment's UUID, not a Block or Page ID. Resolution changes the comment's status, not the Page's draft or published content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project`, `--production`, and `--cwd` select the same project, environment, and working directory as other CLI commands.
+`--page-id` is the numeric Page ID (find it with `pages get --path /about`); `--id` is the comment's UUID, not a Block or Page ID. Resolution changes the comment's status, not the Page's content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project`, `--production`, and `--cwd` select the same project, environment, and working directory as other CLI commands.
 
 ## Blocks
 
@@ -63,24 +65,22 @@ the Layout to discover navigation, footer, and other layout-owned block IDs:
 
 ```sh
 {{CAMOX_CMD}} layouts list
-{{CAMOX_CMD}} layouts get --id 39
+{{CAMOX_CMD}} layouts get --layout-id default
 {{CAMOX_CMD}} blocks get --id 99
 {{CAMOX_CMD}} blocks edit --id 99 --content '{"title": "Updated title"}'
 ```
 
-Use the numeric `id` from `layouts list` (or the Page's numeric `layoutId`)
-for `layouts get --id`, not the code-defined string `layoutId`. The response
+Pass the Layout's name, the `layoutId` from `layouts list` (also the Page's
+`layoutId`), to `layouts get --layout-id`. The response
 includes `blocks` with `id`, `type`, `slot`, and Content, plus
 `layout.beforeBlockIds` and `layout.afterBlockIds`. Pass a Block's `id` to
 `blocks get` and `blocks edit`; do not use the Layout ID or Block type.
 Inspect the Block's schema and current Content before editing, and preserve
 repeatable items as described below.
 
-Layout reads default to the draft; add `--live` to inspect the published
-snapshot (an unpublished Layout returns no Blocks). Keep `--project`,
-`--production`, and `--cwd` consistent across the
-discovery and editing commands. `--production` selects the environment; it does
-not publish anything. Shared shell edits affect every Page using that Layout,
+Keep `--project`, `--production`, and `--cwd` consistent across the
+discovery and editing commands. `--production` selects the environment.
+Shared shell edits affect every Page using that Layout,
 and synced Block types can share Content across Layouts.
 
 ### Create and position a Block
@@ -127,7 +127,7 @@ Use `--field-file <NAME>=<PATH>` on `blocks create` and `blocks edit` to set a t
 {{CAMOX_CMD}} blocks edit --id 314 --content '{"title": "Orbit"}' --field-file source=./orbit.html
 ```
 
-Every file is read before anything is written, so a missing or unreadable file fails the command without changing the draft.
+Every file is read before anything is written, so a missing or unreadable file fails the command without changing anything.
 
 To build an Artifact source, loop until it renders correctly:
 
@@ -160,47 +160,11 @@ The response's `repeatableItems` contains each item's `id`, `fieldName`, `parent
 
 `blocks get-many` returns the same bundle shape as `blocks get`, in requested-id order.
 
-## Review and publishing
-
-For curated page-content blocks, publish or discard changes at the Page level. Layout-owned blocks use layout publishing; curated Page publishing includes its Layout by default, as described below. Singleton and derived routes have no curated Page record: use layout publishing, not `pages publish` (see [Routed layouts](routed-layouts.md)).
-
-### Review draft and live state
+## Review
 
 ```sh
-{{CAMOX_CMD}} pages get --path /pricing        # draft
-{{CAMOX_CMD}} pages get --path /pricing --live # published snapshot
-{{CAMOX_CMD}} blocks get --id 314              # draft
-{{CAMOX_CMD}} blocks get --id 314 --live       # published snapshot
+{{CAMOX_CMD}} pages get --path /pricing
+{{CAMOX_CMD}} blocks get --id 314
 ```
 
-Live reads fail when the Page or Block has never been published. `--live` is not a write target and does not publish anything.
-
-### Publish after approval
-
-```sh
-{{CAMOX_CMD}} pages publish --path /pricing
-```
-
-`pages publish` accepts exactly one of `--id` or `--path`. It publishes the Page's current draft and, by default, its Layout. Publishing the Layout is a no-op when it has no pending changes. Use `--no-layout` only when the user explicitly does not want pending Layout changes published with the Page:
-
-```sh
-{{CAMOX_CMD}} pages publish --path /pricing --no-layout
-```
-
-Publish only after the user asks or approves, not automatically after editing a draft.
-
-### Unpublish or discard drafts
-
-Remove a Page from live without deleting its draft:
-
-```sh
-{{CAMOX_CMD}} pages unpublish --path /pricing
-```
-
-Reset a draft to its current live snapshot without changing live:
-
-```sh
-{{CAMOX_CMD}} pages discard-changes --path /pricing
-```
-
-Both commands accept exactly one of `--id` or `--path`. Discarding fails if the Page has never been published.
+Reads return the current content. Pages, Layouts and Blocks have no separate draft or published state: every edit is visible on the site of the selected Environment right away.

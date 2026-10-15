@@ -396,20 +396,27 @@ describe("authenticated collection browsing", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("keeps a removed collection's definition while it holds records", async () => {
+  it("hides a removed collection's records and brings them back with it", async () => {
     const f = await fixture("browse-removed");
     const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const result = await f.sync([]);
     expect(result.retired).toEqual(["articles"]);
-    // Until a removed collection can hide its records (ADR 0007), they stay readable.
-    expect(await runService(getCollectionRecord(f.ctx, { ...f.scope, id: record.id }))).toEqual(
-      record,
-    );
-    await runService(deleteRecord(f.ctx, { ...f.scope, id: record.id }));
-    await f.sync([]);
+    const read = { ...f.scope, id: record.id };
     await expect(runService(listCollectionRecords(f.ctx, f.scope))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+    await expect(runService(getCollectionRecord(f.ctx, read))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      runService(editRecord(f.ctx, { ...read, content: { ...article, title: "Edited" } })),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runService(deleteRecord(f.ctx, read))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    await f.sync();
+    expect(await runService(getCollectionRecord(f.ctx, read))).toEqual(record);
   });
 
   it("requires membership and authentication for browsing", async () => {

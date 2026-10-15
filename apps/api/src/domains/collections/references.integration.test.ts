@@ -6,8 +6,8 @@ import { createProjectFixture, createServiceContext } from "../../../test/fixtur
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, files, pages } from "../../schema";
 import { createBlock, getBlock, getPageMarkdown, updateBlockContent } from "../blocks/service";
-import { getLayout, publishLayout } from "../layouts/service";
-import { getPageByPath, listPages, publishPage } from "../pages/service";
+import { getLayout } from "../layouts/service";
+import { getPageByPath } from "../pages/service";
 import {
   createRepeatableItem,
   updateRepeatableItemContent,
@@ -79,7 +79,7 @@ async function fixture(assets = false) {
     .values({
       projectId: f.project.id,
       environmentId: f.environment.id,
-      layoutId: f.layout.id,
+      layoutId: f.layout.layoutId,
       pathSegment: "reference",
       fullPath: "/reference",
       nickname: "",
@@ -170,21 +170,15 @@ describe("single collection references", () => {
         },
       }),
     );
-    await runService(publishPage(f.ctx, { id: f.page.id }));
     // A file change shows on every read of the record, with no edit to the record.
     await f.db
       .update(files)
       .set({ url: "https://assets.example.com/replaced.png", alt: "Changed" })
       .where(eq(files.id, managed[0].id));
-    for (const source of ["draft", "live"] as const) {
-      const ctx = source === "draft" ? f.ctx : f.publicCtx;
-      const block = await runService(getBlock(ctx, { id: f.block.id, source }));
+    for (const ctx of [f.ctx, f.publicCtx]) {
+      const block = await runService(getBlock(ctx, { id: f.block.id }));
       const page = await runService(
-        getPageByPath(ctx, {
-          projectSlug: f.project.slug,
-          path: "/reference",
-          source,
-        }),
+        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }),
       );
       for (const result of [block, page]) {
         expect(result.files.map((file) => file.id).sort()).toEqual(
@@ -199,7 +193,7 @@ describe("single collection references", () => {
         mimeType: "image/png",
         size: 123,
       });
-      const markdown = await runService(getPageMarkdown(ctx, { pageId: f.page.id, source }));
+      const markdown = await runService(getPageMarkdown(ctx, { pageId: f.page.id }));
       expect(markdown.markdown).toContain("![Changed]");
       expect(markdown.markdown).toContain("replaced.png");
       expect(markdown.markdown).toContain("[report.pdf](https://assets.example.com/report.pdf)");
@@ -207,17 +201,11 @@ describe("single collection references", () => {
     }
     await f.db
       .update(blocks)
-      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
+      .set({ pageId: null, layoutId: f.layout.layoutId, slot: "before" })
       .where(eq(blocks.id, f.block.id));
-    await runService(publishLayout(f.ctx, { id: f.layout.id }));
-    for (const source of ["draft", "live"] as const) {
-      const ctx = source === "draft" ? f.ctx : f.publicCtx;
+    for (const ctx of [f.ctx, f.publicCtx]) {
       const layout = await runService(
-        getLayout(ctx, {
-          projectSlug: f.project.slug,
-          layoutId: "default",
-          source,
-        }),
+        getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" }),
       );
       expect(layout.files.map((file) => file.id).sort()).toEqual(
         managed.map((file) => file.id).sort(),
@@ -226,26 +214,22 @@ describe("single collection references", () => {
         _fileId: managed[1].id,
         url: "https://assets.example.com/report.pdf",
       });
-      expect(
-        (await runService(getPageMarkdown(ctx, { pageId: f.page.id, source }))).markdown,
-      ).toContain("[report.pdf](https://assets.example.com/report.pdf)");
+      expect((await runService(getPageMarkdown(ctx, { pageId: f.page.id }))).markdown).toContain(
+        "[report.pdf](https://assets.example.com/report.pdf)",
+      );
     }
   });
 
-  it("stores record ids, resolves the record's content draft and Live, and rejects records out of scope", async () => {
+  it("stores record ids, resolves the record's content for members and visitors, and rejects records out of scope", async () => {
     const f = await fixture();
-    const draft = await runService(getBlock(f.ctx, { id: f.block.id, source: "draft" }));
-    expect(draft.block.content.customer).toBe(f.record.id);
-    expect(draft.block.references.customer).toMatchObject({
-      id: f.record.id,
-      content: { name: "Original" },
-    });
-    await runService(publishPage(f.ctx, { id: f.page.id }));
-    const live = await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }));
-    expect(live.block.references.customer).toMatchObject({
-      id: f.record.id,
-      content: { name: "Original" },
-    });
+    for (const ctx of [f.ctx, f.publicCtx]) {
+      const read = await runService(getBlock(ctx, { id: f.block.id }));
+      expect(read.block.content.customer).toBe(f.record.id);
+      expect(read.block.references.customer).toMatchObject({
+        id: f.record.id,
+        content: { name: "Original" },
+      });
+    }
     const other = await fixture();
     await expect(
       runService(
@@ -259,21 +243,14 @@ describe("single collection references", () => {
     ).rejects.toThrow();
   });
 
-  it("shows a record edit on Live without republishing the page, which stays published", async () => {
+  it("shows a record edit to visitors with no edit to the page", async () => {
     const f = await fixture();
-    await runService(publishPage(f.ctx, { id: f.page.id, alsoPublishLayout: true }));
     await runService(
       editRecord(f.ctx, { ...f.scope, id: f.record.id, content: { name: "Changed" } }),
     );
     expect(
-      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })))
-        .markdown,
+      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id }))).markdown,
     ).toContain("Customer: Changed");
-    expect(
-      (await runService(listPages(f.ctx, { projectId: f.project.id }))).find(
-        (page) => page.id === f.page.id,
-      )?.status,
-    ).toBe("published");
   });
 
   it("rejects nested references and references without a collection; an empty reference saves", async () => {
@@ -290,48 +267,41 @@ describe("single collection references", () => {
     ).toThrow();
     await runService(updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } }));
     expect(
-      (await runService(getBlock(f.ctx, { id: f.block.id, source: "draft" }))).block.references
-        .customer,
+      (await runService(getBlock(f.ctx, { id: f.block.id }))).block.references.customer,
     ).toBeNull();
   });
 
-  it("resolves references in layout blocks, draft and Live", async () => {
+  it("resolves references in layout blocks for members and visitors", async () => {
     const f = await fixture();
     await f.db
       .update(blocks)
-      .set({ pageId: null, layoutId: f.layout.id, slot: "before" })
+      .set({ pageId: null, layoutId: f.layout.layoutId, slot: "before" })
       .where(eq(blocks.id, f.block.id));
-    const layout = async (source: "draft" | "live") =>
-      runService(
-        getLayout(source === "draft" ? f.ctx : f.publicCtx, {
-          projectSlug: f.project.slug,
-          layoutId: "default",
-          source,
-        }),
-      );
-    expect(customer((await layout("draft")).blocks[0])?.content.name).toBe("Original");
-    await runService(publishLayout(f.ctx, { id: f.layout.id }));
+    const layoutCustomer = async (ctx: typeof f.ctx) =>
+      customer(
+        (await runService(getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" })))
+          .blocks[0],
+      )?.content.name;
+    expect(await layoutCustomer(f.ctx)).toBe("Original");
+    expect(await layoutCustomer(f.publicCtx)).toBe("Original");
     await runService(
       editRecord(f.ctx, { ...f.scope, id: f.record.id, content: { name: "Changed" } }),
     );
-    expect(customer((await layout("live")).blocks[0])?.content.name).toBe("Changed");
+    expect(await layoutCustomer(f.ctx)).toBe("Changed");
+    expect(await layoutCustomer(f.publicCtx)).toBe("Changed");
   });
 
-  it("deletes a referenced record, after which the reference reads as empty, draft and Live", async () => {
+  it("deletes a referenced record, after which the reference reads as empty for members and visitors", async () => {
     const f = await fixture();
-    await runService(publishPage(f.ctx, { id: f.page.id }));
     await runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id }));
-    const draft = await runService(getBlock(f.ctx, { id: f.block.id, source: "draft" }));
-    expect(draft.block.content.customer).toBe(f.record.id);
-    expect(draft.block.references.customer).toBeNull();
-    expect(
-      (await runService(getBlock(f.publicCtx, { id: f.block.id, source: "live" }))).block.references
-        .customer,
-    ).toBeNull();
-    expect(
-      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id, source: "live" })))
-        .markdown,
-    ).not.toContain("Original");
+    for (const ctx of [f.ctx, f.publicCtx]) {
+      const read = await runService(getBlock(ctx, { id: f.block.id }));
+      expect(read.block.content.customer).toBe(f.record.id);
+      expect(read.block.references.customer).toBeNull();
+      expect(
+        (await runService(getPageMarkdown(ctx, { pageId: f.page.id }))).markdown,
+      ).not.toContain("Original");
+    }
   });
 });
 
@@ -375,10 +345,10 @@ async function listFixture() {
     runService(updateBlockContent(f.ctx, { id: list.id, content: { customers } }));
   const ids = (references: Record<string, unknown> | undefined) =>
     ((references?.customers ?? []) as { id: string }[]).map((record) => record.id);
-  const listIds = async (ctx: typeof f.ctx, source: "draft" | "live") =>
-    ids((await runService(getBlock(ctx, { id: list.id, source }))).block.references);
-  const listMarkdown = async (ctx: typeof f.ctx, source: "draft" | "live") =>
-    (await runService(getPageMarkdown(ctx, { pageId: f.page.id, source }))).markdown;
+  const listIds = async (ctx: typeof f.ctx) =>
+    ids((await runService(getBlock(ctx, { id: list.id }))).block.references);
+  const listMarkdown = async (ctx: typeof f.ctx) =>
+    (await runService(getPageMarkdown(ctx, { pageId: f.page.id }))).markdown;
   return { ...f, alpha: f.record, beta, gamma, list, setList, ids, listIds, listMarkdown };
 }
 
@@ -427,10 +397,10 @@ describe("reference lists", () => {
     const f = await listFixture();
     expect(f.list.content).toEqual({ customers: [] });
     await f.setList([f.gamma.id, f.alpha.id]);
-    expect(
-      (await runService(getBlock(f.ctx, { id: f.list.id, source: "draft" }))).block.content
-        .customers,
-    ).toEqual([f.gamma.id, f.alpha.id]);
+    expect((await runService(getBlock(f.ctx, { id: f.list.id }))).block.content.customers).toEqual([
+      f.gamma.id,
+      f.alpha.id,
+    ]);
 
     const otherProject = await fixture();
     const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
@@ -479,68 +449,47 @@ describe("reference lists", () => {
     ] as const) {
       await expect(f.setList(invalid)).rejects.toMatchObject({ message });
     }
-    expect(await f.listIds(f.ctx, "draft")).toEqual([f.gamma.id, f.alpha.id]);
+    expect(await f.listIds(f.ctx)).toEqual([f.gamma.id, f.alpha.id]);
   });
 
-  it("resolves every record in stored order, draft, Live and from checkpoints", async () => {
+  it("resolves every record in stored order for members and visitors", async () => {
     const f = await listFixture();
     await f.setList([f.gamma.id, f.beta.id, f.alpha.id]);
-    expect(await f.listIds(f.ctx, "draft")).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
-
-    await runService(publishPage(f.ctx, { id: f.page.id }));
-    expect(await f.listIds(f.publicCtx, "live")).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
-    const live = await runService(
-      getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/reference" }),
-    );
-    expect(f.ids(live.blocks.find((block) => block.id === f.list.id)?.references)).toEqual([
-      f.gamma.id,
-      f.beta.id,
-      f.alpha.id,
-    ]);
-
-    // Checkpoints store ids; history resolves them against the records' current content.
-    const checkpointId = (await f.db.select().from(pages).where(eq(pages.id, f.page.id)).get())!
-      .livePublishedCheckpointId!;
-    await f.setList([]);
-    await runService(editRecord(f.ctx, { ...f.scope, id: f.beta.id, content: { name: "Bea" } }));
-    const history = await runService(
-      getPageByPath(f.ctx, {
-        projectSlug: f.project.slug,
-        path: "/reference",
-        source: { checkpointId },
-      }),
-    );
-    const historyList = history.blocks.find((block) => block.id === f.list.id)!;
-    expect(historyList.content.customers).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
-    expect(
-      (historyList.references.customers as ResolvedReference[]).map((record) => record.label),
-    ).toEqual(["Gamma", "Bea", "Original"]);
-    expect(await f.listIds(f.ctx, "draft")).toEqual([]);
+    for (const ctx of [f.ctx, f.publicCtx]) {
+      expect(await f.listIds(ctx)).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
+      const page = await runService(
+        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }),
+      );
+      expect(f.ids(page.blocks.find((block) => block.id === f.list.id)?.references)).toEqual([
+        f.gamma.id,
+        f.beta.id,
+        f.alpha.id,
+      ]);
+    }
   });
 
-  it("renders each linked record's Markdown in order, draft or Live, and nothing when empty", async () => {
+  it("renders each linked record's Markdown in order for members and visitors, and nothing when empty", async () => {
     const f = await listFixture();
-    expect(await f.listMarkdown(f.ctx, "draft")).toMatch(/<!-- Logo grid -->\nTrusted by:$/);
+    expect(await f.listMarkdown(f.ctx)).toMatch(/<!-- Logo grid -->\nTrusted by:$/);
 
     await f.setList([f.gamma.id, f.beta.id, f.alpha.id]);
-    const rendered =
-      "<!-- Logo grid -->\nTrusted by:\n\n- Logo of Gamma\n- Logo of Beta\n- Logo of Original";
-    expect(await f.listMarkdown(f.ctx, "draft")).toContain(rendered);
-
-    await runService(publishPage(f.ctx, { id: f.page.id }));
-    expect(await f.listMarkdown(f.publicCtx, "live")).toContain(rendered);
+    for (const ctx of [f.ctx, f.publicCtx]) {
+      expect(await f.listMarkdown(ctx)).toContain(
+        "<!-- Logo grid -->\nTrusted by:\n\n- Logo of Gamma\n- Logo of Beta\n- Logo of Original",
+      );
+    }
   });
 
-  it("leaves a deleted record out of a reference list, draft and Live", async () => {
+  it("leaves a deleted record out of a reference list for members and visitors", async () => {
     const f = await listFixture();
     await f.setList([f.gamma.id, f.beta.id, f.alpha.id]);
-    await runService(publishPage(f.ctx, { id: f.page.id }));
     await runService(deleteRecord(f.ctx, { ...f.scope, id: f.beta.id }));
-    expect(await f.listIds(f.ctx, "draft")).toEqual([f.gamma.id, f.alpha.id]);
-    expect(await f.listIds(f.publicCtx, "live")).toEqual([f.gamma.id, f.alpha.id]);
-    expect(await f.listMarkdown(f.publicCtx, "live")).toContain(
-      "Trusted by:\n\n- Logo of Gamma\n- Logo of Original",
-    );
+    for (const ctx of [f.ctx, f.publicCtx]) {
+      expect(await f.listIds(ctx)).toEqual([f.gamma.id, f.alpha.id]);
+      expect(await f.listMarkdown(ctx)).toContain(
+        "Trusted by:\n\n- Logo of Gamma\n- Logo of Original",
+      );
+    }
   });
 });
 
@@ -615,11 +564,10 @@ async function itemFixture() {
       },
     }),
   );
-  const bundle = (ctx: typeof f.ctx, source: "draft" | "live") =>
-    runService(getBlock(ctx, { id: wall.id, source }));
-  const draft = await bundle(f.ctx, "draft");
-  const logo = draft.repeatableItems.find((item) => item.fieldName === "logos")!;
-  const quote = draft.repeatableItems.find((item) => item.fieldName === "quotes")!;
+  const bundle = (ctx: typeof f.ctx) => runService(getBlock(ctx, { id: wall.id }));
+  const read = await bundle(f.ctx);
+  const logo = read.repeatableItems.find((item) => item.fieldName === "logos")!;
+  const quote = read.repeatableItems.find((item) => item.fieldName === "quotes")!;
   return { ...f, wall, bundle, logo, quote };
 }
 
@@ -667,8 +615,8 @@ describe("references in repeatable items", () => {
     await runService(
       updateRepeatableItemContent(f.ctx, { id: f.logo.id, content: { customer: f.gamma.id } }),
     );
-    const draft = await f.bundle(f.ctx, "draft");
-    const logo = draft.repeatableItems.find((item) => item.id === f.logo.id)!;
+    const read = await f.bundle(f.ctx);
+    const logo = read.repeatableItems.find((item) => item.id === f.logo.id)!;
     expect(logo.settings).toEqual({ emphasized: true });
     expect(customer(logo)?.id).toBe(f.gamma.id);
     // Unlinking the placement never touches the record.
@@ -735,23 +683,22 @@ describe("references in repeatable items", () => {
   });
 
   it.each([false, true])(
-    "resolves item references on Live and leaves deleted records out (synced: %s)",
+    "resolves item references for visitors and leaves deleted records out (synced: %s)",
     async (synced) => {
       const f = await itemFixture();
       await f.db
         .update(blockDefinitions)
         .set({ synced })
         .where(eq(blockDefinitions.blockId, "logo-wall"));
-      await runService(publishPage(f.ctx, { id: f.page.id }));
-      const live = await f.bundle(f.publicCtx, "live");
-      const logo = live.repeatableItems.find((item) => item.fieldName === "logos")!;
+      const visitorRead = await f.bundle(f.publicCtx);
+      const logo = visitorRead.repeatableItems.find((item) => item.fieldName === "logos")!;
       expect(customer(logo)?.content.name).toBe("Original");
       expect((logo.references.partners as ResolvedReference[]).map((r) => r.id)).toEqual([
         f.gamma.id,
       ]);
       const quote = () =>
         f
-          .bundle(f.publicCtx, "live")
+          .bundle(f.publicCtx)
           .then(
             (bundle) =>
               bundle.repeatableItems.find((item) => item.fieldName === "quotes")?.references
@@ -772,7 +719,7 @@ describe("references in repeatable items", () => {
 
   it("renders item references through the repeater's per-item Markdown", async () => {
     const f = await itemFixture();
-    expect(await f.listMarkdown(f.ctx, "draft")).toContain(
+    expect(await f.listMarkdown(f.ctx)).toContain(
       "<!-- Logo wall -->\nLogos:\n\n- Original\n  - Gamma\n  - Quote by Beta",
     );
   });
@@ -849,7 +796,7 @@ async function relationFixture() {
     .values({
       projectId: f.project.id,
       environmentId: f.environment.id,
-      layoutId: f.layout.id,
+      layoutId: f.layout.layoutId,
       pathSegment: "relations",
       fullPath: "/relations",
       nickname: "",
@@ -878,9 +825,9 @@ async function relationFixture() {
   const block = await runService(
     createBlock(ctx, { pageId: page.id, type: "article-teaser", content: { article: article.id } }),
   );
-  const teaser = async (source: "draft" | "live") =>
-    (await runService(getBlock(source === "draft" ? ctx : publicCtx, { id: block.id, source })))
-      .block.references.article as ResolvedReference | null;
+  const teaser = async (reader: typeof ctx) =>
+    (await runService(getBlock(reader, { id: block.id }))).block.references
+      .article as ResolvedReference | null;
   return {
     ...f,
     ctx,
@@ -948,11 +895,10 @@ describe("references between collections", () => {
     expect(saved.content.coauthors).toEqual([f.sam.id, f.jane.id]);
   });
 
-  it("resolves two hops from a block, draft and Live, and stops there through cycles", async () => {
+  it("resolves two hops from a block for members and visitors, and stops there through cycles", async () => {
     const f = await relationFixture();
-    await runService(publishPage(f.ctx, { id: f.page.id }));
-    for (const source of ["draft", "live"] as const) {
-      const article = await f.teaser(source);
+    for (const ctx of [f.ctx, f.publicCtx]) {
+      const article = await f.teaser(ctx);
       expect(article?.content.name).toBe("Launch");
       const author = article!.references!.author as ResolvedReference;
       expect(author.content.name).toBe("Jane");
@@ -966,16 +912,16 @@ describe("references between collections", () => {
 
   it("renders nested reference Markdown through the placement's per-use format", async () => {
     const f = await relationFixture();
-    expect(
-      (await runService(getPageMarkdown(f.ctx, { pageId: f.page.id, source: "draft" }))).markdown,
-    ).toContain("Launch by Jane\n\n- Sam");
+    expect((await runService(getPageMarkdown(f.ctx, { pageId: f.page.id }))).markdown).toContain(
+      "Launch by Jane\n\n- Sam",
+    );
   });
 
   it("leaves a deleted record out of the references of records linking it", async () => {
     const f = await relationFixture();
     await runService(deleteRecord(f.ctx, { ...f.authors, id: f.sam.id }));
     await runService(deleteRecord(f.ctx, { ...f.authors, id: f.jane.id }));
-    expect((await f.teaser("draft"))?.references).toEqual({ author: null, coauthors: [] });
+    expect((await f.teaser(f.ctx))?.references).toEqual({ author: null, coauthors: [] });
   });
 
   it("backfills an added reference field as unset on existing records", async () => {
@@ -1017,6 +963,8 @@ const queryList = (query: unknown, toMarkdown?: string[]) => ({
   ...(toMarkdown ? { toMarkdown } : {}),
 });
 
+type Reader = "member" | "visitor";
+
 /** Runs `run` with the clock at `time`, so records get known creation and edit times. */
 async function at<T>(time: number, run: () => Promise<T>) {
   const clock = vi.spyOn(Date, "now").mockReturnValue(time);
@@ -1029,7 +977,7 @@ async function at<T>(time: number, run: () => Promise<T>) {
 
 /**
  * Five articles, created in this order: Bravo, alpha, Charlie, Delta and an untitled one. A
- * published page holds one block whose query-backed lists order them in different ways.
+ * page holds one block whose query-backed lists order them in different ways.
  */
 async function queryFixture() {
   const f = await createProjectFixture(`queries-${crypto.randomUUID()}`);
@@ -1068,7 +1016,7 @@ async function queryFixture() {
     .values({
       projectId: f.project.id,
       environmentId: f.environment.id,
-      layoutId: f.layout.id,
+      layoutId: f.layout.layoutId,
       pathSegment: "articles",
       fullPath: "/articles",
       nickname: "",
@@ -1127,18 +1075,14 @@ async function queryFixture() {
       content: { features: [{}] },
     }),
   );
-  await runService(publishPage(ctx, { id: page.id, alsoPublishLayout: true }));
-  const bundle = (source: "draft" | "live") =>
-    runService(getBlock(source === "draft" ? ctx : publicCtx, { id: block.id, source }));
+  const bundle = (reader: Reader) =>
+    runService(getBlock(reader === "member" ? ctx : publicCtx, { id: block.id }));
   /** The titles a list resolves to, in order. */
-  const titles = async (field: keyof typeof lists, source: "draft" | "live") =>
-    ((await bundle(source)).block.references[field] as ResolvedReference[]).map((r) => r.label);
-  const markdown = async (source: "draft" | "live") =>
-    (
-      await runService(
-        getPageMarkdown(source === "draft" ? ctx : publicCtx, { pageId: page.id, source }),
-      )
-    ).markdown;
+  const titles = async (field: keyof typeof lists, reader: Reader) =>
+    ((await bundle(reader)).block.references[field] as ResolvedReference[]).map((r) => r.label);
+  const markdown = async (reader: Reader) =>
+    (await runService(getPageMarkdown(reader === "member" ? ctx : publicCtx, { pageId: page.id })))
+      .markdown;
   return {
     ...f,
     ctx,
@@ -1154,7 +1098,7 @@ async function queryFixture() {
   };
 }
 
-const sources = ["draft", "live"] as const;
+const readers = ["member", "visitor"] as const;
 
 describe("query-backed reference lists", () => {
   it("accepts typed orderBy keys and capped limits in block and item content only", () => {
@@ -1230,9 +1174,9 @@ describe("query-backed reference lists", () => {
 
   it("stores nothing on the block or item and rejects content writes to query-backed lists", async () => {
     const f = await queryFixture();
-    const draft = await f.bundle("draft");
-    expect(draft.block.content).not.toHaveProperty("recent");
-    const item = draft.repeatableItems[0];
+    const read = await f.bundle("member");
+    expect(read.block.content).not.toHaveProperty("recent");
+    const item = read.repeatableItems[0];
     expect(item.content).not.toHaveProperty("latest");
     const ids = [f.records.alpha.id];
     const rejection = (name: string) => ({
@@ -1273,19 +1217,19 @@ describe("query-backed reference lists", () => {
     ).rejects.toMatchObject(rejection("latest"));
   });
 
-  it("orders every record by its current content, the same in draft and Live reads", async () => {
+  it("orders every record by its current content, the same for members and visitors", async () => {
     const f = await queryFixture();
-    for (const source of sources) {
+    for (const reader of readers) {
       // Case-insensitive text order; empty text sorts last in either direction.
-      expect(await f.titles("byTitle", source)).toEqual(["alpha", "Bravo", "Charlie", "Delta", ""]);
-      expect(await f.titles("byTitleDesc", source)).toEqual([
+      expect(await f.titles("byTitle", reader)).toEqual(["alpha", "Bravo", "Charlie", "Delta", ""]);
+      expect(await f.titles("byTitleDesc", reader)).toEqual([
         "Delta",
         "Charlie",
         "Bravo",
         "alpha",
         "",
       ]);
-      expect(await f.titles("byCreation", source)).toEqual([
+      expect(await f.titles("byCreation", reader)).toEqual([
         "Bravo",
         "alpha",
         "Charlie",
@@ -1293,7 +1237,7 @@ describe("query-backed reference lists", () => {
         "",
       ]);
       // Without orderBy, records keep creation order.
-      expect(await f.titles("unordered", source)).toEqual([
+      expect(await f.titles("unordered", reader)).toEqual([
         "Bravo",
         "alpha",
         "Charlie",
@@ -1302,7 +1246,7 @@ describe("query-backed reference lists", () => {
       ]);
     }
 
-    // A title change re-sorts the list everywhere, without republishing the page.
+    // A title change re-sorts the list for everyone, with no edit to the page.
     await runService(
       editRecord(f.ctx, {
         ...f.scope,
@@ -1310,17 +1254,17 @@ describe("query-backed reference lists", () => {
         content: { title: "Zulu", excerpt: "", cover: null },
       }),
     );
-    for (const source of sources) {
-      expect(await f.titles("byTitle", source)).toEqual(["alpha", "Charlie", "Delta", "Zulu", ""]);
+    for (const reader of readers) {
+      expect(await f.titles("byTitle", reader)).toEqual(["alpha", "Charlie", "Delta", "Zulu", ""]);
     }
   });
 
   it("orders by publishedAt like creation time, and editing a record never reorders it", async () => {
     const f = await queryFixture();
     const expectOrder = async () => {
-      for (const source of sources) {
-        expect(await f.titles("recent", source)).toEqual(["", "Delta", "Charlie"]);
-        expect(await f.titles("firstPublished", source)).toEqual([
+      for (const reader of readers) {
+        expect(await f.titles("recent", reader)).toEqual(["", "Delta", "Charlie"]);
+        expect(await f.titles("firstPublished", reader)).toEqual([
           "Bravo",
           "alpha",
           "Charlie",
@@ -1348,18 +1292,18 @@ describe("query-backed reference lists", () => {
     const upper = await f.create("Echo", 7000);
     const tied = [lower, upper].map(({ id }) => id).sort();
     const ids = async (field: "byTitle" | "byTitleDesc") =>
-      ((await f.bundle("draft")).block.references[field] as ResolvedReference[])
+      ((await f.bundle("member")).block.references[field] as ResolvedReference[])
         .map(({ id }) => id)
         .filter((id) => tied.includes(id));
     expect(await ids("byTitle")).toEqual(tied);
     expect(await ids("byTitleDesc")).toEqual(tied);
   });
 
-  it("applies limits after ordering by text or creation, draft and Live", async () => {
+  it("applies limits after ordering by text or creation, for members and visitors", async () => {
     const f = await queryFixture();
-    for (const source of sources) {
-      expect(await f.titles("firstByTitle", source)).toEqual(["alpha", "Bravo"]);
-      expect(await f.titles("newest", source)).toEqual(["", "Delta"]);
+    for (const reader of readers) {
+      expect(await f.titles("firstByTitle", reader)).toEqual(["alpha", "Bravo"]);
+      expect(await f.titles("newest", reader)).toEqual(["", "Delta"]);
     }
     // Equal creation times break by id ascending, whatever the direction.
     const twins = [await f.create("Twin", 9000), await f.create("Twin", 9000)];
@@ -1367,47 +1311,50 @@ describe("query-backed reference lists", () => {
       .map(({ id }) => id)
       .sort()
       .map((id) => ({ id }));
-    for (const source of sources) {
-      expect((await f.bundle(source)).block.references.newest).toMatchObject(expected);
+    for (const reader of readers) {
+      expect((await f.bundle(reader)).block.references.newest).toMatchObject(expected);
     }
   });
 
   it("applies limit and caps lists without one at 100 records", async () => {
     const f = await queryFixture();
-    expect(await f.titles("recent", "draft")).toHaveLength(3);
+    expect(await f.titles("recent", "member")).toHaveLength(3);
     // Seed the 96 extra records in one statement: going through createRecord one at a time
     // (each mocking the clock) takes seconds, and record creation is covered elsewhere.
-    const { definitionId } = await f.db
-      .select({ definitionId: collectionRecords.definitionId })
+    const { environmentId, collectionId } = await f.db
+      .select({
+        environmentId: collectionRecords.environmentId,
+        collectionId: collectionRecords.collectionId,
+      })
       .from(collectionRecords)
       .where(eq(collectionRecords.id, f.records.bravo.id))
       .get()
       .then((row) => row!);
     await f.db.run(sql`
       WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 95)
-      INSERT INTO collection_records (id, definition_id, content, created_at, updated_at)
+      INSERT INTO collection_records (id, environment_id, collection_id, content, created_at, updated_at)
       SELECT lower(printf('%s-%s-7%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
           substr(hex(randomblob(2)), 2), substr(hex(randomblob(2)), 2), hex(randomblob(6)))),
-        ${definitionId},
+        ${environmentId}, ${collectionId},
         json_object('title', 'Extra ' || i, 'excerpt', '', 'cover', json('null')), 10 + i, 10 + i
       FROM n
     `);
     // 101 records exist; the list without a limit stops at the cap.
-    expect(await f.titles("byCreation", "draft")).toHaveLength(100);
-    expect((await f.titles("byCreation", "draft"))[0]).toBe("Extra 0");
+    expect(await f.titles("byCreation", "member")).toHaveLength(100);
+    expect((await f.titles("byCreation", "member"))[0]).toBe("Extra 0");
     // Numbers within text sort by value.
-    const extras = (await f.titles("byTitle", "draft")).filter((title) => title.startsWith("E"));
+    const extras = (await f.titles("byTitle", "member")).filter((title) => title.startsWith("E"));
     expect(extras.slice(0, 3)).toEqual(["Extra 0", "Extra 1", "Extra 2"]);
     expect(extras.at(-1)).toBe("Extra 95");
   });
 
-  it("updates Live membership when a record is created or deleted, without republishing the page", async () => {
+  it("updates visitors' list membership when a record is created or deleted, with no edit to the page", async () => {
     const f = await queryFixture();
     await f.create("Echo", 6000);
-    expect(await f.titles("recent", "live")).toEqual(["Echo", "", "Delta"]);
+    expect(await f.titles("recent", "visitor")).toEqual(["Echo", "", "Delta"]);
     await runService(deleteRecord(f.ctx, { ...f.scope, id: f.records.alpha.id }));
-    for (const source of sources) {
-      expect(await f.titles("byTitle", source)).toEqual(["Bravo", "Charlie", "Delta", "Echo", ""]);
+    for (const reader of readers) {
+      expect(await f.titles("byTitle", reader)).toEqual(["Bravo", "Charlie", "Delta", "Echo", ""]);
     }
     const live = await runService(
       getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/articles" }),
@@ -1428,28 +1375,27 @@ describe("query-backed reference lists", () => {
       .update(blocks)
       .set({ content: { recent: [f.records.bravo.id] } })
       .where(eq(blocks.id, f.block.id));
-    await runService(publishPage(f.ctx, { id: f.page.id }));
-    for (const source of sources) {
-      expect(await f.titles("recent", source)).toEqual(["", "Delta", "Charlie"]);
+    for (const reader of readers) {
+      expect(await f.titles("recent", reader)).toEqual(["", "Delta", "Charlie"]);
     }
   });
 
-  it("resolves query-backed lists in repeatable items, draft and Live", async () => {
+  it("resolves query-backed lists in repeatable items for members and visitors", async () => {
     const f = await queryFixture();
-    const latest = async (source: "draft" | "live") =>
-      ((await f.bundle(source)).repeatableItems[0].references.latest as ResolvedReference[]).map(
+    const latest = async (reader: Reader) =>
+      ((await f.bundle(reader)).repeatableItems[0].references.latest as ResolvedReference[]).map(
         (record) => record.label,
       );
     await f.create("Late", 6000);
-    for (const source of sources) {
-      expect(await latest(source)).toEqual(["Late"]);
+    for (const reader of readers) {
+      expect(await latest(reader)).toEqual(["Late"]);
     }
   });
 
-  it("renders each resolved record through the per-use Markdown, draft and Live", async () => {
+  it("renders each resolved record through the per-use Markdown for members and visitors", async () => {
     const f = await queryFixture();
-    for (const source of sources) {
-      const markdown = await f.markdown(source);
+    for (const reader of readers) {
+      const markdown = await f.markdown(reader);
       expect(markdown).toContain("- ## Delta\n  About Delta\n- ## Charlie\n  About Charlie");
       expect(markdown).not.toContain("About Bravo");
     }

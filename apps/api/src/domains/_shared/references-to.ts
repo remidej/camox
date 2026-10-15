@@ -29,22 +29,20 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
           where t.key = '_fileId' and t.atom = ${target.id})`
       : sql`exists (select 1 from json_tree(${content}) t
           where t.type = 'text' and t.atom = ${target.id})`;
-  const scopedBlocks = sql`select b.id from blocks b
-    left join pages p on p.id = b.page_id
-    left join layouts l on l.id = b.layout_id
-    where coalesce(p.project_id, l.project_id) = ${scope.projectId}
-      and coalesce(p.environment_id, l.environment_id) = ${scope.environmentId}`;
+  // An environment belongs to one project, so its id alone scopes content.
   const rows = yield* Effect.promise(() =>
     db.all<{ kind: ReferencingContent["kind"]; id: number | string }>(sql`
       select 'block' as kind, b.id as id from blocks b
-      where b.id in (${scopedBlocks}) and ${matches(sql.raw("b.content"))}
+      where b.environment_id = ${scope.environmentId} and ${matches(sql.raw("b.content"))}
       union all
       select 'repeatableItem', i.id from repeatable_items i
-      where i.block_id in (${scopedBlocks}) and ${matches(sql.raw("i.content"))}
+      join blocks b on b.id = i.block_id
+      where b.environment_id = ${scope.environmentId} and ${matches(sql.raw("i.content"))}
       union all
       select 'record', r.id from collection_records r
-      join collection_definitions d on d.id = r.definition_id
-      where d.project_id = ${scope.projectId} and d.environment_id = ${scope.environmentId}
+      join collection_definitions d
+        on d.environment_id = r.environment_id and d.collection_id = r.collection_id
+      where r.environment_id = ${scope.environmentId}
         and r.id != ${String(target.id)} and ${matches(sql.raw("r.content"))}
     `),
   );

@@ -1,12 +1,11 @@
 import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlocks } from "../../lib/bump-content-updated-at";
-import { blockDefinitions, blocks, layouts, pages, repeatableItems } from "../../schema";
+import { blockDefinitions, blocks, environments, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { initializeSyncedLiveData } from "./synced-live";
 
 /** Placements keep their own identity/order; only data is shared, within an environment. */
 const placements = Effect.fn("placements")(function* (
@@ -18,14 +17,7 @@ const placements = Effect.fn("placements")(function* (
     ctx.db
       .select({ block: blocks })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .where(
-        and(
-          eq(blocks.type, type),
-          or(eq(pages.environmentId, environmentId), eq(layouts.environmentId, environmentId)),
-        ),
-      )
+      .where(and(eq(blocks.type, type), eq(blocks.environmentId, environmentId)))
       .orderBy(blocks.id),
   );
 });
@@ -47,7 +39,7 @@ const copyItems = Effect.fn("copyItems")(function* (
   const kept = new Set<number>();
 
   // Walk the tree rather than relying on row/position order: child IDs may be
-  // smaller than parent IDs after a checkpoint restore or environment copy.
+  // smaller than parent IDs after an environment copy.
   const copyChildren = (
     parentId: number | null,
     targetParentId: number | null,
@@ -125,7 +117,6 @@ export const applySyncedFlagChange = Effect.fn("blocks.applySyncedFlagChange")(f
   },
 ) {
   if (synced) {
-    yield* initializeSyncedLiveData(ctx, environmentId, type);
     const rows = yield* placements(ctx, environmentId, type);
     if (rows.length >= 2) yield* syncBlockData(ctx, rows[0].block.id);
   }
@@ -155,7 +146,6 @@ export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function*
 /**
  * Fan out a data edit, or seed a newly created placement from existing data.
  * This deliberately doesn't copy page/layout IDs, layout slot or block position.
- * Published checkpoints remain immutable; edits still require publishing.
  */
 export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
   ctx: ServiceContext,
@@ -164,15 +154,14 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
 ) {
   const row = yield* Effect.promise(() =>
     ctx.db
-      .select({ block: blocks, page: pages, layout: layouts })
+      .select({ block: blocks, projectId: environments.projectId })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
+      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .where(eq(blocks.id, blockId))
       .get(),
   );
-  const owner = row?.page ?? row?.layout;
-  if (!row || !owner) return;
+  if (!row) return;
+  const owner = { projectId: row.projectId, environmentId: row.block.environmentId };
   if (!(yield* isSynced(ctx, owner.environmentId, row.block.type))) return;
 
   // Every shared data change refreshes the shared content shown in the Block Catalog.
@@ -190,8 +179,7 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
     broadcastSharedDataChange([]);
     return;
   }
-  // Prefer another owner when restoring a page: its other restored placements
-  // may still contain historical data until their turn in the restore loop.
+  // Seed a new placement from another owner's copy when there is one.
   const existing =
     peers.find(
       (peer) => peer.pageId !== row.block.pageId || peer.layoutId !== row.block.layoutId,
@@ -224,6 +212,6 @@ export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
     queryKeys.layouts.all,
     ["camox", "blocks", "getPageMarkdown"],
     ["camox", "repeatableItems", "get"],
-    ...targets.map((block) => queryKeys.blocks.get(block.id, "draft")),
+    ...targets.map((block) => queryKeys.blocks.get(block.id)),
   ]);
 });

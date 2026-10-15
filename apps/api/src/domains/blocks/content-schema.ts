@@ -1,8 +1,8 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { blockDefinitions, blocks, layouts, pages } from "../../schema";
+import { blockDefinitions, blocks } from "../../schema";
 import type { FieldSchema } from "./normalize-content";
 
 /**
@@ -25,17 +25,12 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
         settingsSchema: blockDefinitions.settingsSchema,
       })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
       .innerJoin(
         blockDefinitions,
         and(
           projectId == null ? undefined : eq(blockDefinitions.projectId, projectId),
           eq(blockDefinitions.blockId, blocks.type),
-          or(
-            eq(blockDefinitions.environmentId, pages.environmentId),
-            eq(blockDefinitions.environmentId, layouts.environmentId),
-          ),
+          eq(blockDefinitions.environmentId, blocks.environmentId),
         ),
       )
       .where(eq(blocks.id, blockId))

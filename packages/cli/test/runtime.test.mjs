@@ -79,7 +79,7 @@ void test("every runtime-backed command group forwards --cwd", async () => {
     ["blocks", "types"],
     ["comments", "list", "--page-id", "1"],
     ["layouts", "list"],
-    ["layouts", "get", "--id", "1"],
+    ["layouts", "get", "--layout-id", "default"],
     ["env", "check"],
     ["files", "list"],
   ]) {

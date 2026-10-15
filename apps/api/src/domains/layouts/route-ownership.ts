@@ -26,13 +26,13 @@ export function normalizePagePath(path: string) {
 export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(function* (
   ctx: ServiceContext,
   environmentId: number,
-  layoutId: number,
+  layoutId: string,
 ) {
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.id, layoutId), eq(layouts.environmentId, environmentId)))
+      .where(and(eq(layouts.layoutId, layoutId), eq(layouts.environmentId, environmentId)))
       .get(),
   );
   if (!layout) return yield* new NotFoundError({ message: "Layout not found in this environment" });
