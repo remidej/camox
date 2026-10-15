@@ -8,14 +8,16 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
 
 /**
  * The draft the studio reads and writes (ADR 0011). The URL's `camox-draft` param names it;
- * without one the studio is on Live. Block, record and file writes start a draft: the first one on
- * Live mints an id and asks the API to create it, and the param lands in the URL once a write
- * succeeds. Edits fired before it settles share the same pending id so they land in one draft.
+ * without one the studio is on Live. Content writes start a draft: the first one on Live mints
+ * an id and asks the API to create it, and the param lands in the URL once a write succeeds.
+ * Edits fired before it settles share the same pending id so they land in one draft.
  */
 
 // Whether each procedure of a router that follows drafts is a content write that starts a draft.
 // Every procedure is listed, so a new one fails the type check until it's classified and can't
-// be forgotten. `generateSummary` only fills a generated value (ADR 0012), so it doesn't start one.
+// be forgotten. Procedures that only fill a generated value (ADR 0012), like `generateSummary`,
+// don't start one. A synced block's shared content is written through `blocks` and
+// `repeatableItems`.
 const BLOCKS_START_DRAFT: Record<keyof Router["blocks"], boolean> = {
   get: false,
   getPageMarkdown: false,
@@ -63,14 +65,43 @@ const FILES_START_DRAFT: Record<keyof Router["files"], boolean> = {
   generateMetadata: false,
 };
 
+const PAGES_START_DRAFT: Record<keyof Router["pages"], boolean> = {
+  getByPath: false,
+  getStructure: false,
+  list: false,
+  listBySlug: false,
+  get: false,
+  create: true,
+  update: true,
+  delete: true,
+  setAiSeo: true,
+  setMetaTitle: true,
+  setMetaDescription: true,
+  setLayout: true,
+  generateSeo: false,
+};
+
+const ITEMS_START_DRAFT: Record<keyof Router["repeatableItems"], boolean> = {
+  get: false,
+  create: true,
+  updateContent: true,
+  updateSettings: true,
+  updatePosition: true,
+  duplicate: true,
+  generateSummary: false,
+  delete: true,
+};
+
 const STARTS_DRAFT: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCKS_START_DRAFT,
   collectionDefinitions: COLLECTIONS_START_DRAFT,
   files: FILES_START_DRAFT,
+  pages: PAGES_START_DRAFT,
+  repeatableItems: ITEMS_START_DRAFT,
 };
 
 let currentDraftId: string | null = null;
-/** The id the first writes on Live share, and how many of them are still in flight. */
+/** The id the first content writes on Live share, and how many of them are still in flight. */
 let pending: { id: string; inFlight: number } | null = null;
 const listeners = new Set<(draftId: string) => void>();
 
@@ -124,7 +155,7 @@ export function onDraftNotice(listener: (notice: DraftNotice) => void): () => vo
   return () => noticeListeners.delete(listener);
 }
 
-/** Called once the first write has created a draft and the studio switched into it. */
+/** Called once the first content write has created a draft and the studio switched into it. */
 export function onDraftStarted(listener: (draftId: string) => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

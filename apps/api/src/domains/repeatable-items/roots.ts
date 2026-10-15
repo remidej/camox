@@ -71,3 +71,20 @@ export function itemsInEnvironment(environment: number | SQLWrapper) {
     sharedContentItemsIn(environment),
   )!;
 }
+
+/** The ids of the items nested under an item, at any depth. */
+export function descendantIdsOf(
+  items: readonly { id: string; parentItemId: string | null }[],
+  id: string,
+) {
+  const found: string[] = [];
+  const visit = (parentId: string) => {
+    for (const item of items) {
+      if (item.parentItemId !== parentId) continue;
+      found.push(item.id);
+      visit(item.id);
+    }
+  };
+  visit(id);
+  return found;
+}

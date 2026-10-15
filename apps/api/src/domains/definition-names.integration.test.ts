@@ -80,21 +80,21 @@ describe("definitions are identified by their names", () => {
     await sync({ blocks: [], layouts: ["default", "landing"], collections: [] });
 
     const { page } = await runService(
-      createPage(ctx, { projectId: project.id, pathSegment: "about", layoutId: "default" }),
+      createPage(ctx, { projectId: project.id, pathSegment: "about", layoutId: "default" }, null),
     );
     expect(page.layoutId).toBe("default");
 
-    const moved = await runService(setPageLayout(ctx, { id: page.id, layoutId: "landing" }));
+    const moved = await runService(setPageLayout(ctx, { id: page.id, layoutId: "landing" }, null));
     expect(moved.layoutId).toBe("landing");
-    expect(await runService(getPage(ctx, { id: page.id }))).toMatchObject({
+    expect(await runService(getPage(ctx, { id: page.id }, null))).toMatchObject({
       layoutId: "landing",
     });
-    expect(await runService(listPages(ctx, { projectId: project.id }))).toMatchObject([
+    expect(await runService(listPages(ctx, { projectId: project.id }, null))).toMatchObject([
       { id: page.id, layoutId: "landing" },
     ]);
 
     await expect(
-      runService(setPageLayout(ctx, { id: page.id, layoutId: "missing" })),
+      runService(setPageLayout(ctx, { id: page.id, layoutId: "missing" }, null)),
     ).rejects.toMatchObject({ status: 404 });
   });
 

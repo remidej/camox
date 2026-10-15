@@ -119,7 +119,9 @@ describe("artifact content validation", () => {
       ),
     );
     await expect(
-      runService(updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } })),
+      runService(
+        updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } }, null),
+      ),
     ).rejects.toMatchObject(tooLargeError);
   });
 

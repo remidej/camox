@@ -32,6 +32,7 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "nu
 function ownerName(owner: Subject["owner"], entity: string): string {
   if (!owner) return entity === "file" ? "Files" : "Elsewhere";
   if (owner.kind === "layout") return `Layout ${owner.name}`;
+  if (owner.kind === "syncedBlock") return `Synced block ${owner.title}`;
   if (owner.kind === "collection") return owner.title;
   return owner.nickname || owner.path;
 }
@@ -40,6 +41,7 @@ function ownerName(owner: Subject["owner"], entity: string): string {
 const GROUP_ORDER: (NonNullable<Subject["owner"]>["kind"] | "files" | "elsewhere")[] = [
   "page",
   "layout",
+  "syncedBlock",
   "collection",
   "files",
   "elsewhere",

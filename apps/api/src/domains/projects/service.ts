@@ -579,7 +579,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       }
     }
 
-    yield* adoptSharedContent(ctx, block);
+    yield* adoptSharedContent(ctx, null, block);
     blockCount++;
   }
 

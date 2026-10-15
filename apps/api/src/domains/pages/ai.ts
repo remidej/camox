@@ -114,7 +114,11 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   abortController?: AbortController,
 ) {
   const page = yield* Effect.promise(() =>
-    db.select().from(pages).where(eq(pages.id, pageId)).get(),
+    db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.id, pageId), overlay.storedIn(pages, null)))
+      .get(),
   );
   if (!page || page.aiSeoEnabled === false) return;
 
@@ -148,10 +152,19 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   const blockIds = sorted.map((b) => b.id);
   const shown = yield* withSharedContent(
     db,
+    null,
     sorted,
     blockIds.length > 0
       ? yield* Effect.promise(() =>
-          db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
+          db
+            .select()
+            .from(repeatableItems)
+            .where(
+              and(
+                inArray(repeatableItems.blockId, blockIds),
+                overlay.storedIn(repeatableItems, null),
+              ),
+            ),
         )
       : [],
   );
@@ -214,6 +227,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
       .where(
         and(
           eq(pages.id, pageId),
+          overlay.storedIn(pages, null),
           sql`${pages.aiSeoEnabled} is not false`,
           eq(pages.updatedAt, page.updatedAt),
           eq(pages.contentUpdatedAt, page.contentUpdatedAt),
@@ -227,15 +241,11 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
 // --- Content Assembly Helpers ---
 
 /**
- * Sorts repeatable items by position, keeping insertion order on ties. Items stay in Live until
- * #238, so their positions can't collide across drafts; blocks use the overlay's order. Items of
- * different parents share positions, and readers rely on their insertion order there.
+ * Sorts repeatable items by position, then by id: positions picked in different drafts can
+ * collide (ADR 0005).
  */
-export function sortItemsByPosition<T extends { position: string }>(items: T[]): T[] {
-  return items.sort((a, b) => {
-    if (a.position === b.position) return 0;
-    return a.position < b.position ? -1 : 1;
-  });
+export function sortItemsByPosition<T extends { position: string; id: string }>(items: T[]): T[] {
+  return overlay.sortByPosition(items);
 }
 
 function visitForFileIds(value: unknown, fileIds: Set<string>) {

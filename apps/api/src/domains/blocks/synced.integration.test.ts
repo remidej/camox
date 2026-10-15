@@ -147,7 +147,7 @@ describe("a synced block's shared content", () => {
       updateBlockSettings(ctx, { id: second.id, settings: { sticky: false } }, null),
     );
     await runService(
-      updateRepeatableItemContent(ctx, { id: parent.id, content: { label: "Start" } }),
+      updateRepeatableItemContent(ctx, { id: parent.id, content: { label: "Start" } }, null),
     );
     const added = await runService(
       createRepeatableItem(
@@ -160,7 +160,9 @@ describe("a synced block's shared content", () => {
         null,
       ),
     );
-    await runService(updateRepeatableItemPosition(ctx, { id: added.id, beforePosition: "a0" }));
+    await runService(
+      updateRepeatableItemPosition(ctx, { id: added.id, beforePosition: "a0" }, null),
+    );
 
     for (const placement of [first, second]) {
       const { block, repeatableItems: items } = await runService(
@@ -183,7 +185,7 @@ describe("a synced block's shared content", () => {
       });
     }
 
-    await runService(deleteRepeatableItem(ctx, { id: added.id }));
+    await runService(deleteRepeatableItem(ctx, { id: added.id }, null));
     expect(
       (await runService(getBlock(ctx, { id: first.id }, null))).repeatableItems.map(
         (item) => item.id,
@@ -245,7 +247,7 @@ describe("a definition sync making a block synced", () => {
     const firstItems = (await runService(getBlock(ctx, { id: first.id }, null))).repeatableItems;
     const firstChild = firstItems.find((item) => item.parentItemId !== null)!;
     await runService(
-      updateRepeatableItemContent(ctx, { id: firstChild.id, content: { label: "Latest" } }),
+      updateRepeatableItemContent(ctx, { id: firstChild.id, content: { label: "Latest" } }, null),
     );
 
     await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: true }));
@@ -343,10 +345,9 @@ describe("a definition sync making a block no longer synced", () => {
         content: { title: "Shared" },
         settings: { sticky: true },
       });
-      expect(copy.repeatableItems.map((item) => item.content)).toEqual([
-        expect.objectContaining({ label: "Home" }),
-        expect.objectContaining({ label: "Nested" }),
-      ]);
+      // The parent item and its nested item share a position; their order says nothing.
+      const labels = copy.repeatableItems.map((item) => (item.content as { label: string }).label);
+      expect(labels.sort()).toEqual(["Home", "Nested"]);
     }
     const copiedIds = [...firstCopy.repeatableItems, ...secondCopy.repeatableItems].map(
       (item) => item.id,
@@ -358,7 +359,7 @@ describe("a definition sync making a block no longer synced", () => {
       title: "Shared",
     });
     expect(
-      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" })),
+      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }, null)),
     ).toBeNull();
     expect(
       await db.select().from(repeatableItems).where(inArray(repeatableItems.id, sharedIds)),
@@ -379,7 +380,7 @@ describe("reading a synced placement", () => {
     await tool("editBlock").handler({ id: second.id, content: { title: "Shared title" } }, context);
 
     const catalog = await runService(
-      getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }),
+      getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }, null),
     );
     expect(catalog?.block.content).toMatchObject({ title: "Shared title" });
     expect((await runService(getPageMarkdown(ctx, { pageId: page.id }, null))).markdown).toContain(
@@ -409,26 +410,25 @@ describe("getSyncedBlockContent", () => {
     );
 
     const shared = await runService(
-      getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }),
+      getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }, null),
     );
 
     expect(shared?.block).toMatchObject({ type: "navbar", content: { title: "Shared title" } });
     expect(shared?.block.settings).toEqual({ sticky: true });
-    expect(shared?.repeatableItems.map((item) => item.content)).toEqual([
-      expect.objectContaining({ label: "Home" }),
-      expect.objectContaining({ label: "Nested" }),
-    ]);
+    // The parent item and its nested item share a position; their order says nothing.
+    const labels = shared?.repeatableItems.map((item) => (item.content as { label: string }).label);
+    expect(labels?.sort()).toEqual(["Home", "Nested"]);
   });
 
   it("returns nothing for a block that isn't synced or isn't placed", async () => {
     const { ctx, project } = await fixture("synced-content-none");
 
     expect(
-      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" })),
+      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }, null)),
       "placed, but not synced",
     ).toBeNull();
     expect(
-      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "hero" })),
+      await runService(getSyncedBlockContent(ctx, { projectId: project.id, type: "hero" }, null)),
       "never placed",
     ).toBeNull();
   });

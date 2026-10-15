@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8d053356-a7bf-40d0-b451-2eb32cea11d7",
+  "id": "197612ac-61cd-4fb9-9c9f-1d2e27d678dd",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -851,11 +851,69 @@
     "pages": {
       "name": "pages",
       "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "base_version": {
+          "name": "base_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "first_published_at": {
+          "name": "first_published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_by": {
+          "name": "published_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "project_id": {
@@ -972,6 +1030,18 @@
         }
       },
       "indexes": {
+        "pages_live_id_idx": {
+          "name": "pages_live_id_idx",
+          "columns": ["id"],
+          "isUnique": true,
+          "where": "\"pages\".\"draft_id\" is null"
+        },
+        "pages_draft_id_idx": {
+          "name": "pages_draft_id_idx",
+          "columns": ["draft_id", "id"],
+          "isUnique": true,
+          "where": "\"pages\".\"draft_id\" is not null"
+        },
         "pages_full_path_idx": {
           "name": "pages_full_path_idx",
           "columns": ["full_path"],
@@ -994,6 +1064,15 @@
         }
       },
       "foreignKeys": {
+        "pages_draft_id_drafts_id_fk": {
+          "name": "pages_draft_id_drafts_id_fk",
+          "tableFrom": "pages",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "pages_project_id_projects_id_fk": {
           "name": "pages_project_id_projects_id_fk",
           "tableFrom": "pages",
@@ -1361,6 +1440,71 @@
     "shared_contents": {
       "name": "shared_contents",
       "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "base_version": {
+          "name": "base_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "first_published_at": {
+          "name": "first_published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_by": {
+          "name": "published_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "environment_id": {
           "name": "environment_id",
           "type": "integer",
@@ -1412,8 +1556,35 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "shared_contents_live_id_idx": {
+          "name": "shared_contents_live_id_idx",
+          "columns": ["id"],
+          "isUnique": true,
+          "where": "\"shared_contents\".\"draft_id\" is null"
+        },
+        "shared_contents_draft_id_idx": {
+          "name": "shared_contents_draft_id_idx",
+          "columns": ["draft_id", "id"],
+          "isUnique": true,
+          "where": "\"shared_contents\".\"draft_id\" is not null"
+        },
+        "shared_contents_definition_idx": {
+          "name": "shared_contents_definition_idx",
+          "columns": ["environment_id", "type"],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
+        "shared_contents_draft_id_drafts_id_fk": {
+          "name": "shared_contents_draft_id_drafts_id_fk",
+          "tableFrom": "shared_contents",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "shared_contents_environment_id_environments_id_fk": {
           "name": "shared_contents_environment_id_environments_id_fk",
           "tableFrom": "shared_contents",
@@ -1424,23 +1595,76 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "shared_contents_environment_id_type_pk": {
-          "columns": ["environment_id", "type"],
-          "name": "shared_contents_environment_id_type_pk"
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
     "repeatable_items": {
       "name": "repeatable_items",
       "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "base_version": {
+          "name": "base_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "first_published_at": {
+          "name": "first_published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_by": {
+          "name": "published_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "block_id": {
@@ -1523,6 +1747,18 @@
         }
       },
       "indexes": {
+        "repeatable_items_live_id_idx": {
+          "name": "repeatable_items_live_id_idx",
+          "columns": ["id"],
+          "isUnique": true,
+          "where": "\"repeatable_items\".\"draft_id\" is null"
+        },
+        "repeatable_items_draft_id_idx": {
+          "name": "repeatable_items_draft_id_idx",
+          "columns": ["draft_id", "id"],
+          "isUnique": true,
+          "where": "\"repeatable_items\".\"draft_id\" is not null"
+        },
         "repeatable_items_block_field_idx": {
           "name": "repeatable_items_block_field_idx",
           "columns": ["block_id", "field_name"],
@@ -1545,6 +1781,15 @@
         }
       },
       "foreignKeys": {
+        "repeatable_items_draft_id_drafts_id_fk": {
+          "name": "repeatable_items_draft_id_drafts_id_fk",
+          "tableFrom": "repeatable_items",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "repeatable_items_environment_id_environments_id_fk": {
           "name": "repeatable_items_environment_id_environments_id_fk",
           "tableFrom": "repeatable_items",
@@ -1552,15 +1797,6 @@
           "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "repeatable_items_parent_item_id_repeatable_items_id_fk": {
-          "name": "repeatable_items_parent_item_id_repeatable_items_id_fk",
-          "tableFrom": "repeatable_items",
-          "tableTo": "repeatable_items",
-          "columnsFrom": ["parent_item_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -1941,24 +2177,6 @@
           "tableFrom": "comments",
           "tableTo": "drafts",
           "columnsFrom": ["addressed_in_draft_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "comments_page_id_pages_id_fk": {
-          "name": "comments_page_id_pages_id_fk",
-          "tableFrom": "comments",
-          "tableTo": "pages",
-          "columnsFrom": ["page_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "comments_item_id_repeatable_items_id_fk": {
-          "name": "comments_item_id_repeatable_items_id_fk",
-          "tableFrom": "comments",
-          "tableTo": "repeatable_items",
-          "columnsFrom": ["item_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"

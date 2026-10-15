@@ -54,7 +54,7 @@ import { draftScopeOfJob } from "../drafts/service";
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, sortItemsByPosition } from "../pages/ai";
-import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
+import { descendantIdsOf, itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
@@ -66,7 +66,6 @@ import {
   bumpPlacementOwners,
   contentOwnerOf,
   definitionOf,
-  sharedContentWhere,
   sharedPlacementId,
   shownBlock,
   withSharedContent,
@@ -385,10 +384,9 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   // Merge repeatable items into content
   const shown = yield* withSharedContent(
     db,
+    scope,
     [stored],
-    yield* Effect.promise(() =>
-      db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
-    ),
+    yield* overlay.select(db, scope, repeatableItems, eq(repeatableItems.blockId, blockId)),
   );
   const conformed = conformBlocks(
     new Map(def ? [[def.blockId, def]] : []),
@@ -427,8 +425,8 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
  * Generates and stores a summary for a block as a scope reads it.
  * Returns `{ pageId }` if the parent page has AI SEO enabled (caller should cascade).
  *
- * In a draft, the summary is written only onto a block the draft already holds, never copying
- * one into it, and nothing cascades to Live: pages and shared content are Live-only until #238.
+ * In a draft, the summary is written only onto a block or shared content the draft already
+ * holds, never copying one into it, and nothing cascades to Live's page SEO.
  */
 /** Saves a generated summary where the block's content lives: its shared content, or itself. */
 const saveSummary = Effect.fn("blocks.saveSummary")(function* (
@@ -443,9 +441,7 @@ const saveSummary = Effect.fn("blocks.saveSummary")(function* (
     yield* overlay.updateExisting(db, scope, blocks, blockId, { summary, updatedAt });
     return;
   }
-  yield* Effect.promise(() =>
-    db.update(sharedContents).set({ summary, updatedAt }).where(sharedContentWhere(shared)),
-  );
+  yield* overlay.updateExisting(db, scope, sharedContents, shared.id, { summary, updatedAt });
 });
 
 export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
@@ -461,9 +457,8 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   if (!assembled) return null;
 
   const { block, content, contentSchema } = assembled;
-  // A synced placement's summary is its shared content's, which only Live holds.
-  const owner = yield* contentOwnerOf(db, block);
-  if (owner.shared && scope) return null;
+  // A synced placement's summary is its shared content's.
+  const owner = yield* contentOwnerOf(db, scope, block);
 
   const markdown =
     contentSchema?.toMarkdown && contentSchema?.properties
@@ -484,7 +479,11 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   const pageId = block.pageId;
   if (summary !== block.summary && pageId && !scope) {
     const page = yield* Effect.promise(() =>
-      db.select().from(pages).where(eq(pages.id, pageId)).get(),
+      db
+        .select()
+        .from(pages)
+        .where(and(eq(pages.id, pageId), overlay.storedIn(pages, null)))
+        .get(),
     );
     if (page?.aiSeoEnabled !== false) {
       return { pageId };
@@ -516,8 +515,8 @@ export const runBlockSummaryJob = Effect.fn("blocks.runBlockSummaryJob")(functio
  *   - `{ _itemId: N, ...overrides }` updates item N's content; nested repeatable
  *     overrides recurse via this same diff logic.
  *   - Plain inline objects insert new items (with nested children if present).
- *   - Existing items at the same scope not referenced in the new array are deleted
- *     (cascades to nested children via the parentItemId FK).
+ *   - Existing items at the same scope not referenced in the new array are deleted, and
+ *     their nested children read as gone with them.
  *
  * Repeater fields not present in the patch are untouched.
  *
@@ -526,6 +525,7 @@ export const runBlockSummaryJob = Effect.fn("blocks.runBlockSummaryJob")(functio
  */
 const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   ctx: ServiceContext,
+  scope: DraftScope,
   block: { root: ItemRoot; content: unknown },
   patch: Record<string, unknown>,
   contentSchema: unknown,
@@ -552,8 +552,8 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
       merged[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
       continue;
     }
-    if (allItems === null) allItems = yield* fetchBlockItems(ctx, block.root);
-    yield* applyRepeatableFieldPatch(ctx, {
+    if (allItems === null) allItems = yield* fetchBlockItems(ctx, scope, block.root);
+    yield* applyRepeatableFieldPatch(ctx, scope, {
       root: block.root,
       parentItemId: null,
       fieldName: key,
@@ -571,13 +571,15 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
 
 const fetchBlockItems = Effect.fn("fetchBlockItems")(function* (
   ctx: ServiceContext,
+  scope: DraftScope,
   root: ItemRoot,
 ) {
-  return yield* Effect.promise(() => ctx.db.select().from(repeatableItems).where(itemsUnder(root)));
+  return yield* overlay.select(ctx.db, scope, repeatableItems, itemsUnder(root));
 });
 
 const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(function* (
   ctx: ServiceContext,
+  scope: DraftScope,
   args: {
     root: ItemRoot;
     parentItemId: string | null;
@@ -661,7 +663,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
         if (k === "_itemId") continue;
         const subSchema = itemSchemaProps?.[k];
         if (subSchema?.fieldType === "Repeater") {
-          yield* applyRepeatableFieldPatch(ctx, {
+          yield* applyRepeatableFieldPatch(ctx, scope, {
             root,
             parentItemId: itemId,
             fieldName: k,
@@ -690,12 +692,11 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
       }
 
       writes.push(
-        Effect.promise(() =>
-          ctx.db
-            .update(repeatableItems)
-            .set({ content: newContent, position, updatedAt: now })
-            .where(eq(repeatableItems.id, itemId)),
-        ),
+        overlay.update(ctx.db, scope, repeatableItems, itemId, {
+          content: newContent,
+          position,
+          updatedAt: now,
+        }),
       );
       continue;
     }
@@ -716,23 +717,17 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     );
     writes.push(
       Effect.gen(function* () {
-        const inserted = yield* Effect.promise(() =>
-          ctx.db
-            .insert(repeatableItems)
-            .values({
-              ...rootColumns(root),
-              parentItemId,
-              fieldName,
-              content: itemContent,
-              settings: itemSettings,
-              summary: "",
-              position,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning()
-            .get(),
-        );
+        const inserted = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
+          ...rootColumns(root),
+          parentItemId,
+          fieldName,
+          content: itemContent,
+          settings: itemSettings,
+          summary: "",
+          position,
+          createdAt: now,
+          updatedAt: now,
+        }))!;
 
         if (childSeeds.length > 0) {
           const tempIdToRealId = new Map<string, string>();
@@ -741,23 +736,17 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
             const seedParent = seed.parentTempId
               ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
               : inserted.id;
-            const sub = yield* Effect.promise(() =>
-              ctx.db
-                .insert(repeatableItems)
-                .values({
-                  ...rootColumns(root),
-                  parentItemId: seedParent,
-                  fieldName: seed.fieldName,
-                  content: seed.content,
-                  settings: seed.settings,
-                  summary: "",
-                  position: seed.position,
-                  createdAt: now,
-                  updatedAt: now,
-                })
-                .returning()
-                .get(),
-            );
+            const sub = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
+              ...rootColumns(root),
+              parentItemId: seedParent,
+              fieldName: seed.fieldName,
+              content: seed.content,
+              settings: seed.settings,
+              summary: "",
+              position: seed.position,
+              createdAt: now,
+              updatedAt: now,
+            }))!;
             tempIdToRealId.set(seed.tempId, sub.id);
           }
         }
@@ -765,11 +754,26 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     );
   }
 
-  // Delete unreferenced existing items (cascades to nested children via FK).
+  // Delete unreferenced existing items. On Live their nested children go with them; a draft's
+  // tombstone hides them.
   for (const item of scopeItems) {
     if (referenced.has(item.id)) continue;
     writes.push(
-      Effect.promise(() => ctx.db.delete(repeatableItems).where(eq(repeatableItems.id, item.id))),
+      Effect.gen(function* () {
+        if (!scope) {
+          const nested = descendantIdsOf(allItems, item.id);
+          if (nested.length > 0) {
+            yield* Effect.promise(() =>
+              ctx.db
+                .delete(repeatableItems)
+                .where(
+                  and(inArray(repeatableItems.id, nested), overlay.storedIn(repeatableItems, null)),
+                ),
+            );
+          }
+        }
+        yield* overlay.remove(ctx.db, scope, repeatableItems, item.id);
+      }),
     );
   }
 });
@@ -786,10 +790,9 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   if (!stored) return yield* new NotFoundError();
   const shown = yield* withSharedContent(
     ctx.db,
+    scope,
     [stored],
-    yield* Effect.promise(() =>
-      ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, stored.id)),
-    ),
+    yield* overlay.select(ctx.db, scope, repeatableItems, eq(repeatableItems.blockId, stored.id)),
   );
   const conformed = yield* conformBlocksIn(ctx, stored, shown.blocks, shown.items);
   const block = conformed.blocks[0];
@@ -1103,13 +1106,13 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
 export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof blockTypeInput>,
+  scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  // Shared content lives in Live until it moves into drafts (#238).
-  const id = yield* sharedPlacementId(ctx.db, { environmentId: environment.id, type });
+  const id = yield* sharedPlacementId(ctx.db, scope, { environmentId: environment.id, type });
   if (id === null) return null;
-  return yield* getBlock(ctx, { id }, null);
+  return yield* getBlock(ctx, { id }, scope);
 });
 
 // --- Writes ---
@@ -1132,12 +1135,12 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
     yield* bumpLiveOwner(ctx, scope, block);
     return result;
   }
-  // Shared content is written in Live even from a draft, until it moves into drafts (#238).
-  const updated = yield* Effect.promise(() =>
-    ctx.db.update(sharedContents).set(values).where(sharedContentWhere(shared)).returning().get(),
-  );
+  // In a draft, the first write copies the shared content, which every placement in the draft
+  // then shows.
+  const updated = yield* overlay.update(ctx.db, scope, sharedContents, shared.id, values);
+  if (!updated) return yield* new NotFoundError();
   if (!scope) yield* bumpPlacementOwners(ctx.db, definitionOf(shared));
-  broadcastSharedContentChange(ctx, projectId, shared.type);
+  broadcastSharedContentChange(ctx, scope, projectId, shared.type);
   return {
     ...block,
     content: updated.content,
@@ -1162,7 +1165,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     beforePosition,
     repeatableItems: itemSeeds,
   } = yield* decodeInput(createBlockInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, pageId, user.id);
+  const access = yield* assertPageAccess(ctx.db, pageId, user.id, scope);
   // A draft holds content of its own project only.
   if (scope && scope.projectId !== access.page.projectId) return yield* new NotFoundError();
 
@@ -1280,7 +1283,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     }
   }
 
-  yield* adoptSharedContent(ctx, result);
+  yield* adoptSharedContent(ctx, scope, result);
   yield* bumpLiveOwner(ctx, scope, { pageId });
 
   ctx.waitUntil(
@@ -1308,7 +1311,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   });
 
   const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
-  const created = yield* shownBlock(ctx.db, stored);
+  const created = yield* shownBlock(ctx.db, scope, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 });
 
@@ -1358,11 +1361,12 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
     contentSchema,
     patch,
   );
-  const owner = yield* contentOwnerOf(ctx.db, access.block);
+  const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
   // Repeater patches write the Live repeatable items, even from a draft, until items move into
   // drafts (#238).
   const merged = yield* applyContentPatch(
     ctx,
+    scope,
     { root: owner.root, content: (owner.shared ?? access.block).content },
     patch,
     contentSchema,
@@ -1415,7 +1419,7 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
 
   const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id);
   yield* validateContent(settings, schemas?.settingsSchema, { path: "settings" });
-  const owner = yield* contentOwnerOf(ctx.db, access.block);
+  const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
   const merged = {
     ...((owner.shared ?? access.block).settings as Record<string, unknown> | null),
     ...(settings as Record<string, unknown>),
@@ -1503,7 +1507,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return yield* shownBlock(ctx.db, result);
+  return yield* shownBlock(ctx.db, scope, result);
 });
 
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
@@ -1661,7 +1665,7 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     updatedAt: now,
   });
   if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken." });
-  yield* adoptSharedContent(ctx, result);
+  yield* adoptSharedContent(ctx, scope, result);
   yield* bumpLiveOwner(ctx, scope, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
@@ -1677,5 +1681,5 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return yield* shownBlock(ctx.db, result);
+  return yield* shownBlock(ctx.db, scope, result);
 });

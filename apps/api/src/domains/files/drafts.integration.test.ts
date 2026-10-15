@@ -34,7 +34,7 @@ const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADE
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
 
 const imageField = (required: boolean) => ({
-  fieldType: "Image",
+  fieldType: "Image" as const,
   type: "object",
   properties: { url: { type: "string" } },
   accept: ["image/*"],
@@ -413,7 +413,11 @@ describe("files in drafts", () => {
               type: "object",
               properties: {
                 name: { type: "string", fieldType: "String" },
-                photo: imageField(false),
+                photo: {
+                  fieldType: "Image",
+                  type: "object",
+                  properties: { url: { type: "string" } },
+                },
               },
               required: ["name", "photo"],
               additionalProperties: false,
