@@ -1,9 +1,7 @@
 import { createLayout } from "camox/createLayout";
 
 import { block as footerBlock } from "../blocks/footer";
-import { block as heroBlock } from "../blocks/hero";
 import { block as navbarBlock } from "../blocks/navbar";
-import { block as statisticsBlock } from "../blocks/statistics";
 
 const landingPageLayout = createLayout({
   id: "landing-page",
@@ -13,7 +11,7 @@ const landingPageLayout = createLayout({
   blocks: {
     before: [navbarBlock],
     after: [footerBlock],
-    initial: [heroBlock, statisticsBlock],
+    initial: [() => import("../blocks/hero"), () => import("../blocks/statistics")],
   },
   component: LandingPageLayout,
   buildMetaTitle: ({ pageMetaTitle, projectName }) => `${projectName} | ${pageMetaTitle}`,

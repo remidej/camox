@@ -71,9 +71,18 @@ type ValidateLayoutOnlyBlocks<T extends readonly LayoutBlock[]> = {
     : "❌ Camox: blocks in `blocks.before` and `blocks.after` must be defined with `layoutOnly: true`. Add `layoutOnly: true` to this block's `createBlock` options.";
 };
 
-type ValidatePageContentBlocks<T extends readonly LayoutBlock[]> = {
-  [K in keyof T]: T[K] extends LayoutBlock<true>
-    ? "❌ Camox: blocks in `blocks.initial` must NOT be `layoutOnly: true` — `initial` is for page-content blocks. Remove `layoutOnly: true` from this block's `createBlock` options."
+/**
+ * A block module, imported only when Camox seeds the initial page. A static import would put
+ * the block in every visitor's bundle, since layouts load on every page.
+ */
+type InitialBlockImport = () => Promise<{ block: LayoutBlock }>;
+
+const INITIAL_LAYOUT_ONLY_ERROR =
+  "❌ Camox: blocks in `blocks.initial` must NOT be `layoutOnly: true` — `initial` is for page-content blocks. Remove `layoutOnly: true` from this block's `createBlock` options.";
+
+type ValidatePageContentBlocks<T extends readonly InitialBlockImport[]> = {
+  [K in keyof T]: Awaited<ReturnType<T[K]>>["block"] extends LayoutBlock<true>
+    ? typeof INITIAL_LAYOUT_ONLY_ERROR
     : T[K];
 };
 
@@ -206,7 +215,7 @@ type LayoutToMarkdown<Data, Params, F = never> = (
 interface CreateLayoutOptions<
   TBefore extends readonly LayoutBlock[],
   TAfter extends readonly LayoutBlock[],
-  TInitial extends readonly LayoutBlock[],
+  TInitial extends readonly InitialBlockImport[],
   Result extends LoaderReturn = LoaderReturn,
 > {
   id: string;
@@ -219,7 +228,10 @@ interface CreateLayoutOptions<
   blocks: {
     before: ValidateLayoutOnlyBlocks<TBefore>;
     after: ValidateLayoutOnlyBlocks<TAfter>;
-    /** Ordered list of blocks to create on the initial page when a project is first set up. */
+    /**
+     * Ordered list of blocks to create on the initial page when a project is first set up, as
+     * imports of their modules: `[() => import("../blocks/hero")]`.
+     */
     initial?: ValidatePageContentBlocks<TInitial>;
   };
   component: React.ComponentType<{ children: React.ReactNode }>;
@@ -237,7 +249,7 @@ interface CreateLayoutOptions<
 function createLayoutDefinition<
   const TBefore extends readonly LayoutBlock[],
   const TAfter extends readonly LayoutBlock[],
-  const TInitial extends readonly LayoutBlock[] = [],
+  const TInitial extends readonly InitialBlockImport[] = [],
 >(options: CreateLayoutOptions<TBefore, TAfter, TInitial>) {
   if (options.kind === "singleton" && !/^[\w-]+(?:\.[\w-]+)*$/.test(options.id))
     throw new Error(`Singleton layouts require a fixed file route: ${options.id}`);
@@ -258,7 +270,7 @@ function createLayoutDefinition<
   // the runtime values are valid LayoutBlock arrays.
   const beforeBlocks = options.blocks.before as unknown as LayoutBlock<true>[];
   const afterBlocks = options.blocks.after as unknown as LayoutBlock<true>[];
-  const initialBlocks = options.blocks.initial as unknown as LayoutBlock<false>[] | undefined;
+  const initialBlocks = options.blocks.initial as unknown as InitialBlockImport[] | undefined;
 
   const BeforeBlocks = () => {
     const ctx = React.use(LayoutContext);
@@ -414,15 +426,24 @@ function createLayoutDefinition<
       }
     : undefined;
 
-  const initialBlockBundles = initialBlocks?.map((block) => {
-    const bundle = block._internal.getInitialBundle();
-    return {
-      type: block._internal.id,
-      content: bundle.content,
-      settings: bundle.settings,
-      repeatableItems: bundle.repeatableItems,
-    };
-  });
+  const loadInitialBlockBundles =
+    initialBlocks &&
+    (() =>
+      Promise.all(
+        initialBlocks.map(async (load) => {
+          const { block } = await load();
+          // Type checking reports this too, but plain JavaScript layouts skip it.
+          if (block._internal.layoutOnly)
+            throw new Error(`${INITIAL_LAYOUT_ONLY_ERROR} (block "${block._internal.id}")`);
+          const bundle = block._internal.getInitialBundle();
+          return {
+            type: block._internal.id,
+            content: bundle.content,
+            settings: bundle.settings,
+            repeatableItems: bundle.repeatableItems,
+          };
+        }),
+      ));
 
   return {
     BeforeBlocks,
@@ -451,7 +472,7 @@ function createLayoutDefinition<
         | undefined,
       buildOgImage,
       blockDefinitions,
-      initialBlockBundles,
+      loadInitialBlockBundles,
       component: options.component,
       Provider,
     },
@@ -485,7 +506,7 @@ type FileOptions<
   Result extends LoaderReturn,
   B extends readonly LayoutBlock[],
   A extends readonly LayoutBlock[],
-  I extends readonly LayoutBlock[],
+  I extends readonly InitialBlockImport[],
 > = Omit<
   CreateLayoutOptions<B, A, I>,
   | "id"
@@ -556,7 +577,7 @@ type FileOptions<
 export function createLayout<
   const B extends readonly LayoutBlock[],
   const A extends readonly LayoutBlock[],
-  const I extends readonly LayoutBlock[] = [],
+  const I extends readonly InitialBlockImport[] = [],
   Result extends LoaderReturn = never,
 >(options: CreateLayoutOptions<B, A, I, Result>): LayoutFor<Result>;
 export function createLayout<const Id extends string>(
@@ -565,7 +586,7 @@ export function createLayout<const Id extends string>(
   Result extends LoaderReturn = never,
   const B extends readonly LayoutBlock[] = [],
   const A extends readonly LayoutBlock[] = [],
-  const I extends readonly LayoutBlock[] = [],
+  const I extends readonly InitialBlockImport[] = [],
 >(
   options: FileOptions<Id, Result, B, A, I>,
 ) => LayoutFor<Result>;

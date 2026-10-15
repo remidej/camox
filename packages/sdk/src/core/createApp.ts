@@ -100,7 +100,7 @@ export function createApp({
   }
 
   // Validate that at most one layout defines blocks.initial
-  const layoutsWithInitialBlocks = layouts.filter((l) => l._internal.initialBlockBundles);
+  const layoutsWithInitialBlocks = layouts.filter((l) => l._internal.loadInitialBlockBundles);
   if (layoutsWithInitialBlocks.length > 1) {
     const ids = layoutsWithInitialBlocks.map((l) => `"${l._internal.id}"`).join(", ");
     throw new Error(
@@ -173,12 +173,13 @@ export function createApp({
         blocks: layout._internal.blockDefinitions,
       }));
     },
-    getInitialPageBundles() {
+    /** Loads the initial blocks' modules: only syncing needs them, never a page. */
+    async getInitialPageBundles() {
       const layout = layoutsWithInitialBlocks[0];
       if (layout) {
         return {
           layoutId: layout._internal.id,
-          blocks: layout._internal.initialBlockBundles!,
+          blocks: await layout._internal.loadInitialBlockBundles!(),
           hasInitialBlocks: true,
         };
       }

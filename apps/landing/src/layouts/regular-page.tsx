@@ -1,14 +1,17 @@
 import { createLayout } from "camox/createLayout";
 
 import { block as footerBlock } from "../blocks/footer";
-import { block as heroBlock } from "../blocks/hero";
 import { block as navbarBlock } from "../blocks/navbar";
 
 const regularPageLayout = createLayout({
   id: "regular-page",
   title: "Regular page",
   description: "Use for standard content pages like About, Contact, or any non-landing page",
-  blocks: { before: [navbarBlock], after: [footerBlock], initial: [heroBlock] },
+  blocks: {
+    before: [navbarBlock],
+    after: [footerBlock],
+    initial: [() => import("../blocks/hero")],
+  },
   component: RegularPageLayout,
   buildMetaTitle: ({ pageMetaTitle, projectName }) => `${pageMetaTitle} | ${projectName}`,
   buildOgImage: ({ title, description, projectName }) => (
