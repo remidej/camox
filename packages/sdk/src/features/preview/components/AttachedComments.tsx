@@ -15,7 +15,9 @@ import * as React from "react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
 import { commentMutations, commentQueries } from "@/lib/queries";
+import { getCurrentDraftId } from "@/lib/studio-draft";
 
+import { draftLabel, isSettledIn } from "../commentStatus";
 import { type CommentTarget, previewCommentsStore } from "../previewCommentsStore";
 import { previewStore } from "../previewStore";
 import { usePageComments } from "../usePageComments";
@@ -83,7 +85,8 @@ function AttachedCommentsContent({
         (!("itemId" in entry.target) || entry.target.itemId === itemId) &&
         (!("fieldName" in entry.target) || entry.target.fieldName === fieldName)));
   const attached = (commentsQuery.data ?? []).filter(matches);
-  const visible = attached.filter((comment) => !comment.resolved);
+  const draftId = getCurrentDraftId();
+  const visible = attached.filter((comment) => !isSettledIn(comment, draftId));
   const currentDraft = draft && matches(draft) ? draft : null;
   const selected = attached.find((comment) => comment.id === activeId);
   const textarea = React.useRef<HTMLTextAreaElement>(null);
@@ -245,6 +248,11 @@ function AttachedCommentsContent({
                     <p className="text-muted-foreground text-sm">Target no longer available</p>
                   ))}
                 <p className="text-sm wrap-break-word whitespace-pre-wrap">{comment.message}</p>
+                {comment.addressedIn && (
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Addressed in {draftLabel(comment.addressedIn)}
+                  </p>
+                )}
               </div>
             </div>
             <ButtonGroup className="mt-2 ml-8" aria-label="Comment actions">

@@ -15,6 +15,8 @@ const api = {
   create: async (input: CreateInput): Promise<Comment> => ({
     ...input,
     environmentId: 1,
+    draftId: null,
+    addressedIn: null,
     author: { name: "Reviewer", image: null },
     createdAt: 1,
     resolved: false,
@@ -95,6 +97,8 @@ function comment(id: string, pageId: string, target: CommentTarget | null): Comm
     id,
     pageId,
     environmentId: 1,
+    draftId: null,
+    addressedIn: null,
     target,
     message: `Feedback ${id}`,
     author: { name: "Reviewer", image: null },

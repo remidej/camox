@@ -99,6 +99,11 @@ export type ContentTableRegistration = {
   /** The columns a change on another entity can rewrite, copying this one into the draft. */
   rewritable: AnySQLiteColumn[];
   dependents: Dependent[];
+  /**
+   * The comment column anchoring comments to the entity. Deleting the entity deletes the
+   * scope's comments on it, and publishing a deletion deletes Live's (#241).
+   */
+  commentAnchor?: AnySQLiteColumn;
 };
 
 const registrations = new Map<ContentTable, ContentTableRegistration>();
@@ -135,6 +140,7 @@ registerContentTable(blocks, {
     },
     { onDelete: "detach", column: comments.blockId },
   ],
+  commentAnchor: comments.blockId,
 });
 
 /** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */
@@ -325,6 +331,7 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
 ) {
   const shown = yield* get(db, scope, table, id);
   if (!shown) return undefined;
+  yield* deleteCommentsOn(db, scope, table, id);
   const createdByDraft = scope != null && shown.draftId === scope.id && shown.baseVersion == null;
   if (!scope || createdByDraft) {
     yield* Effect.promise(() =>
@@ -343,6 +350,31 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
   );
   return shown;
 });
+
+/** Deletes the comments a scope wrote on an entity it deletes (#241). */
+const deleteCommentsOn = (db: Database, scope: DraftScope, table: ContentTable, id: string) => {
+  const anchor = registrationOf(table).commentAnchor;
+  if (!anchor) return Effect.void;
+  const writtenHere = scope ? eq(comments.draftId, scope.id) : isNull(comments.draftId);
+  return Effect.promise(() => db.delete(comments).where(and(writtenHere, eq(anchor, id))));
+};
+
+/**
+ * Whether a comment is anchored to an entity the draft deletes, through any registered table's
+ * comment anchor. Comments on what that entity holds are anchored to it too: an item's comment
+ * names its block, and a block's names its page.
+ */
+export function anchoredToDeletionIn(draftId: string): SQL {
+  const checks = tables().flatMap((table) => {
+    const anchor = registrationOf(table).commentAnchor;
+    if (!anchor) return [];
+    const t = sql.identifier(getTableName(table));
+    return [
+      sql`${anchor} in (select ${at("d", table.id)} from ${t} as "d" where ${at("d", table.draftId)} = ${draftId} and ${at("d", table.deleted)} = 1)`,
+    ];
+  });
+  return checks.length ? or(...checks)! : sql`0`;
+}
 
 /**
  * The ids among `ids` that Live or any draft still holds as an entity, tombstones aside: what
@@ -410,7 +442,7 @@ export function sortByPosition<T extends { position: string; id: string }>(rows:
 export type ConflictKey = [entity: string, id: string, liveVersion: number | null];
 
 /** A statement of a publish or discard batch: raw SQL or a query builder. */
-type BatchItem = SQL | { toSQL(): { sql: string; params: unknown[] } };
+export type BatchItem = SQL | { toSQL(): { sql: string; params: unknown[] } };
 
 const dialect = new SQLiteAsyncDialect();
 
@@ -717,10 +749,22 @@ function endStatements(
 export const publish = (
   db: Database,
   scope: NonNullable<DraftScope>,
-  { shown, publishedBy, now }: { shown: ConflictKey[]; publishedBy: string; now: number },
+  {
+    shown,
+    publishedBy,
+    now,
+    alongside = [],
+  }: {
+    shown: ConflictKey[];
+    publishedBy: string;
+    now: number;
+    /** Statements of other domains, run after the guard and before any row is applied. */
+    alongside?: BatchItem[];
+  },
 ) => {
   const statements = [
     guardStatement(scope.id, shown),
+    ...alongside,
     ...tables().flatMap((table) => applyStatements(table, scope.id, publishedBy, now)),
     ...endStatements(db, scope, "published", publishedBy, now),
   ];
@@ -731,8 +775,12 @@ export const publish = (
 export const discard = (
   db: Database,
   scope: NonNullable<DraftScope>,
-  { discardedBy, now }: { discardedBy: string; now: number },
+  {
+    discardedBy,
+    now,
+    alongside = [],
+  }: { discardedBy: string; now: number; alongside?: BatchItem[] },
 ) => {
-  const statements = endStatements(db, scope, "discarded", discardedBy, now);
+  const statements = [...alongside, ...endStatements(db, scope, "discarded", discardedBy, now)];
   return Effect.tryPromise(() => runBatch(db, statements));
 };
