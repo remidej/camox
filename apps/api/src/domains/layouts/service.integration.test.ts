@@ -144,8 +144,8 @@ describe("standalone shared layout reads", () => {
       .where(eq(blocks.id, navbar.id));
 
     // Visitors, members and tools all read the current rows.
-    const view = await runService(getLayout(createServiceContext(db, null), input));
-    expect(await runService(getLayout(ctx, input))).toEqual(view);
+    const view = await runService(getLayout(createServiceContext(db, null), input, null));
+    expect(await runService(getLayout(ctx, input, null))).toEqual(view);
     expect(await readTool()).toEqual({ ok: true, result: view });
     expect(view.layout.beforeBlockIds).toEqual([navbar.id]);
     expect(view.layout.afterBlockIds).toEqual([footer.id]);
@@ -230,17 +230,17 @@ describe("standalone shared layout reads", () => {
     const input = { projectSlug: project.slug, layoutId: layout.layoutId };
     const ctx = createServiceContext(db, memberUser);
     await expect(
-      runService(getLayout(ctx, { ...input, layoutId: "missing" })),
+      runService(getLayout(ctx, { ...input, layoutId: "missing" }, null)),
     ).rejects.toMatchObject({
       status: 404,
     });
     await expect(
-      runService(getLayout({ ...ctx, environmentName: "missing" }, input)),
+      runService(getLayout({ ...ctx, environmentName: "missing" }, input, null)),
     ).rejects.toMatchObject({
       status: 404,
     });
     await expect(
-      runService(getLayout(ctx, { ...input, projectSlug: "missing" })),
+      runService(getLayout(ctx, { ...input, projectSlug: "missing" }, null)),
     ).rejects.toMatchObject({
       status: 404,
     });

@@ -19,6 +19,8 @@ import {
   hydrateReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { visibleIn } from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { blocksOfLayout, layoutNamed } from "./identity";
 
@@ -87,6 +89,7 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
 export const getLayout = Effect.fn("layouts.getLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutInput>,
+  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutInput, rawInput);
   const project = yield* Effect.promise(() =>
@@ -103,7 +106,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   );
   if (!layout) return yield* new NotFoundError();
 
-  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout);
+  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
   const normalized = layoutBlocks.map((block) =>
     injectRepeatableItemMarkers(
       block,
@@ -274,7 +277,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           position: blocks.position,
         })
         .from(blocks)
-        .where(blocksOfLayout(layout)),
+        .where(and(visibleIn(blocks, null), blocksOfLayout(layout))),
     );
 
     const existingByKey = new Map<string, string>();
@@ -374,8 +377,14 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       }
     }
     if (orphanIdsToDelete.length > 0) {
+      // A release writes Live. Items hold no foreign key to their block (ADR 0005).
       yield* Effect.promise(() =>
-        ctx.db.delete(blocks).where(inArray(blocks.id, orphanIdsToDelete)),
+        ctx.db.batch([
+          ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, orphanIdsToDelete)),
+          ctx.db
+            .delete(blocks)
+            .where(and(visibleIn(blocks, null), inArray(blocks.id, orphanIdsToDelete))),
+        ]),
       );
     }
 

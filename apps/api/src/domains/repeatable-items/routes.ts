@@ -1,5 +1,6 @@
 import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
+import { projectOfBlock, inScope } from "../blocks/draft-scope";
 import * as service from "./service";
 
 // Public procedures
@@ -12,7 +13,11 @@ const get = pub
 
 const create = authed
   .input(service.createRepeatableItemInput)
-  .handler(({ context, input }) => runService(service.createRepeatableItem(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfBlock(context, input.blockId), (scope) =>
+      service.createRepeatableItem(context, input, scope),
+    ),
+  );
 
 const updateContent = authed
   .input(service.updateRepeatableItemContentInput)

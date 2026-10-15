@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createDb } from "../db";
-import { executeBlockSummary } from "../domains/blocks/service";
+import { runBlockSummaryJob } from "../domains/blocks/service";
 import { executeFileMetadata } from "../domains/files/service";
 import { executePageSeo } from "../domains/pages/ai";
 import { rootOfItem } from "../domains/repeatable-items/roots";
@@ -19,6 +19,8 @@ type JobParams = {
   entityId: string;
   type: string;
   delayMs: number;
+  /** The draft the job was scheduled from; absent on jobs stored before drafts and on Live's. */
+  draftId?: string | null;
 };
 
 type StoredJob = JobParams & {
@@ -66,11 +68,11 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     const apiKey = this.env.OPEN_ROUTER_API_KEY;
 
     const { entityTable, entityId, type } = job;
-    const label = `${entityTable}:${entityId}:${type}`;
+    const label = `${entityTable}:${entityId}:${type}:${job.draftId ?? "live"}`;
 
     if (entityTable === "blocks" && type === "summary") {
       const seoStale = yield* retryAiCall(label, (abortController) =>
-        executeBlockSummary(db, apiKey, entityId, abortController),
+        runBlockSummaryJob(db, apiKey, { entityId, draftId: job.draftId ?? null }, abortController),
       );
       if (seoStale) {
         // Cascade: schedule page SEO regeneration

@@ -19,6 +19,10 @@
     "./ids": {
       "types": "./src/ids.ts",
       "default": "./src/ids.ts"
+    },
+    "./drafts": {
+      "types": "./src/drafts.ts",
+      "default": "./src/drafts.ts"
     }
   },
   "publishConfig": {
@@ -34,6 +38,10 @@
       "./ids": {
         "types": "./dist/ids.d.ts",
         "default": "./dist/ids.js"
+      },
+      "./drafts": {
+        "types": "./dist/drafts.d.ts",
+        "default": "./dist/drafts.js"
       }
     }
   },

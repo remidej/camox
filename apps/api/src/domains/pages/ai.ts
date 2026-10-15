@@ -10,6 +10,7 @@ import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markd
 import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
 import { conformBlocks } from "../_shared/conform-content";
 import { withSharedContent } from "../blocks/shared-content";
+import * as overlay from "../drafts/overlay";
 
 // --- AI Executors ---
 
@@ -116,9 +117,8 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   );
   if (!page || page.aiSeoEnabled === false) return;
 
-  const pageBlocks = yield* Effect.promise(() =>
-    db.select().from(blocks).where(eq(blocks.pageId, pageId)),
-  );
+  // Page SEO is generated for Live only.
+  const pageBlocks = yield* overlay.select(db, null, blocks, eq(blocks.pageId, pageId));
 
   const defs = yield* Effect.promise(() =>
     db
@@ -133,9 +133,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   );
   const definitions = new Map(defs.map((def) => [def.blockId, def]));
   // Blocks of a removed definition render nothing, so they say nothing about the page either.
-  const sorted = pageBlocks
-    .filter((block) => definitions.has(block.type))
-    .sort((a, b) => comparePositions(a.position, b.position));
+  const sorted = overlay.sortByPosition(pageBlocks.filter((block) => definitions.has(block.type)));
   const contentSchemaByType = new Map<string, any>();
   const fieldOrderByType = new Map<string, string[]>();
   for (const def of defs) {
@@ -156,7 +154,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
         )
       : [],
   );
-  const conformed = conformBlocks(definitions, shown.blocks, sortByPosition(shown.items));
+  const conformed = conformBlocks(definitions, shown.blocks, sortItemsByPosition(shown.items));
   const allItems = conformed.items;
 
   nestChildItems(allItems);
@@ -227,14 +225,16 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
 
 // --- Content Assembly Helpers ---
 
-export function comparePositions(a: string, b: string): number {
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
-}
-
-export function sortByPosition<T extends { position: string }>(items: T[]): T[] {
-  return items.sort((a, b) => comparePositions(a.position, b.position));
+/**
+ * Sorts repeatable items by position, keeping insertion order on ties. Items stay in Live until
+ * #238, so their positions can't collide across drafts; blocks use the overlay's order. Items of
+ * different parents share positions, and readers rely on their insertion order there.
+ */
+export function sortItemsByPosition<T extends { position: string }>(items: T[]): T[] {
+  return items.sort((a, b) => {
+    if (a.position === b.position) return 0;
+    return a.position < b.position ? -1 : 1;
+  });
 }
 
 function visitForFileIds(value: unknown, fileIds: Set<string>) {

@@ -80,15 +80,19 @@ async function fixture(type: "templated" | "raw") {
     .returning()
     .get();
   const block = await runService(
-    createBlock(ctx, {
-      pageId: page.id,
-      type,
-      content: {
-        heading: "Space",
-        visual: titled,
-        scenes: [{ caption: "Moon", scene: untitled }],
+    createBlock(
+      ctx,
+      {
+        pageId: page.id,
+        type,
+        content: {
+          heading: "Space",
+          visual: titled,
+          scenes: [{ caption: "Moon", scene: untitled }],
+        },
       },
-    }),
+      null,
+    ),
   );
   const [item] = await base.db
     .select()
@@ -103,7 +107,7 @@ const prompts = () => JSON.stringify(chat.mock.calls);
 describe("artifact Markdown Representation", () => {
   it("is the artifact's title, or Untitled artifact", async () => {
     const { ctx, page } = await fixture("templated");
-    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }));
+    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }, null));
     expect(markdown).toContain("Orbiting moons");
     expect(markdown).toMatch(/Moon — Untitled artifact/);
     expect(markdown).not.toMatch(SOURCE_PIECES);
@@ -113,7 +117,7 @@ describe("artifact Markdown Representation", () => {
 describe("artifact sources are kept out of LLM-bound fallbacks", () => {
   it("page markdown of blocks without a Markdown template", async () => {
     const { ctx, page } = await fixture("raw");
-    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }));
+    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }, null));
     expect(markdown).toContain("Space");
     expect(markdown).toContain("Orbiting moons");
     expect(markdown).not.toMatch(SOURCE_PIECES);
@@ -122,7 +126,7 @@ describe("artifact sources are kept out of LLM-bound fallbacks", () => {
   it("block summaries", async () => {
     const { db, block } = await fixture("raw");
     chat.mockResolvedValueOnce("Space visual");
-    await runService(executeBlockSummary(db, "key", block.id));
+    await runService(executeBlockSummary(db, "key", block.id, null));
     expect(chat).toHaveBeenCalledOnce();
     expect(prompts()).toContain("Space");
     expect(prompts()).not.toMatch(SOURCE_PIECES);

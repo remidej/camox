@@ -2,7 +2,6 @@ import type { CommentTarget } from "@camox/api-contract";
 import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { user } from "../auth/schema";
-import { blocks } from "../blocks/schema";
 import { pages } from "../pages/schema";
 import { environments } from "../projects/schema";
 import { repeatableItems } from "../repeatable-items/schema";
@@ -18,7 +17,8 @@ export const comments = sqliteTable(
       .notNull()
       .references(() => pages.id, { onDelete: "cascade" }),
     // Null anchors keep feedback whose block or item was deleted.
-    blockId: text("block_id").references(() => blocks.id, { onDelete: "set null" }),
+    // No foreign key: a block id is unique only within Live or within one draft (ADR 0005).
+    blockId: text("block_id"),
     itemId: text("item_id").references(() => repeatableItems.id, { onDelete: "set null" }),
     target: text({ mode: "json" }).$type<CommentTarget>(),
     message: text().notNull(),

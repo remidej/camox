@@ -2,6 +2,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "./db";
+import { visibleIn } from "./domains/drafts/overlay";
+import type { DraftScope } from "./domains/drafts/scope";
 import { ForbiddenError, NotFoundError, UnauthenticatedError } from "./lib/errors";
 import {
   member,
@@ -196,10 +198,12 @@ export const assertLayoutAccess = Effect.fn("assertLayoutAccess")(function* (
   return result;
 });
 
+/** The block as a scope reads it (Live when `null`), if the user is a member of its project. */
 export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
   db: Database,
   blockId: string,
   userId: string,
+  scope: DraftScope,
 ) {
   const result = yield* Effect.promise(() =>
     db
@@ -207,10 +211,12 @@ export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
       .from(blocks)
       .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .where(eq(blocks.id, blockId))
+      .where(and(visibleIn(blocks, scope), eq(blocks.id, blockId)))
       .get(),
   );
   if (!result) return yield* new NotFoundError();
+  // A draft holds content of its own project only.
+  if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
   yield* assertProjectMembership(db, result.projectId, userId);
   return result;
 });

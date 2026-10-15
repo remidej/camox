@@ -18,6 +18,7 @@ import { blocks, files, member, projects, repeatableItems, sharedContents } from
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import { definitionOf, placementsOf, sharedContentWhere } from "../blocks/shared-content";
+import * as overlay from "../drafts/overlay";
 import { blockIdsOf, itemsInEnvironment, rootOfItem } from "../repeatable-items/roots";
 import { readMetadataImage } from "./metadata-image";
 import { optimizedVideoKey } from "./video-optimization";
@@ -237,7 +238,13 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
 
   const affectedBlocks = yield* Effect.promise(() =>
     db
-      .select({ id: blocks.id, content: blocks.content, pageId: blocks.pageId })
+      .select({
+        rowId: blocks.rowId,
+        draftId: blocks.draftId,
+        id: blocks.id,
+        content: blocks.content,
+        pageId: blocks.pageId,
+      })
       .from(blocks)
       .where(sql`INSTR(${blocks.content}, ${marker}) > 0`),
   );
@@ -257,8 +264,17 @@ export const removeFileReferences = Effect.fn("files.removeFileReferences")(func
 
   for (const block of affectedBlocks) {
     const cleaned = cleanFileReferences(block.content as JsonValue, fileId);
+    // Cleaned per row: Live and each draft hold their own content for the block. On Live this
+    // is a change like any other, so it's counted for drafts that copied an older version.
+    if (block.draftId === null) {
+      yield* overlay.update(db, null, blocks, block.id, { content: cleaned, updatedAt: now });
+      continue;
+    }
     yield* Effect.promise(() =>
-      db.update(blocks).set({ content: cleaned, updatedAt: now }).where(eq(blocks.id, block.id)),
+      db
+        .update(blocks)
+        .set({ content: cleaned, updatedAt: now })
+        .where(eq(blocks.rowId, block.rowId)),
     );
   }
 

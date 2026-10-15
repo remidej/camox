@@ -1,16 +1,26 @@
 import { runService } from "../../lib/run-service";
 import { authed, pub } from "../../orpc";
+import { projectOfSlug, inScope } from "../blocks/draft-scope";
 import * as service from "./service";
 
 // Public procedures
 
+// A page's blocks are read in the request's draft; the page itself is Live's until #238.
 const getByPath = pub
   .input(service.getPageByPathInput)
-  .handler(({ context, input }) => runService(service.getPageByPath(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
+      service.getPageByPath(context, input, scope),
+    ),
+  );
 
 const getStructure = pub
   .input(service.getPageStructureInput)
-  .handler(({ context, input }) => runService(service.getPageStructure(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
+      service.getPageStructure(context, input, scope),
+    ),
+  );
 
 const list = pub
   .input(service.listPagesInput)

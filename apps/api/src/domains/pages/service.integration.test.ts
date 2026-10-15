@@ -86,12 +86,14 @@ describe("page persistence", () => {
       .returning()
       .get();
     const read = (ctx: typeof memberCtx) =>
-      runService(getPageByPath(ctx, { projectSlug: project.slug, path: page.fullPath }));
+      runService(getPageByPath(ctx, { projectSlug: project.slug, path: page.fullPath }, null));
 
     expect((await read(visitorCtx)).blocks[0].content).toEqual({ title: "First title" });
 
     // An edit is visible right away, whoever reads.
-    await runService(updateBlockContent(memberCtx, { id: block.id, content: { title: "Edited" } }));
+    await runService(
+      updateBlockContent(memberCtx, { id: block.id, content: { title: "Edited" } }, null),
+    );
 
     for (const ctx of [visitorCtx, memberCtx]) {
       const view = await read(ctx);

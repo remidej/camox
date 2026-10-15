@@ -116,11 +116,15 @@ async function fixture(assets = false) {
     updatedAt: 1,
   });
   const block = await runService(
-    createBlock(ctx, {
-      pageId: page.id,
-      type: "testimonial",
-      content: { customer: record.id },
-    }),
+    createBlock(
+      ctx,
+      {
+        pageId: page.id,
+        type: "testimonial",
+        content: { customer: record.id },
+      },
+      null,
+    ),
   );
   return { ...f, ctx, publicCtx, scope, record, page, block, schema };
 }
@@ -176,9 +180,9 @@ describe("single collection references", () => {
       .set({ url: "https://assets.example.com/replaced.png", alt: "Changed" })
       .where(eq(files.id, managed[0].id));
     for (const ctx of [f.ctx, f.publicCtx]) {
-      const block = await runService(getBlock(ctx, { id: f.block.id }));
+      const block = await runService(getBlock(ctx, { id: f.block.id }, null));
       const page = await runService(
-        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }),
+        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }, null),
       );
       for (const result of [block, page]) {
         expect(result.files.map((file) => file.id).sort()).toEqual(
@@ -193,7 +197,7 @@ describe("single collection references", () => {
         mimeType: "image/png",
         size: 123,
       });
-      const markdown = await runService(getPageMarkdown(ctx, { pageId: f.page.id }));
+      const markdown = await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null));
       expect(markdown.markdown).toContain("![Changed]");
       expect(markdown.markdown).toContain("replaced.png");
       expect(markdown.markdown).toContain("[report.pdf](https://assets.example.com/report.pdf)");
@@ -205,7 +209,7 @@ describe("single collection references", () => {
       .where(eq(blocks.id, f.block.id));
     for (const ctx of [f.ctx, f.publicCtx]) {
       const layout = await runService(
-        getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" }),
+        getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" }, null),
       );
       expect(layout.files.map((file) => file.id).sort()).toEqual(
         managed.map((file) => file.id).sort(),
@@ -214,16 +218,16 @@ describe("single collection references", () => {
         _fileId: managed[1].id,
         url: "https://assets.example.com/report.pdf",
       });
-      expect((await runService(getPageMarkdown(ctx, { pageId: f.page.id }))).markdown).toContain(
-        "[report.pdf](https://assets.example.com/report.pdf)",
-      );
+      expect(
+        (await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null))).markdown,
+      ).toContain("[report.pdf](https://assets.example.com/report.pdf)");
     }
   });
 
   it("stores record ids, resolves the record's content for members and visitors, and rejects records out of scope", async () => {
     const f = await fixture();
     for (const ctx of [f.ctx, f.publicCtx]) {
-      const read = await runService(getBlock(ctx, { id: f.block.id }));
+      const read = await runService(getBlock(ctx, { id: f.block.id }, null));
       expect(read.block.content.customer).toBe(f.record.id);
       expect(read.block.references.customer).toMatchObject({
         id: f.record.id,
@@ -233,12 +237,16 @@ describe("single collection references", () => {
     const other = await fixture();
     await expect(
       runService(
-        updateBlockContent(f.ctx, { id: f.block.id, content: { customer: other.record.id } }),
+        updateBlockContent(f.ctx, { id: f.block.id, content: { customer: other.record.id } }, null),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
       runService(
-        updateBlockContent(f.ctx, { id: f.block.id, content: { customer: { id: f.record.id } } }),
+        updateBlockContent(
+          f.ctx,
+          { id: f.block.id, content: { customer: { id: f.record.id } } },
+          null,
+        ),
       ),
     ).rejects.toThrow();
   });
@@ -249,7 +257,7 @@ describe("single collection references", () => {
       editRecord(f.ctx, { ...f.scope, id: f.record.id, content: { name: "Changed" } }),
     );
     expect(
-      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id }))).markdown,
+      (await runService(getPageMarkdown(f.publicCtx, { pageId: f.page.id }, null))).markdown,
     ).toContain("Customer: Changed");
   });
 
@@ -265,9 +273,11 @@ describe("single collection references", () => {
         validateReferenceSchema({ properties: { list: { fieldType: "ReferenceList" } } }),
       ),
     ).toThrow();
-    await runService(updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } }));
+    await runService(
+      updateBlockContent(f.ctx, { id: f.block.id, content: { customer: null } }, null),
+    );
     expect(
-      (await runService(getBlock(f.ctx, { id: f.block.id }))).block.references.customer,
+      (await runService(getBlock(f.ctx, { id: f.block.id }, null))).block.references.customer,
     ).toBeNull();
   });
 
@@ -279,8 +289,11 @@ describe("single collection references", () => {
       .where(eq(blocks.id, f.block.id));
     const layoutCustomer = async (ctx: typeof f.ctx) =>
       customer(
-        (await runService(getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" })))
-          .blocks[0],
+        (
+          await runService(
+            getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" }, null),
+          )
+        ).blocks[0],
       )?.content.name;
     expect(await layoutCustomer(f.ctx)).toBe("Original");
     expect(await layoutCustomer(f.publicCtx)).toBe("Original");
@@ -295,11 +308,11 @@ describe("single collection references", () => {
     const f = await fixture();
     await runService(deleteRecord(f.ctx, { ...f.scope, id: f.record.id }));
     for (const ctx of [f.ctx, f.publicCtx]) {
-      const read = await runService(getBlock(ctx, { id: f.block.id }));
+      const read = await runService(getBlock(ctx, { id: f.block.id }, null));
       expect(read.block.content.customer).toBe(f.record.id);
       expect(read.block.references.customer).toBeNull();
       expect(
-        (await runService(getPageMarkdown(ctx, { pageId: f.page.id }))).markdown,
+        (await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null))).markdown,
       ).not.toContain("Original");
     }
   });
@@ -339,16 +352,16 @@ async function listFixture() {
     updatedAt: 1,
   });
   const list = await runService(
-    createBlock(f.ctx, { pageId: f.page.id, type: "logo-grid", content: {} }),
+    createBlock(f.ctx, { pageId: f.page.id, type: "logo-grid", content: {} }, null),
   );
   const setList = (customers: unknown) =>
-    runService(updateBlockContent(f.ctx, { id: list.id, content: { customers } }));
+    runService(updateBlockContent(f.ctx, { id: list.id, content: { customers } }, null));
   const ids = (references: Record<string, unknown> | undefined) =>
     ((references?.customers ?? []) as { id: string }[]).map((record) => record.id);
   const listIds = async (ctx: typeof f.ctx) =>
-    ids((await runService(getBlock(ctx, { id: list.id }))).block.references);
+    ids((await runService(getBlock(ctx, { id: list.id }, null))).block.references);
   const listMarkdown = async (ctx: typeof f.ctx) =>
-    (await runService(getPageMarkdown(ctx, { pageId: f.page.id }))).markdown;
+    (await runService(getPageMarkdown(ctx, { pageId: f.page.id }, null))).markdown;
   return { ...f, alpha: f.record, beta, gamma, list, setList, ids, listIds, listMarkdown };
 }
 
@@ -397,10 +410,9 @@ describe("reference lists", () => {
     const f = await listFixture();
     expect(f.list.content).toEqual({ customers: [] });
     await f.setList([f.gamma.id, f.alpha.id]);
-    expect((await runService(getBlock(f.ctx, { id: f.list.id }))).block.content.customers).toEqual([
-      f.gamma.id,
-      f.alpha.id,
-    ]);
+    expect(
+      (await runService(getBlock(f.ctx, { id: f.list.id }, null))).block.content.customers,
+    ).toEqual([f.gamma.id, f.alpha.id]);
 
     const otherProject = await fixture();
     const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
@@ -458,7 +470,7 @@ describe("reference lists", () => {
     for (const ctx of [f.ctx, f.publicCtx]) {
       expect(await f.listIds(ctx)).toEqual([f.gamma.id, f.beta.id, f.alpha.id]);
       const page = await runService(
-        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }),
+        getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }, null),
       );
       expect(f.ids(page.blocks.find((block) => block.id === f.list.id)?.references)).toEqual([
         f.gamma.id,
@@ -550,21 +562,25 @@ async function itemFixture() {
     updatedAt: 1,
   });
   const wall = await runService(
-    createBlock(f.ctx, {
-      pageId: f.page.id,
-      type: "logo-wall",
-      content: {
-        logos: [
-          {
-            customer: f.alpha.id,
-            partners: [f.gamma.id],
-            quotes: [{ speaker: f.beta.id }],
-          },
-        ],
+    createBlock(
+      f.ctx,
+      {
+        pageId: f.page.id,
+        type: "logo-wall",
+        content: {
+          logos: [
+            {
+              customer: f.alpha.id,
+              partners: [f.gamma.id],
+              quotes: [{ speaker: f.beta.id }],
+            },
+          ],
+        },
       },
-    }),
+      null,
+    ),
   );
-  const bundle = (ctx: typeof f.ctx) => runService(getBlock(ctx, { id: wall.id }));
+  const bundle = (ctx: typeof f.ctx) => runService(getBlock(ctx, { id: wall.id }, null));
   const read = await bundle(f.ctx);
   const logo = read.repeatableItems.find((item) => item.fieldName === "logos")!;
   const quote = read.repeatableItems.find((item) => item.fieldName === "quotes")!;
@@ -643,29 +659,37 @@ describe("references in repeatable items", () => {
     }
     await expect(
       runService(
-        createRepeatableItem(f.ctx, {
-          blockId: f.wall.id,
-          fieldName: "logos",
-          content: { customer: f.alpha.id },
-          nestedItems: [
-            {
-              tempId: "quote",
-              parentTempId: null,
-              fieldName: "quotes",
-              content: { speaker: foreign },
-              position: "a0",
-            },
-          ],
-        }),
+        createRepeatableItem(
+          f.ctx,
+          {
+            blockId: f.wall.id,
+            fieldName: "logos",
+            content: { customer: f.alpha.id },
+            nestedItems: [
+              {
+                tempId: "quote",
+                parentTempId: null,
+                fieldName: "quotes",
+                content: { speaker: foreign },
+                position: "a0",
+              },
+            ],
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("speaker") });
     await expect(
       runService(
-        createBlock(f.ctx, {
-          pageId: f.page.id,
-          type: "logo-wall",
-          content: { logos: [{ customer: foreign }] },
-        }),
+        createBlock(
+          f.ctx,
+          {
+            pageId: f.page.id,
+            type: "logo-wall",
+            content: { logos: [{ customer: foreign }] },
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
@@ -674,10 +698,14 @@ describe("references in repeatable items", () => {
     });
     await expect(
       runService(
-        updateBlockContent(f.ctx, {
-          id: f.wall.id,
-          content: { logos: [{ _itemId: f.logo.id, customer: foreign }] },
-        }),
+        updateBlockContent(
+          f.ctx,
+          {
+            id: f.wall.id,
+            content: { logos: [{ _itemId: f.logo.id, customer: foreign }] },
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
@@ -706,7 +734,7 @@ describe("references in repeatable items", () => {
           );
       expect((await quote())?.id).toBe(f.beta.id);
       const page = await runService(
-        getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/reference" }),
+        getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/reference" }, null),
       );
       expect(customer(page.repeatableItems.find((item) => item.id === logo.id) as never)?.id).toBe(
         f.alpha.id,
@@ -823,10 +851,14 @@ async function relationFixture() {
     updatedAt: 1,
   });
   const block = await runService(
-    createBlock(ctx, { pageId: page.id, type: "article-teaser", content: { article: article.id } }),
+    createBlock(
+      ctx,
+      { pageId: page.id, type: "article-teaser", content: { article: article.id } },
+      null,
+    ),
   );
   const teaser = async (reader: typeof ctx) =>
-    (await runService(getBlock(reader, { id: block.id }))).block.references
+    (await runService(getBlock(reader, { id: block.id }, null))).block.references
       .article as ResolvedReference | null;
   return {
     ...f,
@@ -912,9 +944,9 @@ describe("references between collections", () => {
 
   it("renders nested reference Markdown through the placement's per-use format", async () => {
     const f = await relationFixture();
-    expect((await runService(getPageMarkdown(f.ctx, { pageId: f.page.id }))).markdown).toContain(
-      "Launch by Jane\n\n- Sam",
-    );
+    expect(
+      (await runService(getPageMarkdown(f.ctx, { pageId: f.page.id }, null))).markdown,
+    ).toContain("Launch by Jane\n\n- Sam");
   });
 
   it("leaves a deleted record out of the references of records linking it", async () => {
@@ -1069,20 +1101,27 @@ async function queryFixture() {
     updatedAt: 1,
   });
   const block = await runService(
-    createBlock(ctx, {
-      pageId: page.id,
-      type: "article-index",
-      content: { features: [{}] },
-    }),
+    createBlock(
+      ctx,
+      {
+        pageId: page.id,
+        type: "article-index",
+        content: { features: [{}] },
+      },
+      null,
+    ),
   );
   const bundle = (reader: Reader) =>
-    runService(getBlock(reader === "member" ? ctx : publicCtx, { id: block.id }));
+    runService(getBlock(reader === "member" ? ctx : publicCtx, { id: block.id }, null));
   /** The titles a list resolves to, in order. */
   const titles = async (field: keyof typeof lists, reader: Reader) =>
     ((await bundle(reader)).block.references[field] as ResolvedReference[]).map((r) => r.label);
   const markdown = async (reader: Reader) =>
-    (await runService(getPageMarkdown(reader === "member" ? ctx : publicCtx, { pageId: page.id })))
-      .markdown;
+    (
+      await runService(
+        getPageMarkdown(reader === "member" ? ctx : publicCtx, { pageId: page.id }, null),
+      )
+    ).markdown;
   return {
     ...f,
     ctx,
@@ -1184,23 +1223,31 @@ describe("query-backed reference lists", () => {
       message: `${name}: query-backed reference lists are resolved, not written`,
     });
     await expect(
-      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: ids } })),
+      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: ids } }, null)),
     ).rejects.toMatchObject(rejection("recent"));
     await expect(
-      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: [] } })),
+      runService(updateBlockContent(f.ctx, { id: f.block.id, content: { recent: [] } }, null)),
     ).rejects.toMatchObject(rejection("recent"));
     await expect(
       runService(
-        createBlock(f.ctx, { pageId: f.page.id, type: "article-index", content: { byTitle: ids } }),
+        createBlock(
+          f.ctx,
+          { pageId: f.page.id, type: "article-index", content: { byTitle: ids } },
+          null,
+        ),
       ),
     ).rejects.toMatchObject(rejection("byTitle"));
     await expect(
       runService(
-        createBlock(f.ctx, {
-          pageId: f.page.id,
-          type: "article-index",
-          content: { features: [{ latest: ids }] },
-        }),
+        createBlock(
+          f.ctx,
+          {
+            pageId: f.page.id,
+            type: "article-index",
+            content: { features: [{ latest: ids }] },
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject(rejection("features[0].latest"));
     await expect(
@@ -1208,11 +1255,15 @@ describe("query-backed reference lists", () => {
     ).rejects.toMatchObject(rejection("latest"));
     await expect(
       runService(
-        createRepeatableItem(f.ctx, {
-          blockId: f.block.id,
-          fieldName: "features",
-          content: { latest: ids },
-        }),
+        createRepeatableItem(
+          f.ctx,
+          {
+            blockId: f.block.id,
+            fieldName: "features",
+            content: { latest: ids },
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject(rejection("latest"));
   });
@@ -1357,7 +1408,7 @@ describe("query-backed reference lists", () => {
       expect(await f.titles("byTitle", reader)).toEqual(["Bravo", "Charlie", "Delta", "Echo", ""]);
     }
     const live = await runService(
-      getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/articles" }),
+      getPageByPath(f.publicCtx, { projectSlug: f.project.slug, path: "/articles" }, null),
     );
     const block = live.blocks.find((candidate) => candidate.id === f.block.id)!;
     expect((block.references.byTitle as ResolvedReference[]).map((r) => r.label)).toEqual([

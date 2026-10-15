@@ -28,6 +28,7 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
   blockDefinitions,
   blocks,
+  comments,
   environments,
   files,
   layouts,
@@ -47,9 +48,12 @@ import {
   type ResolvedReferences,
   validateReferenceValues,
 } from "../collections/references";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
+import { draftScopeOfJob } from "../drafts/service";
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
-import { buildFileMap, collectFileIds } from "../pages/ai";
+import { buildFileMap, collectFileIds, sortItemsByPosition } from "../pages/ai";
 import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
@@ -126,15 +130,37 @@ export const duplicateBlockInput = z.object({ id: uuidv7Schema });
 
 // --- Internal helpers ---
 
-function comparePositions(a: string, b: string): number {
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
-}
+const { sortByPosition } = overlay;
 
-function sortByPosition<T extends { position: string }>(items: T[]): T[] {
-  return items.sort((a, b) => comparePositions(a.position, b.position));
-}
+/**
+ * Bumps the Live page or layout owning a block. Skipped for draft writes, which must leave
+ * Live pages and layouts untouched until pages move into drafts (#238).
+ */
+const bumpLiveOwner = (ctx: ServiceContext, scope: DraftScope, parent: BlockParent) =>
+  scope ? Effect.void : bumpContentUpdatedAt(ctx.db, parent);
+
+type BlockParent = Parameters<typeof bumpContentUpdatedAt>[1];
+
+/**
+ * Once no scope holds a deleted block any more, deletes the repeatable items it owns and
+ * unanchors its comments, which hold no foreign key to it and live in Live (ADR 0005). A block
+ * deleted on Live keeps them while a draft's copy still shows it; a block a draft created takes
+ * them along when the draft deletes it.
+ */
+const deleteBlockDependents = Effect.fn("blocks.deleteBlockDependents")(function* (
+  ctx: ServiceContext,
+  blockIds: string[],
+) {
+  const held = yield* overlay.idsHeldAnywhere(ctx.db, blocks, blockIds);
+  const gone = blockIds.filter((id) => !held.has(id));
+  if (gone.length === 0) return;
+  yield* Effect.promise(() =>
+    ctx.db.batch([
+      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, gone)),
+      ctx.db.update(comments).set({ blockId: null }).where(inArray(comments.blockId, gone)),
+    ]),
+  );
+});
 
 /**
  * Reduce high-level positioning helpers (`afterId`, `beforeId`, `position`) to
@@ -150,6 +176,7 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
   ctx: ServiceContext,
   rawInput: z.input<typeof resolveBlockPositionInput>,
   opts: { mode: "create" | "move" },
+  scope: DraftScope,
 ): Effect.fn.Return<
   { afterPosition?: string | null; beforePosition?: string | null },
   ServiceError
@@ -173,13 +200,7 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
   }
 
   const lookupSibling = Effect.fn("lookupSibling")(function* (id: string) {
-    const sibling = yield* Effect.promise(() =>
-      ctx.db
-        .select({ position: blocks.position, pageId: blocks.pageId })
-        .from(blocks)
-        .where(eq(blocks.id, id))
-        .get(),
-    );
+    const sibling = yield* overlay.get(ctx.db, scope, blocks, id);
     if (!sibling) return yield* new NotFoundError({ message: `No block with id ${id}.` });
     if (input.pageId != null && sibling.pageId !== input.pageId) {
       return yield* new InvalidInputError({
@@ -204,19 +225,12 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
     let pageId = input.pageId;
     const blockId = input.blockId;
     if (pageId == null && blockId != null) {
-      const target = yield* Effect.promise(() =>
-        ctx.db.select({ pageId: blocks.pageId }).from(blocks).where(eq(blocks.id, blockId)).get(),
-      );
+      const target = yield* overlay.get(ctx.db, scope, blocks, blockId);
       pageId = target?.pageId ?? undefined;
     }
     if (pageId == null) return {};
-    const first = yield* Effect.promise(() =>
-      ctx.db
-        .select({ position: blocks.position })
-        .from(blocks)
-        .where(eq(blocks.pageId, pageId))
-        .orderBy(blocks.position)
-        .get(),
+    const [first] = sortByPosition(
+      yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, pageId)),
     );
     return { beforePosition: first?.position ?? null };
   }
@@ -333,10 +347,9 @@ const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
 const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   db: Database,
   blockId: string,
+  scope: DraftScope,
 ) {
-  const stored = yield* Effect.promise(() =>
-    db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
-  );
+  const stored = yield* overlay.get(db, scope, blocks, blockId);
   if (!stored) return null;
 
   // Get block definition for content schema and field order. Scope by
@@ -380,7 +393,7 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   const conformed = conformBlocks(
     new Map(def ? [[def.blockId, def]] : []),
     shown.blocks,
-    sortByPosition(shown.items),
+    sortItemsByPosition(shown.items),
   );
   const block = conformed.blocks[0];
   const items = conformed.items;
@@ -411,19 +424,46 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
 });
 
 /**
- * Generates and stores a summary for a block.
+ * Generates and stores a summary for a block as a scope reads it.
  * Returns `{ pageId }` if the parent page has AI SEO enabled (caller should cascade).
+ *
+ * In a draft, the summary is written only onto a block the draft already holds, never copying
+ * one into it, and nothing cascades to Live: pages and shared content are Live-only until #238.
  */
+/** Saves a generated summary where the block's content lives: its shared content, or itself. */
+const saveSummary = Effect.fn("blocks.saveSummary")(function* (
+  db: Database,
+  scope: DraftScope,
+  blockId: string,
+  shared: SharedContentRow | null,
+  summary: string,
+) {
+  const updatedAt = Date.now();
+  if (!shared) {
+    yield* overlay.updateExisting(db, scope, blocks, blockId, { summary, updatedAt });
+    return;
+  }
+  yield* Effect.promise(() =>
+    db.update(sharedContents).set({ summary, updatedAt }).where(sharedContentWhere(shared)),
+  );
+});
+
 export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
   db: Database,
   apiKey: string,
   blockId: string,
+  scope: DraftScope,
   abortController?: AbortController,
 ): Effect.fn.Return<{ pageId: string } | null> {
-  const assembled = yield* assembleBlockContent(db, blockId);
+  // A draft summarises only the blocks it holds; the others are Live's to summarise.
+  if (scope && !(yield* overlay.getStored(db, scope, blocks, blockId))) return null;
+  const assembled = yield* assembleBlockContent(db, blockId, scope);
   if (!assembled) return null;
 
   const { block, content, contentSchema } = assembled;
+  // A synced placement's summary is its shared content's, which only Live holds.
+  const owner = yield* contentOwnerOf(db, block);
+  if (owner.shared && scope) return null;
 
   const markdown =
     contentSchema?.toMarkdown && contentSchema?.properties
@@ -438,20 +478,11 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
     abortController,
   );
 
-  // A synced placement's summary is its shared content's.
-  const owner = yield* contentOwnerOf(db, block);
-  yield* Effect.promise(() =>
-    owner.shared
-      ? db
-          .update(sharedContents)
-          .set({ summary, updatedAt: Date.now() })
-          .where(sharedContentWhere(owner.shared))
-      : db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId)),
-  );
+  yield* saveSummary(db, scope, blockId, owner.shared, summary);
 
   // Check if we should cascade to page SEO
   const pageId = block.pageId;
-  if (summary !== block.summary && pageId) {
+  if (summary !== block.summary && pageId && !scope) {
     const page = yield* Effect.promise(() =>
       db.select().from(pages).where(eq(pages.id, pageId)).get(),
     );
@@ -461,6 +492,21 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
   }
 
   return null;
+});
+
+/**
+ * Runs a block summary job in the draft it was scheduled from, or in Live. A job whose draft
+ * has ended does nothing.
+ */
+export const runBlockSummaryJob = Effect.fn("blocks.runBlockSummaryJob")(function* (
+  db: Database,
+  apiKey: string,
+  job: { entityId: string; draftId: string | null },
+  abortController?: AbortController,
+) {
+  const scope = yield* draftScopeOfJob(db, job.draftId);
+  if (scope === undefined) return null;
+  return yield* executeBlockSummary(db, apiKey, job.entityId, scope, abortController);
 });
 
 /**
@@ -733,11 +779,10 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
 export const getBlock = Effect.fn("blocks.getBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlockInput>,
+  scope: DraftScope,
 ) {
   const { id } = yield* decodeInput(getBlockInput, rawInput);
-  const stored = yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.id, id)).get(),
-  );
+  const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   if (!stored) return yield* new NotFoundError();
   const shown = yield* withSharedContent(
     ctx.db,
@@ -748,7 +793,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   );
   const conformed = yield* conformBlocksIn(ctx, stored, shown.blocks, shown.items);
   const block = conformed.blocks[0];
-  const sorted = conformed.items.sort((a, b) => comparePositions(a.position, b.position));
+  const sorted = sortItemsByPosition(conformed.items);
 
   // Build a map of parentItemId → grouped children by fieldName
   const childrenByParent = new Map<string | null, Map<string, typeof sorted>>();
@@ -792,9 +837,9 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     (item as any).content = itemContent;
   }
 
-  const scope = yield* blockScope(ctx, block);
-  const hydratedBlock = (yield* hydrateReferences(ctx, scope, [{ ...block, content }]))[0];
-  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted);
+  const referenceScope = yield* blockScope(ctx, block);
+  const hydratedBlock = (yield* hydrateReferences(ctx, referenceScope, [{ ...block, content }]))[0];
+  const hydratedItems = yield* hydrateItemReferences(ctx, referenceScope, [block], sorted);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<string>();
@@ -943,6 +988,7 @@ function layoutSlotsMarkdown(
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageMarkdownInput>,
+  scope: DraftScope,
 ) {
   const { pageId } = yield* decodeInput(getPageMarkdownInput, rawInput);
 
@@ -955,11 +1001,12 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   );
   if (!servesPages(pageLayout)) return yield* new NotFoundError();
 
-  const { blocks: sorted, items: allItems } = yield* readOwnerBlocks(ctx, { pageId });
-  const { blocks: sortedLayout, items: layoutAllItems } = yield* readOwnerBlocks(ctx, {
-    environmentId: page.environmentId,
-    layoutId: page.layoutId,
-  });
+  const { blocks: sorted, items: allItems } = yield* readOwnerBlocks(ctx, { pageId }, scope);
+  const { blocks: sortedLayout, items: layoutAllItems } = yield* readOwnerBlocks(
+    ctx,
+    { environmentId: page.environmentId, layoutId: page.layoutId },
+    scope,
+  );
 
   const render = yield* renderBlocksMarkdown(
     ctx,
@@ -989,6 +1036,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
 export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutMarkdownInput>,
+  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutMarkdownInput, rawInput);
   const project = yield* Effect.promise(() =>
@@ -1004,7 +1052,7 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
-  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout);
+  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
   const render = yield* renderBlocksMarkdown(ctx, layout, layoutBlocks, items);
   return layoutSlotsMarkdown(layoutBlocks, render.markdown);
 });
@@ -1012,6 +1060,7 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
 export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlocksUsageCountsInput>,
+  scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(getBlocksUsageCountsInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
@@ -1022,7 +1071,7 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
         count: sql<number>`count(*)`,
       })
       .from(blocks)
-      .where(eq(blocks.environmentId, environment.id))
+      .where(and(overlay.visibleIn(blocks, scope), eq(blocks.environmentId, environment.id)))
       .groupBy(blocks.type),
   );
 });
@@ -1035,6 +1084,7 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
 export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof blockTypeInput>,
+  scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
@@ -1043,7 +1093,13 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
       .selectDistinct({ id: pages.id, nickname: pages.nickname, fullPath: pages.fullPath })
       .from(blocks)
       .innerJoin(pages, eq(blocks.pageId, pages.id))
-      .where(and(eq(blocks.type, type), eq(pages.environmentId, environment.id)))
+      .where(
+        and(
+          overlay.visibleIn(blocks, scope),
+          eq(blocks.type, type),
+          eq(pages.environmentId, environment.id),
+        ),
+      )
       .orderBy(pages.fullPath),
   );
 });
@@ -1058,9 +1114,10 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
+  // Shared content lives in Live until it moves into drafts (#238).
   const id = yield* sharedPlacementId(ctx.db, { environmentId: environment.id, type });
   if (id === null) return null;
-  return yield* getBlock(ctx, { id });
+  return yield* getBlock(ctx, { id }, null);
 });
 
 // --- Writes ---
@@ -1074,19 +1131,20 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
   access: { block: typeof blocks.$inferSelect; projectId: number },
   shared: SharedContentRow | null,
   values: { content?: unknown; settings?: unknown; updatedAt: number },
+  scope: DraftScope,
 ) {
   const { block, projectId } = access;
   if (!shared) {
-    const result = yield* Effect.promise(() =>
-      ctx.db.update(blocks).set(values).where(eq(blocks.id, block.id)).returning().get(),
-    );
-    yield* bumpContentUpdatedAt(ctx.db, block);
+    const result = yield* overlay.update(ctx.db, scope, blocks, block.id, values);
+    if (!result) return yield* new NotFoundError();
+    yield* bumpLiveOwner(ctx, scope, block);
     return result;
   }
+  // Shared content is written in Live even from a draft, until it moves into drafts (#238).
   const updated = yield* Effect.promise(() =>
     ctx.db.update(sharedContents).set(values).where(sharedContentWhere(shared)).returning().get(),
   );
-  yield* bumpPlacementOwners(ctx.db, definitionOf(shared));
+  if (!scope) yield* bumpPlacementOwners(ctx.db, definitionOf(shared));
   broadcastSharedContentChange(ctx, projectId, shared.type);
   return {
     ...block,
@@ -1099,6 +1157,7 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
 export const createBlock = Effect.fn("blocks.createBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createBlockInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const {
@@ -1112,6 +1171,8 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     repeatableItems: itemSeeds,
   } = yield* decodeInput(createBlockInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, pageId, user.id);
+  // A draft holds content of its own project only.
+  if (scope && scope.projectId !== access.page.projectId) return yield* new NotFoundError();
 
   const now = Date.now();
 
@@ -1144,7 +1205,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(
-    yield* Effect.promise(() => ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId))),
+    yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, pageId)),
   );
 
   if (afterPosition != null && beforePosition != null) {
@@ -1178,28 +1239,22 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       nextBlock?.position ?? null,
     );
   }
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .insert(blocks)
-      .values({
-        id,
-        environmentId: access.page.environmentId,
-        pageId,
-        type,
-        content: prepared.content,
-        settings: prepared.settings,
-        position,
-        summary: "",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: blocks.id })
-      .returning()
-      .get(),
-  );
+  const result = yield* overlay.insert(ctx.db, scope, blocks, {
+    id,
+    environmentId: access.page.environmentId,
+    pageId,
+    type,
+    content: prepared.content,
+    settings: prepared.settings,
+    position,
+    summary: "",
+    createdAt: now,
+    updatedAt: now,
+  });
   if (!result) return yield* new ConflictError({ message: `Block ${id} already exists` });
 
-  // Insert repeatable item seeds in topological order (parents before children)
+  // Insert repeatable item seeds in topological order (parents before children). Items are
+  // stored in Live even for a block created in a draft, until they move into drafts (#238).
   if (allSeeds.length > 0) {
     const tempIdToRealId = new Map<string, string>();
 
@@ -1229,7 +1284,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   }
 
   yield* adoptSharedContent(ctx, result);
-  yield* bumpContentUpdatedAt(ctx.db, { pageId });
+  yield* bumpLiveOwner(ctx, scope, { pageId });
 
   ctx.waitUntil(
     scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1237,6 +1292,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       entityId: result.id,
       type: "summary",
       delayMs: 0,
+      draftId: scope?.id ?? null,
     }),
   );
   broadcastInvalidation({
@@ -1253,9 +1309,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     ],
   });
 
-  const stored = (yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get(),
-  ))!;
+  const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
   const created = yield* shownBlock(ctx.db, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 });
@@ -1264,9 +1318,10 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 export const editBlock = Effect.fn("blocks.editBlock")(function* (
   ctx: ServiceContext,
   input: { id: string; content?: unknown; settings?: unknown },
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
-  const access = yield* assertBlockAccess(ctx.db, input.id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, input.id, user.id, scope);
   if (input.content === undefined && input.settings === undefined) {
     return yield* new InvalidInputError({ message: "Provide content or settings" });
   }
@@ -1276,10 +1331,10 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
   }
   let result: object = {};
   if (input.content !== undefined) {
-    result = yield* updateBlockContent(ctx, { id: input.id, content: input.content });
+    result = yield* updateBlockContent(ctx, { id: input.id, content: input.content }, scope);
   }
   if (input.settings !== undefined) {
-    result = yield* updateBlockSettings(ctx, { id: input.id, settings: input.settings });
+    result = yield* updateBlockSettings(ctx, { id: input.id, settings: input.settings }, scope);
   }
   return withWarnings(result, artifactWarnings(schemas?.contentSchema, input.content));
 });
@@ -1287,10 +1342,11 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
 export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockContentInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, content } = yield* decodeInput(updateBlockContentInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
   const now = Date.now();
 
@@ -1300,6 +1356,8 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
   yield* validateReferenceValues(ctx, yield* blockScope(ctx, access.block), contentSchema, patch);
   const owner = yield* contentOwnerOf(ctx.db, access.block);
+  // Repeater patches write the Live repeatable items, even from a draft, until items move into
+  // drafts (#238).
   const merged = yield* applyContentPatch(
     ctx,
     { root: owner.root, content: (owner.shared ?? access.block).content },
@@ -1307,10 +1365,13 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
     contentSchema,
     now,
   );
-  const result = yield* writeBlockData(ctx, access, owner.shared, {
-    content: merged,
-    updatedAt: now,
-  });
+  const result = yield* writeBlockData(
+    ctx,
+    access,
+    owner.shared,
+    { content: merged, updatedAt: now },
+    scope,
+  );
 
   ctx.waitUntil(
     scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1318,6 +1379,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
       entityId: id,
       type: "summary",
       delayMs: 5000,
+      draftId: scope?.id ?? null,
     }),
   );
   // Granular invalidation: only refetch this block, not the entire page.
@@ -1341,10 +1403,11 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockSettingsInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, settings } = yield* decodeInput(updateBlockSettingsInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
   const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id);
   yield* validateContent(settings, schemas?.settingsSchema, { path: "settings" });
@@ -1353,10 +1416,13 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
     ...((owner.shared ?? access.block).settings as Record<string, unknown> | null),
     ...(settings as Record<string, unknown>),
   };
-  const result = yield* writeBlockData(ctx, access, owner.shared, {
-    settings: merged,
-    updatedAt: Date.now(),
-  });
+  const result = yield* writeBlockData(
+    ctx,
+    access,
+    owner.shared,
+    { settings: merged, updatedAt: Date.now() },
+    scope,
+  );
   // Granular invalidation: only refetch this block, not the entire page.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
@@ -1377,22 +1443,21 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
 export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockPositionInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, afterPosition, beforePosition } = yield* decodeInput(
     updateBlockPositionInput,
     rawInput,
   );
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
   // Query siblings (excluding the block being moved) to compute a correct position
   const block = access.block;
   const owner = blocksOfOwner(block);
   const siblings = owner
     ? sortByPosition(
-        (yield* Effect.promise(() => ctx.db.select().from(blocks).where(owner))).filter(
-          (b) => b.id !== id,
-        ),
+        (yield* overlay.select(ctx.db, scope, blocks, owner)).filter((b) => b.id !== id),
       )
     : [];
 
@@ -1412,15 +1477,13 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
     position = generateKeyBetween(siblings[afterIdx]?.position ?? null, nextPos);
   }
 
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(blocks)
-      .set({ position, updatedAt: Date.now() })
-      .where(eq(blocks.id, id))
-      .returning()
-      .get(),
-  );
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
+  // In a draft, the first write copies the whole block: a move carries its content (ADR 0005).
+  const result = yield* overlay.update(ctx.db, scope, blocks, id, {
+    position,
+    updatedAt: Date.now(),
+  });
+  if (!result) return yield* new NotFoundError();
+  yield* bumpLiveOwner(ctx, scope, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1440,15 +1503,16 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlockInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deleteBlockInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
-  const result = yield* Effect.promise(() =>
-    ctx.db.delete(blocks).where(eq(blocks.id, id)).returning().get(),
-  );
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
+  // In a draft, a tombstone hides the block from the draft only.
+  const result = yield* overlay.remove(ctx.db, scope, blocks, id);
+  yield* deleteBlockDependents(ctx, [id]);
+  yield* bumpLiveOwner(ctx, scope, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1469,12 +1533,13 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
 export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlocksInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { blockIds } = yield* decodeInput(deleteBlocksInput, rawInput);
   if (blockIds.length === 0) return [];
 
-  // Verify all blocks belong to an org the user is a member of
+  // Verify all blocks, as the scope reads them, belong to an org the user is a member of
   const authorizedBlocks = yield* Effect.promise(() =>
     ctx.db
       .select({ id: blocks.id, projectId: projects.id })
@@ -1485,16 +1550,23 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
         member,
         and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
       )
-      .where(inArray(blocks.id, blockIds)),
+      .where(and(overlay.visibleIn(blocks, scope), inArray(blocks.id, blockIds))),
   );
   if (authorizedBlocks.length !== blockIds.length) {
     return yield* new NotFoundError();
   }
+  // A draft holds content of its own project only.
+  if (scope && authorizedBlocks.some((block) => block.projectId !== scope.projectId)) {
+    return yield* new NotFoundError();
+  }
   // Bump first — once the rows are gone, we can't recover their parents.
-  yield* bumpContentUpdatedAtForBlocks(ctx.db, blockIds);
-  const result = yield* Effect.promise(() =>
-    ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)).returning(),
-  );
+  if (!scope) yield* bumpContentUpdatedAtForBlocks(ctx.db, blockIds);
+  const result: (typeof blocks.$inferSelect)[] = [];
+  for (const id of blockIds) {
+    const removed = yield* overlay.remove(ctx.db, scope, blocks, id);
+    if (removed) result.push(removed);
+  }
+  yield* deleteBlockDependents(ctx, blockIds);
   const projectId = authorizedBlocks[0]?.projectId;
   if (projectId) {
     broadcastInvalidation({
@@ -1514,12 +1586,13 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
 export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateBlockSummaryInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
-  const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
+  const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
   if (seoStale) {
     ctx.waitUntil(
       scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1543,53 +1616,44 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  const updated = yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.id, id)).get(),
-  );
-  return updated;
+  return yield* overlay.get(ctx.db, scope, blocks, id);
 });
 
 export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof duplicateBlockInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(duplicateBlockInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
   const original = access.block;
 
   const now = Date.now();
 
   // Find the next block after the original to insert between them
   const owner = blocksOfOwner(original);
-  const siblings = owner
-    ? sortByPosition(yield* Effect.promise(() => ctx.db.select().from(blocks).where(owner)))
-    : [];
-  const originalIndex = siblings.findIndex((b) => b.id === id);
-  const nextBlock = originalIndex >= 0 ? siblings[originalIndex + 1] : undefined;
+  const siblings = owner ? sortByPosition(yield* overlay.select(ctx.db, scope, blocks, owner)) : [];
+  // Skip siblings sharing the original's position (ADR 0005): no key fits between them.
+  const nextBlock = siblings.find((b) => b.position > original.position);
   const position = generateKeyBetween(original.position, nextBlock?.position ?? null);
 
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .insert(blocks)
-      .values({
-        environmentId: original.environmentId,
-        pageId: original.pageId,
-        layoutId: original.layoutId,
-        type: original.type,
-        content: original.content,
-        settings: original.settings,
-        slot: original.slot,
-        summary: original.summary,
-        position,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get(),
-  );
+  const result = yield* overlay.insert(ctx.db, scope, blocks, {
+    environmentId: original.environmentId,
+    pageId: original.pageId,
+    layoutId: original.layoutId,
+    type: original.type,
+    content: original.content,
+    settings: original.settings,
+    slot: original.slot,
+    summary: original.summary,
+    position,
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken." });
   yield* adoptSharedContent(ctx, result);
-  yield* bumpContentUpdatedAt(ctx.db, original);
+  yield* bumpLiveOwner(ctx, scope, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,

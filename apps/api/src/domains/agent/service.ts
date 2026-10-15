@@ -39,6 +39,7 @@ export const buildToolContext = Effect.fn("agent.buildToolContext")(function* (
     environmentName: ctx.environmentName,
     client: ctx.client,
     telemetryDisabled: ctx.telemetryDisabled,
+    draft: ctx.draft,
     projectId,
   };
 });

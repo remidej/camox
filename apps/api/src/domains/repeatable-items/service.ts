@@ -35,6 +35,7 @@ import {
 } from "../blocks/shared-content";
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
+import type { DraftScope } from "../drafts/scope";
 import { collectFileIds } from "../pages/ai";
 import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
 
@@ -423,14 +424,19 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
 
 // --- Writes ---
 
+/**
+ * Adds an item to a block as the request's draft reads it, so a block the draft created takes
+ * items too. The item itself is written in Live until items move into drafts (#238).
+ */
 export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableItem")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createRepeatableItemInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, blockId, parentItemId, fieldName, content, settings, afterPosition, nestedItems } =
     yield* decodeInput(createRepeatableItemInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, blockId, user.id);
+  const access = yield* assertBlockAccess(ctx.db, blockId, user.id, scope);
 
   const now = Date.now();
 
@@ -571,7 +577,8 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     }
   }
 
-  yield* touchTree(ctx, tree, access.projectId);
+  // A draft's change leaves Live pages and layouts as they were.
+  if (!scope) yield* touchTree(ctx, tree, access.projectId);
 
   ctx.waitUntil(
     scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {

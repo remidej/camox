@@ -8,3 +8,4 @@ export * from "./domains/repeatable-items/schema";
 export * from "./domains/files/schema";
 export * from "./domains/comments/schema";
 export * from "./domains/collections/schema";
+export * from "./domains/drafts/schema";
