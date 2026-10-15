@@ -9,7 +9,7 @@ Yes, provided publishing is written as **a few set-based statements in one `batc
 - `batch()` is the only atomic unit D1 offers. Statements run in order, and if one fails the whole batch is rolled back. `BEGIN`/`COMMIT`, savepoints and Drizzle's `db.transaction()` are rejected on D1.
 - D1 imposes no limit on statements or payload per batch. Its limits apply to each statement (100 bound parameters, 100 KB of SQL). The 30-second duration limit applies to the whole batch call.
 - So the publish should copy a draft's changes with statements like `INSERT … SELECT … WHERE draft_id = ?` and `DELETE … WHERE id IN (SELECT …)`, one or two per table. The number of statements then stays constant however big the draft is, and no statement comes near the parameter limit. If the draft's rows instead had to be sent as parameters, the cap is about `floor(100 / columns)` rows per `INSERT`, or arrays have to go through `json_each(?)`.
-- Two things to check by experiment before relying on them:
+- Two things to check by experiment before relying on them, answered in [Findings for the publish batch](#findings-for-the-publish-batch):
   - Whether N statements in a batch count as N against the per-invocation query limit (1,000 on Paid).
   - Which SQLite features D1 supports in writes (`UPDATE … FROM`, CTEs in writes).
 - Rollback: Time Travel restores the whole database to any minute of the last 30 days. It's a destructive, project-wide safety net, not an "undo this publish" feature.
@@ -89,7 +89,18 @@ Source: [SQL statements](https://developers.cloudflare.com/d1/sql-api/sql-statem
 
 - Supported: SQLite's query engine, plus the JSON and FTS5 extensions.
 - `PRAGMA defer_foreign_keys = on` lasts until the end of the current transaction, so inside a batch it can relax the order of inserts during a publish.
-- Not documented: the SQLite version, `UPDATE … FROM`, and CTEs inside writes. Test them in `wrangler dev` and against a remote database.
+- Not documented: the SQLite version, `UPDATE … FROM`, and CTEs inside writes. Workerd supports all three in writes (see [Findings for the publish batch](#findings-for-the-publish-batch)); a remote database hasn't been tried.
+
+## Findings for the publish batch
+
+Checked 2026-10-15 for issue #236 with a scratch test in workerd (`@cloudflare/vitest-pool-workers`, the API's integration test runtime), and against the [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) (updated 2026-04-21) and [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) (updated 2026-10-12) pages.
+
+- **`UPDATE … FROM`, CTEs in writes and row-value `SET (a, b) = (SELECT …)` all work** in workerd's D1: `UPDATE live SET … FROM draft AS d WHERE d.id = live.id`, `WITH x AS (…) UPDATE …`, and `WITH x AS (…) INSERT … SELECT …` each applied as expected. The publish batch uses `UPDATE … FROM` to copy a draft's rows over Live and `INSERT … SELECT` for the rest. `sqlite_version()` is not authorized in D1, so the SQLite version can't be read from a query.
+- **The `json()` guard aborts and rolls back a batch:** a batch whose second statement is `SELECT CASE WHEN 0 THEN 1 ELSE json('…') END` fails with `D1_ERROR: malformed JSON` and the first statement's update is rolled back.
+- **Statements per batch against the per-invocation limit: still not settled by the docs, and moot for publishing.**
+  - Neither page says how a batch counts. The D1 page's note that per-query limits "apply to each individual statement contained within a batch" is about statement length and parameters, not the query count. The Workers page counts any call to D1 as a subrequest (10,000 per invocation on Paid) and says nothing about batches.
+  - Local workerd enforces neither limit: a 1,500-statement batch and 1,100 separate queries in one test both succeeded, so the experiment can't answer it.
+  - The publish batch has a fixed number of statements per registered table (a guard, three apply statements, one per dependent table, and two to end the draft), independent of the draft's size. Even counted one by one it stays far below 50, the Free plan's limit.
 
 ## Not verified
 
@@ -97,4 +108,4 @@ Source: [SQL statements](https://developers.cloudflare.com/d1/sql-api/sql-statem
 - Whether the Paid limit is 1,000 D1 queries or 10,000 subrequests per invocation.
 - Exact runtime error messages for a statement that is too long or has too many parameters.
 - An explicit statement that a batch is rolled back after a timeout.
-- D1's SQLite version and support for `UPDATE … FROM`.
+- D1's SQLite version, and `UPDATE … FROM` on a remote database (workerd supports it).
