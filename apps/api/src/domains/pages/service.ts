@@ -30,12 +30,9 @@ import {
 } from "../_shared/snapshot-schemas";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData, resolveSyncedLiveData } from "../blocks/synced-live";
-import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
-import { collectionSelection } from "../collections/reference-publication-input";
 import {
   hydrateItemReferences,
   hydrateReferences,
-  referenceChanges,
   type ResolvedReferences,
 } from "../collections/references";
 import { assertCuratedLayout, assertUnreservedPagePaths } from "../layouts/route-ownership";
@@ -131,7 +128,6 @@ export const generatePageSeoInput = z.object({ id: z.number() });
 export const publishPageInput = z.object({
   id: z.number(),
   alsoPublishLayout: z.boolean().optional(),
-  collections: collectionSelection,
 });
 export const unpublishPageInput = z.object({ id: z.number() });
 export const discardPageChangesInput = z.object({ id: z.number() });
@@ -359,7 +355,6 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
     }
   }
 
-  const references = yield* referenceChanges(ctx, environmentId);
   for (const page of pageRows) {
     const layout = page.layoutId != null ? (layoutById.get(page.layoutId) ?? null) : null;
     const pageCpAt =
@@ -379,8 +374,6 @@ const fetchPageStatuses = Effect.fn("fetchPageStatuses")(function* (
         layout,
         layoutCheckpointCreatedAt: layoutCpAt,
         layoutAffectedPagesCount: affected,
-        referenceModified: references.pageIds.has(page.id),
-        layoutReferenceModified: layout != null && references.layoutIds.has(layout.id),
       }),
     );
   }
@@ -623,19 +616,12 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     allItems = [...pageItems, ...layoutItems];
   }
 
-  const referenceSource = source === "draft" ? "draft" : "live";
-  const hydrated = yield* hydrateReferences(
-    ctx,
-    page,
-    [...pageBlocks, ...layoutBlocks],
-    referenceSource,
-  );
+  const hydrated = yield* hydrateReferences(ctx, page, [...pageBlocks, ...layoutBlocks]);
   const hydratedItems = yield* hydrateItemReferences(
     ctx,
     page,
     [...pageBlocks, ...layoutBlocks],
     allItems,
-    referenceSource,
   );
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const fileIds = new Set<number>();
@@ -1137,10 +1123,6 @@ export const publishPage = Effect.fn("pages.publishPage")(function* (
   const user = yield* requireUser(ctx);
   const input = yield* decodeInput(publishPageInput, rawInput);
   const { id, alsoPublishLayout } = input;
-  const references = yield* referenceTargets(ctx, input, "page");
-  if (input.collections.length || references.targets.length || references.missingRequired.length) {
-    return (yield* publishWithReferences(ctx, input, "page")) as typeof pages.$inferSelect;
-  }
   const access = yield* assertPageAccess(ctx.db, id, user.id);
 
   const pageRow = yield* Effect.promise(() =>

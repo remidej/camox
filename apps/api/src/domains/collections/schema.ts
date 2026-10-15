@@ -1,11 +1,4 @@
-import {
-  index,
-  int,
-  sqliteTable,
-  text,
-  uniqueIndex,
-  type AnySQLiteColumn,
-} from "drizzle-orm/sqlite-core";
+import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { environments, projects } from "../projects/schema";
 
@@ -26,7 +19,6 @@ export const collectionDefinitions = sqliteTable(
     contentSchema: text("content_schema", { mode: "json" })
       .notNull()
       .$type<Record<string, unknown>>(),
-    active: int({ mode: "boolean" }).notNull().default(true),
   },
   (table) => [
     uniqueIndex("collection_definition_scope").on(
@@ -44,30 +36,9 @@ export const collectionRecords = sqliteTable(
     definitionId: int("definition_id")
       .notNull()
       .references(() => collectionDefinitions.id),
-    draft: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
-    version: int().notNull().default(1),
-    publishedRevisionId: text("published_revision_id").references(
-      (): AnySQLiteColumn => collectionRevisions.id,
-    ),
+    content: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },
   (table) => [index("collection_records_definition").on(table.definitionId)],
-);
-
-export const collectionRevisions = sqliteTable(
-  "collection_revisions",
-  {
-    id: text().primaryKey(),
-    recordId: text("record_id")
-      .notNull()
-      .references((): AnySQLiteColumn => collectionRecords.id),
-    kind: text().notNull().$type<"manual" | "auto-publish" | "auto-draft">(),
-    content: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
-    definition: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
-    schemaVersion: int("schema_version").notNull().default(1),
-    createdBy: text("created_by").notNull(),
-    createdAt: int("created_at").notNull(),
-  },
-  (table) => [index("collection_revisions_record").on(table.recordId)],
 );

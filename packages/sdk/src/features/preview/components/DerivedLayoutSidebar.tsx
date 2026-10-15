@@ -5,7 +5,7 @@ import { useSelector } from "@xstate/store-react";
 
 import { useProjectSlug } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
-import { collectionQueries, layoutQueries, projectQueries } from "@/lib/queries";
+import { layoutQueries, projectQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import type { PageRenderInput } from "../../runtime/runtime";
@@ -47,21 +47,8 @@ export function DerivedLayoutSidebar({
     enabled: !!project,
   });
   const record = layouts?.find((item) => item.id === layout.id);
-  // Publication refreshes this list, so the switch follows the record's status.
-  const { data: pageRecordStatus } = useQuery({
-    ...collectionQueries.records(projectSlug, pageRecord?.collectionId ?? ""),
-    enabled: !!pageRecord,
-    select: (records) => records.find((item) => item.id === pageRecord?.id)?.status,
-  });
   const target: PublicationTarget | null = record
-    ? {
-        kind: "layout",
-        layout: record,
-        name: layoutName,
-        ...(pageRecord && pageRecordStatus
-          ? { record: { ...pageRecord, status: pageRecordStatus } }
-          : {}),
-      }
+    ? { kind: "layout", layout: record, name: layoutName }
     : null;
 
   return (

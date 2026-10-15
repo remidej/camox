@@ -16,7 +16,10 @@ export const collectionDefinitionProcedures = {
   getRecord: authed
     .input(service.getCollectionRecordInput)
     .handler(({ context, input }) => runService(service.getCollectionRecord(context, input))),
-  // Public: live reads serve visitors' record pages; draft reads require an authorized user.
+  getRecordUsageCount: authed
+    .input(service.getRecordUsageCountInput)
+    .handler(({ context, input }) => runService(service.getRecordUsageCount(context, input))),
+  // Public: serves visitors' record pages.
   findRecordsByField: pub
     .input(service.findRecordsByFieldInput)
     .handler(({ context, input }) => runService(service.findRecordsByField(context, input))),
@@ -24,7 +27,7 @@ export const collectionDefinitionProcedures = {
   listRecordPageValues: pub
     .input(service.listRecordPageValuesInput)
     .handler(({ context, input }) => runService(service.listRecordPageValues(context, input))),
-  // Public: a record page's Markdown reads only published content.
+  // Public: a record page's Markdown.
   recordMarkdown: pub
     .input(service.recordMarkdownInput)
     .handler(({ context, input }) => runService(service.recordMarkdown(context, input))),
@@ -37,15 +40,6 @@ export const collectionDefinitionProcedures = {
   deleteRecord: authed
     .input(service.deleteRecordInput)
     .handler(({ context, input }) => runService(service.deleteRecord(context, input))),
-  publishRecord: authed
-    .input(service.publishRecordInput)
-    .handler(({ context, input }) => runService(service.publishRecord(context, input))),
-  unpublishRecord: authed
-    .input(service.unpublishRecordInput)
-    .handler(({ context, input }) => runService(service.unpublishRecord(context, input))),
-  discardRecord: authed
-    .input(service.discardRecordInput)
-    .handler(({ context, input }) => runService(service.discardRecord(context, input))),
   sync: pub
     .input(service.syncCollectionDefinitionsInput)
     .handler(({ context, input }) => runService(service.syncCollectionDefinitions(context, input))),

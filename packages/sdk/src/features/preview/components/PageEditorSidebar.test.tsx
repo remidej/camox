@@ -87,7 +87,6 @@ const ada = {
   id: ADA,
   collectionId: "people",
   label: "Ada Lovelace",
-  version: 4,
   content: { name: "Ada Lovelace", role: "CTO" },
 };
 const acmeContent = {
@@ -100,7 +99,8 @@ const acmeContent = {
     alt: "",
     filename: "acme.png",
     mimeType: "image/png",
-    _fileId: "9",
+    size: 900,
+    _fileId: 9,
   },
   gallery: [
     {
@@ -108,7 +108,8 @@ const acmeContent = {
       alt: "Team",
       filename: "team.png",
       mimeType: "image/png",
-      _fileId: "8",
+      size: 800,
+      _fileId: 8,
     },
   ],
 };
@@ -116,7 +117,6 @@ const acme = {
   id: ACME,
   collectionId: "customers",
   label: "Acme",
-  version: 3,
   content: acmeContent,
   // Records placed by the block resolve the records they link (the second hop).
   references: { contact: ada },
@@ -127,12 +127,11 @@ const CREATED = "created";
 const INITECH = "initech";
 const listedRecords = [
   acme,
-  { ...acme, id: GLOBEX, label: "Globex", version: 1, content: { ...acmeContent, name: "Globex" } },
+  { ...acme, id: GLOBEX, label: "Globex", content: { ...acmeContent, name: "Globex" } },
   {
     ...acme,
     id: INITECH,
     label: "Initech",
-    version: 2,
     content: { ...acmeContent, name: "Initech" },
   },
 ];
@@ -308,13 +307,13 @@ async function renderSidebar(
     } as never);
   }
   let records = [
-    { id: ACME, label: "Acme", status: "published", version: 3 },
-    { id: GLOBEX, label: "Globex", status: "draft", version: 1 },
-    { id: INITECH, label: "Initech", status: "modified", version: 2 },
+    { id: ACME, label: "Acme" },
+    { id: GLOBEX, label: "Globex" },
+    { id: INITECH, label: "Initech" },
   ];
   client.setQueryData(collectionQueries.records("site", "customers").queryKey, records as never);
   client.setQueryData(collectionQueries.records("site", "people").queryKey, [
-    { id: ADA, label: "Ada Lovelace", status: "published", version: 4 },
+    { id: ADA, label: "Ada Lovelace" },
   ] as never);
   client.setQueryData(collectionQueries.get("site", "customers").queryKey, {
     collectionId: "customers",
@@ -336,25 +335,18 @@ async function renderSidebar(
     if (procedure === "collectionDefinitions/getRecord") {
       const record = listedRecords.find(({ id }) => id === (json as { id: string }).id);
       return Response.json({
-        json: record && { id: record.id, version: record.version, draft: record.content },
+        json: record && { id: record.id, content: record.content, createdAt: 1, updatedAt: 1 },
       });
     }
     writes.push({ procedure, input: json });
     if (procedure === "collectionDefinitions/createRecord") {
       const content = (json as { content: Record<string, unknown> }).content;
-      records = [
-        ...records,
-        { id: CREATED, label: String(content.name), status: "draft", version: 1 },
-      ];
-      return Response.json({ json: { id: CREATED, version: 1, draft: content } });
+      records = [...records, { id: CREATED, label: String(content.name) }];
+      return Response.json({ json: { id: CREATED, content, createdAt: 1, updatedAt: 1 } });
     }
     if (procedure === "collectionDefinitions/editRecord") {
-      const { id, expectedVersion, content } = json as {
-        id: string;
-        expectedVersion: number;
-        content: Record<string, unknown>;
-      };
-      return Response.json({ json: { id, version: expectedVersion + 1, draft: content } });
+      const { id, content } = json as { id: string; content: Record<string, unknown> };
+      return Response.json({ json: { id, content, createdAt: 1, updatedAt: 2 } });
     }
     return Response.json({ json: null });
   });
@@ -732,7 +724,7 @@ void test("breadcrumbs step up from a record field to the record, the reference 
   assert.deepEqual(sidebar.selection(), { type: "block", blockId: BLOCK_ID });
 });
 
-void test("record text field edits are saved to the record with its expected version", async (t) => {
+void test("record text field edits are saved to the record", async (t) => {
   const sidebar = await renderSidebar(t, recordField("quote", "String"));
   await sidebar.typeText("Superb");
   assert.deepEqual(sidebar.writes, [
@@ -742,7 +734,6 @@ void test("record text field edits are saved to the record with its expected ver
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },
@@ -796,16 +787,10 @@ void test("a record selection falls back to the reference field view once the re
   assert.ok(sidebar.host.querySelector("button[aria-haspopup]"), "the picker is shown again");
 });
 
-const pickedLogo = {
-  url: "https://cdn.test/logo.png",
-  alt: "",
-  filename: "logo.png",
-  mimeType: "image/png",
-  size: 1200,
-  _fileId: "5",
-};
+/** A record stores a picked file as a reference to it, like a block. */
+const pickedLogo = { _fileId: 5 };
 
-void test("record image edits are saved to the record as asset snapshots", async (t) => {
+void test("record image edits are saved to the record as file references", async (t) => {
   const sidebar = await renderSidebar(t, recordField("logo", "Image"));
   assert.match(sidebar.text(), /acme\.png/);
   await sidebar.click("Select existing image");
@@ -821,7 +806,7 @@ void test("record image edits are saved to the record as asset snapshots", async
   assert.deepEqual(sidebar.selection(), recordField("logo", "Image"));
 });
 
-void test("record image list edits are saved to the record as asset snapshots", async (t) => {
+void test("record image list edits are saved to the record as file references", async (t) => {
   const sidebar = await renderSidebar(t, recordField("gallery", "ImageList"));
   assert.match(sidebar.text(), /team\.png/);
   await sidebar.click("Select existing images");
@@ -831,7 +816,7 @@ void test("record image list edits are saved to the record as asset snapshots", 
     [
       [
         "collectionDefinitions/editRecord",
-        { ...acmeContent, gallery: [...acmeContent.gallery, pickedLogo] },
+        { ...acmeContent, gallery: [{ _fileId: 8 }, pickedLogo] },
       ],
     ],
   );
@@ -855,7 +840,7 @@ void test("unlinking a block asset used nowhere else offers to delete the file",
   assert.deepEqual(sidebar.writes, []);
 });
 
-// File usage counts ignore records, so a record's file would always look unused.
+// Unlinking a record's file only changes the record; deleting files stays a block action.
 void test("unlinking a record image never offers to delete the file", async (t) => {
   const sidebar = await renderSidebar(t, recordField("logo", "Image"), { fileUsage: 0 });
   await sidebar.unlinkAsset();
@@ -914,8 +899,8 @@ void test("a reference list shows its records as cards in list order", async (t)
     shown.map((card) => card.label),
     ["Open Globex", "Open Acme"],
   );
-  assert.match(shown[0]!.text, /Globex\s*Draft\s*Customers/);
-  assert.match(shown[1]!.text, /Acme\s*Published\s*Customers/);
+  assert.match(shown[0]!.text, /^Globex\s*Customers$/);
+  assert.match(shown[1]!.text, /^Acme\s*Customers$/);
   assert.ok(
     shown.every((card) => card.dragHandle),
     "every card has a drag handle",
@@ -986,7 +971,6 @@ void test("clicking a listed record card opens its record view, whose field edit
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },
@@ -1121,7 +1105,7 @@ void test("hovering a listed record card or its record field rows highlights tha
 void test("the picker offers only unlinked records and appends the chosen one", async (t) => {
   const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX] });
   await sidebar.openPicker();
-  assert.deepEqual(sidebar.options(), ["AcmePublished", "InitechModified"]);
+  assert.deepEqual(sidebar.options(), ["Acme", "Initech"]);
   await sidebar.pick("Initech");
   assert.deepEqual(sidebar.writes, [
     {
@@ -1521,7 +1505,7 @@ void test("a query-backed list shows its results as read-only cards under a summ
     ["Open Acme", "Open Globex", "Open Initech"],
     "cards follow the query's result order",
   );
-  assert.match(shown[1]!.text, /Globex\s*Draft\s*Customers/);
+  assert.match(shown[1]!.text, /^Globex\s*Customers$/);
   assert.ok(
     shown.every((card) => !card.dragHandle),
     "results cannot be reordered",
@@ -1575,7 +1559,6 @@ void test("clicking a query result card opens its record view, whose field edits
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },
@@ -1613,11 +1596,11 @@ const acmePage = {
   result: {
     kind: "collection-item",
     collectionId: "customers",
-    data: { id: ACME, content: acmeContent, references: { contact: ada }, version: 3 },
+    data: { id: ACME, content: acmeContent, references: { contact: ada }, updatedAt: 1 },
   },
 } as const;
 
-void test("a record page's record field opens the record's fields, saved with its version", async (t) => {
+void test("a record page's record field opens the record's fields, saved to the record", async (t) => {
   const sidebar = await renderSidebar(
     t,
     {
@@ -1639,7 +1622,6 @@ void test("a record page's record field opens the record's fields, saved with it
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },

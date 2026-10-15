@@ -1,16 +1,14 @@
 import { isQueryBacked, QUERY_LIMIT_CAP, referenceQueryProblem } from "@camox/api-contract";
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { getAuthorizedProject, requireUser } from "../../authorization";
 import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
-import { stableStringify } from "../../lib/stable-stringify";
 import { blockDefinitions, layouts, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { collectionDefinitions, collectionRecords, collectionRevisions } from "./schema";
+import { resolveRecordFiles } from "./record-files";
+import { collectionDefinitions, collectionRecords } from "./schema";
 
 type Field = Record<string, unknown>;
 export type ResolvedReference = {
@@ -19,8 +17,6 @@ export type ResolvedReference = {
   label: string;
   content: Record<string, unknown>;
   contentSchema: unknown;
-  version?: number;
-  revisionId?: string;
   /** The records this record links, one hop further; absent beyond the second hop. */
   references?: ResolvedReferences;
 };
@@ -193,38 +189,30 @@ export const resolveReferences = Effect.fn("collections.resolveReferences")(func
   scope: { projectId: number; environmentId: number },
   schema: unknown,
   content: unknown,
-  source: "draft" | "live",
   hop: 1 | 2 = 1,
 ): Effect.fn.Return<ResolvedReferences, ServiceError> {
   const singles = referenceFields(schema);
   const lists = referenceListFields(schema);
   const result: ResolvedReferences = {};
   if (!singles.length && !lists.length) return result;
-  // The first hop already authorized draft access for the nested one.
-  if (source === "draft" && hop === 1) {
-    const user = yield* requireUser(ctx);
-    yield* getAuthorizedProject(ctx.db, scope.projectId, user.id);
-  }
   const values = content as Record<string, unknown> | null;
   for (const [name, field] of singles) {
-    const definition = yield* activeDefinition(ctx, scope, field);
-    result[name] = definition
-      ? yield* resolveRecord(ctx, definition, values?.[name], source, hop)
-      : null;
+    const definition = yield* definitionIn(ctx, scope, field);
+    result[name] = definition ? yield* resolveRecord(ctx, definition, values?.[name], hop) : null;
   }
   for (const [name, field] of lists) {
     const records: ResolvedReference[] = [];
     result[name] = records;
-    const definition = yield* activeDefinition(ctx, scope, field);
+    const definition = yield* definitionIn(ctx, scope, field);
     if (!definition) continue;
     // A query-backed list ignores any stored value: code defines its membership and order.
     const query = referenceQuery(field);
     const ids = query
-      ? yield* queryRecordIds(ctx, definition, query, source)
+      ? yield* queryRecordIds(ctx, definition, query)
       : referenceListIds(values?.[name]);
-    // Draft resolves every linked record; live only published ones. Missing records are skipped.
+    // Missing records, such as deleted ones, are left out.
     for (const id of ids) {
-      const record = yield* resolveRecord(ctx, definition, id, source, hop);
+      const record = yield* resolveRecord(ctx, definition, id, hop);
       if (record) records.push(record);
     }
   }
@@ -241,73 +229,36 @@ type Definition = typeof collectionDefinitions.$inferSelect;
 type Direction = "asc" | "desc";
 
 /**
- * The records a query-backed list resolves to, in order. Draft queries every record and orders
- * by draft content; live queries published records only and orders by their published content.
- * `publishedAt` is a record's first publication, so republishing never reorders it; preview
- * sorts never-published records as published now. Empty text sorts last in either direction,
- * and ties break by record id. Without `orderBy`, records keep their creation order.
+ * The records a query-backed list resolves to, in order. `publishedAt` orders by creation time
+ * until records are drafted, so editing a record never reorders it. Empty text sorts last in
+ * either direction, and ties break by record id. Without `orderBy`, records keep their creation
+ * order.
  */
 function queryRecordIds(
   ctx: ServiceContext,
   definition: Definition,
   query: NormalizedReferenceQuery,
-  source: "draft" | "live",
 ) {
   const { key, direction } = query.orderBy ?? { key: "createdAt", direction: "asc" };
   if (key === "createdAt" || key === "publishedAt") {
-    return recordIdsByMetadata(ctx, definition, key, direction, query.limit, source);
+    return recordIdsByCreation(ctx, definition, direction, query.limit);
   }
-  return recordIdsByText(ctx, definition, key, direction, query.limit, source);
+  return recordIdsByText(ctx, definition, key, direction, query.limit);
 }
 
-/** A record's published revision, joined next to the record. */
-const publishedRevisions = alias(collectionRevisions, "published_revisions");
-
-/**
- * Orders by record metadata in SQL, so only `limit` ids load. First publications are grouped
- * once for the collection rather than looked up per record.
- */
-const recordIdsByMetadata = Effect.fn("collections.recordIdsByMetadata")(function* (
+/** Orders by creation time in SQL, so only `limit` ids load. */
+const recordIdsByCreation = Effect.fn("collections.recordIdsByCreation")(function* (
   ctx: ServiceContext,
   definition: Definition,
-  key: "createdAt" | "publishedAt",
   direction: Direction,
   limit: number,
-  source: "draft" | "live",
 ) {
-  const firstPublications = ctx.db
-    .select({
-      recordId: collectionRevisions.recordId,
-      at: sql<number>`min(${collectionRevisions.createdAt})`.as("first_published_at"),
-    })
-    .from(collectionRevisions)
-    .innerJoin(collectionRecords, eq(collectionRecords.id, collectionRevisions.recordId))
-    .where(
-      and(
-        eq(collectionRecords.definitionId, definition.id),
-        eq(collectionRevisions.kind, "auto-publish"),
-      ),
-    )
-    .groupBy(collectionRevisions.recordId)
-    .as("first_publications");
-  // Falls back to the published revision, then, for never-published drafts, to now.
-  const publishedAt = sql`coalesce(${firstPublications.at}, ${publishedRevisions.createdAt}, ${Date.now()})`;
-  const sortKey = key === "createdAt" ? collectionRecords.createdAt : publishedAt;
+  const sortKey = collectionRecords.createdAt;
   const rows = yield* Effect.promise(() =>
     ctx.db
       .select({ id: collectionRecords.id })
       .from(collectionRecords)
-      .leftJoin(
-        publishedRevisions,
-        eq(publishedRevisions.id, collectionRecords.publishedRevisionId),
-      )
-      .leftJoin(firstPublications, eq(firstPublications.recordId, collectionRecords.id))
-      .where(
-        and(
-          eq(collectionRecords.definitionId, definition.id),
-          source === "live" ? isNotNull(publishedRevisions.id) : undefined,
-        ),
-      )
+      .where(eq(collectionRecords.definitionId, definition.id))
       .orderBy(direction === "asc" ? asc(sortKey) : desc(sortKey), asc(collectionRecords.id))
       .limit(limit),
   );
@@ -324,9 +275,8 @@ const recordIdsByText = Effect.fn("collections.recordIdsByText")(function* (
   key: string,
   direction: Direction,
   limit: number,
-  source: "draft" | "live",
 ) {
-  const content = source === "live" ? publishedRevisions.content : collectionRecords.draft;
+  const content = collectionRecords.content;
   const path = `$.${JSON.stringify(key)}`;
   const rows = yield* Effect.promise(() =>
     ctx.db
@@ -336,16 +286,7 @@ const recordIdsByText = Effect.fn("collections.recordIdsByText")(function* (
           then json_extract(${content}, ${path}) end`,
       })
       .from(collectionRecords)
-      .leftJoin(
-        publishedRevisions,
-        eq(publishedRevisions.id, collectionRecords.publishedRevisionId),
-      )
-      .where(
-        and(
-          eq(collectionRecords.definitionId, definition.id),
-          source === "live" ? isNotNull(publishedRevisions.id) : undefined,
-        ),
-      ),
+      .where(eq(collectionRecords.definitionId, definition.id)),
   );
   const sign = direction === "asc" ? 1 : -1;
   const keyed = rows.map((row) => {
@@ -367,7 +308,8 @@ function compareTextKeys(a: TextKey, b: TextKey, sign: 1 | -1) {
   return textOrder.compare(a.key, b.key) * sign || byId;
 }
 
-function activeDefinition(
+/** The collection a reference field names, in the scope of the content holding it. */
+function definitionIn(
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
   field: Field,
@@ -381,27 +323,19 @@ function activeDefinition(
           eq(collectionDefinitions.projectId, scope.projectId),
           eq(collectionDefinitions.environmentId, scope.environmentId),
           eq(collectionDefinitions.collectionId, String(field.collectionId)),
-          eq(collectionDefinitions.active, true),
         ),
       )
       .get(),
   );
 }
 
+/** A linked record with its current content, or null when it is missing. */
 const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
   ctx: ServiceContext,
-  definition: typeof collectionDefinitions.$inferSelect,
+  definition: Definition,
   id: unknown,
-  source: "draft" | "live",
   hop: 1 | 2,
 ): Effect.fn.Return<ResolvedReference | null, ServiceError> {
-  // A record placed at the first hop resolves its own references; the second hop stops.
-  const linked = (contentSchema: unknown, content: unknown) =>
-    hop === 1
-      ? resolveReferences(ctx, definition, contentSchema, content, source, 2).pipe(
-          Effect.map((references) => ({ references })),
-        )
-      : Effect.succeed({});
   const validId = z.uuid().safeParse(id);
   if (!validId.success) return null;
   const record = yield* Effect.promise(() =>
@@ -417,41 +351,19 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
       .get(),
   );
   if (!record) return null;
-  if (source === "draft") {
-    return {
-      id: record.id,
-      collectionId: definition.collectionId,
-      content: record.draft,
-      label: lexicalStateToPlainText(record.draft[definition.label] as string),
-      contentSchema: definition.contentSchema,
-      version: record.version,
-      ...(yield* linked(definition.contentSchema, record.draft)),
-    } satisfies ResolvedReference;
-  }
-  const { publishedRevisionId } = record;
-  if (!publishedRevisionId) return null;
-  const revision = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(collectionRevisions)
-      .where(
-        and(
-          eq(collectionRevisions.id, publishedRevisionId),
-          eq(collectionRevisions.recordId, record.id),
-        ),
-      )
-      .get(),
-  );
-  if (!revision) return null;
-  const contentSchema = (revision.definition as { contentSchema: unknown }).contentSchema;
+  const { contentSchema } = definition;
+  // A record placed at the first hop resolves its own references; the second hop stops.
+  const linked =
+    hop === 1
+      ? { references: yield* resolveReferences(ctx, definition, contentSchema, record.content, 2) }
+      : {};
   return {
     id: record.id,
     collectionId: definition.collectionId,
-    content: revision.content,
-    label: lexicalStateToPlainText(revision.content[String(revision.definition.label)] as string),
+    content: yield* resolveRecordFiles(ctx, definition, contentSchema, record.content),
+    label: lexicalStateToPlainText(record.content[definition.label] as string),
     contentSchema,
-    revisionId: revision.id,
-    ...(yield* linked(contentSchema, revision.content)),
+    ...linked,
   } satisfies ResolvedReference;
 });
 
@@ -478,7 +390,6 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
   values: T[],
-  source: "draft" | "live",
 ): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
   const definitions = yield* blockDefinitionsIn(ctx, scope);
   return yield* Effect.forEach(
@@ -489,7 +400,6 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
         scope,
         definitions.find((definition) => definition.blockId === block.type)?.contentSchema,
         block.content,
-        source,
       ).pipe(Effect.map((references) => ({ ...block, references }))),
     { concurrency: "unbounded" },
   );
@@ -506,7 +416,6 @@ export const hydrateItemReferences = Effect.fn("collections.hydrateItemReference
   scope: { projectId: number; environmentId: number },
   blocks: readonly { id: number; type: string }[],
   items: T[],
-  source: "draft" | "live",
 ): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
   if (!items.length) return [];
   const definitions = yield* blockDefinitionsIn(ctx, scope);
@@ -521,7 +430,7 @@ export const hydrateItemReferences = Effect.fn("collections.hydrateItemReference
   return yield* Effect.forEach(
     items,
     (item) =>
-      resolveReferences(ctx, scope, schemas.get(item.id), item.content, source).pipe(
+      resolveReferences(ctx, scope, schemas.get(item.id), item.content).pipe(
         Effect.map((references) => ({ ...item, references })),
       ),
     { concurrency: "unbounded" },
@@ -600,7 +509,6 @@ export const recordInScope = Effect.fn("collections.recordInScope")(function* (
           eq(collectionDefinitions.projectId, scope.projectId),
           eq(collectionDefinitions.environmentId, scope.environmentId),
           eq(collectionDefinitions.collectionId, String(field.collectionId)),
-          eq(collectionDefinitions.active, true),
         ),
       )
       .get(),
@@ -633,35 +541,4 @@ export const blockScope = Effect.fn("collections.blockScope")(function* (
         : null;
   if (!owner) return yield* new NotFoundError();
   return { projectId: owner.projectId, environmentId: owner.environmentId };
-});
-
-/** Derived dependency status; source edits never mutate page/layout checkpoints. */
-export const referenceChanges = Effect.fn("collections.referenceChanges")(function* (
-  ctx: ServiceContext,
-  environmentId: number,
-) {
-  const rows = yield* Effect.promise(() =>
-    ctx.db.all<{
-      page_id: number | null;
-      layout_id: number | null;
-      draft: string;
-      content: string | null;
-    }>(sql`select u.page_id, u.layout_id, r.draft, v.content
-    from collection_reference_uses u join collection_records r
-      on r.id = u.record_id and r.definition_id = u.definition_id
-    left join collection_revisions v on v.id = r.published_revision_id
-    where u.environment_id = ${environmentId} and u.live = 0`),
-  );
-  const pageIds = new Set<number>();
-  const layoutIds = new Set<number>();
-  for (const row of rows) {
-    if (
-      row.content &&
-      stableStringify(JSON.parse(row.draft)) === stableStringify(JSON.parse(row.content))
-    )
-      continue;
-    if (row.page_id !== null) pageIds.add(row.page_id);
-    if (row.layout_id !== null) layoutIds.add(row.layout_id);
-  }
-  return { pageIds, layoutIds };
 });

@@ -12,7 +12,7 @@ import { Label } from "@camox/ui/label";
 import { Switch } from "@camox/ui/switch";
 import * as React from "react";
 
-import { getPublicationBlocker, type PublicationPlan } from "../publication";
+import type { PublicationPlan } from "../publication";
 
 /** Shared scope/impact review. Mount afresh for each publication attempt. */
 export function PublishDialog({
@@ -40,7 +40,6 @@ export function PublishDialog({
   const includedKeys = plan.items
     .filter((item) => !item.optional || !excludedKeys.includes(item.key))
     .map((item) => item.key);
-  const blocker = getPublicationBlocker(plan, includedKeys);
 
   return (
     <AlertDialog open onOpenChange={(open) => !pending && onOpenChange(open)}>
@@ -79,9 +78,9 @@ export function PublishDialog({
             Loading referenced items…
           </p>
         )}
-        {(error || blocker) && (
+        {error && (
           <p role="alert" className="text-destructive text-sm">
-            {error || blocker}
+            {error}
           </p>
         )}
         <AlertDialogFooter>
@@ -89,10 +88,10 @@ export function PublishDialog({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending || loading || unavailable || !!blocker || includedKeys.length === 0}
+            disabled={pending || loading || unavailable || includedKeys.length === 0}
             onClick={(event) => {
               event.preventDefault();
-              if (loading || unavailable || blocker) return;
+              if (loading || unavailable) return;
               onPublish(includedKeys);
             }}
           >

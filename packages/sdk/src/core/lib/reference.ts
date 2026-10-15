@@ -85,24 +85,25 @@ export type ReferenceRecord = {
   collectionId: string;
   label: string;
   content: Record<string, unknown>;
-  version?: number;
+  /** When its content last changed, for a record page's record. */
+  updatedAt?: number;
   /** The records this record links, when it was placed at the first hop. */
   references?: Record<string, ReferenceRecord | ReferenceRecord[] | null>;
 };
 
 /** A save's result, as record edits store it in the shared record cache. */
-export type SavedRecord = { draft: Record<string, unknown>; version: number };
+export type SavedRecord = { content: Record<string, unknown>; updatedAt: number };
 
 /**
- * A record page's draft: as its loader returned it, or as a later save through any placement
- * stored it. Without a version, the loaded record is live content, which saves never replace.
+ * A record page's record: as its loader returned it, or as a later save through any placement
+ * stored it, whichever changed last.
  */
-export function latestDraft(
-  loaded: { content: Record<string, unknown>; version?: number },
+export function latestContent(
+  loaded: { content: Record<string, unknown>; updatedAt?: number },
   saved: SavedRecord | undefined,
-): { content: Record<string, unknown>; version?: number } {
-  if (!saved || loaded.version == null || saved.version <= loaded.version) return loaded;
-  return { content: saved.draft, version: saved.version };
+): { content: Record<string, unknown>; updatedAt?: number } {
+  if (!saved || loaded.updatedAt == null || saved.updatedAt <= loaded.updatedAt) return loaded;
+  return { content: saved.content, updatedAt: saved.updatedAt };
 }
 
 export function resolveReference(

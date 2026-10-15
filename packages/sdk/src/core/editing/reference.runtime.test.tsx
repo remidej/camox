@@ -22,7 +22,7 @@ import type { ReferenceRecord } from "../lib/reference";
 const editors: Array<{ onChange: (value: string) => void; externalState: unknown }> = [];
 const selections: unknown[] = [];
 const owner = { kind: "page", pageId: 1 } as const;
-const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
+const requests: Array<{ content: Record<string, unknown> }> = [];
 let source: ReferenceRecord;
 Object.assign(globalThis, {
   React,
@@ -34,9 +34,8 @@ Object.assign(globalThis, {
   },
   editReferenceRecord: async (input: (typeof requests)[number]) => {
     requests.push(input);
-    assert.equal(input.expectedVersion, source.version);
-    source = { ...source, content: input.content, version: input.expectedVersion + 1 };
-    return { id: source.id, draft: source.content, version: source.version };
+    source = { ...source, content: input.content };
+    return { id: source.id, content: source.content, createdAt: 1, updatedAt: 2 };
   },
 });
 initApiClient("http://localhost:8788", "development");
@@ -98,7 +97,6 @@ void test("editable reference placements write one source and retain placement s
     collectionId: "customers",
     label: "Source label",
     content: { name: "Before" },
-    version: 1,
   };
   const clickHandlers: Array<(() => void) | undefined> = [];
   const block = createEditableBlock({
@@ -165,7 +163,7 @@ void test("editable reference placements write one source and retain placement s
   // Mutation execution is async; no timers or network are involved.
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].expectedVersion, 1);
+  assert.deepEqual(requests[0].content, { name: "After" });
   assert.equal(source.content.name, "After");
   editors.length = 0;
   const updated = render();
@@ -271,7 +269,6 @@ void test("clicks inside a placed record select its record field or the record f
     collectionId: "customers",
     label: "Acme",
     content: { name: "Acme Inc." },
-    version: 1,
   };
   const block = createEditableBlock({
     id: "placements",
@@ -430,7 +427,6 @@ void test("record images and files select their record field for that placement 
       brochure: asset("brochure.pdf", "application/pdf", "3"),
       attachments: [asset("terms.pdf", "application/pdf", "4")],
     },
-    version: 1,
   };
   const block = createEditableBlock({
     id: "record-assets",
@@ -562,7 +558,6 @@ void test("record embeds select their record field for that placement only", asy
     collectionId: "customers",
     label: "Acme",
     content: { name: "Acme Inc.", video: "https://video.test/acme" },
-    version: 1,
   };
   const block = createEditableBlock({
     id: "record-embed",
@@ -654,7 +649,6 @@ void test("editable reference lists render their linked records in stored order"
     collectionId: "customers",
     label: `${name} label`,
     content: { name },
-    version: 1,
   }));
   const block = createEditableBlock({
     id: "logo-grid",
@@ -718,7 +712,6 @@ void test("editable query-backed lists render resolved records with the same sco
     collectionId: "customers",
     label: `${name} label`,
     content: { name },
-    version: 1,
   }));
   const list = (scope: { ReferenceList: typeof block.ReferenceList }) => (
     <scope.ReferenceList name="customers">
@@ -896,7 +889,6 @@ void test("clicks inside a listed record select its record field or the record f
     collectionId: "customers",
     label: name,
     content: { name: `${name} Inc.` },
-    version: 1,
   }));
   const block = createEditableBlock({
     id: "listed-placements",
@@ -1047,14 +1039,12 @@ void test("inline edits of a listed record write the shared record and refresh e
     collectionId: "customers",
     label: "Listed",
     content: { name: "Before" },
-    version: 3,
   };
   const other: ReferenceRecord = {
     id: "other",
     collectionId: "customers",
     label: "Other",
     content: { name: "Other" },
-    version: 1,
   };
   const block = createEditableBlock({
     id: "listed-writes",
@@ -1109,7 +1099,7 @@ void test("inline edits of a listed record write the shared record and refresh e
   // Mutation execution is async; no timers or network are involved.
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(requests.length, writesBefore + 1, "one write to the shared record");
-  assert.equal(requests.at(-1)?.expectedVersion, 3);
+  assert.deepEqual(requests.at(-1)?.content, { name: "After" });
   assert.equal(source.content.name, "After");
   editors.length = 0;
   render();
@@ -1150,7 +1140,6 @@ void test("images and files of listed records select their record field for that
       logo: asset(`${id}.png`, "image/png", String(index * 2 + 1)),
       brochure: asset(`${id}.pdf`, "application/pdf", String(index * 2 + 2)),
     },
-    version: 1,
   }));
   const block = createEditableBlock({
     id: "listed-assets",
@@ -1268,7 +1257,6 @@ void test("repeatable items place records of their own, selected and linked per 
     collectionId: "customers",
     label: "Acme",
     content: { name: "Acme Inc." },
-    version: 1,
   };
   const block = createEditableBlock({
     id: "logo-wall",
@@ -1452,14 +1440,12 @@ void test("records placed by a block render the records they link, one hop furth
     collectionId: "authors",
     label: "Jane",
     content: { name: "Jane Doe", employer: "acme" },
-    version: 1,
   };
   const article: ReferenceRecord = {
     id: "launch",
     collectionId: "articles",
     label: "Launch",
     content: { title: "Launch day", author: "jane", editor: null },
-    version: 1,
     references: { author: jane, editor: null },
   };
   let secondHopScope: Record<string, unknown> | undefined;

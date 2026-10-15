@@ -24,12 +24,9 @@ import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
 import { publishSyncedData } from "../blocks/synced-live";
-import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
-import { collectionSelection, pageRecordInput } from "../collections/reference-publication-input";
 import {
   hydrateItemReferences,
   hydrateReferences,
-  referenceChanges,
   validateReferenceValues,
 } from "../collections/references";
 import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
@@ -46,12 +43,7 @@ export const getLayoutInput = z.object({
 });
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
-export const publishLayoutInput = z.object({
-  id: z.number(),
-  collections: collectionSelection,
-  pageRecord: pageRecordInput.optional(),
-  includeLayout: z.boolean().optional(),
-});
+export const publishLayoutInput = z.object({ id: z.number() });
 export const unpublishLayoutInput = z.object({ id: z.number() });
 
 // Snapshot shape version written into `layout_checkpoints.schema_version`.
@@ -115,13 +107,12 @@ function deriveLayoutStatus(args: {
   layout: Pick<LayoutRow, "livePublishedCheckpointId" | "contentUpdatedAt">;
   checkpointCreatedAt: number | null;
   affectedPagesCount: number;
-  referenceModified?: boolean;
 }): LayoutStatusInfo {
   const { layout, checkpointCreatedAt, affectedPagesCount } = args;
   if (layout.livePublishedCheckpointId == null || checkpointCreatedAt == null) {
     return { status: "draft", affectedPagesCount };
   }
-  if (args.referenceModified || layout.contentUpdatedAt > checkpointCreatedAt) {
+  if (layout.contentUpdatedAt > checkpointCreatedAt) {
     return { status: "modified", affectedPagesCount };
   }
   return { status: "published", affectedPagesCount };
@@ -165,7 +156,6 @@ const fetchLayoutStatuses = Effect.fn("layouts.fetchLayoutStatuses")(function* (
     if (row.layoutId != null) pageCounts.set(row.layoutId, Number(row.count));
   }
 
-  const references = yield* referenceChanges(ctx, environmentId);
   for (const layout of layoutRows) {
     const cpAt =
       layout.livePublishedCheckpointId != null
@@ -177,7 +167,6 @@ const fetchLayoutStatuses = Effect.fn("layouts.fetchLayoutStatuses")(function* (
         layout,
         checkpointCreatedAt: cpAt,
         affectedPagesCount: pageCounts.get(layout.id) ?? 0,
-        referenceModified: references.layoutIds.has(layout.id),
       }),
     );
   }
@@ -355,14 +344,12 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     ctx,
     layout,
     normalized.map(({ block }) => block),
-    source,
   );
   const hydratedItems = yield* hydrateItemReferences(
     ctx,
     layout,
     layoutBlocks,
     normalized.flatMap(({ items }) => items),
-    source,
   );
   const fileIds = new Set<number>();
   for (const value of [...layoutBlocks, ...items])
@@ -748,15 +735,6 @@ export const publishLayout = Effect.fn("layouts.publishLayout")(function* (
   const user = yield* requireUser(ctx);
   const input = yield* decodeInput(publishLayoutInput, rawInput);
   const { id } = input;
-  const references = yield* referenceTargets(ctx, input, "layout");
-  if (
-    input.includeLayout === false ||
-    input.collections.length ||
-    references.targets.length ||
-    references.missingRequired.length
-  ) {
-    return (yield* publishWithReferences(ctx, input, "layout")) as typeof layouts.$inferSelect;
-  }
   const access = yield* assertLayoutAccess(ctx.db, id, user.id);
 
   const layoutRow = yield* Effect.promise(() =>

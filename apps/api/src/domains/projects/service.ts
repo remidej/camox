@@ -257,7 +257,7 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   if (collection) {
     return yield* new ConflictError({
       message:
-        "Deleting projects with collection history is not supported yet; no content was changed.",
+        "Deleting projects with collection records is not supported yet; no content was changed.",
     });
   }
 
@@ -476,10 +476,12 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     const scope = { projectId: project.id, environmentId: environment.id };
     const schema = definitionsByType.get(block.type)?.contentSchema;
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
-    const live = yield* resolveReferences(ctx, scope, schema, block.content, "live");
-    if (referenceFields(schema).some(([name, field]) => field.required === true && !live[name])) {
+    const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
+    if (
+      referenceFields(schema).some(([name, field]) => field.required === true && !resolved[name])
+    ) {
       return yield* new InvalidInputError({
-        message: "Bootstrap requires published required references",
+        message: "Bootstrap requires its required references to link existing records",
       });
     }
   }

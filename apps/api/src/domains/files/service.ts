@@ -14,8 +14,8 @@ import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, layouts, member, pages, projects, repeatableItems } from "../../schema";
+import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
-import { assertNoCollectionAssetUse } from "../collections/asset-retention";
 import { readMetadataImage } from "./metadata-image";
 import { optimizedVideoKey } from "./video-optimization";
 
@@ -330,22 +330,12 @@ export const getFileUsageCount = Effect.fn("files.getFileUsageCount")(function* 
   );
   if (!file) return yield* new NotFoundError();
 
-  const marker = `"_fileId":${file.id}`;
-  const blockCount = yield* Effect.promise(() =>
-    ctx.db
-      .select({ count: sql<number>`count(*)` })
-      .from(blocks)
-      .where(sql`INSTR(${blocks.content}, ${marker}) > 0`)
-      .get(),
+  const uses = yield* referencesTo(
+    ctx.db,
+    { projectId: file.projectId!, environmentId: file.environmentId },
+    { kind: "file", id: file.id },
   );
-  const itemCount = yield* Effect.promise(() =>
-    ctx.db
-      .select({ count: sql<number>`count(*)` })
-      .from(repeatableItems)
-      .where(sql`INSTR(${repeatableItems.content}, ${marker}) > 0`)
-      .get(),
-  );
-  return { count: (blockCount?.count ?? 0) + (itemCount?.count ?? 0) };
+  return { count: uses.length };
 });
 
 // Authenticated, project/environment-scoped access for agent tools.
@@ -465,7 +455,6 @@ export const deleteFile = Effect.fn("files.deleteFile")(function* (
   const { id } = yield* decodeInput(deleteFileInput, rawInput);
   const access = yield* assertFileAccess(ctx.db, id, user.id);
 
-  yield* assertNoCollectionAssetUse(ctx.db, [id]);
   const { blockIds, blockPageIds, itemIds } = yield* removeFileReferences(ctx.db, id);
 
   // Other envs may point at the same R2 blob via push/pull replication. Only
@@ -521,7 +510,6 @@ export const deleteFiles = Effect.fn("files.deleteFiles")(function* (
     return yield* new ForbiddenError();
   }
 
-  yield* assertNoCollectionAssetUse(ctx.db, ids);
   const allBlockIds: number[] = [];
   const allBlockPageIds: number[] = [];
   const allItemIds: number[] = [];

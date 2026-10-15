@@ -28,11 +28,9 @@ import { type Action, actionsStore } from "../../provider/actionsStore";
 import { previewStore, selectPreviewSource } from "../previewStore";
 import {
   buildPublicationPlan,
-  getLayoutPublicationScope,
   getPublicationCapabilities,
   getPublicationRequest,
   refreshPublishedViews,
-  withReferenceTargets,
   type PublicationPlan,
   type PublicationTarget,
 } from "../publication";
@@ -44,7 +42,7 @@ type Operation = "publish" | "unpublish" | "discard";
 function targetIdentity(target: PublicationTarget | null) {
   if (!target) return "loading";
   if (target.kind === "page") return `page:${target.page.id}`;
-  return `layout:${target.layout.id}:${target.record?.id ?? ""}`;
+  return `layout:${target.layout.id}`;
 }
 
 export function PublicationRow({ target }: { target: PublicationTarget | null }) {
@@ -73,7 +71,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
       if (!target || !capabilities[operation]) throw new Error("Publication action is unavailable");
       const api = getApiClient();
       if (operation === "publish") {
-        if (!reviewedPlan) throw new Error("Review referenced items before publishing");
+        if (!reviewedPlan) throw new Error("Review the publication before publishing");
         const request = getPublicationRequest(target, includedKeys, reviewedPlan);
         if (request.kind === "layout") {
           await api.layouts.publish(request.input);
@@ -176,7 +174,7 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
         </DropdownMenu>
       </ButtonGroup>
       {action === "publish" && target && (
-        <ReferencePublicationDialog
+        <ReviewedPublishDialog
           target={target}
           pending={mutation.isPending}
           error={mutation.error?.message}
@@ -246,8 +244,8 @@ function PublicationControls({ target }: { target: PublicationTarget | null }) {
   );
 }
 
-/** A fresh mount loads a fresh plan. Background updates cannot replace reviewed versions. */
-function ReferencePublicationDialog({
+/** A fresh mount reviews a fresh plan; background updates cannot replace the reviewed one. */
+function ReviewedPublishDialog({
   target,
   pending,
   error,
@@ -260,64 +258,13 @@ function ReferencePublicationDialog({
   onPublish: (includedKeys: string[], plan: PublicationPlan) => void;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [reviewedTarget] = React.useState(target);
-  const [basePlan] = React.useState(() => buildPublicationPlan(reviewedTarget));
-  const layoutKey = basePlan.items.find((item) => item.optional)?.key;
-  const [alsoPublishLayout, setAlsoPublishLayout] = React.useState(!!layoutKey);
-  const [result, setResult] = React.useState<{
-    scope: boolean;
-    plan?: PublicationPlan;
-    error?: string;
-  }>();
-
-  React.useEffect(() => {
-    let active = true;
-    const api = getApiClient();
-    const request =
-      reviewedTarget.kind === "page"
-        ? api.pages.referenceTargets({ id: reviewedTarget.page.id, alsoPublishLayout })
-        : api.layouts.referenceTargets({
-            id: reviewedTarget.layout.id,
-            ...getLayoutPublicationScope(reviewedTarget, alsoPublishLayout),
-          });
-    void request.then(
-      ({ targets, missingRequired }) => {
-        if (!active) return;
-        setResult({
-          scope: alsoPublishLayout,
-          plan: withReferenceTargets(basePlan, targets, missingRequired),
-        });
-      },
-      () => {
-        if (!active) return;
-        setResult({
-          scope: alsoPublishLayout,
-          error: "Could not load referenced items. Close and reopen this dialog to try again.",
-        });
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [reviewedTarget, basePlan, alsoPublishLayout]);
-
-  const current = result?.scope === alsoPublishLayout ? result : undefined;
+  const [plan] = React.useState(() => buildPublicationPlan(target));
   return (
     <PublishDialog
-      plan={current?.plan ?? basePlan}
+      plan={plan}
       pending={pending}
-      loading={!current}
-      unavailable={!!current?.error}
-      error={current?.error ?? error}
-      onSelectionChange={(key, included) => {
-        if (key !== layoutKey) return;
-        setResult(undefined);
-        setAlsoPublishLayout(included);
-      }}
-      onPublish={(includedKeys) => {
-        if (!current?.plan || current.error) return;
-        onPublish(includedKeys, current.plan);
-      }}
+      error={error}
+      onPublish={(includedKeys) => onPublish(includedKeys, plan)}
       onOpenChange={onOpenChange}
     />
   );

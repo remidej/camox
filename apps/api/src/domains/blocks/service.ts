@@ -851,14 +851,8 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   }
 
   const scope = yield* blockScope(ctx, block);
-  const referenceSource = source === "draft" ? "draft" : "live";
-  const hydratedBlock = (yield* hydrateReferences(
-    ctx,
-    scope,
-    [{ ...block, content }],
-    referenceSource,
-  ))[0];
-  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted, referenceSource);
+  const hydratedBlock = (yield* hydrateReferences(ctx, scope, [{ ...block, content }]))[0];
+  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<number>();
@@ -899,7 +893,6 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
   scope: { projectId: number; environmentId: number },
   blockRows: RenderableBlock[],
   itemRows: RenderableItem[],
-  referenceSource: "draft" | "live",
 ) {
   // Get block definitions for content schemas and Markdown representations. Scope
   // by environmentId — the same blockId can exist with different shapes across
@@ -930,13 +923,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     }
   }
 
-  const items: RenderableItem[] = yield* hydrateItemReferences(
-    ctx,
-    scope,
-    blockRows,
-    itemRows,
-    referenceSource,
-  );
+  const items: RenderableItem[] = yield* hydrateItemReferences(ctx, scope, blockRows, itemRows);
   nestChildItems(items);
   const itemsByBlock = new Map<number, RenderableItem[]>();
   for (const item of items) {
@@ -946,7 +933,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     itemsByBlock.set(item.blockId, list);
   }
 
-  const hydrated = yield* hydrateReferences(ctx, scope, blockRows, referenceSource);
+  const hydrated = yield* hydrateReferences(ctx, scope, blockRows);
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
   const fileIds = new Set<number>();
   for (const block of hydrated) {
@@ -1091,7 +1078,6 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     page,
     [...sorted, ...sortedLayout],
     [...allItems, ...layoutAllItems],
-    source === "draft" ? "draft" : "live",
   );
   const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
@@ -1136,7 +1122,6 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
     layout,
     layoutBlocks,
     sortByPosition(snapshot?.repeatableItems ?? []),
-    "live",
   );
   return layoutSlotsMarkdown(layoutBlocks, render.markdown);
 });
