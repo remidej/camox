@@ -677,4 +677,29 @@ describe("stable file identity", () => {
       gallery: [{ _fileId: kept.id }],
     });
   });
+
+  it("deleting a file counts a change on the Live blocks it empties", async () => {
+    const { upload, ctx, db, layout } = await fixture();
+    const deleted = await (await upload()).json<typeof files.$inferSelect>();
+    const now = Date.now();
+    const block = await db
+      .insert(blocks)
+      .values({
+        environmentId: layout.environmentId,
+        layoutId: layout.layoutId,
+        type: "hero",
+        content: { image: { _fileId: deleted.id } },
+        position: "a0",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+
+    await runService(deleteFile(ctx, { id: deleted.id }));
+
+    // A draft compares its copy's base version with this count when it publishes (#236).
+    const live = await db.select().from(blocks).where(eq(blocks.id, block.id)).get();
+    expect(live?.version).toBe(2);
+  });
 });
