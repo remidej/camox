@@ -610,17 +610,19 @@ type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 
 /**
  * The context `loader` and `routes` get. Its record lookup reads each record's current content;
- * only draft reads carry the editor's session.
+ * only draft reads carry the editor's session, and `draftId` names the draft they read.
  */
 function createLayoutRequestContext(
   options: RuntimeOptions,
   source: RecordSource,
   authCookieHeader?: string,
+  draftId?: string,
 ): LayoutRequestContext {
   const { apiUrl, projectSlug, environmentName } = options;
   if (!apiUrl || !projectSlug) return createRequestContext({});
   const api = createServerApiClient(apiUrl, environmentName, {
     authCookieHeader: source === "draft" ? authCookieHeader : undefined,
+    draftId,
   });
   return createRequestContext({
     records: {
@@ -744,19 +746,26 @@ async function createDerivedResponse(
     const studio = project !== undefined;
     // Only a member's session reads record drafts, in the loader and in linked records.
     const authCookieHeader = studio ? getServerAuthCookieHeader(request.headers) : undefined;
-    const [serializedResult, { value: shared, ...read }] = await Promise.all([
-      loadLayoutResult(
-        app,
-        match,
-        createLayoutRequestContext(options, studio ? "draft" : "live", authCookieHeader),
-      ),
-      readDraftOrLive(getRequestDraftId(request), studio, (draftId) =>
+    const requestedDraft = getRequestDraftId(request);
+    const readLayout = () =>
+      readDraftOrLive(requestedDraft, studio, (draftId) =>
         createServerApiClient(options.apiUrl!, options.environmentName, {
           authCookieHeader,
           draftId,
         }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
-      ),
-    ]);
+      );
+    const runLoader = (draftId?: string) =>
+      loadLayoutResult(
+        app,
+        match,
+        createLayoutRequestContext(options, studio ? "draft" : "live", authCookieHeader, draftId),
+      );
+    // In a draft, the layout read settles which draft the page shows, so the loader then reads
+    // records from that draft, or from Live when the draft was refused.
+    const [serializedResult, { value: shared, ...read }] =
+      studio && requestedDraft
+        ? await readLayout().then(async (read) => [await runLoader(read.draftId), read] as const)
+        : await Promise.all([runLoader(), readLayout()]);
     seedBlockCaches(queryClient, shared, read.draftId ?? null);
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);

@@ -20,6 +20,7 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { blocks } from "../blocks/schema";
+import { collectionRecords } from "../collections/schema";
 import { comments } from "../comments/schema";
 import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
@@ -148,6 +149,17 @@ registerContentTable(blocks, {
     sql`${blocks.environmentId} in (select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`,
 });
 
+// A record names its collection, a definition, which no draft deletes: a record has no parent.
+// Records of a removed collection stay stored, hidden (ADR 0007).
+registerContentTable(collectionRecords, {
+  entity: "record",
+  parents: [],
+  rewritable: [],
+  dependents: [],
+  inProject: (projectId) =>
+    sql`${collectionRecords.environmentId} in (select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`,
+});
+
 /** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */
 export function storedIn(table: ContentTable, scope: DraftScope): SQL {
   registrationOf(table);
@@ -244,7 +256,16 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
     const taken = yield* getStored(db, null, table, values.id);
     if (taken) return undefined;
   }
-  const row = { ...values, draftId: scope?.id ?? null, baseVersion: null, deleted: false };
+  // An entity created straight on Live is on Live from then on: lists sorted by when entities
+  // were first published place it there. Nobody published it, so it records no publish.
+  const firstPublished = scope ? {} : { firstPublishedAt: Date.now() };
+  const row = {
+    ...values,
+    ...firstPublished,
+    draftId: scope?.id ?? null,
+    baseVersion: null,
+    deleted: false,
+  };
   return (yield* Effect.promise(() =>
     db
       .insert(table as SQLiteTable)

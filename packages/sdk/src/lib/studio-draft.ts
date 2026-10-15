@@ -8,15 +8,15 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
 
 /**
  * The draft the studio reads and writes (ADR 0011). The URL's `camox-draft` param names it;
- * without one the studio is on Live. Only block writes start a draft (#235): the first one on
+ * without one the studio is on Live. Only block and record writes start a draft: the first one on
  * Live mints an id and asks the API to create it, and the param lands in the URL once a write
  * succeeds. Edits fired before it settles share the same pending id so they land in one draft.
  */
 
-// Whether each block procedure is a content write that starts a draft. Every procedure is
-// listed, so a new one fails the type check until it's classified and can't be forgotten.
-// `generateSummary` only fills a generated value (ADR 0012), so it doesn't start one.
-const STARTS_DRAFT: Record<keyof Router["blocks"], boolean> = {
+// Whether each procedure of a router that follows drafts is a content write that starts a draft.
+// Every procedure is listed, so a new one fails the type check until it's classified and can't
+// be forgotten. `generateSummary` only fills a generated value (ADR 0012), so it doesn't start one.
+const BLOCKS_START_DRAFT: Record<keyof Router["blocks"], boolean> = {
   get: false,
   getPageMarkdown: false,
   getLayoutMarkdown: false,
@@ -33,8 +33,29 @@ const STARTS_DRAFT: Record<keyof Router["blocks"], boolean> = {
   duplicate: true,
 };
 
+// A release syncs collection definitions; it never runs in the studio.
+const COLLECTIONS_START_DRAFT: Record<keyof Router["collectionDefinitions"], boolean> = {
+  list: false,
+  get: false,
+  listRecords: false,
+  getRecord: false,
+  getRecordUsageCount: false,
+  findRecordsByField: false,
+  listRecordPageValues: false,
+  recordMarkdown: false,
+  createRecord: true,
+  editRecord: true,
+  deleteRecord: true,
+  sync: false,
+};
+
+const STARTS_DRAFT: Partial<Record<keyof Router, Record<string, boolean>>> = {
+  blocks: BLOCKS_START_DRAFT,
+  collectionDefinitions: COLLECTIONS_START_DRAFT,
+};
+
 let currentDraftId: string | null = null;
-/** The id the first block writes on Live share, and how many of them are still in flight. */
+/** The id the first writes on Live share, and how many of them are still in flight. */
 let pending: { id: string; inFlight: number } | null = null;
 const listeners = new Set<(draftId: string) => void>();
 
@@ -88,15 +109,15 @@ export function onDraftNotice(listener: (notice: DraftNotice) => void): () => vo
   return () => noticeListeners.delete(listener);
 }
 
-/** Called once the first block write has created a draft and the studio switched into it. */
+/** Called once the first write has created a draft and the studio switched into it. */
 export function onDraftStarted(listener: (draftId: string) => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-function isBlockWrite(path: readonly string[]) {
-  if (path.length !== 2 || path[0] !== "blocks") return false;
-  return STARTS_DRAFT[path[1] as keyof Router["blocks"]] === true;
+function startsDraft(path: readonly string[]) {
+  if (path.length !== 2) return false;
+  return STARTS_DRAFT[path[0] as keyof Router]?.[path[1]] === true;
 }
 
 /** Headers for an API call at `path`, and a callback to report whether the call succeeded. */
@@ -106,7 +127,7 @@ export function getDraftRequestHeaders(path: readonly string[]): {
 } {
   const noop = () => {};
   if (currentDraftId) return { headers: { [DRAFT_HEADER]: currentDraftId }, settle: noop };
-  if (!isBlockWrite(path)) return { headers: {}, settle: noop };
+  if (!startsDraft(path)) return { headers: {}, settle: noop };
 
   pending ??= { id: generateUuidv7(), inFlight: 0 };
   const started = pending;

@@ -122,12 +122,12 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   );
   const hydrated = yield* hydrateReferences(
     ctx,
-    layout,
+    { ...layout, draft: scope },
     normalized.map(({ block }) => block),
   );
   const hydratedItems = yield* hydrateItemReferences(
     ctx,
-    layout,
+    { ...layout, draft: scope },
     layoutBlocks,
     normalized.flatMap(({ items }) => items),
   );
@@ -257,7 +257,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       if (declaredOnLive.has(`${def.layoutId}:${block.type}:${block.slot ?? ""}`)) continue;
       yield* validateReferenceValues(
         ctx,
-        { projectId, environmentId: environment.id },
+        { projectId, environmentId: environment.id, draft: null },
         definitionsByType.get(block.type)?.contentSchema,
         block.bundle,
       );

@@ -472,7 +472,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   });
 
   for (const block of preparedBlocks) {
-    const scope = { projectId: project.id, environmentId: environment.id };
+    const scope = { projectId: project.id, environmentId: environment.id, draft: null };
     const schema = definitionsByType.get(block.type)?.contentSchema;
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
     const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
