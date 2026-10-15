@@ -24,9 +24,11 @@ const VIRTUAL_PAGE_CLIENT = "virtual:camox/page-client";
 const RESOLVED_VIRTUAL_PAGE_CLIENT_URL = "\0virtual:camox/page-client-url";
 const VIRTUAL_STUDIO_CLIENT = "virtual:camox/studio-client";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT_URL = "\0virtual:camox/studio-client-url";
+const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0virtual:camox/block-chunks";
 import { generateAppFile, watchAppFile } from "./appGeneration";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
+import { collectBlockChunks } from "./blockChunks";
 import { installDevAuthenticationMiddleware } from "./devAuthentication";
 import { installDevSignInLink } from "./devSignIn";
 import { generateIconTypes } from "./iconGeneration";
@@ -141,6 +143,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
   let resolvedConfig: ResolvedConfig;
   let environmentName: string;
   let localAuth: StoredAuth | null = null;
+  let blockChunks: Record<string, string[]> = {};
 
   return {
     name: "camox",
@@ -151,7 +154,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       if (id === VIRTUAL_STUDIO_CSS) return RESOLVED_VIRTUAL_STUDIO_CSS;
       if (id === VIRTUAL_OVERLAY_CSS) return RESOLVED_VIRTUAL_OVERLAY_CSS;
     },
-    load(id) {
+    load(id, loadOptions) {
       // Local CSS watchers must not share the directory cleaned by package builds.
       const stylesDir = resolve(sdkRoot, !isBuild && isSdkSource ? ".dev" : "dist");
       if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
@@ -180,7 +183,15 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       if (id === RESOLVED_VIRTUAL_STUDIO_CLIENT_URL && isBuild) {
         return 'export default "/_chunks/camox-studio-client.mjs";';
       }
-      return loadRuntimeDevModule(id, { runtimeBasePath });
+      // The client builds first, so the server build can read where each block ended up.
+      if (id === RESOLVED_VIRTUAL_BLOCK_CHUNKS && isBuild) {
+        return `export default ${JSON.stringify(blockChunks)};`;
+      }
+      return loadRuntimeDevModule(id, { runtimeBasePath, ssr: loadOptions?.ssr });
+    },
+    generateBundle(_outputOptions, bundle) {
+      if (this.environment.name !== "client") return;
+      blockChunks = collectBlockChunks(bundle, resolvedConfig.root);
     },
     nitro: {
       setup(nitro) {

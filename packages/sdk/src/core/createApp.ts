@@ -6,13 +6,24 @@ import { artifactFontLinks } from "./lib/artifact";
 
 interface CreateAppOptions {
   blocks: Block[];
+  /**
+   * Blocks loaded on demand, keyed by their file name, which is their id by convention. A
+   * block id without a matching key is found by loading every block.
+   */
+  lazyBlocks?: Record<string, () => Promise<Block | undefined>>;
   layouts?: Layout[];
   collections?: Collection[];
   /** The project's document definition (`src/document.ts`). */
   document?: CamoxDocument;
 }
 
-export function createApp({ blocks, layouts = [], collections = [], document }: CreateAppOptions) {
+export function createApp({
+  blocks,
+  lazyBlocks = {},
+  layouts = [],
+  collections = [],
+  document,
+}: CreateAppOptions) {
   const blocksMap = new Map<string, Block>();
   const layoutsMap = new Map<string, Layout>();
   const collectionsMap = new Map<string, Collection>();
@@ -25,6 +36,53 @@ export function createApp({ blocks, layouts = [], collections = [], document }: 
   for (const block of blocks) {
     blocksMap.set(block._internal.id, block);
   }
+
+  const lazyBlockLoads = new Map<string, Promise<Block | undefined>>();
+  const loadLazyBlock = (key: string) => {
+    let load = lazyBlockLoads.get(key);
+    if (!load) {
+      load = lazyBlocks[key]!().then((block) => {
+        // A file in the blocks directory may not export a block.
+        if (block) blocksMap.set(block._internal.id, block);
+        return block;
+      });
+      lazyBlockLoads.set(key, load);
+      // A failed chunk fetch must not stick: a later render or navigation retries it.
+      load.catch(() => lazyBlockLoads.delete(key));
+    }
+    return load;
+  };
+  let allBlocksLoaded = Object.keys(lazyBlocks).length === 0;
+  let allBlocksLoad: Promise<void> | undefined;
+  const loadAllBlocks = () => {
+    if (!allBlocksLoad) {
+      allBlocksLoad = Promise.all(Object.keys(lazyBlocks).map(loadLazyBlock)).then(() => {
+        allBlocksLoaded = true;
+      });
+      allBlocksLoad.catch(() => (allBlocksLoad = undefined));
+    }
+    return allBlocksLoad;
+  };
+  // One promise per id, so a suspended render waits on the same load when it retries.
+  const blockLoads = new Map<string, Promise<Block | undefined>>();
+  const loadBlock = (id: string): Promise<Block | undefined> => {
+    let load = blockLoads.get(id);
+    if (!load) {
+      load = (async () => {
+        const loaded = blocksMap.get(id);
+        if (loaded) return loaded;
+        if (Object.hasOwn(lazyBlocks, id)) {
+          const block = await loadLazyBlock(id);
+          if (block?._internal.id === id) return block;
+        }
+        await loadAllBlocks();
+        return blocksMap.get(id);
+      })();
+      blockLoads.set(id, load);
+      load.catch(() => blockLoads.delete(id));
+    }
+    return load;
+  };
 
   const derivedPatterns = new Set<string>();
   for (const layout of layouts) {
@@ -72,12 +130,24 @@ export function createApp({ blocks, layouts = [], collections = [], document }: 
         contentSchema: JSON.parse(JSON.stringify(_internal.contentSchema)),
       }));
     },
+    /** The loaded blocks: every block after `loadAllBlocks`. */
     getBlocks() {
       return Array.from(blocksMap.values());
     },
+    /** A loaded block. Call `loadBlock` first for a block that may be lazy. */
     getBlockById(id: string) {
       return blocksMap.get(id);
     },
+    loadBlock,
+    /** Whether a block not loaded yet could still load, rather than not exist. */
+    canLoadMoreBlocks() {
+      return !allBlocksLoaded;
+    },
+    async loadBlocks(ids: Iterable<string>) {
+      await Promise.all([...new Set(ids)].map(loadBlock));
+    },
+    /** Every block definition, which editing needs, rather than only a page's. */
+    loadAllBlocks,
     getLayouts() {
       return Array.from(layoutsMap.values());
     },

@@ -3,9 +3,11 @@ import { createHead, renderDOMHead } from "@unhead/react/client";
 import * as React from "react";
 import type { ActiveHeadEntry, UseHeadInput } from "unhead/types";
 
+import type { CamoxApp } from "../../core/createApp";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { createNavigationRequestTracker } from "./navigationRequest";
 import { getNavigationTarget, runtimePath } from "./navigationTarget";
+import { getPageBlockTypes } from "./pageBlockTypes";
 import { createPageHeadInput, type LayoutIdentity, type PageRenderInput } from "./runtime";
 
 function preserveStableLayoutBlockCaches(
@@ -45,10 +47,12 @@ function preserveStableLayoutBlockCaches(
 }
 
 export function PageNavigationProvider({
+  camoxApp,
   children,
   initialInput,
   queryClient,
 }: {
+  camoxApp: Pick<CamoxApp, "loadBlocks">;
   children: (input: PageRenderInput) => React.ReactNode;
   initialInput: PageRenderInput;
   queryClient: QueryClient;
@@ -112,6 +116,8 @@ export function PageNavigationProvider({
           next = (await response.json()) as PageRenderInput;
           if (next.pathname !== target.pathname || !next.dehydratedState)
             throw new Error("Invalid navigation response");
+          // Keep the current page until the next one's blocks can render.
+          await camoxApp.loadBlocks(getPageBlockTypes(next.dehydratedState));
         }
         if (!request.isCurrent()) return;
         hydrate(
@@ -150,7 +156,7 @@ export function PageNavigationProvider({
         else window.location.assign(target.url.href);
       }
     },
-    [initialInput.runtimeBasePath, queryClient, requests],
+    [camoxApp, initialInput.runtimeBasePath, queryClient, requests],
   );
 
   React.useEffect(() => {

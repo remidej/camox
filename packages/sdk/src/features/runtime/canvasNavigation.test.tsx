@@ -5,6 +5,7 @@ import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
 
+import { createApp } from "../../core/createApp";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { PageNavigationProvider } from "./pageNavigation";
 import type { PageRenderInput } from "./runtime";
@@ -100,7 +101,11 @@ for (const base of ["", "/mounted"]) {
     try {
       await React.act(async () => {
         root.render(
-          <PageNavigationProvider initialInput={input} queryClient={queryClient}>
+          <PageNavigationProvider
+            camoxApp={createApp({ blocks: [] })}
+            initialInput={input}
+            queryClient={queryClient}
+          >
             {(next) => {
               renderedInput = next;
               return <Workspace />;
