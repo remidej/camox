@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5e077fd0-18e0-48f8-aade-a58ff7e151dd",
+  "id": "4e4b1b32-e0d0-46de-a48a-5014a8a316a7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1161,11 +1161,69 @@
     "blocks": {
       "name": "blocks",
       "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "base_version": {
+          "name": "base_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "first_published_at": {
+          "name": "first_published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_by": {
+          "name": "published_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "environment_id": {
@@ -1248,6 +1306,18 @@
         }
       },
       "indexes": {
+        "blocks_live_id_idx": {
+          "name": "blocks_live_id_idx",
+          "columns": ["id"],
+          "isUnique": true,
+          "where": "\"blocks\".\"draft_id\" is null"
+        },
+        "blocks_draft_id_idx": {
+          "name": "blocks_draft_id_idx",
+          "columns": ["draft_id", "id"],
+          "isUnique": true,
+          "where": "\"blocks\".\"draft_id\" is not null"
+        },
         "blocks_page_idx": {
           "name": "blocks_page_idx",
           "columns": ["page_id"],
@@ -1265,6 +1335,15 @@
         }
       },
       "foreignKeys": {
+        "blocks_draft_id_drafts_id_fk": {
+          "name": "blocks_draft_id_drafts_id_fk",
+          "tableFrom": "blocks",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "blocks_environment_id_environments_id_fk": {
           "name": "blocks_environment_id_environments_id_fk",
           "tableFrom": "blocks",
@@ -1272,15 +1351,6 @@
           "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "blocks_page_id_pages_id_fk": {
-          "name": "blocks_page_id_pages_id_fk",
-          "tableFrom": "blocks",
-          "tableTo": "pages",
-          "columnsFrom": ["page_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -1475,15 +1545,6 @@
         }
       },
       "foreignKeys": {
-        "repeatable_items_block_id_blocks_id_fk": {
-          "name": "repeatable_items_block_id_blocks_id_fk",
-          "tableFrom": "repeatable_items",
-          "tableTo": "blocks",
-          "columnsFrom": ["block_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "repeatable_items_environment_id_environments_id_fk": {
           "name": "repeatable_items_environment_id_environments_id_fk",
           "tableFrom": "repeatable_items",
@@ -1772,15 +1833,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "comments_block_id_blocks_id_fk": {
-          "name": "comments_block_id_blocks_id_fk",
-          "tableFrom": "comments",
-          "tableTo": "blocks",
-          "columnsFrom": ["block_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
         "comments_item_id_repeatable_items_id_fk": {
           "name": "comments_item_id_repeatable_items_id_fk",
           "tableFrom": "comments",
@@ -1948,6 +2000,74 @@
           "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "drafts": {
+      "name": "drafts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "drafts_project_idx": {
+          "name": "drafts_project_idx",
+          "columns": ["project_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "drafts_project_id_projects_id_fk": {
+          "name": "drafts_project_id_projects_id_fk",
+          "tableFrom": "drafts",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

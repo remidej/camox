@@ -1,21 +1,39 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { index, int, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, int, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-import { pages } from "../pages/schema";
+import { drafts } from "../drafts/schema";
 import { environments } from "../projects/schema";
 
 /**
  * A block. A placement of a synced block definition holds only its identity, position and
  * slot: its content, settings and summary live in the definition's shared content.
+ *
+ * Live and every draft store blocks side by side (ADR 0005): a Live row has no draft, a draft
+ * row is the draft's copy of a block, a block the draft created, or a tombstone. An id is unique
+ * within Live and within each draft, so rows are keyed by `rowId` and no other content table
+ * holds a foreign key to blocks. Read and write blocks through the draft overlay.
  */
 export const blocks = sqliteTable(
   "blocks",
   {
-    id: text().primaryKey().$defaultFn(generateUuidv7),
+    rowId: int("row_id").primaryKey(),
+    id: text().notNull().$defaultFn(generateUuidv7),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    // Live: the number of changes made to the row. Unused on draft rows (last write wins).
+    version: int().notNull().default(1),
+    // The Live version a draft copy started from. Null on Live rows and on blocks a draft created.
+    baseVersion: int("base_version"),
+    // A draft's deletion of the block.
+    deleted: int({ mode: "boolean" }).notNull().default(false),
+    firstPublishedAt: int("first_published_at"),
+    publishedAt: int("published_at"),
+    publishedBy: text("published_by"),
     environmentId: int("environment_id")
       .notNull()
       .references(() => environments.id),
-    pageId: text("page_id").references(() => pages.id, { onDelete: "cascade" }),
+    // No foreign key: content tables don't reference each other (ADR 0005).
+    pageId: text("page_id"),
     // The name of the layout whose slot holds this block. Deleting a layout deletes its blocks.
     layoutId: text("layout_id"),
     type: text().notNull(),
@@ -28,6 +46,12 @@ export const blocks = sqliteTable(
     updatedAt: int("updated_at").notNull(),
   },
   (table) => [
+    uniqueIndex("blocks_live_id_idx")
+      .on(table.id)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("blocks_draft_id_idx")
+      .on(table.draftId, table.id)
+      .where(sql`${table.draftId} is not null`),
     index("blocks_page_idx").on(table.pageId),
     index("blocks_layout_idx").on(table.environmentId, table.layoutId),
     index("blocks_type_idx").on(table.type),

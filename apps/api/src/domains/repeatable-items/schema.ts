@@ -9,7 +9,6 @@ import {
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
-import { blocks } from "../blocks/schema";
 import { environments } from "../projects/schema";
 
 /**
@@ -21,7 +20,8 @@ export const repeatableItems = sqliteTable(
   "repeatable_items",
   {
     id: text().primaryKey().$defaultFn(generateUuidv7),
-    blockId: text("block_id").references(() => blocks.id, { onDelete: "cascade" }),
+    // No foreign key: a block id is unique only within Live or within one draft (ADR 0005).
+    blockId: text("block_id"),
     // The shared content at the root of the tree, named by its environment and definition name.
     environmentId: int("environment_id").references(() => environments.id),
     sharedContentType: text("shared_content_type"),
