@@ -206,13 +206,13 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     return c.json({ error: "Invalid file id" }, 400);
   }
   const projectId = Number(body["projectId"]);
-  const aiMetadata = body["aiMetadataEnabled"];
+  const aiMetadata = body["aiMetadata"];
   if (aiMetadata !== undefined && aiMetadata !== "true" && aiMetadata !== "false") {
-    return c.json({ error: "aiMetadataEnabled must be true or false" }, 400);
+    return c.json({ error: "aiMetadata must be true or false" }, 400);
   }
   const metadata = service.fileMetadataInput.safeParse({
     alt: body["alt"],
-    aiMetadataEnabled: aiMetadata === undefined ? undefined : aiMetadata === "true",
+    aiMetadata: aiMetadata === undefined ? undefined : aiMetadata === "true",
   });
   if (!metadata.success) return c.json({ error: metadata.error.message }, 400);
 
@@ -220,12 +220,9 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   if (!Number.isSafeInteger(projectId) || projectId <= 0)
     return c.json({ error: "Missing projectId" }, 400);
   if (file.size > 100 * 1024 * 1024) return c.json({ error: "File exceeds 100 MiB limit" }, 413);
-  const canGenerateAiMetadata = isRasterImage(file.type);
-  if (metadata.data.aiMetadataEnabled && !canGenerateAiMetadata) {
+  if (metadata.data.aiMetadata && !isRasterImage(file.type)) {
     return c.json({ error: "Automatic metadata requires a raster image" }, 400);
   }
-  let aiMetadataEnabled = metadata.data.aiMetadataEnabled ?? null;
-  if (metadata.data.alt !== undefined || !canGenerateAiMetadata) aiMetadataEnabled = false;
 
   const apiOrigin = new URL(c.req.url).origin;
   const filename = file.name.split(/[\\/]/).pop() || "upload";
@@ -265,11 +262,10 @@ const uploadContent: Handler<AppEnv> = async (c) => {
                   ...asset,
                   projectId,
                   environmentId: environment.id,
-                  alt: metadata.data.alt ?? "",
-                  aiMetadataEnabled,
                   createdAt: now,
                   updatedAt: now,
                 },
+                metadata.data,
                 scope,
               );
         // A failed write must not leave an orphaned blob.

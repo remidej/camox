@@ -548,7 +548,7 @@ const PageSeoEditor = ({
   page: Pick<
     Page,
     | "id"
-    | "aiSeoEnabled"
+    | "aiSeo"
     | "metaTitle"
     | "metaDescription"
     | "fullPath"
@@ -559,18 +559,17 @@ const PageSeoEditor = ({
   layoutId?: string;
   projectName?: string;
 }) => {
-  const setAiSeo = useMutation(pageMutations.setAiSeo());
-  const setMetaTitle = useMutation(pageMutations.setMetaTitle());
-  const setMetaDescription = useMutation(pageMutations.setMetaDescription());
+  // The title and description are one group: AI-generated, or both written by hand (ADR 0012).
+  const setSeo = useMutation(pageMutations.setSeo());
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Switch
           id="ai-seo"
-          checked={page.aiSeoEnabled !== false}
+          checked={page.aiSeo}
           onCheckedChange={(checked) => {
-            setAiSeo.mutate({ id: page.id, enabled: checked });
+            setSeo.mutate({ id: page.id, aiSeo: checked });
           }}
         />
         <Label htmlFor="ai-seo">AI metadata</Label>
@@ -579,16 +578,16 @@ const PageSeoEditor = ({
         label="Page title"
         placeholder="Page title..."
         initialValue={page.metaTitle ?? ""}
-        disabled={page.aiSeoEnabled !== false}
-        onSave={(value) => setMetaTitle.mutate({ id: page.id, metaTitle: value })}
+        disabled={page.aiSeo}
+        onSave={(value) => setSeo.mutate({ id: page.id, metaTitle: value })}
       />
       <DebouncedFieldEditor
         label="Page description"
         placeholder="Page description..."
         initialValue={page.metaDescription ?? ""}
-        disabled={page.aiSeoEnabled !== false}
+        disabled={page.aiSeo}
         rows={2}
-        onSave={(value) => setMetaDescription.mutate({ id: page.id, metaDescription: value })}
+        onSave={(value) => setSeo.mutate({ id: page.id, metaDescription: value })}
       />
       <SearchEnginePreview
         page={page}

@@ -25,11 +25,12 @@ import {
 } from "../collections/record-pages";
 import { itemSchemas, referenceListIds } from "../collections/references";
 import { pagesWithDuplicatePaths } from "../pages/duplicate-paths";
+import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
 
-// What publishing a draft checks about content (ADR 0009): duplicate paths, dangling references
-// and values of the wrong kind. Each check returns findings in what the draft changed, which
+// What publishing a draft checks about content (ADR 0009): duplicate paths, dangling references,
+// values of the wrong kind and missing meta titles. Each check returns findings in what the draft changed, which
 // block publishing, and the same problems already on Live, which are warnings.
 
 type Scope = NonNullable<DraftScope>;
@@ -40,7 +41,9 @@ export type ContentProblemCode =
   | "duplicateRecordPageValue"
   | "danglingReference"
   | "danglingPageLink"
-  | "wrongKindValue";
+  | "wrongKindValue"
+  | "missingMetaTitle"
+  | "metaTitlePending";
 
 /** An entity holding content, as previews name it. */
 type ContentEntity = "page" | "block" | "sharedContent" | "repeatableItem" | "record";
@@ -88,6 +91,56 @@ function checkDuplicatePaths(scope: Scope, rows: (typeof pages.$inferSelect)[], 
     }
   }
 }
+
+/**
+ * A page the draft creates or changes with no meta title blocks publishing: manual and empty, or
+ * generated with nothing generated and no job pending. While generation is pending it's a
+ * warning, so a model outage never stops publishing (ADR 0009, 0012).
+ */
+const checkMetaTitles = Effect.fn("drafts.checkMetaTitles")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  rows: (typeof pages.$inferSelect)[],
+  found: Findings,
+) {
+  const drafted = rows.filter((page) => storedBy(scope, page));
+  const generated = yield* generatedSeoOf(
+    ctx.db,
+    scope,
+    drafted.filter(seoGenerated).map((page) => page.id),
+  );
+  const finding = (page: { id: string }, code: ContentProblemCode, message: string) => ({
+    entity: "page" as const,
+    id: page.id,
+    code,
+    field: "metaTitle",
+    message,
+  });
+  for (const page of drafted) {
+    if (!seoGenerated(page)) {
+      if (page.metaTitle?.trim()) continue;
+      found.blockers.push(
+        finding(
+          page,
+          "missingMetaTitle",
+          "The page has no meta title: write one or let AI generate it",
+        ),
+      );
+      continue;
+    }
+    const shown = generated.get(page.id);
+    if (shown?.value?.metaTitle.trim()) continue;
+    if (shown?.pending) {
+      found.warnings.push(
+        finding(page, "metaTitlePending", "The page's meta title is still being generated"),
+      );
+      continue;
+    }
+    found.blockers.push(
+      finding(page, "missingMetaTitle", "The page has no meta title: write one or generate it"),
+    );
+  }
+});
 
 /**
  * Records sharing the value their record pages are found by. A record the draft creates or
@@ -364,6 +417,7 @@ export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(fun
   const liveRecords = yield* rowsIn(ctx, null, projectId, collectionRecords);
 
   checkDuplicatePaths(scope, draftPages, found);
+  yield* checkMetaTitles(ctx, scope, draftPages, found);
   yield* checkDuplicateRecordPageValues(ctx, scope, draftRecords, found);
 
   const keys = (pageRows: typeof draftPages, recordRows: RecordRow[]) =>

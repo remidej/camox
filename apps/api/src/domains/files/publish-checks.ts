@@ -5,6 +5,7 @@ import { blockDefinitions, blocks, files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { withFileMetadata } from "./generated-metadata";
 
 // What publishing a draft checks about files and the content using them (ADR 0009). Each check
 // returns findings in what the draft changed, which block publishing, and the same problems
@@ -12,7 +13,6 @@ import type { DraftScope } from "../drafts/scope";
 
 type Scope = NonNullable<DraftScope>;
 type BlockRow = typeof blocks.$inferSelect;
-type FileRow = typeof files.$inferSelect;
 
 export type FileProblemCode =
   | "emptyRequiredFile"
@@ -79,7 +79,7 @@ function isEmpty(value: unknown): boolean {
 }
 
 /** Whether a file matches one of a field's `accept` entries: a MIME type, `type/*`, or `.ext`. */
-export function accepts(accept: string[], file: Pick<FileRow, "mimeType" | "filename">) {
+export function accepts(accept: string[], file: { mimeType: string; filename: string }) {
   const mimeType = file.mimeType.toLowerCase();
   return accept.some((raw) => {
     const entry = raw.trim().toLowerCase();
@@ -111,10 +111,18 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
   const definitions = yield* definitionsOf(ctx, scope.projectId);
   const inProject = eq(files.projectId, scope.projectId);
   const shownFiles = new Map(
-    (yield* overlay.select(ctx.db, scope, files, inProject)).map((file) => [file.id, file]),
+    (yield* withFileMetadata(
+      ctx.db,
+      scope,
+      yield* overlay.select(ctx.db, scope, files, inProject),
+    )).map((file) => [file.id, file]),
   );
   const liveFiles = new Map(
-    (yield* overlay.select(ctx.db, null, files, inProject)).map((file) => [file.id, file]),
+    (yield* withFileMetadata(
+      ctx.db,
+      null,
+      yield* overlay.select(ctx.db, null, files, inProject),
+    )).map((file) => [file.id, file]),
   );
 
   // Files the draft uploads or replaces: new bytes Live doesn't serve yet.

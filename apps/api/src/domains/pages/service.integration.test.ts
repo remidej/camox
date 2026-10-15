@@ -78,7 +78,6 @@ describe("page persistence", () => {
         pageId: page.id,
         type: "hero",
         content: { title: "First title" },
-        summary: "",
         position: "a0",
         createdAt: Date.now(),
         updatedAt: Date.now(),

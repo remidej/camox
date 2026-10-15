@@ -34,14 +34,14 @@ export const files = sqliteTable(
       .notNull()
       .references(() => environments.id),
     url: text().notNull(),
-    alt: text().notNull().default(""),
-    filename: text().notNull(),
+    // Manual metadata, all null or all set (ADR 0012): null means the generated values apply.
+    alt: text(),
+    filename: text(),
     mimeType: text("mime_type").notNull(),
     size: int().notNull(),
     optimizedSize: int("optimized_size"),
     blobId: text("blob_id").notNull(),
     path: text().notNull(),
-    aiMetadataEnabled: int("ai_metadata_enabled", { mode: "boolean" }),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },

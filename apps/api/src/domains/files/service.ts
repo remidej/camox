@@ -2,7 +2,7 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
@@ -13,13 +13,22 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
 import { resolveEnvironment } from "../../lib/resolve-environment";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { files } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
+import { homeOf, requestGeneration, saveValue, settleRequest } from "../generated-values/service";
+import {
+  fileView,
+  metadataColumns,
+  metadataGenerated,
+  metadataKey,
+  type MetadataWrite,
+  seedMetadata,
+  withFileMetadata,
+} from "./generated-metadata";
 import { readMetadataImage } from "./metadata-image";
 import { optimizedVideoKey } from "./video-optimization";
 
@@ -33,9 +42,13 @@ type FileRow = typeof files.$inferSelect;
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
 
+/**
+ * A file's alt text and filename are one group, all generated or all manual (ADR 0012): writing
+ * either makes it manual, `aiMetadata: true` makes it generated again.
+ */
 export const fileMetadataInput = z
-  .object({ alt: z.string().optional(), aiMetadataEnabled: z.boolean().optional() })
-  .refine((data) => data.alt === undefined || data.aiMetadataEnabled !== true, {
+  .object({ alt: z.string().optional(), aiMetadata: z.boolean().optional() })
+  .refine((data) => data.alt === undefined || data.aiMetadata !== true, {
     message: "Alt text cannot be combined with automatic metadata enabled.",
   });
 export const projectFileInput = z.object({ projectId: z.number(), id: uuidv7Schema });
@@ -58,9 +71,12 @@ export const updateFileMetadataInput = fileMetadataInput
         .optional(),
     }),
   )
+  .refine((data) => data.aiMetadata !== true || data.filename === undefined, {
+    message: "A filename cannot be combined with automatic metadata enabled.",
+  })
   .refine(
     (data) =>
-      data.alt !== undefined || data.aiMetadataEnabled !== undefined || data.filename !== undefined,
+      data.alt !== undefined || data.aiMetadata !== undefined || data.filename !== undefined,
     {
       message: "Provide a filename, alt text or an automatic metadata setting.",
     },
@@ -150,24 +166,24 @@ function invalidateFile(
   });
 }
 
-/** Schedules the file's metadata job in the scope it was asked from (ADR 0012). */
-function scheduleFileMetadata(ctx: ServiceContext, fileId: string, scope: DraftScope) {
-  ctx.waitUntil(
-    scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-      entityTable: "files",
-      entityId: fileId,
-      type: "fileMetadata",
-      delayMs: 0,
-      draftId: scope?.id ?? null,
-    }),
-  );
-}
+/** Requests the file's metadata in the scope it was asked from (ADR 0012). */
+const requestFileMetadata = (
+  ctx: ServiceContext,
+  file: { id: string; projectId: number | null },
+  scope: DraftScope,
+) =>
+  requestGeneration(ctx, homeOf(scope, file.projectId!), {
+    entity: "file",
+    entityId: file.id,
+    delayMs: 0,
+  });
 
 // --- AI Executor ---
 
 /**
- * Generates metadata for a file as the scope stores it. A draft's job only fills a file the
- * draft already stores, and never copies one into it (ADR 0012).
+ * Generates a file's metadata as the scope reads it, into the scope's generated values: never
+ * into the file, so it never copies one into a draft (ADR 0012). Files whose metadata is manual
+ * are skipped.
  */
 export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(function* (
   db: Database,
@@ -176,9 +192,15 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
   scope: DraftScope,
   abortController?: AbortController,
 ) {
-  const file = (yield* overlay.getStored(db, scope, files, fileId)) as FileRow | undefined;
-  if (!file || file.deleted || file.aiMetadataEnabled === false) return;
-  if (!isRasterImage(file.mimeType)) return;
+  const startedAt = Date.now();
+  const file = yield* overlay.get(db, scope, files, fileId);
+  if (!file?.projectId) return;
+  const home = homeOf(scope, file.projectId);
+  if (!metadataGenerated(file) || !isRasterImage(file.mimeType)) {
+    yield* settleRequest(db, home, metadataKey(fileId), startedAt);
+    return;
+  }
+  const shown = yield* fileView(db, scope, file);
 
   // An unusable image fails the attempt like any other AI job error, so the
   // scheduler can retry it.
@@ -186,10 +208,16 @@ export const executeFileMetadata = Effect.fn("files.executeFileMetadata")(functi
     apiKey,
     file.url,
     file.mimeType,
-    file.filename,
+    shown.filename,
     abortController,
   ).pipe(Effect.orDie);
-  yield* saveGeneratedFileMetadata(db, scope, file, metadata);
+  yield* saveValue(
+    db,
+    home,
+    metadataKey(fileId),
+    { alt: metadata.alt, filename: metadata.filename },
+    startedAt,
+  );
 });
 
 /**
@@ -205,34 +233,8 @@ export const runFileMetadataJob = Effect.fn("files.runFileMetadataJob")(function
   const scope = yield* draftScopeOfJob(db, job.draftId);
   if (scope === undefined) return undefined;
   yield* executeFileMetadata(db, apiKey, job.entityId, scope, abortController);
-  const file = yield* overlay.getStored(db, scope, files, job.entityId);
-  return (file as FileRow | undefined)?.projectId ?? undefined;
-});
-
-export const saveGeneratedFileMetadata = Effect.fn("files.saveGeneratedFileMetadata")(function* (
-  db: Database,
-  scope: DraftScope,
-  file: Pick<FileRow, "id" | "updatedAt">,
-  metadata: { filename: string; alt: string },
-) {
-  yield* Effect.promise(() =>
-    db
-      .update(files)
-      .set({
-        filename: metadata.filename,
-        alt: metadata.alt,
-        updatedAt: Math.max(Date.now(), file.updatedAt + 1),
-      })
-      // Do not overwrite manual edits or a replaced asset while generation was in flight.
-      .where(
-        and(
-          overlay.storedIn(files, scope),
-          eq(files.id, file.id),
-          eq(files.updatedAt, file.updatedAt),
-          sql`${files.aiMetadataEnabled} IS NOT 0`,
-        ),
-      ),
-  );
+  const file = yield* overlay.get(db, scope, files, job.entityId);
+  return file?.projectId ?? undefined;
 });
 
 // --- Blobs ---
@@ -344,7 +346,13 @@ export const listFiles = Effect.fn("files.listFiles")(function* (
 ) {
   const { projectId } = yield* decodeInput(listFilesInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  return yield* overlay.select(ctx.db, scope, files, inEnvironment(projectId, environment.id));
+  const rows = yield* overlay.select(
+    ctx.db,
+    scope,
+    files,
+    inEnvironment(projectId, environment.id),
+  );
+  return yield* withFileMetadata(ctx.db, scope, rows);
 });
 
 export const getFile = Effect.fn("files.getFile")(function* (
@@ -355,7 +363,7 @@ export const getFile = Effect.fn("files.getFile")(function* (
   const { id } = yield* decodeInput(getFileInput, rawInput);
   const result = yield* overlay.get(ctx.db, scope, files, id);
   if (!result) return yield* new NotFoundError();
-  return result;
+  return yield* fileView(ctx.db, scope, result);
 });
 
 /** How many pieces of content use the file, as the scope sees them. */
@@ -390,7 +398,7 @@ export const getProjectFile = Effect.fn("files.getProjectFile")(function* (
   if (!file || file.projectId !== projectId || file.environmentId !== environment.id) {
     return yield* new NotFoundError();
   }
-  return file;
+  return yield* fileView(ctx.db, scope, file);
 });
 
 // --- Writes ---
@@ -412,6 +420,31 @@ const writeFile = Effect.fn("files.writeFile")(function* (
   return result;
 });
 
+/**
+ * Writes a file's metadata group (ADR 0012): any field makes it manual, copying the generated
+ * values into the fields not written; `aiMetadata: true` makes it generated again and requests
+ * generation, starting from the metadata shown so far.
+ */
+const writeMetadata = Effect.fn("files.writeMetadata")(function* (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  file: FileRow,
+  write: MetadataWrite,
+) {
+  if (write.aiMetadata && !isRasterImage(file.mimeType)) {
+    return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
+  }
+  const shown = yield* fileView(ctx.db, scope, file);
+  const { columns, generate } = yield* metadataColumns(ctx.db, scope, file, write);
+  const result = yield* writeFile(ctx, scope, file, columns);
+  if (generate) {
+    const home = homeOf(scope, file.projectId!);
+    yield* seedMetadata(ctx.db, scope, home, file.id, { alt: shown.alt, filename: shown.filename });
+    yield* requestFileMetadata(ctx, file, scope);
+  }
+  return yield* fileView(ctx.db, scope, result);
+});
+
 export const updateFile = Effect.fn("files.updateFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateFileInput>,
@@ -419,17 +452,9 @@ export const updateFile = Effect.fn("files.updateFile")(function* (
 ) {
   const input = yield* decodeInput(updateFileInput, rawInput);
   const file = yield* getProjectFile(ctx, input, scope);
-  if (input.aiMetadataEnabled && !isRasterImage(file.mimeType)) {
-    return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
-  }
-  const aiMetadataEnabled = input.alt !== undefined ? false : input.aiMetadataEnabled;
-  const result = yield* writeFile(ctx, scope, file, {
-    ...(input.alt !== undefined ? { alt: input.alt } : {}),
-    ...(input.filename !== undefined ? { filename: input.filename } : {}),
-    ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
-  });
-  if (aiMetadataEnabled) scheduleFileMetadata(ctx, file.id, scope);
-  return result;
+  const stored = yield* overlay.get(ctx.db, scope, files, file.id);
+  if (!stored) return yield* new NotFoundError();
+  return yield* writeMetadata(ctx, scope, stored, input);
 });
 
 export const setFileAlt = Effect.fn("files.setFileAlt")(function* (
@@ -439,7 +464,7 @@ export const setFileAlt = Effect.fn("files.setFileAlt")(function* (
 ) {
   const { id, alt } = yield* decodeInput(setFileAltInput, rawInput);
   const file = yield* authorizedFile(ctx, id, scope);
-  return yield* writeFile(ctx, scope, file, { alt, aiMetadataEnabled: false });
+  return yield* writeMetadata(ctx, scope, file, { alt });
 });
 
 export const setFileFilename = Effect.fn("files.setFileFilename")(function* (
@@ -449,7 +474,7 @@ export const setFileFilename = Effect.fn("files.setFileFilename")(function* (
 ) {
   const { id, filename } = yield* decodeInput(setFileFilenameInput, rawInput);
   const file = yield* authorizedFile(ctx, id, scope);
-  return yield* writeFile(ctx, scope, file, { filename });
+  return yield* writeMetadata(ctx, scope, file, { filename });
 });
 
 /**
@@ -500,14 +525,18 @@ export const deleteFiles = Effect.fn("files.deleteFiles")(function* (
 
 type FileAsset = Pick<
   FileRow,
-  "blobId" | "path" | "url" | "filename" | "mimeType" | "size" | "optimizedSize"
->;
+  "blobId" | "path" | "url" | "mimeType" | "size" | "optimizedSize"
+> & {
+  /** The uploaded file's name. */
+  filename: string;
+};
 
 /**
  * Replaces a file's bytes and explicit metadata in one write, keeping its id, so everything
  * using it shows the new bytes. In a draft the file is copied with the new blob, and Live keeps
  * serving the old one until the draft is published. The blob the scope showed before is
- * deleted once nothing names it.
+ * deleted once nothing names it. Generated metadata starts from the new upload's name until a
+ * job generates it again; manual metadata takes the new name.
  */
 export const replaceFileContent = Effect.fn("files.replaceFileContent")(function* (
   ctx: ServiceContext,
@@ -518,27 +547,41 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
 ) {
   const metadata = yield* decodeInput(fileMetadataInput, rawMetadata);
   const oldFile = yield* getProjectFile(ctx, target, scope);
-  if (metadata.aiMetadataEnabled && !isRasterImage(asset.mimeType)) {
+  const raster = isRasterImage(asset.mimeType);
+  if (metadata.aiMetadata && !raster) {
     return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
   }
-  const aiMetadataEnabled = metadata.alt !== undefined ? false : metadata.aiMetadataEnabled;
+  const generated =
+    raster && metadata.alt === undefined && (metadata.aiMetadata ?? oldFile.aiMetadata);
+  const columns = generated
+    ? { alt: null, filename: null }
+    : { alt: metadata.alt ?? oldFile.alt, filename: asset.filename };
   const result = yield* overlay.update(ctx.db, scope, files, oldFile.id, {
     blobId: asset.blobId,
     path: asset.path,
     url: asset.url,
-    filename: asset.filename,
     mimeType: asset.mimeType,
     size: asset.size,
     optimizedSize: asset.optimizedSize,
-    ...(metadata.alt !== undefined ? { alt: metadata.alt } : {}),
-    ...(aiMetadataEnabled !== undefined ? { aiMetadataEnabled } : {}),
+    ...columns,
     updatedAt: Math.max(Date.now(), oldFile.updatedAt + 1),
   });
   if (!result) return yield* new NotFoundError();
 
   yield* deleteUnreferencedBlobs(ctx, [oldFile.blobId]);
-  if (result.aiMetadataEnabled !== false && isRasterImage(asset.mimeType)) {
-    scheduleFileMetadata(ctx, oldFile.id, scope);
+  if (generated) {
+    const home = homeOf(scope, target.projectId);
+    yield* saveValue(
+      ctx.db,
+      home,
+      metadataKey(oldFile.id),
+      {
+        alt: oldFile.alt,
+        filename: asset.filename,
+      },
+      0,
+    );
+    yield* requestFileMetadata(ctx, result, scope);
   }
   invalidateFile(ctx, target.projectId, scope, [
     queryKeys.files.list,
@@ -546,25 +589,55 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
     queryKeys.blocks.getUsageCounts,
     queryKeys.pages.getByPathAll,
   ]);
-  return result;
+  return yield* fileView(ctx.db, scope, result);
 });
 
-/** Adds an uploaded file to the scope: a draft's upload stays out of Live until published. */
+/**
+ * Adds an uploaded file to the scope: a draft's upload stays out of Live until published. A
+ * raster image's metadata is generated unless it's given or switched off, starting from the
+ * upload's name.
+ */
 export const createFile = Effect.fn("files.createFile")(function* (
   ctx: ServiceContext,
-  values: Omit<typeof files.$inferInsert, "rowId" | "draftId"> & { projectId: number },
+  values: Omit<typeof files.$inferInsert, "rowId" | "draftId" | "alt" | "filename"> & {
+    projectId: number;
+    filename: string;
+  },
+  metadata: z.input<typeof fileMetadataInput>,
   scope: DraftScope,
 ) {
-  const created = yield* overlay.insert(ctx.db, scope, files, values);
+  const { alt, aiMetadata } = yield* decodeInput(fileMetadataInput, metadata);
+  const raster = isRasterImage(values.mimeType);
+  if (aiMetadata && !raster) {
+    return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
+  }
+  const generated = raster && alt === undefined && aiMetadata !== false;
+  const created = yield* overlay.insert(ctx.db, scope, files, {
+    ...values,
+    ...(generated ? { alt: null, filename: null } : { alt: alt ?? "", filename: values.filename }),
+  });
   if (!created) {
     return yield* new InvalidInputError({ message: "A file with this id already exists" });
   }
-  if (created.aiMetadataEnabled !== false) scheduleFileMetadata(ctx, created.id, scope);
+  if (generated) {
+    const home = homeOf(scope, values.projectId);
+    yield* saveValue(
+      ctx.db,
+      home,
+      metadataKey(created.id),
+      {
+        alt: "",
+        filename: values.filename,
+      },
+      0,
+    );
+    yield* requestFileMetadata(ctx, created, scope);
+  }
   invalidateFile(ctx, values.projectId, scope, [
     queryKeys.files.list,
     queryKeys.files.get(created.id),
   ]);
-  return created;
+  return yield* fileView(ctx.db, scope, created);
 });
 
 export const setFileAiMetadata = Effect.fn("files.setFileAiMetadata")(function* (
@@ -574,14 +647,10 @@ export const setFileAiMetadata = Effect.fn("files.setFileAiMetadata")(function* 
 ) {
   const { id, enabled } = yield* decodeInput(setFileAiMetadataInput, rawInput);
   const file = yield* authorizedFile(ctx, id, scope);
-  if (enabled && !isRasterImage(file.mimeType)) {
-    return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
-  }
-  const result = yield* writeFile(ctx, scope, file, { aiMetadataEnabled: enabled });
-  if (enabled) scheduleFileMetadata(ctx, id, scope);
-  return result;
+  return yield* writeMetadata(ctx, scope, file, { aiMetadata: enabled });
 });
 
+/** Generates a file's metadata now, into the scope's generated values. */
 export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateFileMetadataInput>,
@@ -592,5 +661,6 @@ export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(func
 
   yield* executeFileMetadata(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
   invalidateFile(ctx, file.projectId, scope, [queryKeys.files.list, queryKeys.files.get(id)]);
-  return yield* overlay.get(ctx.db, scope, files, id);
+  const shown = yield* overlay.get(ctx.db, scope, files, id);
+  return shown ? yield* fileView(ctx.db, scope, shown) : undefined;
 });

@@ -14,7 +14,6 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { bumpContentUpdatedAtForBlock } from "../../lib/bump-content-updated-at";
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, comments, repeatableItems } from "../../schema";
 import { conformBlocksIn } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
@@ -26,6 +25,7 @@ import {
   type FieldSchema,
 } from "../blocks/normalize-content";
 import { contentWithSeeds } from "../blocks/prepare-content";
+import { requestBlockSummary } from "../blocks/service";
 import {
   broadcastSharedContentChange,
   bumpPlacementOwners,
@@ -38,6 +38,14 @@ import { blockScope, validateReferenceValues } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
+import {
+  copyValue,
+  homeOf,
+  projectOfEnvironment,
+  readValue,
+  requestGeneration,
+  saveValue,
+} from "../generated-values/service";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import {
   descendantIdsOf,
@@ -353,10 +361,14 @@ const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
   );
 });
 
+const itemSummaryKey = (itemId: string) =>
+  ({ entity: "repeatableItem", entityId: itemId, type: "summary" }) as const;
+
 /**
- * Generates and stores a summary for a repeatable item as a scope reads it. A draft's job only
- * writes an item the draft already stores, and never copies one (ADR 0012).
- * Returns `{ blockId }` so the caller can cascade to block summary regeneration.
+ * Generates a repeatable item's summary as a scope reads it, into the scope's generated values:
+ * never into the item, so it never copies one into a draft (ADR 0012). Returns the block to
+ * summarise again when the summary changed: the item's own, or a placement of its shared
+ * content.
  */
 export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSummary")(function* (
   db: Database,
@@ -365,13 +377,16 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
   scope: DraftScope,
   abortController?: AbortController,
 ) {
-  const item = yield* overlay.getStored(db, scope, repeatableItems, itemId);
-  if (!item || item.deleted) return null;
+  const startedAt = Date.now();
+  const item = yield* overlay.get(db, scope, repeatableItems, itemId);
+  if (!item) return null;
 
   const tree = yield* treeOfRoot(db, scope, rootOfItem(item)).pipe(
     Effect.orElseSucceed(() => null),
   );
   if (!tree) return null;
+  const projectId = yield* projectOfEnvironment(db, tree.definition.environmentId);
+  if (projectId === null) return null;
 
   const schema = yield* treeSchema(db, tree);
   const itemSchema = yield* Effect.gen(function* () {
@@ -389,28 +404,26 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
     item.content as Record<string, unknown>,
   );
 
+  const previous = (yield* readValue(db, scope, itemSummaryKey(itemId))).value?.summary ?? "";
   const summary = yield* generateObjectSummary(
     apiKey,
     {
       type: tree.definition.type,
       markdown: JSON.stringify(content),
-      previousSummary: item.summary,
+      previousSummary: previous,
     },
     abortController,
   );
 
-  yield* overlay.updateExisting(db, scope, repeatableItems, itemId, {
-    summary,
-    updatedAt: Date.now(),
-  });
+  yield* saveValue(db, homeOf(scope, projectId), itemSummaryKey(itemId), { summary }, startedAt);
 
-  if (summary === item.summary) return null;
-  // A shared content's summary is written through any of its placements.
+  if (summary === previous) return null;
+  // A shared content's summary is generated through any of its placements.
   const blockId =
     "blockId" in tree.root
       ? tree.root.blockId
       : yield* sharedPlacementId(db, scope, tree.definition);
-  return blockId === null ? null : { blockId };
+  return blockId === null ? null : { blockId, projectId };
 });
 
 /** Runs an item summary job in the scope it was scheduled from; nothing once its draft ended. */
@@ -422,24 +435,29 @@ export const runRepeatableItemSummaryJob = Effect.fn("repeatableItems.runSummary
 ) {
   const scope = yield* draftScopeOfJob(db, job.draftId);
   if (scope === undefined) return null;
-  return yield* executeRepeatableItemSummary(db, apiKey, job.entityId, scope, abortController);
+  const cascade = yield* executeRepeatableItemSummary(
+    db,
+    apiKey,
+    job.entityId,
+    scope,
+    abortController,
+  );
+  return cascade ? { ...cascade, scope } : null;
 });
 
-const scheduleSummary = (
+/** Requests an item's summary in the scope it was written in (ADR 0012). */
+const requestSummary = (
   ctx: ServiceContext,
   scope: DraftScope,
+  projectId: number,
   entityId: string,
   delayMs: number,
 ) =>
-  ctx.waitUntil(
-    scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-      entityTable: "repeatableItems",
-      entityId,
-      type: "summary",
-      delayMs,
-      draftId: scope?.id ?? null,
-    }),
-  );
+  requestGeneration(ctx, homeOf(scope, projectId), {
+    entity: "repeatableItem",
+    entityId,
+    delayMs,
+  });
 
 /** The siblings of an item in its repeater, as a scope reads them, in order. */
 const siblingsOf = Effect.fn("repeatableItems.siblingsOf")(function* (
@@ -602,7 +620,6 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     fieldName,
     content: sanitizedContent,
     settings: sanitizedSettings,
-    summary: "",
     position,
     createdAt: now,
     updatedAt: now,
@@ -624,7 +641,6 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
         fieldName: seed.fieldName,
         content: seed.content,
         settings: seed.settings,
-        summary: "",
         position: seed.position,
         createdAt: now,
         updatedAt: now,
@@ -634,7 +650,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   }
 
   yield* touchTree(ctx, scope, tree, access.projectId);
-  scheduleSummary(ctx, scope, result.id, 0);
+  yield* requestSummary(ctx, scope, access.projectId, result.id, 0);
   invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
     queryKeys.blocks.getUsageCounts,
   ]);
@@ -687,7 +703,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
     });
 
     yield* touchTree(ctx, scope, tree, access.projectId);
-    scheduleSummary(ctx, scope, id, 5000);
+    yield* requestSummary(ctx, scope, access.projectId, id, 5000);
     invalidateTree(ctx, scope, access.projectId, tree, access.pagePath);
 
     return result;
@@ -828,12 +844,18 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
       fieldName: original.fieldName,
       content: original.content,
       settings: original.settings,
-      summary: original.summary,
       position,
       createdAt: now,
       updatedAt: now,
     });
     if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken" });
+    yield* copyValue(
+      ctx.db,
+      scope,
+      homeOf(scope, access.projectId),
+      itemSummaryKey(original.id),
+      result.id,
+    );
     yield* touchTree(ctx, scope, tree, access.projectId);
     invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
       queryKeys.blocks.getUsageCounts,
@@ -860,15 +882,7 @@ export const generateRepeatableItemSummary = Effect.fn(
     scope,
   );
   if (cascade) {
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "blocks",
-        entityId: cascade.blockId,
-        type: "summary",
-        delayMs: 5000,
-        draftId: scope?.id ?? null,
-      }),
-    );
+    yield* requestBlockSummary(ctx, scope, cascade.projectId, cascade.blockId, 5000);
   }
   // Granular invalidation: refetch the parent block bundle (includes updated summary)
   broadcastInvalidation({

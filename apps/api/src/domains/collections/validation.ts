@@ -9,6 +9,7 @@ import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { fileView } from "../files/generated-metadata";
 import type { ContentScope } from "./identity";
 import { assetFileId } from "./record-files";
 import { missingReference, recordInScope } from "./references";
@@ -182,6 +183,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
     return yield* new InvalidInputError({
       message: "Asset is outside this project/environment or missing",
     });
+  const { filename } = yield* fileView(ctx.db, draft, file);
   if (field.fieldType.startsWith("Image") && !file.mimeType.startsWith("image/")) {
     return yield* new InvalidInputError({ message: "Image requires an image asset" });
   }
@@ -189,7 +191,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
     field.accept?.length &&
     !field.accept.some((type) => {
       if (type === "*/*") return true;
-      if (type.startsWith(".")) return file.filename.toLowerCase().endsWith(type.toLowerCase());
+      if (type.startsWith(".")) return filename.toLowerCase().endsWith(type.toLowerCase());
       if (type.endsWith("/*")) return file.mimeType.startsWith(type.slice(0, -1));
       return file.mimeType === type;
     })

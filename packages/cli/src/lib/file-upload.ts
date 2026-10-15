@@ -170,10 +170,7 @@ export async function uploadFile(
     body.set("projectId", String(context.projectId));
     if (options.alt !== undefined) body.set("alt", options.alt);
     if (options.aiMetadata !== undefined || options.alt !== undefined) {
-      body.set(
-        "aiMetadataEnabled",
-        String(options.alt === undefined && options.aiMetadata === "on"),
-      );
+      body.set("aiMetadata", String(options.alt === undefined && options.aiMetadata === "on"));
     }
     const headers: Record<string, string> = {
       Authorization: `Bearer ${context.token}`,

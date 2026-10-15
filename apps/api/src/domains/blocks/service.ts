@@ -24,7 +24,6 @@ import {
   type ServiceError,
 } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
   blockDefinitions,
   blocks,
@@ -51,9 +50,20 @@ import {
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
+import {
+  copyValue,
+  type GenerationDeps,
+  homeOf,
+  readValue,
+  requestGeneration,
+  saveValue,
+  settleRequest,
+} from "../generated-values/service";
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, sortItemsByPosition } from "../pages/ai";
+import { seoGenerated } from "../pages/generated-seo";
+import { requestPageSeo } from "../pages/service";
 import { descendantIdsOf, itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
@@ -415,50 +425,39 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
     for (const key of Object.keys(content)) {
       if (!(key in ordered)) ordered[key] = content[key];
     }
-    return { block, content: ordered, contentSchema };
+    return { block, content: ordered, contentSchema, projectId };
   }
 
-  return { block, content, contentSchema };
+  return { block, content, contentSchema, projectId };
 });
+
+/** Where a block's summary lives: its shared content's for a synced placement, or its own. */
+const summaryKeyOf = (blockId: string, shared: SharedContentRow | null) =>
+  shared
+    ? ({ entity: "sharedContent", entityId: shared.id, type: "summary" } as const)
+    : ({ entity: "block", entityId: blockId, type: "summary" } as const);
 
 /**
- * Generates and stores a summary for a block as a scope reads it.
- * Returns `{ pageId }` if the parent page has AI SEO enabled (caller should cascade).
- *
- * In a draft, the summary is written only onto a block or shared content the draft already
- * holds, never copying one into it, and nothing cascades to Live's page SEO.
+ * Generates a block's summary as a scope reads it, into the scope's generated values: never into
+ * the block, so it never copies one into a draft (ADR 0012). Returns the block's page when the
+ * summary changed and the page's SEO is generated, so the caller requests it again.
  */
-/** Saves a generated summary where the block's content lives: its shared content, or itself. */
-const saveSummary = Effect.fn("blocks.saveSummary")(function* (
-  db: Database,
-  scope: DraftScope,
-  blockId: string,
-  shared: SharedContentRow | null,
-  summary: string,
-) {
-  const updatedAt = Date.now();
-  if (!shared) {
-    yield* overlay.updateExisting(db, scope, blocks, blockId, { summary, updatedAt });
-    return;
-  }
-  yield* overlay.updateExisting(db, scope, sharedContents, shared.id, { summary, updatedAt });
-});
-
 export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
   db: Database,
   apiKey: string,
   blockId: string,
   scope: DraftScope,
   abortController?: AbortController,
-): Effect.fn.Return<{ pageId: string } | null> {
-  // A draft summarises only the blocks it holds; the others are Live's to summarise.
-  if (scope && !(yield* overlay.getStored(db, scope, blocks, blockId))) return null;
+): Effect.fn.Return<{ page: typeof pages.$inferSelect } | null> {
+  const startedAt = Date.now();
   const assembled = yield* assembleBlockContent(db, blockId, scope);
-  if (!assembled) return null;
+  if (!assembled?.projectId) return null;
 
-  const { block, content, contentSchema } = assembled;
+  const { block, content, contentSchema, projectId } = assembled;
   // A synced placement's summary is its shared content's.
   const owner = yield* contentOwnerOf(db, scope, block);
+  const key = summaryKeyOf(blockId, owner.shared);
+  const previous = (yield* readValue(db, scope, key)).value?.summary ?? "";
 
   const markdown =
     contentSchema?.toMarkdown && contentSchema?.properties
@@ -469,28 +468,19 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
 
   const summary = yield* generateObjectSummary(
     apiKey,
-    { type: block.type, markdown, previousSummary: block.summary },
+    { type: block.type, markdown, previousSummary: previous },
     abortController,
   );
 
-  yield* saveSummary(db, scope, blockId, owner.shared, summary);
+  const home = homeOf(scope, projectId);
+  yield* saveValue(db, home, key, { summary }, startedAt);
+  // The job ran through the placement: settle its request too.
+  if (owner.shared) yield* settleRequest(db, home, summaryKeyOf(blockId, null), startedAt);
 
-  // Check if we should cascade to page SEO
   const pageId = block.pageId;
-  if (summary !== block.summary && pageId && !scope) {
-    const page = yield* Effect.promise(() =>
-      db
-        .select()
-        .from(pages)
-        .where(and(eq(pages.id, pageId), overlay.storedIn(pages, null)))
-        .get(),
-    );
-    if (page?.aiSeoEnabled !== false) {
-      return { pageId };
-    }
-  }
-
-  return null;
+  if (summary === previous || !pageId) return null;
+  const page = yield* overlay.get(db, scope, pages, pageId);
+  return page && seoGenerated(page) ? { page } : null;
 });
 
 /**
@@ -505,8 +495,19 @@ export const runBlockSummaryJob = Effect.fn("blocks.runBlockSummaryJob")(functio
 ) {
   const scope = yield* draftScopeOfJob(db, job.draftId);
   if (scope === undefined) return null;
-  return yield* executeBlockSummary(db, apiKey, job.entityId, scope, abortController);
+  const stale = yield* executeBlockSummary(db, apiKey, job.entityId, scope, abortController);
+  return stale ? { ...stale, scope } : null;
 });
+
+/** Requests a block's summary in the scope it was written in (ADR 0012). */
+export const requestBlockSummary = (
+  ctx: GenerationDeps,
+  scope: DraftScope,
+  projectId: number,
+  blockId: string,
+  delayMs: number,
+) =>
+  requestGeneration(ctx, homeOf(scope, projectId), { entity: "block", entityId: blockId, delayMs });
 
 /**
  * Apply a partial content patch to a block, with replace-within-field semantics
@@ -723,7 +724,6 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
           fieldName,
           content: itemContent,
           settings: itemSettings,
-          summary: "",
           position,
           createdAt: now,
           updatedAt: now,
@@ -742,7 +742,6 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
               fieldName: seed.fieldName,
               content: seed.content,
               settings: seed.settings,
-              summary: "",
               position: seed.position,
               createdAt: now,
               updatedAt: now,
@@ -1145,7 +1144,6 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
     ...block,
     content: updated.content,
     settings: updated.settings,
-    summary: updated.summary,
   };
 });
 
@@ -1247,7 +1245,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     content: prepared.content,
     settings: prepared.settings,
     position,
-    summary: "",
     createdAt: now,
     updatedAt: now,
   });
@@ -1271,7 +1268,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
             fieldName: seed.fieldName,
             content: seed.content,
             settings: seed.settings,
-            summary: "",
             position: seed.position,
             createdAt: now,
             updatedAt: now,
@@ -1286,15 +1282,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   yield* adoptSharedContent(ctx, scope, result);
   yield* bumpLiveOwner(ctx, scope, { pageId });
 
-  ctx.waitUntil(
-    scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-      entityTable: "blocks",
-      entityId: result.id,
-      type: "summary",
-      delayMs: 0,
-      draftId: scope?.id ?? null,
-    }),
-  );
+  yield* requestBlockSummary(ctx, scope, access.page.projectId, result.id, 0);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1380,15 +1368,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
     scope,
   );
 
-  ctx.waitUntil(
-    scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-      entityTable: "blocks",
-      entityId: id,
-      type: "summary",
-      delayMs: 5000,
-      draftId: scope?.id ?? null,
-    }),
-  );
+  yield* requestBlockSummary(ctx, scope, access.projectId, id, 5000);
   // Granular invalidation: only refetch this block, not the entire page.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
@@ -1605,16 +1585,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
   const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
   const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
-  if (seoStale) {
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "pages",
-        entityId: seoStale.pageId,
-        type: "seo",
-        delayMs: 15000,
-      }),
-    );
-  }
+  if (seoStale) yield* requestPageSeo(ctx, scope, seoStale.page, 15000);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1659,13 +1630,19 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     content: original.content,
     settings: original.settings,
     slot: original.slot,
-    summary: original.summary,
     position,
     createdAt: now,
     updatedAt: now,
   });
   if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken." });
   yield* adoptSharedContent(ctx, scope, result);
+  yield* copyValue(
+    ctx.db,
+    scope,
+    homeOf(scope, access.projectId),
+    summaryKeyOf(original.id, null),
+    result.id,
+  );
   yield* bumpLiveOwner(ctx, scope, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
