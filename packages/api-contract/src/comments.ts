@@ -23,6 +23,20 @@ export const commentSchema = z.object({
   id: uuidv7Schema,
   pageId: uuidv7Schema,
   environmentId: z.number().int().positive(),
+  /** Where the comment was written: null for Live, seen in every draft, or the draft it's in. */
+  draftId: uuidv7Schema.nullable(),
+  /**
+   * The draft a Live comment was resolved from: publishing that draft resolves it, and
+   * discarding it clears this.
+   */
+  addressedIn: z
+    .object({
+      draftId: uuidv7Schema,
+      name: z.string().nullable(),
+      createdBy: z.object({ name: z.string() }),
+      createdAt: z.number(),
+    })
+    .nullable(),
   message: z.string(),
   resolved: z.boolean(),
   target: commentTargetSchema.nullable(),

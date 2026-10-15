@@ -269,6 +269,8 @@ CREATE INDEX `files_environment_idx` ON `files` (`environment_id`);--> statement
 CREATE TABLE `comments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`environment_id` integer NOT NULL,
+	`draft_id` text,
+	`addressed_in_draft_id` text,
 	`page_id` text NOT NULL,
 	`block_id` text,
 	`item_id` text,
@@ -278,6 +280,8 @@ CREATE TABLE `comments` (
 	`author_id` text NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`addressed_in_draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`page_id`) REFERENCES `pages`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`item_id`) REFERENCES `repeatable_items`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`author_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
@@ -287,6 +291,8 @@ CREATE INDEX `comments_page_idx` ON `comments` (`page_id`,`created_at`);--> stat
 CREATE INDEX `comments_environment_idx` ON `comments` (`environment_id`);--> statement-breakpoint
 CREATE INDEX `comments_block_idx` ON `comments` (`block_id`);--> statement-breakpoint
 CREATE INDEX `comments_item_idx` ON `comments` (`item_id`);--> statement-breakpoint
+CREATE INDEX `comments_draft_idx` ON `comments` (`draft_id`);--> statement-breakpoint
+CREATE INDEX `comments_addressed_in_draft_idx` ON `comments` (`addressed_in_draft_id`);--> statement-breakpoint
 CREATE TABLE `collection_definitions` (
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,

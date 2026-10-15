@@ -23,6 +23,8 @@ function comment(
     id,
     pageId: "7",
     environmentId: 1,
+    draftId: null,
+    addressedIn: null,
     message: `Message ${id}`,
     resolved: options.resolved ?? false,
     target,
