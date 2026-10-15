@@ -23,6 +23,7 @@ import {
   user,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import { rootOfItem, sharedContentItemsIn } from "../repeatable-items/roots";
 
 export const listCommentsInput = z.strictObject({ pageId: uuidv7Schema });
 /** The server mints the id; a client may mint one for an optimistic insert. */
@@ -141,9 +142,13 @@ const loadTargets = Effect.fn("loadTargets")(function* (
       .select()
       .from(repeatableItems)
       .where(
-        inArray(
-          repeatableItems.blockId,
-          ctx.db.select({ id: blocks.id }).from(blocks).where(scope),
+        or(
+          inArray(
+            repeatableItems.blockId,
+            ctx.db.select({ id: blocks.id }).from(blocks).where(scope),
+          ),
+          // Synced placements show their shared content's items.
+          sharedContentItemsIn(page.environmentId),
         ),
       ),
   );
@@ -162,6 +167,14 @@ const loadTargets = Effect.fn("loadTargets")(function* (
 
 type TargetLookups = Effect.Success<ReturnType<typeof loadTargets>>;
 
+/** Whether a block shows an item: its own, or its synced definition's shared content's. */
+function blockShows(block: typeof blocks.$inferSelect, item: typeof repeatableItems.$inferSelect) {
+  const root = rootOfItem(item);
+  if ("blockId" in root) return root.blockId === block.id;
+  const { environmentId, type } = root.sharedContent;
+  return environmentId === block.environmentId && type === block.type;
+}
+
 const validateTarget = Effect.fn("validateTarget")(function* (
   targets: TargetLookups,
   target: CommentTarget,
@@ -172,7 +185,7 @@ const validateTarget = Effect.fn("validateTarget")(function* (
     return yield* new InvalidInputError({ message: "Block does not belong to this page" });
   }
   const item = "itemId" in target ? targets.items.get(target.itemId) : undefined;
-  if ("itemId" in target && (!item || item.blockId !== block.id)) {
+  if ("itemId" in target && (!item || !blockShows(block, item))) {
     return yield* new InvalidInputError({ message: "Item does not belong to this block" });
   }
   if (!("fieldName" in target)) return;
@@ -182,7 +195,7 @@ const validateTarget = Effect.fn("validateTarget")(function* (
   let ancestor = item;
   const seen = new Set<string>();
   while (ancestor) {
-    if (seen.has(ancestor.id) || ancestor.blockId !== block.id) {
+    if (seen.has(ancestor.id) || !blockShows(block, ancestor)) {
       return yield* new InvalidInputError({ message: "Invalid item ancestry" });
     }
     seen.add(ancestor.id);

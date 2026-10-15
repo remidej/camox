@@ -111,7 +111,8 @@ function invalidatePage(ctx: ServiceContext, projectId: number, pageId: string) 
 // A page reads its current rows, whoever asks: an edit is visible right away.
 
 type BlockRow = typeof blocks.$inferSelect;
-type ItemRow = typeof repeatableItems.$inferSelect;
+/** An item as a page reads it, named under the block showing it. */
+type ItemRow = typeof repeatableItems.$inferSelect & { blockId: string };
 /** An item as the page view serves it, with its resolved references. */
 type ViewItem = ItemRow & { references: ResolvedReferences };
 type FileRow = typeof files.$inferSelect;

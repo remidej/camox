@@ -182,7 +182,8 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
-        syncKey: null,
+        environmentId: null,
+        sharedContentType: null,
         references: {},
       });
       markers.push({ _itemId: id });

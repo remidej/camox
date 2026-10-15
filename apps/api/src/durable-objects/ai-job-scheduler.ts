@@ -7,6 +7,7 @@ import { createDb } from "../db";
 import { executeBlockSummary } from "../domains/blocks/service";
 import { executeFileMetadata } from "../domains/files/service";
 import { executePageSeo } from "../domains/pages/ai";
+import { rootOfItem } from "../domains/repeatable-items/roots";
 import { executeRepeatableItemSummary } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
@@ -116,7 +117,13 @@ export class AiJobScheduler extends DurableObject<Bindings> {
         db.select().from(repeatableItems).where(eq(repeatableItems.id, entityId)).get(),
       );
       if (item) {
-        const projectId = yield* Effect.promise(() => this.getBlockProjectId(db, item.blockId));
+        // A shared content's item names its environment instead of a block.
+        const root = rootOfItem(item);
+        const projectId = yield* Effect.promise(() =>
+          "blockId" in root
+            ? this.getBlockProjectId(db, root.blockId)
+            : this.getEnvironmentProjectId(db, root.sharedContent.environmentId),
+        );
         if (projectId) {
           broadcastInvalidation({
             waitUntil: (p) => this.ctx.waitUntil(p),
@@ -160,6 +167,18 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       }
     }
   });
+
+  private async getEnvironmentProjectId(
+    db: ReturnType<typeof createDb>,
+    environmentId: number,
+  ): Promise<number | null> {
+    const result = await db
+      .select({ projectId: environments.projectId })
+      .from(environments)
+      .where(eq(environments.id, environmentId))
+      .get();
+    return result?.projectId ?? null;
+  }
 
   private async getBlockProjectId(
     db: ReturnType<typeof createDb>,

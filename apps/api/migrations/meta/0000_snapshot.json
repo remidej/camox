@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "63afe9cc-829e-4a8a-8314-454b1280355e",
+  "id": "5e077fd0-18e0-48f8-aade-a58ff7e151dd",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1288,6 +1288,81 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "shared_contents": {
+      "name": "shared_contents",
+      "columns": {
+        "environment_id": {
+          "name": "environment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "settings": {
+          "name": "settings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "shared_contents_environment_id_environments_id_fk": {
+          "name": "shared_contents_environment_id_environments_id_fk",
+          "tableFrom": "shared_contents",
+          "tableTo": "environments",
+          "columnsFrom": ["environment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "shared_contents_environment_id_type_pk": {
+          "columns": ["environment_id", "type"],
+          "name": "shared_contents_environment_id_type_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "repeatable_items": {
       "name": "repeatable_items",
       "columns": {
@@ -1302,18 +1377,25 @@
           "name": "block_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
-        "parent_item_id": {
-          "name": "parent_item_id",
+        "environment_id": {
+          "name": "environment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "shared_content_type": {
+          "name": "shared_content_type",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "sync_key": {
-          "name": "sync_key",
+        "parent_item_id": {
+          "name": "parent_item_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1385,6 +1467,11 @@
           "name": "repeatable_items_parent_idx",
           "columns": ["parent_item_id"],
           "isUnique": false
+        },
+        "repeatable_items_shared_content_idx": {
+          "name": "repeatable_items_shared_content_idx",
+          "columns": ["environment_id", "shared_content_type"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1395,6 +1482,15 @@
           "columnsFrom": ["block_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "repeatable_items_environment_id_environments_id_fk": {
+          "name": "repeatable_items_environment_id_environments_id_fk",
+          "tableFrom": "repeatable_items",
+          "tableTo": "environments",
+          "columnsFrom": ["environment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "repeatable_items_parent_item_id_repeatable_items_id_fk": {
@@ -1409,7 +1505,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "repeatable_items_one_root": {
+          "name": "repeatable_items_one_root",
+          "value": "(\"repeatable_items\".\"block_id\" is null) != (\"repeatable_items\".\"shared_content_type\" is null) and (\"repeatable_items\".\"environment_id\" is null) = (\"repeatable_items\".\"shared_content_type\" is null)"
+        }
+      }
     },
     "files": {
       "name": "files",

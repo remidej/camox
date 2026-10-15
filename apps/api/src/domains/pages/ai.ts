@@ -9,6 +9,7 @@ import type { Database } from "../../db";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
 import { conformBlocks } from "../_shared/conform-content";
+import { withSharedContent } from "../blocks/shared-content";
 
 // --- AI Executors ---
 
@@ -146,15 +147,16 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   }
 
   const blockIds = sorted.map((b) => b.id);
-  const storedItems =
+  const shown = yield* withSharedContent(
+    db,
+    sorted,
     blockIds.length > 0
-      ? sortByPosition(
-          yield* Effect.promise(() =>
-            db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
-          ),
+      ? yield* Effect.promise(() =>
+          db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
         )
-      : [];
-  const conformed = conformBlocks(definitions, sorted, storedItems);
+      : [],
+  );
+  const conformed = conformBlocks(definitions, shown.blocks, sortByPosition(shown.items));
   const allItems = conformed.items;
 
   nestChildItems(allItems);

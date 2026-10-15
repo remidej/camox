@@ -8,7 +8,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { blockDefinitions } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { applySyncedFlagChange } from "../blocks/synced";
+import { applyNewDefinitionSyncedFlag, applySyncedFlagChange } from "../blocks/shared-content";
 import { validateReferenceSchema } from "../collections/references";
 
 // --- Input Schemas ---
@@ -155,8 +155,7 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
       if (updated.synced !== existing.synced) {
         yield* applySyncedFlagChange(ctx, {
           projectId,
-          environmentId: environment.id,
-          type: def.blockId,
+          key: { environmentId: environment.id, type: def.blockId },
           synced: updated.synced,
         });
       }
@@ -185,14 +184,12 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
         .returning()
         .get(),
     );
-    if (created.synced) {
-      yield* applySyncedFlagChange(ctx, {
-        projectId,
-        environmentId: environment.id,
-        type: def.blockId,
-        synced: true,
-      });
-    }
+    // A definition that comes back finds its stored shared content, synced or not.
+    yield* applyNewDefinitionSyncedFlag(ctx, {
+      projectId,
+      key: { environmentId: environment.id, type: def.blockId },
+      synced: created.synced,
+    });
     results.push(created);
   }
 
@@ -274,8 +271,7 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
     if (result.synced !== existing.synced) {
       yield* applySyncedFlagChange(ctx, {
         projectId,
-        environmentId: environment.id,
-        type: body.blockId,
+        key: { environmentId: environment.id, type: body.blockId },
         synced: result.synced,
       });
     }
@@ -300,14 +296,11 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
       .returning()
       .get(),
   );
-  if (result.synced) {
-    yield* applySyncedFlagChange(ctx, {
-      projectId,
-      environmentId: environment.id,
-      type: body.blockId,
-      synced: true,
-    });
-  }
+  yield* applyNewDefinitionSyncedFlag(ctx, {
+    projectId,
+    key: { environmentId: environment.id, type: body.blockId },
+    synced: result.synced,
+  });
   return { ...result, action: "created" as const };
 });
 

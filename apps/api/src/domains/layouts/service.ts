@@ -13,7 +13,7 @@ import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
-import { syncBlockData } from "../blocks/synced";
+import { adoptSharedContent } from "../blocks/shared-content";
 import {
   hydrateItemReferences,
   hydrateReferences,
@@ -354,7 +354,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         }
       }
 
-      yield* syncBlockData(ctx, block.id, true);
+      yield* adoptSharedContent(ctx, block);
       entry.position = newPos;
       lastPos = newPos;
     }

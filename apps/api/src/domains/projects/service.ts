@@ -25,16 +25,18 @@ import {
   pages,
   projects,
   repeatableItems,
+  sharedContents,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
-import { syncBlockData } from "../blocks/synced";
+import { adoptSharedContent } from "../blocks/shared-content";
 import {
   referenceFields,
   resolveReferences,
   validateReferenceValues,
 } from "../collections/references";
 import { optimizedVideoKey } from "../files/video-optimization";
+import { itemsInEnvironment } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -285,15 +287,16 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   );
   const blockIds = blockRows.map((r) => r.id);
 
-  const repeatableItemRows =
-    blockIds.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select({ id: repeatableItems.id })
-            .from(repeatableItems)
-            .where(inArray(repeatableItems.blockId, blockIds)),
-        )
-      : [];
+  const projectEnvironmentIds = ctx.db
+    .select({ id: environments.id })
+    .from(environments)
+    .where(eq(environments.projectId, projectId));
+  const repeatableItemRows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: repeatableItems.id })
+      .from(repeatableItems)
+      .where(itemsInEnvironment(projectEnvironmentIds)),
+  );
   const repeatableItemIds = repeatableItemRows.map((r) => r.id);
 
   const fileRows = yield* Effect.promise(() =>
@@ -353,6 +356,11 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
       ctx.db.delete(repeatableItems).where(inArray(repeatableItems.id, repeatableItemIds)),
     );
   }
+  yield* Effect.promise(() =>
+    ctx.db
+      .delete(sharedContents)
+      .where(inArray(sharedContents.environmentId, projectEnvironmentIds)),
+  );
   if (blockIds.length > 0) {
     yield* Effect.promise(() => ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)));
   }
@@ -569,7 +577,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       }
     }
 
-    yield* syncBlockData(ctx, block.id, true);
+    yield* adoptSharedContent(ctx, block);
     blockCount++;
   }
 

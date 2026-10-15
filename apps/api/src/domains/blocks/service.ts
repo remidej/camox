@@ -35,6 +35,7 @@ import {
   pages,
   projects,
   repeatableItems,
+  sharedContents,
 } from "../../schema";
 import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
@@ -49,12 +50,24 @@ import {
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds } from "../pages/ai";
+import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
 import { type FieldSchema } from "./normalize-content";
 import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
-import { sharedPlacementId, syncBlockData } from "./synced";
+import {
+  adoptSharedContent,
+  broadcastSharedContentChange,
+  bumpPlacementOwners,
+  contentOwnerOf,
+  definitionOf,
+  sharedContentWhere,
+  sharedPlacementId,
+  shownBlock,
+  withSharedContent,
+  type SharedContentRow,
+} from "./shared-content";
 import { validateContent } from "./validate-content";
 
 // --- Input Schemas ---
@@ -357,12 +370,18 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
     : undefined;
 
   // Merge repeatable items into content
-  const storedItems = sortByPosition(
+  const shown = yield* withSharedContent(
+    db,
+    [stored],
     yield* Effect.promise(() =>
       db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
     ),
   );
-  const conformed = conformBlocks(new Map(def ? [[def.blockId, def]] : []), [stored], storedItems);
+  const conformed = conformBlocks(
+    new Map(def ? [[def.blockId, def]] : []),
+    shown.blocks,
+    sortByPosition(shown.items),
+  );
   const block = conformed.blocks[0];
   const items = conformed.items;
 
@@ -419,8 +438,15 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
     abortController,
   );
 
+  // A synced placement's summary is its shared content's.
+  const owner = yield* contentOwnerOf(db, block);
   yield* Effect.promise(() =>
-    db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId)),
+    owner.shared
+      ? db
+          .update(sharedContents)
+          .set({ summary, updatedAt: Date.now() })
+          .where(sharedContentWhere(owner.shared))
+      : db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId)),
   );
 
   // Check if we should cascade to page SEO
@@ -454,7 +480,7 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
  */
 const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   ctx: ServiceContext,
-  block: { id: string; content: unknown },
+  block: { root: ItemRoot; content: unknown },
   patch: Record<string, unknown>,
   contentSchema: unknown,
   now: number,
@@ -480,9 +506,9 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
       merged[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
       continue;
     }
-    if (allItems === null) allItems = yield* fetchBlockItems(ctx, block.id);
+    if (allItems === null) allItems = yield* fetchBlockItems(ctx, block.root);
     yield* applyRepeatableFieldPatch(ctx, {
-      blockId: block.id,
+      root: block.root,
       parentItemId: null,
       fieldName: key,
       newArray: value,
@@ -499,17 +525,15 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
 
 const fetchBlockItems = Effect.fn("fetchBlockItems")(function* (
   ctx: ServiceContext,
-  blockId: string,
+  root: ItemRoot,
 ) {
-  return yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
-  );
+  return yield* Effect.promise(() => ctx.db.select().from(repeatableItems).where(itemsUnder(root)));
 });
 
 const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(function* (
   ctx: ServiceContext,
   args: {
-    blockId: string;
+    root: ItemRoot;
     parentItemId: string | null;
     fieldName: string;
     newArray: unknown;
@@ -521,7 +545,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
   },
 ): Effect.fn.Return<void, ServiceError> {
   const {
-    blockId,
+    root,
     parentItemId,
     fieldName,
     newArray,
@@ -592,7 +616,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
         const subSchema = itemSchemaProps?.[k];
         if (subSchema?.fieldType === "Repeater") {
           yield* applyRepeatableFieldPatch(ctx, {
-            blockId,
+            root,
             parentItemId: itemId,
             fieldName: k,
             newArray: v,
@@ -650,7 +674,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
           ctx.db
             .insert(repeatableItems)
             .values({
-              blockId,
+              ...rootColumns(root),
               parentItemId,
               fieldName,
               content: itemContent,
@@ -675,7 +699,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
               ctx.db
                 .insert(repeatableItems)
                 .values({
-                  blockId,
+                  ...rootColumns(root),
                   parentItemId: seedParent,
                   fieldName: seed.fieldName,
                   content: seed.content,
@@ -715,10 +739,14 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     ctx.db.select().from(blocks).where(eq(blocks.id, id)).get(),
   );
   if (!stored) return yield* new NotFoundError();
-  const storedItems = yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, stored.id)),
+  const shown = yield* withSharedContent(
+    ctx.db,
+    [stored],
+    yield* Effect.promise(() =>
+      ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, stored.id)),
+    ),
   );
-  const conformed = yield* conformBlocksIn(ctx, stored, [stored], storedItems);
+  const conformed = yield* conformBlocksIn(ctx, stored, shown.blocks, shown.items);
   const block = conformed.blocks[0];
   const sorted = conformed.items.sort((a, b) => comparePositions(a.position, b.position));
 
@@ -795,7 +823,10 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
 });
 
 type RenderableBlock = typeof blocks.$inferSelect;
-type RenderableItem = typeof repeatableItems.$inferSelect & { references?: ResolvedReferences };
+type RenderableItem = typeof repeatableItems.$inferSelect & {
+  blockId: string;
+  references?: ResolvedReferences;
+};
 
 /**
  * Renders each block's Markdown Representation, resolving its references and files.
@@ -1027,12 +1058,43 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const id = yield* sharedPlacementId(ctx, environment.id, type);
+  const id = yield* sharedPlacementId(ctx.db, { environmentId: environment.id, type });
   if (id === null) return null;
   return yield* getBlock(ctx, { id });
 });
 
 // --- Writes ---
+
+/**
+ * Writes a block's content or settings where they live: the block itself, or its synced
+ * definition's shared content, which every placement shows. Returns the block as readers see it.
+ */
+const writeBlockData = Effect.fn("writeBlockData")(function* (
+  ctx: ServiceContext,
+  access: { block: typeof blocks.$inferSelect; projectId: number },
+  shared: SharedContentRow | null,
+  values: { content?: unknown; settings?: unknown; updatedAt: number },
+) {
+  const { block, projectId } = access;
+  if (!shared) {
+    const result = yield* Effect.promise(() =>
+      ctx.db.update(blocks).set(values).where(eq(blocks.id, block.id)).returning().get(),
+    );
+    yield* bumpContentUpdatedAt(ctx.db, block);
+    return result;
+  }
+  const updated = yield* Effect.promise(() =>
+    ctx.db.update(sharedContents).set(values).where(sharedContentWhere(shared)).returning().get(),
+  );
+  yield* bumpPlacementOwners(ctx.db, definitionOf(shared));
+  broadcastSharedContentChange(ctx, projectId, shared.type);
+  return {
+    ...block,
+    content: updated.content,
+    settings: updated.settings,
+    summary: updated.summary,
+  };
+});
 
 export const createBlock = Effect.fn("blocks.createBlock")(function* (
   ctx: ServiceContext,
@@ -1166,7 +1228,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     }
   }
 
-  yield* syncBlockData(ctx, result.id, true);
+  yield* adoptSharedContent(ctx, result);
   yield* bumpContentUpdatedAt(ctx.db, { pageId });
 
   ctx.waitUntil(
@@ -1191,9 +1253,10 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     ],
   });
 
-  const created = (yield* Effect.promise(() =>
+  const stored = (yield* Effect.promise(() =>
     ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get(),
   ))!;
+  const created = yield* shownBlock(ctx.db, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 });
 
@@ -1236,19 +1299,18 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
   const patch = yield* prepareContentPatch(content, contentSchema);
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
   yield* validateReferenceValues(ctx, yield* blockScope(ctx, access.block), contentSchema, patch);
-  const merged = yield* applyContentPatch(ctx, access.block, patch, contentSchema, now);
-
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(blocks)
-      .set({ content: merged, updatedAt: now })
-      .where(eq(blocks.id, id))
-      .returning()
-      .get(),
+  const owner = yield* contentOwnerOf(ctx.db, access.block);
+  const merged = yield* applyContentPatch(
+    ctx,
+    { root: owner.root, content: (owner.shared ?? access.block).content },
+    patch,
+    contentSchema,
+    now,
   );
-
-  yield* syncBlockData(ctx, id);
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
+  const result = yield* writeBlockData(ctx, access, owner.shared, {
+    content: merged,
+    updatedAt: now,
+  });
 
   ctx.waitUntil(
     scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
@@ -1286,20 +1348,15 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
 
   const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id);
   yield* validateContent(settings, schemas?.settingsSchema, { path: "settings" });
+  const owner = yield* contentOwnerOf(ctx.db, access.block);
   const merged = {
-    ...(access.block.settings as Record<string, unknown> | null),
+    ...((owner.shared ?? access.block).settings as Record<string, unknown> | null),
     ...(settings as Record<string, unknown>),
   };
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(blocks)
-      .set({ settings: merged, updatedAt: Date.now() })
-      .where(eq(blocks.id, id))
-      .returning()
-      .get(),
-  );
-  yield* syncBlockData(ctx, id);
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
+  const result = yield* writeBlockData(ctx, access, owner.shared, {
+    settings: merged,
+    updatedAt: Date.now(),
+  });
   // Granular invalidation: only refetch this block, not the entire page.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
@@ -1377,7 +1434,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return result;
+  return yield* shownBlock(ctx.db, result);
 });
 
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
@@ -1531,7 +1588,7 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
       .returning()
       .get(),
   );
-  yield* syncBlockData(ctx, result.id, true);
+  yield* adoptSharedContent(ctx, result);
   yield* bumpContentUpdatedAt(ctx.db, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
@@ -1546,5 +1603,5 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return result;
+  return yield* shownBlock(ctx.db, result);
 });

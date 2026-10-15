@@ -1313,7 +1313,8 @@ void test("repeatable items place records of their own, selected and linked per 
     position: `a${id}`,
     createdAt: 0,
     updatedAt: 0,
-    syncKey: null,
+    environmentId: null,
+    sharedContentType: null,
     references,
   });
   const items = [

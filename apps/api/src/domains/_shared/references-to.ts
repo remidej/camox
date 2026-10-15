@@ -2,13 +2,18 @@ import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { itemsInEnvironment } from "../repeatable-items/roots";
 
 /** What content can reference: a collection record by its id, or a file by its `_fileId`. */
 export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; id: string };
 
-/** Content that references a target: a block, a repeatable item, or another collection record. */
+/**
+ * Content that references a target: a block, a synced definition's shared content (by its
+ * definition's name), a repeatable item, or another collection record.
+ */
 export type ReferencingContent =
   | { kind: "block"; id: string }
+  | { kind: "sharedContent"; id: string }
   | { kind: "repeatableItem"; id: string }
   | { kind: "record"; id: string };
 
@@ -35,9 +40,12 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
       select 'block' as kind, b.id as id from blocks b
       where b.environment_id = ${scope.environmentId} and ${matches(sql.raw("b.content"))}
       union all
-      select 'repeatableItem', i.id from repeatable_items i
-      join blocks b on b.id = i.block_id
-      where b.environment_id = ${scope.environmentId} and ${matches(sql.raw("i.content"))}
+      select 'sharedContent', s.type from shared_contents s
+      where s.environment_id = ${scope.environmentId} and ${matches(sql.raw("s.content"))}
+      union all
+      select 'repeatableItem', repeatable_items.id from repeatable_items
+      where ${itemsInEnvironment(scope.environmentId)}
+        and ${matches(sql.raw("repeatable_items.content"))}
       union all
       select 'record', r.id from collection_records r
       join collection_definitions d

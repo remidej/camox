@@ -436,7 +436,8 @@ void test("repeatable items render the records they link, at any repeater depth"
     position: "a0",
     createdAt: 0,
     updatedAt: 0,
-    syncKey: null,
+    environmentId: null,
+    sharedContentType: null,
     references,
   });
   const html = renderToStaticMarkup(
