@@ -59,6 +59,7 @@ const conflictedPreview = {
       liveVersion: 3,
       publishedBy: { id: "user-2", name: "Ada" },
       publishedAt: Date.UTC(2026, 9, 13),
+      release: false,
     },
   ],
   token: "token-2",
@@ -224,6 +225,21 @@ void test("shows the new conflicts when Live changed since the preview, then pub
     );
     assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);
     assert.equal(getCurrentDraftId(), null);
+  } finally {
+    await close();
+  }
+});
+
+void test("shows a conflict a release made as changed by a release", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...conflictedPreview,
+      conflicts: [{ ...conflictedPreview.conflicts[0], publishedBy: null, release: true }],
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /Hero on .*: changed by a release/);
   } finally {
     await close();
   }
