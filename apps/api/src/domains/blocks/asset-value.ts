@@ -1,11 +1,25 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
+
 /** Persist only managed file references; hydrated URLs and placeholders are render-only. */
-export function sanitizeAssetValue(value: unknown): { _fileId: number } | null {
+export function sanitizeAssetValue(value: unknown): { _fileId: string } | null {
+  const fileId = uuidv7Schema.safeParse(assetFileId(value));
+  if (!fileId.success) return null;
+  return { _fileId: fileId.data };
+}
+
+/**
+ * What validation sees of an asset: hydrated shapes without a file reference read as
+ * null, but a file reference is kept as given, so one that isn't a UUIDv7 is rejected.
+ */
+export function projectAssetValue(value: unknown): { _fileId: unknown } | null {
+  const fileId = assetFileId(value);
+  if (fileId == null) return null;
+  return { _fileId: fileId };
+}
+
+function assetFileId(value: unknown): unknown {
   if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
-  const raw = (value as Record<string, unknown>)._fileId;
-  if (raw == null) return null;
-  const id = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(id)) return null;
-  return { _fileId: id };
+  return (value as Record<string, unknown>)._fileId;
 }
 
 export function normalizeFieldValue(value: unknown, fieldType: string | undefined): unknown {

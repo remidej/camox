@@ -7,14 +7,14 @@ import { collectionRecords, collectionRevisions } from "./schema";
 
 /** Run before touching R2: history must not lose assets through the media library. */
 export const assertNoCollectionAssetUse = Effect.fn("collections.assertNoCollectionAssetUse")(
-  function* (db: Database, ids: number[]) {
+  function* (db: Database, ids: string[]) {
     for (const id of ids) {
       const draft = yield* Effect.promise(() =>
         db
           .select({ id: collectionRecords.id })
           .from(collectionRecords)
           .where(
-            sql`exists (select 1 from json_tree(${collectionRecords.draft}) where key = '_fileId' and value = ${String(id)})`,
+            sql`exists (select 1 from json_tree(${collectionRecords.draft}) where key = '_fileId' and value = ${id})`,
           )
           .get(),
       );
@@ -23,7 +23,7 @@ export const assertNoCollectionAssetUse = Effect.fn("collections.assertNoCollect
           .select({ id: collectionRevisions.id })
           .from(collectionRevisions)
           .where(
-            sql`exists (select 1 from json_tree(${collectionRevisions.content}) where key = '_fileId' and value = ${String(id)})`,
+            sql`exists (select 1 from json_tree(${collectionRevisions.content}) where key = '_fileId' and value = ${id})`,
           )
           .get(),
       );

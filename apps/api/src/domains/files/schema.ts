@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { index, int, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { environments, projects } from "../projects/schema";
@@ -5,7 +6,7 @@ import { environments, projects } from "../projects/schema";
 export const files = sqliteTable(
   "files",
   {
-    id: int().primaryKey({ autoIncrement: true }),
+    id: text().primaryKey().$defaultFn(generateUuidv7),
     projectId: int("project_id").references(() => projects.id),
     environmentId: int("environment_id")
       .notNull()

@@ -1,10 +1,11 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { z } from "zod";
 
 export const collectionSelection = z
   .array(
     z
       .object({
-        id: z.uuid(),
+        id: uuidv7Schema,
         collectionId: z.string(),
         expectedVersion: z.number().int().positive(),
       })
@@ -12,7 +13,7 @@ export const collectionSelection = z
   )
   .default([]);
 /** The record a record page renders, which its layout's publication can include. */
-export const pageRecordInput = z.object({ collectionId: z.string(), id: z.uuid() }).strict();
+export const pageRecordInput = z.object({ collectionId: z.string(), id: uuidv7Schema }).strict();
 export const pageReferenceTargetsInput = z.object({
   id: z.number(),
   /** Also publish the page's layout. */

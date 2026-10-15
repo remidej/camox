@@ -135,10 +135,10 @@ export function isNotFoundError(error: unknown): boolean {
   return code === "NOT_FOUND" || status === 404;
 }
 
-function visitForFileIds(value: unknown, ids: Set<number>) {
+function visitForFileIds(value: unknown, ids: Set<string>) {
   if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "number") {
-    ids.add((value as { _fileId: number })._fileId);
+  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "string") {
+    ids.add((value as { _fileId: string })._fileId);
     return;
   }
   if (Array.isArray(value)) {
@@ -150,7 +150,7 @@ function visitForFileIds(value: unknown, ids: Set<number>) {
   }
 }
 
-function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<number>) {
+function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<string>) {
   for (const value of Object.values(content)) {
     visitForFileIds(value, ids);
   }
@@ -165,7 +165,7 @@ export function seedBlockCaches(
 
   for (const block of pageData.blocks) {
     const blockItems = pageData.repeatableItems.filter((i) => i.blockId === block.id);
-    const fileIds = new Set<number>();
+    const fileIds = new Set<string>();
     collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
     for (const item of blockItems) {
       collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);

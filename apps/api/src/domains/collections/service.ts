@@ -1,3 +1,4 @@
+import { generateUuidv7, uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, desc, eq, exists, isNotNull, notInArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -189,12 +190,16 @@ export const listCollectionRecordsInput = listCollectionDefinitionsInput.extend(
 });
 export const getCollectionDefinitionInput = listCollectionRecordsInput;
 const scopeInput = listCollectionRecordsInput;
-const recordInput = scopeInput.extend({ id: z.uuid() });
+const recordInput = scopeInput.extend({ id: uuidv7Schema });
 const mutationInput = recordInput.extend({ expectedVersion: z.number().int().positive() });
 export const getCollectionRecordInput = recordInput;
 /** A record's published revision, joined next to the record. */
 const publishedRevisions = alias(collectionRevisions, "published_revisions");
-export const createRecordInput = scopeInput.extend({ content: z.unknown() });
+/** The server mints the id; a client may mint one for an optimistic insert. */
+export const createRecordInput = scopeInput.extend({
+  id: uuidv7Schema.optional(),
+  content: z.unknown(),
+});
 export const editRecordInput = mutationInput.extend({ content: z.unknown() });
 export const deleteRecordInput = mutationInput;
 export const publishRecordInput = mutationInput;
@@ -342,7 +347,7 @@ function assertActive(definition: typeof collectionDefinitions.$inferSelect) {
 
 export const createRecord = Effect.fn("collections.createRecord")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof scopeInput> & { content: unknown },
+  rawInput: z.input<typeof createRecordInput>,
 ) {
   const input = yield* decodeInput(createRecordInput, rawInput);
   const definition = yield* definitionFor(ctx, input, true);
@@ -357,7 +362,7 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
       .select(
         ctx.db
           .select({
-            id: sql<string>`${crypto.randomUUID()}`.as("id"),
+            id: sql<string>`${input.id ?? generateUuidv7()}`.as("id"),
             environmentId: collectionDefinitions.environmentId,
             collectionId: collectionDefinitions.collectionId,
             draft: sql<Record<string, unknown>>`${JSON.stringify(draft)}`.as("draft"),

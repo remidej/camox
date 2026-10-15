@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { validateContent } from "./validate-content";
 
+const FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+const OTHER_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c";
+
 const string = { type: "string", fieldType: "String", minLength: 2, maxLength: 8 };
 const image = {
   type: "object",
@@ -248,8 +251,8 @@ describe("validateContent", () => {
 
   it("projects stored and hydrated assets without changing either input", () => {
     const value = {
-      image: { _fileId: "42", url: "invented", alt: "extra" },
-      images: [null, { _fileId: 3 }, { url: "placeholder" }],
+      image: { _fileId: FILE_ID, url: "invented", alt: "extra" },
+      images: [null, { _fileId: OTHER_FILE_ID }, { url: "placeholder" }],
     };
     const assets = {
       properties: {
@@ -270,9 +273,14 @@ describe("validateContent", () => {
     ).toThrow();
   });
 
-  it.each([null, "url", {}, { _fileId: "invalid" }, { url: "placeholder" }])(
+  it.each([null, "url", {}, { url: "placeholder" }])(
     "accepts assets that the normalizer turns into null: %j",
     (image) => Effect.runSync(validateContent({ image }, schema)),
+  );
+
+  it.each([{ _fileId: "invalid" }, { _fileId: 42 }, { _fileId: crypto.randomUUID() }])(
+    "rejects a file reference that isn't a UUIDv7: %j",
+    (image) => expect(() => Effect.runSync(validateContent({ image }, schema))).toThrow(),
   );
 
   it("requires fresh repeatable items, but not asset render placeholders", () => {

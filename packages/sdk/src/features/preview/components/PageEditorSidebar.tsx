@@ -310,7 +310,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
         ]),
       );
     }
-    const resolveFile = (marker: { _fileId: number }) => {
+    const resolveFile = (marker: { _fileId: string }) => {
       const file = filesMap.get(marker._fileId);
       return file
         ? {

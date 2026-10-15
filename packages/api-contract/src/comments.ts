@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { uuidv7Schema } from "./ids.ts";
+
 export const COMMENT_MESSAGE_MAX_LENGTH = 10_000;
 
 const objectId = z.number().int().positive();
@@ -19,7 +21,7 @@ export const commentTargetSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const commentSchema = z.object({
-  id: z.uuid(),
+  id: uuidv7Schema,
   pageId: objectId,
   environmentId: objectId,
   message: z.string(),

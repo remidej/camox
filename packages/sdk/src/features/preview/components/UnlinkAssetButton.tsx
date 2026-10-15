@@ -17,7 +17,7 @@ import { fileMutations, fileQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 interface UnlinkAssetButtonProps {
-  fileId: number | undefined;
+  fileId: string | undefined;
   onUnlink: () => void;
   className?: string;
   persisted?: boolean;

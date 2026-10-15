@@ -6,6 +6,7 @@ import { integer, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { cwdFlag } from "../lib/runtime-options";
+import { uuidv7 } from "../lib/uuidv7";
 
 const common = {
   cwd: cwdFlag,
@@ -31,7 +32,7 @@ export const parser = command(
       object({
         command: constant("comments.resolve" as const),
         pageId: option("--page-id", integer({ min: 1, metavar: "ID" })),
-        id: option("--id", string({ metavar: "UUID" })),
+        id: option("--id", uuidv7()),
         ...common,
       }),
       {

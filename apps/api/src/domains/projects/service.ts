@@ -343,15 +343,7 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
         ]
       : []),
     ...(fileIds.length > 0
-      ? [
-          and(
-            eq(aiJobs.entityTable, "files"),
-            inArray(
-              aiJobs.entityId,
-              fileIds.map((id) => String(id)),
-            ),
-          ),
-        ]
+      ? [and(eq(aiJobs.entityTable, "files"), inArray(aiJobs.entityId, fileIds))]
       : []),
   ];
   if (aiJobConditions.length > 0) {

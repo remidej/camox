@@ -41,7 +41,7 @@ const AssetPickerModal = ({
     ...fileQueries.list(project?.id ?? 0),
     enabled: !!project,
   });
-  const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [lightboxFile, setLightboxFile] = React.useState<File | null>(null);
 
   React.useEffect(() => {
@@ -58,7 +58,7 @@ const AssetPickerModal = ({
     return allFiles.filter((f) => f.mimeType?.startsWith("image/"));
   }, [allFiles, isImage]);
 
-  const toggleSelection = (fileId: number) => {
+  const toggleSelection = (fileId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(fileId)) {
