@@ -74,7 +74,10 @@ const drafts = [
     changeCount: 2,
   },
 ];
-const list = { live: { publishedBy: ada, publishedAt: Date.now() - 2 * DAY }, drafts };
+const list = {
+  live: { publishedBy: ada, publishedAt: Date.now() - 2 * DAY, release: false },
+  drafts,
+};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify({ json: body }), {
@@ -220,6 +223,18 @@ void test("lists Live with its last publisher and every open regular draft with 
   assert.match(itemNamed(/Spring campaign/)?.textContent ?? "", /Rémi · 3 days ago · 4 changes/);
   assert.match(itemNamed(/Ada, Oct 13/)?.textContent ?? "", /Ada · .* · 1 change/);
   assert.doesNotMatch(switchTo, /Development draft/);
+});
+
+void test("says a release published Live when a release wrote it last", async (t) => {
+  mockApi(t, (path) =>
+    path === "drafts/list"
+      ? json({ drafts, live: { publishedBy: null, publishedAt: Date.now() - DAY, release: true } })
+      : undefined,
+  );
+  await render(t, null);
+  await click(trigger());
+
+  assert.match(itemNamed(/^Live/)?.textContent ?? "", /Published yesterday by a release/);
 });
 
 void test("picking a draft or Live navigates there", async (t) => {

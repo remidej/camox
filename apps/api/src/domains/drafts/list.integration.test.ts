@@ -4,9 +4,16 @@ import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createRpcContext,
+  createServiceContext,
+} from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { drafts, member, pages, user } from "../../schema";
+import { syncBlockDefinitions } from "../block-definitions/service";
+import { syncLayouts } from "../layouts/service";
 
 const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
   // Modules loaded by earlier test files would keep the real broadcaster.
@@ -163,7 +170,7 @@ describe("listing drafts", () => {
 
   it("says who published Live last and when, from the most recently published Live content", async () => {
     const { ada, me, createBlock, list, publish } = await fixture();
-    expect((await list()).live).toEqual({ publishedBy: null, publishedAt: null });
+    expect((await list()).live).toEqual({ publishedBy: null, publishedAt: null, release: false });
 
     const first = generateUuidv7();
     await createBlock(me, startingDraft(first));
@@ -186,6 +193,51 @@ describe("listing drafts", () => {
     await publish(development);
 
     expect((await list()).live.publishedBy).toEqual({ id: me.id, name: "Member" });
+  });
+
+  it("counts a release writing Live as Live's latest publish, by a release", async () => {
+    const { db, project, me, createBlock, list, publish } = await fixture();
+    const draft = generateUuidv7();
+    await createBlock(me, startingDraft(draft));
+    await publish(draft);
+    const build = createServiceContext(db, null);
+    const token = {
+      projectSlug: project.slug,
+      deployToken: project.deployToken,
+      autoCreate: false,
+    };
+    await runService(
+      syncBlockDefinitions(build, {
+        ...token,
+        definitions: [
+          {
+            blockId: "banner",
+            title: "Banner",
+            description: "Banner",
+            layoutOnly: true,
+            contentSchema: { type: "object", properties: {}, toMarkdown: [] },
+          },
+        ],
+      }),
+    );
+    const before = Date.now();
+    await runService(
+      syncLayouts(build, {
+        ...token,
+        layouts: [
+          {
+            layoutId: "default",
+            description: "default",
+            blocks: [{ type: "banner", content: {} }],
+          },
+        ],
+      }),
+    );
+
+    const { live } = await list();
+
+    expect(live).toMatchObject({ publishedBy: null, release: true });
+    expect(live.publishedAt).toBeGreaterThanOrEqual(before);
   });
 
   it("is refused to people outside the project", async () => {

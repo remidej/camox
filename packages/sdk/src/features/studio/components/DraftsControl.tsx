@@ -17,7 +17,7 @@ import * as React from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { AuthContext } from "@/lib/auth";
-import { draftQueries, projectQueries, type DraftSummary } from "@/lib/queries";
+import { draftQueries, projectQueries, type DraftList, type DraftSummary } from "@/lib/queries";
 import { onDraftStarted } from "@/lib/studio-draft";
 
 import { draftLabel, plural, timeAgo } from "../draftLabel";
@@ -123,11 +123,7 @@ export function DraftsControl() {
               <DropdownMenuRadioItem value={LIVE} closeOnClick>
                 <div className="flex flex-col">
                   <span>Live</span>
-                  <span className="text-muted-foreground text-xs">
-                    {live?.publishedAt && live.publishedBy
-                      ? `Published ${timeAgo(live.publishedAt)} by ${live.publishedBy.name}`
-                      : "Never published"}
-                  </span>
+                  <span className="text-muted-foreground text-xs">{liveLine(live)}</span>
                 </div>
               </DropdownMenuRadioItem>
               {regular.map((listed) => (
@@ -156,6 +152,13 @@ export function DraftsControl() {
       )}
     </>
   );
+}
+
+/** Who published Live last and when: a member, a release, or nobody yet. */
+function liveLine(live: DraftList["live"] | undefined): string {
+  if (!live?.publishedAt) return "Never published";
+  const by = live.publishedBy ? live.publishedBy.name : "a release";
+  return `Published ${timeAgo(live.publishedAt)} by ${by}`;
 }
 
 function DraftItem({ draft }: { draft: DraftSummary }) {

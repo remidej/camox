@@ -31,8 +31,11 @@ export type DraftSummary = {
 };
 
 export type DraftList = {
-  /** Who published Live last and when, or nulls when nothing was ever published. */
-  live: { publishedBy: Person | null; publishedAt: number | null };
+  /**
+   * Who published Live last and when, or nulls when nothing was ever published. A release
+   * publishes with no member (`release`), like a release's conflicts.
+   */
+  live: { publishedBy: Person | null; publishedAt: number | null; release: boolean };
   drafts: DraftSummary[];
 };
 
@@ -111,11 +114,13 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
   summaries.sort((a, b) => (b.lastChangedAt ?? b.createdAt) - (a.lastChangedAt ?? a.createdAt));
 
   const latest = yield* overlay.latestLivePublish(ctx.db, projectId);
-  const person = yield* namesOf(ctx.db, latest ? [latest.publishedBy] : []);
+  const publisher = latest?.publishedBy ?? null;
+  const person = yield* namesOf(ctx.db, publisher ? [publisher] : []);
   return {
     live: {
-      publishedBy: latest ? person(latest.publishedBy) : null,
+      publishedBy: publisher ? person(publisher) : null,
       publishedAt: latest?.publishedAt ?? null,
+      release: !!latest && !publisher,
     },
     drafts: summaries,
   } satisfies DraftList;

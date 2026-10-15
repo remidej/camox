@@ -558,25 +558,26 @@ export const activityOf = Effect.fn("overlay.activityOf")(function* (
 
 /**
  * Who published Live's most recently published content in a project, and when: the latest
- * publish of any draft, development drafts included. Null when nothing was ever published.
+ * publish of any draft, development drafts included, or a release, which has no publisher.
+ * Null when nothing was ever published.
  */
 export const latestLivePublish = Effect.fn("overlay.latestLivePublish")(function* (
   db: Database,
   projectId: number,
 ) {
-  let latest: { publishedBy: string; publishedAt: number } | null = null;
+  let latest: { publishedBy: string | null; publishedAt: number } | null = null;
   for (const table of tables()) {
     const row = yield* Effect.promise(() =>
       db
         .select({
-          publishedBy: sql<string>`${table.publishedBy}`,
+          publishedBy: sql<string | null>`${table.publishedBy}`,
           publishedAt: sql<number>`${table.publishedAt}`,
         })
         .from(table as SQLiteTable)
         .where(
           and(
             isNull(table.draftId),
-            sql`${table.publishedAt} is not null and ${table.publishedBy} is not null`,
+            sql`${table.publishedAt} is not null`,
             registrationOf(table).inProject(projectId),
           ),
         )
