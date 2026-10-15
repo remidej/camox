@@ -1,4 +1,4 @@
-import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
@@ -271,6 +271,27 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
       .where(and(storedIn(table, scope), eq(table.id, id))),
   );
   return shown;
+});
+
+/**
+ * The ids among `ids` that Live or any draft still holds as an entity, tombstones aside: what
+ * points at these entities still has a reader, so it must stay.
+ */
+export const idsHeldAnywhere = Effect.fn("overlay.idsHeldAnywhere")(function* (
+  db: Database,
+  table: ContentTable,
+  ids: string[],
+) {
+  registrationOf(table);
+  if (ids.length === 0) return new Set<string>();
+  const rows = yield* Effect.promise(
+    () =>
+      db
+        .selectDistinct({ id: table.id })
+        .from(table as SQLiteTable)
+        .where(and(inArray(table.id, ids), eq(table.deleted, false))) as Promise<{ id: string }[]>,
+  );
+  return new Set(rows.map((row) => row.id));
 });
 
 /**

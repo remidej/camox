@@ -142,16 +142,25 @@ const bumpLiveOwner = (ctx: ServiceContext, scope: DraftScope, parent: BlockPare
 type BlockParent = Parameters<typeof bumpContentUpdatedAt>[1];
 
 /**
- * Deleting a Live block deletes the repeatable items it owns and unanchors its comments, which
- * hold no foreign key to it (ADR 0005).
+ * Once no scope holds a deleted block any more, deletes the repeatable items it owns and
+ * unanchors its comments, which hold no foreign key to it and live in Live (ADR 0005). A block
+ * deleted on Live keeps them while a draft's copy still shows it; a block a draft created takes
+ * them along when the draft deletes it.
  */
-const deleteLiveBlockDependents = (ctx: ServiceContext, blockIds: string[]) =>
-  Effect.promise(() =>
+const deleteBlockDependents = Effect.fn("blocks.deleteBlockDependents")(function* (
+  ctx: ServiceContext,
+  blockIds: string[],
+) {
+  const held = yield* overlay.idsHeldAnywhere(ctx.db, blocks, blockIds);
+  const gone = blockIds.filter((id) => !held.has(id));
+  if (gone.length === 0) return;
+  yield* Effect.promise(() =>
     ctx.db.batch([
-      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
-      ctx.db.update(comments).set({ blockId: null }).where(inArray(comments.blockId, blockIds)),
+      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, gone)),
+      ctx.db.update(comments).set({ blockId: null }).where(inArray(comments.blockId, gone)),
     ]),
   );
+});
 
 /**
  * Reduce high-level positioning helpers (`afterId`, `beforeId`, `position`) to
@@ -1502,7 +1511,7 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
 
   // In a draft, a tombstone hides the block from the draft only.
   const result = yield* overlay.remove(ctx.db, scope, blocks, id);
-  if (!scope) yield* deleteLiveBlockDependents(ctx, [id]);
+  yield* deleteBlockDependents(ctx, [id]);
   yield* bumpLiveOwner(ctx, scope, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
@@ -1557,7 +1566,7 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     const removed = yield* overlay.remove(ctx.db, scope, blocks, id);
     if (removed) result.push(removed);
   }
-  if (!scope) yield* deleteLiveBlockDependents(ctx, blockIds);
+  yield* deleteBlockDependents(ctx, blockIds);
   const projectId = authorizedBlocks[0]?.projectId;
   if (projectId) {
     broadcastInvalidation({

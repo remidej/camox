@@ -11,7 +11,7 @@ import {
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blocks, pages } from "../../schema";
+import { blocks, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 
 const { broadcastInvalidation } = vi.hoisted(() => ({ broadcastInvalidation: vi.fn() }));
@@ -279,6 +279,43 @@ describe("block procedures in the draft a request names", () => {
 
     const shown = await call(router.blocks.get, { id: created.id }, member(inDraft(draft)));
     expect(shown.repeatableItems.map((shownItem) => shownItem.id)).toEqual([item.id]);
+  });
+
+  it("keeps the repeatable items of a block deleted on Live while a draft's copy shows them", async () => {
+    const { member, createBlock, editTitle } = await fixture();
+    const block = await createBlock("Live");
+    const item = await call(
+      router.repeatableItems.create,
+      { blockId: block.id, fieldName: "links", content: { label: "Docs" } },
+      member(),
+    );
+    const draft = generateUuidv7();
+    await editTitle(block.id, "Draft", startingDraft(draft));
+
+    await call(router.blocks.delete, { id: block.id }, member());
+
+    const shown = await call(router.blocks.get, { id: block.id }, member(inDraft(draft)));
+    expect(shown.repeatableItems.map((shownItem) => shownItem.id)).toEqual([item.id]);
+  });
+
+  it("deletes the repeatable items of a block the draft created along with it", async () => {
+    const { db, member, createBlock } = await fixture();
+    const draft = generateUuidv7();
+    const created = await createBlock("Created", startingDraft(draft));
+    const item = await call(
+      router.repeatableItems.create,
+      { blockId: created.id, fieldName: "links", content: { label: "Docs" } },
+      member(inDraft(draft)),
+    );
+
+    await call(router.blocks.delete, { id: created.id }, member(inDraft(draft)));
+
+    // Items of a deleted block can't be read through any procedure, so the row is checked.
+    const left = await db
+      .select({ id: repeatableItems.id })
+      .from(repeatableItems)
+      .where(eq(repeatableItems.id, item.id));
+    expect(left).toEqual([]);
   });
 
   it("serves other content from Live to requests naming a draft", async () => {
