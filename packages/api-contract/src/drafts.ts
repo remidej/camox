@@ -29,3 +29,12 @@ export type EndedDraft = {
  * so a page can render Live and say who published or discarded the draft.
  */
 export const DRAFT_ENDED_ERROR_CODE = "DRAFT_ENDED";
+
+/**
+ * oRPC error code for a publish whose token no longer matches Live: Live changed since the
+ * preview, so nothing was applied and the caller reviews the new preview.
+ */
+export const CONFLICTS_CHANGED_ERROR = "CONFLICTS_CHANGED";
+
+/** oRPC error code for a publish refused because the draft still has blockers. */
+export const PUBLISH_BLOCKED_ERROR = "PUBLISH_BLOCKED";

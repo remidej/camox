@@ -472,13 +472,13 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
   const { id } = yield* decodeInput(deletePageInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, id, user.id);
 
-  // Blocks hold no foreign key to their page (ADR 0005): delete them, in Live and in every
-  // draft, with the repeatable items they own.
+  // Blocks hold no foreign key to their page (ADR 0005): delete Live's, with the repeatable
+  // items they own. Drafts keep theirs, which publishing lists as lost (ADR 0009).
   const pageBlockIds = ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.pageId, id));
   const [, , [result]] = yield* Effect.promise(() =>
     ctx.db.batch([
       ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, pageBlockIds)),
-      ctx.db.delete(blocks).where(eq(blocks.pageId, id)),
+      ctx.db.delete(blocks).where(and(eq(blocks.pageId, id), overlay.storedIn(blocks, null))),
       ctx.db.delete(pages).where(eq(pages.id, id)).returning(),
     ]),
   );

@@ -1,9 +1,30 @@
-import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
-import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
+import type { DraftOutcome } from "@camox/api-contract/drafts";
+import {
+  and,
+  eq,
+  getTableColumns,
+  getTableName,
+  inArray,
+  is,
+  isNull,
+  or,
+  SQL,
+  sql,
+} from "drizzle-orm";
+import {
+  SQLiteAsyncDialect,
+  type AnySQLiteColumn,
+  type SQLiteTable,
+} from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { blocks } from "../blocks/schema";
+import { comments } from "../comments/schema";
+import { layouts } from "../layouts/schema";
+import { pages } from "../pages/schema";
+import { repeatableItems } from "../repeatable-items/schema";
+import { drafts, endedDrafts } from "./schema";
 import type { DraftScope } from "./scope";
 
 // The draft overlay (ADR 0005) owns every draft-aware data operation on content tables, so
@@ -25,22 +46,59 @@ type ContentColumns = {
   version: AnySQLiteColumn;
   baseVersion: AnySQLiteColumn;
   deleted: AnySQLiteColumn;
+  firstPublishedAt: AnySQLiteColumn;
+  publishedAt: AnySQLiteColumn;
+  publishedBy: AnySQLiteColumn;
+  // On a tombstone, when the draft deleted the entity.
+  updatedAt: AnySQLiteColumn;
 };
 
 export type ContentTable = SQLiteTable & ContentColumns;
 
 type Row<T extends ContentTable> = T["$inferSelect"];
 type Values<T extends ContentTable> = T["$inferInsert"];
+/** The overlay's own bookkeeping columns, which publishing sets rather than copies. */
+const bookkeeping = [
+  "rowId",
+  "id",
+  "draftId",
+  "version",
+  "baseVersion",
+  "deleted",
+  "firstPublishedAt",
+  "publishedAt",
+  "publishedBy",
+] as const;
 /** The columns a write may set: everything but the overlay's own bookkeeping. */
-type Patch<T extends ContentTable> = Partial<
-  Omit<Values<T>, "rowId" | "id" | "draftId" | "version" | "baseVersion" | "deleted">
->;
+type Patch<T extends ContentTable> = Partial<Omit<Values<T>, (typeof bookkeeping)[number]>>;
+
+/**
+ * A column naming the entity's parent: `key` on the parent's table, also matching every
+ * `within` pair (child column, parent column). Parents are Live-only tables for now.
+ */
+type ParentRelation = {
+  column: AnySQLiteColumn;
+  key: AnySQLiteColumn;
+  within?: [child: AnySQLiteColumn, parent: AnySQLiteColumn][];
+};
+
+/**
+ * A Live-only table whose rows belong to the entity through `column`. Publishing a deletion
+ * deletes them (`delete`) or clears their pointer (`detach`) once nothing holds the entity.
+ * Rows written after the draft deleted the entity are listed as lost changes.
+ */
+type Dependent =
+  | { onDelete: "delete"; column: AnySQLiteColumn; id: AnySQLiteColumn; updatedAt: AnySQLiteColumn }
+  | { onDelete: "detach"; column: AnySQLiteColumn };
 
 export type ContentTableRegistration = {
-  /** The columns naming the entity's parent, whose deletion deletes it on publish. */
-  parent: AnySQLiteColumn[];
+  /** What the entity is called in changes, conflicts and publish tokens. */
+  entity: string;
+  /** The columns naming the entity's parent. A change whose parent is gone is lost. */
+  parents: ParentRelation[];
   /** The columns a change on another entity can rewrite, copying this one into the draft. */
   rewritable: AnySQLiteColumn[];
+  dependents: Dependent[];
 };
 
 const registrations = new Map<ContentTable, ContentTableRegistration>();
@@ -58,8 +116,25 @@ export function registrationOf(table: ContentTable): ContentTableRegistration {
 }
 
 registerContentTable(blocks, {
-  parent: [blocks.pageId, blocks.layoutId],
+  entity: "block",
+  parents: [
+    { column: blocks.pageId, key: pages.id },
+    {
+      column: blocks.layoutId,
+      key: layouts.layoutId,
+      within: [[blocks.environmentId, layouts.environmentId]],
+    },
+  ],
   rewritable: [blocks.content],
+  dependents: [
+    {
+      onDelete: "delete",
+      column: repeatableItems.blockId,
+      id: repeatableItems.id,
+      updatedAt: repeatableItems.updatedAt,
+    },
+    { onDelete: "detach", column: comments.blockId },
+  ],
 });
 
 /** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */
@@ -258,11 +333,12 @@ export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTa
     return shown;
   }
   if (shown.draftId !== scope.id) yield* copyIntoDraft(db, scope, table, id, { deleted: true });
-  // Marks the draft's copy, also when a concurrent write copied it first.
+  // Marks the draft's copy, also when a concurrent write copied it first. The time tells Live
+  // descendants written since, which publishing loses, from older ones.
   yield* Effect.promise(() =>
     db
       .update(table as SQLiteTable)
-      .set({ deleted: true } as Partial<Values<T>>)
+      .set({ deleted: true, updatedAt: Date.now() } as Partial<Values<T>>)
       .where(and(storedIn(table, scope), eq(table.id, id))),
   );
   return shown;
@@ -324,3 +400,339 @@ export function compareByPosition(
 export function sortByPosition<T extends { position: string; id: string }>(rows: T[]): T[] {
   return rows.sort(compareByPosition);
 }
+
+// --- Publishing and discarding (ADR 0009) ---
+//
+// A draft's rows are applied to Live with a fixed number of set-based statements per registered
+// table, so one D1 `batch()` publishes a draft of any size atomically.
+
+/** A conflict as shown to the caller and sent back to publish: entity, id, Live version. */
+export type ConflictKey = [entity: string, id: string, liveVersion: number | null];
+
+/** A statement of a publish or discard batch: raw SQL or a query builder. */
+type BatchItem = SQL | { toSQL(): { sql: string; params: unknown[] } };
+
+const dialect = new SQLiteAsyncDialect();
+
+/**
+ * Runs statements as one D1 batch, atomically. Drizzle's own `batch()` can't bind raw SQL with
+ * parameters, so the statements go to D1 directly.
+ */
+function runBatch(db: Database, statements: BatchItem[]) {
+  const client = db.$client;
+  const prepared = statements.map((statement) => {
+    const query = is(statement, SQL) ? dialect.sqlToQuery(statement) : statement.toSQL();
+    return client.prepare(query.sql).bind(...query.params);
+  });
+  return client.batch(prepared);
+}
+
+const tables = () => [...registrations.keys()];
+const ident = (column: AnySQLiteColumn) => sql.identifier(column.name);
+const tableOf = (column: AnySQLiteColumn) => sql.identifier(getTableName(column.table));
+const at = (alias: string, column: AnySQLiteColumn) =>
+  sql`${sql.identifier(alias)}.${ident(column)}`;
+
+/** Whether the entity at `alias` has every parent it names, as Live reads them. */
+function parentsExist(table: ContentTable, alias: string): SQL {
+  const checks = registrationOf(table).parents.map(({ column, key, within = [] }) => {
+    const matches = [
+      sql`"parent".${ident(key)} = ${at(alias, column)}`,
+      ...within.map(([child, parent]) => sql`"parent".${ident(parent)} = ${at(alias, child)}`),
+    ];
+    return sql`(${at(alias, column)} is null or exists (select 1 from ${tableOf(key)} as "parent" where ${sql.join(matches, sql` and `)}))`;
+  });
+  return checks.length ? sql.join(checks, sql` and `) : sql`1`;
+}
+
+/**
+ * The draft's conflicts in one table: entities it copied or deleted whose Live version moved
+ * past the copy's base, or that Live deleted. Lost changes, and deletions of what Live deleted
+ * too, aren't conflicts.
+ */
+function conflictsIn(table: ContentTable, draftId: string): SQL {
+  const { entity } = registrationOf(table);
+  const t = sql.identifier(getTableName(table));
+  return sql`select ${entity} as "entity", ${at("d", table.id)} as "id",
+      ${at("l", table.version)} as "live_version",
+      ${at("l", table.publishedAt)} as "published_at",
+      ${at("l", table.publishedBy)} as "published_by"
+    from ${t} as "d"
+    left join ${t} as "l" on ${at("l", table.draftId)} is null and ${at("l", table.id)} = ${at("d", table.id)}
+    where ${at("d", table.draftId)} = ${draftId}
+      and ${at("d", table.baseVersion)} is not null
+      and ${parentsExist(table, "d")}
+      and ((${at("l", table.id)} is null and ${at("d", table.deleted)} = 0)
+        or ${at("l", table.version)} != ${at("d", table.baseVersion)})`;
+}
+
+export type StoredChange = {
+  table: ContentTable;
+  entity: string;
+  row: Row<ContentTable>;
+  change: "created" | "changed" | "deleted";
+};
+
+/** Every entity a draft stores, as created, changed or deleted. */
+export const changesOf = Effect.fn("overlay.changesOf")(function* (
+  db: Database,
+  scope: NonNullable<DraftScope>,
+) {
+  const changes: StoredChange[] = [];
+  for (const table of tables()) {
+    const rows = yield* Effect.promise(
+      () =>
+        db
+          .select()
+          .from(table as SQLiteTable)
+          .where(storedIn(table, scope)) as Promise<Row<ContentTable>[]>,
+    );
+    const { entity } = registrationOf(table);
+    for (const row of rows) {
+      let change: StoredChange["change"] = "changed";
+      if (row.deleted) change = "deleted";
+      else if (row.baseVersion == null) change = "created";
+      changes.push({ table, entity, row, change });
+    }
+  }
+  return changes;
+});
+
+export type StoredConflict = {
+  entity: string;
+  id: string;
+  liveVersion: number | null;
+  publishedAt: number | null;
+  publishedBy: string | null;
+};
+
+/** The draft's conflicts, with who published Live's version and when. */
+export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (
+  db: Database,
+  scope: NonNullable<DraftScope>,
+) {
+  const conflicts: StoredConflict[] = [];
+  for (const table of tables()) {
+    const rows = yield* Effect.promise(() =>
+      db.all<{
+        entity: string;
+        id: string;
+        live_version: number | null;
+        published_at: number | null;
+        published_by: string | null;
+      }>(conflictsIn(table, scope.id)),
+    );
+    for (const row of rows) {
+      conflicts.push({
+        entity: row.entity,
+        id: row.id,
+        liveVersion: row.live_version,
+        publishedAt: row.published_at,
+        publishedBy: row.published_by,
+      });
+    }
+  }
+  return conflicts;
+});
+
+export type StoredLoss =
+  | { reason: "parentGone"; entity: string; id: string }
+  | {
+      reason: "writtenAfterDeletion";
+      table: string;
+      id: string;
+      parent: { entity: string; id: string };
+    };
+
+/**
+ * The changes publishing drops: entities the draft changed whose parent is gone, and Live rows
+ * written under an entity after the draft deleted it.
+ */
+export const lostOf = Effect.fn("overlay.lostOf")(function* (
+  db: Database,
+  scope: NonNullable<DraftScope>,
+) {
+  const lost: StoredLoss[] = [];
+  for (const table of tables()) {
+    const { entity, dependents } = registrationOf(table);
+    const t = sql.identifier(getTableName(table));
+    const orphans = yield* Effect.promise(() =>
+      db.all<{ id: string }>(sql`select ${at("d", table.id)} as "id" from ${t} as "d"
+        where ${at("d", table.draftId)} = ${scope.id} and ${at("d", table.deleted)} = 0
+          and not (${parentsExist(table, "d")})`),
+    );
+    for (const { id } of orphans) lost.push({ reason: "parentGone", entity, id });
+
+    for (const dependent of dependents) {
+      if (dependent.onDelete !== "delete") continue;
+      const rows = yield* Effect.promise(() =>
+        db.all<{ id: string; parent_id: string }>(sql`
+          select ${at("dep", dependent.id)} as "id", ${at("d", table.id)} as "parent_id"
+          from ${tableOf(dependent.column)} as "dep"
+          join ${t} as "d" on ${at("d", table.id)} = ${at("dep", dependent.column)}
+          where ${at("d", table.draftId)} = ${scope.id} and ${at("d", table.deleted)} = 1
+            and ${at("dep", dependent.updatedAt)} >= ${at("d", table.updatedAt)}`),
+      );
+      for (const row of rows) {
+        lost.push({
+          reason: "writtenAfterDeletion",
+          table: getTableName(dependent.column.table),
+          id: row.id,
+          parent: { entity, id: row.parent_id },
+        });
+      }
+    }
+  }
+  return lost;
+});
+
+/**
+ * The batch's first statement: it aborts the batch unless the draft still exists and its
+ * conflicts are exactly `shown`, with the same Live versions. `json()` of invalid JSON is the
+ * error that aborts it.
+ */
+function guardStatement(draftId: string, shown: ConflictKey[]): BatchItem {
+  const current = () =>
+    sql.join(
+      tables().map((table) => conflictsIn(table, draftId)),
+      sql` union all `,
+    );
+  const shownJson = JSON.stringify(shown);
+  return sql`select case when
+      exists (select 1 from ${drafts} where ${drafts.id} = ${draftId})
+      and (select count(*) from (${current()})) = json_array_length(${shownJson})
+      and not exists (
+        select 1 from json_each(${shownJson}) as "shown" where not exists (
+          select 1 from (${current()}) as "current"
+          where "current"."entity" = json_extract("shown"."value", '$[0]')
+            and "current"."id" = json_extract("shown"."value", '$[1]')
+            and "current"."live_version" is json_extract("shown"."value", '$[2]')))
+    then 1 else json('the draft or its conflicts changed') end`;
+}
+
+/** The columns publishing copies from a draft row onto Live. */
+function copiedColumns(table: ContentTable) {
+  const skipped = new Set<string>(bookkeeping);
+  return Object.entries(getTableColumns(table))
+    .filter(([key]) => !skipped.has(key))
+    .map(([, column]) => column as AnySQLiteColumn);
+}
+
+/** Statements applying one table's rows from a draft onto Live. */
+function applyStatements(
+  table: ContentTable,
+  draftId: string,
+  publishedBy: string,
+  now: number,
+): BatchItem[] {
+  const t = sql.identifier(getTableName(table));
+  const columns = copiedColumns(table);
+  const d = (column: AnySQLiteColumn) => at("d", column);
+  const live = (column: AnySQLiteColumn) => sql`${t}.${ident(column)}`;
+  const applied = () =>
+    sql`${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 0 and ${parentsExist(table, "d")}`;
+  const tombstones = () =>
+    sql`select ${d(table.id)} from ${t} as "d" where ${d(table.draftId)} = ${draftId} and ${d(table.deleted)} = 1`;
+  // A dependent goes once nothing holds its entity: Live dropped it and no draft reads it.
+  const unheld = (column: AnySQLiteColumn) => {
+    const pointer = sql`${tableOf(column)}.${ident(column)}`;
+    return sql`${pointer} in (${tombstones()}) and not exists (select 1 from ${t} as "h" where ${at("h", table.id)} = ${pointer} and ${at("h", table.deleted)} = 0)`;
+  };
+
+  const statements: BatchItem[] = [
+    // Copies the draft's version over the Live entities it changed.
+    sql`update ${t} set
+        ${sql.join(
+          columns.map((column) => sql`${ident(column)} = ${d(column)}`),
+          sql`, `,
+        )},
+        ${ident(table.version)} = ${live(table.version)} + 1,
+        ${ident(table.publishedAt)} = ${now},
+        ${ident(table.publishedBy)} = ${publishedBy},
+        ${ident(table.firstPublishedAt)} = coalesce(${live(table.firstPublishedAt)}, ${now})
+      from ${t} as "d"
+      where ${applied()} and ${live(table.draftId)} is null and ${live(table.id)} = ${d(table.id)}`,
+    // Adds what the draft created, and brings back what Live deleted after the draft copied it.
+    sql`insert into ${t} (
+        ${sql.join(columns.map(ident), sql`, `)},
+        ${ident(table.id)}, ${ident(table.draftId)}, ${ident(table.version)},
+        ${ident(table.baseVersion)}, ${ident(table.deleted)}, ${ident(table.firstPublishedAt)},
+        ${ident(table.publishedAt)}, ${ident(table.publishedBy)})
+      select ${sql.join(columns.map(d), sql`, `)},
+        ${d(table.id)}, null, coalesce(${d(table.baseVersion)}, 0) + 1, null, 0,
+        coalesce(${d(table.firstPublishedAt)}, ${now}), ${now}, ${publishedBy}
+      from ${t} as "d"
+      where ${applied()} and not exists (
+        select 1 from ${t} as "l" where ${at("l", table.draftId)} is null and ${at("l", table.id)} = ${d(table.id)})`,
+    // Deletes what the draft deleted.
+    sql`delete from ${t} where ${live(table.draftId)} is null and ${live(table.id)} in (${tombstones()})`,
+  ];
+  for (const dependent of registrationOf(table).dependents) {
+    const { column } = dependent;
+    statements.push(
+      dependent.onDelete === "delete"
+        ? sql`delete from ${tableOf(column)} where ${unheld(column)}`
+        : sql`update ${tableOf(column)} set ${ident(column)} = null where ${unheld(column)}`,
+    );
+  }
+  return statements;
+}
+
+/** Statements deleting every row a draft stores, keeping the draft. */
+function emptyStatements(db: Database, draftId: string): BatchItem[] {
+  return tables().map((table) => db.delete(table as SQLiteTable).where(eq(table.draftId, draftId)));
+}
+
+/**
+ * Statements ending a draft: a regular draft is deleted, its rows with it, and leaves its
+ * ended-drafts record; a development draft is emptied and stays (ADR 0006).
+ */
+function endStatements(
+  db: Database,
+  scope: NonNullable<DraftScope>,
+  outcome: DraftOutcome,
+  endedBy: string,
+  now: number,
+): BatchItem[] {
+  if (scope.kind === "development") return emptyStatements(db, scope.id);
+  return [
+    // The primary key fails the batch when a concurrent publish or discard ended it first.
+    db.insert(endedDrafts).values({
+      id: scope.id,
+      projectId: scope.projectId,
+      outcome,
+      endedBy,
+      endedAt: now,
+    }),
+    db.delete(drafts).where(eq(drafts.id, scope.id)),
+  ];
+}
+
+/**
+ * Publishes a draft in one batch: a guard that aborts unless the conflicts are still `shown`,
+ * then each table's draft rows applied to Live (bumping versions and setting who published and
+ * when), deletions with their Live dependents, lost changes dropped, and the draft ended.
+ * Fails when the batch aborted, having applied nothing.
+ */
+export const publish = (
+  db: Database,
+  scope: NonNullable<DraftScope>,
+  { shown, publishedBy, now }: { shown: ConflictKey[]; publishedBy: string; now: number },
+) => {
+  const statements = [
+    guardStatement(scope.id, shown),
+    ...tables().flatMap((table) => applyStatements(table, scope.id, publishedBy, now)),
+    ...endStatements(db, scope, "published", publishedBy, now),
+  ];
+  return Effect.tryPromise(() => runBatch(db, statements));
+};
+
+/** Discards a draft in one batch: one cascading delete, or emptying a development draft. */
+export const discard = (
+  db: Database,
+  scope: NonNullable<DraftScope>,
+  { discardedBy, now }: { discardedBy: string; now: number },
+) => {
+  const statements = endStatements(db, scope, "discarded", discardedBy, now);
+  return Effect.tryPromise(() => runBatch(db, statements));
+};

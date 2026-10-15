@@ -1,3 +1,8 @@
+import {
+  CONFLICTS_CHANGED_ERROR,
+  DRAFT_ENDED_ERROR_CODE,
+  PUBLISH_BLOCKED_ERROR,
+} from "@camox/api-contract/drafts";
 import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
 
@@ -21,6 +26,16 @@ export function toORPCError(error: ServiceError) {
         message: "Environments are incompatible — see data.reasons.",
         data: { reasons: error.reasons },
       });
+    case "DraftEndedError":
+      return new ORPCError(DRAFT_ENDED_ERROR_CODE, {
+        status: 410,
+        message: `This draft was ${error.ended.outcome}`,
+        data: error.ended,
+      });
+    case "ConflictsChangedError":
+      return new ORPCError(CONFLICTS_CHANGED_ERROR, { status: 409, message: error.message });
+    case "PublishBlockedError":
+      return new ORPCError(PUBLISH_BLOCKED_ERROR, { status: 422, message: error.message });
   }
 }
 

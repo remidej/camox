@@ -1,12 +1,19 @@
-import { and, eq, not } from "drizzle-orm";
+import type { EndedDraft } from "@camox/api-contract/drafts";
+import { and, eq, not, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
-import { ForbiddenError, NotFoundError, type ServiceError } from "../../lib/errors";
+import {
+  DraftEndedError,
+  ForbiddenError,
+  NotFoundError,
+  type ServiceError,
+} from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import type { ServiceContext } from "../_shared/service-context";
+import { user as users } from "../auth/schema";
 import * as overlay from "./overlay";
-import { drafts } from "./schema";
+import { drafts, endedDrafts } from "./schema";
 import type { DraftScope } from "./scope";
 
 type DraftScopeContext = Pick<ServiceContext, "db" | "user" | "draft">;
@@ -14,12 +21,51 @@ type DraftScopeContext = Pick<ServiceContext, "db" | "user" | "draft">;
 const scopeOf = (draft: typeof drafts.$inferSelect) =>
   ({ id: draft.id, kind: draft.kind, projectId: draft.projectId }) satisfies DraftScope;
 
+/** How a project's draft ended and who ended it, or undefined while it hasn't ended. */
+export const findEndedDraft = Effect.fn("findEndedDraft")(function* (
+  db: ServiceContext["db"],
+  projectId: number,
+  draftId: string,
+) {
+  const row = yield* Effect.promise(() =>
+    db
+      .select({ ended: endedDrafts, name: users.name })
+      .from(endedDrafts)
+      .leftJoin(users, eq(users.id, endedDrafts.endedBy))
+      .where(and(eq(endedDrafts.id, draftId), eq(endedDrafts.projectId, projectId)))
+      .get(),
+  );
+  if (!row) return undefined;
+  const { ended, name } = row;
+  return {
+    draftId: ended.id,
+    outcome: ended.outcome,
+    endedBy: { id: ended.endedBy, name: name ?? "A former member" },
+    endedAt: ended.endedAt,
+  } satisfies EndedDraft;
+});
+
+/** Fails with the draft's outcome when it ended, and with 404 when it never existed. */
+const missingDraft = Effect.fn("missingDraft")(function* (
+  db: ServiceContext["db"],
+  projectId: number,
+  draftId: string,
+) {
+  const ended = yield* findEndedDraft(db, projectId, draftId);
+  if (ended) return yield* new DraftEndedError({ ended });
+  return yield* new NotFoundError({
+    message: `Draft ${draftId} not found in this project`,
+    data: { draftId },
+  });
+});
+
 /**
  * Turn the draft a request names (`ctx.draft`) into the scope a service reads and writes, once
  * the service knows the project. No draft means Live, which is public. Naming a draft needs a
  * member of the project's organization: anonymous callers fail with 401, outsiders with 403. A
  * missing draft is created with the caller as creator when the request sends the create header
- * (`started`), and fails with 404 otherwise, as does a draft of another project.
+ * (`started`), and fails with 404 otherwise, as does a draft of another project. A draft that
+ * was published or discarded fails with its outcome, and the create header never brings it back.
  */
 const resolveRequestedDraft = Effect.fn("resolveRequestedDraft")(function* (
   ctx: DraftScopeContext,
@@ -33,32 +79,21 @@ const resolveRequestedDraft = Effect.fn("resolveRequestedDraft")(function* (
   let started = false;
   if (requested.create) {
     // Two requests racing to start the same draft both land here; the primary key keeps one.
+    // The insert skips an ended draft's id in the same statement, so it can't race an ending.
     const inserted = yield* Effect.promise(() =>
-      ctx.db
-        .insert(drafts)
-        .values({
-          id: requested.id,
-          projectId,
-          kind: "regular",
-          createdBy: user.id,
-          createdAt: Date.now(),
-        })
-        .onConflictDoNothing({ target: drafts.id })
-        .returning({ id: drafts.id })
-        .get(),
+      ctx.db.run(sql`
+        insert into ${drafts} (id, project_id, kind, created_by, created_at)
+        select ${requested.id}, ${projectId}, 'regular', ${user.id}, ${Date.now()}
+        where not exists (select 1 from ${endedDrafts} where ${endedDrafts.id} = ${requested.id})
+        on conflict do nothing`),
     );
-    started = inserted !== undefined;
+    started = inserted.meta.changes > 0;
   }
 
   const draft = yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.id, requested.id)).get(),
   );
-  if (draft?.projectId !== projectId) {
-    return yield* new NotFoundError({
-      message: `Draft ${requested.id} not found in this project`,
-      data: { draftId: requested.id },
-    });
-  }
+  if (draft?.projectId !== projectId) return yield* missingDraft(ctx.db, projectId, requested.id);
 
   // Regular drafts are open to every member; a development draft only to its owner (ADR 0011).
   if (draft.kind === "development" && draft.createdBy !== user.id) {

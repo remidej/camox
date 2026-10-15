@@ -123,6 +123,19 @@ export function getDraftRequestHeaders(path: readonly string[]): {
   };
 }
 
+/**
+ * Switches the studio to Live once its draft was published or discarded. The draft is gone, so
+ * the URL entry naming it is replaced rather than kept for Back.
+ */
+export function switchToLive() {
+  pending = null;
+  currentDraftId = null;
+  const url = new URL(window.location.href);
+  url.searchParams.delete(DRAFT_SEARCH_PARAM);
+  window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  window.dispatchEvent(new window.CustomEvent("camox:navigation"));
+}
+
 function enterDraft(draftId: string) {
   pending = null;
   currentDraftId = draftId;

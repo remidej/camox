@@ -3,6 +3,7 @@ import { blockDefinitionProcedures } from "./domains/block-definitions/routes";
 import { blockProcedures } from "./domains/blocks/routes";
 import { collectionDefinitionProcedures } from "./domains/collections/routes";
 import { commentProcedures } from "./domains/comments/routes";
+import { draftProcedures } from "./domains/drafts/routes";
 import { environmentProcedures } from "./domains/environments/routes";
 import { fileProcedures } from "./domains/files/routes";
 import { layoutProcedures } from "./domains/layouts/routes";
@@ -21,6 +22,7 @@ export const router = {
   blockDefinitions: blockDefinitionProcedures,
   collectionDefinitions: collectionDefinitionProcedures,
   environments: environmentProcedures,
+  drafts: draftProcedures,
   agent: agentProcedures,
 };
 
