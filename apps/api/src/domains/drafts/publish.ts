@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
+import { broadcastDraftEnded, broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import {
   ConflictsChangedError,
   decodeInput,
@@ -304,11 +304,17 @@ const endedEarlier = Effect.fn("drafts.endedEarlier")(function* (
   return yield* findEndedDraft(ctx.db, projectId, ctx.draft.id);
 });
 
+const roomOf = (ctx: ServiceContext, projectId: number) => ({
+  waitUntil: ctx.waitUntil,
+  projectRoomNamespace: ctx.env.ProjectRoom,
+  projectId,
+});
+
+/** Refreshes every viewer of Live, which the publish changed. */
 const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
   broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId,
+    ...roomOf(ctx, projectId),
+    draftId: null,
     targets: [
       queryKeys.pages.getByPathAll,
       queryKeys.pages.list,
@@ -316,6 +322,11 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       ["camox", "blocks"],
     ],
   });
+
+/** Switches the ended draft's viewers to Live, saying who ended it and how. */
+const broadcastEnded = (ctx: ServiceContext, projectId: number, ended: EndedDraft | null) => {
+  if (ended) broadcastDraftEnded({ ...roomOf(ctx, projectId), ended });
+};
 
 /**
  * Publishes the request's draft whole, once it has no blockers, if its conflicts are still
@@ -356,7 +367,9 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   }
 
   broadcastPublished(ctx, projectId);
-  return { ended: (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null };
+  const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
+  broadcastEnded(ctx, projectId, ended);
+  return { ended };
 });
 
 /**
@@ -379,5 +392,6 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   );
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
+  if (result._tag === "Success") broadcastEnded(ctx, projectId, ended);
   return { ended };
 });

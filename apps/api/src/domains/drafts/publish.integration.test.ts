@@ -14,8 +14,12 @@ import { router } from "../../router";
 import { blocks, drafts, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 
-const { broadcastInvalidation } = vi.hoisted(() => ({ broadcastInvalidation: vi.fn() }));
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation }));
+const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
+  // Modules loaded by earlier test files would keep the real broadcaster.
+  vi.resetModules();
+  return { broadcastInvalidation: vi.fn(), broadcastDraftEnded: vi.fn() };
+});
+vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation, broadcastDraftEnded }));
 
 /** Headers naming a draft, creating it when missing. */
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
@@ -171,6 +175,9 @@ describe("publishing a draft", () => {
     const result = await publish(draft);
 
     expect(result.ended).toMatchObject({ outcome: "published", endedBy: { name: "Member" } });
+    expect(broadcastDraftEnded).toHaveBeenCalledWith(
+      expect.objectContaining({ ended: result.ended }),
+    );
     expect(await pageTitles()).toEqual(["Changed in draft", "Created"]);
     await expect(titleIn(changed.id, inDraft(draft))).rejects.toMatchObject({
       status: 410,
@@ -420,6 +427,7 @@ describe("discarding a draft", () => {
     const { ended } = await discard(draft);
 
     expect(ended).toMatchObject({ outcome: "discarded", endedBy: { name: "Member" } });
+    expect(broadcastDraftEnded).toHaveBeenCalledWith(expect.objectContaining({ ended }));
     expect(await db.select().from(blocks).where(eq(blocks.draftId, draft))).toEqual([]);
     expect(await pageTitles()).toEqual(["Live"]);
     await expect(editTitle(block.id, "Again", inDraft(draft))).rejects.toMatchObject({
