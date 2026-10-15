@@ -1,8 +1,7 @@
 import { isQueryBacked } from "@camox/api-contract";
-import { uuidv7Schema } from "@camox/api-contract/ids";
+import { uuidv7JsonSchema } from "@camox/api-contract/ids";
 import { Validator, type OutputUnit, type Schema } from "@cfworker/json-schema";
 import { Effect } from "effect";
-import { z } from "zod";
 
 import { InvalidInputError } from "../../lib/errors";
 import { projectAssetValue } from "./asset-value";
@@ -26,7 +25,7 @@ type AdaptContext = {
 };
 
 // An entity id (`_fileId`, `_itemId`) as JSON Schema.
-const { $schema: _, ...entityIdSchema } = z.toJSONSchema(uuidv7Schema) as Schema;
+const entityIdSchema = uuidv7JsonSchema as Schema;
 const assetTypes = new Set(["Image", "File", "ImageList", "FileList"]);
 const assetSchema: Schema = {
   anyOf: [

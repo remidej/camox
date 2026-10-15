@@ -1,4 +1,4 @@
-export const PAGE_TEXT_LINK_PREFIX = "camox:page:";
+import { PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 
 export function getPageIdFromTextLinkTarget(target: string): string | null {
   if (!target.startsWith(PAGE_TEXT_LINK_PREFIX)) return null;

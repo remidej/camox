@@ -1,4 +1,5 @@
 import { referenceQueryProblem, type SystemOrderKey } from "@camox/api-contract";
+import { uuidv7JsonSchema } from "@camox/api-contract/ids";
 import {
   Type as TypeBoxType,
   type TSchema,
@@ -756,7 +757,8 @@ export const contentFieldBuilder: ContentFieldBuilder = {
         type: { type: "string", enum: ["external", "page"] },
         text: { type: "string" },
         href: { type: "string" },
-        pageId: { type: "string" },
+        // Empty while a link switched to a page has no page picked yet.
+        pageId: { anyOf: [{ const: "" }, uuidv7JsonSchema] },
         newTab: { type: "boolean" },
       },
       default: { ...options.default, type: "external" },

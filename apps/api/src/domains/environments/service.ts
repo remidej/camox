@@ -1,4 +1,4 @@
-import { generateUuidv7 } from "@camox/api-contract/ids";
+import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
@@ -233,11 +233,11 @@ function topoSortItems<T extends { id: string; parentItemId: string | null }>(it
 
 /** A source entity's id to its copy's id. */
 type IdMap = Map<string, string>;
-const PAGE_TEXT_LINK_PREFIX = "camox:page:";
+const PAGE_TEXT_LINK = new RegExp(`${PAGE_TEXT_LINK_PREFIX}([0-9a-f-]{36})`, "gi");
 
 function remapMarkdownPageReferences(value: string, pagesMap: IdMap): string {
-  return value.replaceAll(/camox:page:([0-9a-f-]{36})/g, (match, pageId: string) => {
-    const remapped = pagesMap.get(pageId);
+  return value.replaceAll(PAGE_TEXT_LINK, (match, pageId: string) => {
+    const remapped = pagesMap.get(pageId.toLowerCase());
     if (remapped === undefined) return match;
     return `${PAGE_TEXT_LINK_PREFIX}${remapped}`;
   });

@@ -324,4 +324,23 @@ describe("stable page tree identity", () => {
       `[About](camox:page:${replica!.id})`,
     );
   });
+
+  it("rejects page links in text and link fields that don't store a UUIDv7", async () => {
+    const f = await fixture();
+    const block = await createBlock(f);
+    for (const pageId of NOT_UUIDV7) {
+      const contents = [
+        { body: JSON.stringify(markdownToLexicalState(`[About](camox:page:${pageId})`)) },
+        { cta: { type: "page", text: "About us", pageId } },
+      ];
+      for (const content of contents) {
+        await expect(
+          createBlock(f, { content: { ...content, entries: [] } }),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+        await expect(
+          call(blockRoutes.updateContent, { id: block.id, content }, f.options),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      }
+    }
+  });
 });

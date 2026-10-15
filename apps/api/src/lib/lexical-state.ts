@@ -1,3 +1,5 @@
+import { PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
+
 const FORMAT_FLAGS = {
   bold: 1,
   italic: 2,
@@ -7,8 +9,6 @@ const MARKDOWN_WRAPPERS: Record<string, (text: string) => string> = {
   bold: (text) => `**${text}**`,
   italic: (text) => `*${text}*`,
 };
-
-const PAGE_TEXT_LINK_PREFIX = "camox:page:";
 
 function isValidTextLinkTarget(target: string): boolean {
   return (
@@ -102,6 +102,23 @@ function extractText(node: any): string {
   // Match the SDK: paragraph boundaries live at the root, never between
   // differently formatted text spans inside an inline link.
   return parts.join(node.type === "root" ? "\n\n" : "");
+}
+
+/** The page ids that a text value's page links name, as written; plain text links none. */
+export function pageTextLinkIds(value: unknown): string[] {
+  if (!isLexicalState(value)) return [];
+  const ids: string[] = [];
+  const walk = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "link" && typeof node.url === "string") {
+      if (node.url.startsWith(PAGE_TEXT_LINK_PREFIX)) {
+        ids.push(node.url.slice(PAGE_TEXT_LINK_PREFIX.length));
+      }
+    }
+    if (Array.isArray(node.children)) node.children.forEach(walk);
+  };
+  walk((typeof value === "string" ? JSON.parse(value) : value).root);
+  return ids;
 }
 
 export function lexicalStateToMarkdown(serialized: string | Record<string, unknown>): string {
