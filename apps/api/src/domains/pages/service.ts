@@ -37,6 +37,7 @@ import {
   servesPages,
 } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, executePageSeo } from "./ai";
+import { duplicatePathIds } from "./duplicate-paths";
 
 const { sortByPosition } = overlay;
 
@@ -281,6 +282,24 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   };
 });
 
+/**
+ * Pages with what keeps them from being served or published: no layout, a singleton serving
+ * their URL, or another page with the same path in the scope (ADR 0009).
+ */
+const withPageProblems = Effect.fn("pages.withPageProblems")(function* (
+  ctx: ServiceContext,
+  environmentId: number,
+  rows: (typeof pages.$inferSelect)[],
+) {
+  const problems = yield* pageServingProblems(ctx, environmentId);
+  const duplicates = duplicatePathIds(rows);
+  return rows.map((page) => ({
+    ...page,
+    ...problems(page),
+    duplicatePath: duplicates.has(page.id),
+  }));
+});
+
 export const listPages = Effect.fn("pages.listPages")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listPagesInput>,
@@ -291,8 +310,7 @@ export const listPages = Effect.fn("pages.listPages")(function* (
   const rows = (yield* pagesIn(ctx, scope, environment.id)).filter(
     (page) => page.projectId === projectId,
   );
-  const problems = yield* pageServingProblems(ctx, environment.id);
-  return rows.map((page) => ({ ...page, ...problems(page) }));
+  return yield* withPageProblems(ctx, environment.id, rows);
 });
 
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
@@ -310,8 +328,7 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   const rows = (yield* pagesIn(ctx, scope, environment.id)).filter(
     (page) => page.projectId === project.id,
   );
-  const problems = yield* pageServingProblems(ctx, environment.id);
-  return rows.map((page) => ({ ...page, ...problems(page) }));
+  return yield* withPageProblems(ctx, environment.id, rows);
 });
 
 export const getPage = Effect.fn("pages.getPage")(function* (

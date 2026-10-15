@@ -89,6 +89,19 @@ function conformBlockObject(
   return result;
 }
 
+/**
+ * The fields of block or repeatable item content storing a value of the wrong kind, which
+ * reading replaces with the default. Repeaters are stored as item rows: they hold no value here.
+ */
+export function wrongKindBlockFields(value: unknown, schema: unknown, rootSchema: unknown) {
+  const stored = isObject(value) ? value : {};
+  return Object.entries(propertiesOf(schema)).flatMap(([key, field]) => {
+    if (field.fieldType === "Repeater" || !Object.hasOwn(stored, key)) return [];
+    const normalized = normalizeFieldValue(stored[key], field.fieldType);
+    return blockValueHasKind(field, normalized, rootSchema) ? [] : [key];
+  });
+}
+
 /** Settings conform like content; a definition without settings has none. */
 function conformSettings(settings: unknown, schema: unknown, rootSchema: unknown) {
   if (!isObject(schema)) return null;
@@ -293,4 +306,15 @@ export function conformRecordContent(
     result[key] = hasDefault ? structuredClone(field.default) : emptyRecordValue(field);
   }
   return result;
+}
+
+/**
+ * The fields of a record's content storing a value of the wrong kind, which reading replaces
+ * with the default.
+ */
+export function wrongKindRecordFields(contentSchema: unknown, content: unknown) {
+  const stored = isObject(content) ? content : {};
+  return Object.entries(propertiesOf(contentSchema)).flatMap(([key, field]) =>
+    Object.hasOwn(stored, key) && !recordValueHasKind(field, stored[key]) ? [key] : [],
+  );
 }

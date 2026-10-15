@@ -80,7 +80,7 @@ describe("collection record procedures", () => {
       content: { name: "Ada Lovelace" },
     });
     expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([
-      { id: created.id, label: "Ada Lovelace" },
+      { id: created.id, label: "Ada Lovelace", duplicatePageValue: false },
     ]);
     await callSeedingLive(routes.deleteRecord, target, options);
     expect(await callSeedingLive(routes.listRecords, f.scope, options)).toEqual([]);
@@ -170,7 +170,7 @@ describe("collection record procedures", () => {
       content: { name: "Ada Lovelace", company: "Engines", logo: null },
     });
     expect(await run("listCollectionRecords", { collectionId: "customers" })).toEqual([
-      { id: created.id, label: "Ada Lovelace" },
+      { id: created.id, label: "Ada Lovelace", duplicatePageValue: false },
     ]);
     await run("deleteCollectionRecord", target);
     expect(await run("listCollectionRecords", { collectionId: "customers" })).toEqual([]);

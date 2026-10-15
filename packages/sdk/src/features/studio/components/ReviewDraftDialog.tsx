@@ -78,7 +78,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
       {blockers.length > 0 && (
         <Section title="Fix before publishing">
           {blockers.map((blocker) => (
-            <li key={`${blocker.id}:${blocker.field}`}>
+            <li key={`${blocker.code}:${blocker.id}:${blocker.field}`}>
               {blocker.label} on {ownerName(blocker.owner, blocker.entity)}: {blocker.message}
             </li>
           ))}
@@ -108,7 +108,7 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
       {warnings.length > 0 && (
         <Section title="Already on Live">
           {warnings.map((warning) => (
-            <li key={`${warning.id}:${warning.field}`}>
+            <li key={`${warning.code}:${warning.id}:${warning.field}`}>
               {warning.label} on {ownerName(warning.owner, warning.entity)}: {warning.message}
             </li>
           ))}

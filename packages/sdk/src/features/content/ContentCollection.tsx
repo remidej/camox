@@ -112,6 +112,14 @@ export const ContentCollection = ({
                   className="focus-visible:bg-accent flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-sm"
                 >
                   <span className="truncate">{record.label || "Untitled item"}</span>
+                  {record.duplicatePageValue && (
+                    <span
+                      className="text-destructive shrink-0 text-xs"
+                      title="Another item's page has the same URL. Change one of them before publishing."
+                    >
+                      Duplicate URL
+                    </span>
+                  )}
                 </button>
                 <DeleteCollectionItemButton
                   projectSlug={projectSlug}
