@@ -7,6 +7,7 @@ import { z } from "zod";
 import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import * as overlay from "../drafts/overlay";
 import { assetFileId } from "./record-files";
 import { missingReference, recordInScope } from "./references";
 import { decodeContent, validateText } from "./text-content";
@@ -166,6 +167,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
       .from(files)
       .where(
         and(
+          overlay.visibleIn(files, null),
           eq(files.id, fileId),
           eq(files.projectId, projectId),
           eq(files.environmentId, environmentId),

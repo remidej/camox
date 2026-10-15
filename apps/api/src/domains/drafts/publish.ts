@@ -15,6 +15,8 @@ import {
 import { blockDefinitions, blocks, environments, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
+import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
+import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
 import { findEndedDraft, resolveDraftScope } from "./service";
@@ -53,7 +55,7 @@ export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletio
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject & {
-  code: "emptyRequiredReference";
+  code: "emptyRequiredReference" | FileProblemCode;
   field: string;
   message: string;
 };
@@ -130,6 +132,14 @@ const blockDescriber = Effect.fn("drafts.blockDescriber")(function* (
   };
 });
 
+/** A file as people know it: by its filename. Files belong to no page or layout. */
+const describeFile = (id: string, file?: { filename: string }): Subject => ({
+  entity: "file",
+  id,
+  label: file?.filename ?? "File",
+  owner: null,
+});
+
 // --- Blockers ---
 
 /** Live blocks of a project the draft doesn't store: untouched Live content. */
@@ -203,9 +213,23 @@ const checkProblems = Effect.fn("drafts.checkProblems")(function* (
       field,
       message: `"${title}" is required but empty`,
     }));
+  const fileChecks = yield* checkFileProblems(ctx, scope, { changed, untouched });
+  const fileProblems = (found: Finding[]): Problem[] =>
+    found.map(({ entity, id, code, field, message }) => ({
+      ...(entity === "file" ? describeFile(id, fileChecks.files.get(id)) : describe(id)),
+      code,
+      field,
+      message,
+    }));
   return {
-    blockers: problems(yield* emptyRequiredReferences(ctx, scope.projectId, changed)),
-    warnings: problems(yield* emptyRequiredReferences(ctx, scope.projectId, untouched)),
+    blockers: [
+      ...problems(yield* emptyRequiredReferences(ctx, scope.projectId, changed)),
+      ...fileProblems(fileChecks.blockers),
+    ],
+    warnings: [
+      ...problems(yield* emptyRequiredReferences(ctx, scope.projectId, untouched)),
+      ...fileProblems(fileChecks.warnings),
+    ],
   };
 });
 
@@ -221,7 +245,16 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const blockRows = stored
     .filter((change) => change.table === blocks)
     .map((c) => c.row as BlockRow);
-  const describe = yield* blockDescriber(ctx, scope.projectId, blockRows);
+  const describeBlock = yield* blockDescriber(ctx, scope.projectId, blockRows);
+  const fileNames = new Map(
+    stored.flatMap((change) =>
+      change.entity === "file"
+        ? [[change.row.id, change.row as unknown as { filename: string }] as const]
+        : [],
+    ),
+  );
+  const describeEntity = (entity: string, id: string) =>
+    entity === "file" ? describeFile(id, fileNames.get(id)) : describeBlock(id);
 
   const changed = blockRows.filter((row) => !row.deleted);
   const { blockers, warnings } = yield* checkProblems(ctx, scope, changed);
@@ -240,14 +273,16 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const publisherById = new Map(publishers.map((publisher) => [publisher.id, publisher]));
 
   const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
-    ...describe(conflict.id),
+    ...describeEntity(conflict.entity, conflict.id),
     liveVersion: conflict.liveVersion,
     publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
   }));
   const lost: LostChange[] = losses.map((loss) => {
-    if (loss.reason === "parentGone") return { ...describe(loss.id), reason: loss.reason };
-    const parent = describe(loss.parent.id);
+    if (loss.reason === "parentGone") {
+      return { ...describeEntity(loss.entity, loss.id), reason: loss.reason };
+    }
+    const parent = describeEntity(loss.parent.entity, loss.parent.id);
     return {
       entity: "repeatableItem",
       id: loss.id,
@@ -256,7 +291,10 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
       reason: loss.reason,
     };
   });
-  const changes: Change[] = stored.map(({ row, change }) => ({ ...describe(row.id), change }));
+  const changes: Change[] = stored.map(({ entity, row, change }) => ({
+    ...describeEntity(entity, row.id),
+    change,
+  }));
 
   return {
     blockers,
@@ -319,6 +357,7 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       queryKeys.pages.getByPathAll,
       queryKeys.pages.list,
       queryKeys.layouts.all,
+      ["camox", "files"],
       ["camox", "blocks"],
     ],
   });
@@ -354,6 +393,8 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   }
 
   const user = yield* requireUser(ctx);
+  // Collected before the batch drops the draft's rows and replaces Live's.
+  const blobs = yield* blobsOfDraft(ctx.db, scope);
   const applied = yield* Effect.result(
     overlay.publish(ctx.db, scope, { shown, publishedBy: user.id, now: Date.now() }),
   );
@@ -366,6 +407,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
     });
   }
 
+  yield* deleteUnreferencedBlobs(ctx, blobs);
   broadcastPublished(ctx, projectId);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   broadcastEnded(ctx, projectId, ended);
@@ -387,11 +429,16 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
 
   const scope = yield* requireDraft(ctx, projectId);
   const user = yield* requireUser(ctx);
+  // Collected before the cascade drops the draft's rows.
+  const blobs = yield* blobsOfDraft(ctx.db, scope);
   const result = yield* Effect.result(
     overlay.discard(ctx.db, scope, { discardedBy: user.id, now: Date.now() }),
   );
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
-  if (result._tag === "Success") broadcastEnded(ctx, projectId, ended);
+  if (result._tag === "Success") {
+    yield* deleteUnreferencedBlobs(ctx, blobs);
+    broadcastEnded(ctx, projectId, ended);
+  }
   return { ended };
 });

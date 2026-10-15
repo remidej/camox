@@ -2,7 +2,7 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
@@ -15,7 +15,7 @@ import { bumpContentUpdatedAtForBlock } from "../../lib/bump-content-updated-at"
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { blocks, files, repeatableItems } from "../../schema";
+import { blocks, repeatableItems } from "../../schema";
 import { conformBlocksIn } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { loadDefinitionSchemas } from "../blocks/content-schema";
@@ -36,7 +36,7 @@ import {
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
 import type { DraftScope } from "../drafts/scope";
-import { collectFileIds } from "../pages/ai";
+import { buildFileMap, collectFileIds } from "../pages/ai";
 import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
 
 // --- Input Schemas ---
@@ -406,15 +406,8 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   const fileIds = new Set<string>();
   collectFileIds(item.content as Record<string, unknown>, fileIds);
 
-  const fileRows =
-    fileIds.size > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(files)
-            .where(inArray(files.id, [...fileIds])),
-        )
-      : [];
+  // Items are Live content until they move into drafts (#238), so they show Live's files.
+  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, null)).values()];
 
   return {
     item,

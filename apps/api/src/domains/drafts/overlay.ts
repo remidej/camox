@@ -21,6 +21,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { blocks } from "../blocks/schema";
 import { comments } from "../comments/schema";
+import { files } from "../files/schema";
 import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
 import { repeatableItems } from "../repeatable-items/schema";
@@ -135,6 +136,14 @@ registerContentTable(blocks, {
     },
     { onDelete: "detach", column: comments.blockId },
   ],
+});
+
+// A file belongs to its project only; content points at it by `_fileId`, which publishing checks.
+registerContentTable(files, {
+  entity: "file",
+  parents: [],
+  rewritable: [],
+  dependents: [],
 });
 
 /** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */

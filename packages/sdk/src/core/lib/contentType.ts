@@ -305,7 +305,7 @@ export type FileValue = {
  * Image / File / ImageList / FileList type builders
  * -----------------------------------------------------------------------------------------------*/
 
-function _imageSingle(options: { title?: string }): TUnsafe<ImageValue> {
+function _imageSingle(options: { title?: string; required?: boolean }): TUnsafe<ImageValue> {
   return TypeBoxType.Unsafe<ImageValue>({
     type: "object",
     properties: {
@@ -315,6 +315,7 @@ function _imageSingle(options: { title?: string }): TUnsafe<ImageValue> {
       mimeType: { type: "string" },
     },
     accept: ["image/*"],
+    required: options.required ?? false,
     default: {
       url: `https://placehold.co/1200x800/f4f4f5/a1a1aa.png?text=${options?.title || "image"}`,
       alt: "",
@@ -341,7 +342,11 @@ function _imageList(options: {
   });
 }
 
-function _fileSingle(options: { accept: string[]; title?: string }): TUnsafe<FileValue> {
+function _fileSingle(options: {
+  accept: string[];
+  title?: string;
+  required?: boolean;
+}): TUnsafe<FileValue> {
   return TypeBoxType.Unsafe<FileValue>({
     type: "object",
     properties: {
@@ -351,6 +356,7 @@ function _fileSingle(options: { accept: string[]; title?: string }): TUnsafe<Fil
       mimeType: { type: "string" },
     },
     accept: options.accept,
+    required: options.required ?? false,
     default: {
       url: "https://placehold.co/file-placeholder",
       alt: "",
@@ -441,7 +447,7 @@ export interface ContentFieldBuilder {
    * @example
    * field.image({ title: "Hero" })
    */
-  image: (options?: { title?: string }) => ImageField;
+  image: (options?: { title?: string; required?: boolean }) => ImageField;
   /**
    * A list of image assets.
    *
@@ -455,7 +461,7 @@ export interface ContentFieldBuilder {
    * @example
    * field.file({ accept: ["application/pdf"], title: "Datasheet" })
    */
-  file: (options: { accept: string[]; title?: string }) => FileField;
+  file: (options: { accept: string[]; title?: string; required?: boolean }) => FileField;
   /**
    * A list of file assets.
    *

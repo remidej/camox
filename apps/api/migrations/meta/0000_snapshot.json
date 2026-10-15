@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a304057f-c7f5-4b6f-ad69-e7ce7b5cfcff",
+  "id": "2379f8eb-09e6-452e-8f3c-5801b47b4c6a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1576,11 +1576,69 @@
     "files": {
       "name": "files",
       "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "base_version": {
+          "name": "base_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "first_published_at": {
+          "name": "first_published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_by": {
+          "name": "published_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "project_id": {
@@ -1677,6 +1735,18 @@
         }
       },
       "indexes": {
+        "files_live_id_idx": {
+          "name": "files_live_id_idx",
+          "columns": ["id"],
+          "isUnique": true,
+          "where": "\"files\".\"draft_id\" is null"
+        },
+        "files_draft_id_idx": {
+          "name": "files_draft_id_idx",
+          "columns": ["draft_id", "id"],
+          "isUnique": true,
+          "where": "\"files\".\"draft_id\" is not null"
+        },
         "files_blob_id_idx": {
           "name": "files_blob_id_idx",
           "columns": ["blob_id"],
@@ -1694,6 +1764,15 @@
         }
       },
       "foreignKeys": {
+        "files_draft_id_drafts_id_fk": {
+          "name": "files_draft_id_drafts_id_fk",
+          "tableFrom": "files",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "files_project_id_projects_id_fk": {
           "name": "files_project_id_projects_id_fk",
           "tableFrom": "files",

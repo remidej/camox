@@ -11,6 +11,7 @@ Object.assign(globalThis, {
   __CAMOX_TELEMETRY_DISABLED__: true,
 });
 const { getApiClient, initApiClient } = await import("./api-client");
+const { getUploadDraftHeaders } = await import("./studio-draft");
 
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -95,7 +96,7 @@ void test("a failed first block edit leaves the studio on Live", async (t) => {
   assert.notEqual(sent[2].draft, sent[0].draft);
 });
 
-void test("only block writes start a draft", async (t) => {
+void test("only content writes start a draft", async (t) => {
   openStudio("/about");
   const sent = mockApi(t);
 
@@ -162,4 +163,34 @@ void test("a studio opened on a draft reads and writes it without creating it", 
       { draft: draftId, create: null },
     ],
   );
+});
+
+void test("changing a file on Live starts a draft, and reading or generating metadata doesn't", async (t) => {
+  openStudio("/about");
+  const sent = mockApi(t);
+  const fileId = "01890a5d-ac96-774b-bcce-b302099a8058";
+
+  await getApiClient().files.get({ id: fileId } as never);
+  await getApiClient().files.generateMetadata({ id: fileId } as never);
+  assert.deepEqual(
+    sent.map(({ draft }) => draft),
+    [null, null],
+  );
+
+  await getApiClient().files.setAlt({ id: fileId, alt: "A mountain" } as never);
+  assert.equal(sent[2].create, "1");
+  assert.match(sent[2].draft ?? "", UUIDV7);
+  assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), sent[2].draft);
+});
+
+void test("an upload on Live asks for a new draft, and the studio enters it once it succeeds", async () => {
+  openStudio("/about");
+  const upload = getUploadDraftHeaders();
+  assert.equal(upload.headers[DRAFT_CREATE_HEADER], "1");
+  const draftId = upload.headers[DRAFT_HEADER];
+  assert.match(draftId ?? "", UUIDV7);
+  upload.settle(true);
+
+  assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
+  assert.deepEqual(getUploadDraftHeaders().headers, { [DRAFT_HEADER]: draftId });
 });

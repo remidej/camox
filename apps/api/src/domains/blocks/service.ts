@@ -30,7 +30,6 @@ import {
   blocks,
   comments,
   environments,
-  files,
   layouts,
   member,
   pages,
@@ -850,15 +849,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     collectFileIds(item.references, fileIds);
   }
 
-  const fileRows =
-    fileIds.size > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(files)
-            .where(inArray(files.id, [...fileIds])),
-        )
-      : [];
+  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, scope)).values()];
 
   return {
     block: hydratedBlock,
@@ -883,6 +874,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
   scope: { projectId: number; environmentId: number },
   blockRows: RenderableBlock[],
   itemRows: RenderableItem[],
+  draft: DraftScope,
 ) {
   // Get block definitions for content schemas and Markdown representations. Scope
   // by environmentId — the same blockId can exist with different shapes across
@@ -934,7 +926,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     collectFileIds(item.content as Record<string, unknown>, fileIds);
     collectFileIds(item.references ?? {}, fileIds);
   }
-  const fileMap = yield* buildFileMap(ctx.db, fileIds);
+  const fileMap = yield* buildFileMap(ctx.db, fileIds, draft);
 
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const json = (block: RenderableBlock) =>
@@ -1013,6 +1005,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     page,
     [...sorted, ...sortedLayout],
     [...allItems, ...layoutAllItems],
+    scope,
   );
   const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
@@ -1053,7 +1046,7 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
   );
   if (!layout) return yield* new NotFoundError();
   const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
-  const render = yield* renderBlocksMarkdown(ctx, layout, layoutBlocks, items);
+  const render = yield* renderBlocksMarkdown(ctx, layout, layoutBlocks, items, scope);
   return layoutSlotsMarkdown(layoutBlocks, render.markdown);
 });
 

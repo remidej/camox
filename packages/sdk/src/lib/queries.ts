@@ -317,7 +317,6 @@ export const pageMutations = {
 export const fileMutations = {
   delete: () => getOrpc().files.delete.mutationOptions(),
   deleteMany: () => getOrpc().files.deleteMany.mutationOptions(),
-  replace: () => getOrpc().files.replace.mutationOptions(),
   setAiMetadata: () => getOrpc().files.setAiMetadata.mutationOptions(),
   setFilename: () => getOrpc().files.setFilename.mutationOptions(),
   setAlt: () => getOrpc().files.setAlt.mutationOptions(),

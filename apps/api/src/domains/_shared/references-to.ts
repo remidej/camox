@@ -2,6 +2,9 @@ import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { blocks } from "../blocks/schema";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 import { itemsInEnvironment } from "../repeatable-items/roots";
 
 /** What content can reference: a collection record by its id, or a file by its `_fileId`. */
@@ -18,14 +21,15 @@ export type ReferencingContent =
   | { kind: "record"; id: string };
 
 /**
- * The content that references `target`, in one project and environment, as stored right now.
+ * The content that references `target`, in one project and environment, as `draft` reads it
+ * (Live when absent). Content that doesn't live in drafts yet is read from Live.
  * Content is matched on whole JSON values, so an id never matches another id it is a prefix of.
  * Record references are the record's id as a string anywhere in content; file references are
  * `_fileId` markers. Run on demand: nothing indexes references ahead of time.
  */
 export const referencesTo = Effect.fn("references.referencesTo")(function* (
   db: Database,
-  scope: { projectId: number; environmentId: number },
+  scope: { projectId: number; environmentId: number; draft?: DraftScope },
   target: ReferenceTarget,
 ) {
   const matches = (content: ReturnType<typeof sql.raw>) =>
@@ -37,8 +41,10 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
   // An environment belongs to one project, so its id alone scopes content.
   const rows = yield* Effect.promise(() =>
     db.all<{ kind: ReferencingContent["kind"]; id: string }>(sql`
-      select 'block' as kind, b.id as id from blocks b
-      where b.environment_id = ${scope.environmentId} and ${matches(sql.raw("b.content"))}
+      select 'block' as kind, ${blocks.id} as id from ${blocks}
+      where ${blocks.environmentId} = ${scope.environmentId}
+        and ${overlay.visibleIn(blocks, scope.draft ?? null)}
+        and ${matches(sql.raw('"blocks"."content"'))}
       union all
       select 'sharedContent', s.type from shared_contents s
       where s.environment_id = ${scope.environmentId} and ${matches(sql.raw("s.content"))}

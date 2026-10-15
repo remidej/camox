@@ -310,7 +310,10 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     ctx.db.select().from(blockDefinitions).where(eq(blockDefinitions.environmentId, source.id)),
   );
   const sourceFiles = yield* Effect.promise(() =>
-    ctx.db.select().from(files).where(eq(files.environmentId, source.id)),
+    ctx.db
+      .select()
+      .from(files)
+      .where(and(visibleIn(files, null), eq(files.environmentId, source.id))),
   );
   const sourcePages = yield* Effect.promise(() =>
     ctx.db.select().from(pages).where(eq(pages.environmentId, source.id)),
@@ -397,7 +400,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // (Phase 1) keeps blobs alive while any env still references them.
   const filesMap: IdMap = new Map();
   for (const row of sourceFiles) {
-    const { id, environmentId: _envId, ...rest } = row;
+    const { rowId: _rowId, id, environmentId: _envId, ...rest } = row;
     const inserted = yield* Effect.promise(() =>
       ctx.db
         .insert(files)

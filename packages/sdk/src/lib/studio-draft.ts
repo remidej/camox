@@ -8,7 +8,7 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
 
 /**
  * The draft the studio reads and writes (ADR 0011). The URL's `camox-draft` param names it;
- * without one the studio is on Live. Only block writes start a draft (#235): the first one on
+ * without one the studio is on Live. Block and file writes start a draft: the first one on
  * Live mints an id and asks the API to create it, and the param lands in the URL once a write
  * succeeds. Edits fired before it settles share the same pending id so they land in one draft.
  */
@@ -16,21 +16,36 @@ import type { DraftNotice } from "../features/routes/pageRuntime";
 // Whether each block procedure is a content write that starts a draft. Every procedure is
 // listed, so a new one fails the type check until it's classified and can't be forgotten.
 // `generateSummary` only fills a generated value (ADR 0012), so it doesn't start one.
-const STARTS_DRAFT: Record<keyof Router["blocks"], boolean> = {
-  get: false,
-  getPageMarkdown: false,
-  getLayoutMarkdown: false,
-  getUsageCounts: false,
-  getPagesUsing: false,
-  getSyncedContent: false,
-  create: true,
-  updateContent: true,
-  updateSettings: true,
-  updatePosition: true,
-  delete: true,
-  deleteMany: true,
-  generateSummary: false,
-  duplicate: true,
+const STARTS_DRAFT: { [R in "blocks" | "files"]: Record<keyof Router[R], boolean> } = {
+  blocks: {
+    get: false,
+    getPageMarkdown: false,
+    getLayoutMarkdown: false,
+    getUsageCounts: false,
+    getPagesUsing: false,
+    getSyncedContent: false,
+    create: true,
+    updateContent: true,
+    updateSettings: true,
+    updatePosition: true,
+    delete: true,
+    deleteMany: true,
+    generateSummary: false,
+    duplicate: true,
+  },
+  // Uploads and replacements go through `getUploadDraftHeaders`, outside oRPC.
+  files: {
+    list: false,
+    get: false,
+    getUsageCount: false,
+    setAlt: true,
+    setFilename: true,
+    delete: true,
+    deleteMany: true,
+    // Switching AI metadata on or off changes content (ADR 0012); generating only fills it.
+    setAiMetadata: true,
+    generateMetadata: false,
+  },
 };
 
 let currentDraftId: string | null = null;
@@ -94,19 +109,36 @@ export function onDraftStarted(listener: (draftId: string) => void): () => void 
   return () => listeners.delete(listener);
 }
 
-function isBlockWrite(path: readonly string[]) {
-  if (path.length !== 2 || path[0] !== "blocks") return false;
-  return STARTS_DRAFT[path[1] as keyof Router["blocks"]] === true;
+function startsDraft(path: readonly string[]) {
+  if (path.length !== 2) return false;
+  const [router, procedure] = path as [string, string];
+  if (!(router in STARTS_DRAFT)) return false;
+  const table = STARTS_DRAFT[router as keyof typeof STARTS_DRAFT] as Record<string, boolean>;
+  return table[procedure] === true;
 }
 
-/** Headers for an API call at `path`, and a callback to report whether the call succeeded. */
-export function getDraftRequestHeaders(path: readonly string[]): {
+type DraftRequestHeaders = {
   headers: Record<string, string>;
   settle: (ok: boolean) => void;
-} {
+};
+
+/** Headers for an API call at `path`, and a callback to report whether the call succeeded. */
+export function getDraftRequestHeaders(path: readonly string[]): DraftRequestHeaders {
+  return headersFor(startsDraft(path));
+}
+
+/**
+ * Headers for a file upload or replacement, which writes content outside oRPC: on Live it
+ * starts a draft like any other content write.
+ */
+export function getUploadDraftHeaders(): DraftRequestHeaders {
+  return headersFor(true);
+}
+
+function headersFor(write: boolean): DraftRequestHeaders {
   const noop = () => {};
   if (currentDraftId) return { headers: { [DRAFT_HEADER]: currentDraftId }, settle: noop };
-  if (!isBlockWrite(path)) return { headers: {}, settle: noop };
+  if (!write) return { headers: {}, settle: noop };
 
   pending ??= { id: generateUuidv7(), inFlight: 0 };
   const started = pending;

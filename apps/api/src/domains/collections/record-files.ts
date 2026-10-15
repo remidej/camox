@@ -4,6 +4,7 @@ import { Effect } from "effect";
 
 import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import * as overlay from "../drafts/overlay";
 
 type Field = { fieldType?: string };
 
@@ -62,6 +63,7 @@ export const resolveRecordFiles = Effect.fn("collections.resolveRecordFiles")(fu
       .from(files)
       .where(
         and(
+          overlay.visibleIn(files, null),
           inArray(files.id, [...ids]),
           eq(files.projectId, scope.projectId),
           eq(files.environmentId, scope.environmentId),
