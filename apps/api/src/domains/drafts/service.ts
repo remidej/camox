@@ -1,34 +1,39 @@
-import { eq } from "drizzle-orm";
+import { and, eq, not } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
-import { ForbiddenError, NotFoundError } from "../../lib/errors";
+import { ForbiddenError, NotFoundError, type ServiceError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import type { ServiceContext } from "../_shared/service-context";
+import * as overlay from "./overlay";
 import { drafts } from "./schema";
 import type { DraftScope } from "./scope";
 
 type DraftScopeContext = Pick<ServiceContext, "db" | "user" | "draft">;
 
+const scopeOf = (draft: typeof drafts.$inferSelect) =>
+  ({ id: draft.id, kind: draft.kind, projectId: draft.projectId }) satisfies DraftScope;
+
 /**
  * Turn the draft a request names (`ctx.draft`) into the scope a service reads and writes, once
  * the service knows the project. No draft means Live, which is public. Naming a draft needs a
  * member of the project's organization: anonymous callers fail with 401, outsiders with 403. A
- * missing draft is created with the caller as creator when the request sends the create header,
- * and fails with 404 otherwise, as does a draft of another project.
+ * missing draft is created with the caller as creator when the request sends the create header
+ * (`started`), and fails with 404 otherwise, as does a draft of another project.
  */
-export const resolveDraftScope = Effect.fn("resolveDraftScope")(function* (
+const resolveRequestedDraft = Effect.fn("resolveRequestedDraft")(function* (
   ctx: DraftScopeContext,
   projectId: number,
-) {
+): Effect.fn.Return<{ scope: DraftScope; started: boolean }, ServiceError> {
   const requested = ctx.draft;
-  if (!requested) return null satisfies DraftScope;
+  if (!requested) return { scope: null, started: false };
   const user = yield* requireUser(ctx);
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
 
+  let started = false;
   if (requested.create) {
     // Two requests racing to start the same draft both land here; the primary key keeps one.
-    yield* Effect.promise(() =>
+    const inserted = yield* Effect.promise(() =>
       ctx.db
         .insert(drafts)
         .values({
@@ -38,8 +43,11 @@ export const resolveDraftScope = Effect.fn("resolveDraftScope")(function* (
           createdBy: user.id,
           createdAt: Date.now(),
         })
-        .onConflictDoNothing({ target: drafts.id }),
+        .onConflictDoNothing({ target: drafts.id })
+        .returning({ id: drafts.id })
+        .get(),
     );
+    started = inserted !== undefined;
   }
 
   const draft = yield* Effect.promise(() =>
@@ -54,8 +62,33 @@ export const resolveDraftScope = Effect.fn("resolveDraftScope")(function* (
     return yield* new ForbiddenError({ message: "A development draft is open to its owner only" });
   }
 
-  return { id: draft.id, kind: draft.kind, projectId: draft.projectId } satisfies DraftScope;
+  return { scope: scopeOf(draft), started };
 });
+
+/** The draft scope a request names on a project. Writes go through `inDraftScope`. */
+export const resolveDraftScope = (ctx: DraftScopeContext, projectId: number) =>
+  Effect.map(resolveRequestedDraft(ctx, projectId), ({ scope }) => scope);
+
+/**
+ * Runs a service in the draft scope a request names on a project. When this request started the
+ * draft and the service fails, the draft is dropped again unless a concurrent write already
+ * stored content in it, so a failed first edit leaves no empty draft behind.
+ */
+export const inDraftScope = <A>(
+  ctx: DraftScopeContext,
+  projectId: number,
+  run: (scope: DraftScope) => Effect.Effect<A, ServiceError>,
+) =>
+  Effect.flatMap(resolveRequestedDraft(ctx, projectId), ({ scope, started }) => {
+    if (!scope || !started) return run(scope);
+    return Effect.onError(run(scope), () => dropIfEmpty(ctx.db, scope));
+  });
+
+/** Deletes a draft in one statement, only while it stores nothing. */
+const dropIfEmpty = (db: ServiceContext["db"], scope: NonNullable<DraftScope>) =>
+  Effect.promise(() =>
+    db.delete(drafts).where(and(eq(drafts.id, scope.id), not(overlay.storesAnything(scope)))),
+  );
 
 /**
  * The scope a background job scheduled from `draftId` runs in: Live for `null`, or undefined
@@ -70,7 +103,7 @@ export const draftScopeOfJob = Effect.fn("draftScopeOfJob")(function* (
     db.select().from(drafts).where(eq(drafts.id, draftId)).get(),
   );
   if (!draft) return undefined;
-  return { id: draft.id, kind: draft.kind, projectId: draft.projectId } satisfies DraftScope;
+  return scopeOf(draft);
 });
 
 /** Promise form of `resolveDraftScope`, rejecting with the matching `ORPCError`. */

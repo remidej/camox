@@ -1,6 +1,6 @@
 import { runService } from "../../lib/run-service";
 import { pub } from "../../orpc";
-import { draftScopeOfProjectSlug, inScope } from "../blocks/draft-scope";
+import { projectOfSlug, inScope } from "../blocks/draft-scope";
 import * as service from "./service";
 
 // Public procedures
@@ -8,7 +8,7 @@ import * as service from "./service";
 const get = pub
   .input(service.getLayoutInput)
   .handler(({ context, input }) =>
-    inScope(draftScopeOfProjectSlug(context, input.projectSlug), (scope) =>
+    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
       service.getLayout(context, input, scope),
     ),
   );

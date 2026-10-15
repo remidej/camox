@@ -169,6 +169,22 @@ describe("block procedures in the draft a request names", () => {
     expect(await titleIn(second.id, inDraft(draft))).toBe("Second in draft");
   });
 
+  it("leaves no draft behind when the write starting it fails", async () => {
+    const { member, page, createBlock, titleIn } = await fixture();
+    const block = await createBlock("Live");
+    const draft = generateUuidv7();
+
+    await expect(
+      call(
+        router.blocks.create,
+        { pageId: page.id, type: "hero", content: {}, afterPosition: "a", beforePosition: "b" },
+        member(startingDraft(draft)),
+      ),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await expect(titleIn(block.id, inDraft(draft))).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("rejects writing to a missing draft without the create header", async () => {
     const { createBlock, editTitle, titleIn } = await fixture();
     const block = await createBlock("Live");

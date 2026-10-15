@@ -2,19 +2,43 @@ import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import { InvalidInputError } from "../../lib/errors";
+import { runService } from "../../lib/run-service";
 import { pub } from "../../orpc";
-import { drafts, member } from "../../schema";
-import { requireDraftScope } from "./service";
+import { blocks, drafts, member } from "../../schema";
+import * as overlay from "./overlay";
+import { inDraftScope, requireDraftScope } from "./service";
 
 // A procedure that only resolves the request's draft scope, so the tests run the real
 // middleware the way block procedures will.
 const draftScopeProbe = pub
   .input(z.object({ projectId: z.number() }))
   .handler(({ context, input }) => requireDraftScope(context, input.projectId));
+
+// A write that stores a block in the draft, as a concurrent first edit would, and then fails.
+const storeThenFailProbe = pub
+  .input(z.object({ projectId: z.number(), environmentId: z.number() }))
+  .handler(({ context, input }) =>
+    runService(
+      inDraftScope(context, input.projectId, (scope) =>
+        overlay
+          .insert(context.db, scope, blocks, {
+            environmentId: input.environmentId,
+            type: "hero",
+            content: {},
+            position: "a0",
+            createdAt: 1,
+            updatedAt: 1,
+          })
+          .pipe(Effect.andThen(new InvalidInputError({ message: "Failed after storing" }))),
+      ),
+    ),
+  );
 
 type Caller = "member" | "outsider" | "anonymous";
 
@@ -36,7 +60,14 @@ async function fixture() {
     );
   }
 
-  return { ...base, other, resolve };
+  const storeThenFail = (headers: Record<string, string>) =>
+    call(
+      storeThenFailProbe,
+      { projectId: base.project.id, environmentId: base.environment.id },
+      { context: createRpcContext(base.db, base.memberUser, headers) },
+    );
+
+  return { ...base, other, resolve, storeThenFail };
 }
 
 describe("draft request scope", () => {
@@ -80,6 +111,21 @@ describe("draft request scope", () => {
     expect(scopes).toEqual([expected, expected]);
     const projectDrafts = await db.select().from(drafts).where(eq(drafts.projectId, project.id));
     expect(projectDrafts).toHaveLength(1);
+  });
+
+  it("keeps a draft whose starting write failed once content is stored in it", async () => {
+    const { project, resolve, storeThenFail } = await fixture();
+    const draftId = generateUuidv7();
+
+    await expect(
+      storeThenFail({ [DRAFT_HEADER]: draftId, [DRAFT_CREATE_HEADER]: "1" }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    await expect(resolve("member", { [DRAFT_HEADER]: draftId })).resolves.toEqual({
+      id: draftId,
+      kind: "regular",
+      projectId: project.id,
+    });
   });
 
   it("rejects an anonymous caller naming a draft with 401", async () => {

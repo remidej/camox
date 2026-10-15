@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
@@ -66,6 +66,23 @@ registerContentTable(blocks, {
 export function storedIn(table: ContentTable, scope: DraftScope): SQL {
   registrationOf(table);
   return scope ? eq(table.draftId, scope.id) : isNull(table.draftId);
+}
+
+/**
+ * The rows a draft id can name before the draft is checked: Live's rows and that draft's own,
+ * tombstones included. Finds which project an entity belongs to for a request naming a draft.
+ */
+export function storedInLiveOrDraft(table: ContentTable, draftId: string): SQL {
+  registrationOf(table);
+  return or(isNull(table.draftId), eq(table.draftId, draftId))!;
+}
+
+/** Whether a draft stores any row, copy or tombstone, in any content table. */
+export function storesAnything(scope: NonNullable<DraftScope>): SQL {
+  const stored = [...registrations.keys()].map(
+    (table) => sql`exists (select 1 from ${table} where ${table.draftId} = ${scope.id})`,
+  );
+  return or(...stored)!;
 }
 
 /**
