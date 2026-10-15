@@ -23,6 +23,7 @@ import { blocks } from "../blocks/schema";
 import { comments } from "../comments/schema";
 import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
+import { environments } from "../projects/schema";
 import { repeatableItems } from "../repeatable-items/schema";
 import { drafts, endedDrafts } from "./schema";
 import type { DraftScope } from "./scope";
@@ -99,6 +100,8 @@ export type ContentTableRegistration = {
   /** The columns a change on another entity can rewrite, copying this one into the draft. */
   rewritable: AnySQLiteColumn[];
   dependents: Dependent[];
+  /** The table's rows in a project, Live's and every draft's, as a condition on the table. */
+  inProject: (projectId: number) => SQL;
 };
 
 const registrations = new Map<ContentTable, ContentTableRegistration>();
@@ -135,6 +138,8 @@ registerContentTable(blocks, {
     },
     { onDelete: "detach", column: comments.blockId },
   ],
+  inProject: (projectId) =>
+    sql`${blocks.environmentId} in (select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`,
 });
 
 /** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */
@@ -514,6 +519,75 @@ export const changesOf = Effect.fn("overlay.changesOf")(function* (
     }
   }
   return changes;
+});
+
+export type DraftActivity = { changeCount: number; lastChangedAt: number | null };
+
+/**
+ * How many entities each draft stores, the count `changesOf` lists, and when it last wrote one.
+ * A draft storing nothing is missing from the map.
+ */
+export const activityOf = Effect.fn("overlay.activityOf")(function* (
+  db: Database,
+  draftIds: string[],
+) {
+  const activity = new Map<string, DraftActivity>();
+  if (draftIds.length === 0) return activity;
+  for (const table of tables()) {
+    const rows = yield* Effect.promise(() =>
+      db
+        .select({
+          draftId: sql<string>`${table.draftId}`,
+          count: sql<number>`count(*)`,
+          lastChangedAt: sql<number | null>`max(${table.updatedAt})`,
+        })
+        .from(table as SQLiteTable)
+        .where(inArray(table.draftId, draftIds))
+        .groupBy(table.draftId),
+    );
+    for (const row of rows) {
+      const known = activity.get(row.draftId) ?? { changeCount: 0, lastChangedAt: null };
+      activity.set(row.draftId, {
+        changeCount: known.changeCount + row.count,
+        lastChangedAt: Math.max(known.lastChangedAt ?? 0, row.lastChangedAt ?? 0) || null,
+      });
+    }
+  }
+  return activity;
+});
+
+/**
+ * Who published Live's most recently published content in a project, and when: the latest
+ * publish of any draft, development drafts included, or a release, which has no publisher.
+ * Null when nothing was ever published.
+ */
+export const latestLivePublish = Effect.fn("overlay.latestLivePublish")(function* (
+  db: Database,
+  projectId: number,
+) {
+  let latest: { publishedBy: string | null; publishedAt: number } | null = null;
+  for (const table of tables()) {
+    const row = yield* Effect.promise(() =>
+      db
+        .select({
+          publishedBy: sql<string | null>`${table.publishedBy}`,
+          publishedAt: sql<number>`${table.publishedAt}`,
+        })
+        .from(table as SQLiteTable)
+        .where(
+          and(
+            isNull(table.draftId),
+            sql`${table.publishedAt} is not null`,
+            registrationOf(table).inProject(projectId),
+          ),
+        )
+        .orderBy(sql`${table.publishedAt} desc`)
+        .limit(1)
+        .get(),
+    );
+    if (row && (!latest || row.publishedAt > latest.publishedAt)) latest = row;
+  }
+  return latest;
 });
 
 export type StoredConflict = {
