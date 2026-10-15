@@ -9,6 +9,7 @@ import { blocks, repeatableItems, sharedContentId, sharedContents } from "../../
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { readValues } from "../generated-values/service";
 import {
   itemsUnder,
   rootColumns,
@@ -52,7 +53,7 @@ const insertSharedContent = Effect.fn("insertSharedContent")(function* (
   db: Database,
   scope: DraftScope,
   key: DefinitionKey,
-  data: { content: unknown; settings: unknown; summary: string },
+  data: { content: unknown; settings: unknown },
 ) {
   const now = Date.now();
   const row = { id: sharedContentId(key), ...key, ...data, createdAt: now, updatedAt: now };
@@ -94,9 +95,51 @@ export const placementsOf = Effect.fn("placementsOf")(function* (
 /**
  * Blocks and items as a scope's readers see them. A placement of a synced definition shows the
  * shared content, settings and summary, and the shared items, each named under the placement's
- * `blockId`: shared items keep their ids, so several placements read the same item ids.
+ * `blockId`: shared items keep their ids, so several placements read the same item ids. Each
+ * block and item carries its summary, a generated value the scope reads (ADR 0012).
  */
 export const withSharedContent = Effect.fn("withSharedContent")(function* <B extends BlockRow>(
+  db: Database,
+  scope: DraftScope,
+  blockRows: readonly B[],
+  itemRows: readonly ItemRow[],
+) {
+  const shown = yield* sharedContentShown(db, scope, blockRows, itemRows);
+  const blockSummaries = yield* readValues(
+    db,
+    scope,
+    "block",
+    "summary",
+    shown.blocks.filter((block) => !block.sharedContentId).map((block) => block.id),
+  );
+  const sharedSummaries = yield* readValues(
+    db,
+    scope,
+    "sharedContent",
+    "summary",
+    shown.blocks.flatMap((block) => (block.sharedContentId ? [block.sharedContentId] : [])),
+  );
+  const itemSummaries = yield* readValues(
+    db,
+    scope,
+    "repeatableItem",
+    "summary",
+    shown.items.map((item) => item.id),
+  );
+  return {
+    blocks: shown.blocks.map(({ sharedContentId: shared, ...block }) => ({
+      ...block,
+      summary:
+        (shared ? sharedSummaries.get(shared) : blockSummaries.get(block.id))?.value?.summary ?? "",
+    })),
+    items: shown.items.map((item) => ({
+      ...item,
+      summary: itemSummaries.get(item.id)?.value?.summary ?? "",
+    })),
+  };
+});
+
+const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends BlockRow>(
   db: Database,
   scope: DraftScope,
   blockRows: readonly B[],
@@ -106,7 +149,9 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   const types = [...new Set(blockRows.map((block) => block.type))];
   const ownItems = (items: readonly ItemRow[]) =>
     items.filter((item): item is ItemRow & { blockId: string } => item.blockId !== null);
-  if (blockRows.length === 0) return { blocks: [...blockRows], items: ownItems(itemRows) };
+  const unshared = (rows: readonly B[]) =>
+    rows.map((block) => ({ ...block, sharedContentId: null as string | null }));
+  if (blockRows.length === 0) return { blocks: unshared(blockRows), items: ownItems(itemRows) };
 
   const shared = yield* overlay.select(
     db,
@@ -114,7 +159,7 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
     sharedContents,
     and(inArray(sharedContents.environmentId, environmentIds), inArray(sharedContents.type, types)),
   );
-  if (shared.length === 0) return { blocks: [...blockRows], items: ownItems(itemRows) };
+  if (shared.length === 0) return { blocks: unshared(blockRows), items: ownItems(itemRows) };
   const keyOf = ({ environmentId, type }: DefinitionKey) => `${environmentId}:${type}`;
   const sharedByKey = new Map(shared.map((row) => [keyOf(row), row]));
   const sharedItems = yield* overlay.select(
@@ -141,13 +186,13 @@ export const withSharedContent = Effect.fn("withSharedContent")(function* <B ext
   const placed = new Set<string>();
   const projectedBlocks = blockRows.map((block) => {
     const content = sharedByKey.get(keyOf(block));
-    if (!content) return block;
+    if (!content) return { ...block, sharedContentId: null as string | null };
     placed.add(block.id);
     return {
       ...block,
       content: content.content,
       settings: content.settings,
-      summary: content.summary,
+      sharedContentId: content.id as string | null,
     };
   });
   const items = ownItems(itemRows).filter((item) => !placed.has(item.blockId));
@@ -209,7 +254,7 @@ export const bumpPlacementOwners = Effect.fn("bumpPlacementOwners")(function* (
 });
 
 /** A placement holding nothing of its own: its content lives in the shared content. */
-const clearedPlacement = { content: {}, settings: null, summary: "" };
+const clearedPlacement = { content: {}, settings: null };
 
 /** Copies a Live item tree under another Live root with fresh ids, parents before children. */
 const copyItemTree = Effect.fn("copyItemTree")(function* (
@@ -234,7 +279,6 @@ const copyItemTree = Effect.fn("copyItemTree")(function* (
               fieldName: item.fieldName,
               content: item.content,
               settings: item.settings,
-              summary: item.summary,
               position: item.position,
               createdAt: now,
               updatedAt: now,
@@ -276,7 +320,6 @@ const sharedContentFromDefaults = Effect.fn("sharedContentFromDefaults")(functio
   yield* insertSharedContent(db, null, key, {
     content: defaults.content,
     settings: defaults.settings ?? null,
-    summary: "",
   });
   const ids = new Map<string, string>();
   for (const seed of defaults.seeds) {
@@ -290,7 +333,6 @@ const sharedContentFromDefaults = Effect.fn("sharedContentFromDefaults")(functio
           fieldName: seed.fieldName,
           content: seed.content,
           settings: seed.settings ?? null,
-          summary: "",
           position: seed.position,
           createdAt: now,
           updatedAt: now,
@@ -312,8 +354,8 @@ const sharedContentFromPlacement = Effect.fn("sharedContentFromPlacement")(funct
   placement: BlockRow,
 ) {
   const key = definitionOf(placement);
-  const { content, settings, summary } = placement;
-  yield* insertSharedContent(db, scope, key, { content, settings, summary });
+  const { content, settings } = placement;
+  yield* insertSharedContent(db, scope, key, { content, settings });
   yield* Effect.promise(() =>
     db
       .update(repeatableItems)
@@ -393,7 +435,6 @@ const stopBeingSynced = Effect.fn("stopBeingSynced")(function* (
         .set({
           content: shared.content,
           settings: shared.settings,
-          summary: shared.summary,
           ...overlay.releasedChange(blocks, now),
         })
         .where(eq(blocks.rowId, placement.rowId)),

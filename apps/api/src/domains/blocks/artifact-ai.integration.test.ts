@@ -72,7 +72,6 @@ async function fixture(type: "templated" | "raw") {
       pathSegment: "visuals",
       fullPath: "/visuals",
       nickname: "Visuals",
-      aiSeoEnabled: true,
       contentUpdatedAt: now,
       createdAt: now,
       updatedAt: now,
@@ -144,7 +143,7 @@ describe("artifact sources are kept out of LLM-bound fallbacks", () => {
   it("AI SEO", async () => {
     const { db, page } = await fixture("raw");
     chat.mockResolvedValueOnce({ metaTitle: "Space", metaDescription: "Space visuals" });
-    await runService(executePageSeo(db, "key", page.id));
+    await runService(executePageSeo(db, "key", page.id, null));
     expect(chat).toHaveBeenCalledOnce();
     expect(prompts()).toContain("Space");
     expect(prompts()).not.toMatch(SOURCE_PIECES);

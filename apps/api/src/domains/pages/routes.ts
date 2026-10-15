@@ -68,27 +68,11 @@ const deleteFn = authed
     ),
   );
 
-const setAiSeo = authed
-  .input(service.setPageAiSeoInput)
+const setSeo = authed
+  .input(service.setPageSeoInput)
   .handler(({ context, input }) =>
     inScope(context, projectOfPage(context, input.id), (scope) =>
-      service.setPageAiSeo(context, input, scope),
-    ),
-  );
-
-const setMetaTitle = authed
-  .input(service.setPageMetaTitleInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.id), (scope) =>
-      service.setPageMetaTitle(context, input, scope),
-    ),
-  );
-
-const setMetaDescription = authed
-  .input(service.setPageMetaDescriptionInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.id), (scope) =>
-      service.setPageMetaDescription(context, input, scope),
+      service.setPageSeo(context, input, scope),
     ),
   );
 
@@ -117,9 +101,7 @@ export const pageProcedures = {
   create,
   update,
   delete: deleteFn,
-  setAiSeo,
-  setMetaTitle,
-  setMetaDescription,
+  setSeo,
   setLayout,
   generateSeo,
 };

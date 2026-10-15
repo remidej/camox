@@ -83,16 +83,6 @@ CREATE TABLE `verification` (
 	`updatedAt` integer
 );
 --> statement-breakpoint
-CREATE TABLE `ai_jobs` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`entity_table` text NOT NULL,
-	`entity_id` text NOT NULL,
-	`type` text NOT NULL,
-	`status` text DEFAULT 'pending' NOT NULL,
-	`created_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `ai_jobs_entity_idx` ON `ai_jobs` (`entity_table`,`entity_id`,`type`);--> statement-breakpoint
 CREATE TABLE `environments` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`project_id` integer NOT NULL,
@@ -152,7 +142,6 @@ CREATE TABLE `pages` (
 	`nickname` text NOT NULL,
 	`meta_title` text,
 	`meta_description` text,
-	`ai_seo_enabled` integer,
 	`custom_og_image_blob_id` text,
 	`custom_og_image_url` text,
 	`content_updated_at` integer NOT NULL,
@@ -208,7 +197,6 @@ CREATE TABLE `blocks` (
 	`content` text NOT NULL,
 	`settings` text,
 	`slot` text,
-	`summary` text DEFAULT '' NOT NULL,
 	`position` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
@@ -235,7 +223,6 @@ CREATE TABLE `shared_contents` (
 	`type` text NOT NULL,
 	`content` text NOT NULL,
 	`settings` text,
-	`summary` text DEFAULT '' NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -262,7 +249,6 @@ CREATE TABLE `repeatable_items` (
 	`field_name` text NOT NULL,
 	`content` text NOT NULL,
 	`settings` text,
-	`summary` text DEFAULT '' NOT NULL,
 	`position` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
@@ -290,14 +276,13 @@ CREATE TABLE `files` (
 	`project_id` integer,
 	`environment_id` integer NOT NULL,
 	`url` text NOT NULL,
-	`alt` text DEFAULT '' NOT NULL,
-	`filename` text NOT NULL,
+	`alt` text,
+	`filename` text,
 	`mime_type` text NOT NULL,
 	`size` integer NOT NULL,
 	`optimized_size` integer,
 	`blob_id` text NOT NULL,
 	`path` text NOT NULL,
-	`ai_metadata_enabled` integer,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -390,4 +375,21 @@ CREATE TABLE `ended_drafts` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `ended_drafts_project_idx` ON `ended_drafts` (`project_id`);
+CREATE INDEX `ended_drafts_project_idx` ON `ended_drafts` (`project_id`);--> statement-breakpoint
+CREATE TABLE `generated_values` (
+	`row_id` integer PRIMARY KEY NOT NULL,
+	`project_id` integer NOT NULL,
+	`draft_id` text,
+	`entity` text NOT NULL,
+	`entity_id` text NOT NULL,
+	`type` text NOT NULL,
+	`value` text,
+	`requested_at` integer,
+	`generated_at` integer,
+	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`draft_id`) REFERENCES `drafts`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `generated_values_live_idx` ON `generated_values` (`entity`,`entity_id`,`type`) WHERE "generated_values"."draft_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX `generated_values_draft_idx` ON `generated_values` (`draft_id`,`entity`,`entity_id`,`type`) WHERE "generated_values"."draft_id" is not null;--> statement-breakpoint
+CREATE INDEX `generated_values_project_idx` ON `generated_values` (`project_id`);

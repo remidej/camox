@@ -1,6 +1,6 @@
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
@@ -12,6 +12,10 @@ import { conformBlocks } from "../_shared/conform-content";
 import { withSharedContent } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { draftScopeOfJob } from "../drafts/service";
+import { type FileView, withFileMetadata } from "../files/generated-metadata";
+import { homeOf, readValue, saveValue, settleRequest } from "../generated-values/service";
+import { seoGenerated, seoKey } from "./generated-seo";
 
 // --- AI Executors ---
 
@@ -107,23 +111,27 @@ const generatePageSeoFromAi = Effect.fn("generatePageSeoFromAi")(function* (
   );
 });
 
+/**
+ * Generates a page's SEO as the scope reads it, into the scope's generated values: never into
+ * the page, so it never copies one into a draft (ADR 0012). Pages with manual SEO are skipped.
+ */
 export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   db: Database,
   apiKey: string,
   pageId: string,
+  scope: DraftScope,
   abortController?: AbortController,
 ) {
-  const page = yield* Effect.promise(() =>
-    db
-      .select()
-      .from(pages)
-      .where(and(eq(pages.id, pageId), overlay.storedIn(pages, null)))
-      .get(),
-  );
-  if (!page || page.aiSeoEnabled === false) return;
+  const startedAt = Date.now();
+  const page = yield* overlay.get(db, scope, pages, pageId);
+  if (!page) return;
+  const home = homeOf(scope, page.projectId);
+  if (!seoGenerated(page)) {
+    yield* settleRequest(db, home, seoKey(pageId), startedAt);
+    return;
+  }
 
-  // Page SEO is generated for Live only.
-  const pageBlocks = yield* overlay.select(db, null, blocks, eq(blocks.pageId, pageId));
+  const pageBlocks = yield* overlay.select(db, scope, blocks, eq(blocks.pageId, pageId));
 
   const defs = yield* Effect.promise(() =>
     db
@@ -152,19 +160,14 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   const blockIds = sorted.map((b) => b.id);
   const shown = yield* withSharedContent(
     db,
-    null,
+    scope,
     sorted,
     blockIds.length > 0
-      ? yield* Effect.promise(() =>
-          db
-            .select()
-            .from(repeatableItems)
-            .where(
-              and(
-                inArray(repeatableItems.blockId, blockIds),
-                overlay.storedIn(repeatableItems, null),
-              ),
-            ),
+      ? yield* overlay.select(
+          db,
+          scope,
+          repeatableItems,
+          inArray(repeatableItems.blockId, blockIds),
         )
       : [],
   );
@@ -203,39 +206,40 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
     };
   });
 
+  const previous = (yield* readValue(db, scope, seoKey(pageId))).value;
   const seo = yield* generatePageSeoFromAi(
     apiKey,
     {
       fullPath: page.fullPath,
       blocks: markdownBlocks,
-      previousMetaTitle: page.metaTitle,
-      previousMetaDescription: page.metaDescription,
+      previousMetaTitle: previous?.metaTitle,
+      previousMetaDescription: previous?.metaDescription,
     },
     abortController,
   );
-
-  yield* Effect.promise(() =>
-    db
-      .update(pages)
-      .set({
-        metaTitle: seo.metaTitle,
-        metaDescription: seo.metaDescription,
-        updatedAt: Date.now(),
-      })
-      // Generation can outlive a manual edit or a content change. NULL means
-      // automatic SEO is enabled by default, just as in the initial check.
-      .where(
-        and(
-          eq(pages.id, pageId),
-          overlay.storedIn(pages, null),
-          sql`${pages.aiSeoEnabled} is not false`,
-          eq(pages.updatedAt, page.updatedAt),
-          eq(pages.contentUpdatedAt, page.contentUpdatedAt),
-          sql`${pages.metaTitle} is ${page.metaTitle}`,
-          sql`${pages.metaDescription} is ${page.metaDescription}`,
-        ),
-      ),
+  yield* saveValue(
+    db,
+    home,
+    seoKey(pageId),
+    { metaTitle: seo.metaTitle, metaDescription: seo.metaDescription },
+    startedAt,
   );
+  return { projectId: page.projectId };
+});
+
+/**
+ * Runs a page SEO job in the scope it was scheduled from. Returns the page's project to
+ * refresh, or undefined when the draft has ended or the page is gone.
+ */
+export const runPageSeoJob = Effect.fn("pages.runPageSeoJob")(function* (
+  db: Database,
+  apiKey: string,
+  job: { entityId: string; draftId: string | null },
+  abortController?: AbortController,
+) {
+  const scope = yield* draftScopeOfJob(db, job.draftId);
+  if (scope === undefined) return undefined;
+  return yield* executePageSeo(db, apiKey, job.entityId, scope, abortController);
 });
 
 // --- Content Assembly Helpers ---
@@ -307,7 +311,7 @@ export const buildFileMap = Effect.fn("pages.buildFileMap")(function* (
   fileIds: Set<string>,
   scope: DraftScope,
 ) {
-  if (fileIds.size === 0) return new Map<string, typeof files.$inferSelect>();
+  if (fileIds.size === 0) return new Map<string, FileView>();
   const rows = yield* overlay.select(db, scope, files, inArray(files.id, [...fileIds]));
-  return new Map(rows.map((f) => [f.id, f]));
+  return new Map((yield* withFileMetadata(db, scope, rows)).map((f) => [f.id, f]));
 });

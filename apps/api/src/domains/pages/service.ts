@@ -8,17 +8,7 @@ import { assertPageAccess, getAuthorizedProject, requireUser } from "../../autho
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import {
-  blocks,
-  comments,
-  files,
-  layouts,
-  pages,
-  projects,
-  repeatableItems,
-  user,
-} from "../../schema";
+import { blocks, comments, layouts, pages, projects, repeatableItems, user } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
@@ -29,6 +19,8 @@ import {
 } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import type { FileView } from "../files/generated-metadata";
+import { type GenerationDeps, homeOf, requestGeneration } from "../generated-values/service";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
 import {
   assertCuratedLayout,
@@ -37,6 +29,7 @@ import {
   servesPages,
 } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, executePageSeo } from "./ai";
+import { type PageView, pageView, seoGenerated, withSeo } from "./generated-seo";
 
 const { sortByPosition } = overlay;
 
@@ -82,26 +75,36 @@ export const updatePageInput = z
     nickname: pageNicknameSchema.optional(),
     pathSegment: z.string().optional(),
     parentPageId: uuidv7Schema.nullable().optional(),
-    metaTitle: z.string().optional(),
-    metaDescription: z.string().optional(),
-    aiSeoEnabled: z.boolean().optional(),
   })
   .refine(({ id: _id, ...fields }) => Object.values(fields).some((value) => value !== undefined), {
     message: "Pass at least one field to update.",
+  });
+export const deletePageInput = z.object({ id: uuidv7Schema });
+/**
+ * A page's meta title and description are one group, all generated or all manual (ADR 0012).
+ * Writing either field makes the group manual, copying the generated value into the other one;
+ * `aiSeo: true` makes it generated again, `aiSeo: false` makes it manual as shown.
+ */
+export const setPageSeoInput = z
+  .object({
+    id: uuidv7Schema,
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional(),
+    aiSeo: z.boolean().optional(),
   })
   .refine(
     (input) =>
-      input.aiSeoEnabled !== true ||
+      input.metaTitle !== undefined ||
+      input.metaDescription !== undefined ||
+      input.aiSeo !== undefined,
+    { message: "Pass a meta title, a meta description or an AI SEO setting." },
+  )
+  .refine(
+    (input) =>
+      input.aiSeo !== true ||
       (input.metaTitle === undefined && input.metaDescription === undefined),
     { message: "Cannot enable automatic SEO alongside manual metadata." },
   );
-export const deletePageInput = z.object({ id: uuidv7Schema });
-export const setPageAiSeoInput = z.object({ id: uuidv7Schema, enabled: z.boolean() });
-export const setPageMetaTitleInput = z.object({ id: uuidv7Schema, metaTitle: z.string() });
-export const setPageMetaDescriptionInput = z.object({
-  id: uuidv7Schema,
-  metaDescription: z.string(),
-});
 /** `layoutId` names the page's new layout. */
 export const setPageLayoutInput = z.object({ id: uuidv7Schema, layoutId: z.string() });
 export const generatePageSeoInput = z.object({ id: uuidv7Schema });
@@ -129,12 +132,13 @@ function invalidatePage(ctx: ServiceContext, scope: DraftScope, projectId: numbe
 const pagesIn = (ctx: ServiceContext, scope: DraftScope, environmentId: number) =>
   overlay.select(ctx.db, scope, pages, eq(pages.environmentId, environmentId));
 
-type BlockRow = typeof blocks.$inferSelect;
+/** A block as a page reads it, with its summary (ADR 0012). */
+type BlockRow = typeof blocks.$inferSelect & { summary: string };
 /** An item as a page reads it, named under the block showing it. */
-type ItemRow = typeof repeatableItems.$inferSelect & { blockId: string };
+type ItemRow = typeof repeatableItems.$inferSelect & { blockId: string; summary: string };
 /** An item as the page view serves it, with its resolved references. */
 type ViewItem = ItemRow & { references: ResolvedReferences };
-type FileRow = typeof files.$inferSelect;
+type FileRow = FileView;
 
 /** The page at a path in the project's environment, with its project and layout. */
 const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
@@ -179,7 +183,7 @@ function layoutView(
 }
 
 function composePageView(args: {
-  page: typeof pages.$inferSelect;
+  page: PageView;
   project: typeof projects.$inferSelect;
   layout: typeof layouts.$inferSelect | null;
   pageBlocks: BlockRow[];
@@ -219,7 +223,8 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   scope: DraftScope,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageByPathInput, rawInput);
-  const { project, page, layout } = yield* findPageByPath(ctx, projectSlug, path, scope);
+  const { project, page: stored, layout } = yield* findPageByPath(ctx, projectSlug, path, scope);
+  const page = yield* pageView(ctx.db, scope, stored);
 
   const pageContent = yield* readOwnerBlocks(ctx, { pageId: page.id }, scope);
   const layoutContent = layout
@@ -264,7 +269,8 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   scope: DraftScope,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageStructureInput, rawInput);
-  const { project, page, layout } = yield* findPageByPath(ctx, projectSlug, path, scope);
+  const { project, page: stored, layout } = yield* findPageByPath(ctx, projectSlug, path, scope);
+  const page = yield* pageView(ctx.db, scope, stored);
 
   const pageBlockOrder = sortByPosition(
     yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, page.id)),
@@ -292,7 +298,7 @@ export const listPages = Effect.fn("pages.listPages")(function* (
     (page) => page.projectId === projectId,
   );
   const problems = yield* pageServingProblems(ctx, environment.id);
-  return rows.map((page) => ({ ...page, ...problems(page) }));
+  return (yield* withSeo(ctx.db, scope, rows)).map((page) => ({ ...page, ...problems(page) }));
 });
 
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
@@ -311,7 +317,7 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
     (page) => page.projectId === project.id,
   );
   const problems = yield* pageServingProblems(ctx, environment.id);
-  return rows.map((page) => ({ ...page, ...problems(page) }));
+  return (yield* withSeo(ctx.db, scope, rows)).map((page) => ({ ...page, ...problems(page) }));
 });
 
 export const getPage = Effect.fn("pages.getPage")(function* (
@@ -346,7 +352,7 @@ export const getPage = Effect.fn("pages.getPage")(function* (
         ctx.db.select({ name: user.name }).from(user).where(eq(user.id, createdById)).get(),
       )
     : undefined;
-  return { ...row, createdBy: creator?.name ?? null };
+  return { ...(yield* pageView(ctx.db, scope, row)), createdBy: creator?.name ?? null };
 });
 
 // --- Writes ---
@@ -393,9 +399,11 @@ export const createPage = Effect.fn("pages.createPage")(function* (
   });
   if (!page) return yield* new ConflictError({ message: `Page ${id} already exists` });
 
+  // A new page's SEO is generated: publishing waits for a meta title (ADR 0009).
+  yield* requestPageSeo(ctx, scope, page, 0);
   invalidatePage(ctx, scope, projectId, page.id);
 
-  return { page, fullPath: page.fullPath };
+  return { page: yield* pageView(ctx.db, scope, page), fullPath: page.fullPath };
 });
 
 /**
@@ -409,9 +417,6 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
 ) {
   const user = yield* requireUser(ctx);
   const { id, ...body } = yield* decodeInput(updatePageInput, rawInput);
-  if (body.metaTitle !== undefined || body.metaDescription !== undefined) {
-    body.aiSeoEnabled = false;
-  }
   const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
 
   const pathChanges = new Map<string, string>();
@@ -452,18 +457,8 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
     if (pageId === id) continue;
     yield* overlay.update(ctx.db, scope, pages, pageId, { fullPath, updatedAt: now });
   }
-  if (body.aiSeoEnabled === true && !scope) {
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "pages",
-        entityId: id,
-        type: "seo",
-        delayMs: 0,
-      }),
-    );
-  }
   invalidatePage(ctx, scope, access.page.projectId, id);
-  return result;
+  return yield* pageView(ctx.db, scope, result);
 });
 
 /**
@@ -531,43 +526,30 @@ const writePage = Effect.fn("pages.writePage")(function* (
   return { access, result };
 });
 
-export const setPageAiSeo = Effect.fn("pages.setPageAiSeo")(function* (
+/**
+ * Sets a page's SEO group (ADR 0012): written fields make it manual, copying the generated
+ * values into the fields not written; `aiSeo: true` makes it generated again and requests
+ * generation.
+ */
+export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
   ctx: ServiceContext,
-  rawInput: z.input<typeof setPageAiSeoInput>,
+  rawInput: z.input<typeof setPageSeoInput>,
   scope: DraftScope,
 ) {
-  const { id, enabled } = yield* decodeInput(setPageAiSeoInput, rawInput);
-  const { result } = yield* writePage(ctx, scope, id, { aiSeoEnabled: enabled });
-  // Page SEO is generated for Live only until generated values sit beside content (ADR 0012).
-  if (enabled && !scope) {
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "pages",
-        entityId: id,
-        type: "seo",
-        delayMs: 0,
-      }),
-    );
-  }
-  return result;
-});
-
-export const setPageMetaTitle = Effect.fn("pages.setPageMetaTitle")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof setPageMetaTitleInput>,
-  scope: DraftScope,
-) {
-  const { id, metaTitle } = yield* decodeInput(setPageMetaTitleInput, rawInput);
-  return (yield* writePage(ctx, scope, id, { metaTitle })).result;
-});
-
-export const setPageMetaDescription = Effect.fn("pages.setPageMetaDescription")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof setPageMetaDescriptionInput>,
-  scope: DraftScope,
-) {
-  const { id, metaDescription } = yield* decodeInput(setPageMetaDescriptionInput, rawInput);
-  return (yield* writePage(ctx, scope, id, { metaDescription })).result;
+  const user = yield* requireUser(ctx);
+  const { id, metaTitle, metaDescription, aiSeo } = yield* decodeInput(setPageSeoInput, rawInput);
+  const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
+  const shown = yield* pageView(ctx.db, scope, access.page);
+  const columns =
+    aiSeo === true
+      ? { metaTitle: null, metaDescription: null }
+      : {
+          metaTitle: metaTitle ?? shown.metaTitle ?? "",
+          metaDescription: metaDescription ?? shown.metaDescription ?? "",
+        };
+  const { result } = yield* writePage(ctx, scope, id, columns);
+  if (aiSeo === true) yield* requestPageSeo(ctx, scope, result, 0);
+  return yield* pageView(ctx.db, scope, result);
 });
 
 export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
@@ -579,10 +561,10 @@ export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
   const { id, layoutId } = yield* decodeInput(setPageLayoutInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
   yield* assertCuratedLayout(ctx, access.page.environmentId, layoutId);
-  return (yield* writePage(ctx, scope, id, { layoutId })).result;
+  return yield* pageView(ctx.db, scope, (yield* writePage(ctx, scope, id, { layoutId })).result);
 });
 
-/** Generates a Live page's SEO. Generated values stay on Live until ADR 0012 lands. */
+/** Generates a page's SEO now, into the scope's generated values. */
 export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generatePageSeoInput>,
@@ -592,7 +574,23 @@ export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
 
-  yield* executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
-  invalidatePage(ctx, null, access.page.projectId, id);
-  return yield* overlay.get(ctx.db, scope, pages, id);
+  yield* executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
+  invalidatePage(ctx, scope, access.page.projectId, id);
+  const page = yield* overlay.get(ctx.db, scope, pages, id);
+  return page ? yield* pageView(ctx.db, scope, page) : undefined;
+});
+
+/** Requests a page's SEO in the scope, unless it's manual (ADR 0012). */
+export const requestPageSeo = Effect.fn("pages.requestPageSeo")(function* (
+  ctx: GenerationDeps,
+  scope: DraftScope,
+  page: typeof pages.$inferSelect,
+  delayMs: number,
+) {
+  if (!seoGenerated(page)) return;
+  yield* requestGeneration(ctx, homeOf(scope, page.projectId), {
+    entity: "page",
+    entityId: page.id,
+    delayMs,
+  });
 });

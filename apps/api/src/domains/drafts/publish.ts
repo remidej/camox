@@ -21,6 +21,7 @@ import {
   collectionRecords,
   comments,
   environments,
+  files,
   pages,
   repeatableItems,
   sharedContents,
@@ -28,9 +29,17 @@ import {
 import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
+import { sharedPlacementId } from "../blocks/shared-content";
 import * as draftComments from "../comments/drafts";
+import { metadataGenerated, withFileMetadata } from "../files/generated-metadata";
 import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
 import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
+import type { GeneratedEntity } from "../generated-values/schema";
+import * as generatedValueStatements from "../generated-values/service";
+import { homeOf, readValues, requestGeneration } from "../generated-values/service";
+import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
+import { requestPageSeo } from "../pages/service";
+import { rootOfItem } from "../repeatable-items/roots";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
 import { findEndedDraft, resolveDraftScope } from "./service";
@@ -41,6 +50,7 @@ import { findEndedDraft, resolveDraftScope } from "./service";
 type Scope = NonNullable<DraftScope>;
 type BlockRow = typeof blocks.$inferSelect;
 type RecordRow = typeof collectionRecords.$inferSelect;
+type FileRow = typeof files.$inferSelect;
 
 /**
  * Where an entity sits, so people can find it: its page, its layout, its synced block or its
@@ -77,7 +87,13 @@ export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletio
 
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject & {
-  code: "emptyRequiredReference" | "unresolvedComment" | "commentDeleted" | FileProblemCode;
+  code:
+    | "emptyRequiredReference"
+    | "unresolvedComment"
+    | "commentDeleted"
+    | "missingMetaTitle"
+    | "metaTitlePending"
+    | FileProblemCode;
   field: string;
   message: string;
 };
@@ -166,6 +182,15 @@ const describer = Effect.fn("drafts.describer")(function* (
   ];
   const pageRows = yield* rowsSeenBy(ctx, scope, pages, [...new Set(pageIds)]);
   const shared = yield* rowsSeenBy(ctx, scope, sharedContents, idsOf("sharedContent"));
+  // Summaries are generated values the draft reads (ADR 0012).
+  const summary = (entity: GeneratedEntity, ids: Iterable<string>) =>
+    Effect.map(
+      readValues(ctx.db, scope, entity, "summary", [...ids]),
+      (values) => (id: string) => values.get(id)?.value?.summary ?? "",
+    );
+  const sharedSummary = yield* summary("sharedContent", shared.keys());
+  const itemSummary = yield* summary("repeatableItem", items.keys());
+  const blockSummary = yield* summary("block", blockRows.keys());
   const definitions = yield* Effect.promise(() =>
     ctx.db
       .select({ blockId: blockDefinitions.blockId, title: blockDefinitions.title })
@@ -202,7 +227,7 @@ const describer = Effect.fn("drafts.describer")(function* (
       return {
         entity,
         id,
-        label: row?.summary || "Shared content",
+        label: sharedSummary(id) || "Shared content",
         owner: syncedOwner(type),
       };
     }
@@ -211,14 +236,14 @@ const describer = Effect.fn("drafts.describer")(function* (
       let owner: Owner = null;
       if (item?.sharedContentType) owner = syncedOwner(item.sharedContentType);
       else if (item?.blockId) owner = blockOwner(blockRows.get(item.blockId));
-      return { entity, id, label: item?.summary || "Item", owner };
+      return { entity, id, label: itemSummary(id) || "Item", owner };
     }
     const row = blockRows.get(id);
     if (!row) return { entity, id, label: "Block", owner: null };
     return {
       entity,
       id,
-      label: row.summary || titles.get(row.type) || row.type,
+      label: blockSummary(id) || titles.get(row.type) || row.type,
       owner: blockOwner(row),
     };
   };
@@ -430,6 +455,65 @@ const checkComments = Effect.fn("drafts.checkComments")(function* (
   };
 });
 
+/**
+ * A page the draft creates or changes with no meta title blocks publishing: manual and empty, or
+ * generated with nothing generated and no job pending. While generation is pending it's a
+ * warning, so a model outage never stops publishing (ADR 0009, 0012).
+ */
+const checkMetaTitles = Effect.fn("drafts.checkMetaTitles")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  stored: overlay.StoredChange[],
+) {
+  const changedPages = stored.flatMap((change) =>
+    change.table === pages && change.change !== "deleted"
+      ? [change.row as typeof pages.$inferSelect]
+      : [],
+  );
+  const generated = yield* generatedSeoOf(
+    ctx.db,
+    scope,
+    changedPages.filter(seoGenerated).map((page) => page.id),
+  );
+  const found = { blockers: [] as Problem[], warnings: [] as Problem[] };
+  for (const page of changedPages) {
+    const subject: Subject = {
+      entity: "page",
+      id: page.id,
+      label: "Page",
+      owner: { kind: "page", id: page.id, path: page.fullPath, nickname: page.nickname },
+    };
+    if (!seoGenerated(page)) {
+      if (page.metaTitle?.trim()) continue;
+      found.blockers.push({
+        ...subject,
+        code: "missingMetaTitle",
+        field: "metaTitle",
+        message: "The page has no meta title: write one or let AI generate it",
+      });
+      continue;
+    }
+    const shown = generated.get(page.id);
+    if (shown?.value?.metaTitle.trim()) continue;
+    if (shown?.pending) {
+      found.warnings.push({
+        ...subject,
+        code: "metaTitlePending",
+        field: "metaTitle",
+        message: "The page's meta title is still being generated",
+      });
+      continue;
+    }
+    found.blockers.push({
+      ...subject,
+      code: "missingMetaTitle",
+      field: "metaTitle",
+      message: "The page has no meta title: write one or generate it",
+    });
+  }
+  return found;
+});
+
 // --- Preview ---
 
 const computePreview = Effect.fn("drafts.computePreview")(function* (
@@ -453,11 +537,11 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     stored.filter((change) => change.table === collectionRecords).map((c) => c.row as RecordRow),
   );
   const fileNames = new Map(
-    stored.flatMap((change) =>
-      change.entity === "file"
-        ? [[change.row.id, change.row as unknown as { filename: string }] as const]
-        : [],
-    ),
+    (yield* withFileMetadata(
+      ctx.db,
+      scope,
+      stored.flatMap((change) => (change.entity === "file" ? [change.row as FileRow] : [])),
+    )).map((file) => [file.id, file] as const),
   );
   const describe = (entity: string, id: string) => {
     if (entity === "record") return describeRecord(id);
@@ -468,8 +552,9 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const changed = blockRows.filter((row) => !row.deleted);
   const content = yield* checkProblems(ctx, scope, changed);
   const feedback = yield* checkComments(ctx, scope);
-  const blockers = [...content.blockers, ...feedback.blockers];
-  const warnings = [...content.warnings, ...feedback.warnings];
+  const seo = yield* checkMetaTitles(ctx, scope, stored);
+  const blockers = [...content.blockers, ...seo.blockers, ...feedback.blockers];
+  const warnings = [...content.warnings, ...seo.warnings, ...feedback.warnings];
 
   const publisherIds = [
     ...new Set(storedConflicts.flatMap((c) => (c.publishedBy ? [c.publishedBy] : []))),
@@ -516,6 +601,88 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     changes,
     token: encodeToken(storedConflicts),
   } satisfies PublishPreview;
+});
+
+// --- Generated values after publishing (ADR 0012) ---
+
+// D1 binds at most 100 parameters per statement.
+const ID_CHUNK = 90;
+
+/** Live's rows with these ids. */
+const liveRows = Effect.fn("drafts.liveRows")(function* <T extends overlay.ContentTable>(
+  ctx: ServiceContext,
+  table: T,
+  ids: Iterable<string>,
+) {
+  const all = [...ids];
+  const rows: T["$inferSelect"][] = [];
+  for (let start = 0; start < all.length; start += ID_CHUNK) {
+    const chunk = all.slice(start, start + ID_CHUNK);
+    rows.push(...(yield* overlay.select(ctx.db, null, table, inArray(table.id, chunk))));
+  }
+  return rows;
+});
+
+/**
+ * Requests Live's generated values for everything a publish changed and the parents above it:
+ * another draft may have published to the same page since this one generated its values.
+ * Children are generated first, so their parents start from the new summaries.
+ */
+const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function* (
+  ctx: ServiceContext,
+  scope: Scope,
+  stored: overlay.StoredChange[],
+) {
+  const kept = stored.filter((change) => change.change !== "deleted");
+  const ids = (table: overlay.ContentTable) =>
+    new Set(kept.filter((change) => change.table === table).map((change) => change.row.id));
+  const itemIds = ids(repeatableItems);
+  const blockIds = ids(blocks);
+  const pageIds = ids(pages);
+  const fileIds = ids(files);
+
+  // Live now holds what the draft published.
+  const items = yield* liveRows(ctx, repeatableItems, itemIds);
+  const placementOf = new Map<string, string | null>();
+  for (const item of items) {
+    const root = rootOfItem(item);
+    if ("blockId" in root) {
+      blockIds.add(root.blockId);
+      continue;
+    }
+    const key = `${root.sharedContent.environmentId}:${root.sharedContent.type}`;
+    if (!placementOf.has(key)) {
+      placementOf.set(key, yield* sharedPlacementId(ctx.db, null, root.sharedContent));
+    }
+    const placement = placementOf.get(key);
+    if (placement) blockIds.add(placement);
+  }
+  for (const change of kept.filter((change) => change.table === sharedContents)) {
+    const shared = change.row as typeof sharedContents.$inferSelect;
+    const placement = yield* sharedPlacementId(ctx.db, null, shared);
+    if (placement) blockIds.add(placement);
+  }
+  const blockRows = yield* liveRows(ctx, blocks, blockIds);
+  for (const block of blockRows) if (block.pageId) pageIds.add(block.pageId);
+  const pageRows = yield* liveRows(ctx, pages, pageIds);
+  const fileRows = yield* liveRows(ctx, files, fileIds);
+
+  const live = homeOf(null, scope.projectId);
+  for (const item of items) {
+    yield* requestGeneration(ctx, live, {
+      entity: "repeatableItem",
+      entityId: item.id,
+      delayMs: 0,
+    });
+  }
+  for (const block of blockRows) {
+    yield* requestGeneration(ctx, live, { entity: "block", entityId: block.id, delayMs: 5000 });
+  }
+  for (const page of pageRows) yield* requestPageSeo(ctx, null, page, 15000);
+  for (const file of fileRows) {
+    if (!metadataGenerated(file)) continue;
+    yield* requestGeneration(ctx, live, { entity: "file", entityId: file.id, delayMs: 0 });
+  }
 });
 
 /** The draft a request names, which publishing and discarding need. */
@@ -624,7 +791,10 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       shown,
       publishedBy: user.id,
       now: Date.now(),
-      alongside: draftComments.publishStatements(ctx.db, scope.id),
+      alongside: [
+        ...draftComments.publishStatements(ctx.db, scope.id),
+        ...generatedValueStatements.publishStatements(ctx.db, scope.id),
+      ],
     }),
   );
   if (applied._tag === "Failure") {
@@ -637,6 +807,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   }
 
   yield* deleteUnreferencedBlobs(ctx, blobs);
+  yield* requestLiveGeneration(ctx, scope, stored);
   broadcastPublished(ctx, projectId);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   broadcastEnded(ctx, projectId, ended);
@@ -664,7 +835,10 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
     overlay.discard(ctx.db, scope, {
       discardedBy: user.id,
       now: Date.now(),
-      alongside: draftComments.discardStatements(ctx.db, scope.id),
+      alongside: [
+        ...draftComments.discardStatements(ctx.db, scope.id),
+        ...generatedValueStatements.discardStatements(ctx.db, scope.id),
+      ],
     }),
   );
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;

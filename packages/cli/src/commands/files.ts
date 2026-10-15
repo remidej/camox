@@ -20,12 +20,12 @@ const common = {
 const metadata = {
   alt: optional(
     option("--alt", string({ metavar: "TEXT" }), {
-      description: message`Alt text (including an empty string). Disables automatic metadata.`,
+      description: message`Alt text (including an empty string). Alt text and filename are one group: writing either makes both manual, keeping the current value of the other.`,
     }),
   ),
   aiMetadata: optional(
     option("--ai-metadata", choice(["on", "off"] as const), {
-      description: message`Enable or disable automatic metadata. Cannot enable alongside --alt. Enabling schedules generation for raster images.`,
+      description: message`on makes alt text and filename generated again and schedules asynchronous generation for raster images; it cannot be combined with --alt, nor with --filename on a metadata-only update. off keeps the current values as manual.`,
     }),
   ),
 };
@@ -76,7 +76,7 @@ export const parser = command(
         ),
         filename: optional(
           option("--filename", string({ metavar: "NAME" }), {
-            description: message`Set the filename. Metadata-only renames preserve the URL; replacement uses the source filename unless overridden. Disable AI to prevent future automatic renaming.`,
+            description: message`Set the filename. Metadata-only renames preserve the URL and make alt text and filename manual; replacement uses the source filename unless overridden.`,
           }),
         ),
         ...metadata,
@@ -142,6 +142,13 @@ export async function handler(args: Args): Promise<never> {
     }
     validateMetadata(args);
     validateFilename(args.filename);
+    if (args.filename !== undefined && args.aiMetadata === "on") {
+      printError({
+        code: "INVALID_ARGS",
+        message: "--filename cannot be combined with --ai-metadata on.",
+      });
+      process.exit(2);
+    }
     if (args.alt === undefined && args.aiMetadata === undefined && args.filename === undefined) {
       printError({
         code: "INVALID_ARGS",
@@ -156,7 +163,7 @@ export async function handler(args: Args): Promise<never> {
         id: args.id,
         alt: args.alt,
         filename: args.filename,
-        aiMetadataEnabled: args.aiMetadata === undefined ? undefined : args.aiMetadata === "on",
+        aiMetadata: args.aiMetadata === undefined ? undefined : args.aiMetadata === "on",
       },
     });
   } catch (err) {

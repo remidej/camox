@@ -454,6 +454,14 @@ export function anchoredToDeletionIn(draftId: string): SQL {
   return checks.length ? or(...checks)! : sql`0`;
 }
 
+/** Per registered entity, the ids of what a draft deletes, as a subquery. */
+export function deletionsIn(draftId: string): { entity: string; ids: SQL }[] {
+  return tables().map((table) => ({
+    entity: registrationOf(table).entity,
+    ids: sql`select ${at("d", table.id)} from ${sql.identifier(getTableName(table))} as "d" where ${at("d", table.draftId)} = ${draftId} and ${at("d", table.deleted)} = 1`,
+  }));
+}
+
 /**
  * The ids among `ids` that Live or any draft still holds as an entity, tombstones aside: what
  * points at these entities still has a reader, so it must stay.
@@ -473,24 +481,6 @@ export const idsHeldAnywhere = Effect.fn("overlay.idsHeldAnywhere")(function* (
         .where(and(inArray(table.id, ids), eq(table.deleted, false))) as Promise<{ id: string }[]>,
   );
   return new Set(rows.map((row) => row.id));
-});
-
-/**
- * Writes values onto an entity only where the scope already stores it, never copying it and
- * never counting a change: the path for generated values (ADR 0012). Undefined when the scope
- * stores no such entity.
- */
-export const updateExisting = Effect.fn("overlay.updateExisting")(function* <
-  T extends ContentTable,
->(db: Database, scope: DraftScope, table: T, id: string, values: Patch<T>) {
-  return (yield* Effect.promise(() =>
-    db
-      .update(table as SQLiteTable)
-      .set(values as Partial<Values<T>>)
-      .where(and(storedIn(table, scope), eq(table.id, id), eq(table.deleted, false)))
-      .returning()
-      .get(),
-  )) as Row<T> | undefined;
 });
 
 // --- Releases (ADR 0006, ADR 0007) ---

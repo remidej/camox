@@ -6,6 +6,7 @@ import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { withFileMetadata } from "../files/generated-metadata";
 
 type Field = { fieldType?: string };
 
@@ -71,7 +72,8 @@ export const resolveRecordFiles = Effect.fn("collections.resolveRecordFiles")(fu
         ),
       ),
   );
-  const byId = new Map(rows.map((file) => [file.id, file]));
+  const shown = yield* withFileMetadata(ctx.db, scope.draft ?? null, rows);
+  const byId = new Map(shown.map((file) => [file.id, file]));
   const resolve = (value: unknown): ResolvedAsset | null => {
     const id = assetFileId(value);
     const file = id === undefined ? undefined : byId.get(id);

@@ -84,7 +84,7 @@ async function cli(...args) {
   }
 }
 
-void test("forwards individual, combined, empty and omitted SEO fields through the public entry point", async () => {
+void test("set-seo forwards individual, combined, empty and toggled SEO fields through the public entry point", async () => {
   for (const { flags, expected } of [
     { flags: ["--meta-title", "About"], expected: { metaTitle: "About" } },
     { flags: ["--meta-description", ""], expected: { metaDescription: "" } },
@@ -92,25 +92,31 @@ void test("forwards individual, combined, empty and omitted SEO fields through t
       flags: ["--meta-title", "About", "--meta-description", "Team"],
       expected: { metaTitle: "About", metaDescription: "Team" },
     },
-    { flags: ["--ai-seo", "on"], expected: { aiSeoEnabled: true } },
-    { flags: ["--ai-seo", "off"], expected: { aiSeoEnabled: false } },
+    { flags: ["--ai-seo", "on"], expected: { aiSeo: true } },
+    { flags: ["--ai-seo", "off"], expected: { aiSeo: false } },
     {
       flags: ["--meta-title", "", "--ai-seo", "off"],
-      expected: { metaTitle: "", aiSeoEnabled: false },
+      expected: { metaTitle: "", aiSeo: false },
     },
-    { flags: ["--nickname", "Internal name"], expected: { nickname: "Internal name" } },
   ]) {
-    const result = await cli("update", "--id", PAGE_ID, ...flags, "--json");
+    const result = await cli("set-seo", "--id", PAGE_ID, ...flags, "--json");
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), { id: PAGE_ID, ...expected });
-    assert.equal(calls.at(-1).input.name, "updatePage");
+    assert.equal(calls.at(-1).input.name, "setPageSeo");
     assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
   }
 });
 
+void test("update forwards page fields to updatePage", async () => {
+  const result = await cli("update", "--id", PAGE_ID, "--nickname", "Internal name", "--json");
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { id: PAGE_ID, nickname: "Internal name" });
+  assert.equal(calls.at(-1).input.name, "updatePage");
+});
+
 void test("path targeting, project override, production selection and reads", async () => {
   const result = await cli(
-    "update",
+    "set-seo",
     "--path",
     "/about",
     "--meta-title",
@@ -142,29 +148,46 @@ void test("no longer publishes, unpublishes or discards a single page", async ()
 });
 
 void test("rejects invalid combinations before any request", async () => {
-  for (const flags of [
-    [],
-    ["--id", PAGE_ID],
-    ["--meta-title", "About"],
-    ["--id", PAGE_ID, "--path", "/about", "--meta-title", "About"],
-    ["--id", PAGE_ID, "--meta-title", "", "--ai-seo", "on"],
-    ["--path", "/about", "--meta-description", "Team", "--ai-seo", "on"],
+  for (const args of [
+    ["set-seo"],
+    ["set-seo", "--id", PAGE_ID],
+    ["set-seo", "--meta-title", "About"],
+    ["set-seo", "--id", PAGE_ID, "--path", "/about", "--meta-title", "About"],
+    ["set-seo", "--id", PAGE_ID, "--meta-title", "", "--ai-seo", "on"],
+    ["set-seo", "--path", "/about", "--meta-description", "Team", "--ai-seo", "on"],
+    ["update"],
+    ["update", "--id", PAGE_ID],
+    ["update", "--nickname", "About"],
+    ["update", "--id", PAGE_ID, "--path", "/about", "--nickname", "About"],
   ]) {
     const count = calls.length;
-    const result = await cli("update", ...flags);
-    assert.equal(result.code, 2, result.stderr);
-    assert.equal(JSON.parse(result.stderr).code, "INVALID_ARGS");
+    const result = await cli(...args);
+    assert.equal(result.code, 2, args.join(" "));
+    assert.equal(JSON.parse(result.stderr).code, "INVALID_ARGS", args.join(" "));
     assert.equal(result.stdout, "");
-    assert.equal(calls.length, count);
+    assert.equal(calls.length, count, args.join(" "));
+  }
+});
+
+void test("update no longer accepts SEO fields", async () => {
+  for (const flags of [
+    ["--meta-title", "About"],
+    ["--meta-description", "Team"],
+    ["--ai-seo", "on"],
+  ]) {
+    const count = calls.length;
+    const result = await cli("update", "--id", PAGE_ID, "--nickname", "About", ...flags);
+    assert.notEqual(result.code, 0, flags.join(" "));
+    assert.equal(calls.length, count, flags.join(" "));
   }
 });
 
 void test("prints structured server errors and documents SEO workflow in help", async () => {
-  const failed = await cli("update", "--id", MISSING_PAGE_ID, "--ai-seo", "off");
+  const failed = await cli("set-seo", "--id", MISSING_PAGE_ID, "--ai-seo", "off");
   assert.equal(failed.code, 1);
   assert.equal(JSON.parse(failed.stderr).code, "NOT_FOUND");
   assert.equal(failed.stdout, "");
-  const help = await cli("update", "--help");
+  const help = await cli("set-seo", "--help");
   assert.equal(help.code, 0);
   for (const text of [
     "--meta-title",
@@ -172,10 +195,14 @@ void test("prints structured server errors and documents SEO workflow in help", 
     "--ai-seo",
     "--path",
     "asynchronous",
-    "both fields",
+    "both fields manual",
   ]) {
     assert.ok(help.stdout.includes(text), text);
   }
+  const updateHelp = await cli("update", "--help");
+  assert.equal(updateHelp.code, 0);
+  assert.ok(!updateHelp.stdout.includes("--meta-title"));
+  assert.ok(updateHelp.stdout.includes("set-seo"));
 });
 
 void test("names the layout when creating a page or changing its layout", async () => {
@@ -232,7 +259,8 @@ void test("rejects a page id that isn't a UUIDv7 before making requests", async 
   for (const id of ["42", "abc", "2b0f6c2e-4a1d-4c6e-9b8a-3f2e1d0c9b8a"]) {
     for (const args of [
       ["get", "--id", id],
-      ["update", "--id", id, "--meta-title", "About"],
+      ["update", "--id", id, "--nickname", "About"],
+      ["set-seo", "--id", id, "--meta-title", "About"],
       ["update", "--path", "/about", "--parent-page-id", id],
       ["create", "--path-segment", "team", "--parent-page-id", id, "--layout-id", "default"],
       ["set-layout", "--id", id, "--layout-id", "landing"],

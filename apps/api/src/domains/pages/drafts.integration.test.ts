@@ -197,11 +197,7 @@ describe("pages in a draft", () => {
       { id: page.id, layoutId: "landing" },
       member(inDraft(draft)),
     );
-    await call(
-      router.pages.setMetaTitle,
-      { id: page.id, metaTitle: "About us" },
-      member(inDraft(draft)),
-    );
+    await call(router.pages.setSeo, { id: page.id, metaTitle: "About us" }, member(inDraft(draft)));
 
     expect(await getPage(page.id, inDraft(draft))).toMatchObject({
       nickname: "Who we are",

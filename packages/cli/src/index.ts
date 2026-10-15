@@ -81,6 +81,7 @@ switch (result.command) {
   case "pages.get":
   case "pages.create":
   case "pages.update":
+  case "pages.set-seo":
   case "pages.set-layout":
   case "pages.delete":
     await pages.handler(result);

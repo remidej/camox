@@ -102,7 +102,7 @@ void test("page, repeatable item and synced content edits on Live start a draft 
     () => getApiClient().pages.update({ id: "page-1" } as never),
     () => getApiClient().pages.delete({ id: "page-1" } as never),
     () => getApiClient().pages.setLayout({ id: "page-1" } as never),
-    () => getApiClient().pages.setMetaTitle({ id: "page-1" } as never),
+    () => getApiClient().pages.setSeo({ id: "page-1" } as never),
     () => getApiClient().repeatableItems.create({ blockId: "block-1" } as never),
     () => getApiClient().repeatableItems.updateContent({ id: "item-1" } as never),
     () => getApiClient().repeatableItems.updatePosition({ id: "item-1" } as never),
