@@ -1,5 +1,5 @@
 import { isQueryBacked } from "@camox/api-contract";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { pageTextLinkIds } from "../../lib/lexical-state";
@@ -17,6 +17,7 @@ import {
   wrongKindBlockFields,
   wrongKindRecordFields,
 } from "../_shared/conform-content";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   pageValue,
@@ -152,9 +153,17 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
       ctx.db
         .select()
         .from(collectionDefinitions)
-        .where(eq(collectionDefinitions.projectId, scope.projectId)),
+        .where(
+          and(
+            eq(collectionDefinitions.projectId, scope.projectId),
+            definitionsIn(collectionDefinitions, scope),
+          ),
+        ),
     );
-    for (const layout of yield* recordPageLayouts(ctx.db, { projectId: scope.projectId })) {
+    for (const layout of yield* recordPageLayouts(ctx.db, {
+      projectId: scope.projectId,
+      draft: scope,
+    })) {
       const definition = definitions.find(
         (d) => d.environmentId === layout.environmentId && d.collectionId === layout.collectionId,
       );
@@ -212,13 +221,23 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
 ) {
   const { projectId } = scope;
   const blockDefs = yield* Effect.promise(() =>
-    ctx.db.select().from(blockDefinitions).where(eq(blockDefinitions.projectId, projectId)),
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
+      ),
   );
   const collectionDefs = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(collectionDefinitions)
-      .where(eq(collectionDefinitions.projectId, projectId)),
+      .where(
+        and(
+          eq(collectionDefinitions.projectId, projectId),
+          definitionsIn(collectionDefinitions, scope),
+        ),
+      ),
   );
   const blockDef = new Map(blockDefs.map((d) => [`${d.environmentId}:${d.blockId}`, d]));
   const collectionDef = new Map(

@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { test, type TestContext } from "node:test";
 
-import type { EndedDraft } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT, type EndedDraft } from "@camox/api-contract/drafts";
 import type { ProjectRoomMessage } from "@camox/api-contract/query-keys";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Window } from "happy-dom";
@@ -43,7 +43,7 @@ async function settle() {
 async function projectRoom(
   t: TestContext,
   queryKeys: ReadonlyArray<readonly unknown[]>,
-  options: { onDraftEnded?: (ended: EndedDraft) => void } = {},
+  options: Parameters<typeof useProjectRoom>[2] = {},
 ) {
   const NativeWebSocket = globalThis.WebSocket;
   const requestedUrls: URL[] = [];
@@ -160,6 +160,22 @@ void test("an edit in one draft doesn't refetch another draft's queries, while a
 
   room.send({ type: "invalidate", draftId: null, targets: [block as never] });
   await waitFor(() => room.fetches.every((count, index) => count === (index === inDraftA ? 3 : 2)));
+});
+
+void test("dev mode's queries refetch for an edit naming its development draft's id, and for Live's", async (t) => {
+  const block = ["camox", "blocks", "get", "42"];
+  const developmentDraftId = "019a0000-0000-7000-8000-00000000000c";
+  const room = await projectRoom(t, [[...block, DEVELOPMENT_DRAFT]], { developmentDraftId });
+
+  room.send({ type: "invalidate", draftId: "draft-a", targets: [block as never] });
+  await settle();
+  assert.equal(room.fetches[0], 1, "another draft's edit doesn't refetch the development draft");
+
+  room.send({ type: "invalidate", draftId: developmentDraftId, targets: [block as never] });
+  await waitFor(() => room.fetches[0] === 2, "the development draft's edit refetches");
+
+  room.send({ type: "invalidate", draftId: null, targets: [block as never] });
+  await waitFor(() => room.fetches[0] === 3, "a Live change shows through");
 });
 
 void test("viewers hear that a draft ended, how and by whom", async (t) => {

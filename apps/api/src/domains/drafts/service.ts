@@ -1,17 +1,19 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
-import { and, eq, not, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, not, or, type SQL, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
 import {
   DraftEndedError,
   ForbiddenError,
+  NoDevelopmentDraftError,
   NotFoundError,
   type ServiceError,
 } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
+import { findDevelopmentDraft } from "./development";
 import * as overlay from "./overlay";
 import { drafts, endedDrafts } from "./schema";
 import type { DraftScope } from "./scope";
@@ -60,12 +62,29 @@ const missingDraft = Effect.fn("missingDraft")(function* (
 });
 
 /**
+ * Live rows of a content table, or rows of the draft a request names, before the request's
+ * project is known: for `development`, rows of any of the caller's development drafts.
+ */
+export function storedForRequest(table: overlay.ContentTable, ctx: DraftScopeContext): SQL {
+  const requested = ctx.draft;
+  if (!requested) return isNull(table.draftId);
+  if (!("development" in requested)) return overlay.storedInLiveOrDraft(table, requested.id);
+  if (!ctx.user) return isNull(table.draftId);
+  const developmentDrafts = ctx.db
+    .select({ id: drafts.id })
+    .from(drafts)
+    .where(and(eq(drafts.kind, "development"), eq(drafts.createdBy, ctx.user.id)));
+  return or(isNull(table.draftId), inArray(table.draftId, developmentDrafts))!;
+}
+
+/**
  * Turn the draft a request names (`ctx.draft`) into the scope a service reads and writes, once
  * the service knows the project. No draft means Live, which is public. Naming a draft needs a
  * member of the project's organization: anonymous callers fail with 401, outsiders with 403. A
  * missing draft is created with the caller as creator when the request sends the create header
  * (`started`), and fails with 404 otherwise, as does a draft of another project. A draft that
  * was published or discarded fails with its outcome, and the create header never brings it back.
+ * `development` names the caller's development draft, which only dev mode creates.
  */
 const resolveRequestedDraft = Effect.fn("resolveRequestedDraft")(function* (
   ctx: DraftScopeContext,
@@ -75,6 +94,12 @@ const resolveRequestedDraft = Effect.fn("resolveRequestedDraft")(function* (
   if (!requested) return { scope: null, started: false };
   const user = yield* requireUser(ctx);
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
+
+  if ("development" in requested) {
+    const draft = yield* findDevelopmentDraft(ctx.db, projectId, user.id);
+    if (!draft) return yield* new NoDevelopmentDraftError();
+    return { scope: scopeOf(draft), started: false };
+  }
 
   let started = false;
   if (requested.create) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { DEVELOPMENT_DRAFT, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import * as React from "react";
@@ -267,6 +267,53 @@ void test("discards the draft only after a second confirmation, then switches to
     [spring],
   );
   assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), null);
+});
+
+/** The localhost studio: dev mode, whose API answers for the caller's development draft. */
+function devMode(t: test.TestContext) {
+  Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: true });
+  t.after(() => Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: false }));
+  const developmentDraft = drafts.find((draft) => draft.kind === "development");
+  return mockApi(t, (path) => {
+    if (path === "drafts/get") return json(developmentDraft);
+    if (path === "drafts/discard") return json({ ended: null });
+    return undefined;
+  });
+}
+
+void test("the localhost studio shows only its development draft, with nothing to switch to", async (t) => {
+  const calls = devMode(t);
+  await render(t, spring);
+
+  assert.equal(trigger().textContent, "Development draft · 2 changes");
+  await click(trigger());
+
+  assert.deepEqual(
+    menuItems().map((item) => item.textContent),
+    ["Review and publish", "Discard draft…"],
+  );
+  assert.doesNotMatch(menu()?.textContent ?? "", /Switch to|Live|Spring campaign/);
+  assert.equal(calls.filter((call) => call.path === "drafts/list").length, 0);
+  assert.deepEqual([...new Set(calls.map((call) => call.draft))], [DEVELOPMENT_DRAFT]);
+});
+
+void test("the localhost studio stays in its development draft after discarding it", async (t) => {
+  const shown = t.mock.method(toast, "success", () => "toast");
+  const calls = devMode(t);
+  await render(t, null);
+  await click(trigger());
+
+  await click(itemNamed(/Discard draft…/));
+  const confirm = window.document.querySelector('[role="alertdialog"]');
+  await click(confirm?.querySelector('[data-slot="alert-dialog-action"]'));
+
+  assert.deepEqual(
+    calls.filter((call) => call.path === "drafts/discard").map((call) => call.draft),
+    [DEVELOPMENT_DRAFT],
+  );
+  assert.equal(new URL(window.location.href).searchParams.has(DRAFT_SEARCH_PARAM), false);
+  assert.match(trigger().textContent ?? "", /^Development draft/);
+  assert.equal(shown.mock.callCount(), 0);
 });
 
 void test("says Started a new draft when the first edit starts one, without asking for a name", async (t) => {

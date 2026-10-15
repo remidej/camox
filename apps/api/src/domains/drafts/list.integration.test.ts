@@ -9,6 +9,7 @@ import {
   createRpcContext,
   createServiceContext,
   callSeedingLive,
+  openDevelopmentDraft,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -98,6 +99,7 @@ async function fixture() {
 
   /** A draft opened without content, created by `who`. */
   const openDraft = async (kind: DraftKind, who: typeof ada = me) => {
+    if (kind === "development") return openDevelopmentDraft(base.db, projectId, who.id);
     const id = generateUuidv7();
     await base.db
       .insert(drafts)
@@ -162,14 +164,16 @@ describe("listing drafts", () => {
     expect((await list()).drafts.map((draft) => draft.id)).not.toContain(discarded);
   });
 
-  it("lists the caller's development draft but never another member's", async () => {
+  it("never lists development drafts, the caller's included", async () => {
     const { ada, list, openDraft } = await fixture();
+    const regular = await openDraft("regular");
     const mine = await openDraft("development");
     const adas = await openDraft("development", ada);
 
     const ids = (await list()).drafts.map((draft) => draft.id);
 
-    expect(ids).toContain(mine);
+    expect(ids).toContain(regular);
+    expect(ids).not.toContain(mine);
     expect(ids).not.toContain(adas);
   });
 

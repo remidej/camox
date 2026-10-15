@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { type Logger, type ViteDevServer, createServer, isRunnableDevEnvironment } from "vite-plus";
 
 import type { CamoxApp } from "@/core/createApp";
@@ -16,6 +17,21 @@ interface SyncDefinitionsOptions {
   autoCreate: boolean;
   authToken?: string;
   deployToken?: string;
+}
+
+/**
+ * The client definitions sync with. A release (deploy token) syncs Live's definitions; dev mode
+ * sends the developer's session and syncs their development draft, which its first sync
+ * creates (ADR 0006).
+ */
+function createSyncClient(options: {
+  apiUrl: string;
+  environmentName: string;
+  authToken?: string;
+  deployToken?: string;
+}) {
+  const draftId = options.deployToken ? undefined : DEVELOPMENT_DRAFT;
+  return createServerApiClient(options.apiUrl, options.environmentName, options.authToken, draftId);
 }
 
 /**
@@ -57,17 +73,8 @@ export async function syncDefinitionsToApi(options: {
   deployToken?: string;
   logger: Logger;
 }): Promise<void> {
-  const {
-    camoxApp,
-    projectSlug,
-    apiUrl,
-    environmentName,
-    autoCreate,
-    authToken,
-    deployToken,
-    logger,
-  } = options;
-  const client = createServerApiClient(apiUrl, environmentName, authToken);
+  const { camoxApp, projectSlug, environmentName, autoCreate, deployToken, logger } = options;
+  const client = createSyncClient(options);
 
   const blocks = camoxApp.getBlocks();
   const layoutDefinitions = camoxApp.getSerializableLayoutDefinitions();
@@ -98,7 +105,7 @@ export async function syncDefinitionsToApi(options: {
       synced: block._internal.synced,
     }));
 
-  let environmentCreated = false;
+  let draftCreated = false;
   let deletedDefinitionTypes: string[] = [];
   try {
     const result = await client.blockDefinitions.sync({
@@ -107,7 +114,7 @@ export async function syncDefinitionsToApi(options: {
       autoCreate,
       definitions,
     });
-    environmentCreated = result.environmentCreated;
+    draftCreated = result.draftCreated;
     deletedDefinitionTypes = result.deletedDefinitionTypes;
   } catch (error) {
     throwIfSyncAuthError(error);
@@ -115,8 +122,8 @@ export async function syncDefinitionsToApi(options: {
     throw error;
   }
 
-  if (environmentCreated) {
-    logger.info(`[camox] Created empty environment "${environmentName}"`, { timestamp: true });
+  if (draftCreated) {
+    logger.info("[camox] Created your development draft", { timestamp: true });
   }
 
   logger.info(
@@ -281,6 +288,7 @@ export async function syncDefinitions(
   options: SyncDefinitionsOptions,
 ): Promise<boolean> {
   const { projectSlug, apiUrl, environmentName, autoCreate, authToken, deployToken } = options;
+  const client = createSyncClient(options);
   const blocksDirs = [
     path.resolve(server.config.root, "src/blocks"),
     path.resolve(server.config.root, "src/camox/blocks"),
@@ -289,7 +297,6 @@ export async function syncDefinitions(
     path.resolve(server.config.root, "src/layouts"),
     path.resolve(server.config.root, "src/camox/layouts"),
   ];
-  const client = createServerApiClient(apiUrl, environmentName, authToken);
 
   async function performInitialSync(): Promise<boolean> {
     // The SSR runner caches the resolved `camoxApp`. Without invalidation,

@@ -9,6 +9,18 @@ export const DRAFT_HEADER = "x-camox-draft";
  */
 export const DRAFT_CREATE_HEADER = "x-camox-draft-create";
 
+/**
+ * The `x-camox-draft` value naming the caller's own development draft in the project a request
+ * acts on (ADR 0006, ADR 0011). Dev mode and the CLI always send it.
+ */
+export const DEVELOPMENT_DRAFT = "development";
+
+/**
+ * oRPC error code for a request naming the development draft before dev mode created it: the
+ * first dev-mode sync after login does, so the site has to run locally once first.
+ */
+export const NO_DEVELOPMENT_DRAFT_ERROR = "NO_DEVELOPMENT_DRAFT";
+
 /** URL search param carrying the current draft's id in the studio and the rendered site. */
 export const DRAFT_SEARCH_PARAM = "camox-draft";
 

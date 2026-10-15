@@ -1,6 +1,6 @@
 import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -89,10 +89,20 @@ const collectCompatibilityReasons = Effect.fn("collectCompatibilityReasons")(fun
 
   // --- Block definitions ---
   const sourceDefs = yield* Effect.promise(() =>
-    db.select().from(blockDefinitions).where(eq(blockDefinitions.environmentId, sourceEnvId)),
+    db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(eq(blockDefinitions.environmentId, sourceEnvId), isNull(blockDefinitions.draftId)),
+      ),
   );
   const targetDefs = yield* Effect.promise(() =>
-    db.select().from(blockDefinitions).where(eq(blockDefinitions.environmentId, targetEnvId)),
+    db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(eq(blockDefinitions.environmentId, targetEnvId), isNull(blockDefinitions.draftId)),
+      ),
   );
 
   const sourceByKey = new Map(sourceDefs.map((def) => [def.blockId, def]));
@@ -130,13 +140,13 @@ const collectCompatibilityReasons = Effect.fn("collectCompatibilityReasons")(fun
     db
       .select({ layoutId: layouts.layoutId, kind: layouts.kind })
       .from(layouts)
-      .where(eq(layouts.environmentId, sourceEnvId)),
+      .where(and(eq(layouts.environmentId, sourceEnvId), isNull(layouts.draftId))),
   );
   const targetLayoutRows = yield* Effect.promise(() =>
     db
       .select({ layoutId: layouts.layoutId, kind: layouts.kind })
       .from(layouts)
-      .where(eq(layouts.environmentId, targetEnvId)),
+      .where(and(eq(layouts.environmentId, targetEnvId), isNull(layouts.draftId))),
   );
 
   const sourceLayoutKeys = new Set(sourceLayoutRows.map((row) => row.layoutId));
@@ -305,10 +315,16 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // Read every env-scoped row, plus blocks/items via parent FKs. Empty source
   // is allowed and yields an empty snapshot (target ends up wiped).
   const sourceLayouts = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.environmentId, source.id)),
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(eq(layouts.environmentId, source.id), isNull(layouts.draftId))),
   );
   const sourceBlockDefs = yield* Effect.promise(() =>
-    ctx.db.select().from(blockDefinitions).where(eq(blockDefinitions.environmentId, source.id)),
+    ctx.db
+      .select()
+      .from(blockDefinitions)
+      .where(and(eq(blockDefinitions.environmentId, source.id), isNull(blockDefinitions.draftId))),
   );
   const sourceFiles = yield* Effect.promise(() =>
     ctx.db
@@ -382,9 +398,15 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   );
   yield* Effect.promise(() => ctx.db.delete(blocks).where(eq(blocks.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.environmentId, target.id)));
-  yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.environmentId, target.id)));
   yield* Effect.promise(() =>
-    ctx.db.delete(blockDefinitions).where(eq(blockDefinitions.environmentId, target.id)),
+    ctx.db
+      .delete(layouts)
+      .where(and(eq(layouts.environmentId, target.id), isNull(layouts.draftId))),
+  );
+  yield* Effect.promise(() =>
+    ctx.db
+      .delete(blockDefinitions)
+      .where(and(eq(blockDefinitions.environmentId, target.id), isNull(blockDefinitions.draftId))),
   );
   yield* Effect.promise(() => ctx.db.delete(files).where(eq(files.environmentId, target.id)));
 
@@ -392,14 +414,14 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // Definitions keep their names, so nothing that points at them needs remapping.
 
   for (const row of sourceLayouts) {
-    const { environmentId: _envId, ...rest } = row;
+    const { environmentId: _envId, rowId: _rowId, ...rest } = row;
     yield* Effect.promise(() =>
       ctx.db.insert(layouts).values({ ...rest, environmentId: target.id }),
     );
   }
 
   for (const row of sourceBlockDefs) {
-    const { environmentId: _envId, ...rest } = row;
+    const { environmentId: _envId, rowId: _rowId, ...rest } = row;
     yield* Effect.promise(() =>
       ctx.db.insert(blockDefinitions).values({ ...rest, environmentId: target.id }),
     );

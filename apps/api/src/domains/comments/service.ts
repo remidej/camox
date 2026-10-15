@@ -23,6 +23,7 @@ import {
   repeatableItems,
   user,
 } from "../../schema";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import { visibleIn } from "../drafts/overlay";
@@ -236,7 +237,12 @@ const loadTargets = Effect.fn("loadTargets")(function* (
     ctx.db
       .select()
       .from(blockDefinitions)
-      .where(eq(blockDefinitions.environmentId, page.environmentId)),
+      .where(
+        and(
+          eq(blockDefinitions.environmentId, page.environmentId),
+          definitionsIn(blockDefinitions, draftScope),
+        ),
+      ),
   );
   return {
     blocks: new Map(pageBlocks.map((block) => [block.id, block])),

@@ -1,13 +1,20 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { sql } from "drizzle-orm";
-import { index, int, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
 import { environments, projects } from "../projects/schema";
 
+/**
+ * A collection definition, stored like block definitions: Live's have no draft, a development
+ * draft's carry its id (ADR 0006). Read them through `definitionsIn`.
+ */
 export const collectionDefinitions = sqliteTable(
   "collection_definitions",
   {
+    rowId: int("row_id").primaryKey(),
+    // The development draft holding this collection, or null for Live's.
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
@@ -22,8 +29,18 @@ export const collectionDefinitions = sqliteTable(
     contentSchema: text("content_schema", { mode: "json" })
       .notNull()
       .$type<Record<string, unknown>>(),
+    // What shapes content, hashed (`_shared/schema-hash.ts`): a development draft publishes only
+    // while its definitions' names and hashes equal Live's (ADR 0006).
+    schemaHash: text("schema_hash").notNull().default(""),
   },
-  (table) => [primaryKey({ columns: [table.projectId, table.environmentId, table.collectionId] })],
+  (table) => [
+    uniqueIndex("collection_definitions_live_idx")
+      .on(table.projectId, table.environmentId, table.collectionId)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("collection_definitions_draft_idx")
+      .on(table.draftId, table.collectionId)
+      .where(sql`${table.draftId} is not null`),
+  ],
 );
 
 /**

@@ -19,12 +19,19 @@ build once to generate its runtime file.
 Relative `--cwd` paths resolve against the shell's current directory. This option
 only affects runtime lookup: other paths, such as `--file ./hero.webp`, still
 resolve against the shell's current directory. Missing or non-directory paths fail
-instead of falling back to the shell's directory. Environment selection is unchanged:
-your development environment by default, with explicit `--production` where supported.
+instead of falling back to the shell's directory.
+
+## Your development draft
+
+Every command reads and writes your development draft: it shows Live wherever
+it changes nothing, and publishing it lands on Live. No command takes a draft,
+Live or production flag. Dev mode creates the draft on its first sync after
+`camox login`, so run your site locally once (e.g. `pnpm dev`) before using
+the CLI; until then, commands fail with `NO_DEVELOPMENT_DRAFT`.
 
 ## Authenticated local preview
 
-CLI login does not sign in a fresh browser. To verify writes in your development environment:
+CLI login does not sign in a fresh browser. To verify writes in your development draft:
 
 ```sh
 camox preview --url http://localhost:3000/about --json
@@ -67,9 +74,8 @@ camox pages set-seo --id "$PAGE_ID" --ai-seo off
   generation; the returned page contains current values, not necessarily generated
   values. Use `pages get` to inspect them later.
 - Changes are visible on the site right away.
-- Commands support `--project SLUG`, `--production`, and `--json`, with the usual
-  development-environment default and structured JSON output/errors. `--production`
-  selects the environment.
+- Commands support `--project SLUG` and `--json`, with structured JSON
+  output/errors.
 
 See `camox pages update --help` for options and examples.
 
@@ -92,10 +98,9 @@ A layout is identified by the name its code gives it: the `layoutId` from
 with `blocks get` and `blocks edit`, inspecting its schema and current content
 before editing.
 
-Commands accept `--cwd`, `--project`, `--production`, and `--json`.
-Keep the project and environment consistent when using discovered IDs.
-`--production` selects the environment. Editing a shared layout block changes it
-for all pages using that layout.
+Commands accept `--cwd`, `--project`, and `--json`.
+Keep the project consistent when using discovered IDs.
+Editing a shared layout block changes it for all pages using that layout.
 
 ## Media
 
@@ -144,9 +149,9 @@ camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp -
   `--ai-metadata`. `--file` and `--url` are mutually exclusive; without either,
   only metadata changes. Renaming alone preserves the file ID and URL and makes
   both alt text and filename manual.
-- Replacing content preserves the file ID and all `_fileId` references in the
-  selected environment. The URL changes to avoid stale caches. Direct URLs in
-  stored block/repeatable-item content are migrated within that environment;
+- Replacing content preserves the file ID and all `_fileId` references in your
+  development draft. The URL changes to avoid stale caches. Direct URLs in
+  stored block/repeatable-item content are migrated within that draft;
   URLs hardcoded outside Camox cannot be rewritten.
 - Replacements preserve omitted alt text and AI settings. The filename defaults
   to the new source filename; `--filename` overrides it. Binary metadata and
@@ -154,13 +159,12 @@ camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp -
   replacements schedule generation on the original file ID; other types skip
   generation. Disable AI to prevent future automatic renaming or alt changes.
 - Files are shared assets: replacing one affects every reference
-  to it in the selected environment.
+  to it in your development draft.
 - Failed replacements leave the original file unchanged and remove the unused
   uploaded binary. After a network timeout, use `files get --id ID` before retrying
   because the server may already have completed the operation.
-- All commands support `--project SLUG`, `--production`, and `--json`. The default
-  environment is `dev:<your-email>`, not production. IDs are scoped to the selected
-  project and environment.
+- All commands support `--project SLUG` and `--json`. IDs are scoped to the
+  selected project.
 - Uploads return the stored file record, including `id`, `url`, `mimeType`, `alt`,
   and `aiMetadata`. Output is JSON; errors are structured JSON on stderr.
 - Files are limited to 100 MiB. URL downloads allow at most five redirects and

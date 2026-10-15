@@ -10,6 +10,7 @@ import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "..
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { blocks, comments, layouts, pages, projects, repeatableItems, user } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
+import { definitionsIn } from "../_shared/definitions";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import {
@@ -162,7 +163,11 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
   if (!page) return yield* new NotFoundError();
   const layout =
     (yield* Effect.promise(() =>
-      ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
+      ctx.db
+        .select()
+        .from(layouts)
+        .where(and(layoutNamed(page.environmentId, page.layoutId), definitionsIn(layouts, scope)))
+        .get(),
     )) ?? null;
   // A page whose layout was removed or is no longer curated isn't served (ADR 0007).
   if (!servesPages(layout)) return yield* new NotFoundError();
@@ -295,9 +300,10 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
 const withPageProblems = Effect.fn("pages.withPageProblems")(function* (
   ctx: ServiceContext,
   environmentId: number,
+  scope: DraftScope,
   rows: PageView[],
 ) {
-  const problems = yield* pageServingProblems(ctx, environmentId);
+  const problems = yield* pageServingProblems(ctx, environmentId, scope);
   const duplicates = duplicatePathIds(rows);
   return rows.map((page) => ({
     ...page,
@@ -316,7 +322,7 @@ export const listPages = Effect.fn("pages.listPages")(function* (
   const rows = (yield* pagesIn(ctx, scope, environment.id)).filter(
     (page) => page.projectId === projectId,
   );
-  return yield* withPageProblems(ctx, environment.id, yield* withSeo(ctx.db, scope, rows));
+  return yield* withPageProblems(ctx, environment.id, scope, yield* withSeo(ctx.db, scope, rows));
 });
 
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
@@ -334,7 +340,7 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   const rows = (yield* pagesIn(ctx, scope, environment.id)).filter(
     (page) => page.projectId === project.id,
   );
-  return yield* withPageProblems(ctx, environment.id, yield* withSeo(ctx.db, scope, rows));
+  return yield* withPageProblems(ctx, environment.id, scope, yield* withSeo(ctx.db, scope, rows));
 });
 
 export const getPage = Effect.fn("pages.getPage")(function* (
@@ -390,14 +396,14 @@ export const createPage = Effect.fn("pages.createPage")(function* (
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
   const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
 
-  yield* assertCuratedLayout(ctx, environment.id, layoutId);
+  yield* assertCuratedLayout(ctx, environment.id, layoutId, scope);
   let fullPath = `/${pathSegment}`;
   if (parentPageId) {
     const parent = yield* overlay.get(ctx.db, scope, pages, parentPageId);
     if (parent?.environmentId !== environment.id) return yield* new NotFoundError();
     fullPath = `${parent.fullPath.replace(/\/$/, "")}/${pathSegment}`;
   }
-  yield* assertUnreservedPagePaths(ctx, environment.id, [fullPath]);
+  yield* assertUnreservedPagePaths(ctx, environment.id, [fullPath], scope);
 
   const now = Date.now();
   const page = yield* overlay.insert(ctx.db, scope, pages, {
@@ -456,7 +462,12 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
         visit(child.id, `${path.replace(/\/$/, "")}/${child.pathSegment}`);
     };
     visit(id, fullPath);
-    yield* assertUnreservedPagePaths(ctx, access.page.environmentId, [...pathChanges.values()]);
+    yield* assertUnreservedPagePaths(
+      ctx,
+      access.page.environmentId,
+      [...pathChanges.values()],
+      scope,
+    );
     // Only descendants whose full path changes are rewritten.
     for (const page of environmentPages) {
       if (page.id !== id && pathChanges.get(page.id) === page.fullPath) pathChanges.delete(page.id);
@@ -577,7 +588,7 @@ export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
   const user = yield* requireUser(ctx);
   const { id, layoutId } = yield* decodeInput(setPageLayoutInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
-  yield* assertCuratedLayout(ctx, access.page.environmentId, layoutId);
+  yield* assertCuratedLayout(ctx, access.page.environmentId, layoutId, scope);
   return yield* pageView(ctx.db, scope, (yield* writePage(ctx, scope, id, { layoutId })).result);
 });
 

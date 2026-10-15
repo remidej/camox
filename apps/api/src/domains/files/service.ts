@@ -18,7 +18,7 @@ import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { draftScopeOfJob } from "../drafts/service";
+import { draftScopeOfJob, storedForRequest } from "../drafts/service";
 import { homeOf, requestGeneration, saveValue, settleRequest } from "../generated-values/service";
 import {
   fileView,
@@ -311,16 +311,15 @@ const inEnvironment = (projectId: number, environmentId: number) =>
  * finds a file the draft uploaded. Undefined without a draft: the request reads Live.
  */
 export const projectOfFile = Effect.fn("files.projectOfFile")(function* (
-  ctx: Pick<ServiceContext, "db" | "draft">,
+  ctx: Pick<ServiceContext, "db" | "draft" | "user">,
   fileId: string,
 ) {
-  const draft = ctx.draft;
-  if (!draft) return undefined;
+  if (!ctx.draft) return undefined;
   const row = yield* Effect.promise(() =>
     ctx.db
       .select({ projectId: files.projectId })
       .from(files)
-      .where(and(eq(files.id, fileId), overlay.storedInLiveOrDraft(files, draft.id)))
+      .where(and(eq(files.id, fileId), storedForRequest(files, ctx)))
       .get(),
   );
   return row?.projectId ?? undefined;

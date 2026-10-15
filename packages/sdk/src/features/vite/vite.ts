@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import {
   type Logger,
   type Plugin,
@@ -69,9 +70,8 @@ type StoredAuth = NonNullable<ReturnType<typeof readAuthTokenForUrl>>;
  * CLI can pick up the same projectSlug / apiUrl / authenticationUrl the
  * plugin actually used. The CLI treats the vite config as the source of
  * truth for those values — there is no other reliable way to recover them
- * from outside vite. The environment is *not* written here: the CLI derives
- * `dev:<email>` from auth at call time and requires `--production` for prod,
- * so a stale build sidecar can't silently route writes to production.
+ * from outside vite. No draft is written here: the CLI always works in the
+ * developer's development draft (ADR 0010).
  */
 function writeRuntimeSidecar(
   root: string,
@@ -89,7 +89,7 @@ function writeRuntimeSidecar(
 
 /** What `_internal.afterSync` receives: an API client authenticated as the dev user. */
 export interface CamoxAfterSyncContext {
-  /** Sends the dev session and targets the dev environment. */
+  /** Sends the dev session and reads and writes the developer's development draft. */
   client: ServerApiClient;
   projectSlug: string;
   environmentName: string;
@@ -219,16 +219,16 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       );
       isBuild = env.command === "build";
       isRelease = isBuild && process.env.CAMOX_INTERNAL_RELEASE === "1";
-      if (isRelease) {
-        environmentName = "production";
-      } else {
+      // Everything lives in the project's one environment; drafts tell Live and the
+      // development draft apart (ADR 0003, ADR 0006).
+      environmentName = "production";
+      if (!isRelease) {
         localAuth = readAuthTokenForUrl(authenticationUrl);
         if (isBuild && !localAuth) {
           throw new Error(
             "Camox: not authenticated. Run `npx camox login` before building the site.",
           );
         }
-        environmentName = localAuth ? `dev:${localAuth.email}` : "dev:unauthenticated";
       }
       return {
         build: {
@@ -242,6 +242,8 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             options._internal?.enableExperimentalFeatures ?? false,
           ),
           __CAMOX_ENVIRONMENT_NAME__: JSON.stringify(environmentName),
+          // Anything but a release works in the developer's development draft (ADR 0006).
+          __CAMOX_DEVELOPMENT_DRAFT__: JSON.stringify(!isRelease),
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
           __CAMOX_AUTHENTICATION_URL__: JSON.stringify(authenticationUrl),
           __CAMOX_PROJECT_SLUG__: JSON.stringify(options.projectSlug),
@@ -392,8 +394,10 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       }
 
       const mode = config.command === "serve" ? "Running" : "Building";
-      const environmentLabel = localAuth || isRelease ? environmentName : "authentication required";
-      config.logger.info(`${mode} Camox app (${environmentLabel})`, { timestamp: true });
+      let target = "your development draft";
+      if (isRelease) target = "Live";
+      else if (!localAuth) target = "authentication required";
+      config.logger.info(`${mode} Camox app (${target})`, { timestamp: true });
     },
 
     configureServer(server: ViteDevServer) {
@@ -438,7 +442,7 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           const logger = server.config.logger;
           try {
             await afterSync({
-              client: createServerApiClient(apiUrl, environmentName, authToken),
+              client: createServerApiClient(apiUrl, environmentName, authToken, DEVELOPMENT_DRAFT),
               projectSlug: options.projectSlug,
               environmentName,
               logger,

@@ -47,7 +47,7 @@ List a Page's comments, then use a returned comment `id` to resolve one on that 
 {{CAMOX_CMD}} comments resolve --page-id <PAGE_UUID> --id <COMMENT_UUID>
 ```
 
-`--page-id` is the Page's UUIDv7 (find it with `pages get --path /about`); `--id` is the comment's UUIDv7, not a Block or Page ID. Resolution changes the comment's status, not the Page's content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project`, `--production`, and `--cwd` select the same project, environment, and working directory as other CLI commands.
+`--page-id` is the Page's UUIDv7 (find it with `pages get --path /about`); `--id` is the comment's UUIDv7, not a Block or Page ID. Resolution changes the comment's status, not the Page's content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project` and `--cwd` select the same project and working directory as other CLI commands.
 
 ## Blocks
 
@@ -80,9 +80,8 @@ includes `blocks` with `id`, `type`, `slot`, and Content, plus
 Inspect the Block's schema and current Content before editing, and preserve
 repeatable items as described below.
 
-Keep `--project`, `--production`, and `--cwd` consistent across the
-discovery and editing commands. `--production` selects the environment.
-Shared shell edits affect every Page using that Layout,
+Keep `--project` and `--cwd` consistent across the discovery and editing
+commands. Shared shell edits affect every Page using that Layout,
 and synced Block types can share Content across Layouts.
 
 ### Create and position a Block

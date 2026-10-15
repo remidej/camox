@@ -1,6 +1,14 @@
 import { type CallToolParams, type CallToolResponse, callTool, getProjectBySlug } from "./api";
 import { readAuthTokenForUrl } from "./auth";
-import { type CliError, type OutputMode, asCliError, printError, printResult } from "./output";
+import {
+  type CliError,
+  NO_DEVELOPMENT_DRAFT_CLI_ERROR,
+  type OutputMode,
+  asCliError,
+  isNoDevelopmentDraft,
+  printError,
+  printResult,
+} from "./output";
 import {
   RuntimeDirectoryError,
   RuntimeMalformedError,
@@ -28,14 +36,6 @@ export type DispatchOptions = {
   projectFlag?: string;
   /** Starting directory for runtime lookup only; does not change process.cwd(). */
   cwd?: string;
-  /**
-   * When `true` (from `--production`), target the `production` environment.
-   * Default is `dev:<email>` derived from the local auth token — the same
-   * environment the vite dev server uses. `--production` is the only way to
-   * route writes to prod, so a prior `vite build` can't make the next CLI
-   * invocation silently edit production content.
-   */
-  production?: boolean;
   outputMode: OutputMode;
 };
 
@@ -49,6 +49,7 @@ async function resolveProjectId(token: string, slug: string, apiUrl: string): Pr
     const project = await getProjectBySlug(token, slug, apiUrl);
     return project.id;
   } catch (err) {
+    if (isNoDevelopmentDraft(err)) return fail(NO_DEVELOPMENT_DRAFT_CLI_ERROR, 2);
     return fail(
       {
         code: "PROJECT_LOOKUP_FAILED",
@@ -75,13 +76,10 @@ async function callRemote(params: CallToolParams): Promise<CallToolResponse> {
  *
  * Project, apiUrl, and authenticationUrl come from the vite plugin's
  * `node_modules/.camox/runtime.json` sidecar. `--project <slug>` and
- * `CAMOX_PROJECT` may override the slug. The environment is *not* read
- * from the sidecar — it's derived from auth (`dev:<email>`) by default,
- * with `--production` as the only opt-in for prod.
+ * `CAMOX_PROJECT` may override the slug. Every request names the caller's
+ * development draft (ADR 0010); no command takes a draft, Live or production flag.
  */
-export async function resolveCommandContext(
-  opts: Pick<DispatchOptions, "projectFlag" | "production" | "cwd">,
-) {
+export async function resolveCommandContext(opts: Pick<DispatchOptions, "projectFlag" | "cwd">) {
   let runtime;
   try {
     runtime = loadRuntime(opts.cwd);
@@ -108,22 +106,10 @@ export async function resolveCommandContext(
     );
   }
 
-  if (!opts.production && !token.email) {
-    return fail(
-      {
-        code: "AUTH_INCOMPLETE",
-        message: "Auth token is missing an email. Run `camox login` to refresh credentials.",
-      },
-      2,
-    );
-  }
-  const environmentName = opts.production ? "production" : `dev:${token.email}`;
-
   const projectId = await resolveProjectId(token.token, slug, runtime.apiUrl);
   return {
     token: token.token,
     apiUrl: runtime.apiUrl,
-    environmentName,
     projectId,
     disableTelemetry: runtime.disableTelemetry,
   };

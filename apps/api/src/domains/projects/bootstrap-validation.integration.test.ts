@@ -1,16 +1,13 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import {
-  blockDefinitions,
-  blocks,
-  environments,
-  layouts,
-  pages,
-  repeatableItems,
-} from "../../schema";
+  createProjectFixture,
+  createServiceContext,
+  openDevelopmentDraft,
+} from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
+import { blockDefinitions, blocks, layouts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { blocksOfLayout } from "../layouts/identity";
 import { syncLayouts } from "../layouts/service";
@@ -64,38 +61,24 @@ async function snapshot(db: Awaited<ReturnType<typeof fixture>>["db"]) {
 }
 
 describe("bootstrap schema validation", () => {
-  it("uses the selected environment's definition rather than another environment's schema", async () => {
-    const { db, ctx, project } = await fixture("environment");
-    const now = Date.now();
-    const development = await db
-      .insert(environments)
-      .values({
-        projectId: project.id,
-        name: `dev:${ctx.user!.email}`,
-        type: "development",
-        createdAt: now,
-        updatedAt: now,
+  it("validates a development draft's layouts against its own definitions, not Live's", async () => {
+    const { db, ctx, project } = await fixture("development-draft");
+    const draftId = await openDevelopmentDraft(db, project.id, ctx.user!.id);
+    // Live's card accepts any count from 0; the development draft's code now asks for 10 or more.
+    await db
+      .update(blockDefinitions)
+      .set({
+        contentSchema: {
+          type: "object",
+          properties: { count: { type: "integer", minimum: 10 } },
+        },
       })
-      .returning()
-      .get();
-    const definition = await db
-      .select()
-      .from(blockDefinitions)
-      .where(eq(blockDefinitions.projectId, project.id))
-      .get();
-    await db.insert(blockDefinitions).values({
-      ...definition!,
-      environmentId: development.id,
-      contentSchema: {
-        type: "object",
-        properties: { count: { type: "integer", minimum: 10 } },
-      },
-    });
+      .where(and(eq(blockDefinitions.draftId, draftId), eq(blockDefinitions.blockId, "card")));
     const before = await snapshot(db);
     await expect(
       runService(
         syncLayouts(
-          { ...ctx, environmentName: `dev:${ctx.user!.email}` },
+          { ...ctx, draft: { development: true } },
           {
             projectSlug: project.slug,
             autoCreate: false,

@@ -28,10 +28,9 @@ Use root or group help only to discover unfamiliar commands. Reuse verified help
 
 ## Dev-first workflow
 
-By default, reads and writes operate on the current developer's isolated dev Environment. Make content changes there and summarize them for review.
+Every command reads and writes the current developer's development draft, never Live. Make content changes there and summarize them for review; they reach Live only when the developer publishes the draft from the studio.
 
-- Omit `--production` unless the user explicitly asks to operate on the production Environment: edits there are live on the public site right away.
-- Read the Environment reference before using `env push` or `env pull`.
+- If a command fails with "run the site locally first", the development draft doesn't exist yet: the dev server creates it on its first sync after `camox login`.
 
 ## Verify changes in a browser
 

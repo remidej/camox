@@ -216,18 +216,17 @@ void test("local upload, empty alt, reads, updates, and use in block content", a
   assert.equal(block.content.image._fileId, file.id);
   const upload = calls.find((call) => call.url === "/files/upload");
   assert.equal(upload.headers.authorization, "Bearer test-token");
-  assert.equal(upload.headers["x-environment-name"], "dev:tester@example.com");
+  assert.equal(upload.headers["x-camox-draft"], "development");
   assert.equal(upload.headers["x-camox-telemetry-disabled"], "1");
 });
 
-void test("URL upload follows redirects, stores a copy, and uses the shared production context", async () => {
+void test("URL upload follows redirects, stores a copy, and uses the shared command context", async () => {
   const file = success(
     await cli(
       "files",
       "upload",
       "--url",
       `${origin}/redirect`,
-      "--production",
       "--project",
       "other",
       "--filename",
@@ -239,8 +238,8 @@ void test("URL upload follows redirects, stores a copy, and uses the shared prod
   assert.equal(file.filename, "hero.webp");
   assert.equal(file.aiMetadata, false);
   assert.equal(
-    calls.filter((call) => call.url === "/files/upload").at(-1).headers["x-environment-name"],
-    "production",
+    calls.filter((call) => call.url === "/files/upload").at(-1).headers["x-camox-draft"],
+    "development",
   );
   assert.equal(calls.find((call) => call.url === "/redirect").headers.authorization, undefined);
   assert.deepEqual(await readdir(join(home, "tmp")), []);
@@ -332,7 +331,6 @@ void test("update replaces local and remote content in one request, keeping IDs 
       "updated.webp",
       "--alt",
       "",
-      "--production",
     ),
   );
   assert.equal(remote.id, original.id);
@@ -341,7 +339,7 @@ void test("update replaces local and remote content in one request, keeping IDs 
   assert.equal(remote.aiMetadata, false);
   assert.equal(records.length, count);
   const request = calls.filter((call) => call.url === `/files/${id}/content`).at(-1);
-  assert.equal(request.headers["x-environment-name"], "production");
+  assert.equal(request.headers["x-camox-draft"], "development");
   assert.equal(request.headers.authorization, "Bearer test-token");
   assert.equal(request.headers["x-camox-telemetry-disabled"], "1");
   assert.deepEqual(await readdir(join(home, "tmp")), []);
@@ -385,7 +383,7 @@ void test("rejects oversized local files without uploading", async () => {
 void test("help documents sources, alt text and automatic metadata", async () => {
   const result = await cli("files", "upload", "--help");
   assert.equal(result.code, 0);
-  for (const flag of ["--file", "--url", "--filename", "--alt", "--ai-metadata", "--production"]) {
+  for (const flag of ["--file", "--url", "--filename", "--alt", "--ai-metadata"]) {
     assert.ok(result.stdout.includes(flag), flag);
   }
 });

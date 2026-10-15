@@ -514,6 +514,7 @@ describe("embed content validation", () => {
       .get();
     await db.insert(blockDefinitions).values({
       ...definition!,
+      rowId: undefined,
       environmentId: development.id,
       contentSchema: {
         properties: {

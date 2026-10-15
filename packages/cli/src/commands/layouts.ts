@@ -10,7 +10,6 @@ import { cwdFlag } from "../lib/runtime-options";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
-const productionFlag = option("--production");
 
 const list = command(
   "list",
@@ -18,7 +17,6 @@ const list = command(
     command: constant("layouts.list" as const),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
   {
@@ -33,11 +31,10 @@ const get = command(
     layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
   {
-    description: message`Inspect a layout and its blocks, including shared navigation and footer IDs for blocks get and blocks edit. A layout is named by the layoutId its code gives it, as listed by layouts list. --production selects the environment.`,
+    description: message`Inspect a layout and its blocks, including shared navigation and footer IDs for blocks get and blocks edit. A layout is named by the layoutId its code gives it, as listed by layouts list.`,
   },
 );
 
@@ -46,7 +43,6 @@ export const parser = command("layouts", or(list, get));
 type CommonFlags = {
   cwd?: string;
   project?: string;
-  production: boolean;
   json: boolean;
 };
 
@@ -58,7 +54,6 @@ export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
   const cwd = args.cwd;
   const projectFlag = args.project;
-  const production = args.production;
   switch (args.command) {
     case "layouts.list":
       return dispatch({
@@ -66,7 +61,6 @@ export async function handler(args: Args): Promise<never> {
         args: {},
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     case "layouts.get":
@@ -75,7 +69,6 @@ export async function handler(args: Args): Promise<never> {
         args: { layoutId: args.layoutId },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
   }

@@ -15,15 +15,17 @@ import {
   type ServiceError,
 } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
-import { resolveEnvironment } from "../../lib/resolve-environment";
+import { resolveEnvironment, resolveProjectEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
+import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { referencesTo } from "../_shared/references-to";
+import { collectionSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { inDraftScope } from "../drafts/service";
+import { inDraftScope, resolveDraftScope } from "../drafts/service";
 import { recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
@@ -60,17 +62,23 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
         });
       }
     }
-    const project = yield* assertSyncAccess(ctx.db, input.projectSlug, {
-      user: ctx.user,
-      environmentName: ctx.environmentName,
-      deployToken: input.deployToken,
-    });
-    const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName, {
-      autoCreate: input.autoCreate,
-    });
+    // A release writes Live; dev mode writes the caller's development draft (ADR 0006).
+    const target = yield* assertSyncAccess(
+      ctx.db,
+      input.projectSlug,
+      { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
+      { create: input.autoCreate },
+    );
+    const { project } = target;
+    const draftId = definitionsDraftOf(target.scope);
+    const environment = yield* resolveProjectEnvironment(ctx.db, project.id);
     const scope = and(
       eq(collectionDefinitions.projectId, project.id),
       eq(collectionDefinitions.environmentId, environment.id),
+      definitionsIn(collectionDefinitions, target.scope),
+    );
+    const hashes = yield* Effect.promise(() =>
+      Promise.all(input.definitions.map((definition) => collectionSchemaHash(definition))),
     );
     const existing = yield* Effect.promise(() =>
       ctx.db.select().from(collectionDefinitions).where(scope),
@@ -90,29 +98,40 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
             : undefined,
         ),
       ),
-      ...input.definitions.map((definition) =>
+      ...input.definitions.map((definition, index) =>
         ctx.db
           .insert(collectionDefinitions)
           .values({
             ...definition,
+            schemaHash: hashes[index]!,
+            draftId,
             projectId: project.id,
             environmentId: environment.id,
           })
-          .onConflictDoUpdate({
-            target: [
-              collectionDefinitions.projectId,
-              collectionDefinitions.environmentId,
-              collectionDefinitions.collectionId,
-            ],
-            set: definition,
-          }),
+          .onConflictDoUpdate(
+            draftId === null
+              ? {
+                  target: [
+                    collectionDefinitions.projectId,
+                    collectionDefinitions.environmentId,
+                    collectionDefinitions.collectionId,
+                  ],
+                  targetWhere: sql`${collectionDefinitions.draftId} is null`,
+                  set: { ...definition, schemaHash: hashes[index]! },
+                }
+              : {
+                  target: [collectionDefinitions.draftId, collectionDefinitions.collectionId],
+                  targetWhere: sql`${collectionDefinitions.draftId} is not null`,
+                  set: { ...definition, schemaHash: hashes[index]! },
+                },
+          ),
       ),
     ] as const;
     yield* Effect.promise(() => ctx.db.batch(statements));
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
-      draftId: null,
+      draftId: target.scope?.id ?? null,
       projectId: project.id,
       targets: [
         ["camox", "collections"],
@@ -213,6 +232,7 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
     const input = yield* decodeInput(listCollectionDefinitionsInput, rawInput);
     const user = yield* requireUser(ctx);
     const project = yield* getAuthorizedProjectBySlug(ctx.db, input.projectSlug, user.id);
+    const scope = yield* resolveDraftScope(ctx, project.id);
     const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
     return yield* Effect.promise(() =>
       ctx.db
@@ -227,10 +247,11 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
           and(
             eq(collectionDefinitions.projectId, project.id),
             eq(collectionDefinitions.environmentId, environment.id),
+            definitionsIn(collectionDefinitions, scope),
           ),
         )
         // Definitions have no creation timestamp; their row order preserves creation order.
-        .orderBy(desc(sql`${collectionDefinitions}.rowid`)),
+        .orderBy(desc(collectionDefinitions.rowId)),
     );
   },
 );
@@ -240,7 +261,9 @@ export const getCollectionDefinition = Effect.fn("collections.getCollectionDefin
   rawInput: z.input<typeof getCollectionDefinitionInput>,
 ) {
   const input = yield* decodeInput(getCollectionDefinitionInput, rawInput);
-  const definition = yield* definitionFor(ctx, input, true);
+  const project = yield* projectFor(ctx, input, true);
+  const scope = yield* resolveDraftScope(ctx, project.id);
+  const definition = yield* definitionFor(ctx, project.id, input.collectionId, scope);
   const { collectionId, title, description, label, contentSchema } = definition;
   return { collectionId, title, description, label, contentSchema };
 });
@@ -290,7 +313,7 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
   );
 });
 
-const definitionFor = Effect.fn("collections.definitionFor")(function* (
+const projectFor = Effect.fn("collections.projectFor")(function* (
   ctx: ServiceContext,
   input: z.infer<typeof scopeInput>,
   authorized: boolean,
@@ -302,16 +325,27 @@ const definitionFor = Effect.fn("collections.definitionFor")(function* (
         ctx.db.select().from(projects).where(eq(projects.slug, input.projectSlug)).get(),
       );
   if (!project) return yield* new NotFoundError();
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
+  return project;
+});
+
+/** A collection's definition, as a draft scope reads definitions (ADR 0006). */
+const definitionFor = Effect.fn("collections.definitionFor")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  collectionId: string,
+  draft: DraftScope,
+) {
+  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   const definition = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(collectionDefinitions)
       .where(
         and(
-          eq(collectionDefinitions.projectId, project.id),
+          eq(collectionDefinitions.projectId, projectId),
           eq(collectionDefinitions.environmentId, environment.id),
-          eq(collectionDefinitions.collectionId, input.collectionId),
+          definitionsIn(collectionDefinitions, draft),
+          eq(collectionDefinitions.collectionId, collectionId),
         ),
       )
       .get(),
@@ -330,8 +364,12 @@ const inCollection = <A>(
   authorized: boolean,
   run: (definition: ScopedDefinition) => Effect.Effect<A, ServiceError>,
 ) =>
-  Effect.flatMap(definitionFor(ctx, input, authorized), (definition) =>
-    inDraftScope(ctx, definition.projectId, (draft) => run({ ...definition, draft })),
+  Effect.flatMap(projectFor(ctx, input, authorized), (project) =>
+    inDraftScope(ctx, project.id, (draft) =>
+      Effect.flatMap(definitionFor(ctx, project.id, input.collectionId, draft), (definition) =>
+        run({ ...definition, draft }),
+      ),
+    ),
   );
 
 /** A record of the collection, as the collection's scope reads it. */

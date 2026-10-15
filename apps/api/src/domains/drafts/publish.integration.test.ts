@@ -10,6 +10,7 @@ import {
   createServiceContext,
   seedingLive,
   callSeedingLive,
+  openDevelopmentDraft,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -134,6 +135,9 @@ async function fixture() {
 
   /** A draft opened without any content, as the member. */
   const openDraft = async (kind: DraftKind) => {
+    if (kind === "development") {
+      return openDevelopmentDraft(base.db, projectId, base.memberUser.id);
+    }
     const id = generateUuidv7();
     await base.db.insert(drafts).values({
       id,

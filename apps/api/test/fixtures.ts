@@ -1,11 +1,23 @@
 import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call, Procedure, type AnyProcedure } from "@orpc/server";
 import { env } from "cloudflare:workers";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { createDb } from "../src/db";
 import type { ServiceContext } from "../src/domains/_shared/service-context";
 import { requireDraft, type BaseContext } from "../src/orpc";
-import { environments, layouts, member, organizationTable, projects, user } from "../src/schema";
+import {
+  blockDefinitions,
+  collectionDefinitions,
+  drafts,
+  environments,
+  layouts,
+  member,
+  organizationTable,
+  projects,
+  user,
+} from "../src/schema";
 import type { Bindings } from "../src/types";
 
 const now = 1_700_000_000_000;
@@ -155,3 +167,32 @@ export const callSeedingLive: typeof call = (procedure, input, ...rest) => {
   const namesDraft = context?.headers?.has(DRAFT_HEADER) ?? false;
   return call(namesDraft ? procedure : seedingLive(procedure as AnyProcedure), input, ...rest);
 };
+
+/**
+ * A member's development draft holding a copy of Live's definitions, as if dev mode had synced
+ * local code identical to the last release (ADR 0006). Returns the draft's id.
+ */
+export async function openDevelopmentDraft(
+  db: ReturnType<typeof createDb>,
+  projectId: number,
+  userId: string,
+) {
+  const id = generateUuidv7();
+  await db.insert(drafts).values({
+    id,
+    projectId,
+    kind: "development",
+    createdBy: userId,
+    createdAt: now,
+  });
+  for (const table of [blockDefinitions, layouts, collectionDefinitions]) {
+    const live = await db
+      .select()
+      .from(table)
+      .where(and(eq(table.projectId, projectId), isNull(table.draftId)));
+    for (const { rowId: _rowId, ...row } of live) {
+      await db.insert(table).values({ ...row, draftId: id } as never);
+    }
+  }
+  return id;
+}

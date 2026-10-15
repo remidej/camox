@@ -18,7 +18,7 @@ import * as React from "react";
 import { useNavigate } from "@/features/navigation/navigation";
 import { AuthContext } from "@/lib/auth";
 import { draftQueries, projectQueries, type DraftList, type DraftSummary } from "@/lib/queries";
-import { onDraftStarted } from "@/lib/studio-draft";
+import { isDevelopmentMode, onDraftStarted } from "@/lib/studio-draft";
 
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import {
@@ -39,6 +39,8 @@ const draftClassName =
 /**
  * The studio's one drafts control (#203): what the studio is viewing, Live or a draft, the
  * draft's actions, and the drafts to switch to. Live is read-only; the first edit starts a draft.
+ * The localhost studio works only in the development draft, so it shows that draft alone, with
+ * nothing to switch to (ADR 0006).
  */
 export function DraftsControl() {
   const draftId = useCurrentDraftId();
@@ -47,6 +49,7 @@ export function DraftsControl() {
   const leaveDraft = useLeaveDraft();
   const [reviewing, setReviewing] = React.useState(false);
   const [discarding, setDiscarding] = React.useState(false);
+  const developmentMode = isDevelopmentMode();
 
   React.useEffect(() => onDraftStarted(() => void toast.success("Started a new draft")), []);
 
@@ -55,13 +58,18 @@ export function DraftsControl() {
     enabled: !!authCtx?.projectSlug,
   });
   const projectId = project.data?.id;
-  const list = useQuery({ ...draftQueries.list(projectId ?? 0), enabled: !!projectId });
+  const list = useQuery({
+    ...draftQueries.list(projectId ?? 0),
+    enabled: !!projectId && !developmentMode,
+  });
   const draft = useQuery({
     ...draftQueries.get(projectId ?? 0, draftId ?? ""),
     enabled: !!projectId && !!draftId,
   });
 
   if (!projectId) return null;
+  // Without its development draft, the localhost studio has nothing to show or switch to.
+  if (developmentMode && !draftId) return null;
   const current = draftId ? draft.data : undefined;
   // The production studio never lists development drafts (ADR 0011).
   const regular = (list.data?.drafts ?? []).filter((listed) => listed.kind === "regular");
@@ -116,21 +124,25 @@ export function DraftsControl() {
               </DropdownMenuLabel>
             </DropdownMenuGroup>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuRadioGroup value={draftId ?? LIVE} onValueChange={switchTo}>
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Switch to</DropdownMenuLabel>
-              <DropdownMenuRadioItem value={LIVE} closeOnClick>
-                <div className="flex flex-col">
-                  <span>Live</span>
-                  <span className="text-muted-foreground text-xs">{liveLine(live)}</span>
-                </div>
-              </DropdownMenuRadioItem>
-              {regular.map((listed) => (
-                <DraftItem key={listed.id} draft={listed} />
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuRadioGroup>
+          {!developmentMode && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={draftId ?? LIVE} onValueChange={switchTo}>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Switch to</DropdownMenuLabel>
+                  <DropdownMenuRadioItem value={LIVE} closeOnClick>
+                    <div className="flex flex-col">
+                      <span>Live</span>
+                      <span className="text-muted-foreground text-xs">{liveLine(live)}</span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                  {regular.map((listed) => (
+                    <DraftItem key={listed.id} draft={listed} />
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuRadioGroup>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

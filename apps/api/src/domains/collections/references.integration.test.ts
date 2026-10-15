@@ -415,7 +415,8 @@ describe("reference lists", () => {
     ).toEqual([f.gamma.id, f.alpha.id]);
 
     const otherProject = await fixture();
-    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    // A record only the development draft holds is out of Live's reach.
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
     await runService(
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
@@ -436,12 +437,12 @@ describe("reference lists", () => {
         ],
       }),
     );
-    const otherEnvironment = await runService(
+    const developmentRecord = await runService(
       createRecord(devCtx, { ...f.scope, content: { name: "Dev" } }),
     );
     for (const invalid of [
       [otherProject.record.id],
-      [otherEnvironment.id],
+      [developmentRecord.id],
       [f.alpha.id, f.alpha.id],
       [f.alpha.id, f.beta.id, f.gamma.id, otherProject.record.id],
       ["not-a-uuid"],

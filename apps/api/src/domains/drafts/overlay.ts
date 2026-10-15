@@ -572,11 +572,14 @@ function parentRowMatches(
   const parentTable = registeredTableOf(key);
   if (parentTable) {
     matches.push(sql`"parent".${ident(parentTable.deleted)} = 0`);
-    if (holder !== "anywhere") {
-      matches.push(
-        sql`("parent".${ident(parentTable.draftId)} is null or "parent".${ident(parentTable.draftId)} = ${holder.draftId})`,
-      );
-    }
+  }
+  // A layout lives in Live and in development drafts (ADR 0006), like content: a draft holds
+  // Live's layouts and its own.
+  const draftColumn = parentTable?.draftId ?? getTableColumns(key.table).draftId;
+  if (draftColumn && holder !== "anywhere") {
+    matches.push(
+      sql`("parent".${ident(draftColumn)} is null or "parent".${ident(draftColumn)} = ${holder.draftId})`,
+    );
   }
   return sql`exists (select 1 from ${tableOf(key)} as "parent" where ${sql.join(matches, sql` and `)})`;
 }

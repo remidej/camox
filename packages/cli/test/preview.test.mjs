@@ -75,7 +75,7 @@ void test("preview hands off a single-use credential and rejects unsafe destinat
       assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")), {
         projectSlug: "test",
         apiUrl,
-        environmentName: "dev:test@example.test",
+        environmentName: "production",
       });
       assert.doesNotMatch(result.stdout, /long-lived-secret/);
     }

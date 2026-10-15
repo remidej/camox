@@ -130,7 +130,7 @@ describe("authenticated collection browsing", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("returns the definition's stored TypeBox schema and metadata only in its environment", async () => {
+  it("returns the definition's stored TypeBox schema and metadata from the request's own definitions", async () => {
     const f = await fixture("browse-get");
     expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toEqual({
       collectionId: definition.collectionId,
@@ -140,7 +140,8 @@ describe("authenticated collection browsing", () => {
       contentSchema: definition.contentSchema,
     });
 
-    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    // The development draft has its own definitions, separate from Live's.
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
     await runService(
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
@@ -150,6 +151,9 @@ describe("authenticated collection browsing", () => {
     );
     await expect(runService(getCollectionDefinition(devCtx, f.scope))).rejects.toMatchObject({
       code: "NOT_FOUND",
+    });
+    expect(await runService(getCollectionDefinition(f.ctx, f.scope))).toMatchObject({
+      title: definition.title,
     });
     await runService(
       syncCollectionDefinitions(devCtx, {
@@ -183,7 +187,7 @@ describe("authenticated collection browsing", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("lists the definitions code declares in the current project/environment, newest first", async () => {
+  it("lists the definitions code declares in the request's project and draft, newest first", async () => {
     const f = await fixture("browse");
     const input = { projectSlug: f.project.slug };
     const newer = { ...definition, collectionId: "newer", title: "Newer" };
@@ -202,11 +206,16 @@ describe("authenticated collection browsing", () => {
     expect(
       await runService(listCollectionDefinitions(other.ctx, { projectSlug: other.project.slug })),
     ).toEqual([metadata(definition)]);
-    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    // The development draft lists its own definitions; Live keeps its.
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
     await runService(
-      syncCollectionDefinitions(devCtx, { ...input, autoCreate: true, definitions: [] }),
+      syncCollectionDefinitions(devCtx, { ...input, autoCreate: true, definitions: [newer] }),
     );
-    expect(await runService(listCollectionDefinitions(devCtx, input))).toEqual([]);
+    expect(await runService(listCollectionDefinitions(devCtx, input))).toEqual([metadata(newer)]);
+    expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([
+      metadata(newer),
+      metadata(definition),
+    ]);
     await f.sync([definition]);
     expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([
       metadata(definition),
@@ -261,7 +270,7 @@ describe("authenticated collection browsing", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("lists records newest first with plain text labels, isolated by collection and environment", async () => {
+  it("lists records newest first with plain text labels, isolated by collection and draft", async () => {
     const f = await fixture("browse-records");
     expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual([]);
     const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
@@ -281,7 +290,7 @@ describe("authenticated collection browsing", () => {
     expect(
       await runService(listCollectionRecords(f.ctx, { ...f.scope, collectionId: "other" })),
     ).toEqual([]);
-    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
     await runService(
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
@@ -289,7 +298,17 @@ describe("authenticated collection browsing", () => {
         definitions: [definition],
       }),
     );
-    expect(await runService(listCollectionRecords(devCtx, f.scope))).toEqual([]);
+    // Live's records show through in the development draft; its own stay out of Live.
+    const live = await runService(listCollectionRecords(f.ctx, f.scope));
+    expect(await runService(listCollectionRecords(devCtx, f.scope))).toEqual(live);
+    const drafted = await runService(
+      createRecord(devCtx, { ...f.scope, content: { ...article, title: "Drafted" } }),
+    );
+    expect(await runService(listCollectionRecords(devCtx, f.scope))).toEqual([
+      { id: drafted.id, label: "Drafted", duplicatePageValue: false },
+      ...live,
+    ]);
+    expect(await runService(listCollectionRecords(f.ctx, f.scope))).toEqual(live);
     const other = await fixture("browse-records-other");
     expect(await runService(listCollectionRecords(other.ctx, other.scope))).toEqual([]);
   });
@@ -513,7 +532,7 @@ describe("collection record lifecycle", () => {
     ).toHaveLength(0);
   });
 
-  it("enforces auth, project, collection and environment ownership on every operation", async () => {
+  it("enforces auth, project, collection and draft definitions on every operation", async () => {
     const f = await fixture("isolation");
     const record = await runService(createRecord(f.ctx, { ...f.scope, content: article }));
     const input = { ...f.scope, id: record.id };
@@ -535,20 +554,27 @@ describe("collection record lifecycle", () => {
         editRecord(anotherProject.ctx, { ...input, ...anotherProject.scope, content: article }),
       ),
     ).rejects.toThrow();
-    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
-    await runService(
-      syncCollectionDefinitions(devCtx, {
-        projectSlug: f.project.slug,
-        autoCreate: true,
-        definitions: [definition],
-      }),
-    );
+    // A development draft whose code doesn't define the collection can't reach its records.
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
+    const syncDevelopment = (autoCreate: boolean, definitions: (typeof definition)[]) =>
+      runService(
+        syncCollectionDefinitions(devCtx, { projectSlug: f.project.slug, autoCreate, definitions }),
+      );
+    await syncDevelopment(true, []);
     await expect(runService(getCollectionRecord(devCtx, input))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     await expect(runService(deleteRecord(devCtx, input))).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+    // Once it does, Live's record shows through, and deleting it there leaves Live's in place.
+    await syncDevelopment(false, [definition]);
+    expect(await runService(getCollectionRecord(devCtx, input))).toEqual(record);
+    await runService(deleteRecord(devCtx, input));
+    await expect(runService(getCollectionRecord(devCtx, input))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(await runService(getCollectionRecord(f.ctx, input))).toEqual(record);
     await f.sync([definition, { ...definition, collectionId: "customers" }]);
     await expect(
       runService(editRecord(f.ctx, { ...input, collectionId: "customers", content: article })),

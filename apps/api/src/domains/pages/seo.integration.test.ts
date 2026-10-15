@@ -117,10 +117,10 @@ describe("setPageSeo", () => {
       ok: false,
       error: { code: "NOT_FOUND" },
     });
-    const devName = `dev:${ctx.user!.email}`;
+    const stagingName = "staging";
     await db.insert(environments).values({
       projectId: project.id,
-      name: devName,
+      name: stagingName,
       type: "development",
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -129,7 +129,7 @@ describe("setPageSeo", () => {
       await tool(
         "setPageSeo",
         { id: page.id, metaTitle: "Wrong environment" },
-        { ...ctx, environmentName: devName },
+        { ...ctx, environmentName: stagingName },
       ),
     ).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
   });

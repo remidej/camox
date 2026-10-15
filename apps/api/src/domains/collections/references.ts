@@ -7,6 +7,7 @@ import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/e
 import { lexicalStateToPlainText, pageTextLinkIds } from "../../lib/lexical-state";
 import { blockDefinitions, environments } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
@@ -340,6 +341,7 @@ const definitionIn = Effect.fn("collections.definitionIn")(function* (
         and(
           eq(collectionDefinitions.projectId, scope.projectId),
           eq(collectionDefinitions.environmentId, scope.environmentId),
+          definitionsIn(collectionDefinitions, scope.draft),
           eq(collectionDefinitions.collectionId, String(field.collectionId)),
         ),
       )
@@ -394,6 +396,7 @@ const blockDefinitionsIn = Effect.fn("collections.blockDefinitionsIn")(function*
         and(
           eq(blockDefinitions.projectId, scope.projectId),
           eq(blockDefinitions.environmentId, scope.environmentId),
+          definitionsIn(blockDefinitions, scope.draft),
         ),
       ),
   );
@@ -530,6 +533,7 @@ export const recordInScope = Effect.fn("collections.recordInScope")(function* (
           overlay.visibleIn(collectionRecords, scope.draft),
           eq(collectionDefinitions.projectId, scope.projectId),
           eq(collectionDefinitions.environmentId, scope.environmentId),
+          definitionsIn(collectionDefinitions, scope.draft),
           eq(collectionDefinitions.collectionId, String(field.collectionId)),
         ),
       )

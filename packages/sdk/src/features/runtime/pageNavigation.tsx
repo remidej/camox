@@ -82,11 +82,10 @@ export function PageNavigationProvider({
     source?: NavigateOptions["source"];
     generation: number;
   }>(() => {
-    // Before anything reads the draft from the URL, drop one the server couldn't show.
-    if (typeof window !== "undefined") {
-      dropRefusedDraft(initialInput);
-      readDraftFromUrl();
-    }
+    // Before anything reads the draft from the URL, drop one the server couldn't show. Dev mode
+    // follows the render on the server too, so the server render reads the keys it was given.
+    if (typeof window !== "undefined") dropRefusedDraft(initialInput);
+    readDraftFromUrl(initialInput);
     return { input: initialInput, generation: 0 };
   });
   const current = React.useRef(initialInput);
@@ -198,7 +197,7 @@ export function PageNavigationProvider({
           if (replace) window.history.replaceState(null, "", target.url.href);
           else window.history.pushState(null, "", target.url.href);
         }
-        readDraftFromUrl();
+        readDraftFromUrl(next);
         if (next.refusedDraft?.notice) reportDraftNotice(next.refusedDraft.notice);
         if (!headManager.current) {
           document

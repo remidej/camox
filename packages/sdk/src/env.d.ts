@@ -27,6 +27,8 @@ declare module "virtual:camox/studio-client-url" {
 
 declare const __CAMOX_AUTHENTICATION_URL__: string;
 declare const __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: boolean;
+/** Dev mode, which works only in the developer's development draft: anything but a release. */
+declare const __CAMOX_DEVELOPMENT_DRAFT__: boolean;
 
 // Temporal API types (Stage 3, available in modern browsers)
 declare namespace Temporal {

@@ -5,9 +5,8 @@ import type { ServiceError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import { blocks, environments, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { inDraftScope } from "../drafts/service";
+import { inDraftScope, storedForRequest } from "../drafts/service";
 
 // A request naming a draft (`x-camox-draft`) reads and writes blocks in it once the project is
 // known. These find the project from what a procedure is given; `inScope` then checks the draft
@@ -26,14 +25,13 @@ export const projectOfBlock = Effect.fn("blocks.projectOfBlock")(function* (
   ctx: ScopeContext,
   blockId: string,
 ) {
-  const draft = ctx.draft;
-  if (!draft) return undefined;
+  if (!ctx.draft) return undefined;
   const row = yield* Effect.promise(() =>
     ctx.db
       .select({ projectId: environments.projectId })
       .from(blocks)
       .innerJoin(environments, eq(environments.id, blocks.environmentId))
-      .where(and(eq(blocks.id, blockId), overlay.storedInLiveOrDraft(blocks, draft.id)))
+      .where(and(eq(blocks.id, blockId), storedForRequest(blocks, ctx)))
       .get(),
   );
   return row?.projectId;
@@ -44,13 +42,12 @@ export const projectOfPage = Effect.fn("blocks.projectOfPage")(function* (
   ctx: ScopeContext,
   pageId: string,
 ) {
-  const draft = ctx.draft;
-  if (!draft) return undefined;
+  if (!ctx.draft) return undefined;
   const page = yield* Effect.promise(() =>
     ctx.db
       .select({ projectId: pages.projectId })
       .from(pages)
-      .where(and(eq(pages.id, pageId), overlay.storedInLiveOrDraft(pages, draft.id)))
+      .where(and(eq(pages.id, pageId), storedForRequest(pages, ctx)))
       .get(),
   );
   return page?.projectId;
@@ -61,16 +58,12 @@ export const projectOfItem = Effect.fn("blocks.projectOfItem")(function* (
   ctx: ScopeContext,
   itemId: string,
 ) {
-  const draft = ctx.draft;
-  if (!draft) return undefined;
+  if (!ctx.draft) return undefined;
   const row = yield* Effect.promise(() =>
     ctx.db
       .select({ projectId: environments.projectId })
       .from(repeatableItems)
-      .leftJoin(
-        blocks,
-        and(eq(blocks.id, repeatableItems.blockId), overlay.storedInLiveOrDraft(blocks, draft.id)),
-      )
+      .leftJoin(blocks, and(eq(blocks.id, repeatableItems.blockId), storedForRequest(blocks, ctx)))
       .innerJoin(
         environments,
         eq(
@@ -78,9 +71,7 @@ export const projectOfItem = Effect.fn("blocks.projectOfItem")(function* (
           sql`coalesce(${blocks.environmentId}, ${repeatableItems.environmentId})`,
         ),
       )
-      .where(
-        and(eq(repeatableItems.id, itemId), overlay.storedInLiveOrDraft(repeatableItems, draft.id)),
-      )
+      .where(and(eq(repeatableItems.id, itemId), storedForRequest(repeatableItems, ctx)))
       .get(),
   );
   return row?.projectId;

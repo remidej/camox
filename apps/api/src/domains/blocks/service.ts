@@ -37,6 +37,7 @@ import {
   sharedContents,
 } from "../../schema";
 import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
+import { definitionsIn } from "../_shared/definitions";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import type { ContentScope } from "../collections/identity";
@@ -379,6 +380,7 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
             and(
               eq(blockDefinitions.projectId, projectId),
               eq(blockDefinitions.environmentId, environmentId),
+              definitionsIn(blockDefinitions, scope),
               eq(blockDefinitions.blockId, stored.type),
             ),
           )
@@ -793,7 +795,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     [stored],
     yield* overlay.select(ctx.db, scope, repeatableItems, eq(repeatableItems.blockId, stored.id)),
   );
-  const conformed = yield* conformBlocksIn(ctx, stored, shown.blocks, shown.items);
+  const conformed = yield* conformBlocksIn(ctx, stored, scope, shown.blocks, shown.items);
   const block = conformed.blocks[0];
   const sorted = sortItemsByPosition(conformed.items);
 
@@ -889,6 +891,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
         and(
           eq(blockDefinitions.projectId, scope.projectId),
           eq(blockDefinitions.environmentId, scope.environmentId),
+          definitionsIn(blockDefinitions, scope.draft),
         ),
       ),
   );
@@ -991,7 +994,11 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   );
   if (!page) return yield* new NotFoundError();
   const pageLayout = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(layoutNamed(page.environmentId, page.layoutId)).get(),
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(layoutNamed(page.environmentId, page.layoutId), definitionsIn(layouts, scope)))
+      .get(),
   );
   if (!servesPages(pageLayout)) return yield* new NotFoundError();
 
@@ -1042,7 +1049,13 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
+      .where(
+        and(
+          eq(layouts.environmentId, environment.id),
+          eq(layouts.layoutId, layoutId),
+          definitionsIn(layouts, scope),
+        ),
+      )
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
@@ -1181,6 +1194,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
         and(
           eq(blockDefinitions.projectId, access.page.projectId),
           eq(blockDefinitions.environmentId, access.page.environmentId),
+          definitionsIn(blockDefinitions, scope),
           eq(blockDefinitions.blockId, type),
         ),
       )
@@ -1314,7 +1328,7 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
   if (input.content === undefined && input.settings === undefined) {
     return yield* new InvalidInputError({ message: "Provide content or settings" });
   }
-  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id);
+  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id, scope);
   if (input.settings !== undefined) {
     yield* validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
   }
@@ -1339,7 +1353,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 
   const now = Date.now();
 
-  const contentSchema = yield* loadBlockContentSchema(ctx.db, access.projectId, id);
+  const contentSchema = yield* loadBlockContentSchema(ctx.db, access.projectId, id, scope);
 
   const patch = yield* prepareContentPatch(content, contentSchema);
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
@@ -1397,7 +1411,7 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
   const { id, settings } = yield* decodeInput(updateBlockSettingsInput, rawInput);
   const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
-  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id);
+  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id, scope);
   yield* validateContent(settings, schemas?.settingsSchema, { path: "settings" });
   const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
   const merged = {

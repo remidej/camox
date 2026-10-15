@@ -227,8 +227,12 @@ const treeOfBlock = Effect.fn("treeOfBlock")(function* (
   return { root: owner.root, definition: definitionOf(block) } satisfies ItemTree;
 });
 
-const treeSchema = Effect.fn("treeSchema")(function* (db: Database, tree: ItemTree) {
-  return (yield* loadDefinitionSchemas(db, tree.definition))?.contentSchema;
+const treeSchema = Effect.fn("treeSchema")(function* (
+  db: Database,
+  tree: ItemTree,
+  scope: DraftScope,
+) {
+  return (yield* loadDefinitionSchemas(db, tree.definition, scope))?.contentSchema;
 });
 
 /** The block bundle an item edit refreshes: its block's, or the shared content's. */
@@ -388,7 +392,7 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
   const projectId = yield* projectOfEnvironment(db, tree.definition.environmentId);
   if (projectId === null) return null;
 
-  const schema = yield* treeSchema(db, tree);
+  const schema = yield* treeSchema(db, tree, scope);
   const itemSchema = yield* Effect.gen(function* () {
     const path = yield* resolveItemFieldNamePath(
       db,
@@ -495,6 +499,7 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
   const conformed = yield* conformBlocksIn(
     ctx,
     tree.definition,
+    scope,
     [treeOwner],
     siblings.map((sibling) => ({ ...sibling, blockId: treeOwner.id })),
   );
@@ -534,7 +539,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   const now = Date.now();
 
   const tree = yield* treeOfBlock(ctx.db, scope, access.block);
-  const schema = yield* treeSchema(ctx.db, tree);
+  const schema = yield* treeSchema(ctx.db, tree, scope);
   const rootPath = yield* resolveItemFieldNamePath(
     ctx.db,
     scope,
@@ -670,7 +675,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
 
     // Resolve schema for the patch and sanitize asset leaks before merging.
     const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item));
-    const schema = yield* treeSchema(ctx.db, tree);
+    const schema = yield* treeSchema(ctx.db, tree, scope);
     const itemPath = yield* resolveItemFieldNamePath(
       ctx.db,
       scope,
@@ -722,7 +727,7 @@ export const updateRepeatableItemSettings = Effect.fn(
   const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
 
   const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item));
-  const schema = yield* treeSchema(ctx.db, tree);
+  const schema = yield* treeSchema(ctx.db, tree, scope);
   const itemPath = yield* resolveItemFieldNamePath(
     ctx.db,
     scope,
@@ -814,7 +819,7 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
     const original = access.item;
 
     const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(original));
-    const schema = yield* treeSchema(ctx.db, tree);
+    const schema = yield* treeSchema(ctx.db, tree, scope);
     const itemPath = yield* resolveItemFieldNamePath(
       ctx.db,
       scope,
@@ -912,7 +917,7 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
   const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
 
   const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item));
-  const schema = yield* treeSchema(ctx.db, tree);
+  const schema = yield* treeSchema(ctx.db, tree, scope);
   const itemPath = yield* resolveItemFieldNamePath(
     ctx.db,
     scope,

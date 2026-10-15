@@ -130,10 +130,10 @@ describe("finding the records a record page renders", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("never returns another environment's or project's record", async () => {
+  it("never returns a development draft's record outside it, nor another project's", async () => {
     const f = await fixture("isolation");
-    await f.create({});
-    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    const live = await f.create({});
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
     await runService(
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
@@ -141,7 +141,13 @@ describe("finding the records a record page renders", () => {
         definitions: [definition, authorsDefinition],
       }),
     );
-    expect(await f.find("hello", devCtx)).toEqual([]);
+    // Live's record shows through in the development draft.
+    expect((await f.find("hello", devCtx)).map((record) => record.id)).toEqual([live.id]);
+    const drafted = await runService(
+      createRecord(devCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
+    );
+    expect((await f.find("drafted", devCtx)).map((record) => record.id)).toEqual([drafted.id]);
+    expect(await f.find("drafted")).toEqual([]);
     const other = await fixture("isolation-other");
     expect(await other.find("hello")).toEqual([]);
   });
@@ -176,10 +182,10 @@ describe("listing the records that can have a page", () => {
     expect(await f.list()).toEqual([]);
   });
 
-  it("stays in its environment and project", async () => {
+  it("stays in its draft and project", async () => {
     const f = await fixture("list-isolation");
-    await f.create({});
-    const devCtx = { ...f.ctx, environmentName: `dev:${f.memberUser.email}` };
+    const live = await f.create({});
+    const devCtx = { ...f.ctx, draft: { development: true as const } };
     await runService(
       syncCollectionDefinitions(devCtx, {
         projectSlug: f.project.slug,
@@ -187,7 +193,15 @@ describe("listing the records that can have a page", () => {
         definitions: [definition, authorsDefinition],
       }),
     );
-    expect(await f.list(devCtx)).toEqual([]);
+    // Live's record shows through in the development draft; the draft's own stays out of Live.
+    const drafted = await runService(
+      createRecord(devCtx, { ...f.scope, content: { ...article, slug: "drafted" } }),
+    );
+    expect((await f.list(devCtx)).toSorted((a, b) => a.value.localeCompare(b.value))).toEqual([
+      { id: drafted.id, value: "drafted" },
+      { id: live.id, value: "hello" },
+    ]);
+    expect(await f.list()).toEqual([{ id: live.id, value: "hello" }]);
     const other = await fixture("list-isolation-other");
     expect(await other.list()).toEqual([]);
   });

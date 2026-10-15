@@ -39,7 +39,7 @@ void test("prints a checkout-specific sign-in link on the actual Vite port after
         configureServer(vite) {
           installDevSignInLink(vite, {
             projectSlug: "checkout",
-            environmentName: "dev:dev@camox.dev",
+            environmentName: "production",
             apiUrl,
             authToken: "checkout-session",
           });
@@ -65,7 +65,7 @@ void test("prints a checkout-specific sign-in link on the actual Vite port after
     assert.equal(url.searchParams.get("ott"), "test-ott");
     assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")!), {
       projectSlug: "checkout",
-      environmentName: "dev:dev@camox.dev",
+      environmentName: "production",
       apiUrl,
     });
     assert.equal(requests, 2);
@@ -100,7 +100,7 @@ void test("closing Vite cancels pending sign-in retries without logging credenti
   });
   installDevSignInLink(server, {
     projectSlug: "checkout",
-    environmentName: "dev:dev@camox.dev",
+    environmentName: "production",
     apiUrl: `http://127.0.0.1:${address.port}`,
     authToken: "checkout-session",
   });
@@ -170,7 +170,7 @@ function signInFixture(t: TestContext) {
     } as unknown as ViteDevServer;
     installDevSignInLink(vite, {
       projectSlug: "playground",
-      environmentName: "dev:dev@camox.dev",
+      environmentName: "production",
       apiUrl: "http://localhost:8787",
       authToken: "private-session",
       ...options,
