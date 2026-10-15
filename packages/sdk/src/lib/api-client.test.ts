@@ -20,7 +20,10 @@ interface SentRequest {
   create: string | null;
 }
 
-function mockApi(t: test.TestContext, respond: (path: string) => Response = () => okJson(null)) {
+function mockApi(
+  t: test.TestContext,
+  respond: (path: string) => Response | Promise<Response> = () => okJson(null),
+) {
   const sent: SentRequest[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
@@ -120,6 +123,28 @@ void test("block edits fired before the draft exists all land in the same new dr
   assert.equal(sent.length, 2);
   assert.equal(sent[0].draft, sent[1].draft);
   assert.match(sent[0].draft ?? "", UUIDV7);
+});
+
+void test("a block edit that succeeds after another starting the same draft failed enters the draft", async (t) => {
+  openStudio("/about");
+  let answerSecond: (response: Response) => void = () => {};
+  const secondAnswered = new Promise<Response>((resolve) => (answerSecond = resolve));
+  let calls = 0;
+  const sent = mockApi(t, () => {
+    calls += 1;
+    if (calls === 1)
+      return new Response(JSON.stringify({ json: { message: "boom" } }), { status: 500 });
+    return secondAnswered;
+  });
+
+  const first = blockEdit();
+  const second = blockEdit();
+  await assert.rejects(first);
+  answerSecond(okJson(null));
+  await second;
+
+  assert.equal(sent[0].draft, sent[1].draft);
+  assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), sent[1].draft);
 });
 
 void test("a studio opened on a draft reads and writes it without creating it", async (t) => {
