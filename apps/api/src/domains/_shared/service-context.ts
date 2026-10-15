@@ -1,6 +1,7 @@
 import type { Database } from "../../db";
 import type { Bindings } from "../../types";
 import type { Auth } from "../auth/routes";
+import type { DraftRequest } from "../drafts/scope";
 
 export type ServiceContext = {
   db: Database;
@@ -20,4 +21,10 @@ export type ServiceContext = {
    * through `X-Camox-Telemetry-Disabled` from CLI and studio paths.
    */
   telemetryDisabled: boolean;
+  /**
+   * The draft the request names through `x-camox-draft`, not yet checked against the
+   * caller or a project. `null` means Live. Services turn it into a `DraftScope` with
+   * `requireDraftScope` once they know the project.
+   */
+  draft: DraftRequest | null;
 };

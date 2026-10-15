@@ -2,9 +2,12 @@ import { call } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
 import { collection as customers } from "../../../../playground/src/collections/customers";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createRpcContext,
+  createServiceContext,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import type { BaseContext } from "../../orpc";
 import { callTool } from "../agent/service";
 import { collectionDefinitionProcedures as routes } from "./routes";
 import { syncCollectionDefinitions } from "./service";
@@ -16,18 +19,7 @@ const content = { name: "Ada", company: "Engines", logo: null };
 
 async function fixture() {
   const base = await createProjectFixture(`identity-${crypto.randomUUID()}`);
-  const context: BaseContext = {
-    ...createServiceContext(base.db, base.memberUser),
-    headers: new Headers(),
-    session: {
-      id: "session",
-      token: "test",
-      userId: base.memberUser.id,
-      expiresAt: new Date(Date.now() + 60_000),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  };
+  const context = createRpcContext(base.db, base.memberUser);
   const { id, ...definition } = customers._internal;
   await runService(
     syncCollectionDefinitions(createServiceContext(base.db, null), {
