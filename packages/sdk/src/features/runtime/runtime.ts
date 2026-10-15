@@ -1,3 +1,4 @@
+import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
@@ -144,6 +145,19 @@ export function getRuntimePathname(
 
   const stripped = pathname.slice(basePath.length);
   return stripped || "/";
+}
+
+/** The draft the request's URL names, if any. Sitemaps and Markdown ignore it: they read Live. */
+function getRequestDraftId(request: Request): string | undefined {
+  return new URL(request.url).searchParams.get(DRAFT_SEARCH_PARAM) || undefined;
+}
+
+/**
+ * Whether a response may show what only this visitor sees: a session, or a draft named in the
+ * URL. Shared caches must never keep it.
+ */
+function isPrivateRender(request: Request): boolean {
+  return !!getServerAuthCookieHeader(request.headers) || getRequestDraftId(request) !== undefined;
 }
 
 function escapeXml(value: string): string {
@@ -514,6 +528,7 @@ async function createPageHtmlResponse({
     const result = await loadCamoxPageForRequest({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
+      draftId: getRequestDraftId(request),
       environmentName: options.environmentName,
       origin: new URL(request.url).origin,
       pathname,
@@ -521,8 +536,7 @@ async function createPageHtmlResponse({
       queryClient,
     });
     const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", Vary: "Cookie" });
-    if (getServerAuthCookieHeader(request.headers))
-      headers.set("Cache-Control", "private, no-store");
+    if (isPrivateRender(request)) headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }
@@ -733,6 +747,7 @@ async function createDerivedResponse(
       ),
       createServerApiClient(options.apiUrl!, options.environmentName, {
         authCookieHeader,
+        draftId: getRequestDraftId(request),
       }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
     ]);
     seedBlockCaches(queryClient, shared);
@@ -798,9 +813,7 @@ async function createDerivedResponse(
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           Vary: "Cookie",
-          ...(getServerAuthCookieHeader(request.headers)
-            ? { "Cache-Control": "private, no-store" }
-            : {}),
+          ...(isPrivateRender(request) ? { "Cache-Control": "private, no-store" } : {}),
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
       },
@@ -1002,6 +1015,7 @@ async function createPageDataResponse({
     const result = await loadCamoxPageForRequest({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
+      draftId: getRequestDraftId(request),
       environmentName: options.environmentName,
       origin: new URL(request.url).origin,
       pathname,

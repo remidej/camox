@@ -1,0 +1,187 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+
+import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
+
+const MEMBER_SESSION = "camox_auth_cookie=valid";
+const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1 };
+
+const notFound = () =>
+  Response.json(
+    { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
+    { status: 404 },
+  );
+const unauthorized = () =>
+  Response.json(
+    { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Sign in" } },
+    { status: 401 },
+  );
+
+/**
+ * An API where only the valid session is a member, and where a request naming a draft reads
+ * that draft's content. Like the real API, naming a draft without a session is refused.
+ */
+function mockApi(t: { mock: { method: typeof test.mock.method } }) {
+  const draftHeaders: Array<{ path: string; draft: string | null }> = [];
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const url = new URL(request.url);
+    const session = request.headers.get("Better-Auth-Cookie");
+    const draft = request.headers.get(DRAFT_HEADER);
+    draftHeaders.push({ path: url.pathname, draft });
+    if (session && session !== "valid") return unauthorized();
+    if (draft && !session) return unauthorized();
+    const source = draft ? `draft ${draft}` : "Live";
+    if (url.pathname.endsWith("/getBySlug")) {
+      if (!session) return unauthorized();
+      return Response.json({ json: project });
+    }
+    if (url.pathname.endsWith("/listBySlug"))
+      return Response.json({
+        json: [{ id: 1, fullPath: "/about", pathSegment: "about", updatedAt: 1, layoutId: null }],
+      });
+    if (url.pathname.endsWith("/getByPath")) {
+      const { json: input } = (await request.json()) as { json: { path: string } };
+      if (input.path !== "/about") return notFound();
+      return Response.json({
+        json: {
+          page: { id: 1, fullPath: "/about", pathSegment: "about", metaTitle: source },
+          layout: null,
+          project,
+          projectName: project.name,
+          blocks: [],
+          files: [],
+          repeatableItems: [],
+        },
+      });
+    }
+    if (url.pathname.endsWith("/getPageMarkdown"))
+      return Response.json({ json: { markdown: `# ${source}` } });
+    if (url.pathname.endsWith("/getLayoutMarkdown"))
+      return Response.json({ json: { before: "", after: "" } });
+    if (url.pathname.endsWith("/layouts/get"))
+      return Response.json({
+        json: {
+          projectName: project.name,
+          project,
+          layout: {
+            id: 2,
+            layoutId: "pokedex",
+            beforeBlockIds: [],
+            afterBlockIds: [],
+            updatedAt: 1,
+          },
+          blocks: [{ id: "hero", content: { title: source } }],
+          files: [],
+          repeatableItems: [],
+        },
+      });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  return draftHeaders;
+}
+
+/** The title of the page the render saw, or the hero block of a code-owned page. */
+function renderedSource(input: PageRenderInput) {
+  if (input.derived) {
+    const state = input.dehydratedState as {
+      queries: Array<{ state: { data: { block?: { content: { title: string } } } } }>;
+    };
+    return state.queries.find((query) => query.state.data.block)!.state.data.block!.content.title;
+  }
+  return (input.loaderData as { page: { page: { metaTitle: string } } }).page.page.metaTitle;
+}
+
+const pokedex = {
+  _internal: {
+    id: "pokedex",
+    kind: "singleton",
+    title: "Pokédex",
+    buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
+    loader: async () => ({ kind: "data", data: {} }),
+    toMarkdown: () => ["Pokédex"],
+  },
+};
+
+const runtimeOptions: RuntimeOptions = {
+  apiUrl: "https://api.test",
+  authenticationUrl: "https://auth.test",
+  projectSlug: "test",
+  getCamoxApp: async () =>
+    ({
+      getLayouts: () => [pokedex],
+      getLayoutById: () => null,
+      getCollectionById: () => undefined,
+    }) as never,
+  renderPage: async (input) => `<main>${renderedSource(input)}</main>`,
+};
+
+function request(path: string, init: { cookie?: string; accept?: string } = {}) {
+  const headers: Record<string, string> = {};
+  if (init.cookie) headers.Cookie = init.cookie;
+  if (init.accept) headers.Accept = init.accept;
+  return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), runtimeOptions);
+}
+
+async function renderedHtml(response: Response | null) {
+  return (await response!.text()).match(/<main>([^<]*)<\/main>/)![1];
+}
+
+void test("a member visiting a page with the draft param gets the draft on the first render", async (t) => {
+  mockApi(t);
+  for (const path of ["/about", "/pokedex"]) {
+    const draft = await request(`${path}?camox-draft=d1`, { cookie: MEMBER_SESSION });
+    assert.equal(await renderedHtml(draft), "draft d1", path);
+    const live = await request(path, { cookie: MEMBER_SESSION });
+    assert.equal(await renderedHtml(live), "Live", path);
+  }
+});
+
+void test("a visitor without a session naming a draft gets Live, and never names the draft", async (t) => {
+  const requests = mockApi(t);
+  for (const path of ["/about", "/pokedex"]) {
+    const response = await request(`${path}?camox-draft=d1`);
+    assert.equal(await renderedHtml(response), "Live", path);
+  }
+  assert.deepEqual(
+    requests.filter((entry) => entry.draft),
+    [],
+  );
+});
+
+void test("Markdown and the sitemap read Live, even for a member naming a draft", async (t) => {
+  const requests = mockApi(t);
+  const markdown = await request("/about?camox-draft=d1", {
+    cookie: MEMBER_SESSION,
+    accept: "text/markdown",
+  });
+  assert.equal(await markdown!.text(), "# Live");
+  await request("/pokedex?camox-draft=d1", { cookie: MEMBER_SESSION, accept: "text/markdown" });
+  await request("/sitemap.xml?camox-draft=d1", { cookie: MEMBER_SESSION });
+  assert.ok(requests.length > 0);
+  assert.deepEqual(
+    requests.filter((entry) => entry.draft),
+    [],
+  );
+});
+
+void test("a page rendered from a draft is never publicly cacheable", async (t) => {
+  mockApi(t);
+  for (const path of [
+    "/about",
+    "/pokedex",
+    "/_camox/data?path=/about",
+    "/_camox/data?path=/pokedex",
+  ]) {
+    for (const cookie of [MEMBER_SESSION, undefined]) {
+      const separator = path.includes("?") ? "&" : "?";
+      const response = await request(`${path}${separator}camox-draft=d1`, { cookie });
+      assert.equal(
+        response!.headers.get("Cache-Control"),
+        "private, no-store",
+        `${path} ${cookie}`,
+      );
+    }
+  }
+});

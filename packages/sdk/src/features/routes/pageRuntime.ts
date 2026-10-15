@@ -1,4 +1,5 @@
 import type { Router } from "@camox/api-contract";
+import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
@@ -28,6 +29,8 @@ export interface CamoxPageLoaderData {
 interface LoadPageOptions {
   apiUrl: string;
   authCookieHeader?: string;
+  /** The draft to read instead of Live. Only sent along with a session. */
+  draftId?: string;
   environmentName?: string;
   pathname: string;
   projectSlug: string;
@@ -37,6 +40,8 @@ interface LoadPageOptions {
 interface LoadPageForRequestOptions {
   apiUrl: string;
   authCookieHeader?: string;
+  /** The draft the request's URL names. Only a member reads it; anyone else reads Live. */
+  draftId?: string;
   environmentName?: string;
   origin: string;
   pathname: string;
@@ -79,10 +84,12 @@ export function prefersMarkdown(accept: string): boolean {
 export function createServerApiClient(
   apiUrl: string,
   environmentName?: string,
-  options?: { authCookieHeader?: string },
+  options?: { authCookieHeader?: string; draftId?: string },
 ): RouterClient<Router> {
   const headers: Record<string, string> = {};
   if (environmentName) headers["x-environment-name"] = environmentName;
+  // Only a session can read a draft, so a draft is only ever named along with one.
+  if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
   return createORPCClient<RouterClient<Router>>(
     new RPCLink({
       url: `${apiUrl}/rpc`,
@@ -186,12 +193,13 @@ export function seedBlockCaches(
 export async function loadCamoxPage({
   apiUrl,
   authCookieHeader,
+  draftId,
   environmentName,
   pathname,
   projectSlug,
   queryClient,
 }: LoadPageOptions): Promise<PageStructure> {
-  const serverApi = createServerApiClient(apiUrl, environmentName, { authCookieHeader });
+  const serverApi = createServerApiClient(apiUrl, environmentName, { authCookieHeader, draftId });
   return queryClient.ensureQueryData({
     queryKey: queryKeys.pages.getByPath(pathname),
     queryFn: async () => {
@@ -260,14 +268,15 @@ export function buildCamoxPageLoaderData(
 export async function loadCamoxPageForRequest({
   apiUrl,
   authCookieHeader,
+  draftId,
   environmentName,
   origin,
   pathname,
   projectSlug,
   queryClient,
 }: LoadPageForRequestOptions): Promise<LoadPageForRequestResult> {
-  // Every reader sees the page's current content. The session only decides whether the
-  // Studio shows, and which version of linked collection records the API resolves.
+  // Without a draft in the URL, every reader sees Live. The session decides whether the Studio
+  // shows, whether the URL's draft is read, and which version of linked records the API resolves.
   const member = await resolveMemberProject({
     apiUrl,
     authCookieHeader,
@@ -278,6 +287,7 @@ export async function loadCamoxPageForRequest({
   const page = await loadCamoxPage({
     apiUrl,
     authCookieHeader: member.project ? authCookieHeader : undefined,
+    draftId: member.project ? draftId : undefined,
     environmentName,
     pathname,
     projectSlug,
