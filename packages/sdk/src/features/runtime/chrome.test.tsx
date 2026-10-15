@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, QueryClientProvider, dehydrate } from "@tanstack/react-query";
 import * as React from "react";
 import { createElement } from "react";
@@ -63,7 +63,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     slug: "test",
     organizationSlug: "team",
   } as NonNullable<PageRenderInput["project"]>;
-  queryClient.setQueryData(queryKeys.pages.getByPath("/"), {
+  queryClient.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), {
     page: { id: 1, blockIds: [] },
     layout: null,
     project,

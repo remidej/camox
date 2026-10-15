@@ -28,8 +28,13 @@ export class ForbiddenError extends Data.TaggedError("ForbiddenError")<OptionalM
   }
 }
 
-export class NotFoundError extends Data.TaggedError("NotFoundError")<OptionalMessage> {
-  constructor(args: OptionalMessage = {}) {
+type NotFoundArgs = OptionalMessage & {
+  /** What the caller needs to tell this apart from other missing things, such as `draftId`. */
+  readonly data?: Record<string, unknown>;
+};
+
+export class NotFoundError extends Data.TaggedError("NotFoundError")<NotFoundArgs> {
+  constructor(args: NotFoundArgs = {}) {
     super(args);
   }
 }

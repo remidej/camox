@@ -25,7 +25,10 @@ import {
   seedBlockCaches,
   loadCamoxPageForRequest,
   prefersMarkdown,
+  readDraftOrLive,
+  renderedHref,
   resolveMemberProject,
+  type DraftRead,
   type MemberProject,
 } from "../routes/pageRuntime";
 import {
@@ -70,7 +73,7 @@ export interface LayoutIdentity {
 /** Which version of collection records a request reads: members read their saved drafts. */
 type RecordSource = "draft" | "live";
 
-export interface PageRenderInput {
+export interface PageRenderInput extends DraftRead {
   /** Authenticate before rendering, to show the Studio around the page. */
   previewHandoff?: boolean;
   previewDocument?: string;
@@ -553,9 +556,11 @@ async function createPageHtmlResponse({
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl,
       dehydratedState,
+      draftId: result.draftId,
+      refusedDraft: result.refusedDraft,
       environmentName: options.environmentName,
       head,
-      href: new URL(request.url).href,
+      href: renderedHref(request.url, result),
       layoutIdentity: getLayoutIdentity(result.data.page.layout),
       loaderData: result.data,
       pathname,
@@ -739,18 +744,20 @@ async function createDerivedResponse(
     const studio = project !== undefined;
     // Only a member's session reads record drafts, in the loader and in linked records.
     const authCookieHeader = studio ? getServerAuthCookieHeader(request.headers) : undefined;
-    const [serializedResult, shared] = await Promise.all([
+    const [serializedResult, { value: shared, ...read }] = await Promise.all([
       loadLayoutResult(
         app,
         match,
         createLayoutRequestContext(options, studio ? "draft" : "live", authCookieHeader),
       ),
-      createServerApiClient(options.apiUrl!, options.environmentName, {
-        authCookieHeader,
-        draftId: getRequestDraftId(request),
-      }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
+      readDraftOrLive(getRequestDraftId(request), studio, (draftId) =>
+        createServerApiClient(options.apiUrl!, options.environmentName, {
+          authCookieHeader,
+          draftId,
+        }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
+      ),
     ]);
-    seedBlockCaches(queryClient, shared);
+    seedBlockCaches(queryClient, shared, read.draftId ?? null);
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);
@@ -778,8 +785,10 @@ async function createDerivedResponse(
       projectSlug: options.projectSlug!,
       environmentName: options.environmentName,
       dehydratedState: dehydrate(queryClient),
+      draftId: read.draftId,
+      refusedDraft: read.refusedDraft,
       head: pageHead,
-      href: request.url,
+      href: renderedHref(request.url, read),
       layoutIdentity: getLayoutIdentity(shared.layout),
       loaderData: null,
       pathname,
@@ -1040,7 +1049,9 @@ async function createPageDataResponse({
       environmentName: options.environmentName,
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      href: request.url,
+      href: renderedHref(request.url, result),
+      draftId: result.draftId,
+      refusedDraft: result.refusedDraft,
       presentation: result.project ? "studio" : "public",
       pathname,
       layoutIdentity: getLayoutIdentity(result.data.page.layout),

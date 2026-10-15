@@ -180,6 +180,7 @@ export function broadcastSharedContentChange(ctx: ServiceContext, projectId: num
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId,
     targets: [
       queryKeys.blocks.getSyncedContent(type),

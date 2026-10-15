@@ -54,7 +54,10 @@ const resolveRequestedDraft = Effect.fn("resolveRequestedDraft")(function* (
     ctx.db.select().from(drafts).where(eq(drafts.id, requested.id)).get(),
   );
   if (draft?.projectId !== projectId) {
-    return yield* new NotFoundError({ message: `Draft ${requested.id} not found in this project` });
+    return yield* new NotFoundError({
+      message: `Draft ${requested.id} not found in this project`,
+      data: { draftId: requested.id },
+    });
   }
 
   // Regular drafts are open to every member; a development draft only to its owner (ADR 0011).

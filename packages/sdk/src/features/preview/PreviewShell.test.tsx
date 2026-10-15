@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as React from "react";
 
@@ -299,7 +299,7 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     afterBlockIds: [],
   };
   Object.assign(globalThis, { testPreviewLayout: layout });
-  client.setQueryData(queryKeys.pages.getByPath("/"), {
+  client.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), {
     page: { id: 3 },
   });
   type Props = React.ComponentProps<typeof CamoxPreview>;

@@ -2,6 +2,7 @@ import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { type ApiClient, getApiUrl, getEnvironmentName, getOrpc } from "./api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
+import { scopedKey } from "./studio-draft";
 
 // --- Inferred API response types ---
 
@@ -35,30 +36,21 @@ export const collectionQueries = {
     ...getOrpc().collectionDefinitions.list.queryOptions({
       input: { projectSlug },
     }),
-    queryKey: queryKeys.collections.list(projectSlug, getEnvironmentName() ?? "production"),
+    queryKey: scopedKey(queryKeys.collections.list(projectSlug)),
   }),
 
   get: (projectSlug: string, collectionId: string) => ({
     ...getOrpc().collectionDefinitions.get.queryOptions({
       input: { projectSlug, collectionId },
     }),
-    queryKey: queryKeys.collections.get(
-      projectSlug,
-      getEnvironmentName() ?? "production",
-      collectionId,
-    ),
+    queryKey: scopedKey(queryKeys.collections.get(projectSlug, collectionId)),
   }),
 
   record: (projectSlug: string, collectionId: string, id: string) => ({
     ...getOrpc().collectionDefinitions.getRecord.queryOptions({
       input: { projectSlug, collectionId, id },
     }),
-    queryKey: queryKeys.collections.record(
-      projectSlug,
-      getEnvironmentName() ?? "production",
-      collectionId,
-      id,
-    ),
+    queryKey: scopedKey(queryKeys.collections.record(projectSlug, collectionId, id)),
   }),
 
   /** How many blocks, repeatable items and records reference a record. */
@@ -66,12 +58,7 @@ export const collectionQueries = {
     ...getOrpc().collectionDefinitions.getRecordUsageCount.queryOptions({
       input: { projectSlug, collectionId, id },
     }),
-    queryKey: queryKeys.collections.recordUsageCount(
-      projectSlug,
-      getEnvironmentName() ?? "production",
-      collectionId,
-      id,
-    ),
+    queryKey: scopedKey(queryKeys.collections.recordUsageCount(projectSlug, collectionId, id)),
     select: (data: { count: number }) => data.count,
   }),
 
@@ -79,11 +66,7 @@ export const collectionQueries = {
     ...getOrpc().collectionDefinitions.listRecords.queryOptions({
       input: { projectSlug, collectionId },
     }),
-    queryKey: queryKeys.collections.records(
-      projectSlug,
-      getEnvironmentName() ?? "production",
-      collectionId,
-    ),
+    queryKey: scopedKey(queryKeys.collections.records(projectSlug, collectionId)),
   }),
 };
 
@@ -98,7 +81,7 @@ export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitio
 export const commentQueries = {
   list: (pageId: string) => ({
     ...getOrpc().comments.list.queryOptions({ input: { pageId }, staleTime: 30_000 }),
-    queryKey: [...queryKeys.comments.list(pageId), getEnvironmentName() ?? "production"],
+    queryKey: scopedKey(queryKeys.comments.list(pageId)),
   }),
 };
 
@@ -110,7 +93,7 @@ export const commentMutations = {
 export const pageQueries = {
   list: (projectId: number) => ({
     ...getOrpc().pages.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
-    queryKey: queryKeys.pages.list,
+    queryKey: scopedKey(queryKeys.pages.list),
   }),
 
   getByPath: (fullPath: string, projectSlug: string) => ({
@@ -118,7 +101,7 @@ export const pageQueries = {
       input: { path: fullPath, projectSlug },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.pages.getByPath(fullPath),
+    queryKey: scopedKey(queryKeys.pages.getByPath(fullPath)),
   }),
 
   getById: (id: string) => ({
@@ -126,14 +109,14 @@ export const pageQueries = {
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.pages.getById(id),
+    queryKey: scopedKey(queryKeys.pages.getById(id)),
   }),
 };
 
 export const fileQueries = {
   list: (projectId: number) => ({
     ...getOrpc().files.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
-    queryKey: queryKeys.files.list,
+    queryKey: scopedKey(queryKeys.files.list),
   }),
 
   get: (id: string) => ({
@@ -141,7 +124,7 @@ export const fileQueries = {
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.files.get(id),
+    queryKey: scopedKey(queryKeys.files.get(id)),
   }),
 
   getUsageCount: (id: string) => ({
@@ -168,7 +151,7 @@ export const layoutQueries = {
       input: { projectId },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.layouts.all,
+    queryKey: scopedKey(queryKeys.layouts.all),
   }),
 };
 
@@ -178,7 +161,7 @@ export const blockQueries = {
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.get(id),
+    queryKey: scopedKey(queryKeys.blocks.get(id)),
   }),
 
   getUsageCounts: (projectId: number) => ({
@@ -186,7 +169,7 @@ export const blockQueries = {
       input: { projectId },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getUsageCounts,
+    queryKey: scopedKey(queryKeys.blocks.getUsageCounts),
     select: (data: BlockUsageCounts) => {
       const counts: Record<string, number> = {};
       for (const { type, count } of data) {
@@ -202,7 +185,7 @@ export const blockQueries = {
       input: { projectId, type },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getPagesUsing(type),
+    queryKey: scopedKey(queryKeys.blocks.getPagesUsing(type)),
   }),
 
   // A Synced Block's shared content, or null when it has none yet.
@@ -211,7 +194,7 @@ export const blockQueries = {
       input: { projectId, type },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getSyncedContent(type),
+    queryKey: scopedKey(queryKeys.blocks.getSyncedContent(type)),
   }),
 
   getPageMarkdown: (pageId: string) => ({
@@ -219,7 +202,7 @@ export const blockQueries = {
       input: { pageId },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getPageMarkdown(pageId),
+    queryKey: scopedKey(queryKeys.blocks.getPageMarkdown(pageId)),
     select: (data: { markdown: string }) => data.markdown,
   }),
 };
@@ -247,7 +230,7 @@ export const repeatableItemQueries = {
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.repeatableItems.get(id),
+    queryKey: scopedKey(queryKeys.repeatableItems.get(id)),
   }),
 };
 

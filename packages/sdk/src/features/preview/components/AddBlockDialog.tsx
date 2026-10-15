@@ -34,6 +34,7 @@ import {
   projectQueries,
 } from "@/lib/queries";
 
+import { scopedKey } from "../../../lib/studio-draft";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
@@ -61,14 +62,16 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     ...blockMutations.create(),
     onMutate: (variables) => {
       // Optimistic insert, like useUpdateBlockPosition.
-      const pageQueryKey = queryKeys.pages.getByPath(pathname);
+      const pageQueryKey = scopedKey(queryKeys.pages.getByPath(pathname));
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return { pageQueryKey };
 
       // Read block positions from individual caches for position computation
       const blockIds = previousPage.page.blockIds;
       const pageBlocks = blockIds
-        .map((id) => queryClient.getQueryData<BlockBundle>(queryKeys.blocks.get(id))?.block)
+        .map(
+          (id) => queryClient.getQueryData<BlockBundle>(scopedKey(queryKeys.blocks.get(id)))?.block,
+        )
         .filter((b) => b != null);
       const { afterPosition } = variables;
 
@@ -112,7 +115,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       };
 
       // Seed the optimistic block's individual cache
-      queryClient.setQueryData(queryKeys.blocks.get(optimisticId), {
+      queryClient.setQueryData(scopedKey(queryKeys.blocks.get(optimisticId)), {
         block: optimisticBlock,
         repeatableItems: [],
         files: [],
@@ -141,7 +144,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       }
       if (context?.optimisticId) {
         queryClient.removeQueries({
-          queryKey: queryKeys.blocks.get(context.optimisticId),
+          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
         });
       }
     },
@@ -153,7 +156,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       // The optimistic bundle lacks the block's repeatable items; refetch the created block.
       if (context.optimisticId) {
         void queryClient.invalidateQueries({
-          queryKey: queryKeys.blocks.get(context.optimisticId),
+          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
         });
       }
     },

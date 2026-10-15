@@ -80,6 +80,7 @@ function invalidateFile(
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId,
     targets,
   });

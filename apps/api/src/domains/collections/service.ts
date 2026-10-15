@@ -102,6 +102,7 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
+      draftId: null,
       projectId: project.id,
       targets: [
         ["camox", "collections"],
@@ -343,12 +344,13 @@ function invalidateRecord(
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: null,
     projectId: definition.projectId,
     targets: [
       // Every record list, reference and usage count can change with one record.
       ["camox", "collections"],
-      queryKeys.collections.records(scope.projectSlug, ctx.environmentName, scope.collectionId),
-      queryKeys.collections.record(scope.projectSlug, ctx.environmentName, scope.collectionId, id),
+      queryKeys.collections.records(scope.projectSlug, scope.collectionId),
+      queryKeys.collections.record(scope.projectSlug, scope.collectionId, id),
       ["camox", "blocks"],
       queryKeys.pages.getByPathAll,
       queryKeys.pages.list,
