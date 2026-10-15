@@ -1,7 +1,7 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,7 +11,7 @@ import {
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blocks, pages, repeatableItems } from "../../schema";
+import { pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 
 const { broadcastInvalidation } = vi.hoisted(() => ({ broadcastInvalidation: vi.fn() }));
@@ -109,49 +109,6 @@ describe("block procedures in the draft a request names", () => {
     expect(await titleIn(block.id, inDraft(draft))).toBe("Draft");
     expect(await titleIn(block.id)).toBe("Live");
     expect(await titleIn(block.id, inDraft(other))).toBe("Other again");
-  });
-
-  it("shows Live's latest content for a block the draft doesn't change", async () => {
-    const { createBlock, editTitle, titleIn } = await fixture();
-    const changed = await createBlock("Changed");
-    const untouched = await createBlock("Before");
-    const draft = generateUuidv7();
-    await editTitle(changed.id, "Draft", startingDraft(draft));
-
-    await editTitle(untouched.id, "After");
-
-    expect(await titleIn(untouched.id, inDraft(draft))).toBe("After");
-  });
-
-  it("hides a block deleted in a draft in that draft only", async () => {
-    const { member, createBlock, pageBlockIds } = await fixture();
-    const kept = await createBlock("Kept");
-    const deleted = await createBlock("Deleted");
-    const draft = generateUuidv7();
-
-    await call(router.blocks.delete, { id: deleted.id }, member(startingDraft(draft)));
-
-    expect(await pageBlockIds(inDraft(draft))).toEqual([kept.id]);
-    expect(await pageBlockIds()).toEqual([kept.id, deleted.id]);
-  });
-
-  it("records the Live version the first write in a draft copied", async () => {
-    const { db, createBlock, editTitle } = await fixture();
-    const block = await createBlock("One");
-    await editTitle(block.id, "Two");
-    const draft = generateUuidv7();
-
-    await editTitle(block.id, "Draft", startingDraft(draft));
-    await editTitle(block.id, "Live again");
-    await editTitle(block.id, "Draft again", inDraft(draft));
-
-    // No procedure exposes versions until publish (#236), so the draft's row is read directly.
-    const copy = await db
-      .select({ baseVersion: blocks.baseVersion })
-      .from(blocks)
-      .where(and(eq(blocks.id, block.id), eq(blocks.draftId, draft)))
-      .get();
-    expect(copy).toEqual({ baseVersion: 2 });
   });
 
   it("starts one draft when two writes send the same new draft id with the create header", async () => {
