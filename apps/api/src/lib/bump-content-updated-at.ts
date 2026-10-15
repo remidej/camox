@@ -6,7 +6,7 @@ import { layoutNamed } from "../domains/layouts/identity";
 import { blocks, layouts, pages } from "../schema";
 
 /** A block's owner: a page, or a layout named within the block's environment. */
-type BlockParent = { environmentId?: number; pageId?: number | null; layoutId?: string | null };
+type BlockParent = { environmentId?: number; pageId?: string | null; layoutId?: string | null };
 
 /**
  * Bumps `content_updated_at` on the parent page or layout that owns these
@@ -36,7 +36,7 @@ export const bumpContentUpdatedAt = Effect.fn("bumpContentUpdatedAt")(function* 
 /** Looks up a single block's parent and bumps it. */
 export const bumpContentUpdatedAtForBlock = Effect.fn("bumpContentUpdatedAtForBlock")(function* (
   db: Database,
-  blockId: number,
+  blockId: string,
 ) {
   const row = yield* Effect.promise(() =>
     db
@@ -56,7 +56,7 @@ export const bumpContentUpdatedAtForBlock = Effect.fn("bumpContentUpdatedAtForBl
 /** Variant for batch mutations — looks up parents for several block ids. */
 export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForBlocks")(function* (
   db: Database,
-  blockIds: number[],
+  blockIds: string[],
 ) {
   if (blockIds.length === 0) return;
   const rows = yield* Effect.promise(() =>
@@ -69,7 +69,7 @@ export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForB
       .from(blocks)
       .where(inArray(blocks.id, blockIds)),
   );
-  const pageIds = new Set<number>();
+  const pageIds = new Set<string>();
   const layoutKeys = new Map<string, { environmentId: number; layoutId: string }>();
   for (const row of rows) {
     if (row.pageId != null) pageIds.add(row.pageId);

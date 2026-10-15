@@ -44,7 +44,7 @@ export interface CanvasPageFrameProps {
   input: PageRenderInput;
   width: number;
   viewportHeight: number;
-  pageId?: number;
+  pageId?: string;
   selected?: boolean;
   hovered?: boolean;
   /**

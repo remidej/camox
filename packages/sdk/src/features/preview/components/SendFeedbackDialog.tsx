@@ -14,13 +14,13 @@ import { toast } from "@camox/ui/toaster";
 import { Copy, Info } from "lucide-react";
 import * as React from "react";
 
-export function feedbackPrompt(pageId: number, context: string) {
+export function feedbackPrompt(pageId: string, context: string) {
   const request = `Address unresolved Camox feedback for page ID ${pageId}. Load the camox skill and follow its feedback workflow: read the page's comments with the CLI, make the requested changes, and resolve each addressed comment.`;
   const additionalContext = context.trim();
   return additionalContext ? `${request}\n\nAdditional context:\n${additionalContext}` : request;
 }
 
-export function SendFeedbackDialog({ pageId, disabled }: { pageId: number; disabled: boolean }) {
+export function SendFeedbackDialog({ pageId, disabled }: { pageId: string; disabled: boolean }) {
   const contextId = React.useId();
   const [open, setOpen] = React.useState(false);
   const [context, setContext] = React.useState("");

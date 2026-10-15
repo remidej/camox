@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
@@ -15,7 +16,7 @@ import {
   bumpContentUpdatedAtForBlock,
 } from "../../lib/bump-content-updated-at";
 import { stripArtifactSources } from "../../lib/content-markdown";
-import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
+import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, repeatableItems } from "../../schema";
 import { conformBlocksIn } from "../_shared/conform-content";
@@ -46,10 +47,12 @@ const nestedItemSeedSchema = z.object({
   position: z.string(),
 });
 
-export const getRepeatableItemInput = z.object({ id: z.number() });
+export const getRepeatableItemInput = z.object({ id: uuidv7Schema });
+/** The server mints the id; a client may mint one for an optimistic insert. */
 export const createRepeatableItemInput = z.object({
-  blockId: z.number(),
-  parentItemId: z.number().nullable().optional(),
+  id: uuidv7Schema.optional(),
+  blockId: uuidv7Schema,
+  parentItemId: uuidv7Schema.nullable().optional(),
   fieldName: z.string(),
   content: z.unknown(),
   settings: z.unknown().optional(),
@@ -57,21 +60,21 @@ export const createRepeatableItemInput = z.object({
   nestedItems: z.array(nestedItemSeedSchema).optional(),
 });
 export const updateRepeatableItemContentInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   content: z.unknown(),
 });
 export const updateRepeatableItemSettingsInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   settings: z.unknown(),
 });
 export const updateRepeatableItemPositionInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   afterPosition: z.string().nullable().optional(),
   beforePosition: z.string().nullable().optional(),
 });
-export const duplicateRepeatableItemInput = z.object({ id: z.number() });
-export const generateRepeatableItemSummaryInput = z.object({ id: z.number() });
-export const deleteRepeatableItemInput = z.object({ id: z.number() });
+export const duplicateRepeatableItemInput = z.object({ id: uuidv7Schema });
+export const generateRepeatableItemSummaryInput = z.object({ id: uuidv7Schema });
+export const deleteRepeatableItemInput = z.object({ id: uuidv7Schema });
 
 // --- Schema resolution for item content normalization ---
 
@@ -148,8 +151,8 @@ const validateRepeaterCount = Effect.fn("validateRepeaterCount")(function* (
  */
 const resolveItemFieldNamePath = Effect.fn("resolveItemFieldNamePath")(function* (
   db: Database,
-  blockId: number,
-  parentItemId: number | null,
+  blockId: string,
+  parentItemId: string | null,
   fieldName: string,
 ) {
   if (parentItemId == null) return [fieldName];
@@ -165,8 +168,8 @@ const resolveItemFieldNamePath = Effect.fn("resolveItemFieldNamePath")(function*
   );
   const byId = new Map(all.map((i) => [i.id, i]));
   const ancestors: string[] = [];
-  const visited = new Set<number>();
-  let cur: number | null = parentItemId;
+  const visited = new Set<string>();
+  let cur: string | null = parentItemId;
   while (cur != null) {
     const item = byId.get(cur);
     if (!item || visited.has(cur)) {
@@ -274,7 +277,7 @@ const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
 export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSummary")(function* (
   db: Database,
   apiKey: string,
-  itemId: number,
+  itemId: string,
   abortController?: AbortController,
 ) {
   const item = yield* Effect.promise(() =>
@@ -367,7 +370,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   rawInput: z.input<typeof createRepeatableItemInput>,
 ) {
   const user = yield* requireUser(ctx);
-  const { blockId, parentItemId, fieldName, content, settings, afterPosition, nestedItems } =
+  const { id, blockId, parentItemId, fieldName, content, settings, afterPosition, nestedItems } =
     yield* decodeInput(createRepeatableItemInput, rawInput);
   const access = yield* assertBlockAccess(ctx.db, blockId, user.id);
 
@@ -462,6 +465,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     ctx.db
       .insert(repeatableItems)
       .values({
+        id,
         blockId,
         parentItemId: parentItemId ?? null,
         fieldName,
@@ -472,13 +476,15 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
         createdAt: now,
         updatedAt: now,
       })
+      .onConflictDoNothing({ target: repeatableItems.id })
       .returning()
       .get(),
   );
+  if (!result) return yield* new ConflictError({ message: `Repeatable item ${id} already exists` });
 
   // Insert client-provided nested item seeds
   if (preparedSeeds.length > 0) {
-    const tempIdToRealId = new Map<string, number>();
+    const tempIdToRealId = new Map<string, string>();
 
     for (const seed of preparedSeeds) {
       // null parentTempId means child of the item being created

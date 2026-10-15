@@ -8,8 +8,8 @@ export type ReferenceTarget = { kind: "record"; id: string } | { kind: "file"; i
 
 /** Content that references a target: a block, a repeatable item, or another collection record. */
 export type ReferencingContent =
-  | { kind: "block"; id: number }
-  | { kind: "repeatableItem"; id: number }
+  | { kind: "block"; id: string }
+  | { kind: "repeatableItem"; id: string }
   | { kind: "record"; id: string };
 
 /**
@@ -31,7 +31,7 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
           where t.type = 'text' and t.atom = ${target.id})`;
   // An environment belongs to one project, so its id alone scopes content.
   const rows = yield* Effect.promise(() =>
-    db.all<{ kind: ReferencingContent["kind"]; id: number | string }>(sql`
+    db.all<{ kind: ReferencingContent["kind"]; id: string }>(sql`
       select 'block' as kind, b.id as id from blocks b
       where b.environment_id = ${scope.environmentId} and ${matches(sql.raw("b.content"))}
       union all
@@ -43,7 +43,7 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
       join collection_definitions d
         on d.environment_id = r.environment_id and d.collection_id = r.collection_id
       where r.environment_id = ${scope.environmentId}
-        and r.id != ${String(target.id)} and ${matches(sql.raw("r.content"))}
+        and r.id != ${target.id} and ${matches(sql.raw("r.content"))}
     `),
   );
   return rows as ReferencingContent[];

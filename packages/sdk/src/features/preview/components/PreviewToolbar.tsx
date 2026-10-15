@@ -17,7 +17,7 @@ import { usePageComments } from "../usePageComments";
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
   onCommentModeChange?: (enabled: boolean) => void;
-  pageId?: number;
+  pageId?: string;
 }
 
 export const PreviewToolbar = ({

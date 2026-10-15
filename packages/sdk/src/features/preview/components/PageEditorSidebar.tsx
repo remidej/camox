@@ -73,8 +73,8 @@ const getSettingsFields = (schema: unknown): SchemaField[] => {
  */
 const getSchemaForItem = (
   contentSchema: unknown,
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): unknown => {
   // Build path from root to this item
   const path: string[] = [];
@@ -100,8 +100,8 @@ const getSchemaForItem = (
  */
 const getArraySchemaForItem = (
   contentSchema: unknown,
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): unknown => {
   const path: string[] = [];
   let current = itemsMap.get(itemId);
@@ -125,8 +125,8 @@ const getArraySchemaForItem = (
  * Returns items in order from root-most ancestor to the item itself.
  */
 const buildAncestorChain = (
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): NormalizedItem[] => {
   const chain: NormalizedItem[] = [];
   let current = itemsMap.get(itemId);
@@ -284,7 +284,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     canRemove: canRemoveCurrent,
     removeItem: removeCurrent,
   } = useRepeatableItemActions({
-    blockId: block?.id ?? -1,
+    blockId: block?.id ?? "",
     fieldName: currentItem?.fieldName ?? "",
     parentItemId: currentItem?.parentItemId ?? null,
     arraySchema: itemArraySchema as RepeatableArraySchema | null,

@@ -1,11 +1,11 @@
-type MarkedItem = { id: number; parentItemId: number | null; fieldName: string; content: unknown };
+type MarkedItem = { id: string; parentItemId: string | null; fieldName: string; content: unknown };
 
 /** Point each repeater field of a block and its items at the items stored for it. */
 export function injectRepeatableItemMarkers<
-  TBlock extends { id: number; content: unknown },
+  TBlock extends { id: string; content: unknown },
   TItem extends MarkedItem,
 >(block: TBlock, blockItems: TItem[]) {
-  const childrenByParent = new Map<number | null, Map<string, typeof blockItems>>();
+  const childrenByParent = new Map<string | null, Map<string, typeof blockItems>>();
   for (const item of blockItems) {
     let fieldMap = childrenByParent.get(item.parentItemId);
     if (!fieldMap) {

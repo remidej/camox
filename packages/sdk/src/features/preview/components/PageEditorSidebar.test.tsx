@@ -71,9 +71,9 @@ registerHooks({
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("http://localhost:8788", "development");
 
-const pageOwner: EditingOwner = { kind: "page", pageId: 1 };
-const BLOCK_ID = 7;
-const ITEM_ID = 12;
+const pageOwner: EditingOwner = { kind: "page", pageId: "1" };
+const BLOCK_ID = "7";
+const ITEM_ID = "12";
 const FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a05";
 const OTHER_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a08";
 const THIRD_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a09";
@@ -301,7 +301,7 @@ async function renderSidebar(
     files: [file],
   } as never);
   client.setQueryData(fileQueries.get(FILE_ID).queryKey, file as never);
-  client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: 1 } as never);
+  client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: "1" } as never);
   // By default every file is used elsewhere, so unlinking never offers to delete it.
   for (const id of [FILE_ID, OTHER_FILE_ID, THIRD_FILE_ID]) {
     client.setQueryData(fileQueries.getUsageCount(id).queryKey, {

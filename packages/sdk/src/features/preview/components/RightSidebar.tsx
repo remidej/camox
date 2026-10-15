@@ -18,7 +18,7 @@ const RightSidebar = ({
   pageId,
   derivedLayoutId,
 }: {
-  pageId?: number;
+  pageId?: string;
   derivedLayoutId?: string;
 }) => {
   const owner = useContext(PreviewEditingOwnerContext);

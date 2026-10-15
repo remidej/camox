@@ -101,7 +101,7 @@ type CanvasPagePreviewProps = {
   pathname: string;
   runtimeBasePath: string;
   derivedLayoutId?: string;
-  pageId?: number;
+  pageId?: string;
   viewport: CanvasViewport;
   selected: boolean;
   hovered: boolean;
@@ -256,7 +256,7 @@ function CanvasWorkspace({
   const { apiUrl, projectSlug, environmentName } = useAuthContext();
   const queryClient = useQueryClient();
   const updatePage = useMutation(pageMutations.update());
-  const renamePage = async (pageId: number, nickname: string) => {
+  const renamePage = async (pageId: string, nickname: string) => {
     const page = await queryClient.fetchQuery(pageQueries.getById(pageId));
     await updatePage.mutateAsync({
       id: pageId,

@@ -134,12 +134,12 @@ CREATE TABLE `layouts` (
 --> statement-breakpoint
 CREATE INDEX `layouts_environment_layout_idx` ON `layouts` (`environment_id`,`layout_id`);--> statement-breakpoint
 CREATE TABLE `pages` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`id` text PRIMARY KEY NOT NULL,
 	`project_id` integer NOT NULL,
 	`environment_id` integer NOT NULL,
 	`path_segment` text NOT NULL,
 	`full_path` text NOT NULL,
-	`parent_page_id` integer,
+	`parent_page_id` text,
 	`layout_id` text NOT NULL,
 	`nickname` text NOT NULL,
 	`meta_title` text,
@@ -181,9 +181,9 @@ CREATE TABLE `block_definitions` (
 --> statement-breakpoint
 CREATE INDEX `block_definitions_environment_block_idx` ON `block_definitions` (`environment_id`,`block_id`);--> statement-breakpoint
 CREATE TABLE `blocks` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`id` text PRIMARY KEY NOT NULL,
 	`environment_id` integer NOT NULL,
-	`page_id` integer,
+	`page_id` text,
 	`layout_id` text,
 	`type` text NOT NULL,
 	`content` text NOT NULL,
@@ -201,9 +201,9 @@ CREATE INDEX `blocks_page_idx` ON `blocks` (`page_id`);--> statement-breakpoint
 CREATE INDEX `blocks_layout_idx` ON `blocks` (`environment_id`,`layout_id`);--> statement-breakpoint
 CREATE INDEX `blocks_type_idx` ON `blocks` (`type`);--> statement-breakpoint
 CREATE TABLE `repeatable_items` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`block_id` integer NOT NULL,
-	`parent_item_id` integer,
+	`id` text PRIMARY KEY NOT NULL,
+	`block_id` text NOT NULL,
+	`parent_item_id` text,
 	`sync_key` text,
 	`field_name` text NOT NULL,
 	`content` text NOT NULL,
@@ -244,9 +244,9 @@ CREATE INDEX `files_environment_idx` ON `files` (`environment_id`);--> statement
 CREATE TABLE `comments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`environment_id` integer NOT NULL,
-	`page_id` integer NOT NULL,
-	`block_id` integer,
-	`item_id` integer,
+	`page_id` text NOT NULL,
+	`block_id` text,
+	`item_id` text,
 	`target` text,
 	`message` text NOT NULL,
 	`resolved` integer DEFAULT false NOT NULL,

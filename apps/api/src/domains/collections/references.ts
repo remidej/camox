@@ -4,13 +4,14 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
-import { lexicalStateToPlainText } from "../../lib/lexical-state";
+import { lexicalStateToPlainText, pageTextLinkIds } from "../../lib/lexical-state";
 import { blockDefinitions, environments } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { collectionOfRecord, recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
 import { collectionDefinitions, collectionRecords } from "./schema";
+import { validatePageLink } from "./text-content";
 
 type Field = Record<string, unknown>;
 export type ResolvedReference = {
@@ -28,7 +29,7 @@ export type ResolvedReferences = Record<string, ResolvedReference | ResolvedRefe
 
 function fieldsOfType(
   schema: unknown,
-  fieldType: "Reference" | "ReferenceList",
+  fieldType: "Reference" | "ReferenceList" | "String" | "Link",
 ): [string, Field][] {
   const properties = (schema as { properties?: Record<string, Field> } | null)?.properties;
   return Object.entries(properties ?? {}).filter(([, field]) => field.fieldType === fieldType);
@@ -155,7 +156,7 @@ export function referenceQuery(field: Field): NormalizedReferenceQuery | null {
   };
 }
 
-type ItemRow = { id: number; parentItemId: number | null; fieldName: string };
+type ItemRow = { id: string; parentItemId: string | null; fieldName: string };
 
 /**
  * Each repeatable item's content schema, found by walking its repeater path from the block's
@@ -163,8 +164,8 @@ type ItemRow = { id: number; parentItemId: number | null; fieldName: string };
  */
 export function itemSchemas(blockSchema: unknown, items: readonly ItemRow[]) {
   const byId = new Map(items.map((item) => [item.id, item]));
-  const schemas = new Map<number, unknown>();
-  const schemaOf = (item: ItemRow, seen: Set<number>): unknown => {
+  const schemas = new Map<string, unknown>();
+  const schemaOf = (item: ItemRow, seen: Set<string>): unknown => {
     if (schemas.has(item.id)) return schemas.get(item.id);
     if (seen.has(item.id)) return undefined;
     seen.add(item.id);
@@ -408,16 +409,16 @@ export const hydrateReferences = Effect.fn("collections.hydrateReferences")(func
  * Each item's schema comes from its block's type and its repeater path.
  */
 export const hydrateItemReferences = Effect.fn("collections.hydrateItemReferences")(function* <
-  T extends ItemRow & { blockId: number; content: unknown },
+  T extends ItemRow & { blockId: string; content: unknown },
 >(
   ctx: ServiceContext,
   scope: { projectId: number; environmentId: number },
-  blocks: readonly { id: number; type: string }[],
+  blocks: readonly { id: string; type: string }[],
   items: T[],
 ): Effect.fn.Return<(T & { references: ResolvedReferences })[], ServiceError> {
   if (!items.length) return [];
   const definitions = yield* blockDefinitionsIn(ctx, scope);
-  const schemas = new Map<number, unknown>();
+  const schemas = new Map<string, unknown>();
   for (const block of blocks) {
     const blockSchema = definitions.find(
       (definition) => definition.blockId === block.type,
@@ -436,9 +437,9 @@ export const hydrateItemReferences = Effect.fn("collections.hydrateItemReference
 });
 
 /**
- * Validates reference values in scope: in `content` itself and, for inline repeatable items
- * (block patches and bundles reconstructed from item seeds), in each item's content too.
- * Item markers (`{ _itemId }`) carry no content of their own here.
+ * Validates reference values and page links in scope: in `content` itself and, for inline
+ * repeatable items (block patches and bundles reconstructed from item seeds), in each item's
+ * content too. Item markers (`{ _itemId }`) carry no content of their own here.
  */
 export const validateReferenceValues = Effect.fn("collections.validateReferenceValues")(function* (
   ctx: ServiceContext,
@@ -474,6 +475,15 @@ export const validateReferenceValues = Effect.fn("collections.validateReferenceV
       if (!(yield* recordInScope(ctx, scope, field, id)))
         return yield* missingReference(path + name);
     }
+  }
+  for (const [name] of fieldsOfType(schema, "String")) {
+    for (const pageId of pageTextLinkIds(values?.[name]))
+      yield* validatePageLink(ctx, scope, pageId);
+  }
+  for (const [name] of fieldsOfType(schema, "Link")) {
+    // A link switched to a page holds an empty page id until a page is picked.
+    const pageId = (values?.[name] as { pageId?: unknown } | null | undefined)?.pageId;
+    if (pageId !== undefined && pageId !== "") yield* validatePageLink(ctx, scope, pageId);
   }
   for (const [name, repeater] of repeaterFields(schema)) {
     const items = values?.[name];

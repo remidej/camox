@@ -105,7 +105,7 @@ void test("public scopes render source fields and labels, never fabricate missin
               <block._internal.Component
                 mode="site"
                 blockData={{
-                  _id: 1,
+                  _id: "1",
                   type: "reference",
                   position: "a0",
                   content: { customer: value },
@@ -251,7 +251,7 @@ void test("reference lists render each resolved record in stored order and nothi
               <block._internal.Component
                 mode="site"
                 blockData={{
-                  _id: 1,
+                  _id: "1",
                   type: "logo-grid",
                   position: "a0",
                   content: { customers: value as string[] },
@@ -348,8 +348,8 @@ void test("query-backed lists store nothing and render their resolved records in
         files={[]}
         repeatableItems={[
           {
-            id: 30,
-            blockId: 3,
+            id: "30",
+            blockId: "3",
             parentItemId: null,
             fieldName: "rows",
             content: {},
@@ -361,15 +361,15 @@ void test("query-backed lists store nothing and render their resolved records in
             references: { customers: [record] },
           } as never,
         ]}
-        blocks={[{ id: 3, references: { customers: [second, record] } }]}
+        blocks={[{ id: "3", references: { customers: [second, record] } }]}
       >
         <block._internal.Component
           mode="site"
           blockData={{
-            _id: 3,
+            _id: "3",
             type: "recent-customers",
             position: "a0",
-            content: { customers: [id], rows: [{ _itemId: 30 }] } as never,
+            content: { customers: [id], rows: [{ _itemId: "30" }] } as never,
           }}
         />
       </NormalizedDataProvider>
@@ -425,9 +425,9 @@ void test("repeatable items render the records they link, at any repeater depth"
       </block.Repeater>
     ),
   });
-  const item = (itemId: number, parentItemId: number | null, content: object, references = {}) => ({
+  const item = (itemId: string, parentItemId: string | null, content: object, references = {}) => ({
     id: itemId,
-    blockId: 1,
+    blockId: "1",
     parentItemId,
     fieldName: parentItemId === null ? "logos" : "quotes",
     content,
@@ -449,18 +449,18 @@ void test("repeatable items render the records they link, at any repeater depth"
             files={[]}
             blocks={[]}
             repeatableItems={[
-              item(1, null, { customer: id, quotes: [{ _itemId: 2 }] }, { customer: record }),
-              item(2, 1, { speakers: [id] }, { speakers: [record] }),
-              item(3, null, { customer: null, quotes: [] }),
+              item("1", null, { customer: id, quotes: [{ _itemId: "2" }] }, { customer: record }),
+              item("2", "1", { speakers: [id] }, { speakers: [record] }),
+              item("3", null, { customer: null, quotes: [] }),
             ]}
           >
             <block._internal.Component
               mode="site"
               blockData={{
-                _id: 1,
+                _id: "1",
                 type: "logo-wall",
                 position: "a0",
-                content: { logos: [{ _itemId: 1 }, { _itemId: 3 }] } as never,
+                content: { logos: [{ _itemId: "1" }, { _itemId: "3" }] } as never,
               }}
             />
           </NormalizedDataProvider>
@@ -539,7 +539,12 @@ void test("placed records render the records they link, and nothing a hop furthe
           >
             <block._internal.Component
               mode="site"
-              blockData={{ _id: 1, type: "teaser", position: "a0", content: { article: "launch" } }}
+              blockData={{
+                _id: "1",
+                type: "teaser",
+                position: "a0",
+                content: { article: "launch" },
+              }}
             />
           </NormalizedDataProvider>
         </NavigationProvider>
@@ -550,8 +555,8 @@ void test("placed records render the records they link, and nothing a hop furthe
 });
 
 void test("placement identity is separate from source identity and resolution validates collection", () => {
-  const placement = { blockId: 1, fieldName: "customer", recordId: id };
-  assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: 2 }));
+  const placement = { blockId: "1", fieldName: "customer", recordId: id };
+  assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: "2" }));
   assert.notEqual(
     recordPlacementId(placement),
     recordPlacementId({ ...placement, fieldName: "o" }),

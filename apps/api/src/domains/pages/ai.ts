@@ -107,7 +107,7 @@ const generatePageSeoFromAi = Effect.fn("generatePageSeoFromAi")(function* (
 export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   db: Database,
   apiKey: string,
-  pageId: number,
+  pageId: string,
   abortController?: AbortController,
 ) {
   const page = yield* Effect.promise(() =>
@@ -159,7 +159,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
 
   nestChildItems(allItems);
 
-  const itemsByBlock = new Map<number, typeof allItems>();
+  const itemsByBlock = new Map<string, typeof allItems>();
   for (const item of allItems) {
     if (item.parentItemId !== null) continue;
     const list = itemsByBlock.get(item.blockId) ?? [];
@@ -264,9 +264,9 @@ export function collectFileIds(content: Record<string, unknown>, fileIds: Set<st
 
 /** Recursively nest child items into their parent item's content. */
 export function nestChildItems(
-  allItems: { id: number; parentItemId: number | null; fieldName: string; content: unknown }[],
+  allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
 ) {
-  const childrenByParent = new Map<number, Map<string, typeof allItems>>();
+  const childrenByParent = new Map<string, Map<string, typeof allItems>>();
   for (const item of allItems) {
     if (item.parentItemId === null) continue;
     let fieldMap = childrenByParent.get(item.parentItemId);

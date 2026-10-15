@@ -5,7 +5,7 @@ import { PagePicker } from "./PagePicker";
 import { PageTree } from "./PageTree";
 
 export type PreviewedPage = {
-  id: number;
+  id: string;
   metaTitle: string | null;
   pathSegment: string;
   fullPath: string;

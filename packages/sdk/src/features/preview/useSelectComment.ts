@@ -13,7 +13,7 @@ import {
 } from "./previewCommentsStore";
 import { previewStore } from "./previewStore";
 
-export function useSelectComment(pageId: number) {
+export function useSelectComment(pageId: string) {
   const app = useCamoxApp();
   const queryClient = useQueryClient();
 

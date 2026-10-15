@@ -10,9 +10,9 @@ import { previewStore } from "./previewStore";
 
 export type { CommentTarget } from "@camox/api-contract";
 export type CommentAuthor = Comment["author"];
-export type CommentDraft = { id: string; pageId: number; target: CommentTarget; message: string };
+export type CommentDraft = { id: string; pageId: string; target: CommentTarget; message: string };
 /** Ephemeral UI anchor identifies the clicked copy; geometry stays in the overlay cache. */
-export type CommentPopover = { pageId: number; target: CommentTarget; anchor?: Element };
+export type CommentPopover = { pageId: string; target: CommentTarget; anchor?: Element };
 
 type FieldSchema = {
   properties?: Record<string, FieldSchema>;
@@ -33,8 +33,8 @@ export function getCommentTargetFieldType(
     | undefined;
   if (target.kind === "item-field") {
     const path: string[] = [];
-    const visited = new Set<number>();
-    let itemId: number | null = target.itemId;
+    const visited = new Set<string>();
+    let itemId: string | null = target.itemId;
     while (itemId != null) {
       if (visited.has(itemId)) return;
       visited.add(itemId);
@@ -50,7 +50,7 @@ export function getCommentTargetFieldType(
 }
 
 /** Field types belong to the current app, never to persisted comment targets. */
-export function revealCommentTarget(pageId: number, target: CommentTarget, fieldType?: FieldType) {
+export function revealCommentTarget(pageId: string, target: CommentTarget, fieldType?: FieldType) {
   previewStore.send({ type: "setCommentMode", enabled: false });
   previewStore.send({ type: "closeAddBlockDialog" });
   if (target.kind === "page") {
@@ -111,7 +111,7 @@ export const previewCommentsStore = createStore({
     startComment: (
       context,
       event: {
-        pageId: number;
+        pageId: string;
         target: CommentTarget;
         focusComposer?: boolean;
         popover?: boolean;

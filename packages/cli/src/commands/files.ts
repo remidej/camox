@@ -63,7 +63,7 @@ export const parser = command(
       "update",
       object({
         command: constant("files.update" as const),
-        id: option("--id", uuidv7("ID")),
+        id: option("--id", uuidv7()),
         file: optional(
           option("--file", string({ metavar: "PATH" }), {
             description: message`Replace file content from a local path, keeping its ID and references. Mutually exclusive with --url.`,
@@ -90,7 +90,7 @@ export const parser = command(
       "get",
       object({
         command: constant("files.get" as const),
-        id: option("--id", uuidv7("ID")),
+        id: option("--id", uuidv7()),
         ...common,
       }),
       { description: message`Inspect a file in the selected project and environment.` },

@@ -52,7 +52,7 @@ void test("frame-local comment cursors survive active-page changes and frame dis
     previewStore.send({ type: "enterEditMode" });
     previewStore.send({ type: "setCommentMode", enabled: true });
     previewStore.send({ type: "setIframeElement", element: firstFrame });
-    previewCommentsStore.send({ type: "startComment", pageId: 2, target: { kind: "page" } });
+    previewCommentsStore.send({ type: "startComment", pageId: "2", target: { kind: "page" } });
     previewCommentsStore.send({ type: "setMessage", message: "Keep this feedback" });
     const draft = previewCommentsStore.getSnapshot().context.draft;
 

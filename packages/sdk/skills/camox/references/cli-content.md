@@ -22,9 +22,9 @@ Use `--parent-page-id <ID>` to nest the Page under another Page.
 ```sh
 {{CAMOX_CMD}} pages get --path /about
 {{CAMOX_CMD}} pages update --path /about --meta-title "About us" --meta-description "Meet the team."
-{{CAMOX_CMD}} pages update --id 25 --meta-description ""
-{{CAMOX_CMD}} pages update --id 25 --ai-seo on
-{{CAMOX_CMD}} pages update --id 25 --ai-seo off
+{{CAMOX_CMD}} pages update --id <PAGE_UUID> --meta-description ""
+{{CAMOX_CMD}} pages update --id <PAGE_UUID> --ai-seo on
+{{CAMOX_CMD}} pages update --id <PAGE_UUID> --ai-seo off
 ```
 
 Updates accept exactly one of `--id` or `--path` and require at least one update
@@ -41,11 +41,11 @@ with `pages get`.
 List a Page's comments, then use a returned comment `id` to resolve one on that same Page:
 
 ```sh
-{{CAMOX_CMD}} comments list --page-id 25
-{{CAMOX_CMD}} comments resolve --page-id 25 --id <COMMENT_UUID>
+{{CAMOX_CMD}} comments list --page-id <PAGE_UUID>
+{{CAMOX_CMD}} comments resolve --page-id <PAGE_UUID> --id <COMMENT_UUID>
 ```
 
-`--page-id` is the numeric Page ID (find it with `pages get --path /about`); `--id` is the comment's UUID, not a Block or Page ID. Resolution changes the comment's status, not the Page's content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project`, `--production`, and `--cwd` select the same project, environment, and working directory as other CLI commands.
+`--page-id` is the Page's UUIDv7 (find it with `pages get --path /about`); `--id` is the comment's UUIDv7, not a Block or Page ID. Resolution changes the comment's status, not the Page's content. Check `comments resolve --help` before writing, per [CLI common guidance](cli-common.md). Use `--json` for structured output; `--project`, `--production`, and `--cwd` select the same project, environment, and working directory as other CLI commands.
 
 ## Blocks
 
@@ -66,8 +66,8 @@ the Layout to discover navigation, footer, and other layout-owned block IDs:
 ```sh
 {{CAMOX_CMD}} layouts list
 {{CAMOX_CMD}} layouts get --layout-id default
-{{CAMOX_CMD}} blocks get --id 99
-{{CAMOX_CMD}} blocks edit --id 99 --content '{"title": "Updated title"}'
+{{CAMOX_CMD}} blocks get --id <BLOCK_UUID>
+{{CAMOX_CMD}} blocks edit --id <BLOCK_UUID> --content '{"title": "Updated title"}'
 ```
 
 Pass the Layout's name, the `layoutId` from `layouts list` (also the Page's
@@ -86,7 +86,7 @@ and synced Block types can share Content across Layouts.
 ### Create and position a Block
 
 ```sh
-{{CAMOX_CMD}} blocks create --page-id 25 --type hero --content '{...}' --position first
+{{CAMOX_CMD}} blocks create --page-id <PAGE_UUID> --type hero --content '{...}' --position first
 ```
 
 Creation initializes omitted Content and Settings fields from the Block definition's defaults, including when `--content '{}'` is supplied. Explicit values are not replaced by defaults and must satisfy the field's JSON Schema; defaults do not merge into a supplied Link object. Omitted Repeaters initialize their default item count (or minimum count) with item defaults. Supplied arrays use exactly those items and must satisfy `minItems`/`maxItems`; `[]` is accepted only when the minimum allows it. Asset placeholders are not stored. Existing synced Block data still takes precedence for synced types.
@@ -116,7 +116,7 @@ Content patches merge ordinary fields, so send only fields that should change:
 
 ```sh
 {{CAMOX_CMD}} pages get --path /pricing
-{{CAMOX_CMD}} blocks edit --id 314 --content '{"headline": "New headline"}'
+{{CAMOX_CMD}} blocks edit --id <BLOCK_UUID> --content '{"headline": "New headline"}'
 ```
 
 ### Set string fields from files
@@ -124,7 +124,7 @@ Content patches merge ordinary fields, so send only fields that should change:
 Use `--field-file <NAME>=<PATH>` on `blocks create` and `blocks edit` to set a top-level string field to a file's raw contents, without escaping it into JSON. It suits long Markdown and [Artifact](artifacts.md) sources. Repeat the flag to set several fields. It merges with `--content`; when both set the same field, the file wins. On `blocks create`, pass `--content`, `--field-file`, or both.
 
 ```sh
-{{CAMOX_CMD}} blocks edit --id 314 --content '{"title": "Orbit"}' --field-file source=./orbit.html
+{{CAMOX_CMD}} blocks edit --id <BLOCK_UUID> --content '{"title": "Orbit"}' --field-file source=./orbit.html
 ```
 
 Every file is read before anything is written, so a missing or unreadable file fails the command without changing anything.
@@ -141,13 +141,13 @@ To build an Artifact source, loop until it renders correctly:
 A repeatable field's array is replacement-shaped: omitting an existing item deletes it and cascades to its file references, settings, and nested items. Fetch the Block, preserve every existing item with `_itemId`, and add changes only to the intended entries:
 
 ```sh
-{{CAMOX_CMD}} blocks get --id 99
+{{CAMOX_CMD}} blocks get --id <BLOCK_UUID>
 
-{{CAMOX_CMD}} blocks edit --id 99 --content '{
+{{CAMOX_CMD}} blocks edit --id <BLOCK_UUID> --content '{
   "items": [
-    {"_itemId": 401},
-    {"_itemId": 402, "answer": "Updated answer."},
-    {"_itemId": 403}
+    {"_itemId": "<ITEM_UUID_1>"},
+    {"_itemId": "<ITEM_UUID_2>", "answer": "Updated answer."},
+    {"_itemId": "<ITEM_UUID_3>"}
   ]
 }'
 ```
@@ -155,7 +155,7 @@ A repeatable field's array is replacement-shaped: omitting an existing item dele
 The response's `repeatableItems` contains each item's `id`, `fieldName`, `parentItemId`, and Content. Use the same `_itemId` pattern recursively for nested repeatables. Fetch multiple Blocks together when useful:
 
 ```sh
-{{CAMOX_CMD}} blocks get-many --id 99 --id 100 --id 101
+{{CAMOX_CMD}} blocks get-many --id <BLOCK_UUID> --id <BLOCK_UUID> --id <BLOCK_UUID>
 ```
 
 `blocks get-many` returns the same bundle shape as `blocks get`, in requested-id order.
@@ -164,7 +164,7 @@ The response's `repeatableItems` contains each item's `id`, `fieldName`, `parent
 
 ```sh
 {{CAMOX_CMD}} pages get --path /pricing
-{{CAMOX_CMD}} blocks get --id 314
+{{CAMOX_CMD}} blocks get --id <BLOCK_UUID>
 ```
 
 Reads return the current content. Pages, Layouts and Blocks have no separate draft or published state: every edit is visible on the site of the selected Environment right away.

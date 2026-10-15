@@ -15,7 +15,7 @@ import type { Bindings } from "../types";
 
 type JobParams = {
   entityTable: string;
-  entityId: number | string;
+  entityId: string;
   type: string;
   delayMs: number;
 };
@@ -64,11 +64,8 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     const db = createDb(this.env.DB);
     const apiKey = this.env.OPEN_ROUTER_API_KEY;
 
-    const { entityTable, type } = job;
-    const label = `${entityTable}:${job.entityId}:${type}`;
-    // Files are identified by UUIDv7; the other entities still by integer.
-    const entityId = Number(job.entityId);
-    const fileId = String(job.entityId);
+    const { entityTable, entityId, type } = job;
+    const label = `${entityTable}:${entityId}:${type}`;
 
     if (entityTable === "blocks" && type === "summary") {
       const seoStale = yield* retryAiCall(label, (abortController) =>
@@ -131,18 +128,18 @@ export class AiJobScheduler extends DurableObject<Bindings> {
       }
     } else if (entityTable === "files" && type === "fileMetadata") {
       yield* retryAiCall(label, (abortController) =>
-        executeFileMetadata(db, apiKey, fileId, abortController),
+        executeFileMetadata(db, apiKey, entityId, abortController),
       );
 
       const file = yield* Effect.promise(() =>
-        db.select().from(files).where(eq(files.id, fileId)).get(),
+        db.select().from(files).where(eq(files.id, entityId)).get(),
       );
       if (file?.projectId) {
         broadcastInvalidation({
           waitUntil: (p) => this.ctx.waitUntil(p),
           projectRoomNamespace: this.env.ProjectRoom,
           projectId: file.projectId,
-          targets: [queryKeys.files.list, queryKeys.files.get(fileId)],
+          targets: [queryKeys.files.list, queryKeys.files.get(entityId)],
         });
       }
     } else if (entityTable === "pages" && type === "seo") {
@@ -166,7 +163,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
 
   private async getBlockProjectId(
     db: ReturnType<typeof createDb>,
-    blockId: number,
+    blockId: string,
   ): Promise<number | null> {
     const result = await db
       .select({ projectId: environments.projectId })

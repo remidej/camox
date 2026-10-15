@@ -30,7 +30,7 @@ void test("canvas names report selection without changing preview state or editi
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement);
   const pages = getCanvasPages(
-    [{ id: 7, nickname: "Home", fullPath: "/" }],
+    [{ id: "7", nickname: "Home", fullPath: "/" }],
     [
       { _internal: { id: "about", kind: "singleton", title: "About" } },
       { _internal: { id: "articles.$slug", kind: "derived", title: "Article" } },
@@ -117,8 +117,8 @@ void test("canvas names report selection without changing preview state or editi
           previewStore.send({
             type: "selectTarget",
             kind: "page",
-            pageId: 99,
-            selection: { type: "block", blockId: 42 },
+            pageId: "99",
+            selection: { type: "block", blockId: "42" },
           });
           name.click();
         });

@@ -2,7 +2,7 @@ import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { integer, string } from "@optique/core/valueparser";
+import { string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { cwdFlag } from "../lib/runtime-options";
@@ -22,7 +22,7 @@ export const parser = command(
       "list",
       object({
         command: constant("comments.list" as const),
-        pageId: option("--page-id", integer({ min: 1, metavar: "ID" })),
+        pageId: option("--page-id", uuidv7()),
         ...common,
       }),
       { description: message`List all comments (including resolved ones) for a page.` },
@@ -31,7 +31,7 @@ export const parser = command(
       "resolve",
       object({
         command: constant("comments.resolve" as const),
-        pageId: option("--page-id", integer({ min: 1, metavar: "ID" })),
+        pageId: option("--page-id", uuidv7()),
         id: option("--id", uuidv7()),
         ...common,
       }),
@@ -47,8 +47,8 @@ export const parser = command(
 
 type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
 type Args =
-  | ({ command: "comments.list"; pageId: number } & CommonFlags)
-  | ({ command: "comments.resolve"; pageId: number; id: string } & CommonFlags);
+  | ({ command: "comments.list"; pageId: string } & CommonFlags)
+  | ({ command: "comments.resolve"; pageId: string; id: string } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
   return dispatch({

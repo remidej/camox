@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { seedHeroGlobe } from "./demoGlobe.ts";
 
 interface FakeBlock {
-  id: number;
+  id: string;
   type: string;
   content: Record<string, unknown>;
 }
@@ -23,7 +23,7 @@ function fakeApi(blocks: FakeBlock[]) {
         },
       },
       blocks: {
-        updateContent: async (input: { id: number; content: unknown }) => {
+        updateContent: async (input: { id: string; content: unknown }) => {
           const block = blocks.find((candidate) => candidate.id === input.id);
           assert.ok(block, `unknown block ${input.id}`);
           Object.assign(block.content, input.content);
@@ -36,8 +36,8 @@ function fakeApi(blocks: FakeBlock[]) {
 
 void test("an empty hero globe gets a titled artifact source", async () => {
   const blocks = [
-    { id: 1, type: "hero", content: { title: "Hi", globe: "" } },
-    { id: 2, type: "statistics", content: {} },
+    { id: "1", type: "hero", content: { title: "Hi", globe: "" } },
+    { id: "2", type: "statistics", content: {} },
   ];
   const { logs, context } = fakeApi(blocks);
 
@@ -50,7 +50,7 @@ void test("an empty hero globe gets a titled artifact source", async () => {
 });
 
 void test("a globe that already has a source is left untouched", async () => {
-  const blocks = [{ id: 1, type: "hero", content: { globe: "<title>Mine</title>" } }];
+  const blocks = [{ id: "1", type: "hero", content: { globe: "<title>Mine</title>" } }];
   const { logs, context } = fakeApi(blocks);
 
   await seedHeroGlobe(context);

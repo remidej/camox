@@ -4,9 +4,9 @@ import { test } from "node:test";
 import type { CamoxApp } from "../../core/createApp";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
-const project = { id: 1, name: "Real project", slug: "test", updatedAt: "2026-01-01" };
+const project = { id: "1", name: "Real project", slug: "test", updatedAt: "2026-01-01" };
 const layout = {
-  id: 2,
+  id: "2",
   layoutId: "pokemon.$name",
   beforeBlockIds: [],
   afterBlockIds: [],
@@ -90,7 +90,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
         );
       return Response.json({
         json: {
-          page: { id: 1, fullPath: body.json.path, pathSegment: "about" },
+          page: { id: "1", fullPath: body.json.path, pathSegment: "about" },
           layout: null,
           project,
           projectName: project.name,
@@ -220,7 +220,7 @@ void test("visitors and members load the same curated page, and only members wit
       pageReads.push(request.headers.get("Better-Auth-Cookie"));
       return Response.json({
         json: {
-          page: { id: 3, fullPath: input.path, pathSegment: "new-curated-page" },
+          page: { id: "3", fullPath: input.path, pathSegment: "new-curated-page" },
           layout: null,
           project,
           projectName: project.name,
@@ -275,8 +275,8 @@ void test("sitemaps include curated pages and singleton destinations with the ru
   t.mock.method(globalThis, "fetch", async () =>
     Response.json({
       json: [
-        { id: 1, nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" },
-        { id: 2, nickname: "Contact", fullPath: "/contact", updatedAt: "2026-01-02" },
+        { id: "1", nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" },
+        { id: "2", nickname: "Contact", fullPath: "/contact", updatedAt: "2026-01-02" },
       ],
     }),
   );
@@ -431,7 +431,7 @@ void test("public Markdown responses read the page without a session", async (t)
       input: ((await request.json()) as { json: unknown }).json,
       session: request.headers.get("Better-Auth-Cookie"),
     });
-    if (path.endsWith("/pages/getByPath")) return Response.json({ json: { page: { id: 7 } } });
+    if (path.endsWith("/pages/getByPath")) return Response.json({ json: { page: { id: "7" } } });
     return Response.json({ json: { markdown: "# About", blocks: [] } });
   });
   const response = await handleCamoxRequest(
@@ -447,7 +447,7 @@ void test("public Markdown responses read the page without a session", async (t)
       input: { path: "/about", projectSlug: "test" },
       session: null,
     },
-    { path: "/rpc/blocks/getPageMarkdown", input: { pageId: 7 }, session: null },
+    { path: "/rpc/blocks/getPageMarkdown", input: { pageId: "7" }, session: null },
   ]);
 });
 
@@ -543,7 +543,7 @@ function mockPageWithBlocks(
     if (path.endsWith("/getByPath"))
       return Response.json({
         json: {
-          page: { id: 1, fullPath: "/about", pathSegment: "about", status: "published" },
+          page: { id: "1", fullPath: "/about", pathSegment: "about", status: "published" },
           layout: null,
           project,
           projectName: project.name,

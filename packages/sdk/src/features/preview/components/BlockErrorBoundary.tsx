@@ -15,7 +15,7 @@ import { useIsAuthenticated } from "@/lib/auth";
  * ------------------------------------------------------------------------------------------------*/
 
 interface InnerProps {
-  blockId: number;
+  blockId: string;
   blockType: string;
   isAuthenticated: boolean;
   children: React.ReactNode;
@@ -70,7 +70,7 @@ export const BlockErrorBoundary = ({
   blockType,
   children,
 }: {
-  blockId: number;
+  blockId: string;
   blockType: string;
   children: React.ReactNode;
 }) => {

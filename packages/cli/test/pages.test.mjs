@@ -12,6 +12,10 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const binary = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
 const calls = [];
+// UUIDv7s, as the API mints them.
+const PAGE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7a";
+const PARENT_PAGE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+const MISSING_PAGE_ID = "019a2b3c-4d5e-7f60-8a1b-000000000999";
 let home;
 let server;
 
@@ -30,7 +34,7 @@ before(async () => {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }
-    if (input?.arguments?.id === 999) {
+    if (input?.arguments?.id === MISSING_PAGE_ID) {
       res.end(
         JSON.stringify({
           json: { ok: false, error: { code: "NOT_FOUND", message: "Page not found" } },
@@ -96,9 +100,9 @@ void test("forwards individual, combined, empty and omitted SEO fields through t
     },
     { flags: ["--nickname", "Internal name"], expected: { nickname: "Internal name" } },
   ]) {
-    const result = await cli("update", "--id", "42", ...flags, "--json");
+    const result = await cli("update", "--id", PAGE_ID, ...flags, "--json");
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { id: 42, ...expected });
+    assert.deepEqual(JSON.parse(result.stdout), { id: PAGE_ID, ...expected });
     assert.equal(calls.at(-1).input.name, "updatePage");
     assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
   }
@@ -140,10 +144,10 @@ void test("no longer publishes, unpublishes or discards a single page", async ()
 void test("rejects invalid combinations before any request", async () => {
   for (const flags of [
     [],
-    ["--id", "42"],
+    ["--id", PAGE_ID],
     ["--meta-title", "About"],
-    ["--id", "42", "--path", "/about", "--meta-title", "About"],
-    ["--id", "42", "--meta-title", "", "--ai-seo", "on"],
+    ["--id", PAGE_ID, "--path", "/about", "--meta-title", "About"],
+    ["--id", PAGE_ID, "--meta-title", "", "--ai-seo", "on"],
     ["--path", "/about", "--meta-description", "Team", "--ai-seo", "on"],
   ]) {
     const count = calls.length;
@@ -156,7 +160,7 @@ void test("rejects invalid combinations before any request", async () => {
 });
 
 void test("prints structured server errors and documents SEO workflow in help", async () => {
-  const failed = await cli("update", "--id", "999", "--ai-seo", "off");
+  const failed = await cli("update", "--id", MISSING_PAGE_ID, "--ai-seo", "off");
   assert.equal(failed.code, 1);
   assert.equal(JSON.parse(failed.stderr).code, "NOT_FOUND");
   assert.equal(failed.stdout, "");
@@ -187,8 +191,58 @@ void test("names the layout when creating a page or changing its layout", async 
   assert.equal(calls.at(-1).input.name, "createPage");
   assert.deepEqual(calls.at(-1).input.arguments, { pathSegment: "about", layoutId: "default" });
 
-  const moved = await cli("set-layout", "--id", "42", "--layout-id", "landing", "--json");
+  const moved = await cli("set-layout", "--id", PAGE_ID, "--layout-id", "landing", "--json");
   assert.equal(moved.code, 0, moved.stderr);
   assert.equal(calls.at(-1).input.name, "setPageLayout");
-  assert.deepEqual(calls.at(-1).input.arguments, { id: 42, layoutId: "landing" });
+  assert.deepEqual(calls.at(-1).input.arguments, { id: PAGE_ID, layoutId: "landing" });
+});
+
+void test("takes and prints page ids as UUIDv7s", async () => {
+  for (const { args, name, expected } of [
+    { args: ["get", "--id", PAGE_ID], name: "getPage", expected: { id: PAGE_ID } },
+    { args: ["delete", "--id", PAGE_ID], name: "deletePage", expected: { id: PAGE_ID } },
+    {
+      args: [
+        "create",
+        "--path-segment",
+        "team",
+        "--parent-page-id",
+        PARENT_PAGE_ID,
+        "--layout-id",
+        "default",
+      ],
+      name: "createPage",
+      expected: { pathSegment: "team", parentPageId: PARENT_PAGE_ID, layoutId: "default" },
+    },
+    {
+      args: ["update", "--id", PAGE_ID, "--parent-page-id", PARENT_PAGE_ID],
+      name: "updatePage",
+      expected: { id: PAGE_ID, parentPageId: PARENT_PAGE_ID },
+    },
+  ]) {
+    const result = await cli(...args, "--json");
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(calls.at(-1).input.name, name);
+    assert.deepEqual(calls.at(-1).input.arguments, expected);
+    assert.deepEqual(JSON.parse(result.stdout), expected);
+  }
+});
+
+void test("rejects a page id that isn't a UUIDv7 before making requests", async () => {
+  for (const id of ["42", "abc", "2b0f6c2e-4a1d-4c6e-9b8a-3f2e1d0c9b8a"]) {
+    for (const args of [
+      ["get", "--id", id],
+      ["update", "--id", id, "--meta-title", "About"],
+      ["update", "--path", "/about", "--parent-page-id", id],
+      ["create", "--path-segment", "team", "--parent-page-id", id, "--layout-id", "default"],
+      ["set-layout", "--id", id, "--layout-id", "landing"],
+      ["delete", "--id", id],
+    ]) {
+      const count = calls.length;
+      const result = await cli(...args);
+      assert.notEqual(result.code, 0, args.join(" "));
+      assert.match(result.stderr, /UUIDv7/, args.join(" "));
+      assert.equal(calls.length, count, args.join(" "));
+    }
+  }
 });

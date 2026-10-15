@@ -58,7 +58,7 @@ type EditableCreateBlock = typeof import("./editing/createEditableBlock").create
 type EditableOptions = Parameters<EditableCreateBlock>[0];
 
 interface BlockContextValue {
-  blockId: number;
+  blockId: string;
   content: Record<string, unknown>;
   sourceSchema?: Record<string, any>;
   /** Inside a placed record: 1 for records the block or an item places, 2 for those they link. */
@@ -69,9 +69,9 @@ interface BlockContextValue {
 
 interface RepeaterContextValue {
   arrayFieldName: string;
-  containerItemId?: number;
+  containerItemId?: string;
   itemContent: Record<string, unknown>;
-  itemId?: number;
+  itemId?: string;
   itemSettings: Record<string, unknown>;
   /** The item's field schemas, at any repeater depth. */
   itemSchema?: Record<string, any>;
@@ -86,11 +86,11 @@ function normalizeLinkValue(value: Record<string, unknown>): LinkValue {
 
 function resolveLinkHref(
   link: LinkValue,
-  pages: Array<{ id: number; fullPath: string }> | undefined,
+  pages: Array<{ id: string; fullPath: string }> | undefined,
   pathname: string,
 ) {
   if (link.type === "page") {
-    return pages?.find((page) => String(page.id) === link.pageId)?.fullPath ?? pathname;
+    return pages?.find((page) => page.id === link.pageId)?.fullPath ?? pathname;
   }
   if (!link.href || link.href.startsWith("#")) return `${pathname}${link.href ?? ""}`;
   return link.href;
@@ -148,8 +148,8 @@ function buildInitialItems(
 
 function buildPeekItems(
   properties: Record<string, any>,
-  blockId: number,
-  parentItemId: number | null,
+  blockId: string,
+  parentItemId: string | null,
   content: Record<string, unknown>,
   items: Array<Record<string, unknown>>,
   counter: { value: number },
@@ -158,10 +158,10 @@ function buildPeekItems(
     if (property.type !== "array" || !property.items?.properties) continue;
     if (property.fieldType === "ImageList" || property.fieldType === "FileList") continue;
     const defaultCount = Number(property.defaultItems ?? property.minItems ?? 0);
-    const markers: Array<{ _itemId: number }> = [];
+    const markers: Array<{ _itemId: string }> = [];
     let previousPosition: string | null = null;
     for (let index = 0; index < defaultCount; index += 1) {
-      const id = --counter.value;
+      const id = `peek_${++counter.value}`;
       const itemContent: Record<string, unknown> = {};
       for (const [key, itemProperty] of Object.entries(property.items.properties) as Array<
         [string, any]
@@ -716,10 +716,12 @@ function createViewBlock(options: EditableOptions) {
       getPeekBundle: () => {
         const content = { ...contentDefaults };
         const repeatableItems: Array<Record<string, unknown>> = [];
-        buildPeekItems(typeboxSchema.properties, -1, null, content, repeatableItems, { value: 0 });
+        buildPeekItems(typeboxSchema.properties, "peek", null, content, repeatableItems, {
+          value: 0,
+        });
         return {
           block: {
-            id: -1,
+            id: "peek",
             pageId: null,
             layoutId: null,
             type: options.id,

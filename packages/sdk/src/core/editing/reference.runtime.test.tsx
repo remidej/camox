@@ -21,7 +21,7 @@ import type { ReferenceRecord } from "../lib/reference";
 // (Lexical itself has dedicated DOM editing tests).
 const editors: Array<{ onChange: (value: string) => void; externalState: unknown }> = [];
 const selections: unknown[] = [];
-const owner = { kind: "page", pageId: 1 } as const;
+const owner = { kind: "page", pageId: "1" } as const;
 const requests: Array<{ content: Record<string, unknown> }> = [];
 let source: ReferenceRecord;
 Object.assign(globalThis, {
@@ -129,7 +129,7 @@ void test("editable reference placements write one source and retain placement s
           repeatableItems={[]}
           blocks={[{ references: { customer: source } }]}
         >
-          {[1, 2].map((blockId) => (
+          {["1", "2"].map((blockId) => (
             <block._internal.Component
               key={blockId}
               mode="site"
@@ -153,7 +153,7 @@ void test("editable reference placements write one source and retain placement s
   clickHandlers[0]?.();
   assert.deepEqual(selections.at(-1), {
     type: "record-field",
-    blockId: 1,
+    blockId: "1",
     fieldName: "customer",
     recordId: "source-id",
     recordFieldName: "name",
@@ -208,7 +208,7 @@ void test("an unset reference placeholder names the collection and selects the r
           <block._internal.Component
             mode={mode}
             blockData={{
-              _id: 3,
+              _id: "3",
               type: "unset-reference",
               position: "a0",
               content: { customer: null },
@@ -241,7 +241,7 @@ void test("an unset reference placeholder names the collection and selects the r
     await act(async () => placeholder.click());
     assert.deepEqual(selections.at(-1), {
       type: "block-field",
-      blockId: 3,
+      blockId: "3",
       fieldName: "customer",
       fieldType: "Reference",
     });
@@ -299,9 +299,9 @@ void test("clicks inside a placed record select its record field or the record f
   const root = createRoot(host);
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
-  const placement = (blockId: number) =>
+  const placement = (blockId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer"]`)!;
-  const recordField = (blockId: number) =>
+  const recordField = (blockId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__name"]`)!;
   const focused = (element: Element) => element.hasAttribute("data-camox-focused");
   const hovered = (element: Element) => element.hasAttribute("data-camox-hovered");
@@ -315,7 +315,7 @@ void test("clicks inside a placed record select its record field or the record f
               repeatableItems={[]}
               blocks={[{ references: { customer: record } }]}
             >
-              {[1, 2].map((blockId) => (
+              {["1", "2"].map((blockId) => (
                 <block._internal.Component
                   key={blockId}
                   mode="site"
@@ -333,38 +333,38 @@ void test("clicks inside a placed record select its record field or the record f
       ),
     );
 
-    await act(async () => recordField(2).click());
+    await act(async () => recordField("2").click());
     assert.deepEqual(selections.at(-1), {
       type: "record-field",
-      blockId: 2,
+      blockId: "2",
       fieldName: "customer",
       recordId: "acme",
       recordFieldName: "name",
       recordFieldType: "String",
     });
-    assert.ok(focused(recordField(2)), "the clicked placement's record field is selected");
-    assert.ok(!focused(recordField(1)), "another placement of the same record is not");
+    assert.ok(focused(recordField("2")), "the clicked placement's record field is selected");
+    assert.ok(!focused(recordField("1")), "another placement of the same record is not");
 
     await act(async () => host.querySelectorAll("p")[0].click());
     assert.deepEqual(selections.at(-1), {
       type: "record",
-      blockId: 1,
+      blockId: "1",
       fieldName: "customer",
       recordId: "acme",
     });
-    assert.ok(focused(placement(1)), "the clicked placement's record is selected");
-    assert.ok(!focused(placement(2)));
-    assert.ok(!focused(recordField(1)) && !focused(recordField(2)));
+    assert.ok(focused(placement("1")), "the clicked placement's record is selected");
+    assert.ok(!focused(placement("2")));
+    assert.ok(!focused(recordField("1")) && !focused(recordField("2")));
 
     // A block field sharing the record field's name must not light up the record field.
     await act(async () =>
       previewStore.send({
         type: "selectTarget",
         ...owner,
-        selection: { type: "block-field", blockId: 1, fieldName: "name", fieldType: "String" },
+        selection: { type: "block-field", blockId: "1", fieldName: "name", fieldType: "String" },
       }),
     );
-    assert.ok(!focused(recordField(1)));
+    assert.ok(!focused(recordField("1")));
 
     // Sidebar hover of a record field row targets the selected placement's field ID.
     await act(async () => {
@@ -374,8 +374,8 @@ void test("clicks inside a placed record select its record field or the record f
         }),
       );
     });
-    assert.ok(hovered(recordField(2)));
-    assert.ok(!hovered(recordField(1)));
+    assert.ok(hovered(recordField("2")));
+    assert.ok(!hovered(recordField("1")));
 
     // Sidebar hover of the record (its card or record crumb) targets that placement only.
     await act(async () => {
@@ -385,8 +385,8 @@ void test("clicks inside a placed record select its record field or the record f
         }),
       );
     });
-    assert.ok(hovered(placement(1)));
-    assert.ok(!hovered(placement(2)));
+    assert.ok(hovered(placement("1")));
+    assert.ok(!hovered(placement("2")));
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
@@ -464,12 +464,12 @@ void test("record images and files select their record field for that placement 
   const writesBefore = requests.length;
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
-  const field = (blockId: number, name: string) =>
+  const field = (blockId: string, name: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__${name}"]`);
   const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
-  const inField = (blockId: number, name: string, selector: string) =>
+  const inField = (blockId: string, name: string, selector: string) =>
     field(blockId, name)?.querySelector<HTMLElement>(selector);
-  const recordField = (blockId: number, recordFieldName: string, recordFieldType: string) => ({
+  const recordField = (blockId: string, recordFieldName: string, recordFieldType: string) => ({
     type: "record-field",
     blockId,
     fieldName: "customer",
@@ -487,7 +487,7 @@ void test("record images and files select their record field for that placement 
               repeatableItems={[]}
               blocks={[{ references: { customer: record } }]}
             >
-              {[1, 2].map((blockId) => (
+              {["1", "2"].map((blockId) => (
                 <block._internal.Component
                   key={blockId}
                   mode="site"
@@ -508,33 +508,33 @@ void test("record images and files select their record field for that placement 
       ),
     );
 
-    const logo = inField(2, "logo", "img");
+    const logo = inField("2", "logo", "img");
     assert.ok(logo, "the record image renders inside its own field");
     assert.match(logo.getAttribute("src") ?? "", /logo\.png/);
     await act(async () => logo.click());
-    assert.deepEqual(selections.at(-1), recordField(2, "logo", "Image"));
-    assert.ok(focused(field(2, "logo")), "the clicked placement's record image is selected");
-    assert.ok(!focused(field(1, "logo")), "another placement of the same record is not");
+    assert.deepEqual(selections.at(-1), recordField("2", "logo", "Image"));
+    assert.ok(focused(field("2", "logo")), "the clicked placement's record image is selected");
+    assert.ok(!focused(field("1", "logo")), "another placement of the same record is not");
     assert.ok(!focused(host.querySelector('[data-camox-field-id="2__logo"]')));
 
-    await act(async () => inField(1, "gallery", "img")!.click());
-    assert.deepEqual(selections.at(-1), recordField(1, "gallery", "ImageList"));
-    assert.ok(focused(field(1, "gallery")));
-    assert.ok(!focused(field(2, "gallery")));
+    await act(async () => inField("1", "gallery", "img")!.click());
+    assert.deepEqual(selections.at(-1), recordField("1", "gallery", "ImageList"));
+    assert.ok(focused(field("1", "gallery")));
+    assert.ok(!focused(field("2", "gallery")));
 
-    const brochure = field(1, "brochure");
+    const brochure = field("1", "brochure");
     assert.equal(brochure?.tagName, "A", "the site's file link itself is the field, unwrapped");
     assert.equal(brochure.parentElement?.tagName, "SECTION");
     const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
     await act(async () => brochure.dispatchEvent(click as unknown as Event));
     assert.ok(click.defaultPrevented, "selecting a file does not download it");
-    assert.deepEqual(selections.at(-1), recordField(1, "brochure", "File"));
+    assert.deepEqual(selections.at(-1), recordField("1", "brochure", "File"));
 
     assert.ok(focused(brochure));
-    assert.ok(!focused(field(2, "brochure")));
+    assert.ok(!focused(field("2", "brochure")));
 
-    await act(async () => field(2, "attachments")!.click());
-    assert.deepEqual(selections.at(-1), recordField(2, "attachments", "FileList"));
+    await act(async () => field("2", "attachments")!.click());
+    assert.deepEqual(selections.at(-1), recordField("2", "attachments", "FileList"));
     assert.equal(requests.length, writesBefore, "selecting record assets never writes");
   } finally {
     await act(async () => root.unmount());
@@ -584,7 +584,7 @@ void test("record embeds select their record field for that placement only", asy
   const root = createRoot(host);
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
-  const video = (blockId: number) =>
+  const video = (blockId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__customer__acme__video"]`);
   const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
   try {
@@ -597,7 +597,7 @@ void test("record embeds select their record field for that placement only", asy
               repeatableItems={[]}
               blocks={[{ references: { customer: record } }]}
             >
-              {[1, 2].map((blockId) => (
+              {["1", "2"].map((blockId) => (
                 <block._internal.Component
                   key={blockId}
                   mode="site"
@@ -615,19 +615,19 @@ void test("record embeds select their record field for that placement only", asy
       ),
     );
 
-    const player = video(2)?.querySelector("span");
+    const player = video("2")?.querySelector("span");
     assert.equal(player?.textContent, "https://video.test/acme");
     await act(async () => player!.click());
     assert.deepEqual(selections.at(-1), {
       type: "record-field",
-      blockId: 2,
+      blockId: "2",
       fieldName: "customer",
       recordId: "acme",
       recordFieldName: "video",
       recordFieldType: "Embed",
     });
-    assert.ok(focused(video(2)), "the clicked placement's record embed is selected");
-    assert.ok(!focused(video(1)), "another placement of the same record is not");
+    assert.ok(focused(video("2")), "the clicked placement's record embed is selected");
+    assert.ok(!focused(video("1")), "another placement of the same record is not");
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
@@ -679,7 +679,7 @@ void test("editable reference lists render their linked records in stored order"
           <block._internal.Component
             mode="site"
             blockData={{
-              _id: 4,
+              _id: "4",
               type: "logo-grid",
               position: "a0",
               content: { customers: customerIds },
@@ -751,8 +751,8 @@ void test("editable query-backed lists render resolved records with the same sco
           files={[]}
           repeatableItems={[
             {
-              id: 70,
-              blockId: 7,
+              id: "70",
+              blockId: "7",
               parentItemId: null,
               fieldName: "rows",
               content: {},
@@ -764,16 +764,16 @@ void test("editable query-backed lists render resolved records with the same sco
               references: { customers: [...resolved].reverse() },
             } as never,
           ]}
-          blocks={[{ id: 7, references: { customers: resolved } }]}
+          blocks={[{ id: "7", references: { customers: resolved } }]}
         >
           <block._internal.Component
             mode={mode}
             blockData={{
-              _id: 7,
+              _id: "7",
               type: "recent-customers",
               position: "a0",
               // A stale stored value is ignored: the query owns membership and order.
-              content: { customers: ["acme-id"], rows: [{ _itemId: 70 }] } as never,
+              content: { customers: ["acme-id"], rows: [{ _itemId: "70" }] } as never,
             }}
           />
         </NormalizedDataProvider>
@@ -829,7 +829,12 @@ void test("an empty reference list shows an add placeholder in edit mode that fo
         <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
           <block._internal.Component
             mode={mode}
-            blockData={{ _id: 5, type: "empty-logo-grid", position: "a0", content: { logos: [] } }}
+            blockData={{
+              _id: "5",
+              type: "empty-logo-grid",
+              position: "a0",
+              content: { logos: [] },
+            }}
           />
         </NormalizedDataProvider>
       </QueryClientProvider>
@@ -864,7 +869,7 @@ void test("an empty reference list shows an add placeholder in edit mode that fo
     await act(async () => placeholder.click());
     assert.deepEqual(selections.at(-1), {
       type: "block-field",
-      blockId: 5,
+      blockId: "5",
       fieldName: "logos",
       fieldType: "ReferenceList",
     });
@@ -921,9 +926,9 @@ void test("clicks inside a listed record select its record field or the record f
   const root = createRoot(host);
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
-  const entry = (blockId: number, recordId: string) =>
+  const entry = (blockId: string, recordId: string) =>
     host.querySelector<HTMLElement>(`[data-camox-field-id="${blockId}__logos__${recordId}"]`)!;
-  const recordField = (blockId: number, recordId: string) =>
+  const recordField = (blockId: string, recordId: string) =>
     host.querySelector<HTMLElement>(
       `[data-camox-field-id="${blockId}__logos__${recordId}__name"]`,
     )!;
@@ -938,7 +943,7 @@ void test("clicks inside a listed record select its record field or the record f
             repeatableItems={[]}
             blocks={[{ references: { logos: records } }]}
           >
-            {[1, 2].map((blockId) => (
+            {["1", "2"].map((blockId) => (
               <block._internal.Component
                 key={blockId}
                 mode="site"
@@ -957,30 +962,30 @@ void test("clicks inside a listed record select its record field or the record f
   try {
     await act(async () => render(["acme", "beta"]));
 
-    await act(async () => recordField(2, "beta").click());
+    await act(async () => recordField("2", "beta").click());
     assert.deepEqual(selections.at(-1), {
       type: "record-field",
-      blockId: 2,
+      blockId: "2",
       fieldName: "logos",
       recordId: "beta",
       recordFieldName: "name",
       recordFieldType: "String",
     });
-    assert.ok(focused(recordField(2, "beta")), "the clicked entry's record field is selected");
-    assert.ok(!focused(recordField(2, "acme")), "other records in the list are not");
-    assert.ok(!focused(recordField(1, "beta")), "the same record in another block is not");
+    assert.ok(focused(recordField("2", "beta")), "the clicked entry's record field is selected");
+    assert.ok(!focused(recordField("2", "acme")), "other records in the list are not");
+    assert.ok(!focused(recordField("1", "beta")), "the same record in another block is not");
 
     await act(async () => host.querySelector<HTMLElement>('[data-record="acme"]')!.click());
     assert.deepEqual(selections.at(-1), {
       type: "record",
-      blockId: 1,
+      blockId: "1",
       fieldName: "logos",
       recordId: "acme",
     });
-    assert.ok(focused(entry(1, "acme")), "the clicked entry's record is selected");
-    assert.ok(!focused(entry(1, "beta")), "other records in the list are not");
-    assert.ok(!focused(entry(2, "acme")), "the same record in another block is not");
-    assert.ok(!focused(recordField(1, "acme")));
+    assert.ok(focused(entry("1", "acme")), "the clicked entry's record is selected");
+    assert.ok(!focused(entry("1", "beta")), "other records in the list are not");
+    assert.ok(!focused(entry("2", "acme")), "the same record in another block is not");
+    assert.ok(!focused(recordField("1", "acme")));
 
     // Reordering the list keeps the selected entry selected, wherever it moved.
     await act(async () => render(["beta", "acme"]));
@@ -990,8 +995,8 @@ void test("clicks inside a listed record select its record field or the record f
         .map((p) => p.getAttribute("data-record")),
       ["beta", "acme"],
     );
-    assert.ok(focused(entry(1, "acme")), "the selection survives reordering");
-    assert.ok(!focused(entry(1, "beta")));
+    assert.ok(focused(entry("1", "acme")), "the selection survives reordering");
+    assert.ok(!focused(entry("1", "beta")));
 
     // Sidebar hover of a record card or record field row targets only that entry.
     const hover = (fieldId: string, start = true) =>
@@ -1003,21 +1008,21 @@ void test("clicks inside a listed record select its record field or the record f
         );
       });
     await hover("2__logos__beta");
-    assert.ok(hovered(entry(2, "beta")));
-    assert.ok(!hovered(entry(2, "acme")) && !hovered(entry(1, "beta")));
+    assert.ok(hovered(entry("2", "beta")));
+    assert.ok(!hovered(entry("2", "acme")) && !hovered(entry("1", "beta")));
     await hover("2__logos__beta", false);
-    assert.ok(!hovered(entry(2, "beta")));
+    assert.ok(!hovered(entry("2", "beta")));
     await hover("1__logos__acme__name");
-    assert.ok(hovered(recordField(1, "acme")));
-    assert.ok(!hovered(recordField(1, "beta")) && !hovered(recordField(2, "acme")));
+    assert.ok(hovered(recordField("1", "acme")));
+    assert.ok(!hovered(recordField("1", "beta")) && !hovered(recordField("2", "acme")));
     await hover("1__logos__acme__name", false);
 
     // Sidebar hover of the list's field row highlights every entry of that list only.
     await hover("2__logos");
-    assert.ok(hovered(entry(2, "acme")) && hovered(entry(2, "beta")));
-    assert.ok(!hovered(entry(1, "acme")) && !hovered(entry(1, "beta")));
+    assert.ok(hovered(entry("2", "acme")) && hovered(entry("2", "beta")));
+    assert.ok(!hovered(entry("1", "acme")) && !hovered(entry("1", "beta")));
     await hover("2__logos", false);
-    assert.ok(!hovered(entry(2, "acme")) && !hovered(entry(2, "beta")));
+    assert.ok(!hovered(entry("2", "acme")) && !hovered(entry("2", "beta")));
   } finally {
     await act(async () => root.unmount());
     previewStore.send({ type: "activatePage", pageId: null });
@@ -1073,7 +1078,7 @@ void test("inline edits of a listed record write the shared record and refresh e
           repeatableItems={[]}
           blocks={[{ references: { logos: [other, source] } }]}
         >
-          {[1, 2].map((blockId) => (
+          {["1", "2"].map((blockId) => (
             <block._internal.Component
               key={blockId}
               mode="site"
@@ -1081,7 +1086,9 @@ void test("inline edits of a listed record write the shared record and refresh e
                 _id: blockId,
                 type: "listed-writes",
                 position: "a0",
-                content: { logos: blockId === 1 ? ["other", "listed-source"] : ["listed-source"] },
+                content: {
+                  logos: blockId === "1" ? ["other", "listed-source"] : ["listed-source"],
+                },
               }}
             />
           ))}
@@ -1172,13 +1179,13 @@ void test("images and files of listed records select their record field for that
   const writesBefore = requests.length;
   previewStore.send({ type: "enterEditMode" });
   previewStore.send({ type: "activatePage", pageId: owner.pageId });
-  const field = (blockId: number, recordId: string, name: string) =>
+  const field = (blockId: string, recordId: string, name: string) =>
     host.querySelector<HTMLElement>(
       `[data-camox-field-id="${blockId}__logos__${recordId}__${name}"]`,
     );
   const focused = (element: Element | null) => !!element?.hasAttribute("data-camox-focused");
   const recordField = (
-    blockId: number,
+    blockId: string,
     recordId: string,
     recordFieldName: string,
     recordFieldType: string,
@@ -1200,7 +1207,7 @@ void test("images and files of listed records select their record field for that
               repeatableItems={[]}
               blocks={[{ references: { logos: records } }]}
             >
-              {[1, 2].map((blockId) => (
+              {["1", "2"].map((blockId) => (
                 <block._internal.Component
                   key={blockId}
                   mode="site"
@@ -1218,23 +1225,23 @@ void test("images and files of listed records select their record field for that
       ),
     );
 
-    const logo = field(2, "beta", "logo")?.querySelector<HTMLElement>("img");
+    const logo = field("2", "beta", "logo")?.querySelector<HTMLElement>("img");
     assert.ok(logo, "the listed record's image renders inside its own field");
     assert.match(logo.getAttribute("src") ?? "", /beta\.png/);
     await act(async () => logo.click());
-    assert.deepEqual(selections.at(-1), recordField(2, "beta", "logo", "Image"));
-    assert.ok(focused(field(2, "beta", "logo")), "the clicked entry's image is selected");
-    assert.ok(!focused(field(2, "acme", "logo")), "other records in the list are not");
-    assert.ok(!focused(field(1, "beta", "logo")), "the same record in another block is not");
+    assert.deepEqual(selections.at(-1), recordField("2", "beta", "logo", "Image"));
+    assert.ok(focused(field("2", "beta", "logo")), "the clicked entry's image is selected");
+    assert.ok(!focused(field("2", "acme", "logo")), "other records in the list are not");
+    assert.ok(!focused(field("1", "beta", "logo")), "the same record in another block is not");
 
-    const brochure = field(1, "acme", "brochure");
+    const brochure = field("1", "acme", "brochure");
     assert.equal(brochure?.tagName, "A");
     const click = new window.MouseEvent("click", { bubbles: true, cancelable: true });
     await act(async () => brochure.dispatchEvent(click as unknown as Event));
     assert.ok(click.defaultPrevented, "selecting a file does not download it");
-    assert.deepEqual(selections.at(-1), recordField(1, "acme", "brochure", "File"));
+    assert.deepEqual(selections.at(-1), recordField("1", "acme", "brochure", "File"));
     assert.ok(focused(brochure));
-    assert.ok(!focused(field(1, "beta", "brochure")) && !focused(field(2, "acme", "brochure")));
+    assert.ok(!focused(field("1", "beta", "brochure")) && !focused(field("2", "acme", "brochure")));
     assert.equal(requests.length, writesBefore, "selecting record assets never writes");
   } finally {
     await act(async () => root.unmount());
@@ -1295,13 +1302,13 @@ void test("repeatable items place records of their own, selected and linked per 
       </block.Repeater>
     ),
   });
-  const item = (id: number, content: Record<string, unknown>, references = {}) => ({
+  const item = (id: string, content: Record<string, unknown>, references = {}) => ({
     id,
-    blockId: 5,
+    blockId: "5",
     parentItemId: null,
     fieldName: "logos",
     content,
-    settings: { emphasized: id === 11 },
+    settings: { emphasized: id === "11" },
     summary: "",
     position: `a${id}`,
     createdAt: 0,
@@ -1310,8 +1317,8 @@ void test("repeatable items place records of their own, selected and linked per 
     references,
   });
   const items = [
-    item(11, { customer: "acme", partners: ["acme"] }, { customer: acme, partners: [acme] }),
-    item(12, { customer: null, partners: [] }, { customer: null, partners: [] }),
+    item("11", { customer: "acme", partners: ["acme"] }, { customer: acme, partners: [acme] }),
+    item("12", { customer: null, partners: [] }, { customer: null, partners: [] }),
   ];
   const app = { getCollectionById: (id: string) => (id === "customers" ? customers : undefined) };
 
@@ -1336,11 +1343,11 @@ void test("repeatable items place records of their own, selected and linked per 
                 <block._internal.Component
                   mode="site"
                   blockData={{
-                    _id: 5,
+                    _id: "5",
                     type: "logo-wall",
                     position: "a0",
                     // Stored content holds item markers, not the items' own content.
-                    content: { logos: [{ _itemId: 11 }, { _itemId: 12 }] } as never,
+                    content: { logos: [{ _itemId: "11" }, { _itemId: "12" }] } as never,
                   }}
                 />
               </NormalizedDataProvider>
@@ -1362,8 +1369,8 @@ void test("repeatable items place records of their own, selected and linked per 
     await act(async () => byId("5__11__customer__acme__name")!.click());
     assert.deepEqual(selections.at(-1), {
       type: "record-field",
-      blockId: 5,
-      itemId: 11,
+      blockId: "5",
+      itemId: "11",
       fieldName: "customer",
       recordId: "acme",
       recordFieldName: "name",
@@ -1375,8 +1382,8 @@ void test("repeatable items place records of their own, selected and linked per 
     await act(async () => host.querySelector("p")!.click());
     assert.deepEqual(selections.at(-1), {
       type: "record",
-      blockId: 5,
-      itemId: 11,
+      blockId: "5",
+      itemId: "11",
       fieldName: "customer",
       recordId: "acme",
     });
@@ -1390,8 +1397,8 @@ void test("repeatable items place records of their own, selected and linked per 
     await act(async () => placeholder!.click());
     assert.deepEqual(selections.at(-1), {
       type: "item-field",
-      blockId: 5,
-      itemId: 12,
+      blockId: "5",
+      itemId: "12",
       fieldName: "customer",
       fieldType: "Reference",
     });
@@ -1503,7 +1510,7 @@ void test("records placed by a block render the records they link, one hop furth
                 <block._internal.Component
                   mode="site"
                   blockData={{
-                    _id: 9,
+                    _id: "9",
                     type: "teaser",
                     position: "a0",
                     content: { article: "launch" },
@@ -1528,7 +1535,7 @@ void test("records placed by a block render the records they link, one hop furth
     await act(async () => name!.click());
     assert.deepEqual(selections.at(-1), {
       type: "record-field",
-      blockId: 9,
+      blockId: "9",
       fieldName: "article",
       recordId: "launch",
       nested: { fieldName: "author", recordId: "jane" },
@@ -1546,7 +1553,7 @@ void test("records placed by a block render the records they link, one hop furth
     await act(async () => placeholder!.click());
     assert.deepEqual(selections.at(-1), {
       type: "record-field",
-      blockId: 9,
+      blockId: "9",
       fieldName: "article",
       recordId: "launch",
       recordFieldName: "editor",

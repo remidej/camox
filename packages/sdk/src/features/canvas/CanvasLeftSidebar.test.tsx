@@ -80,7 +80,7 @@ registerHooks({
   },
 });
 
-const home: CanvasPage = { key: "page:7", pageId: 7, title: "Home", pathname: "/" };
+const home: CanvasPage = { key: "page:7", pageId: "7", title: "Home", pathname: "/" };
 const singleton: CanvasPage = {
   key: "layout:about",
   layoutId: "about",
@@ -97,7 +97,7 @@ const derivedPage: CanvasPage = {
 
 function pageStructure(path: string) {
   return {
-    page: { id: 7, fullPath: path, metaTitle: path, blockIds: [42] },
+    page: { id: "7", fullPath: path, metaTitle: path, blockIds: ["42"] },
     layout: null,
   };
 }
@@ -116,8 +116,8 @@ async function setup() {
       get: async (input: { layoutId: string; projectSlug: string }) => {
         calls.push(input);
         return {
-          layout: { id: 12, layoutId: input.layoutId, beforeBlockIds: [42], afterBlockIds: [] },
-          blocks: [{ id: 42, content: { text: "layout" } }],
+          layout: { id: "12", layoutId: input.layoutId, beforeBlockIds: ["42"], afterBlockIds: [] },
+          blocks: [{ id: "42", content: { text: "layout" } }],
           files: [],
           repeatableItems: [],
         };
@@ -174,7 +174,7 @@ async function setup() {
                 navigations.push(options);
               }}
             >
-              <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
+              <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
                 <CanvasLeftSidebar
                   page={page}
                   navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}
@@ -208,7 +208,7 @@ async function setup() {
 void test("curated sidebar shares the selected path cache and forwards picker/dialog site navigation", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
-  dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: 7, blockId: 42 });
+  dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
   const snapshot = dom.store.getSnapshot();
   try {
     await dom.render("/", home);
@@ -238,7 +238,7 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
       ...home,
       key: "page:8",
       pathname: "/other",
-      pageId: 8,
+      pageId: "8",
     });
     await dom.settle();
     assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-path"), "/other");
@@ -280,8 +280,8 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
       { layoutId: "about", projectSlug: "test-project" },
       { layoutId: "articles.$slug", projectSlug: "test-project" },
     ]);
-    assert.deepEqual(dom.client.getQueryData(queryKeys.blocks.get(42)), {
-      block: { id: 42, content: { text: "layout" } },
+    assert.deepEqual(dom.client.getQueryData(queryKeys.blocks.get("42")), {
+      block: { id: "42", content: { text: "layout" } },
       files: [],
       repeatableItems: [],
     });

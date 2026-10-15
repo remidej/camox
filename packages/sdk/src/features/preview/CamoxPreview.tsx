@@ -108,7 +108,7 @@ const BlockRenderer = ({
   showAddBlockTop,
   showAddBlockBottom,
 }: {
-  blockId: number;
+  blockId: string;
   mode: "site" | "peek" | "layout";
   showAddBlockTop: boolean;
   showAddBlockBottom: boolean;
@@ -164,7 +164,7 @@ export const PageContent = () => {
     const blocks: Record<
       string,
       {
-        _id: number;
+        _id: string;
         type: string;
         content: Record<string, unknown>;
         settings?: Record<string, unknown>;

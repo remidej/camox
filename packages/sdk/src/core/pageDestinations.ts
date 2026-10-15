@@ -5,7 +5,7 @@ export type PageDestination = {
   key: string;
   title: string;
   fullPath: string;
-} & ({ kind: "curated"; pageId: number } | { kind: "singleton"; layoutId: string });
+} & ({ kind: "curated"; pageId: string } | { kind: "singleton"; layoutId: string });
 
 /**
  * Concrete navigable pages, not records that can all be mutated through pages.*. Pages whose
@@ -13,7 +13,7 @@ export type PageDestination = {
  */
 export function getPageDestinations(
   pages: readonly {
-    id: number;
+    id: string;
     nickname: string;
     fullPath: string;
     needsLayout?: boolean;
@@ -49,8 +49,7 @@ export function getPageDestinations(
 
 /** Singleton links are ordinary internal URLs, never synthetic database page IDs. */
 export function destinationLink(destination: PageDestination) {
-  if (destination.kind === "curated")
-    return { type: "page" as const, pageId: String(destination.pageId) };
+  if (destination.kind === "curated") return { type: "page" as const, pageId: destination.pageId };
   return { type: "external" as const, href: destination.fullPath };
 }
 

@@ -20,7 +20,7 @@ export function blocksOfLayout(layout: { environmentId: number; layoutId: string
 /** The blocks sharing a block's owner: its page, or its layout. Null when it has neither. */
 export function blocksOfOwner(block: {
   environmentId: number;
-  pageId: number | null;
+  pageId: string | null;
   layoutId: string | null;
 }) {
   if (block.pageId != null) return eq(blocks.pageId, block.pageId);

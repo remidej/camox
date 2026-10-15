@@ -115,7 +115,7 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
   const { SharedChromeContext } = await import("../runtime/SharedChromeContext");
   type ShellProps = React.ComponentProps<typeof PreviewShell>;
   const pageData = {
-    page: { id: 3 },
+    page: { id: "3" },
     projectName: "Test",
   } as ShellProps["pageData"];
   const derivedLayout = {
@@ -252,7 +252,7 @@ void test("leaving the preview resets preview, comment and canvas state", async 
   const { previewCommentsStore } = await import("./previewCommentsStore");
   const { canvasStore } = await import("../canvas/canvasStore");
   const pageData = {
-    page: { id: 3 },
+    page: { id: "3" },
     projectName: "Test",
   } as React.ComponentProps<typeof PreviewShell>["pageData"];
   const initialPreview = previewStore.getSnapshot().context;
@@ -266,7 +266,7 @@ void test("leaving the preview resets preview, comment and canvas state", async 
     await React.act(async () => {
       previewStore.send({ type: "enterEditMode" });
       previewStore.send({ type: "setViewportMode", mode: "mobile" });
-      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 3, blockId: 9 });
+      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "3", blockId: "9" });
       previewCommentsStore.send({ type: "selectComment", id: "comment" });
       canvasStore.send({
         type: "rememberView",

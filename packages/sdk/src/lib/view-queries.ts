@@ -18,7 +18,7 @@ export const viewProjectQueries = {
 };
 
 export const viewBlockQueries = {
-  get: (id: number) => ({
+  get: (id: string) => ({
     ...getOrpc().blocks.get.queryOptions({ input: { id }, staleTime: Infinity }),
     queryKey: queryKeys.blocks.get(id),
   }),

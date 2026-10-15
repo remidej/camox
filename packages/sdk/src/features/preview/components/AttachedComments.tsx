@@ -31,9 +31,9 @@ function resizeComposer(element: HTMLTextAreaElement) {
 }
 
 type AttachedCommentsProps = {
-  pageId?: number;
-  blockId?: number;
-  itemId?: number;
+  pageId?: string;
+  blockId?: string;
+  itemId?: string;
   fieldName?: string;
   fieldType?: FieldType;
   allPageComments?: boolean;
@@ -64,7 +64,7 @@ function AttachedCommentsContent({
   fieldName,
   allPageComments = false,
   presentation = "sidebar",
-}: AttachedCommentsProps & { pageId: number }) {
+}: AttachedCommentsProps & { pageId: string }) {
   const queryClient = useQueryClient();
   const commentsQuery = usePageComments(pageId);
   const selectComment = useSelectComment(pageId);
@@ -74,7 +74,7 @@ function AttachedCommentsContent({
     (state) => state.context,
   );
   const target = editorTarget({ blockId, itemId, fieldName });
-  const matches = (entry: { pageId: number; target: CommentTarget | null }) =>
+  const matches = (entry: { pageId: string; target: CommentTarget | null }) =>
     entry.pageId === pageId &&
     (allPageComments ||
       (entry.target != null &&

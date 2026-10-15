@@ -36,13 +36,13 @@ const copyItems = Effect.fn("copyItems")(function* (
   const byKey = new Map(
     targetItems.filter((item) => item.syncKey).map((item) => [item.syncKey!, item]),
   );
-  const kept = new Set<number>();
+  const kept = new Set<string>();
 
   // Walk the tree rather than relying on row/position order: child IDs may be
   // smaller than parent IDs after an environment copy.
   const copyChildren = (
-    parentId: number | null,
-    targetParentId: number | null,
+    parentId: string | null,
+    targetParentId: string | null,
   ): Effect.Effect<void> =>
     Effect.gen(function* () {
       for (const item of sourceItems.filter((item) => item.parentItemId === parentId)) {
@@ -149,7 +149,7 @@ export const sharedPlacementId = Effect.fn("blocks.sharedPlacementId")(function*
  */
 export const syncBlockData = Effect.fn("blocks.syncBlockData")(function* (
   ctx: ServiceContext,
-  blockId: number,
+  blockId: string,
   initialize = false,
 ) {
   const row = yield* Effect.promise(() =>

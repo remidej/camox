@@ -33,7 +33,7 @@ export function useUpdateBlockPosition() {
 
       // Re-derive blockIds ordering from all block positions
       const blockIds = previousPage.page.blockIds;
-      const positions = new Map<number, string>();
+      const positions = new Map<string, string>();
       for (const id of blockIds) {
         if (id === variables.id) {
           positions.set(id, newPosition);

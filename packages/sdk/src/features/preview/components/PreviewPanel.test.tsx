@@ -112,7 +112,7 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
   const dom = await setup();
   const { PreviewPanel } = await import("./PreviewPanel");
   const { previewStore: store } = await import("../previewStore");
-  const render = (active: boolean, pageId?: number, layoutId?: string) =>
+  const render = (active: boolean, pageId?: string, layoutId?: string) =>
     dom.render(
       <PreviewPanel
         active={active}
@@ -125,16 +125,16 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
   const outgoingFrame = document.createElement("iframe");
   const canvasFrame = document.createElement("iframe");
   try {
-    await render(true, 3);
+    await render(true, "3");
     assert.ok(dom.host.querySelector("[data-preview-toolbar]"));
     const ready = frameCallbacks.at(-1)!;
     ready(outgoingFrame);
     assert.equal(store.getSnapshot().context.iframeElement, outgoingFrame);
-    await render(false, 3);
-    store.send({ type: "activatePage", pageId: 10 });
+    await render(false, "3");
+    store.send({ type: "activatePage", pageId: "10" });
     store.send({ type: "setIframeElement", element: canvasFrame });
     const canvasOwner = store.getSnapshot().context.editingContext;
-    await render(false, 4);
+    await render(false, "4");
     await render(false, undefined, "news");
     ready(outgoingFrame);
     frameCallbacks.at(-1)!(outgoingFrame);
@@ -144,12 +144,12 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
     await dom.render(null);
     ready(outgoingFrame);
     assert.equal(store.getSnapshot().context.iframeElement, canvasFrame);
-    await render(false, 6);
+    await render(false, "6");
     frameCallbacks.at(-1)!(outgoingFrame);
     assert.equal(store.getSnapshot().context.editingContext, canvasOwner);
     assert.equal(store.getSnapshot().context.iframeElement, canvasFrame);
     const retainedContent = dom.host.querySelector("p");
-    await render(true, 6);
+    await render(true, "6");
     assert.equal(dom.host.querySelector("p"), retainedContent);
     assert.equal(
       store.getSnapshot().context.iframeElement,
@@ -158,7 +158,7 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
     );
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 6,
+      pageId: "6",
       selection: null,
     });
   } finally {
@@ -203,20 +203,20 @@ void test("panel resolution, navigation and derived layouts synchronize selectio
   const { useFieldSelection } = await import("../../../core/hooks/useFieldSelection");
   const selection = {
     type: "block-field",
-    blockId: 7,
+    blockId: "7",
     fieldName: "title",
     fieldType: "String",
   } as const;
   function Target() {
     const select = usePreviewSelection();
-    const selected = useFieldSelection(7, "title", "String");
+    const selected = useFieldSelection("7", "title", "String");
     return (
       <button data-selected={selected} onClick={() => select(selection)}>
         Title
       </button>
     );
   }
-  const render = (pageId?: number, layoutId?: string, mobile = false) =>
+  const render = (pageId?: string, layoutId?: string, mobile = false) =>
     dom.render(
       <React.StrictMode>
         <PreviewPanel
@@ -235,34 +235,34 @@ void test("panel resolution, navigation and derived layouts synchronize selectio
     await React.act(async () => dom.host.querySelector("button")!.click());
     assert.equal(store.getSnapshot().context.editingContext, null);
 
-    await render(3);
+    await render("3");
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 3,
+      pageId: "3",
       selection: null,
     });
     await React.act(async () => dom.host.querySelector("button")!.click());
     const focused = store.getSnapshot().context.editingContext;
-    assert.deepEqual(focused, { kind: "page", pageId: 3, selection });
-    await render(3, undefined, true);
+    assert.deepEqual(focused, { kind: "page", pageId: "3", selection });
+    await render("3", undefined, true);
     assert.equal(store.getSnapshot().context.editingContext, focused);
     assert.equal(dom.host.querySelector("button")!.getAttribute("data-selected"), "true");
 
-    await render(4);
+    await render("4");
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 4,
+      pageId: "4",
       selection: null,
     });
     assert.equal(dom.host.querySelector("button")!.getAttribute("data-selected"), "false");
 
     await React.act(async () =>
-      store.send({ type: "selectTarget", kind: "page", pageId: 5, selection }),
+      store.send({ type: "selectTarget", kind: "page", pageId: "5", selection }),
     );
-    await render(5);
+    await render("5");
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 5,
+      pageId: "5",
       selection,
     });
 
@@ -314,7 +314,7 @@ void test("read-only panel centers responsive viewports and preserves shell sele
     store.send({ type: "enterEditMode" });
     store.send({ type: "setViewportMode", mode: "tablet" });
     await dom.render(
-      <PreviewPanel page={{ id: 3 } as PreviewedPage}>
+      <PreviewPanel page={{ id: "3" } as PreviewedPage}>
         <p>Preview content</p>
       </PreviewPanel>,
     );
@@ -359,8 +359,8 @@ void test("nested preview targets use their containing owner, not the active rou
     const selected = usePreviewTargetSelection();
     return (
       <button
-        data-selected={selected?.type === "block" && selected.blockId === 7}
-        onClick={() => select({ type: "block", blockId: 7 })}
+        data-selected={selected?.type === "block" && selected.blockId === "7"}
+        onClick={() => select({ type: "block", blockId: "7" })}
       >
         {name}
       </button>
@@ -369,9 +369,9 @@ void test("nested preview targets use their containing owner, not the active rou
   try {
     store.send({ type: "enterEditMode" });
     await dom.render(
-      <PreviewPanel page={{ id: 3 } as PreviewedPage}>
+      <PreviewPanel page={{ id: "3" } as PreviewedPage}>
         <Target name="Route" />
-        <PreviewEditingOwnerContext value={{ kind: "page", pageId: 4 }}>
+        <PreviewEditingOwnerContext value={{ kind: "page", pageId: "4" }}>
           <Target name="Other page" />
         </PreviewEditingOwnerContext>
       </PreviewPanel>,
@@ -380,8 +380,8 @@ void test("nested preview targets use their containing owner, not the active rou
     await React.act(async () => buttons[1]!.click());
     assert.deepEqual(store.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 4,
-      selection: { type: "block", blockId: 7 },
+      pageId: "4",
+      selection: { type: "block", blockId: "7" },
     });
     assert.equal(buttons[0]!.getAttribute("data-selected"), "false");
     assert.equal(buttons[1]!.getAttribute("data-selected"), "true");

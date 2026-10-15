@@ -13,7 +13,7 @@ import type { ServiceContext } from "./service-context";
  */
 export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
   ctx: ServiceContext,
-  owner: { pageId: number } | { environmentId: number; layoutId: string },
+  owner: { pageId: string } | { environmentId: number; layoutId: string },
 ) {
   const ownerBlocks = sortByPosition(
     yield* Effect.promise(() =>

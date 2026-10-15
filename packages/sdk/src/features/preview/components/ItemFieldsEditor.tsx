@@ -96,14 +96,14 @@ interface ItemFieldsEditorProps {
   selectedFieldName?: string;
   schema: unknown;
   data: Record<string, unknown>;
-  blockId: number;
+  blockId: string;
   /** When editing a repeatable item's fields, pass its ID for correct overlay targeting */
-  itemId?: number;
+  itemId?: string;
   onFieldChange: (fieldName: string, value: unknown) => void | Promise<void>;
   postToIframe: (message: OverlayMessage) => void;
   /** Lookup maps for resolving _fileId and _itemId markers */
   filesMap: Map<string, NormalizedFile>;
-  itemsMap: Map<number, NormalizedItem>;
+  itemsMap: Map<string, NormalizedItem>;
   /** Hydrated records linked by this block's or item's reference fields, keyed by field name. */
   references?: NormalizedReferences;
   /** When editing a placed collection record's fields: where the block places it. */
@@ -609,7 +609,7 @@ const ItemFieldsEditor = ({
                 return item;
               })
               .filter(Boolean) as Array<{
-              id: number;
+              id: string;
               summary: string;
               position: string;
               content: Record<string, unknown>;

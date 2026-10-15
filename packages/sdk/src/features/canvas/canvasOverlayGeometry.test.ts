@@ -358,8 +358,8 @@ void test("repeatable items are measured across their elements without a wrapper
   const registration = registerRepeatableItem(document, {
     ...idle,
     fragment,
-    blockId: 3,
-    itemId: 7,
+    blockId: "3",
+    itemId: "7",
     nesting: 0,
   });
   const stop = page.start();
@@ -368,7 +368,7 @@ void test("repeatable items are measured across their elements without a wrapper
   try {
     await page.flush();
     assert.equal(page.document.querySelectorAll("dl > *").length, 2);
-    assert.deepEqual(item()!.item, { blockId: 3, itemId: 7 });
+    assert.deepEqual(item()!.item, { blockId: "3", itemId: "7" });
     assert.equal(item()!.element, label);
     assert.deepEqual(item()!.rects, [
       { x: 0, y: 0, width: 100, height: 20 },
@@ -413,8 +413,8 @@ void test("a sidebar-hovered repeater highlights every item in its group", async
     return registerRepeatableItem(document, {
       ...idle,
       fragment,
-      blockId: 1,
-      itemId: index,
+      blockId: "1",
+      itemId: String(index),
       nesting: 0,
     });
   });
@@ -427,7 +427,7 @@ void test("a sidebar-hovered repeater highlights every item in its group", async
     await page.flush();
     assert.deepEqual(
       page.targets.filter((target) => target.hovered).map((target) => target.item?.itemId),
-      [0, 1],
+      ["0", "1"],
     );
   } finally {
     stop();

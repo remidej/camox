@@ -9,9 +9,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { plainTextToLexicalState } from "@/core/lib/lexicalState";
 
-type CreateInput = { id: string; pageId: number; message: string; target: CommentTarget };
+type CreateInput = { id: string; pageId: string; message: string; target: CommentTarget };
 const api = {
-  list: async (_pageId: number): Promise<Comment[]> => [],
+  list: async (_pageId: string): Promise<Comment[]> => [],
   create: async (input: CreateInput): Promise<Comment> => ({
     ...input,
     environmentId: 1,
@@ -21,7 +21,7 @@ const api = {
   }),
   setResolved: async (_input: {
     id: string;
-    pageId: number;
+    pageId: string;
     resolved: boolean;
   }): Promise<Comment> => {
     throw new Error("Not implemented");
@@ -90,7 +90,7 @@ function makeClient() {
   });
 }
 
-function comment(id: string, pageId: number, target: CommentTarget | null): Comment {
+function comment(id: string, pageId: string, target: CommentTarget | null): Comment {
   return {
     id,
     pageId,
@@ -111,18 +111,18 @@ void test("Feedback reads persisted comments at every target level without a com
   const { AttachedComments } = await import("./AttachedComments");
   const { previewCommentsStore } = await import("../previewCommentsStore");
   const client = makeClient();
-  client.setQueryData(["page", 3], { nickname: "Homepage" });
-  client.setQueryData(["comments", 3], []);
-  client.setQueryData(["block", 7], {
+  client.setQueryData(["page", "3"], { nickname: "Homepage" });
+  client.setQueryData(["comments", "3"], []);
+  client.setQueryData(["block", "7"], {
     block: {
-      id: 7,
+      id: "7",
       type: "hero",
       summary: "Our latest work",
       content: { title: "Build something great", image: { _file: 9 } },
     },
     repeatableItems: [
       {
-        id: 12,
+        id: "12",
         fieldName: "items",
         parentItemId: null,
         summary: "Featured project",
@@ -132,21 +132,21 @@ void test("Feedback reads persisted comments at every target level without a com
   });
   const render = (children: React.ReactNode) =>
     renderToStaticMarkup(<QueryClientProvider client={client}>{children}</QueryClientProvider>);
-  assert.match(render(<CommentSidebar pageId={3} />), /No feedback yet/);
+  assert.match(render(<CommentSidebar pageId="3" />), /No feedback yet/);
 
   const targets: CommentTarget[] = [
     { kind: "page" },
-    { kind: "block", blockId: 7 },
-    { kind: "item", blockId: 7, itemId: 12 },
-    { kind: "block-field", blockId: 7, fieldName: "title" },
-    { kind: "item-field", blockId: 7, itemId: 12, fieldName: "caption" },
-    { kind: "block-field", blockId: 7, fieldName: "image" },
+    { kind: "block", blockId: "7" },
+    { kind: "item", blockId: "7", itemId: "12" },
+    { kind: "block-field", blockId: "7", fieldName: "title" },
+    { kind: "item-field", blockId: "7", itemId: "12", fieldName: "caption" },
+    { kind: "block-field", blockId: "7", fieldName: "image" },
   ];
   client.setQueryData(
-    ["comments", 3],
-    targets.map((target, i) => comment(String(i), 3, target)),
+    ["comments", "3"],
+    targets.map((target, i) => comment(String(i), "3", target)),
   );
-  const markup = render(<CommentSidebar pageId={3} />);
+  const markup = render(<CommentSidebar pageId="3" />);
   for (const [index] of targets.entries()) assert.match(markup, new RegExp(`Feedback ${index}`));
   for (const quote of [
     "Homepage",
@@ -163,13 +163,13 @@ void test("Feedback reads persisted comments at every target level without a com
   assert.equal((markup.match(/>View<\/button>/g) ?? []).length, targets.length);
   assert.equal((markup.match(/>Archive<\/button>/g) ?? []).length, targets.length);
   assert.doesNotMatch(markup, /See all|>Done<\/button>/);
-  assert.doesNotMatch(render(<CommentSidebar pageId={4} />), /Feedback 0/);
+  assert.doesNotMatch(render(<CommentSidebar pageId="4" />), /Feedback 0/);
 
-  previewCommentsStore.send({ type: "startComment", pageId: 3, target: targets[4]! });
+  previewCommentsStore.send({ type: "startComment", pageId: "3", target: targets[4]! });
   previewCommentsStore.send({ type: "setMessage", message: "Draft feedback" });
-  assert.doesNotMatch(render(<CommentSidebar pageId={3} />), /Draft feedback/);
+  assert.doesNotMatch(render(<CommentSidebar pageId="3" />), /Draft feedback/);
   const editor = render(
-    <AttachedComments pageId={3} blockId={7} itemId={12} fieldName="caption" />,
+    <AttachedComments pageId="3" blockId="7" itemId="12" fieldName="caption" />,
   );
   assert.match(editor, /Draft feedback/);
   assert.match(editor, /Comment text/);
@@ -177,8 +177,8 @@ void test("Feedback reads persisted comments at every target level without a com
   assert.match(editor, />See all<\/button>/);
   assert.match(editor, />Archive<\/button>/);
   assert.doesNotMatch(editor, />View<\/button>/);
-  client.setQueryData(["comments", 3], [comment("removed", 3, null)]);
-  const unavailable = render(<CommentSidebar pageId={3} />);
+  client.setQueryData(["comments", "3"], [comment("removed", "3", null)]);
+  const unavailable = render(<CommentSidebar pageId="3" />);
   assert.match(unavailable, /Feedback removed/);
   assert.match(unavailable, /Target no longer available/);
   assert.doesNotMatch(unavailable, /role="button"/);
@@ -222,13 +222,13 @@ async function setupDom() {
 
 void test("feedback prompt scopes the request to one page and includes optional context", async () => {
   const { feedbackPrompt } = await import("./SendFeedbackDialog");
-  const request = feedbackPrompt(88, "   ");
+  const request = feedbackPrompt("88", "   ");
   assert.match(request, /page ID 88/);
   assert.match(request, /Load the camox skill/);
   assert.match(request, /resolve each addressed comment/);
   assert.doesNotMatch(request, /Additional context|Lorem ipsum/);
   assert.equal(
-    feedbackPrompt(88, "  Prioritize the hero  "),
+    feedbackPrompt("88", "  Prioritize the hero  "),
     `${request}\n\nAdditional context:\nPrioritize the hero`,
   );
 });
@@ -262,19 +262,19 @@ void test("canvas indicators open object comments and a persistent composer besi
   };
   const targets: CommentTarget[] = [
     { kind: "page" },
-    { kind: "block", blockId: 7 },
-    { kind: "item", blockId: 7, itemId: 12 },
-    { kind: "block-field", blockId: 7, fieldName: "title" },
-    { kind: "item-field", blockId: 7, itemId: 12, fieldName: "caption" },
+    { kind: "block", blockId: "7" },
+    { kind: "item", blockId: "7", itemId: "12" },
+    { kind: "block-field", blockId: "7", fieldName: "title" },
+    { kind: "item-field", blockId: "7", itemId: "12", fieldName: "caption" },
   ];
   const flush = () => new Promise((resolve) => setTimeout(resolve, 30));
   let activations = 0;
   try {
     for (const [index, target] of targets.entries()) {
-      const pageId = 100 + index;
+      const pageId = String(100 + index);
       saved = [
         comment("one", pageId, target),
-        comment("other", pageId, { kind: "block", blockId: 99 }),
+        comment("other", pageId, { kind: "block", blockId: "99" }),
         { ...comment("archived", pageId, target), resolved: true },
       ];
       dom.client.setQueryData(["comments", pageId], saved);
@@ -296,7 +296,7 @@ void test("canvas indicators open object comments and a persistent composer besi
           targets={[
             {
               element: element as unknown as HTMLElement,
-              item: target.kind === "item" ? { blockId: 7, itemId: 12 } : undefined,
+              item: target.kind === "item" ? { blockId: "7", itemId: "12" } : undefined,
               bounds: { x: 10, y: 20, width: 100, height: 30 },
               rects: [],
               visible: true,
@@ -397,7 +397,7 @@ void test("comment-mode clicks select the target, exit comment mode, and focus o
   element.getBoundingClientRect = () => {
     throw new Error("popover must use cached geometry");
   };
-  const target = { kind: "block-field", blockId: 7, fieldName: "title" } as const;
+  const target = { kind: "block-field", blockId: "7", fieldName: "title" } as const;
   const originalCreate = api.create;
   const originalList = api.list;
   let complete!: (comment: Comment) => void;
@@ -406,16 +406,16 @@ void test("comment-mode clicks select the target, exit comment mode, and focus o
       complete = resolve;
     });
   api.list = async () => [];
-  dom.client.setQueryData(["comments", 3], []);
+  dom.client.setQueryData(["comments", "3"], []);
   try {
     previewCommentsStore.send({ type: "clearSelection" });
     previewStore.send({ type: "enterEditMode" });
     previewStore.send({ type: "setCommentMode", enabled: true });
     await dom.render(
       <>
-        <AttachedComments pageId={3} {...target} />
+        <AttachedComments pageId="3" {...target} />
         <CanvasPageCommentIndicators
-          pageId={3}
+          pageId="3"
           activate={() => {}}
           targets={[
             {
@@ -435,8 +435,8 @@ void test("comment-mode clicks select the target, exit comment mode, and focus o
     );
     await React.act(async () => {
       selectPreviewTarget(
-        { type: "block-field", blockId: 7, fieldName: "title", fieldType: "String" },
-        { kind: "page", pageId: 3 },
+        { type: "block-field", blockId: "7", fieldName: "title", fieldType: "String" },
+        { kind: "page", pageId: "3" },
         { currentTarget: element as unknown as Element, preventDefault() {}, stopPropagation() {} },
       );
     });
@@ -445,7 +445,7 @@ void test("comment-mode clicks select the target, exit comment mode, and focus o
     assert.equal(dom.window.document.activeElement, popup.querySelector("textarea"));
     assert.deepEqual(previewStore.getSnapshot().context.editingContext?.selection, {
       type: "block-field",
-      blockId: 7,
+      blockId: "7",
       fieldName: "title",
       fieldType: "String",
     });
@@ -489,13 +489,13 @@ void test("sidebar comment composers do not autofocus on draft focus requests", 
   const dom = await setupDom();
   const { AttachedComments } = await import("./AttachedComments");
   const { previewCommentsStore } = await import("../previewCommentsStore");
-  dom.client.setQueryData(["comments", 3], []);
+  dom.client.setQueryData(["comments", "3"], []);
   try {
     previewCommentsStore.send({ type: "clearSelection" });
     await dom.render(
       <>
         <button>Keep focus</button>
-        <AttachedComments pageId={3} />
+        <AttachedComments pageId="3" />
       </>,
     );
     const button = dom.host.querySelector("button")!;
@@ -503,7 +503,7 @@ void test("sidebar comment composers do not autofocus on draft focus requests", 
     await React.act(async () => {
       previewCommentsStore.send({
         type: "startComment",
-        pageId: 3,
+        pageId: "3",
         target: { kind: "page" },
         focusComposer: true,
       });
@@ -520,14 +520,14 @@ void test("only View opens feedback's editor without deleting cached comments", 
   const { CommentSidebar } = await import("./CommentSidebar");
   const { previewCommentsStore } = await import("../previewCommentsStore");
   const { previewStore } = await import("../previewStore");
-  dom.client.setQueryData(["page", 88], { nickname: "Test page" });
-  const comments = ["first", "second"].map((id) => comment(id, 88, { kind: "page" }));
-  dom.client.setQueryData(["comments", 88], comments);
+  dom.client.setQueryData(["page", "88"], { nickname: "Test page" });
+  const comments = ["first", "second"].map((id) => comment(id, "88", { kind: "page" }));
+  dom.client.setQueryData(["comments", "88"], comments);
   try {
     previewStore.send({ type: "enterEditMode" });
     previewStore.send({ type: "setCommentMode", enabled: true });
     previewCommentsStore.send({ type: "clearSelection" });
-    await dom.render(<CommentSidebar pageId={88} />);
+    await dom.render(<CommentSidebar pageId="88" />);
     await React.act(async () => dom.host.querySelector("p")!.click());
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, null);
     const viewButtons = [...dom.host.querySelectorAll("button")].filter(
@@ -537,7 +537,7 @@ void test("only View opens feedback's editor without deleting cached comments", 
     assert.equal(previewStore.getSnapshot().context.mode, "editing-draft");
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 88,
+      pageId: "88",
       selection: null,
     });
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, "first");
@@ -545,7 +545,7 @@ void test("only View opens feedback's editor without deleting cached comments", 
     await React.act(async () => viewButtons[1]!.click());
     assert.equal(previewCommentsStore.getSnapshot().context.activeId, "second");
     assert.equal(dom.window.document.activeElement, dom.host.querySelector('[tabindex="-1"]'));
-    assert.deepEqual(dom.client.getQueryData(["comments", 88]), comments);
+    assert.deepEqual(dom.client.getQueryData(["comments", "88"]), comments);
   } finally {
     await dom.close();
     previewCommentsStore.send({ type: "clearSelection" });
@@ -558,38 +558,38 @@ void test("field feedback selects its own page and cannot steal focus after navi
   const { CommentSidebar } = await import("./CommentSidebar");
   const { previewStore } = await import("../previewStore");
   const { previewCommentsStore } = await import("../previewCommentsStore");
-  dom.client.setQueryData(["page", 3], { nickname: "Comment page" });
-  dom.client.setQueryData(["block", 7], {
-    block: { id: 7, type: "hero", content: { title: "Heading" } },
+  dom.client.setQueryData(["page", "3"], { nickname: "Comment page" });
+  dom.client.setQueryData(["block", "7"], {
+    block: { id: "7", type: "hero", content: { title: "Heading" } },
     repeatableItems: [],
   });
   dom.client.setQueryData(
-    ["comments", 3],
-    [comment("field", 3, { kind: "block-field", blockId: 7, fieldName: "title" })],
+    ["comments", "3"],
+    [comment("field", "3", { kind: "block-field", blockId: "7", fieldName: "title" })],
   );
   const view = () =>
     [...dom.host.querySelectorAll("button")].find((button) => button.textContent === "View")!;
   try {
     previewStore.send({ type: "enterEditMode" });
-    previewStore.send({ type: "activatePage", pageId: 4 });
+    previewStore.send({ type: "activatePage", pageId: "4" });
     previewStore.send({ type: "setCommentMode", enabled: true });
-    await dom.render(<CommentSidebar pageId={3} />);
+    await dom.render(<CommentSidebar pageId="3" />);
     await React.act(async () => view().click());
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 3,
-      selection: { type: "block-field", blockId: 7, fieldName: "title", fieldType: "String" },
+      pageId: "3",
+      selection: { type: "block-field", blockId: "7", fieldName: "title", fieldType: "String" },
     });
 
     await React.act(async () => {
       previewStore.send({ type: "setCommentMode", enabled: true });
       view().click();
       // fetchQuery resumes on a later microtask, after navigation has committed.
-      previewStore.send({ type: "activatePage", pageId: 4 });
+      previewStore.send({ type: "activatePage", pageId: "4" });
     });
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 4,
+      pageId: "4",
       selection: null,
     });
   } finally {
@@ -604,10 +604,10 @@ void test("See all returns from a specific comment to page feedback", async () =
   const dom = await setupDom();
   const { AttachedComments } = await import("./AttachedComments");
   const { previewStore } = await import("../previewStore");
-  dom.client.setQueryData(["comments", 3], [comment("one", 3, { kind: "page" })]);
+  dom.client.setQueryData(["comments", "3"], [comment("one", "3", { kind: "page" })]);
   try {
     previewStore.send({ type: "enterEditMode" });
-    await dom.render(<AttachedComments pageId={3} />);
+    await dom.render(<AttachedComments pageId="3" />);
     const seeAll = [...dom.host.querySelectorAll("button")].find(
       (button) => button.textContent === "See all",
     );
@@ -636,13 +636,13 @@ void test("failed posting retains a retryable draft; success persists without cl
     saved.push(created);
     return created;
   };
-  dom.client.setQueryData(["comments", 3], []);
-  previewCommentsStore.send({ type: "startComment", pageId: 3, target: { kind: "page" } });
+  dom.client.setQueryData(["comments", "3"], []);
+  previewCommentsStore.send({ type: "startComment", pageId: "3", target: { kind: "page" } });
   previewCommentsStore.send({ type: "setMessage", message: "Keep this draft" });
   const submitted = previewCommentsStore.getSnapshot().context.draft!;
   const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
   try {
-    await dom.render(<AttachedComments pageId={3} />);
+    await dom.render(<AttachedComments pageId="3" />);
     const post = () => {
       const button = dom.host.querySelector('[aria-label="Post comment"]');
       assert.ok(button instanceof dom.window.HTMLButtonElement);
@@ -671,7 +671,7 @@ void test("failed posting retains a retryable draft; success persists without cl
       });
     };
     await React.act(async () => {
-      previewCommentsStore.send({ type: "startComment", pageId: 3, target: { kind: "page" } });
+      previewCommentsStore.send({ type: "startComment", pageId: "3", target: { kind: "page" } });
       previewCommentsStore.send({ type: "setMessage", message: "Earlier message" });
     });
     await React.act(async () => {
@@ -699,7 +699,7 @@ void test("resolved feedback stays hidden in sidebar and object views", async ()
   const { previewCommentsStore } = await import("../previewCommentsStore");
   const originalList = api.list;
   const originalSetResolved = api.setResolved;
-  let saved = [comment("one", 3, { kind: "page" })];
+  let saved = [comment("one", "3", { kind: "page" })];
   api.list = async () => saved;
   api.setResolved = async (input) => {
     saved = saved.map((entry) =>
@@ -707,7 +707,7 @@ void test("resolved feedback stays hidden in sidebar and object views", async ()
     );
     return saved[0]!;
   };
-  dom.client.setQueryData(["comments", 3], saved);
+  dom.client.setQueryData(["comments", "3"], saved);
   previewCommentsStore.send({ type: "clearSelection" });
   const click = async (selector: string) => {
     await React.act(async () => {
@@ -718,7 +718,7 @@ void test("resolved feedback stays hidden in sidebar and object views", async ()
     });
   };
   try {
-    await dom.render(<CommentSidebar pageId={3} />);
+    await dom.render(<CommentSidebar pageId="3" />);
     assert.equal(dom.host.querySelector('input[type="checkbox"]'), null);
     const succeed = api.setResolved;
     api.setResolved = async () => {
@@ -734,9 +734,9 @@ void test("resolved feedback stays hidden in sidebar and object views", async ()
     assert.doesNotMatch(dom.host.textContent, /Show resolved|Feedback one/);
     assert.match(dom.host.textContent, /No unresolved feedback/);
     assert.equal(dom.host.querySelector('input[type="checkbox"]'), null);
-    await dom.render(<AttachedComments pageId={3} blockId={7} />);
+    await dom.render(<AttachedComments pageId="3" blockId="7" />);
     assert.doesNotMatch(dom.host.textContent, /Show resolved|Feedback one/);
-    await dom.render(<AttachedComments pageId={3} />);
+    await dom.render(<AttachedComments pageId="3" />);
     assert.doesNotMatch(dom.host.textContent, /Show resolved|Feedback one/);
     assert.equal(dom.host.querySelector('[aria-label="Restore comment"]'), null);
   } finally {
@@ -756,12 +756,12 @@ void test("feedback loads with experimental features unset or disabled and still
   };
   const previousFlag = flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__;
   const originalList = api.list;
-  const requests: number[] = [];
+  const requests: string[] = [];
   api.list = async (pageId) => {
     requests.push(pageId);
     return [comment("default", pageId, { kind: "page" })];
   };
-  function ToolbarQuery({ pageId }: { pageId?: number }) {
+  function ToolbarQuery({ pageId }: { pageId?: string }) {
     usePageComments(pageId);
     return null;
   }
@@ -771,7 +771,7 @@ void test("feedback loads with experimental features unset or disabled and still
       else flags.__CAMOX_ENABLE_EXPERIMENTAL_FEATURES__ = flag;
       await dom.render(<ToolbarQuery />);
       assert.equal(requests.length, index);
-      const pageId = index + 3;
+      const pageId = String(index + 3);
       await dom.render(
         <>
           <ToolbarQuery pageId={pageId} />
@@ -780,7 +780,7 @@ void test("feedback loads with experimental features unset or disabled and still
       );
       await React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
       assert.match(dom.host.textContent, /Feedback default/);
-      assert.deepEqual(requests, index === 0 ? [3] : [3, 4]);
+      assert.deepEqual(requests, index === 0 ? ["3"] : ["3", "4"]);
     }
   } finally {
     api.list = originalList;

@@ -11,8 +11,8 @@ import type { CanvasPage } from "./canvasPages";
 import { CanvasShelfMarkers } from "./CanvasShelfMarker";
 
 const pages: CanvasPage[] = [
-  { key: "page:1", title: "Home", pathname: "/", pageId: 1 },
-  { key: "page:2", title: "About", pathname: "/about", pageId: 2 },
+  { key: "page:1", title: "Home", pathname: "/", pageId: "1" },
+  { key: "page:2", title: "About", pathname: "/about", pageId: "2" },
 ];
 const blocks = ["Hero", "FAQ"].map(
   (title) => ({ _internal: { id: title.toLowerCase(), title, layoutOnly: false } }) as Block,

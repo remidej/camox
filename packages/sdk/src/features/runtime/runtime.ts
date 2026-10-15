@@ -61,7 +61,7 @@ export interface RuntimeRouteMatch {
 }
 
 export interface LayoutIdentity {
-  blockIds: number[];
+  blockIds: string[];
   layoutId: string;
   version: string;
 }

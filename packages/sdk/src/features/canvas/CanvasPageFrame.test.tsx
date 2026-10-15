@@ -89,7 +89,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     clients.push(useQueryClient());
     const select = usePreviewSelection();
     return (
-      <button onClick={(event) => select({ type: "block", blockId: 42 }, event)}>
+      <button onClick={(event) => select({ type: "block", blockId: "42" }, event)}>
         Select block
       </button>
     );
@@ -113,7 +113,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
         <QueryClientProvider client={client}>
           <CanvasPageFrame
             input={input}
-            pageId={7}
+            pageId="7"
             width={1000}
             viewportHeight={800}
             onActivate={(owner) => activated.push(owner)}
@@ -146,7 +146,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
               previewDocument:
                 "<html><head></head><body><div data-camox-preview-root>Updated server snapshot</div></body></html>",
             }}
-            pageId={7}
+            pageId="7"
             width={1000}
             viewportHeight={800}
             onActivate={(owner) => activated.push(owner)}
@@ -168,13 +168,13 @@ void test("canvas frames share the studio cache, activate their own owner, and f
       button.click();
     });
     assert.deepEqual(activated, [
-      { kind: "page", pageId: 7 },
-      { kind: "page", pageId: 7 },
+      { kind: "page", pageId: "7" },
+      { kind: "page", pageId: "7" },
     ]);
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 7,
-      selection: { type: "block", blockId: 42 },
+      pageId: "7",
+      selection: { type: "block", blockId: "42" },
     });
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframe);
     let forwarded: unknown;
@@ -197,7 +197,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     // Keyboard/assistive clicks have no preceding pointerdown. Activation must
     // still precede the semantic target handler, even with another page active.
     await React.act(async () => {
-      previewStore.send({ type: "activatePage", pageId: 99 });
+      previewStore.send({ type: "activatePage", pageId: "99" });
       previewStore.send({ type: "setIframeElement", element: null });
       previewStore.send({ type: "setCommentMode", enabled: true });
     });
@@ -205,12 +205,12 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframe);
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 7,
-      selection: { type: "block", blockId: 42 },
+      pageId: "7",
+      selection: { type: "block", blockId: "42" },
     });
     const draft = previewCommentsStore.getSnapshot().context.draft!;
-    assert.equal(draft.pageId, 7);
-    assert.deepEqual(draft.target, { kind: "block", blockId: 42 });
+    assert.equal(draft.pageId, "7");
+    assert.deepEqual(draft.target, { kind: "block", blockId: "42" });
     assert.equal(
       previewStore.getSnapshot().context.mode,
       "editing-draft",
@@ -320,7 +320,7 @@ void test("selected ready frames own editing without a click and follow URL sele
                   dehydratedState: { queries: [], mutations: [] },
                 } as unknown as PageRenderInput
               }
-              pageId={index + 1}
+              pageId={String(index + 1)}
               selected={pathname === path}
               mode={path === away ? "resting" : path === paused ? "paused" : "live"}
               width={1000}
@@ -355,11 +355,11 @@ void test("selected ready frames own editing without a click and follow URL sele
     });
     assert.equal(readyCount, 1, "unselected content commit must not signal readiness");
     assert.ok(iframes[0]!.contentDocument!.querySelector("button"), "selected document is ready");
-    assert.deepEqual(activations, [{ owner: { kind: "page", pageId: 1 }, source: "selection" }]);
+    assert.deepEqual(activations, [{ owner: { kind: "page", pageId: "1" }, source: "selection" }]);
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[0]);
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
-      pageId: 1,
+      pageId: "1",
       selection: null,
     });
 
@@ -367,7 +367,10 @@ void test("selected ready frames own editing without a click and follow URL sele
     // pending and the URL continues selecting A.
     await React.act(async () => iframes[1]!.contentDocument!.querySelector("button")!.click());
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[1]);
-    assert.deepEqual(activations[1], { owner: { kind: "page", pageId: 2 }, source: "interaction" });
+    assert.deepEqual(activations[1], {
+      owner: { kind: "page", pageId: "2" },
+      source: "interaction",
+    });
     await React.act(async () => {
       previewStore.send({ type: "setCommentMode", enabled: true });
       root.render(<Workspace pathname="/about" />);
@@ -376,9 +379,9 @@ void test("selected ready frames own editing without a click and follow URL sele
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[1]);
 
     await React.act(async () => root.render(<Workspace pathname="/contact" />));
-    assert.deepEqual(activations[2], { owner: { kind: "page", pageId: 2 }, source: "selection" });
+    assert.deepEqual(activations[2], { owner: { kind: "page", pageId: "2" }, source: "selection" });
     await React.act(async () => root.render(<Workspace pathname="/about" />));
-    assert.deepEqual(activations[3], { owner: { kind: "page", pageId: 1 }, source: "selection" });
+    assert.deepEqual(activations[3], { owner: { kind: "page", pageId: "1" }, source: "selection" });
     assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[0]);
     assert.equal(activations.length, 4);
 

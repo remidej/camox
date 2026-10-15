@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { index, int, sqliteTable, text, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 import { blocks } from "../blocks/schema";
@@ -5,11 +6,11 @@ import { blocks } from "../blocks/schema";
 export const repeatableItems = sqliteTable(
   "repeatable_items",
   {
-    id: int().primaryKey({ autoIncrement: true }),
-    blockId: int("block_id")
+    id: text().primaryKey().$defaultFn(generateUuidv7),
+    blockId: text("block_id")
       .notNull()
       .references(() => blocks.id, { onDelete: "cascade" }),
-    parentItemId: int("parent_item_id").references((): AnySQLiteColumn => repeatableItems.id, {
+    parentItemId: text("parent_item_id").references((): AnySQLiteColumn => repeatableItems.id, {
       onDelete: "cascade",
     }),
     // Stable identity across copies of a synced block's item tree.

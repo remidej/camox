@@ -12,7 +12,7 @@ export interface CanvasPage {
   pathname: string | null;
   derivedLayoutId?: string;
   pattern?: string;
-  pageId?: number;
+  pageId?: string;
   layoutId?: string;
 }
 

@@ -14,12 +14,12 @@ export const comments = sqliteTable(
     environmentId: int("environment_id")
       .notNull()
       .references(() => environments.id, { onDelete: "cascade" }),
-    pageId: int("page_id")
+    pageId: text("page_id")
       .notNull()
       .references(() => pages.id, { onDelete: "cascade" }),
-    // Null anchors preserve feedback without reattaching it to a reused object ID.
-    blockId: int("block_id").references(() => blocks.id, { onDelete: "set null" }),
-    itemId: int("item_id").references(() => repeatableItems.id, { onDelete: "set null" }),
+    // Null anchors keep feedback whose block or item was deleted.
+    blockId: text("block_id").references(() => blocks.id, { onDelete: "set null" }),
+    itemId: text("item_id").references(() => repeatableItems.id, { onDelete: "set null" }),
     target: text({ mode: "json" }).$type<CommentTarget>(),
     message: text().notNull(),
     resolved: int({ mode: "boolean" }).notNull().default(false),

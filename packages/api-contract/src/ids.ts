@@ -3,6 +3,13 @@ import { z } from "zod";
 /** The id of a content entity: one UUIDv7, kept in Live and every draft (ADR 0004). */
 export const uuidv7Schema = z.uuidv7();
 
+const { $schema: _, ...jsonSchema } = z.toJSONSchema(uuidv7Schema);
+/** `uuidv7Schema` as JSON Schema, for content schemas. */
+export const uuidv7JsonSchema = jsonSchema;
+
+/** A text link to a page: this prefix, then the page's UUIDv7. */
+export const PAGE_TEXT_LINK_PREFIX = "camox:page:";
+
 /**
  * Mints a UUIDv7 (RFC 9562): a 48-bit millisecond timestamp, then random bits.
  * The server mints ids; clients mint one only for optimistic inserts.

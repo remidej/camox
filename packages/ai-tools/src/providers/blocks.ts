@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -21,26 +22,26 @@ const REFERENCE_VALUES =
   "Reference fields store one collection record id (or null). Reference list fields store an ordered array of distinct record ids from the field's collection, at most its maxItems; the array replaces the whole list. Reference lists with a query are resolved from code and store nothing: never write them. Repeatable items hold reference fields the same way. Find ids with listCollectionRecords.";
 
 const createBlockToolInput = createBlockInput.omit({ repeatableItems: true }).extend({
-  afterId: z.number().optional(),
-  beforeId: z.number().optional(),
+  afterId: uuidv7Schema.optional(),
+  beforeId: uuidv7Schema.optional(),
   position: positionAliasSchema,
 });
 
 const moveBlockToolInput = updateBlockPositionInput.extend({
-  afterId: z.number().optional(),
-  beforeId: z.number().optional(),
+  afterId: uuidv7Schema.optional(),
+  beforeId: uuidv7Schema.optional(),
   position: positionAliasSchema,
 });
 
 const editBlockToolInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   content: z.unknown().optional(),
   settings: z.unknown().optional(),
 });
 
-const getBlockToolInput = z.object({ id: z.number() });
+const getBlockToolInput = z.object({ id: uuidv7Schema });
 
-const getBlocksToolInput = z.object({ ids: z.array(z.number()).min(1) });
+const getBlocksToolInput = z.object({ ids: z.array(uuidv7Schema).min(1) });
 
 export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -98,6 +99,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
             { mode: "create" },
           );
           return yield* createBlock(ctx, {
+            id: parsed.id,
             pageId: parsed.pageId,
             type: parsed.type,
             content: parsed.content,

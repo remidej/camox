@@ -66,7 +66,7 @@ const CreatePageModal = () => {
   const form = useForm({
     defaultValues: {
       nickname: "",
-      parentPageId: undefined as number | undefined,
+      parentPageId: undefined as string | undefined,
       pathSegment: "",
       layoutId: "" as string,
     },

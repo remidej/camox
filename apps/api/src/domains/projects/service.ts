@@ -535,7 +535,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
 
     const itemSeeds = blockDef.repeatableItems;
     if (itemSeeds && itemSeeds.length > 0) {
-      const tempIdToRealId = new Map<string, number>();
+      const tempIdToRealId = new Map<string, string>();
       for (const seed of itemSeeds) {
         const parentItemId = seed.parentTempId
           ? (tempIdToRealId.get(seed.parentTempId) ?? null)

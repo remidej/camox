@@ -38,7 +38,7 @@ async function fixture(suffix: string) {
       .get();
   const place = (
     type: string,
-    owner: { environmentId: number } & ({ pageId: number } | { layoutId: string }),
+    owner: { environmentId: number } & ({ pageId: string } | { layoutId: string }),
     position = "a0",
   ) =>
     base.db

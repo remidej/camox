@@ -1,3 +1,4 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -32,7 +33,7 @@ const deleteOgBlobIfUnreferenced = Effect.fn("deleteOgBlobIfUnreferenced")(funct
   db: Database,
   bucket: R2Bucket,
   blobId: string,
-  excludingPageId: number,
+  excludingPageId: string,
 ) {
   // Env replication copies the blobId across envs, so only drop the R2 object
   // when no other page row still references it.
@@ -63,8 +64,8 @@ pageHonoRoutes.post("/:id/og-image", async (c) => {
   const user = c.var.user;
   if (!user) return c.json({ error: "Unauthorized" }, 401);
 
-  const pageId = Number(c.req.param("id"));
-  if (!pageId || Number.isNaN(pageId)) return c.json({ error: "Invalid page id" }, 400);
+  const pageId = c.req.param("id");
+  if (!uuidv7Schema.safeParse(pageId).success) return c.json({ error: "Invalid page id" }, 400);
 
   const program = Effect.gen(function* () {
     const access = yield* assertPageAccess(c.var.db, pageId, user.id);
@@ -124,8 +125,8 @@ pageHonoRoutes.delete("/:id/og-image", async (c) => {
   const user = c.var.user;
   if (!user) return c.json({ error: "Unauthorized" }, 401);
 
-  const pageId = Number(c.req.param("id"));
-  if (!pageId || Number.isNaN(pageId)) return c.json({ error: "Invalid page id" }, 400);
+  const pageId = c.req.param("id");
+  if (!uuidv7Schema.safeParse(pageId).success) return c.json({ error: "Invalid page id" }, 400);
 
   const program = Effect.gen(function* () {
     const access = yield* assertPageAccess(c.var.db, pageId, user.id);

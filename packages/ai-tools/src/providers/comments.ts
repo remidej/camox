@@ -14,7 +14,7 @@ import type { ToolDefinition, ToolProvider } from "../types";
 
 const assertProjectPage = Effect.fn("assertProjectPage")(function* (
   ctx: Parameters<ToolProvider>[0],
-  pageId: number,
+  pageId: string,
 ) {
   const page = yield* Effect.promise(() =>
     ctx.db
