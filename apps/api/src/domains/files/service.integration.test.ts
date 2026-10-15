@@ -1,3 +1,4 @@
+import { call } from "@orpc/server";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -8,7 +9,7 @@ import { runService } from "../../lib/run-service";
 import { blocks, environments, files, layouts, repeatableItems } from "../../schema";
 import type { AppEnv } from "../../types";
 import { callTool } from "../agent/service";
-import { fileHonoRoutes } from "./routes";
+import { fileHonoRoutes, fileProcedures } from "./routes";
 import {
   deleteFile,
   saveGeneratedFileMetadata,
@@ -17,6 +18,11 @@ import {
   replaceFile,
   updateFile,
 } from "./service";
+
+// Independent of the shared schema: version nibble 7, RFC 4122 variant.
+const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CLIENT_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+const MISSING_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c";
 
 async function fixture(media?: MediaBinding) {
   const fixture = await createProjectFixture(crypto.randomUUID());
@@ -44,7 +50,7 @@ async function fixture(media?: MediaBinding) {
     metadata: Record<string, string> = {},
     type = "image/png",
     filename = "hero.png",
-    targetId?: number,
+    targetId?: string,
     contents: string | Uint8Array = "image bytes",
   ) {
     const body = new FormData();
@@ -426,7 +432,7 @@ describe("media persistence", () => {
       (await upload({ aiMetadataEnabled: "true" }, "application/pdf", "bad.pdf", original.id))
         .status,
     ).toBe(400);
-    expect((await upload({}, "image/png", "missing.png", 999999)).status).toBe(404);
+    expect((await upload({}, "image/png", "missing.png", MISSING_FILE_ID)).status).toBe(404);
     const other = await fixture();
     const otherFile = await (await other.upload()).json<typeof files.$inferSelect>();
     expect((await upload({}, "image/png", "other.png", otherFile.id)).status).toBe(404);
@@ -573,6 +579,98 @@ describe("media persistence", () => {
     ).toMatchObject({
       alt: "Fresh result",
       filename: "fresh",
+    });
+  });
+});
+
+describe("stable file identity", () => {
+  it("an upload returns a UUIDv7 file id, or keeps a client-minted UUIDv7", async () => {
+    const { upload, ctx, project } = await fixture();
+    const minted = await (await upload()).json<typeof files.$inferSelect>();
+    expect(minted.id).toMatch(UUIDV7);
+
+    const optimistic = await upload({ id: CLIENT_FILE_ID });
+    expect(optimistic.status).toBe(201);
+    expect(await optimistic.json()).toMatchObject({ id: CLIENT_FILE_ID });
+    expect(
+      await runService(getProjectFile(ctx, { projectId: project.id, id: CLIENT_FILE_ID })),
+    ).toMatchObject({ id: CLIENT_FILE_ID });
+  });
+
+  it("procedures, the upload route and AI tools reject a file id that isn't a UUIDv7", async () => {
+    const { upload, ctx, project, db, memberUser } = await fixture();
+    const file = await (await upload()).json<typeof files.$inferSelect>();
+    const context = {
+      ...ctx,
+      headers: new Headers(),
+      session: {
+        id: "session",
+        token: "test",
+        userId: memberUser.id,
+        expiresAt: new Date(Date.now() + 60_000),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    };
+    const notUuidv7 = [1, "1", crypto.randomUUID()];
+    for (const id of notUuidv7) {
+      for (const [procedure, input] of [
+        [fileProcedures.get, { id }],
+        [fileProcedures.getUsageCount, { id }],
+        [fileProcedures.setAlt, { id, alt: "Alt" }],
+        [fileProcedures.setFilename, { id, filename: "hero.png" }],
+        [fileProcedures.delete, { id }],
+        [fileProcedures.deleteMany, { ids: [file.id, id] }],
+        [fileProcedures.replace, { id: file.id, newFileId: id }],
+        [fileProcedures.setAiMetadata, { id, enabled: false }],
+        [fileProcedures.generateMetadata, { id }],
+      ] as const) {
+        await expect(call(procedure as never, input as never, { context })).rejects.toMatchObject({
+          code: "BAD_REQUEST",
+        });
+      }
+      for (const name of ["getFile", "updateFile"]) {
+        expect(
+          await runService(
+            callTool(ctx, { projectId: project.id, name, arguments: { id, alt: "Alt" } }),
+          ),
+        ).toMatchObject({ ok: false });
+      }
+      expect((await upload({ id: String(id) })).status).toBe(400);
+      expect((await upload({}, "image/png", "hero.png", String(id))).status).toBe(400);
+    }
+    expect(await db.select().from(files).where(eq(files.projectId, project.id))).toHaveLength(1);
+    expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toHaveLength(1);
+  });
+
+  it("deleting a file empties every reference to it, and only to it", async () => {
+    const { upload, ctx, db, layout } = await fixture();
+    const deleted = await (await upload()).json<typeof files.$inferSelect>();
+    const kept = await (await upload()).json<typeof files.$inferSelect>();
+    const now = Date.now();
+    const block = await db
+      .insert(blocks)
+      .values({
+        layoutId: layout.id,
+        type: "hero",
+        content: {
+          image: { _fileId: deleted.id },
+          logo: { _fileId: kept.id },
+          gallery: [{ _fileId: deleted.id }, { _fileId: kept.id }],
+        },
+        position: "a0",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+
+    await runService(deleteFile(ctx, { id: deleted.id }));
+
+    expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
+      image: null,
+      logo: { _fileId: kept.id },
+      gallery: [{ _fileId: kept.id }],
     });
   });
 });

@@ -223,7 +223,7 @@ export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess"
 
 export const assertFileAccess = Effect.fn("assertFileAccess")(function* (
   db: Database,
-  fileId: number,
+  fileId: string,
   userId: string,
 ) {
   const result = yield* Effect.promise(() =>

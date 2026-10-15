@@ -53,7 +53,7 @@ export const queryKeys = {
   },
   files: {
     list: ["camox", "files", "list"],
-    get: (id: number) => ["camox", "files", "get", id],
+    get: (id: string) => ["camox", "files", "get", id],
   },
   blocks: {
     get: (id: number) => ["camox", "blocks", "get", id],

@@ -121,7 +121,7 @@ const SingleAssetFieldEditor = ({
     onFileCommitted: (result) => {
       onFieldChange(fieldName, {
         ...(resolveLocally ? { ...result, alt: "" } : {}),
-        _fileId: Number(result.fileId),
+        _fileId: result.fileId,
       });
     },
   });
@@ -178,7 +178,7 @@ const SingleAssetFieldEditor = ({
               </p>
             </button>
             <UnlinkAssetButton
-              fileId={asset._fileId != null ? Number(asset._fileId) : undefined}
+              fileId={asset._fileId}
               persisted={!resolveLocally}
               offerDelete={offerDelete}
               onUnlink={() => {
@@ -189,7 +189,7 @@ const SingleAssetFieldEditor = ({
               <AssetLightbox
                 open={lightboxOpen}
                 onOpenChange={setLightboxOpen}
-                fileId={Number(asset._fileId)}
+                fileId={asset._fileId}
               />
             )}
           </div>

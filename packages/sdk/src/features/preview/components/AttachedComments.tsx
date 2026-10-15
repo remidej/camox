@@ -115,7 +115,7 @@ function AttachedCommentsContent({
       void queryClient.invalidateQueries({ queryKey });
       previewCommentsStore.send({
         type: "postSucceeded",
-        draft: submitted,
+        draft: { ...submitted, id: comment.id },
         focusComment: !isPopover,
       });
     },

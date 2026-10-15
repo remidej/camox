@@ -1,8 +1,8 @@
 import { isQueryBacked, QUERY_LIMIT_CAP, referenceQueryProblem } from "@camox/api-contract";
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
-import { z } from "zod";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
 import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
@@ -402,7 +402,7 @@ const resolveRecord = Effect.fn("collections.resolveRecord")(function* (
           Effect.map((references) => ({ references })),
         )
       : Effect.succeed({});
-  const validId = z.uuid().safeParse(id);
+  const validId = uuidv7Schema.safeParse(id);
   if (!validId.success) return null;
   const record = yield* Effect.promise(() =>
     ctx.db
@@ -584,7 +584,7 @@ export const recordInScope = Effect.fn("collections.recordInScope")(function* (
   field: Field,
   value: unknown,
 ) {
-  const validId = z.uuid().safeParse(value);
+  const validId = uuidv7Schema.safeParse(value);
   if (!validId.success) return false;
   const record = yield* Effect.promise(() =>
     ctx.db

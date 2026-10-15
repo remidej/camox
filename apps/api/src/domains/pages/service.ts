@@ -153,7 +153,7 @@ function composePageView(args: {
   pageBlocks: BlockRow[];
   layoutBlocks: BlockRow[];
   allItems: ViewItem[];
-  fileRows: Map<number, FileRow>;
+  fileRows: Map<string, FileRow>;
 }) {
   const { page, project, layout, pageBlocks, layoutBlocks, allItems, fileRows } = args;
 
@@ -204,7 +204,7 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
     source,
   );
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   for (const value of [...hydrated, ...hydratedItems]) {
     collectFileIds(value.content as Record<string, unknown>, fileIds);
     collectFileIds(value.references, fileIds);

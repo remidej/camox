@@ -130,14 +130,14 @@ void test("public scopes render source fields and labels, never fabricate missin
   assert.equal(calls, 0);
 
   const image = {
-    _fileId: "7",
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a07",
     url: "https://example.test/published.png",
     alt: "Published logo",
     mimeType: "image/png",
     size: 100,
   };
   const file = {
-    _fileId: "8",
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a08",
     url: "https://example.test/published.pdf",
     filename: "published.pdf",
     mimeType: "application/pdf",
@@ -150,8 +150,16 @@ void test("public scopes render source fields and labels, never fabricate missin
   for (const files of [
     [],
     [
-      { id: 7, url: "https://example.test/mutable.png", alt: "Changed" } as NormalizedFile,
-      { id: 8, url: "https://example.test/mutable.pdf", filename: "changed.pdf" } as NormalizedFile,
+      {
+        id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a07",
+        url: "https://example.test/mutable.png",
+        alt: "Changed",
+      } as NormalizedFile,
+      {
+        id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a08",
+        url: "https://example.test/mutable.pdf",
+        filename: "changed.pdf",
+      } as NormalizedFile,
     ],
   ]) {
     const html = render(id, published, files);

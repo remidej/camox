@@ -192,7 +192,7 @@ describe("single collection references", () => {
       ])
       .returning();
     const asset = (file: (typeof managed)[number]) => ({
-      _fileId: String(file.id),
+      _fileId: file.id,
       url: file.url,
       alt: file.alt,
       filename: file.filename,
@@ -223,12 +223,12 @@ describe("single collection references", () => {
         getPageByPath(ctx, { projectSlug: f.project.slug, path: "/reference" }),
       );
       for (const result of [block, page]) {
-        expect(result.files.map((file) => file.id).sort((a, b) => a - b)).toEqual(
-          managed.map((file) => file.id).sort((a, b) => a - b),
+        expect(result.files.map((file) => file.id).sort()).toEqual(
+          managed.map((file) => file.id).sort(),
         );
       }
       expect(customer(block.block)?.content.logo).toMatchObject({
-        _fileId: String(managed[0].id),
+        _fileId: managed[0].id,
         url: managed[0].url,
         alt: "Authored logo",
       });
@@ -246,11 +246,11 @@ describe("single collection references", () => {
       const layout = await runService(
         getLayout(ctx, { projectSlug: f.project.slug, layoutId: "default" }),
       );
-      expect(layout.files.map((file) => file.id).sort((a, b) => a - b)).toEqual(
-        managed.map((file) => file.id).sort((a, b) => a - b),
+      expect(layout.files.map((file) => file.id).sort()).toEqual(
+        managed.map((file) => file.id).sort(),
       );
       expect(customer(layout.blocks[0])?.content.document).toMatchObject({
-        _fileId: String(managed[1].id),
+        _fileId: managed[1].id,
         url: managed[1].url,
       });
       expect((await runService(getPageMarkdown(ctx, { pageId: f.page.id }))).markdown).toContain(
@@ -1422,7 +1422,7 @@ describe("query-backed reference lists", () => {
     await f.db.run(sql`
       WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 95)
       INSERT INTO collection_records (id, definition_id, draft, version, created_at, updated_at)
-      SELECT lower(printf('%s-%s-4%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
+      SELECT lower(printf('%s-%s-7%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
           substr(hex(randomblob(2)), 2), substr(hex(randomblob(2)), 2), hex(randomblob(6)))),
         ${definitionId},
         json_object('title', 'Extra ' || i, 'excerpt', '', 'cover', json('null')), 1, 10 + i, 10 + i

@@ -108,20 +108,22 @@ camox files upload --url https://example.com/hero.webp --alt "Product screenshot
 camox files upload --url https://example.com/download --filename hero.webp --ai-metadata off
 
 # Inspect the returned ID and URL; use the ID in your block's media field.
+# File IDs are UUIDv7s; anything else is rejected.
 camox files list
-camox files get --id 123
+FILE_ID=0199f1c2-7b3e-7a10-9c4d-5e6f7a8b9c0d
+camox files get --id "$FILE_ID"
 
-camox files update --id 123 --filename hero.webp
-camox files update --id 123 --alt "Updated description"
-camox files update --id 123 --alt ""
-camox files update --id 123 --ai-metadata on
+camox files update --id "$FILE_ID" --filename hero.webp
+camox files update --id "$FILE_ID" --alt "Updated description"
+camox files update --id "$FILE_ID" --alt ""
+camox files update --id "$FILE_ID" --ai-metadata on
 
 # Replace the underlying file everywhere it is referenced, preserving its ID.
-camox files update --id 123 --file ./new-hero.webp
-camox files update --id 123 --url https://example.com/new-hero.webp
+camox files update --id "$FILE_ID" --file ./new-hero.webp
+camox files update --id "$FILE_ID" --url https://example.com/new-hero.webp
 
 # Replace content and override metadata together.
-camox files update --id 123 --file ./new-hero.webp --filename hero.webp --alt "New screenshot"
+camox files update --id "$FILE_ID" --file ./new-hero.webp --filename hero.webp --alt "New screenshot"
 ```
 
 - Upload requires exactly one of `--file` or `--url`. URLs are copied, not linked.

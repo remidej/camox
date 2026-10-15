@@ -224,7 +224,7 @@ CREATE INDEX `repeatable_items_block_field_idx` ON `repeatable_items` (`block_id
 CREATE INDEX `repeatable_items_block_idx` ON `repeatable_items` (`block_id`);--> statement-breakpoint
 CREATE INDEX `repeatable_items_parent_idx` ON `repeatable_items` (`parent_item_id`);--> statement-breakpoint
 CREATE TABLE `files` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`id` text PRIMARY KEY NOT NULL,
 	`project_id` integer,
 	`environment_id` integer NOT NULL,
 	`url` text NOT NULL,

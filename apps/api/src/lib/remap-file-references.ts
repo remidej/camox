@@ -19,7 +19,7 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export function remapFileReferences(value: JsonValue, filesMap: Map<number, number>): JsonValue {
+export function remapFileReferences(value: JsonValue, filesMap: Map<string, string>): JsonValue {
   if (value === null || typeof value !== "object") return value;
 
   if (Array.isArray(value)) {
@@ -29,7 +29,7 @@ export function remapFileReferences(value: JsonValue, filesMap: Map<number, numb
   // File-reference marker: rewrite the id if we have a mapping, otherwise keep
   // the marker as-is (caller decides whether dangling refs should be cleaned
   // up afterwards).
-  if ("_fileId" in value && typeof value._fileId === "number") {
+  if ("_fileId" in value && typeof value._fileId === "string") {
     const remapped = filesMap.get(value._fileId);
     if (remapped === undefined) return value;
     return { ...value, _fileId: remapped };

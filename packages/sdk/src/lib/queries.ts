@@ -125,7 +125,7 @@ export const fileQueries = {
     queryKey: queryKeys.files.list,
   }),
 
-  get: (id: number) => ({
+  get: (id: string) => ({
     ...getOrpc().files.get.queryOptions({
       input: { id },
       staleTime: Infinity,
@@ -133,7 +133,7 @@ export const fileQueries = {
     queryKey: queryKeys.files.get(id),
   }),
 
-  getUsageCount: (id: number) => ({
+  getUsageCount: (id: string) => ({
     ...getOrpc().files.getUsageCount.queryOptions({
       input: { id },
       staleTime: Infinity,

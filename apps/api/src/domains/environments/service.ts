@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { eq, inArray, or } from "drizzle-orm";
 import { Effect } from "effect";
@@ -236,6 +237,7 @@ function topoSortItems<T extends { id: number; parentItemId: number | null }>(it
 }
 
 type IdMap = Map<number, number>;
+type FileIdMap = Map<string, string>;
 const PAGE_TEXT_LINK_PREFIX = "camox:page:";
 
 function remapMarkdownPageReferences(value: string, pagesMap: IdMap): string {
@@ -266,7 +268,7 @@ function remapPageReferences(value: JsonValue, pagesMap: IdMap): JsonValue {
   return out;
 }
 
-function remapContentReferences(value: unknown, filesMap: IdMap, pagesMap: IdMap) {
+function remapContentReferences(value: unknown, filesMap: FileIdMap, pagesMap: IdMap) {
   const withFiles = remapFileReferences(value as JsonValue, filesMap);
   return remapPageReferences(withFiles, pagesMap);
 }
@@ -415,7 +417,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // Files: `blobId`, `path`, `url`, etc. are copied verbatim. Multiple rows
   // pointing at the same R2 object is intentional — refcount-aware deletion
   // (Phase 1) keeps blobs alive while any env still references them.
-  const filesMap = new Map<number, number>();
+  const filesMap: FileIdMap = new Map();
   for (const row of sourceFiles) {
     const { id, environmentId: _envId, ...rest } = row;
     const inserted = yield* Effect.promise(() =>
@@ -532,7 +534,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     yield* Effect.promise(() =>
       ctx.db.insert(comments).values({
         ...row,
-        id: crypto.randomUUID(),
+        id: generateUuidv7(),
         environmentId: target.id,
         pageId,
         blockId: blockId ?? null,

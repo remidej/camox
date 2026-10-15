@@ -85,8 +85,7 @@ export function serializeAssetField(fieldType: unknown, value: unknown) {
 
 function editorAsset(value: unknown) {
   if (!value || typeof value !== "object") return null;
-  const asset = value as Record<string, unknown>;
-  return { ...asset, ...(asset._fileId != null ? { _fileId: Number(asset._fileId) } : {}) };
+  return { ...(value as Record<string, unknown>) };
 }
 
 function serializeAsset(value: unknown) {
@@ -99,9 +98,7 @@ function serializeAsset(value: unknown) {
     filename: asset.filename,
     mimeType: asset.mimeType,
     ...(asset.size != null ? { size: asset.size } : {}),
-    ...(typeof asset._fileId === "number" || typeof asset._fileId === "string"
-      ? { _fileId: String(asset._fileId) }
-      : {}),
+    ...(typeof asset._fileId === "string" ? { _fileId: asset._fileId } : {}),
   };
 }
 

@@ -1,4 +1,5 @@
 import type { Comment, CommentTarget } from "@camox/api-contract";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { createStore } from "@xstate/store-react";
 
 import type { CamoxApp } from "@/core/createApp";
@@ -118,7 +119,7 @@ export const previewCommentsStore = createStore({
       },
     ) => ({
       ...context,
-      draft: { id: crypto.randomUUID(), pageId: event.pageId, target: event.target, message: "" },
+      draft: { id: generateUuidv7(), pageId: event.pageId, target: event.target, message: "" },
       activeId: null,
       focusTarget: event.focusComposer ? event.target : null,
       popover: event.popover
@@ -130,7 +131,7 @@ export const previewCommentsStore = createStore({
       if (!context.draft || context.draft.message === event.message) return context;
       return {
         ...context,
-        draft: { ...context.draft, id: crypto.randomUUID(), message: event.message },
+        draft: { ...context.draft, id: generateUuidv7(), message: event.message },
       };
     },
     postSucceeded: (context, event: { draft: CommentDraft; focusComment?: boolean }) => {

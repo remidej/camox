@@ -9,7 +9,7 @@ type ResolvedFile = { url: string; alt: string; filename: string; mimeType: stri
 type SettingsContext = {
   settings?: Record<string, unknown> | null;
   itemSettings?: Record<string, unknown> | null;
-  files?: Map<number, ResolvedFile> | null;
+  files?: Map<string, ResolvedFile> | null;
   references?: ResolvedReferences;
 };
 
@@ -191,12 +191,14 @@ function asString(value: unknown): string {
 
 /**
  * Asset fields are stored as `{ _fileId }` markers; resolve them against the
- * files map. Falls back to whatever inline shape the value already has.
+ * files map. A value that already carries its URL (a collection record's asset
+ * snapshot) keeps its own metadata.
  */
 function resolveAsset(value: unknown, files: SettingsContext["files"]): ResolvedFile {
-  if (value && typeof value === "object" && "_fileId" in value) {
+  const inline = typeof (value as { url?: unknown } | null)?.url === "string";
+  if (!inline && value && typeof value === "object" && "_fileId" in value) {
     const id = (value as { _fileId: unknown })._fileId;
-    if (typeof id === "number") {
+    if (typeof id === "string") {
       const file = files?.get(id);
       if (file) return file;
     }
