@@ -147,6 +147,8 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     environmentName: c.var.environmentName,
     client: c.var.client ?? "unknown",
     telemetryDisabled: c.var.telemetryDisabled ?? false,
+    // Files don't live in drafts yet, so uploads write Live.
+    draft: null,
     waitUntil: (promise) => c.executionCtx.waitUntil(promise),
   };
 

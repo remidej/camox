@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 
 import { createDb } from "../src/db";
 import type { ServiceContext } from "../src/domains/_shared/service-context";
+import type { BaseContext } from "../src/orpc";
 import { environments, layouts, member, organizationTable, projects, user } from "../src/schema";
 import type { Bindings } from "../src/types";
 
@@ -99,5 +100,30 @@ export function createServiceContext(
     environmentName: "production",
     client: "test",
     telemetryDisabled: true,
+    draft: null,
+  };
+}
+
+/**
+ * An oRPC context for `call()`, signed in as `selectedUser` (anonymous when null). Pass draft
+ * headers (`x-camox-draft`, `x-camox-draft-create`) so the real middleware resolves them; it
+ * also works as a `ServiceContext`, which reads Live.
+ */
+export function createRpcContext(
+  db: ReturnType<typeof createDb>,
+  selectedUser: ServiceContext["user"],
+  headers: Record<string, string> = {},
+): BaseContext & ServiceContext {
+  return {
+    ...createServiceContext(db, selectedUser),
+    headers: new Headers(headers),
+    session: selectedUser && {
+      id: `session-${selectedUser.id}`,
+      token: "test",
+      userId: selectedUser.id,
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
   };
 }

@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import { collectionsProvider } from "../../../../../packages/ai-tools/src/providers/collections";
 import { collection as customers } from "../../../../playground/src/collections/customers";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createRpcContext,
+  createServiceContext,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import type { BaseContext } from "../../orpc";
 import { agentProcedures } from "../agent/routes";
@@ -13,19 +17,7 @@ import { getCollectionRecord, syncCollectionDefinitions } from "./service";
 
 async function fixture() {
   const base = await createProjectFixture(`record-procedures-${crypto.randomUUID()}`);
-  const service = createServiceContext(base.db, base.memberUser);
-  const context: BaseContext = {
-    ...service,
-    headers: new Headers(),
-    session: {
-      id: "session",
-      token: "test",
-      userId: base.memberUser.id,
-      expiresAt: new Date(Date.now() + 60_000),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  };
+  const context = createRpcContext(base.db, base.memberUser);
   const { id, ...definition } = customers._internal;
   await runService(
     syncCollectionDefinitions(createServiceContext(base.db, null), {

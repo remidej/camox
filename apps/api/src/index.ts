@@ -1,3 +1,4 @@
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { RPCHandler } from "@orpc/server/fetch";
 import { Hono } from "hono";
 import { partyserverMiddleware } from "hono-party";
@@ -50,6 +51,8 @@ app.use(
       "x-environment-name",
       "x-camox-client",
       "x-camox-telemetry-disabled",
+      DRAFT_HEADER,
+      DRAFT_CREATE_HEADER,
     ],
     allowMethods: ["POST", "GET", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length", "Set-Better-Auth-Cookie"],
