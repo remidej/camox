@@ -1,7 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { isProjectMember } from "../../authorization";
 import { blocks, repeatableItems } from "../../schema";
 import { blocksOfLayout } from "../layouts/identity";
 import { sortByPosition } from "../pages/ai";
@@ -30,18 +29,4 @@ export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
         )
       : [];
   return { blocks: ownerBlocks, items };
-});
-
-/**
- * Which version of a linked collection record a read resolves. Records still
- * publish on their own, so the project's members preview their saved drafts
- * and everyone else sees their published revision. Pages, layouts and blocks
- * read their current rows either way.
- */
-export const referenceSource = Effect.fn("referenceSource")(function* (
-  ctx: ServiceContext,
-  projectId: number,
-): Effect.fn.Return<"draft" | "live"> {
-  if (!ctx.user) return "live";
-  return (yield* isProjectMember(ctx.db, projectId, ctx.user.id)) ? "draft" : "live";
 });

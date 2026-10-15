@@ -271,7 +271,6 @@ CREATE TABLE `collection_definitions` (
 	`description` text NOT NULL,
 	`label` text NOT NULL,
 	`content_schema` text NOT NULL,
-	`active` integer DEFAULT true NOT NULL,
 	PRIMARY KEY(`project_id`, `environment_id`, `collection_id`),
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
@@ -281,45 +280,19 @@ CREATE TABLE `collection_records` (
 	`id` text PRIMARY KEY NOT NULL,
 	`environment_id` integer NOT NULL,
 	`collection_id` text NOT NULL,
-	`draft` text NOT NULL,
-	`version` integer DEFAULT 1 NOT NULL,
-	`published_revision_id` text,
+	`content` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`published_revision_id`) REFERENCES `collection_revisions`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `collection_records_collection` ON `collection_records` (`environment_id`,`collection_id`);--> statement-breakpoint
-CREATE TABLE `collection_revisions` (
-	`id` text PRIMARY KEY NOT NULL,
-	`record_id` text NOT NULL,
-	`kind` text NOT NULL,
-	`content` text NOT NULL,
-	`definition` text NOT NULL,
-	`schema_version` integer DEFAULT 1 NOT NULL,
-	`created_by` text NOT NULL,
-	`created_at` integer NOT NULL,
-	FOREIGN KEY (`record_id`) REFERENCES `collection_records`(`id`) ON UPDATE no action ON DELETE no action
-);
+CREATE INDEX `collection_records_collection` ON `collection_records` (`environment_id`,`collection_id`);
 --> statement-breakpoint
-CREATE INDEX `collection_revisions_record` ON `collection_revisions` (`record_id`);
---> statement-breakpoint
--- Hand-written: the Drizzle schema can't express views or triggers.
+-- Hand-written: the Drizzle schema can't express triggers.
 -- Keep this section when regenerating the baseline (see CONTRIBUTORS.md).
 --
--- Collection history is append-only. A pointer may only select this record's publication.
-CREATE TRIGGER collection_revisions_immutable BEFORE UPDATE ON collection_revisions
-BEGIN SELECT RAISE(ABORT, 'Collection revisions are immutable'); END;
---> statement-breakpoint
-CREATE TRIGGER collection_published_revision_owner BEFORE UPDATE OF published_revision_id ON collection_records
-WHEN NEW.published_revision_id IS NOT NULL AND NOT EXISTS (
-  SELECT 1 FROM collection_revisions WHERE id = NEW.published_revision_id AND record_id = NEW.id AND kind = 'auto-publish'
-)
-BEGIN SELECT RAISE(ABORT, 'Invalid published collection revision'); END;
---> statement-breakpoint
 -- Existing field contracts are immutable. Additions are allowed only after
--- every draft has been backfilled in the same transaction as the schema sync.
+-- every record has been backfilled in the same transaction as the schema sync.
 -- This also closes the race with creating a collection's first record.
 CREATE TRIGGER collection_schema_guard BEFORE UPDATE OF content_schema ON collection_definitions
 WHEN OLD.content_schema != NEW.content_schema
@@ -340,196 +313,8 @@ AND (
     WHERE record.environment_id = OLD.environment_id
     AND record.collection_id = OLD.collection_id
     AND NOT EXISTS (
-      SELECT 1 FROM json_each(record.draft) AS content WHERE content.key = field.key
+      SELECT 1 FROM json_each(record.content) AS content WHERE content.key = field.key
     )
   )
 )
-BEGIN SELECT RAISE(ABORT, 'Collection schema changes require compatible draft backfills'); END;
---> statement-breakpoint
-CREATE TRIGGER collection_active_guard BEFORE INSERT ON collection_records
-WHEN NOT EXISTS (
-  SELECT 1 FROM collection_definitions
-  WHERE environment_id = NEW.environment_id AND collection_id = NEW.collection_id AND active = 1
-)
-BEGIN SELECT RAISE(ABORT, 'Collection definition is retired'); END;
---> statement-breakpoint
--- Reference identities remain in authored content. These views are a dependency
--- index over block, item and record placements. Blocks and items are current
--- content; records also place references from their published revision.
--- D1 allows at most five terms per compound SELECT, so block, item and record
--- placements are separate views, combined by the placements view.
--- Repeatable items are read against their item schema, found by walking their
--- repeater path from the block's content schema. Collection records are read
--- against the schema their draft or published revision was written with.
--- Query-backed reference lists are resolved content, not placements: a list field
--- whose schema carries a `query` never enters the dependency index.
--- Definitions are named within an environment: `layout_id` is a layout's name and
--- `block_type` a block definition's.
-CREATE VIEW collection_reference_block_placements AS
-SELECT d.project_id, d.environment_id, d.content_schema, b.content, 0 AS live,
-  b.page_id, b.layout_id, b.id AS block_id, d.block_id AS block_type
-FROM blocks b
-JOIN block_definitions d ON d.block_id = b.type AND d.environment_id = b.environment_id;
---> statement-breakpoint
-CREATE VIEW collection_reference_item_placements AS
-WITH RECURSIVE
-items(project_id, environment_id, content_schema, content, page_id, layout_id,
-  block_id, block_type, item_id) AS (
-  SELECT d.project_id, d.environment_id,
-    json_extract(d.content_schema, '$.properties."' || i.field_name || '".items'),
-    i.content, b.page_id, b.layout_id, b.id, d.block_id, i.id
-  FROM repeatable_items i
-  JOIN blocks b ON b.id = i.block_id
-  JOIN block_definitions d ON d.block_id = b.type AND d.environment_id = b.environment_id
-  WHERE i.parent_item_id IS NULL
-  UNION ALL
-  SELECT parent.project_id, parent.environment_id,
-    json_extract(parent.content_schema, '$.properties."' || i.field_name || '".items'),
-    i.content, parent.page_id, parent.layout_id, parent.block_id,
-    parent.block_type, i.id
-  FROM repeatable_items i JOIN items parent ON i.parent_item_id = parent.item_id
-)
-SELECT project_id, environment_id, content_schema, content, 0 AS live, page_id, layout_id,
-  block_id, block_type
-FROM items WHERE content_schema IS NOT NULL;
---> statement-breakpoint
-CREATE VIEW collection_reference_record_placements AS
-SELECT d.project_id, d.environment_id, d.content_schema, r.draft AS content, 0 AS live,
-  NULL AS page_id, NULL AS layout_id, NULL AS block_id, NULL AS block_type,
-  r.id AS source_record_id
-FROM collection_records r JOIN collection_definitions d
-  ON d.environment_id = r.environment_id AND d.collection_id = r.collection_id
-UNION ALL
-SELECT d.project_id, d.environment_id, json_extract(v.definition, '$.contentSchema'),
-  v.content, 1, NULL, NULL, NULL, NULL, r.id
-FROM collection_records r
-JOIN collection_revisions v ON v.id = r.published_revision_id
-JOIN collection_definitions d
-  ON d.environment_id = r.environment_id AND d.collection_id = r.collection_id;
---> statement-breakpoint
-CREATE VIEW collection_reference_placements AS
-SELECT *, NULL AS source_record_id FROM collection_reference_block_placements
-UNION ALL
-SELECT *, NULL AS source_record_id FROM collection_reference_item_placements
-UNION ALL
-SELECT * FROM collection_reference_record_placements;
---> statement-breakpoint
-CREATE VIEW collection_reference_uses AS
-SELECT p.project_id, p.environment_id, d.collection_id AS collection_id, v.value AS record_id,
-  p.live, p.page_id, p.layout_id, p.block_id, p.block_type, p.source_record_id,
-  coalesce(json_extract(f.value, '$.required'), 0) AS required
-FROM collection_reference_placements p,
-json_each(p.content_schema, '$.properties') f
-LEFT JOIN json_each(p.content) v ON v.key = f.key
-LEFT JOIN collection_definitions d ON d.project_id = p.project_id
-  AND d.environment_id = p.environment_id
-  AND d.collection_id = json_extract(f.value, '$.collectionId')
-WHERE json_extract(f.value, '$.fieldType') = 'Reference'
-UNION ALL
-SELECT p.project_id, p.environment_id, d.collection_id AS collection_id, e.value AS record_id,
-  p.live, p.page_id, p.layout_id, p.block_id, p.block_type, p.source_record_id,
-  0 AS required
-FROM collection_reference_placements p,
-json_each(p.content_schema, '$.properties') f
-JOIN json_each(p.content) v ON v.key = f.key AND v.type = 'array'
-JOIN json_each(v.value) e
-LEFT JOIN collection_definitions d ON d.project_id = p.project_id
-  AND d.environment_id = p.environment_id
-  AND d.collection_id = json_extract(f.value, '$.collectionId')
-WHERE json_extract(f.value, '$.fieldType') = 'ReferenceList'
-  AND json_type(f.value, '$.query') IS NULL;
---> statement-breakpoint
--- Deleting a record that any placement links is refused. Unpublishing a record or
--- retiring a collection that a published record requires is refused.
-CREATE TRIGGER collection_record_reference_delete_guard BEFORE DELETE ON collection_records
-WHEN EXISTS (SELECT 1 FROM collection_reference_uses u WHERE u.record_id = OLD.id)
-BEGIN SELECT RAISE(ABORT, 'Collection item is still referenced'); END;
---> statement-breakpoint
-CREATE TRIGGER collection_record_reference_unpublish_guard BEFORE UPDATE OF published_revision_id ON collection_records
-WHEN NEW.published_revision_id IS NULL AND EXISTS (
-  SELECT 1 FROM collection_reference_uses u WHERE u.record_id = OLD.id AND u.live = 1 AND u.required = 1
-)
-BEGIN SELECT RAISE(ABORT, 'Collection item is required by published content'); END;
---> statement-breakpoint
-CREATE TRIGGER collection_definition_reference_retire_guard BEFORE UPDATE OF active ON collection_definitions
-WHEN NEW.active = 0 AND EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  WHERE u.environment_id = OLD.environment_id AND u.collection_id = OLD.collection_id
-    AND u.live = 1 AND u.required = 1
-)
-BEGIN SELECT RAISE(ABORT, 'Collection is required by published content'); END;
---> statement-breakpoint
--- Service validation provides actionable errors; these checks close the race
--- with a concurrent record deletion after validation but before placement writes.
--- Guard triggers read the uses view by name at run time.
-CREATE TRIGGER block_reference_insert_guard AFTER INSERT ON blocks
-WHEN EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.block_id = NEW.id AND u.live = 0 AND u.record_id IS NOT NULL
-    AND (r.id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Collection reference is missing or outside this scope'); END;
---> statement-breakpoint
-CREATE TRIGGER block_reference_update_guard AFTER UPDATE OF content, type, page_id, layout_id ON blocks
-WHEN EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.block_id = NEW.id AND u.live = 0 AND u.record_id IS NOT NULL
-    AND (r.id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Collection reference is missing or outside this scope'); END;
---> statement-breakpoint
-CREATE TRIGGER repeatable_item_reference_insert_guard AFTER INSERT ON repeatable_items
-WHEN EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.block_id = NEW.block_id AND u.live = 0 AND u.record_id IS NOT NULL
-    AND (r.id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Collection reference is missing or outside this scope'); END;
---> statement-breakpoint
-CREATE TRIGGER repeatable_item_reference_update_guard AFTER UPDATE OF content, field_name, parent_item_id, block_id ON repeatable_items
-WHEN EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.block_id = NEW.block_id AND u.live = 0 AND u.record_id IS NOT NULL
-    AND (r.id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Collection reference is missing or outside this scope'); END;
---> statement-breakpoint
-CREATE TRIGGER collection_record_reference_insert_guard AFTER INSERT ON collection_records
-WHEN EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.source_record_id = NEW.id AND u.live = 0 AND u.record_id IS NOT NULL
-    AND (r.id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Collection reference is missing or outside this scope'); END;
---> statement-breakpoint
-CREATE TRIGGER collection_record_reference_update_guard AFTER UPDATE OF draft ON collection_records
-WHEN EXISTS (
-  SELECT 1 FROM collection_reference_uses u
-  LEFT JOIN collection_records r ON r.id = u.record_id
-    AND r.environment_id = u.environment_id AND r.collection_id = u.collection_id
-  LEFT JOIN collection_definitions d
-    ON d.environment_id = u.environment_id AND d.collection_id = u.collection_id
-  WHERE u.source_record_id = NEW.id AND u.live = 0 AND u.record_id IS NOT NULL
-    AND (r.id IS NULL OR d.active IS NOT 1)
-)
-BEGIN SELECT RAISE(ABORT, 'Collection reference is missing or outside this scope'); END;
+BEGIN SELECT RAISE(ABORT, 'Collection schema changes require compatible record backfills'); END;

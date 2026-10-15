@@ -29,7 +29,7 @@ import {
   projects,
   repeatableItems,
 } from "../../schema";
-import { readOwnerBlocks, referenceSource } from "../_shared/owner-blocks";
+import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   blockScope,
@@ -748,9 +748,8 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   }
 
   const scope = yield* blockScope(ctx, block);
-  const source = yield* referenceSource(ctx, scope.projectId);
-  const hydratedBlock = (yield* hydrateReferences(ctx, scope, [{ ...block, content }], source))[0];
-  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted, source);
+  const hydratedBlock = (yield* hydrateReferences(ctx, scope, [{ ...block, content }]))[0];
+  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
   const fileIds = new Set<string>();
@@ -792,7 +791,6 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
   blockRows: RenderableBlock[],
   itemRows: RenderableItem[],
 ) {
-  const source = yield* referenceSource(ctx, scope.projectId);
   // Get block definitions for content schemas and Markdown representations. Scope
   // by environmentId — the same blockId can exist with different shapes across
   // environments (e.g. mid-migration).
@@ -822,13 +820,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     }
   }
 
-  const items: RenderableItem[] = yield* hydrateItemReferences(
-    ctx,
-    scope,
-    blockRows,
-    itemRows,
-    source,
-  );
+  const items: RenderableItem[] = yield* hydrateItemReferences(ctx, scope, blockRows, itemRows);
   nestChildItems(items);
   const itemsByBlock = new Map<number, RenderableItem[]>();
   for (const item of items) {
@@ -838,7 +830,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     itemsByBlock.set(item.blockId, list);
   }
 
-  const hydrated = yield* hydrateReferences(ctx, scope, blockRows, source);
+  const hydrated = yield* hydrateReferences(ctx, scope, blockRows);
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
   const fileIds = new Set<string>();
   for (const block of hydrated) {

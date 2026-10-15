@@ -89,10 +89,10 @@ export function useFollowPageRecord({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: savedVersion } = useQuery({
+  const { data: savedAt } = useQuery({
     ...collectionQueries.record(projectSlug, record?.collectionId ?? "", record?.id ?? ""),
     enabled: false,
-    select: (saved) => saved.version,
+    select: (saved) => saved.updatedAt,
   });
   const follow = React.useEffectEvent(async (signal: AbortSignal) => {
     if (!layoutId || !record) return;
@@ -113,12 +113,12 @@ export function useFollowPageRecord({
     });
   });
   React.useEffect(() => {
-    if (savedVersion == null) return;
+    if (savedAt == null) return;
     const controller = new AbortController();
     // A failed lookup leaves the Studio where it is, as before the edit.
     follow(controller.signal).catch(() => {});
     return () => controller.abort();
-  }, [savedVersion]);
+  }, [savedAt]);
 }
 
 /** What the previewed record page's loader returned, for the Studio around its preview. */

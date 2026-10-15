@@ -5,22 +5,15 @@ import { seedDemoArticles } from "./demoArticles.ts";
 
 interface FakeRecord {
   id: string;
-  version: number;
   collectionId: string;
   content: Record<string, unknown>;
-  publishedAt: number | null;
+  createdAt: number;
 }
 
 /** An in-memory articles collection behind the record endpoints the seeder uses. */
 function fakeApi() {
   const records: FakeRecord[] = [];
   const logs: string[] = [];
-  const find = (id: string, expectedVersion: number) => {
-    const record = records.find((candidate) => candidate.id === id);
-    assert.ok(record, `unknown record ${id}`);
-    assert.equal(record.version, expectedVersion, "stale expectedVersion");
-    return record;
-  };
   const context = {
     projectSlug: "camox-playground-01",
     logger: { info: (message: string) => logs.push(message) },
@@ -35,24 +28,12 @@ function fakeApi() {
         }) => {
           const record: FakeRecord = {
             id: crypto.randomUUID(),
-            version: 1,
             collectionId: input.collectionId,
             content: input.content as Record<string, unknown>,
-            publishedAt: null,
+            createdAt: performance.now(),
           };
           records.push(record);
-          return { id: record.id, version: record.version };
-        },
-        publishRecord: async (input: {
-          projectSlug: string;
-          collectionId: string;
-          id: string;
-          expectedVersion: number;
-        }) => {
-          const record = find(input.id, input.expectedVersion);
-          record.version++;
-          record.publishedAt ??= performance.now();
-          return { record };
+          return { id: record.id };
         },
       },
     },
@@ -60,41 +41,38 @@ function fakeApi() {
   return { records, logs, context };
 }
 
-void test("an empty articles collection gets four published articles and one draft", async () => {
+void test("an empty articles collection gets four articles", async () => {
   const { records, logs, context } = fakeApi();
 
   await seedDemoArticles(context);
 
-  assert.equal(records.length, 5);
+  assert.equal(records.length, 4);
   assert.ok(records.every((record) => record.collectionId === "articles"));
-  assert.equal(records.filter((record) => record.publishedAt !== null).length, 4);
   for (const field of ["title", "slug", "excerpt", "body"]) {
     const values = records.map((record) => record.content[field]);
     assert.ok(
       values.every((value) => typeof value === "string" && value.length > 0),
       `${field} is set`,
     );
-    assert.equal(new Set(values).size, 5, `${field} values are distinct`);
+    assert.equal(new Set(values).size, 4, `${field} values are distinct`);
   }
   for (const record of records) {
     assert.match(record.content.slug as string, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     assert.equal(record.content.cover, null);
   }
-  assert.match(logs.join("\n"), /4 published, 1 draft/);
+  assert.match(logs.join("\n"), /Seeded 4 demo articles/);
 });
 
-void test("seeded articles are published at distinct moments, so newest-first order is stable", async () => {
+void test("seeded articles are created at distinct moments, so newest-first order is stable", async () => {
   const { records, context } = fakeApi();
 
   await seedDemoArticles(context);
 
-  const published = records
-    .flatMap((record) => (record.publishedAt === null ? [] : [record.publishedAt]))
-    .sort((a, b) => a - b);
-  const gaps = published.slice(1).map((at, index) => at - published[index]!);
+  const created = records.map((record) => record.createdAt).sort((a, b) => a - b);
+  const gaps = created.slice(1).map((at, index) => at - created[index]!);
   assert.ok(
     gaps.every((gap) => gap >= 2),
-    `publications are at least 2 ms apart: ${gaps.join(", ")}`,
+    `creations are at least 2 ms apart: ${gaps.join(", ")}`,
   );
 });
 

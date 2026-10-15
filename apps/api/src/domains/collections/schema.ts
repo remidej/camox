@@ -1,11 +1,4 @@
-import {
-  index,
-  int,
-  primaryKey,
-  sqliteTable,
-  text,
-  type AnySQLiteColumn,
-} from "drizzle-orm/sqlite-core";
+import { index, int, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { environments, projects } from "../projects/schema";
 
@@ -26,7 +19,6 @@ export const collectionDefinitions = sqliteTable(
     contentSchema: text("content_schema", { mode: "json" })
       .notNull()
       .$type<Record<string, unknown>>(),
-    active: int({ mode: "boolean" }).notNull().default(true),
   },
   (table) => [primaryKey({ columns: [table.projectId, table.environmentId, table.collectionId] })],
 );
@@ -40,30 +32,9 @@ export const collectionRecords = sqliteTable(
       .references(() => environments.id),
     // The collection's name.
     collectionId: text("collection_id").notNull(),
-    draft: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
-    version: int().notNull().default(1),
-    publishedRevisionId: text("published_revision_id").references(
-      (): AnySQLiteColumn => collectionRevisions.id,
-    ),
+    content: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),
   },
   (table) => [index("collection_records_collection").on(table.environmentId, table.collectionId)],
-);
-
-export const collectionRevisions = sqliteTable(
-  "collection_revisions",
-  {
-    id: text().primaryKey(),
-    recordId: text("record_id")
-      .notNull()
-      .references((): AnySQLiteColumn => collectionRecords.id),
-    kind: text().notNull().$type<"manual" | "auto-publish" | "auto-draft">(),
-    content: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
-    definition: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
-    schemaVersion: int("schema_version").notNull().default(1),
-    createdBy: text("created_by").notNull(),
-    createdAt: int("created_at").notNull(),
-  },
-  (table) => [index("collection_revisions_record").on(table.recordId)],
 );

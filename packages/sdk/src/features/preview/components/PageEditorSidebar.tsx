@@ -38,7 +38,6 @@ import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
 import { MultipleAssetFieldEditor } from "./MultipleAssetFieldEditor";
-import { PublicationStatusBadge } from "./PublicationStatusBadge";
 import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
 import { type FieldWriteTarget, useFieldWriter } from "./useFieldWriter";
 import { type RecordPlacer, useRecordView, type SelectionCrumb } from "./useRecordView";
@@ -626,14 +625,9 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
               {recordView && !fieldHasOwnView && recordInList && (
                 <SidebarSection divider="bottom" aria-label="Shared record">
                   <div data-shared-record className="space-y-1 px-2 py-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="min-w-0 truncate text-sm font-medium">
-                        Shared · {recordView.collection._internal.title}
-                      </p>
-                      {recordView.status && (
-                        <PublicationStatusBadge status={recordView.status} size="sm" />
-                      )}
-                    </div>
+                    <p className="min-w-0 truncate text-sm font-medium">
+                      Shared · {recordView.collection._internal.title}
+                    </p>
                     <p className="text-muted-foreground text-xs">
                       Edits apply everywhere this record is used.
                     </p>

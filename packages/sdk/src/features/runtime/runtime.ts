@@ -564,8 +564,8 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
 type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 
 /**
- * The context `loader` and `routes` get. Its record lookup reads the request's version of
- * records; only draft reads carry the editor's session.
+ * The context `loader` and `routes` get. Its record lookup reads each record's current content;
+ * only draft reads carry the editor's session.
  */
 function createLayoutRequestContext(
   options: RuntimeOptions,
@@ -580,9 +580,9 @@ function createLayoutRequestContext(
   return createRequestContext({
     records: {
       findByField: (input) =>
-        api.collectionDefinitions.findRecordsByField({ ...input, projectSlug, source }),
+        api.collectionDefinitions.findRecordsByField({ ...input, projectSlug }),
       listPageValues: (input) =>
-        api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug, source }),
+        api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug }),
     },
   });
 }

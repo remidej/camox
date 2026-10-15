@@ -175,12 +175,11 @@ export function useFieldWriter(target: FieldWriteTarget | null, schema: unknown)
             collectionQueries.record(projectSlug, collectionId, recordId),
           );
           const labelField = camoxApp.getCollectionById(collectionId)?._internal.label;
-          const label = labelField ? record.draft[labelField] : undefined;
+          const label = labelField ? record.content[labelField] : undefined;
           return {
             id: record.id,
             collectionId,
-            content: record.draft,
-            version: record.version,
+            content: record.content,
             label: typeof label === "string" ? lexicalStateToPlainText(label) : "",
           };
         };

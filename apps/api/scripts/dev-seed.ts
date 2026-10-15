@@ -16,7 +16,6 @@ import {
   blocks,
   collectionDefinitions,
   collectionRecords,
-  collectionRevisions,
   comments,
   environments,
   files,
@@ -71,11 +70,6 @@ async function clearAll(db: ReturnType<typeof createDrizzle>) {
   await db.delete(pages).run();
   await db.delete(layouts).run();
   await db.delete(blockDefinitions).run();
-  // With every page, layout and block gone, only records still reference records. Clearing
-  // drafts and publication pointers lets the reference guards and the record ↔ revision
-  // foreign keys allow deletion.
-  await db.update(collectionRecords).set({ draft: {}, publishedRevisionId: null }).run();
-  await db.delete(collectionRevisions).run();
   await db.delete(collectionRecords).run();
   await db.delete(collectionDefinitions).run();
   await db.delete(files).run();
@@ -127,7 +121,6 @@ function createDrizzle(sqlitePath: string) {
       aiJobs,
       collectionDefinitions,
       collectionRecords,
-      collectionRevisions,
     },
   });
 }

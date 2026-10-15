@@ -6,8 +6,8 @@ import { createLayout } from "../../core/createLayout";
 import { getRecordLookup, type LayoutRequestContext } from "../../core/requestContext";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
-/** The source the context's record lookup reads, as the API receives it. */
-async function readSource(context: LayoutRequestContext) {
+/** The source the context's record lookup names, as the API receives it ("none" if absent). */
+async function lookupSource(context: LayoutRequestContext) {
   const [entry] = await getRecordLookup(context).listPageValues({
     collectionId: "sources",
     field: "source",
@@ -24,7 +24,7 @@ const layoutOptions = {
   component: () => null,
 };
 
-/** Layouts whose loader and routes report the source of the context they receive. */
+/** Layouts whose loader and routes report the source their record lookups name. */
 function sourceReportingApp() {
   const pokemon = createLayout("pokemon.$name")({
     ...layoutOptions,
@@ -32,9 +32,9 @@ function sourceReportingApp() {
     kind: "derived",
     loader: async ({ params, context }) => ({
       kind: "data",
-      data: { name: params.name, source: await readSource(context) },
+      data: { name: params.name, source: await lookupSource(context) },
     }),
-    routes: async ({ context }) => ({ data: [{ params: { name: await readSource(context) } }] }),
+    routes: async ({ context }) => ({ data: [{ params: { name: await lookupSource(context) } }] }),
     toMarkdown: ({ data }) => [`# ${data.name} read ${data.source}`],
     buildMetaTitle: ({ data }) => `Read ${data.source}`,
   });
@@ -42,14 +42,17 @@ function sourceReportingApp() {
     ...layoutOptions,
     title: "Pokédex",
     kind: "singleton",
-    loader: async ({ context }) => ({ kind: "data", data: { source: await readSource(context) } }),
+    loader: async ({ context }) => ({
+      kind: "data",
+      data: { source: await lookupSource(context) },
+    }),
     toMarkdown: ({ data }) => [`# Pokédex read ${data.source}`],
     buildMetaTitle: ({ data }) => `Read ${data.source}`,
   });
   return createApp({ blocks: [], layouts: [pokemon, pokedex] });
 }
 
-/** An API where only the valid session can read drafts. */
+/** An API where only the valid session is signed in. */
 function mockApi(t: { mock: { method: typeof test.mock.method } }) {
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const url = new URL(request.url);
@@ -68,9 +71,10 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
         { status: 404 },
       );
     if (url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) {
-      // Reports the source each lookup asked for, so layouts can show it.
-      const { json: input } = (await request.json()) as { json: { source: string } };
-      return Response.json({ json: [{ id: input.source, value: input.source }] });
+      // Reports the source each lookup named, so layouts can show it.
+      const { json: input } = (await request.json()) as { json: { source?: string } };
+      const source = input.source ?? "none";
+      return Response.json({ json: [{ id: source, value: source }] });
     }
     if (url.pathname.endsWith("/getLayoutMarkdown"))
       return Response.json({ json: { before: "", after: "" } });
@@ -104,7 +108,7 @@ function request(path: string, init: { cookie?: string; accept?: string } = {}) 
   return handleCamoxRequest(new Request(`https://site.test${path}`, { headers }), runtimeOptions);
 }
 
-void test("page HTML and data load with the editor's source", async (t) => {
+void test("pages take the editor's source, while their record lookups name none", async (t) => {
   mockApi(t);
   for (const path of ["/pokemon/pikachu", "/pokedex"]) {
     for (const [cookie, expected] of [
@@ -113,17 +117,13 @@ void test("page HTML and data load with the editor's source", async (t) => {
       [EXPIRED_SESSION, "live"],
     ] as const) {
       const html = await request(path, { cookie });
-      assert.match(
-        await html!.text(),
-        new RegExp(`<main>[^<]*"source":"${expected}"`),
-        `${path} ${cookie}`,
-      );
+      assert.match(await html!.text(), /<main>[^<]*"source":"none"/, `${path} ${cookie}`);
       const data = await request(`/_camox/data?path=${path}`, { cookie });
       const input = (await data!.json()) as PageRenderInput;
       assert.equal(input.presentation, expected === "draft" ? "studio" : "public");
       assert.equal(
         (input.derived!.result!.data as { source: string }).source,
-        expected,
+        "none",
         `${path} ${cookie}`,
       );
       if (cookie === EXPIRED_SESSION) assert.match(data!.headers.get("Set-Cookie")!, /Max-Age=0/);
@@ -131,30 +131,24 @@ void test("page HTML and data load with the editor's source", async (t) => {
   }
 });
 
-void test("Markdown and the sitemap read live content even for an editor", async (t) => {
+void test("Markdown and the sitemap look up records without a source, even for an editor", async (t) => {
   mockApi(t);
   const derived = await request("/pokemon/pikachu", {
     cookie: VALID_SESSION,
     accept: "text/markdown",
   });
-  assert.equal(await derived!.text(), "# pikachu read live");
+  assert.equal(await derived!.text(), "# pikachu read none");
   const singleton = await request("/pokedex", { cookie: VALID_SESSION, accept: "text/markdown" });
-  assert.equal(await singleton!.text(), "# Pokédex read live");
+  assert.equal(await singleton!.text(), "# Pokédex read none");
   const sitemap = await request("/sitemap.xml", { cookie: VALID_SESSION });
-  const xml = await sitemap!.text();
-  assert.match(xml, /<loc>https:\/\/site.test\/pokemon\/live<\/loc>/);
-  assert.doesNotMatch(xml, /draft/);
+  assert.match(await sitemap!.text(), /<loc>https:\/\/site.test\/pokemon\/none<\/loc>/);
 });
 
-void test("the routes endpoint discovers pages with the editor's source", async (t) => {
+void test("the routes endpoint discovers pages without a source, whatever the session", async (t) => {
   mockApi(t);
-  for (const [cookie, expected] of [
-    [VALID_SESSION, "draft"],
-    [undefined, "live"],
-    [EXPIRED_SESSION, "live"],
-  ] as const) {
+  for (const cookie of [VALID_SESSION, undefined, EXPIRED_SESSION]) {
     const response = await request("/_camox/routes?layoutId=pokemon.$name", { cookie });
-    assert.deepEqual(await response!.json(), { path: `/pokemon/${expected}` }, String(cookie));
+    assert.deepEqual(await response!.json(), { path: "/pokemon/none" }, String(cookie));
     if (cookie === EXPIRED_SESSION) assert.match(response!.headers.get("Set-Cookie")!, /Max-Age=0/);
   }
 });

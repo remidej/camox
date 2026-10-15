@@ -4,9 +4,7 @@ import { Input } from "@camox/ui/input";
 import { ChevronsUpDown, Plus } from "lucide-react";
 import * as React from "react";
 
-import { PublicationStatusBadge, type PublicationStatus } from "./PublicationStatusBadge";
-
-export type RecordOption = { id: string; label: string; status: PublicationStatus };
+export type RecordOption = { id: string; label: string };
 
 /**
  * Picks a collection record by label. The footer action (e.g. Create item) receives the
@@ -86,7 +84,6 @@ export function RecordCombobox({
                   className="data-highlighted:bg-accent data-highlighted:text-accent-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none"
                 >
                   <span className="min-w-0 flex-1 truncate">{record.label}</span>
-                  <PublicationStatusBadge status={record.status} size="sm" />
                 </Combobox.Item>
               )}
             </Combobox.List>

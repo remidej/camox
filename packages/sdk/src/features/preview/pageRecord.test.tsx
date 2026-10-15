@@ -112,12 +112,12 @@ async function renderRecordPage(t: TestContext, pathname: string) {
     await window.happyDOM.close();
   });
   /** A save of the article through any placement, as record edits store it. */
-  const save = async (version: number, slug: string) => {
+  const save = async (updatedAt: number, slug: string) => {
     site.articlePath = `/articles/${slug}`;
     await act(async () =>
       client.setQueryData(
         collectionQueries.record("site", ARTICLE.collectionId, ARTICLE.id).queryKey,
-        { id: ARTICLE.id, version, draft: { slug } } as never,
+        { id: ARTICLE.id, content: { slug }, createdAt: 1000, updatedAt },
       ),
     );
     await settle();
@@ -128,7 +128,7 @@ async function renderRecordPage(t: TestContext, pathname: string) {
 void test("editing the slug of the previewed record moves the Studio to its new URL", async (t) => {
   const studio = await renderRecordPage(t, "/articles/hello");
   assert.deepEqual(studio.requests, [], "nothing is asked before the record changes");
-  await studio.save(4, "hello-world");
+  await studio.save(2000, "hello-world");
   assert.deepEqual(studio.requests, [
     `/_camox/routes?layoutId=articles.%24slug&recordId=${ARTICLE.id}`,
   ]);
@@ -139,7 +139,7 @@ void test("editing the slug of the previewed record moves the Studio to its new 
 
 void test("other edits of the previewed record leave the Studio where it is", async (t) => {
   const studio = await renderRecordPage(t, "/articles/hello");
-  await studio.save(4, "hello");
+  await studio.save(2000, "hello");
   assert.equal(studio.requests.length, 1);
   assert.deepEqual(studio.navigations, []);
 });

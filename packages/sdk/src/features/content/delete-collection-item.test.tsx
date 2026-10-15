@@ -41,12 +41,12 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         {
           json: {
             defined: false,
-            code: "CONFLICT",
-            status: 409,
-            message: "Record changed; reload before retrying",
+            code: "INTERNAL_SERVER_ERROR",
+            status: 500,
+            message: "Could not delete; try again",
           },
         },
-        { status: 409 },
+        { status: 500 },
       );
     return Response.json({ json: { id } });
   });
@@ -72,7 +72,6 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
               projectSlug="site"
               collectionId="articles"
               id={id}
-              version={2}
               label="Article"
               compact={compact}
               onDeleted={() => {
@@ -86,7 +85,8 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
       await click(host.querySelector("button")!);
       assert.equal(calls.length, before);
       let dialog = window.document.querySelector('[role="alertdialog"]')!;
-      assert.ok(dialog.textContent.includes("revision history"));
+      assert.ok(dialog.textContent.includes("“Article”"));
+      assert.ok(!dialog.textContent.includes("revision history"));
       await click(
         dialog.querySelector('[data-slot="alert-dialog-cancel"]') as unknown as {
           click: () => void;
@@ -102,7 +102,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         },
       );
       assert.equal(deleted, 0);
-      assert.match(dialog.querySelector('[role="alert"]')!.textContent, /reload/);
+      assert.match(dialog.querySelector('[role="alert"]')!.textContent, /try again/);
       fail = false;
       await click(
         dialog.querySelector('[data-slot="alert-dialog-action"]') as unknown as {
@@ -110,12 +110,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         },
       );
       assert.equal(deleted, 1);
-      assert.deepEqual(calls.at(-1), {
-        projectSlug: "site",
-        collectionId: "articles",
-        id,
-        expectedVersion: 2,
-      });
+      assert.deepEqual(calls.at(-1), { projectSlug: "site", collectionId: "articles", id });
       assert.equal(
         client.getQueryData(collectionQueries.record("site", "articles", id).queryKey),
         undefined,

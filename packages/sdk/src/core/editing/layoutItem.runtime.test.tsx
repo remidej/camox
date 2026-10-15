@@ -23,7 +23,7 @@ import type { ReferenceRecord } from "../lib/reference";
 const editors: Array<{ onChange: (value: string) => void; externalState: unknown }> = [];
 const selections: unknown[] = [];
 const owner = { kind: "layout", layoutId: "articles" } as const;
-const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
+const requests: Array<{ content: Record<string, unknown> }> = [];
 const ARTICLE_ID = "00000000-0000-4000-8000-000000000001";
 const AUTHOR_ID = "00000000-0000-4000-8000-000000000002";
 const AUTHOR: ReferenceRecord = {
@@ -31,9 +31,8 @@ const AUTHOR: ReferenceRecord = {
   collectionId: "authors",
   label: "Ada",
   content: { name: "Ada" },
-  version: 1,
 };
-/** The article as the API stores its draft. */
+/** The article as the API stores it. */
 let article: ReferenceRecord;
 Object.assign(globalThis, {
   React,
@@ -45,9 +44,8 @@ Object.assign(globalThis, {
   },
   editReferenceRecord: async (input: (typeof requests)[number]) => {
     requests.push(input);
-    if (input.expectedVersion !== article.version) throw new Error("Record changed");
-    article = { ...article, content: input.content, version: input.expectedVersion + 1 };
-    return { id: article.id, draft: article.content, version: article.version };
+    article = { ...article, content: input.content, updatedAt: article.updatedAt! + 1 };
+    return { id: article.id, content: article.content, createdAt: 1, updatedAt: article.updatedAt };
   },
 });
 initApiClient("http://localhost:8788", "development");
@@ -164,11 +162,11 @@ const app = createApp({ blocks: [], layouts: [ArticlePage], collections: [articl
 
 /** The envelope the record page's loader returned for the article. */
 function envelope(record: ReferenceRecord): AnyLayoutLoaderResult {
-  const { id, content, references, version } = record;
+  const { id, content, references, updatedAt } = record;
   return {
     kind: "collection-item",
     collectionId: "articles",
-    data: { id, content, references, version },
+    data: { id, content, references, updatedAt },
   };
 }
 
@@ -179,7 +177,7 @@ function setup() {
     label: "Hello",
     content: { title: "Hello", slug: "hello", author: AUTHOR_ID },
     references: { author: AUTHOR },
-    version: 3,
+    updatedAt: 3,
   };
   requests.length = 0;
   selections.length = 0;
@@ -236,7 +234,7 @@ function setup() {
 /** Mutation execution is async; no timers or network are involved. */
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-void test("a record page's fields are purple, select its record, and save to it with its version", async () => {
+void test("a record page's fields are purple, select its record, and save to it", async () => {
   const { render, client } = setup();
   const html = render();
   assert.match(
@@ -265,7 +263,6 @@ void test("a record page's fields are purple, select its record, and save to it 
       projectSlug: "test",
       collectionId: "articles",
       id: ARTICLE_ID,
-      expectedVersion: 3,
       content: { title: "Edited", slug: "hello", author: AUTHOR_ID },
     },
   ]);
@@ -284,12 +281,10 @@ void test("an edit through a block shows on the record page at once", async () =
   await settle();
   assert.equal(requests.length, 1);
   assert.match(render(), /<h1[^>]*><span>From block<\/span><\/h1>/);
-  // The page's next edit sends the version the block's edit produced.
+  // The page's next edit saves over the content the block's edit produced.
   editors[0]!.onChange("Then from page");
   await settle();
-  assert.deepEqual(
-    requests.map((request) => request.expectedVersion),
-    [3, 4],
-  );
+  assert.equal(requests.length, 2);
+  assert.match(render(), /<h1[^>]*><span>Then from page<\/span><\/h1>/);
   client.clear();
 });

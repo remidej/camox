@@ -10,7 +10,7 @@ import { ConflictError, decodeInput, NotFoundError } from "../../lib/errors";
 import { resolveEnvironment } from "../../lib/resolve-environment";
 import { blockDefinitions, blocks, layouts, pages, projects, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
-import { readOwnerBlocks, referenceSource } from "../_shared/owner-blocks";
+import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { syncBlockData } from "../blocks/synced";
@@ -105,7 +105,6 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   if (!layout) return yield* new NotFoundError();
 
   const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout);
-  const source = yield* referenceSource(ctx, layout.projectId);
   const normalized = layoutBlocks.map((block) =>
     injectRepeatableItemMarkers(
       block,
@@ -116,14 +115,12 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     ctx,
     layout,
     normalized.map(({ block }) => block),
-    source,
   );
   const hydratedItems = yield* hydrateItemReferences(
     ctx,
     layout,
     layoutBlocks,
     normalized.flatMap(({ items }) => items),
-    source,
   );
   const fileIds = new Set<string>();
   for (const value of [...layoutBlocks, ...items])

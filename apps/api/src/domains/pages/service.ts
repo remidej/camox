@@ -10,7 +10,7 @@ import { resolveEnvironment } from "../../lib/resolve-environment";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import { blocks, files, layouts, pages, projects, repeatableItems, user } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
-import { readOwnerBlocks, referenceSource } from "../_shared/owner-blocks";
+import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   hydrateItemReferences,
@@ -194,15 +194,11 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   const layoutContent = layout ? yield* readOwnerBlocks(ctx, layout) : { blocks: [], items: [] };
   const allBlocks = [...pageContent.blocks, ...layoutContent.blocks];
 
-  const source = yield* referenceSource(ctx, page.projectId);
-  const hydrated = yield* hydrateReferences(ctx, page, allBlocks, source);
-  const hydratedItems = yield* hydrateItemReferences(
-    ctx,
-    page,
-    allBlocks,
-    [...pageContent.items, ...layoutContent.items],
-    source,
-  );
+  const hydrated = yield* hydrateReferences(ctx, page, allBlocks);
+  const hydratedItems = yield* hydrateItemReferences(ctx, page, allBlocks, [
+    ...pageContent.items,
+    ...layoutContent.items,
+  ]);
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const fileIds = new Set<string>();
   for (const value of [...hydrated, ...hydratedItems]) {

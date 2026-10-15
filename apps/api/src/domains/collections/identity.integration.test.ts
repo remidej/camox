@@ -63,17 +63,15 @@ describe("stable collection record identity", () => {
 
   it("procedures and AI tools reject a record id that isn't a UUIDv7", async () => {
     const f = await fixture();
-    const record = await call(routes.createRecord, { ...f.scope, content }, f.options);
-    const target = { ...f.scope, expectedVersion: record.version };
+    await call(routes.createRecord, { ...f.scope, content }, f.options);
+    const target = f.scope;
     for (const id of [1, "1", crypto.randomUUID()]) {
       for (const [procedure, input] of [
         [routes.createRecord, { ...f.scope, id, content }],
         [routes.getRecord, { ...f.scope, id }],
+        [routes.getRecordUsageCount, { ...f.scope, id }],
         [routes.editRecord, { ...target, id, content }],
         [routes.deleteRecord, { ...target, id }],
-        [routes.publishRecord, { ...target, id }],
-        [routes.unpublishRecord, { ...target, id }],
-        [routes.discardRecord, { ...target, id }],
         [routes.recordMarkdown, { ...f.scope, id }],
       ] as const) {
         await expect(call(procedure as never, input as never, f.options)).rejects.toMatchObject({

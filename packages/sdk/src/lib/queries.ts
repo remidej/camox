@@ -61,6 +61,20 @@ export const collectionQueries = {
     ),
   }),
 
+  /** How many blocks, repeatable items and records reference a record. */
+  recordUsageCount: (projectSlug: string, collectionId: string, id: string) => ({
+    ...getOrpc().collectionDefinitions.getRecordUsageCount.queryOptions({
+      input: { projectSlug, collectionId, id },
+    }),
+    queryKey: queryKeys.collections.recordUsageCount(
+      projectSlug,
+      getEnvironmentName() ?? "production",
+      collectionId,
+      id,
+    ),
+    select: (data: { count: number }) => data.count,
+  }),
+
   records: (projectSlug: string, collectionId: string) => ({
     ...getOrpc().collectionDefinitions.listRecords.queryOptions({
       input: { projectSlug, collectionId },
@@ -77,9 +91,6 @@ export const collectionMutations = {
   create: () => getOrpc().collectionDefinitions.createRecord.mutationOptions(),
   edit: () => getOrpc().collectionDefinitions.editRecord.mutationOptions(),
   delete: () => getOrpc().collectionDefinitions.deleteRecord.mutationOptions(),
-  publish: () => getOrpc().collectionDefinitions.publishRecord.mutationOptions(),
-  unpublish: () => getOrpc().collectionDefinitions.unpublishRecord.mutationOptions(),
-  discard: () => getOrpc().collectionDefinitions.discardRecord.mutationOptions(),
 };
 
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;

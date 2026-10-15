@@ -1,16 +1,13 @@
 import { isQueryBacked } from "@camox/api-contract";
-import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import { referenceListIds } from "@/core/lib/reference";
-import { useProjectSlug } from "@/lib/auth";
 import {
   placedRecords,
   referenceList,
   type NormalizedCollectionRecord,
   type NormalizedReferences,
 } from "@/lib/normalized-data";
-import { collectionQueries } from "@/lib/queries";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import {
@@ -23,7 +20,6 @@ import {
 } from "../previewStore";
 import { contentFieldSchema, type ContentFieldSchema } from "./contentFieldSchema";
 import { formatFieldName } from "./ItemFieldsEditor";
-import type { PublicationStatus } from "./PublicationStatusBadge";
 
 /** One entry of the sidebar's selection path. */
 export type SelectionCrumb = {
@@ -41,7 +37,6 @@ export type RecordView = {
   selection: RecordSelection;
   record: NormalizedCollectionRecord;
   collection: Collection;
-  status?: PublicationStatus;
   /** Whether a reference list (rather than a single reference) places the record. */
   inList: boolean;
   /** Whether the record's own reference fields open the records they link (first hop only). */
@@ -102,7 +97,6 @@ export function useRecordView({
   placer: RecordPlacer | null;
 }) {
   const camoxApp = useCamoxApp();
-  const projectSlug = useProjectSlug();
 
   const recordSelection =
     selection?.type === "record" || selection?.type === "record-field" ? selection : null;
@@ -215,21 +209,13 @@ export function useRecordView({
 
   const placedRecord = nested ? nestedRecord : outerRecord;
   const collection = nested ? nestedCollection : outerCollection;
-  const collectionId = collection?._internal.id;
   const shown = recordSelection && !isStale && placedRecord && collection;
-  const placedRecordId = shown ? placedRecord.id : undefined;
-  const { data: status } = useQuery({
-    ...collectionQueries.records(projectSlug, collectionId ?? ""),
-    enabled: placedRecordId != null,
-    select: (records) => records.find((record) => record.id === placedRecordId)?.status,
-  });
 
   const recordView: RecordView | null = shown
     ? {
         selection: recordSelection,
         record: placedRecord,
         collection,
-        status,
         inList: (nested ? nestedFieldType : referenceFieldType) === "ReferenceList",
         linksRecords: !nested,
       }
