@@ -12,7 +12,16 @@ import {
   InvalidInputError,
   PublishBlockedError,
 } from "../../lib/errors";
-import { blockDefinitions, blocks, environments, pages } from "../../schema";
+import { lexicalStateToPlainText } from "../../lib/lexical-state";
+import {
+  blockDefinitions,
+  blocks,
+  collectionDefinitions,
+  collectionRecords,
+  environments,
+  pages,
+} from "../../schema";
+import { conformRecordContent } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as overlay from "./overlay";
@@ -24,11 +33,13 @@ import { findEndedDraft, resolveDraftScope } from "./service";
 
 type Scope = NonNullable<DraftScope>;
 type BlockRow = typeof blocks.$inferSelect;
+type RecordRow = typeof collectionRecords.$inferSelect;
 
-/** Where an entity sits, so people can find it: its page or its layout. */
+/** Where an entity sits, so people can find it: its page, its layout or its collection. */
 export type Owner =
   | { kind: "page"; id: string; path: string; nickname: string }
   | { kind: "layout"; name: string }
+  | { kind: "collection"; name: string; title: string }
   | null;
 
 /** An entity as people know it. */
@@ -130,6 +141,48 @@ const blockDescriber = Effect.fn("drafts.blockDescriber")(function* (
   };
 });
 
+/** Labels for records, from the rows the draft holds, each under its collection. */
+const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  rows: RecordRow[],
+) {
+  const definitions = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(collectionDefinitions)
+      .where(eq(collectionDefinitions.projectId, projectId)),
+  );
+  const definitionOf = (row: RecordRow) =>
+    definitions.find(
+      (definition) =>
+        definition.environmentId === row.environmentId &&
+        definition.collectionId === row.collectionId,
+    );
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  return (id: string): Subject => {
+    const row = byId.get(id);
+    if (!row) return { entity: "record", id, label: "Record", owner: null };
+    const definition = definitionOf(row);
+    // A record of a removed collection is still named by its collection's name (ADR 0007).
+    if (!definition) {
+      const owner: Owner = { kind: "collection", name: row.collectionId, title: row.collectionId };
+      return { entity: "record", id, label: "Record", owner };
+    }
+    const content = conformRecordContent(definition.contentSchema, row.content);
+    const label = lexicalStateToPlainText(
+      content[definition.label] as string | Record<string, unknown>,
+    );
+    return {
+      entity: "record",
+      id,
+      label: label || "Untitled record",
+      owner: { kind: "collection", name: definition.collectionId, title: definition.title },
+    };
+  };
+});
+
 // --- Blockers ---
 
 /** Live blocks of a project the draft doesn't store: untouched Live content. */
@@ -221,7 +274,14 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const blockRows = stored
     .filter((change) => change.table === blocks)
     .map((c) => c.row as BlockRow);
-  const describe = yield* blockDescriber(ctx, scope.projectId, blockRows);
+  const describeBlock = yield* blockDescriber(ctx, scope.projectId, blockRows);
+  const describeRecord = yield* recordDescriber(
+    ctx,
+    scope.projectId,
+    stored.filter((change) => change.table === collectionRecords).map((c) => c.row as RecordRow),
+  );
+  const describers: Record<string, (id: string) => Subject> = { record: describeRecord };
+  const describe = (id: string, entity = "block") => (describers[entity] ?? describeBlock)(id);
 
   const changed = blockRows.filter((row) => !row.deleted);
   const { blockers, warnings } = yield* checkProblems(ctx, scope, changed);
@@ -240,14 +300,16 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const publisherById = new Map(publishers.map((publisher) => [publisher.id, publisher]));
 
   const conflicts: Conflict[] = storedConflicts.map((conflict) => ({
-    ...describe(conflict.id),
+    ...describe(conflict.id, conflict.entity),
     liveVersion: conflict.liveVersion,
     publishedBy: (conflict.publishedBy && publisherById.get(conflict.publishedBy)) || null,
     publishedAt: conflict.publishedAt,
   }));
   const lost: LostChange[] = losses.map((loss) => {
-    if (loss.reason === "parentGone") return { ...describe(loss.id), reason: loss.reason };
-    const parent = describe(loss.parent.id);
+    if (loss.reason === "parentGone") {
+      return { ...describe(loss.id, loss.entity), reason: loss.reason };
+    }
+    const parent = describe(loss.parent.id, loss.parent.entity);
     return {
       entity: "repeatableItem",
       id: loss.id,
@@ -256,7 +318,10 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
       reason: loss.reason,
     };
   });
-  const changes: Change[] = stored.map(({ row, change }) => ({ ...describe(row.id), change }));
+  const changes: Change[] = stored.map(({ entity, row, change }) => ({
+    ...describe(row.id, entity),
+    change,
+  }));
 
   return {
     blockers,
@@ -320,6 +385,7 @@ const broadcastPublished = (ctx: ServiceContext, projectId: number) =>
       queryKeys.pages.list,
       queryKeys.layouts.all,
       ["camox", "blocks"],
+      ["camox", "collections"],
     ],
   });
 

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a304057f-c7f5-4b6f-ad69-e7ce7b5cfcff",
+  "id": "2af6d5b3-f756-45c3-ba3c-599999f7bab0",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -1942,11 +1942,69 @@
     "collection_records": {
       "name": "collection_records",
       "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "base_version": {
+          "name": "base_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "first_published_at": {
+          "name": "first_published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_by": {
+          "name": "published_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "environment_id": {
@@ -1986,6 +2044,18 @@
         }
       },
       "indexes": {
+        "collection_records_live_id_idx": {
+          "name": "collection_records_live_id_idx",
+          "columns": ["id"],
+          "isUnique": true,
+          "where": "\"collection_records\".\"draft_id\" is null"
+        },
+        "collection_records_draft_id_idx": {
+          "name": "collection_records_draft_id_idx",
+          "columns": ["draft_id", "id"],
+          "isUnique": true,
+          "where": "\"collection_records\".\"draft_id\" is not null"
+        },
         "collection_records_collection": {
           "name": "collection_records_collection",
           "columns": ["environment_id", "collection_id"],
@@ -1993,6 +2063,15 @@
         }
       },
       "foreignKeys": {
+        "collection_records_draft_id_drafts_id_fk": {
+          "name": "collection_records_draft_id_drafts_id_fk",
+          "tableFrom": "collection_records",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "collection_records_environment_id_environments_id_fk": {
           "name": "collection_records_environment_id_environments_id_fk",
           "tableFrom": "collection_records",

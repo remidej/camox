@@ -1,7 +1,11 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { blocks } from "../blocks/schema";
+import { collectionDefinitions, collectionRecords } from "../collections/schema";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 import { itemsInEnvironment } from "../repeatable-items/roots";
 
 /** What content can reference: a collection record by its id, or a file by its `_fileId`. */
@@ -18,17 +22,17 @@ export type ReferencingContent =
   | { kind: "record"; id: string };
 
 /**
- * The content that references `target`, in one project and environment, as stored right now.
- * Content is matched on whole JSON values, so an id never matches another id it is a prefix of.
- * Record references are the record's id as a string anywhere in content; file references are
- * `_fileId` markers. Run on demand: nothing indexes references ahead of time.
+ * The content that references `target`, in one project and environment, as Live or a draft
+ * reads it right now. Content is matched on whole JSON values, so an id never matches another id
+ * it is a prefix of. Record references are the record's id as a string anywhere in content; file
+ * references are `_fileId` markers. Run on demand: nothing indexes references ahead of time.
  */
 export const referencesTo = Effect.fn("references.referencesTo")(function* (
   db: Database,
-  scope: { projectId: number; environmentId: number },
+  scope: { projectId: number; environmentId: number; draft: DraftScope },
   target: ReferenceTarget,
 ) {
-  const matches = (content: ReturnType<typeof sql.raw>) =>
+  const matches = (content: SQL) =>
     target.kind === "file"
       ? sql`exists (select 1 from json_tree(${content}) t
           where t.key = '_fileId' and t.atom = ${target.id})`
@@ -37,8 +41,10 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
   // An environment belongs to one project, so its id alone scopes content.
   const rows = yield* Effect.promise(() =>
     db.all<{ kind: ReferencingContent["kind"]; id: string }>(sql`
-      select 'block' as kind, b.id as id from blocks b
-      where b.environment_id = ${scope.environmentId} and ${matches(sql.raw("b.content"))}
+      select 'block' as kind, ${blocks.id} as id from ${blocks}
+      where ${blocks.environmentId} = ${scope.environmentId}
+        and ${overlay.visibleIn(blocks, scope.draft)}
+        and ${matches(sql`${blocks.content}`)}
       union all
       select 'sharedContent', s.type from shared_contents s
       where s.environment_id = ${scope.environmentId} and ${matches(sql.raw("s.content"))}
@@ -47,11 +53,14 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
       where ${itemsInEnvironment(scope.environmentId)}
         and ${matches(sql.raw("repeatable_items.content"))}
       union all
-      select 'record', r.id from collection_records r
-      join collection_definitions d
-        on d.environment_id = r.environment_id and d.collection_id = r.collection_id
-      where r.environment_id = ${scope.environmentId}
-        and r.id != ${target.id} and ${matches(sql.raw("r.content"))}
+      select 'record', ${collectionRecords.id} from ${collectionRecords}
+      join ${collectionDefinitions}
+        on ${collectionDefinitions.environmentId} = ${collectionRecords.environmentId}
+        and ${collectionDefinitions.collectionId} = ${collectionRecords.collectionId}
+      where ${collectionRecords.environmentId} = ${scope.environmentId}
+        and ${overlay.visibleIn(collectionRecords, scope.draft)}
+        and ${collectionRecords.id} != ${target.id}
+        and ${matches(sql`${collectionRecords.content}`)}
     `),
   );
   return rows as ReferencingContent[];
