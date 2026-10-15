@@ -1,5 +1,5 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { eq, inArray, or } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -17,14 +17,11 @@ import {
   blocks,
   comments,
   files,
-  layoutCheckpoints,
   layouts,
-  pageCheckpoints,
   pages,
   repeatableItems,
 } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import { layoutSnapshotSchema, pageSnapshotSchema } from "../_shared/snapshot-schemas";
 
 // --- Input Schemas ---
 
@@ -241,16 +238,6 @@ function topoSortItems<T extends { id: number; parentItemId: number | null }>(it
 type IdMap = Map<number, number>;
 const PAGE_TEXT_LINK_PREFIX = "camox:page:";
 
-function remapNullableId(id: number | null, map: IdMap): number | null {
-  if (id === null) return null;
-  return map.get(id) ?? id;
-}
-
-function remapMaybeNullableId(id: number | null, map: IdMap): number | null {
-  if (id === null) return null;
-  return map.get(id) ?? null;
-}
-
 function remapMarkdownPageReferences(value: string, pagesMap: IdMap): string {
   return value.replaceAll(/camox:page:(\d+)/g, (match, pageId: string) => {
     const remapped = pagesMap.get(Number(pageId));
@@ -282,10 +269,6 @@ function remapPageReferences(value: JsonValue, pagesMap: IdMap): JsonValue {
 function remapContentReferences(value: unknown, filesMap: IdMap, pagesMap: IdMap) {
   const withFiles = remapFileReferences(value as JsonValue, filesMap);
   return remapPageReferences(withFiles, pagesMap);
-}
-
-function remapCheckpointContent(value: unknown, filesMap: IdMap, pagesMap: IdMap) {
-  return remapContentReferences(value, filesMap, pagesMap);
 }
 
 // --- replicateEnvironment ---
@@ -372,25 +355,6 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
             .where(inArray(repeatableItems.blockId, sourceBlockIds)),
         )
       : [];
-  const sourcePageCheckpoints =
-    sourcePageIds.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(pageCheckpoints)
-            .where(inArray(pageCheckpoints.pageId, sourcePageIds)),
-        )
-      : [];
-  const sourceLayoutCheckpoints =
-    sourceLayoutPkIds.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(layoutCheckpoints)
-            .where(inArray(layoutCheckpoints.layoutId, sourceLayoutPkIds)),
-        )
-      : [];
-
   const takenAt = Date.now();
   const snapshot = {
     schemaVersion: 1 as const,
@@ -404,8 +368,6 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     blocks: sourceBlocks,
     repeatableItems: sourceItems,
     comments: sourceComments,
-    pageCheckpoints: sourcePageCheckpoints,
-    layoutCheckpoints: sourceLayoutCheckpoints,
   };
   const snapshotKey = `${projectId}/env-snapshots/${target.name}/${takenAt}.json`;
   yield* Effect.promise(() =>
@@ -418,25 +380,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
   // Order matters: pages must go before layouts (pages.layout_id has no
   // ON DELETE CASCADE), and the files DELETE bypasses the per-row service so
   // R2 blobs are preserved for re-insertion below.
-  const targetPages = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.environmentId, target.id)),
-  );
-  const targetLayouts = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.environmentId, target.id)),
-  );
-  const targetPageIds = targetPages.map((p) => p.id);
-  const targetLayoutIds = targetLayouts.map((l) => l.id);
   yield* Effect.promise(() => ctx.db.delete(comments).where(eq(comments.environmentId, target.id)));
-  if (targetPageIds.length > 0) {
-    yield* Effect.promise(() =>
-      ctx.db.delete(pageCheckpoints).where(inArray(pageCheckpoints.pageId, targetPageIds)),
-    );
-  }
-  if (targetLayoutIds.length > 0) {
-    yield* Effect.promise(() =>
-      ctx.db.delete(layoutCheckpoints).where(inArray(layoutCheckpoints.layoutId, targetLayoutIds)),
-    );
-  }
   yield* Effect.promise(() => ctx.db.delete(pages).where(eq(pages.environmentId, target.id)));
   yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.environmentId, target.id)));
   yield* Effect.promise(() =>
@@ -448,11 +392,11 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const layoutsMap = new Map<number, number>();
   for (const row of sourceLayouts) {
-    const { id, environmentId: _envId, livePublishedCheckpointId: _liveCk, ...rest } = row;
+    const { id, environmentId: _envId, ...rest } = row;
     const inserted = yield* Effect.promise(() =>
       ctx.db
         .insert(layouts)
-        .values({ ...rest, environmentId: target.id, livePublishedCheckpointId: null })
+        .values({ ...rest, environmentId: target.id })
         .returning()
         .get(),
     );
@@ -486,14 +430,7 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
 
   const pagesMap = new Map<number, number>();
   for (const row of sortPagesByDepth(sourcePages)) {
-    const {
-      id,
-      environmentId: _envId,
-      parentPageId,
-      layoutId,
-      livePublishedCheckpointId: _liveCk,
-      ...rest
-    } = row;
+    const { id, environmentId: _envId, parentPageId, layoutId, ...rest } = row;
     const newLayoutId = layoutsMap.get(layoutId);
     if (newLayoutId === undefined) {
       return yield* Effect.die(
@@ -509,7 +446,6 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
           environmentId: target.id,
           parentPageId: newParentPageId,
           layoutId: newLayoutId,
-          livePublishedCheckpointId: null,
         })
         .returning()
         .get(),
@@ -606,168 +542,6 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
     );
   }
 
-  // Shared published values can outlive their original placement. Remap them
-  // separately from draft rows and page/layout checkpoint pointers.
-  for (const definition of sourceBlockDefs) {
-    const shared = definition.syncedPublishedData;
-    if (!shared) continue;
-    const remapData = (value: unknown) => remapCheckpointContent(value, filesMap, pagesMap);
-    yield* Effect.promise(() =>
-      ctx.db
-        .update(blockDefinitions)
-        .set({
-          syncedPublishedData: {
-            block: {
-              ...shared.block,
-              id: blocksMap.get(shared.block.id) ?? shared.block.id,
-              pageId: remapMaybeNullableId(shared.block.pageId, pagesMap),
-              layoutId: remapMaybeNullableId(shared.block.layoutId, layoutsMap),
-              content: remapData(shared.block.content),
-              settings: remapData(shared.block.settings),
-            },
-            items: shared.items.map((item) => ({
-              ...item,
-              id: itemsMap.get(item.id) ?? item.id,
-              blockId: blocksMap.get(item.blockId) ?? item.blockId,
-              parentItemId: remapNullableId(item.parentItemId, itemsMap),
-              content: remapData(item.content),
-              settings: remapData(item.settings),
-            })),
-          },
-        })
-        .where(
-          and(
-            eq(blockDefinitions.environmentId, target.id),
-            eq(blockDefinitions.blockId, definition.blockId),
-          ),
-        ),
-    );
-  }
-
-  const layoutCheckpointsMap = new Map<number, number>();
-  for (const row of sourceLayoutCheckpoints) {
-    const { id, layoutId, snapshot: rawSnapshot, ...rest } = row;
-    const newLayoutId = layoutsMap.get(layoutId);
-    if (newLayoutId === undefined) continue;
-
-    const parsed = layoutSnapshotSchema.parse(JSON.parse(rawSnapshot));
-    const remappedSnapshot = {
-      ...parsed,
-      layout: {
-        ...parsed.layout,
-        id: newLayoutId,
-        environmentId: target.id,
-      },
-      blocks: parsed.blocks.map((block) => ({
-        ...block,
-        id: blocksMap.get(block.id) ?? block.id,
-        pageId: remapMaybeNullableId(block.pageId, pagesMap),
-        layoutId: remapMaybeNullableId(block.layoutId, layoutsMap),
-        content: remapCheckpointContent(block.content, filesMap, pagesMap),
-        settings:
-          block.settings !== null
-            ? remapCheckpointContent(block.settings, filesMap, pagesMap)
-            : block.settings,
-      })),
-      repeatableItems: parsed.repeatableItems.map((item) => ({
-        ...item,
-        id: itemsMap.get(item.id) ?? item.id,
-        blockId: blocksMap.get(item.blockId) ?? item.blockId,
-        parentItemId: remapNullableId(item.parentItemId, itemsMap),
-        content: remapCheckpointContent(item.content, filesMap, pagesMap),
-        settings:
-          item.settings !== null
-            ? remapCheckpointContent(item.settings, filesMap, pagesMap)
-            : item.settings,
-      })),
-    };
-
-    const inserted = yield* Effect.promise(() =>
-      ctx.db
-        .insert(layoutCheckpoints)
-        .values({ ...rest, layoutId: newLayoutId, snapshot: JSON.stringify(remappedSnapshot) })
-        .returning()
-        .get(),
-    );
-    layoutCheckpointsMap.set(id, inserted.id);
-  }
-
-  const pageCheckpointsMap = new Map<number, number>();
-  for (const row of sourcePageCheckpoints) {
-    const { id, pageId, snapshot: rawSnapshot, ...rest } = row;
-    const newPageId = pagesMap.get(pageId);
-    if (newPageId === undefined) continue;
-
-    const parsed = pageSnapshotSchema.parse(JSON.parse(rawSnapshot));
-    const remappedSnapshot = {
-      ...parsed,
-      page: {
-        ...parsed.page,
-        id: newPageId,
-        environmentId: target.id,
-        parentPageId: remapMaybeNullableId(parsed.page.parentPageId, pagesMap),
-        layoutId: layoutsMap.get(parsed.page.layoutId) ?? parsed.page.layoutId,
-      },
-      blocks: parsed.blocks.map((block) => ({
-        ...block,
-        id: blocksMap.get(block.id) ?? block.id,
-        pageId: remapMaybeNullableId(block.pageId, pagesMap),
-        layoutId: remapMaybeNullableId(block.layoutId, layoutsMap),
-        content: remapCheckpointContent(block.content, filesMap, pagesMap),
-        settings:
-          block.settings !== null
-            ? remapCheckpointContent(block.settings, filesMap, pagesMap)
-            : block.settings,
-      })),
-      repeatableItems: parsed.repeatableItems.map((item) => ({
-        ...item,
-        id: itemsMap.get(item.id) ?? item.id,
-        blockId: blocksMap.get(item.blockId) ?? item.blockId,
-        parentItemId: remapNullableId(item.parentItemId, itemsMap),
-        content: remapCheckpointContent(item.content, filesMap, pagesMap),
-        settings:
-          item.settings !== null
-            ? remapCheckpointContent(item.settings, filesMap, pagesMap)
-            : item.settings,
-      })),
-    };
-
-    const inserted = yield* Effect.promise(() =>
-      ctx.db
-        .insert(pageCheckpoints)
-        .values({ ...rest, pageId: newPageId, snapshot: JSON.stringify(remappedSnapshot) })
-        .returning()
-        .get(),
-    );
-    pageCheckpointsMap.set(id, inserted.id);
-  }
-
-  for (const sourceLayout of sourceLayouts) {
-    if (sourceLayout.livePublishedCheckpointId === null) continue;
-    const newLayoutId = layoutsMap.get(sourceLayout.id);
-    const newCheckpointId = layoutCheckpointsMap.get(sourceLayout.livePublishedCheckpointId);
-    if (newLayoutId === undefined || newCheckpointId === undefined) continue;
-    yield* Effect.promise(() =>
-      ctx.db
-        .update(layouts)
-        .set({ livePublishedCheckpointId: newCheckpointId })
-        .where(eq(layouts.id, newLayoutId)),
-    );
-  }
-
-  for (const sourcePage of sourcePages) {
-    if (sourcePage.livePublishedCheckpointId === null) continue;
-    const newPageId = pagesMap.get(sourcePage.id);
-    const newCheckpointId = pageCheckpointsMap.get(sourcePage.livePublishedCheckpointId);
-    if (newPageId === undefined || newCheckpointId === undefined) continue;
-    yield* Effect.promise(() =>
-      ctx.db
-        .update(pages)
-        .set({ livePublishedCheckpointId: newCheckpointId })
-        .where(eq(pages.id, newPageId)),
-    );
-  }
-
   // Phase 5 — broadcast invalidation -----------------------------------------
   // The project room is shared across envs; sessions on the source env will
   // refetch unchanged data (a no-op), and sessions on the target env will
@@ -798,8 +572,6 @@ export const replicateEnvironment = Effect.fn("environments.replicateEnvironment
       blocks: sourceBlocks.length,
       repeatableItems: sourceItems.length,
       comments: sourceComments.length,
-      pageCheckpoints: sourcePageCheckpoints.length,
-      layoutCheckpoints: sourceLayoutCheckpoints.length,
     },
     snapshotKey,
   };

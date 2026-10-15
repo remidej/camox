@@ -90,7 +90,7 @@ async function cli(...args) {
   }
 }
 
-void test("discovers layout block IDs through list and draft get", async () => {
+void test("discovers layout block IDs through list and get", async () => {
   const listed = await cli("list", "--json");
   assert.equal(listed.code, 0, listed.stderr);
   assert.equal(calls.at(-1).input.name, "listLayouts");
@@ -99,31 +99,18 @@ void test("discovers layout block IDs through list and draft get", async () => {
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), bundle);
   assert.equal(calls.at(-1).input.name, "getLayout");
-  assert.deepEqual(calls.at(-1).input.arguments, { id: 39, source: "draft" });
+  assert.deepEqual(calls.at(-1).input.arguments, { id: 39 });
   assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
 });
 
-void test("forwards live source independently of project and production targeting", async () => {
-  for (const live of [false, true]) {
-    const result = await cli(
-      "get",
-      "--id",
-      "39",
-      "--project",
-      "other",
-      "--production",
-      ...(live ? ["--live"] : []),
-    );
-    assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), bundle);
-    assert.deepEqual(calls.at(-1).input.arguments, {
-      id: 39,
-      source: live ? "live" : "draft",
-    });
-    assert.equal(calls.at(-1).input.projectId, 7);
-    assert.equal(calls.at(-1).headers["x-environment-name"], "production");
-    assert.equal(calls.at(-2).input.slug, "other");
-  }
+void test("forwards project and production targeting", async () => {
+  const result = await cli("get", "--id", "39", "--project", "other", "--production");
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), bundle);
+  assert.deepEqual(calls.at(-1).input.arguments, { id: 39 });
+  assert.equal(calls.at(-1).input.projectId, 7);
+  assert.equal(calls.at(-1).headers["x-environment-name"], "production");
+  assert.equal(calls.at(-2).input.slug, "other");
 });
 
 void test("rejects missing or invalid numeric layout IDs before making requests", async () => {
@@ -145,15 +132,7 @@ void test("prints structured server errors and exposes discovery guidance in hel
   assert.match(listHelp.stdout, /layouts get/);
   const help = await cli("get", "--help");
   assert.equal(help.code, 0);
-  for (const text of [
-    "--id",
-    "--live",
-    "--cwd",
-    "--project",
-    "--production",
-    "--json",
-    "blocks edit",
-  ]) {
+  for (const text of ["--id", "--cwd", "--project", "--production", "--json", "blocks edit"]) {
     assert.ok(help.stdout.includes(text), help.stdout);
   }
 });

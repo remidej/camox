@@ -26,9 +26,6 @@ export const pages = sqliteTable(
     aiSeoEnabled: int("ai_seo_enabled", { mode: "boolean" }),
     customOgImageBlobId: text("custom_og_image_blob_id"),
     customOgImageUrl: text("custom_og_image_url"),
-    // FK to page_checkpoints.id is declared in checkpoints-schema.ts to avoid
-    // the circular import between pages and page_checkpoints.
-    livePublishedCheckpointId: int("live_published_checkpoint_id"),
     contentUpdatedAt: int("content_updated_at").notNull(),
     createdById: text("created_by_id").references(() => user.id),
     createdAt: int("created_at").notNull(),

@@ -12,10 +12,7 @@ export function useUpdateBlockPosition() {
   return useMutation({
     ...blockMutations.updatePosition(),
     onMutate: (variables) => {
-      // Optimistic updates only touch the draft cache — edits never affect
-      // the live snapshot. The 'live' source slot stays as-is and the
-      // studio's Live preview keeps showing the published version.
-      const pageQueryKey = queryKeys.pages.getByPath(pathname, "draft");
+      const pageQueryKey = queryKeys.pages.getByPath(pathname);
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return {};
 
@@ -25,7 +22,7 @@ export function useUpdateBlockPosition() {
       );
 
       // Update the moved block's position in its individual cache
-      const blockKey = queryKeys.blocks.get(variables.id, "draft");
+      const blockKey = queryKeys.blocks.get(variables.id);
       const prevBundle = queryClient.getQueryData<BlockBundle>(blockKey);
       if (prevBundle) {
         queryClient.setQueryData(blockKey, {
@@ -41,7 +38,7 @@ export function useUpdateBlockPosition() {
         if (id === variables.id) {
           positions.set(id, newPosition);
         } else {
-          const bundle = queryClient.getQueryData<BlockBundle>(queryKeys.blocks.get(id, "draft"));
+          const bundle = queryClient.getQueryData<BlockBundle>(queryKeys.blocks.get(id));
           if (bundle) positions.set(id, bundle.block.position);
         }
       }
@@ -61,18 +58,15 @@ export function useUpdateBlockPosition() {
     },
     onError: (_error, variables, context) => {
       if (context?.previousPage) {
-        queryClient.setQueryData(
-          queryKeys.pages.getByPath(pathname, "draft"),
-          context.previousPage,
-        );
+        queryClient.setQueryData(queryKeys.pages.getByPath(pathname), context.previousPage);
       }
       if (context?.prevBundle) {
-        queryClient.setQueryData(queryKeys.blocks.get(variables.id, "draft"), context.prevBundle);
+        queryClient.setQueryData(queryKeys.blocks.get(variables.id), context.prevBundle);
       }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.pages.getByPath(pathname, "draft"),
+        queryKey: queryKeys.pages.getByPath(pathname),
       });
     },
   });

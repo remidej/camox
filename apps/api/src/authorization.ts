@@ -69,8 +69,8 @@ export function requireUser<U>(ctx: { user: U | null }) {
 
 // --- Membership Helpers ---
 
-/** Verify user is a member of the org that owns a project (by project ID). */
-const assertProjectMembership = Effect.fn("assertProjectMembership")(function* (
+/** Whether a user is a member of the org that owns a project (by project ID). */
+export const isProjectMember = Effect.fn("isProjectMember")(function* (
   db: Database,
   projectId: number,
   userId: string,
@@ -86,7 +86,16 @@ const assertProjectMembership = Effect.fn("assertProjectMembership")(function* (
       .where(eq(projects.id, projectId))
       .get(),
   );
-  if (!result) return yield* new ForbiddenError();
+  return result != null;
+});
+
+/** Verify user is a member of the org that owns a project (by project ID). */
+const assertProjectMembership = Effect.fn("assertProjectMembership")(function* (
+  db: Database,
+  projectId: number,
+  userId: string,
+) {
+  if (!(yield* isProjectMember(db, projectId, userId))) return yield* new ForbiddenError();
 });
 
 export const assertOrgMembership = Effect.fn("assertOrgMembership")(function* (

@@ -33,7 +33,7 @@ import { collectionQueries } from "@/lib/queries";
 import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
-import type { PublicationStatus } from "./PageStatusBadge";
+import type { PublicationStatus } from "./PublicationStatusBadge";
 import { RecordCard } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
 

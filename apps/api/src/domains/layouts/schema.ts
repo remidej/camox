@@ -17,9 +17,6 @@ export const layouts = sqliteTable(
     kind: text({ enum: ["curated", "derived", "singleton"] })
       .notNull()
       .default("curated"),
-    // FK to layout_checkpoints.id is declared in checkpoints-schema.ts to avoid
-    // the circular import between layouts and layout_checkpoints.
-    livePublishedCheckpointId: int("live_published_checkpoint_id"),
     contentUpdatedAt: int("content_updated_at").notNull(),
     createdAt: int("created_at").notNull(),
     updatedAt: int("updated_at").notNull(),

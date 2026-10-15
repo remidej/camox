@@ -68,7 +68,6 @@ async function clearAll(db: ReturnType<typeof createDrizzle>) {
   await db.delete(comments).run();
   await db.delete(repeatableItems).run();
   await db.delete(blocks).run();
-  // Cascades to page and layout checkpoints.
   await db.delete(pages).run();
   await db.delete(layouts).run();
   await db.delete(blockDefinitions).run();

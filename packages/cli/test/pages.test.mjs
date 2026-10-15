@@ -104,7 +104,7 @@ void test("forwards individual, combined, empty and omitted SEO fields through t
   }
 });
 
-void test("path targeting, project override, production selection and draft/live reads", async () => {
+void test("path targeting, project override, production selection and reads", async () => {
   const result = await cli(
     "update",
     "--path",
@@ -120,12 +120,21 @@ void test("path targeting, project override, production selection and draft/live
   assert.equal(calls.at(-1).input.projectId, 7);
   assert.equal(calls.at(-1).headers["x-environment-name"], "production");
   assert.equal(calls.at(-2).input.slug, "other");
-  for (const live of [false, true]) {
-    const read = await cli("get", "--path", "/about", ...(live ? ["--live"] : []));
-    assert.equal(read.code, 0, read.stderr);
-    assert.deepEqual(JSON.parse(read.stdout), { path: "/about", source: live ? "live" : "draft" });
-    assert.equal(calls.at(-1).input.name, "getPage");
+  const read = await cli("get", "--path", "/about");
+  assert.equal(read.code, 0, read.stderr);
+  assert.deepEqual(JSON.parse(read.stdout), { path: "/about" });
+  assert.equal(calls.at(-1).input.name, "getPage");
+});
+
+void test("no longer publishes, unpublishes or discards a single page", async () => {
+  for (const subcommand of ["publish", "unpublish", "discard-changes"]) {
+    const count = calls.length;
+    const result = await cli(subcommand, "--path", "/about");
+    assert.notEqual(result.code, 0, subcommand);
+    assert.equal(calls.length, count, subcommand);
   }
+  const read = await cli("get", "--path", "/about", "--live");
+  assert.notEqual(read.code, 0);
 });
 
 void test("rejects invalid combinations before any request", async () => {
@@ -160,9 +169,6 @@ void test("prints structured server errors and documents SEO workflow in help", 
     "--path",
     "asynchronous",
     "both fields",
-    "draft",
-    "publish",
-    "--live",
   ]) {
     assert.ok(help.stdout.includes(text), text);
   }

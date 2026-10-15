@@ -6,7 +6,7 @@ import { runService } from "../../lib/run-service";
 import { environments, pages } from "../../schema";
 import { callTool } from "../agent/service";
 import { executePageSeo } from "./ai";
-import { getPage, publishPage, updatePage } from "./service";
+import { getPage, updatePage } from "./service";
 
 const { chat, scheduleAiJob } = vi.hoisted(() => {
   vi.resetModules();
@@ -84,18 +84,13 @@ describe("page SEO updates", () => {
       metaDescription: "By ID",
     });
   });
-  it("updates manual metadata atomically, preserves omitted fields and leaves live metadata unchanged", async () => {
+  it("updates manual metadata atomically and preserves omitted fields", async () => {
     const { ctx, page } = await fixture();
-    await runService(publishPage(ctx, { id: page.id }));
     const updated = await runService(updatePage(ctx, { id: page.id, metaTitle: "Manual" }));
     expect(updated).toMatchObject({
       metaTitle: "Manual",
       metaDescription: "Original description",
       aiSeoEnabled: false,
-    });
-    expect(await runService(getPage(ctx, { id: page.id, source: "live" }))).toMatchObject({
-      metaTitle: "Original",
-      aiSeoEnabled: true,
     });
     expect(await runService(updatePage(ctx, { id: page.id, metaDescription: "" }))).toMatchObject({
       metaTitle: "Manual",

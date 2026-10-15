@@ -35,8 +35,6 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import { optimizedVideoKey } from "../files/video-optimization";
-import { writeLayoutCheckpointAndPoint } from "../layouts/service";
-import { writePageCheckpointAndPoint } from "../pages/service";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -579,18 +577,6 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     yield* syncBlockData(ctx, block.id, true);
     blockCount++;
   }
-
-  // Auto-publish the homepage (and its layout, if it hasn't been published
-  // yet) so the public site is immediately live after `camox init`. Without
-  // this, the SDK page route 404s on every path until the user manually hits
-  // publish in the studio. We only do it here — once the project exists, the
-  // regular draft → publish UX takes over for new pages.
-  //
-  const syncUserId = ctx.user?.id ?? null;
-  if (layout.livePublishedCheckpointId == null) {
-    yield* writeLayoutCheckpointAndPoint(ctx, { layout, userId: syncUserId });
-  }
-  yield* writePageCheckpointAndPoint(ctx, { page: homepage, userId: syncUserId });
 
   return { created: true, pageId: homepage.id, blockCount };
 });

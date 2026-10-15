@@ -8,8 +8,8 @@ import * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
 import { useAuthState, useSignInRedirect } from "../../lib/auth";
+import { CuratedPageContent } from "../page/CuratedPageContent";
 import { DerivedPageContent } from "../page/DerivedPageContent";
-import { PublishedPageExperience } from "../page/PublishedPageExperience";
 import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider, isLocalhostPreview } from "../provider/CoreCamoxProvider";
@@ -116,15 +116,15 @@ function PageExperience({
   }, [studioOnly, isAuthenticated, isLoading, signIn]);
 
   const loading = <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>;
-  const published = input.routeKind ? (
+  const readOnlyPage = input.routeKind ? (
     loading
   ) : input.canvasOnly ? null : input.derived ? (
-    <DerivedPageContent camoxApp={camoxApp} derived={input.derived} source={input.source} />
+    <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
   ) : (
-    <PublishedPageExperience source={input.source} />
+    <CuratedPageContent />
   );
 
-  const isolatedPage = <Frame>{published}</Frame>;
+  const isolatedPage = <Frame>{readOnlyPage}</Frame>;
   const fallback = input.routeKind ? <StudioLoadError /> : isolatedPage;
   if (isAuthenticated) {
     const editor = hasHydrated ? (
@@ -138,7 +138,7 @@ function PageExperience({
             <React.Suspense fallback={loading}>{editor ?? loading}</React.Suspense>
           ) : (
             <PreviewActivation
-              fallback={<Frame serverOnly={!!input.previewDocument}>{published}</Frame>}
+              fallback={<Frame serverOnly={!!input.previewDocument}>{readOnlyPage}</Frame>}
             >
               {editor}
             </PreviewActivation>
@@ -150,15 +150,15 @@ function PageExperience({
   if (studioOnly) return null;
   if (hasHydrated && isLocalhostPreview()) {
     return (
-      <React.Suspense fallback={published}>
-        <LazyLocalhostPreviewProvider>{published}</LazyLocalhostPreviewProvider>
+      <React.Suspense fallback={readOnlyPage}>
+        <LazyLocalhostPreviewProvider>{readOnlyPage}</LazyLocalhostPreviewProvider>
       </React.Suspense>
     );
   }
   // After sign-out, the containing document still belongs to studio. Do not
   // suddenly put site markup under its styles or theme while auth reconciles.
   if (studioDocument) return <div style={{ height: "100vh" }}>{isolatedPage}</div>;
-  return published;
+  return readOnlyPage;
 }
 
 function StudioLoadError() {

@@ -2,11 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import {
-  getLayout,
-  getLayoutInput,
-  listLayouts,
-} from "../../../../apps/api/src/domains/layouts/service";
+import { getLayout, listLayouts } from "../../../../apps/api/src/domains/layouts/service";
 import { NotFoundError } from "../../../../apps/api/src/lib/errors";
 import { resolveEnvironment } from "../../../../apps/api/src/lib/resolve-environment";
 import { runService } from "../../../../apps/api/src/lib/run-service";
@@ -14,10 +10,7 @@ import { layouts, projects } from "../../../../apps/api/src/schema";
 import type { ToolDefinition, ToolProvider } from "../types";
 
 const listLayoutsToolInput = z.object({});
-const getLayoutToolInput = z.object({
-  id: z.number().int().positive(),
-  source: getLayoutInput.shape.source.default("draft"),
-});
+const getLayoutToolInput = z.object({ id: z.number().int().positive() });
 
 export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -34,12 +27,11 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description:
       "Fetch a layout by numeric id in the current project and environment. Returns layout metadata, " +
       "ordered blocks with ids, types, layout slot, and content, repeatableItems, and files. " +
-      "Use this to discover shared navigation and footer blocks. Defaults to draft; pass source: 'live' " +
-      "for the published snapshot. An unpublished live layout returns metadata with empty block, item, and file arrays.",
+      "Use this to discover shared navigation and footer blocks.",
     inputSchema: getLayoutToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
-      const { id, source } = getLayoutToolInput.parse(input);
+      const { id } = getLayoutToolInput.parse(input);
       return runService(
         Effect.gen(function* () {
           const environment = yield* resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
@@ -59,7 +51,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
               .get(),
           );
           if (!target) return yield* new NotFoundError();
-          return yield* getLayout(ctx, { ...target, source });
+          return yield* getLayout(ctx, target);
         }),
       );
     },

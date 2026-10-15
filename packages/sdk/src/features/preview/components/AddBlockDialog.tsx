@@ -22,7 +22,6 @@ import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import type { Block } from "@/core/createBlock";
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { useLocation } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
@@ -56,24 +55,19 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
   const dialog = useSelector(previewStore, (state) => state.context.addBlockDialog);
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
-  const requireDraft = useRequireDraftSource();
 
   const createBlock = useMutation({
     ...blockMutations.create(),
     onMutate: (variables) => {
-      // Optimistic insert lands in the draft cache slot only — edits never
-      // touch the live snapshot. See useUpdateBlockPosition for the same
-      // pattern.
-      const pageQueryKey = queryKeys.pages.getByPath(pathname, "draft");
+      // Optimistic insert, like useUpdateBlockPosition.
+      const pageQueryKey = queryKeys.pages.getByPath(pathname);
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return { pageQueryKey };
 
       // Read block positions from individual caches for position computation
       const blockIds = previousPage.page.blockIds;
       const pageBlocks = blockIds
-        .map(
-          (id) => queryClient.getQueryData<BlockBundle>(queryKeys.blocks.get(id, "draft"))?.block,
-        )
+        .map((id) => queryClient.getQueryData<BlockBundle>(queryKeys.blocks.get(id))?.block)
         .filter((b) => b != null);
       const { afterPosition } = variables;
 
@@ -116,7 +110,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       };
 
       // Seed the optimistic block's individual cache
-      queryClient.setQueryData(queryKeys.blocks.get(optimisticId, "draft"), {
+      queryClient.setQueryData(queryKeys.blocks.get(optimisticId), {
         block: optimisticBlock,
         repeatableItems: [],
         files: [],
@@ -145,7 +139,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       }
       if (context?.optimisticId) {
         queryClient.removeQueries({
-          queryKey: queryKeys.blocks.get(context.optimisticId, "draft"),
+          queryKey: queryKeys.blocks.get(context.optimisticId),
         });
       }
     },
@@ -208,7 +202,6 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
 
   const handleAddBlock = async (block: Block) => {
     if (!page || !dialog || submitting.current) return;
-    if (!requireDraft()) return;
 
     submitting.current = true;
     setError(null);

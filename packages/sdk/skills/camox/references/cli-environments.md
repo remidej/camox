@@ -1,8 +1,8 @@
 # Managing Environments with the Camox CLI
 
-Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and draft-first rules.
+Read [cli-common.md](cli-common.md) first for `{{CAMOX_CMD}}`, help verification, and the dev-first workflow.
 
-Every Project has an isolated dev Environment for each developer and a shared production Environment. Each Environment independently contains draft and live sources.
+Every Project has an isolated dev Environment for each developer and a shared production Environment.
 
 ## Target production per command
 
@@ -13,7 +13,7 @@ Commands target the dev Environment by default. Use `--production` only when the
 {{CAMOX_CMD}} blocks edit --id <ID> --production
 ```
 
-`--production` selects the Environment; it does not select published content. Combine it with `--live` to read production's published snapshot, or use `pages publish --production` to publish a production draft.
+`--production` selects the Environment. Edits in production are visible on the public site right away.
 
 ## Replicate an entire Environment
 

@@ -28,7 +28,7 @@ import * as React from "react";
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
-import { layoutQueries, pageMutations, pageQueries, projectQueries } from "@/lib/queries";
+import { pageMutations, pageQueries, projectQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import type { Layout } from "../../../core/createLayout";
@@ -36,7 +36,6 @@ import { matchDerivedLayout, routeSegments } from "../../../core/derivedRoutes";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { DerivedLayoutDialog } from "./DerivedLayoutDialog";
-import { PageStatusBadge } from "./PageStatusBadge";
 
 /* -------------------------------------------------------------------------------------------------
  * PagePicker
@@ -56,13 +55,6 @@ const PagePicker = () => {
 
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: layoutRecords } = useQuery({
-    ...layoutQueries.list(project?.id ?? 0),
-    enabled: !!project,
-  });
-  const layoutStatusById = new Map(
-    layoutRecords?.map((layout) => [layout.layoutId, layout.status]),
-  );
   const deletePage = useMutation(pageMutations.delete());
   const { data: pages } = useQuery({
     ...pageQueries.list(project?.id ?? 0),
@@ -105,9 +97,6 @@ const PagePicker = () => {
 
   const currentPage = pages.find((page) => page.fullPath === pathname);
   const currentDerived = currentPage ? null : matchDerivedLayout(derivedLayouts, pathname);
-  const currentLayoutStatus = currentDerived
-    ? layoutStatusById.get(currentDerived.layout._internal.id)
-    : undefined;
 
   return (
     <>
@@ -130,14 +119,6 @@ const PagePicker = () => {
             <span className="truncate">
               {currentPage?.nickname ?? currentDerived?.layout._internal.title ?? "Select page"}
             </span>
-            {currentPage && (
-              <PageStatusBadge
-                size="sm"
-                status={currentPage.status}
-                modifiedReason={currentPage.modifiedReason}
-              />
-            )}
-            {currentLayoutStatus && <PageStatusBadge size="sm" status={currentLayoutStatus} />}
           </div>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </PopoverTrigger>
@@ -166,14 +147,7 @@ const PagePicker = () => {
                         )}
                       />
                       <div className="flex min-w-0 flex-col">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <p className="truncate">{page.nickname}</p>
-                          <PageStatusBadge
-                            size="sm"
-                            status={page.status}
-                            modifiedReason={page.modifiedReason}
-                          />
-                        </div>
+                        <p className="truncate">{page.nickname}</p>
                         <p className="text-muted-foreground truncate font-mono text-xs">
                           {page.fullPath}
                         </p>
@@ -262,15 +236,7 @@ const PagePicker = () => {
                             )}
                           />
                           <div className="flex min-w-0 flex-col">
-                            <div className="flex min-w-0 items-center gap-1.5">
-                              <p className="truncate">{layout._internal.title}</p>
-                              {layoutStatusById.has(layout._internal.id) && (
-                                <PageStatusBadge
-                                  size="sm"
-                                  status={layoutStatusById.get(layout._internal.id)!}
-                                />
-                              )}
-                            </div>
+                            <p className="truncate">{layout._internal.title}</p>
                             <p className="text-muted-foreground truncate font-mono text-xs">
                               /{routeSegments(layout._internal.id).join("/")}
                             </p>

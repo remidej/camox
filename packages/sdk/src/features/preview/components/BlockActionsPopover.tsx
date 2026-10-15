@@ -24,7 +24,6 @@ import { useSelector } from "@xstate/store-react";
 import { Copy, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
 import { blockMutations, repeatableItemMutations } from "@/lib/queries";
 import { formatShortcut } from "@/lib/utils";
@@ -342,7 +341,6 @@ function useBlockActionsShortcuts() {
   const selection = useSelector(previewStore, (state) =>
     selectionForPage(state.context, page.page.id),
   );
-  const requireDraft = useRequireDraftSource();
 
   const deleteBlockMutation = useMutation(blockMutations.delete());
   const duplicateBlockMutation = useMutation(blockMutations.duplicate());
@@ -382,7 +380,6 @@ function useBlockActionsShortcuts() {
           return pageBlocks.length > 1;
         },
         execute: () => {
-          if (!requireDraft()) return;
           const sel = blockSelectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel) return;
 
@@ -418,7 +415,6 @@ function useBlockActionsShortcuts() {
           return true;
         },
         execute: () => {
-          if (!requireDraft()) return;
           const sel = blockSelectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel) return;
 
@@ -453,7 +449,6 @@ function useBlockActionsShortcuts() {
           return index > 0;
         },
         execute: () => {
-          if (!requireDraft()) return;
           const sel = blockSelectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const index = pageBlocks.findIndex((b) => b.id === sel.blockId);
@@ -485,7 +480,6 @@ function useBlockActionsShortcuts() {
           return index !== -1 && index < pageBlocks.length - 1;
         },
         execute: () => {
-          if (!requireDraft()) return;
           const sel = blockSelectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const index = pageBlocks.findIndex((b) => b.id === sel.blockId);
@@ -514,7 +508,6 @@ function useBlockActionsShortcuts() {
           return blockSelectionForPage(ctx, page.page.id) !== null;
         },
         execute: () => {
-          if (!requireDraft()) return;
           const sel = blockSelectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const block = pageBlocks.find((b) => b.id === sel.blockId);
@@ -537,7 +530,6 @@ function useBlockActionsShortcuts() {
           return blockSelectionForPage(ctx, page.page.id) !== null;
         },
         execute: () => {
-          if (!requireDraft()) return;
           const sel = blockSelectionForPage(previewStore.getSnapshot().context, page.page.id);
           if (!sel || !page) return;
           const blockIndex = pageBlocks.findIndex((b) => b.id === sel.blockId);
@@ -561,7 +553,7 @@ function useBlockActionsShortcuts() {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [selection, page, pageBlocks, camoxApp, requireDraft]);
+  }, [selection, page, pageBlocks, camoxApp]);
 }
 
 export { BlockActionsPopover, useBlockActionsShortcuts };

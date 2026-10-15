@@ -1,4 +1,4 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQueries } from "@tanstack/react-query";
 import * as React from "react";
@@ -194,10 +194,10 @@ function useStableArray<T>(next: T[]): T[] {
   return ref.current;
 }
 
-export function usePageBlocks(
-  pageStructure: { page: Pick<PageStructure["page"], "blockIds">; layout: PageStructure["layout"] },
-  source: ReadSource = "draft",
-) {
+export function usePageBlocks(pageStructure: {
+  page: Pick<PageStructure["page"], "blockIds">;
+  layout: PageStructure["layout"];
+}) {
   const blockIds = pageStructure.page.blockIds;
   const beforeIds = pageStructure.layout?.beforeBlockIds ?? EMPTY_IDS;
   const afterIds = pageStructure.layout?.afterBlockIds ?? EMPTY_IDS;
@@ -208,7 +208,7 @@ export function usePageBlocks(
   );
 
   const results = useQueries({
-    queries: allIds.map((id) => viewBlockQueries.get(id, source)),
+    queries: allIds.map((id) => viewBlockQueries.get(id)),
   });
 
   const bundleMap = React.useMemo(() => {
@@ -294,7 +294,6 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<nu
 export function seedBlockCaches(
   queryClient: QueryClient,
   pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
-  source: ReadSource = "draft",
 ) {
   const filesById = new Map(pageData.files.map((f) => [f.id, f]));
 
@@ -315,7 +314,7 @@ export function seedBlockCaches(
     }
     const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
 
-    queryClient.setQueryData(queryKeys.blocks.get(block.id, source), {
+    queryClient.setQueryData(queryKeys.blocks.get(block.id), {
       block,
       repeatableItems: blockItems,
       files: blockFiles,

@@ -1,5 +1,5 @@
+import type { PageRecordId } from "../pageRecord";
 import { CMS_SIDEBAR_WIDTH } from "../previewConstants";
-import type { PageRecordId } from "../publication";
 import { DerivedLayoutSidebar, type DerivedLayoutStructure } from "./DerivedLayoutSidebar";
 import { PageNavigatorSidebar, type PreviewedPage } from "./PageNavigatorSidebar";
 
@@ -10,7 +10,7 @@ const LeftSidebar = ({
 }: {
   page?: PreviewedPage;
   derivedLayout?: DerivedLayoutStructure;
-  /** The record of a record page, published from its layout's sidebar. */
+  /** The record of a record page. */
   pageRecord?: PageRecordId;
 }) => {
   return (

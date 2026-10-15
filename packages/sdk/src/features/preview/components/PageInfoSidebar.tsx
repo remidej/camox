@@ -168,12 +168,6 @@ const PageInfoSidebar = ({
           <MetadataRow label="Created">{formatRelativeTime(page.createdAt)}</MetadataRow>
           <MetadataRow label="Created by">{page.createdBy ?? "Unknown"}</MetadataRow>
           <MetadataRow label="Updated">{formatRelativeTime(page.updatedAt)}</MetadataRow>
-          <MetadataRow label="Published">
-            {page.publishedAt == null ? "Never" : formatRelativeTime(page.publishedAt)}
-          </MetadataRow>
-          {page.publishedAt != null && (
-            <MetadataRow label="Published by">{page.publishedBy ?? "Unknown"}</MetadataRow>
-          )}
         </Metadata>
         <div className="-mx-2">
           <AttachedComments pageId={pageId} />

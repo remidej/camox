@@ -6,20 +6,6 @@
 export type QueryKey = [first: "camox", ...rest: Array<string | number>];
 type QueryKeyGroup = Record<string, QueryKey | ((...args: any[]) => QueryKey)>;
 
-/**
- * Source axis on read query keys. `'live'` reads the page's live published
- * checkpoint snapshot; `'draft'` reads the live editor rows. The two render
- * through the same component — only the cache slot differs, so toggling the
- * source select is instant once both have been seeded.
- *
- * Block / page-read query keys include the source as the trailing key segment.
- * Omitting it on `invalidateQueries` is a prefix invalidation that hits every
- * source — used for navigation events and other source-agnostic invalidations.
- * Edit-time invalidations (which only touch draft data) pass `'draft'`
- * explicitly so the `'live'` cache stays untouched.
- */
-export type ReadSource = "draft" | "live";
-
 export const queryKeys = {
   collections: {
     list: (projectSlug: string, environmentName: string) => [
@@ -61,10 +47,7 @@ export const queryKeys = {
   },
   pages: {
     list: ["camox", "pages", "list"],
-    getByPath: (path: string, source?: ReadSource) =>
-      source
-        ? ["camox", "pages", "getByPath", path, source]
-        : ["camox", "pages", "getByPath", path],
+    getByPath: (path: string) => ["camox", "pages", "getByPath", path],
     getByPathAll: ["camox", "pages", "getByPath"],
     getById: (id: number) => ["camox", "pages", "getById", id],
   },
@@ -73,8 +56,7 @@ export const queryKeys = {
     get: (id: number) => ["camox", "files", "get", id],
   },
   blocks: {
-    get: (id: number, source?: ReadSource) =>
-      source ? ["camox", "blocks", "get", id, source] : ["camox", "blocks", "get", id],
+    get: (id: number) => ["camox", "blocks", "get", id],
     getUsageCounts: ["camox", "blocks", "getUsageCounts"],
     // Under the usage counts prefix, so every usage invalidation refreshes it too.
     getPagesUsing: (type: string) => ["camox", "blocks", "getUsageCounts", "pages", type],

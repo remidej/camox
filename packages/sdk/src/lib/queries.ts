@@ -1,4 +1,4 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { type ApiClient, getApiUrl, getEnvironmentName, getOrpc } from "./api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
@@ -102,12 +102,12 @@ export const pageQueries = {
     queryKey: queryKeys.pages.list,
   }),
 
-  getByPath: (fullPath: string, projectSlug: string, source: ReadSource = "draft") => ({
+  getByPath: (fullPath: string, projectSlug: string) => ({
     ...getOrpc().pages.getByPath.queryOptions({
-      input: { path: fullPath, projectSlug, source },
+      input: { path: fullPath, projectSlug },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.pages.getByPath(fullPath, source),
+    queryKey: queryKeys.pages.getByPath(fullPath),
   }),
 
   getById: (id: number) => ({
@@ -162,16 +162,12 @@ export const layoutQueries = {
 };
 
 export const blockQueries = {
-  // Source is split into draft/live cache slots so toggling the studio source
-  // select is instant once both have been populated. The studio's default is
-  // 'draft' (matches today's edit-loop behavior); SSR seeds 'live' for the
-  // public visitor path.
-  get: (id: number, source: ReadSource = "draft") => ({
+  get: (id: number) => ({
     ...getOrpc().blocks.get.queryOptions({
-      input: { id, source },
+      input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.get(id, source),
+    queryKey: queryKeys.blocks.get(id),
   }),
 
   getUsageCounts: (projectId: number) => ({
@@ -280,9 +276,6 @@ export const pageMutations = {
   setAiSeo: () => getOrpc().pages.setAiSeo.mutationOptions(),
   setMetaTitle: () => getOrpc().pages.setMetaTitle.mutationOptions(),
   setMetaDescription: () => getOrpc().pages.setMetaDescription.mutationOptions(),
-  publish: () => getOrpc().pages.publish.mutationOptions(),
-  unpublish: () => getOrpc().pages.unpublish.mutationOptions(),
-  discardChanges: () => getOrpc().pages.discardChanges.mutationOptions(),
   uploadCustomOgImage: () => ({
     mutationFn: async ({ pageId, file }: { pageId: number; file: globalThis.File }) => {
       const formData = new FormData();

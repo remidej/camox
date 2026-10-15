@@ -59,9 +59,9 @@ intended environment, and open **Content → Customers**:
    independent switch starts on. Turn it off to verify confirmation is disabled,
    or cancel to leave it unpublished.
 3. Reopen and confirm with the switch on. Status becomes **Published** without
-   creating or publishing any page or block.
-4. Edit and save again. Status becomes **Modified**, using the same badges as
-   PagePicker; live reads retain the prior revision. Use **… → Discard changes**
+   changing any page or block.
+4. Edit and save again. Status becomes **Modified**; live reads retain the prior
+   revision. Use **… → Discard changes**
    to restore the published draft without changing live content, or use
    **Publish changes** in the list to publish the saved draft.
 5. Use **… → Unpublish** and confirm: status returns to **Draft**, with content/history kept.

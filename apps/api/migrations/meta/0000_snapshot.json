@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2d2cc661-52e2-4c9b-b06d-9cab71209c1a",
+  "id": "29beb2f3-ba27-4a82-b719-529df07fb666",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -797,13 +797,6 @@
           "autoincrement": false,
           "default": "'curated'"
         },
-        "live_published_checkpoint_id": {
-          "name": "live_published_checkpoint_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "content_updated_at": {
           "name": "content_updated_at",
           "type": "integer",
@@ -858,97 +851,6 @@
           "tableFrom": "layouts",
           "tableTo": "environments",
           "columnsFrom": ["environment_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "layout_checkpoints": {
-      "name": "layout_checkpoints",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "layout_id": {
-          "name": "layout_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "snapshot": {
-          "name": "snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "schema_version": {
-          "name": "schema_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "layout_checkpoints_layout_created_idx": {
-          "name": "layout_checkpoints_layout_created_idx",
-          "columns": ["layout_id", "created_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "layout_checkpoints_layout_id_layouts_id_fk": {
-          "name": "layout_checkpoints_layout_id_layouts_id_fk",
-          "tableFrom": "layout_checkpoints",
-          "tableTo": "layouts",
-          "columnsFrom": ["layout_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "layout_checkpoints_created_by_user_id_fk": {
-          "name": "layout_checkpoints_created_by_user_id_fk",
-          "tableFrom": "layout_checkpoints",
-          "tableTo": "user",
-          "columnsFrom": ["created_by"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1052,13 +954,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "live_published_checkpoint_id": {
-          "name": "live_published_checkpoint_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "content_updated_at": {
           "name": "content_updated_at",
           "type": "integer",
@@ -1143,97 +1038,6 @@
           "tableFrom": "pages",
           "tableTo": "user",
           "columnsFrom": ["created_by_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "page_checkpoints": {
-      "name": "page_checkpoints",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "page_id": {
-          "name": "page_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "snapshot": {
-          "name": "snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "schema_version": {
-          "name": "schema_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "page_checkpoints_page_created_idx": {
-          "name": "page_checkpoints_page_created_idx",
-          "columns": ["page_id", "created_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "page_checkpoints_page_id_pages_id_fk": {
-          "name": "page_checkpoints_page_id_pages_id_fk",
-          "tableFrom": "page_checkpoints",
-          "tableTo": "pages",
-          "columnsFrom": ["page_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "page_checkpoints_created_by_user_id_fk": {
-          "name": "page_checkpoints_created_by_user_id_fk",
-          "tableFrom": "page_checkpoints",
-          "tableTo": "user",
-          "columnsFrom": ["created_by"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1330,13 +1134,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
-        },
-        "synced_published_data": {
-          "name": "synced_published_data",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
