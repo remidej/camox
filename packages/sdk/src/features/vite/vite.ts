@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -156,9 +157,13 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       if (id === RESOLVED_VIRTUAL_STUDIO_CSS) {
         const cssPath = resolve(stylesDir, "studio.css");
         if (isBuild) {
+          // A fixed public path, not an asset URL: the server build must render the
+          // same href, and inlining the CSS would ship it to every visitor's JS.
           const css = readFileSync(cssPath, "utf-8");
-          const dataUrl = `data:text/css;base64,${Buffer.from(css).toString("base64")}`;
-          return `export default ${JSON.stringify(dataUrl)};`;
+          const hash = createHash("sha256").update(css).digest("hex").slice(0, 8);
+          const fileName = `assets/camox-studio-${hash}.css`;
+          this.emitFile({ type: "asset", fileName, source: css });
+          return `export default ${JSON.stringify(`/${fileName}`)};`;
         }
         // Dev: serve the file directly via Vite's /@fs/ prefix
         const cssUrl = `/@fs/${cssPath.replaceAll("\\", "/").replace(/^\/+/, "")}`;
