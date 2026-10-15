@@ -1,1 +1,0 @@
-ALTER TABLE `files` ADD `optimized_size` integer;

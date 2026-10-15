@@ -1,1 +1,0 @@
-ALTER TABLE `repeatable_items` ADD `settings` text;

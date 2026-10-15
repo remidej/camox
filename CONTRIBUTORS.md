@@ -101,6 +101,11 @@ The health check is a basic availability check, not full schema validation.
 
 ### Database changes
 
+> **On `feat/drafts` and the branches built on it:** the schema is one baseline
+> migration, `apps/api/migrations/0000_baseline.sql` (ADR 0013). Until
+> `feat/drafts` merges, a schema change regenerates that baseline instead of
+> adding a migration. See [Regenerating the baseline](#regenerating-the-baseline).
+
 Generate and commit migration SQL in `apps/api/migrations` during development.
 CI applies pending files; it never generates migrations. API tests also apply
 the migrations to a local test database.
@@ -115,6 +120,41 @@ but earlier successful migrations can remain applied. A failed Worker deployment
 also leaves successful migrations applied. Prefer a corrective commit; reverting
 application code does not revert the database. Review data recovery separately
 before attempting any database restore.
+
+### Resetting the local D1
+
+The local D1 lives in `apps/api/.wrangler/state/v3/d1`. Reset it whenever the
+baseline changes, since an applied migration is never re-run. Stop
+`pnpm dev` first, then from `apps/api`:
+
+```sh
+rm -rf .wrangler/state/v3/d1
+pnpm db:migrate:local
+pnpm seed
+```
+
+The seed prints the dev credentials. Site content comes back on the next
+`pnpm dev`, when the Vite plugin syncs the playground.
+
+### Regenerating the baseline
+
+`0000_baseline.sql` is the Drizzle schema (`apps/api/src/schema.ts`) plus a
+hand-written section at the end with the reference views and guard triggers,
+which Drizzle can't express. After changing the schema, from `apps/api`:
+
+```sh
+sed -n '/^-- Hand-written:/,$p' migrations/0000_baseline.sql > /tmp/hand-written.sql &&
+  test -s /tmp/hand-written.sql &&
+  rm -rf migrations &&
+  pnpm db:generate --name baseline &&
+  printf '\n--> statement-breakpoint\n' >> migrations/0000_baseline.sql &&
+  cat /tmp/hand-written.sql >> migrations/0000_baseline.sql
+```
+
+If the change touches a table or column the views or triggers read, edit the
+hand-written section too. Then check that `pnpm db:generate` prints "No schema
+changes", run the API tests, and reset the local D1. Commit the SQL together
+with `migrations/meta`.
 
 ### Unpublished packages
 
