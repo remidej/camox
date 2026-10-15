@@ -36,6 +36,7 @@ const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "nu
 function ownerName(owner: Subject["owner"]): string {
   if (!owner) return "Elsewhere";
   if (owner.kind === "layout") return `Layout ${owner.name}`;
+  if (owner.kind === "syncedBlock") return `Synced block ${owner.title}`;
   return owner.nickname || owner.path;
 }
 
