@@ -2,70 +2,43 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Window, type HTMLButtonElement } from "happy-dom";
+import { Window } from "happy-dom";
 import * as React from "react";
 
-import type { Block } from "../../core/createBlock";
-import type { Layout } from "../../core/createLayout";
-import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
-import type { EditingOwner } from "../preview/previewStore";
-import { getCanvasPages } from "./canvasPages";
-import { selectedCanvasPage } from "./canvasSelection";
+import type { CanvasPage } from "./canvasPages";
 
-// Keep RightSidebar, the owner context, and the preview store real. Only replace
-// its expensive leaf editors, which would otherwise need RPC and router providers.
+// Keep the chat and the preview store real; replace the feedback, which needs RPC.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    let source: string | undefined;
-    if (specifier === "@camox/ui/toaster") source = "export const toast = () => {}";
-    if (context.parentURL?.endsWith("/RightSidebar.tsx")) {
-      for (const name of [
-        "PageInfoSidebar",
-        "DerivedPageInfoSidebar",
-        "PageEditorSidebar",
-        "CommentSidebar",
-      ]) {
-        if (specifier !== `./${name}`) continue;
-        source = `
-          export function ${name}({pageId, layoutId}) {
-            const [count, setCount] = React.useState(0);
-            return React.createElement("button", {
-              "data-editor": "${name}",
-              "data-page-id": pageId,
-              "data-layout-id": layoutId,
-              onClick: () => setCount(value => value + 1),
-            }, String(count));
-          }
-        `;
-      }
-    }
-    if (context.parentURL?.endsWith("/CanvasRightSidebar.tsx") && specifier.endsWith("/queries"))
-      source = `export const blockQueries = {getPagesUsing: (projectId, type) => ({
-        queryKey: ["blockPages", projectId, type],
-        queryFn: () => globalThis.canvasBlockPages[type] ?? [],
-      })};`;
-    if (source)
+    if (
+      context.parentURL?.endsWith("/CanvasRightSidebar.tsx") &&
+      specifier === "./CanvasFeedbackSidebar"
+    ) {
+      const source = `
+        export function CanvasFeedbackSidebar({page, pages}) {
+          const [count, setCount] = React.useState(0);
+          return React.createElement("button", {
+            "data-feedback": page?.key ?? "site",
+            "data-pages": pages.length,
+            onClick: () => setCount(value => value + 1),
+          }, String(count));
+        }
+      `;
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
+    }
     return nextResolve(specifier, context);
   },
 });
 
-const layouts = [
-  { _internal: { id: "about", kind: "singleton", title: "About" } },
-  { _internal: { id: "articles.$slug", kind: "derived", title: "Article" } },
-] as Layout[];
-
-function select(url: string) {
-  const pages = getCanvasPages(
-    [
-      { id: "7", nickname: "Home", fullPath: "/" },
-      { id: "83", nickname: "Special article", fullPath: "/articles/special" },
-    ],
-    layouts,
-  );
-  return selectedCanvasPage(pages, layouts, url);
-}
+const home: CanvasPage = { key: "page:7", pageId: "7", title: "Home", pathname: "/" };
+const pricing: CanvasPage = { key: "page:8", pageId: "8", title: "Pricing", pathname: "/pricing" };
+const about: CanvasPage = {
+  key: "layout:about",
+  layoutId: "about",
+  title: "About",
+  pathname: "/about",
+};
+const pages = [home, pricing, about];
 
 async function setup() {
   const dom = new Window({ url: "http://localhost/" });
@@ -76,12 +49,6 @@ async function setup() {
     Element: dom.Element,
     HTMLElement: dom.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    canvasBlockPages: {
-      hero: [
-        { id: "7", nickname: "Home", fullPath: "/" },
-        { id: "83", nickname: "Special article", fullPath: "/articles/special" },
-      ],
-    } as Record<string, { id: string; nickname: string; fullPath: string }[]>,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -89,51 +56,24 @@ async function setup() {
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
   const { CanvasRightSidebar } = await import("./CanvasRightSidebar");
-  const { PreviewEditingOwnerContext } = await import("../preview/previewSelection");
   const { previewStore: store } = await import("../preview/previewStore");
   const mount = dom.document.createElement("div");
   dom.document.body.append(mount);
   const root = createRoot(mount as unknown as HTMLElement);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const navigations: NavigateOptions[] = [];
   return {
     mount,
     store,
-    navigations,
-    async render(url: string, owner?: EditingOwner, block?: Block) {
-      const { pathname, search, hash } = new URL(url, "https://camox.test");
+    async render(page: CanvasPage | undefined, blockSelected = false) {
       await React.act(async () =>
-        root.render(
-          <React.StrictMode>
-            <QueryClientProvider client={client}>
-              <NavigationProvider
-                location={{ pathname, href: url, search, hash }}
-                navigate={(options) => {
-                  navigations.push(options);
-                }}
-              >
-                <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
-                  {block ? (
-                    <CanvasRightSidebar page={undefined} catalog={{ block, projectId: 1 }} />
-                  ) : (
-                    <CanvasRightSidebar page={select(pathname)} owner={owner} />
-                  )}
-                </PreviewEditingOwnerContext>
-              </NavigationProvider>
-            </QueryClientProvider>
-          </React.StrictMode>,
-        ),
+        root.render(<CanvasRightSidebar page={page} pages={pages} blockSelected={blockSelected} />),
       );
     },
-    async settle() {
-      await React.act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      });
+    shown() {
+      if (mount.querySelector("[data-canvas-chat-sidebar]")) return "chat";
+      return mount.querySelector("[data-feedback]")?.getAttribute("data-feedback");
     },
     async close() {
       await React.act(async () => root.unmount());
-      client.clear();
-      store.send({ type: "activatePage", pageId: null });
       store.send({ type: "exitEditMode" });
       await dom.happyDOM.close();
       for (const [key, descriptor] of previous) {
@@ -144,170 +84,57 @@ async function setup() {
   };
 }
 
-void test("canvas URL selection targets page or layout info without inheriting stale preview selection", async () => {
-  const dom = await setup();
-  const { store } = dom;
-  store.send({ type: "enterEditMode" });
-  store.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
-  const snapshot = store.getSnapshot();
-  const observed: unknown[] = [];
-  const subscription = store.subscribe((state) => observed.push(state));
-  try {
-    for (const [url, editor, pageId, layoutId] of [
-      ["/", "PageInfoSidebar", "7", null],
-      // A concrete page wins over a matching derived layout.
-      ["/articles/special", "PageInfoSidebar", "83", null],
-      ["/about", "DerivedPageInfoSidebar", null, "about"],
-      ["/articles/hello%20world", "DerivedPageInfoSidebar", null, "articles.$slug"],
-      ["/missing", null, null, null],
-    ] as const) {
-      await dom.render(url);
-      const leaf = dom.mount.querySelector("[data-editor]");
-      assert.equal(leaf?.getAttribute("data-editor") ?? null, editor, url);
-      assert.equal(leaf?.getAttribute("data-page-id") ?? null, pageId, url);
-      assert.equal(leaf?.getAttribute("data-layout-id") ?? null, layoutId, url);
-      assert.equal(dom.mount.querySelectorAll("aside").length, 1, url);
-      assert.equal(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'), null);
-      assert.equal(store.getSnapshot(), snapshot, "canvas rendering must not change preview state");
-    }
-    assert.ok(
-      dom.mount.querySelector("[data-canvas-chat-sidebar]"),
-      "an unmatched URL shows the Canvas's chat",
-    );
-    assert.deepEqual(observed, [], "canvas navigation must not send preview-store events");
-  } finally {
-    subscription.unsubscribe();
-    await dom.close();
-  }
-});
-
-void test("changing the selected canvas page resets sidebar-local state, but rerendering does not", async () => {
-  const dom = await setup();
-  try {
-    await dom.render("/");
-    await React.act(async () => dom.mount.querySelector("button")!.click());
-    await dom.render("/");
-    assert.equal(dom.mount.querySelector("button")!.textContent, "1");
-    await dom.render("/articles/special");
-    assert.equal(dom.mount.querySelector("button")!.textContent, "0");
-    assert.equal(dom.mount.querySelector("button")!.getAttribute("data-page-id"), "83");
-
-    await dom.render("/about");
-    await React.act(async () => dom.mount.querySelector("button")!.click());
-    await dom.render("/articles/example");
-    assert.equal(dom.mount.querySelector("button")!.textContent, "0");
-    assert.equal(
-      dom.mount.querySelector("button")!.getAttribute("data-layout-id"),
-      "articles.$slug",
-    );
-  } finally {
-    await dom.close();
-  }
-});
-
-void test("canvas uses the active frame owner to edit selected page and layout blocks", async () => {
+void test("the right sidebar is the Canvas's chat, whatever is selected, unless commenting", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
   try {
-    for (const [url, owner] of [
-      ["/", { kind: "page", pageId: "7" }],
-      ["/about", { kind: "layout", layoutId: "docs" }],
+    for (const [page, blockSelected] of [
+      [undefined, false],
+      [home, false],
+      [about, false],
+      [undefined, true],
     ] as const) {
-      dom.store.send({ type: "setFocusedBlock", ...owner, blockId: "42" });
-      await dom.render(url, owner);
-      assert.ok(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'));
-      await dom.render(url, { kind: "page", pageId: "83" });
-      assert.equal(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'), null);
+      await dom.render(page, blockSelected);
+      assert.equal(dom.shown(), "chat");
     }
   } finally {
     await dom.close();
   }
 });
 
-void test("a record page's selected record opens the editor, with no block selected", async () => {
-  const dom = await setup();
-  dom.store.send({ type: "enterEditMode" });
-  const owner = { kind: "layout", layoutId: "docs" } as const;
-  try {
-    dom.store.send({
-      type: "selectTarget",
-      ...owner,
-      selection: { type: "record", layoutId: "docs", recordId: "article" },
-    });
-    await dom.render("/articles/example", owner);
-    assert.ok(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'));
-    dom.store.send({ type: "clearSelection" });
-    await dom.render("/articles/example", owner);
-    assert.ok(dom.mount.querySelector('[data-editor="DerivedPageInfoSidebar"]'));
-  } finally {
-    await dom.close();
-  }
-});
-
-void test("comment mode targets the selected persisted page and keeps code layouts on layout info", async () => {
+void test("commenting shows the selected Page's feedback, or every Page's, but never a block's", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
   dom.store.send({ type: "setCommentMode", enabled: true });
   const snapshot = dom.store.getSnapshot();
   try {
-    await dom.render("/articles/special");
-    const comments = dom.mount.querySelector('[data-editor="CommentSidebar"]');
-    assert.ok(comments);
-    assert.equal(comments.getAttribute("data-page-id"), "83");
-    for (const url of ["/about", "/articles/example"]) {
-      await dom.render(url);
-      assert.ok(dom.mount.querySelector('[data-editor="DerivedPageInfoSidebar"]'));
-      assert.equal(dom.mount.querySelector('[data-editor="CommentSidebar"]'), null);
-    }
-    await dom.render("/missing");
-    assert.ok(dom.mount.querySelector("[data-canvas-chat-sidebar]"));
-    assert.equal(dom.store.getSnapshot(), snapshot);
+    await dom.render(home);
+    assert.equal(dom.shown(), "page:7");
+    assert.equal(dom.mount.querySelector("[data-pages]")?.getAttribute("data-pages"), "3");
+    await dom.render(about);
+    assert.equal(dom.shown(), "layout:about", "the feedback decides what a code page shows");
+    await dom.render(undefined);
+    assert.equal(dom.shown(), "site");
+    await dom.render(undefined, true);
+    assert.equal(dom.shown(), "chat", "no feedback targets a block of the Block Catalog");
+    assert.equal(dom.store.getSnapshot(), snapshot, "rendering never changes preview state");
   } finally {
     await dom.close();
   }
 });
 
-void test("a selected block shows its description and the Pages using it, which select the Page", async () => {
+void test("changing the selected Page resets the feedback's local state, but rerendering does not", async () => {
   const dom = await setup();
-  const block = (id: string, description = `${id} description`) =>
-    ({ _internal: { id, title: id, description, layoutOnly: false } }) as Block;
+  dom.store.send({ type: "enterEditMode" });
+  dom.store.send({ type: "setCommentMode", enabled: true });
+  const button = () => dom.mount.querySelector("button")!;
   try {
-    await dom.render("/camox/blocks/hero?zoom=2#top", undefined, block("hero"));
-    await dom.settle();
-    assert.match(dom.mount.textContent, /hero description/);
-    assert.equal(dom.mount.querySelector("[data-editor]"), null, "no Page sidebar");
-    const pages = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
-    assert.deepEqual(
-      pages.map((page) => page.textContent),
-      ["Home/", "Special article/articles/special"],
-    );
-    await React.act(async () => pages[1]!.click());
-    assert.deepEqual(
-      dom.navigations,
-      [{ to: "/articles/special?zoom=2#top" }],
-      "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the Page",
-    );
-
-    await dom.render("/camox/blocks/tabs", undefined, block("tabs"));
-    await dom.settle();
-    assert.match(dom.mount.textContent, /tabs description/);
-    assert.equal(dom.mount.querySelector("aside li"), null);
-    assert.match(dom.mount.textContent, /No pages use this block/);
-
-    await dom.render("/camox/blocks/faq", undefined, block("faq", ""));
-    await dom.settle();
-    assert.equal(
-      [...dom.mount.querySelectorAll("aside p")].filter((p) => p.textContent === "").length,
-      0,
-      "an empty description leaves no empty paragraph",
-    );
-
-    await dom.render("/");
-    assert.equal(
-      dom.mount.querySelector("[data-editor]")?.getAttribute("data-editor"),
-      "PageInfoSidebar",
-      "a Page restores its sidebar",
-    );
+    await dom.render(home);
+    await React.act(async () => button().click());
+    await dom.render(home);
+    assert.equal(button().textContent, "1");
+    await dom.render(pricing);
+    assert.equal(button().textContent, "0");
   } finally {
     await dom.close();
   }

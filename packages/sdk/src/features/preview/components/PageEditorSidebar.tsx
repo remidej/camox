@@ -32,7 +32,6 @@ import {
   type Selection,
 } from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
-import { AttachedComments } from "./AttachedComments";
 import { contentFieldSchema } from "./contentFieldSchema";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
@@ -148,7 +147,6 @@ const PageEditorSidebar = () => {
 };
 
 const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
-  const pageId = owner.kind === "page" ? owner.pageId : undefined;
   const camoxApp = useCamoxApp();
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
@@ -850,22 +848,6 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                   }
                   placement={recordView ? recordPlacement(recordView.selection) : undefined}
                   fieldIdPrefix={fieldIdPrefix}
-                />
-              )}
-              {block && !recordView && !fieldInfo && (currentItemId == null || currentItem) && (
-                <AttachedComments
-                  pageId={pageId}
-                  blockId={block.id}
-                  itemId={currentItemId ?? undefined}
-                />
-              )}
-              {block && !recordView && fieldInfo && (
-                <AttachedComments
-                  pageId={pageId}
-                  blockId={block.id}
-                  itemId={currentItemId ?? undefined}
-                  fieldName={fieldInfo.fieldName}
-                  fieldType={fieldInfo.fieldType}
                 />
               )}
             </>

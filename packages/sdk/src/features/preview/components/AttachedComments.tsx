@@ -1,6 +1,5 @@
 import { COMMENT_MESSAGE_MAX_LENGTH } from "@camox/api-contract";
 import { Button } from "@camox/ui/button";
-import { ButtonGroup } from "@camox/ui/button-group";
 import {
   InputGroup,
   InputGroupAddon,
@@ -8,9 +7,10 @@ import {
   InputGroupTextarea,
 } from "@camox/ui/input-group";
 import { toast } from "@camox/ui/toaster";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
-import { Archive, ArrowUp, CornerLeftUp, Eye, X } from "lucide-react";
+import { Archive, ArrowUp } from "lucide-react";
 import * as React from "react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
@@ -18,13 +18,11 @@ import { commentMutations, commentQueries } from "@/lib/queries";
 
 import { draftLabel, isSettledIn, useCommentDraftId } from "../commentStatus";
 import { type CommentTarget, previewCommentsStore } from "../previewCommentsStore";
-import { previewStore } from "../previewStore";
 import { usePageComments } from "../usePageComments";
-import { useSelectComment } from "../useSelectComment";
 import { CommentHeader } from "./CommentHeader";
 import { CommentTargetQuote } from "./CommentTargetQuote";
 import { SendFeedbackDialog } from "./SendFeedbackDialog";
-import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
+import { SidebarSection, SidebarSectionContent, SidebarSectionHeader } from "./SidebarSection";
 
 function resizeComposer(element: HTMLTextAreaElement) {
   element.style.height = "auto";
@@ -37,8 +35,10 @@ type AttachedCommentsProps = {
   itemId?: string;
   fieldName?: string;
   fieldType?: FieldType;
+  /** Lists the page's feedback, rather than a target's comments with a composer. */
   allPageComments?: boolean;
-  presentation?: "sidebar" | "popover";
+  /** Names the page's feedback list, with its count. */
+  heading?: string;
 };
 
 function editorTarget({ blockId, itemId, fieldName }: AttachedCommentsProps): CommentTarget {
@@ -57,23 +57,19 @@ export function AttachedComments(props: AttachedCommentsProps) {
   return <AttachedCommentsContent {...props} pageId={props.pageId} />;
 }
 
-/** Shared comment list and composer for editors and the Feedback sidebar. */
+/** A target's comments and composer, in its popover, or a page's feedback in the Feedback sidebar. */
 function AttachedCommentsContent({
   pageId,
   blockId,
   itemId,
   fieldName,
   allPageComments = false,
-  presentation = "sidebar",
+  heading,
 }: AttachedCommentsProps & { pageId: string }) {
   const queryClient = useQueryClient();
   const commentsQuery = usePageComments(pageId);
-  const selectComment = useSelectComment(pageId);
-  const isPopover = presentation === "popover";
-  const { draft, activeId, focusTarget } = useSelector(
-    previewCommentsStore,
-    (state) => state.context,
-  );
+  const isPopover = !allPageComments;
+  const { draft, focusTarget } = useSelector(previewCommentsStore, (state) => state.context);
   const target = editorTarget({ blockId, itemId, fieldName });
   const matches = (entry: { pageId: string; target: CommentTarget | null }) =>
     entry.pageId === pageId &&
@@ -87,9 +83,7 @@ function AttachedCommentsContent({
   const draftId = useCommentDraftId();
   const visible = attached.filter((comment) => !isSettledIn(comment, draftId));
   const currentDraft = draft && matches(draft) ? draft : null;
-  const selected = attached.find((comment) => comment.id === activeId);
   const textarea = React.useRef<HTMLTextAreaElement>(null);
-  const activeComment = React.useRef<HTMLDivElement>(null);
   const draftTarget = currentDraft?.target;
   const message = currentDraft?.message ?? "";
   const submitting = React.useRef(false);
@@ -118,7 +112,7 @@ function AttachedCommentsContent({
       previewCommentsStore.send({
         type: "postSucceeded",
         draft: { ...submitted, id: comment.id },
-        focusComment: !isPopover,
+        focusComment: false,
       });
     },
     onSettled: () => {
@@ -169,17 +163,11 @@ function AttachedCommentsContent({
     previewCommentsStore.send({ type: "composerFocused" });
   }, [draftTarget, focusTarget, isPopover]);
 
-  React.useEffect(() => {
-    if (!selected || isPopover || previewCommentsStore.getSnapshot().context.popover) return;
-    activeComment.current?.scrollIntoView({ block: "nearest" });
-    activeComment.current?.focus({ preventScroll: true });
-  }, [selected, isPopover]);
-
   return (
     <SidebarSection
       aria-label={
         allPageComments
-          ? "Feedback"
+          ? (heading ?? "Feedback")
           : blockId == null
             ? "Page comments"
             : fieldName
@@ -188,29 +176,13 @@ function AttachedCommentsContent({
                 ? "Block comments"
                 : "Item comments"
       }
-      divider={isPopover || allPageComments ? "none" : "top"}
       className={isPopover ? "space-y-2 p-2" : undefined}
     >
-      {isPopover ? null : allPageComments ? (
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-semibold">
-            Feedback
-            {visible.length > 0 && (
-              <span className="text-muted-foreground font-normal"> ({visible.length})</span>
-            )}
-          </h2>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="End comment mode"
-            onClick={() => previewStore.send({ type: "setCommentMode", enabled: false })}
-          >
-            <X className="text-muted-foreground" />
-          </Button>
-        </div>
-      ) : (
-        <SidebarSectionHeader>Feedback</SidebarSectionHeader>
+      {heading && (
+        <SidebarSectionHeader>
+          {heading}
+          {visible.length > 0 && <span className="font-normal">{visible.length}</span>}
+        </SidebarSectionHeader>
       )}
       <SidebarSectionContent className={isPopover ? "space-y-2" : undefined}>
         {commentsQuery.isPending && (
@@ -231,79 +203,56 @@ function AttachedCommentsContent({
           </p>
         )}
         {visible.map((comment) => (
-          <div
-            key={comment.id}
-            ref={comment.id === activeId ? activeComment : undefined}
-            className="focus-visible:ring-ring rounded-md p-1 outline-none focus-visible:ring-2"
-            tabIndex={comment.id === activeId ? -1 : undefined}
-          >
-            <div>
-              <CommentHeader author={comment.author} createdAt={comment.createdAt} />
-              <div className="pl-8">
-                {allPageComments &&
-                  (comment.target ? (
-                    <CommentTargetQuote pageId={pageId} target={comment.target} />
-                  ) : (
-                    <p className="text-muted-foreground text-sm">Target no longer available</p>
-                  ))}
-                <p className="text-sm wrap-break-word whitespace-pre-wrap">{comment.message}</p>
-                {comment.addressedIn && (
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    Addressed in {draftLabel(comment.addressedIn)}
-                  </p>
-                )}
+          <div key={comment.id} className="rounded-md p-1">
+            <div className="flex min-w-0 items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <CommentHeader author={comment.author} createdAt={comment.createdAt} />
               </div>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Archive comment"
+                      className="text-muted-foreground"
+                      disabled={setResolved.isPending}
+                      onClick={() => {
+                        setResolved.mutate({
+                          pageId,
+                          id: comment.id,
+                          resolved: true,
+                        });
+                      }}
+                    />
+                  }
+                >
+                  <Archive />
+                </TooltipTrigger>
+                <TooltipContent>Archive</TooltipContent>
+              </Tooltip>
             </div>
-            <ButtonGroup className="mt-2 ml-8" aria-label="Comment actions">
-              {allPageComments && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={comment.target == null}
-                  onClick={() => {
-                    void selectComment(comment);
-                  }}
-                >
-                  <Eye className="text-muted-foreground" />
-                  View
-                </Button>
+            <div className="pl-8">
+              {allPageComments &&
+                (comment.target ? (
+                  <CommentTargetQuote pageId={pageId} target={comment.target} />
+                ) : (
+                  <p className="text-muted-foreground text-sm">Target no longer available</p>
+                ))}
+              <p className="text-sm wrap-break-word whitespace-pre-wrap">{comment.message}</p>
+              {comment.addressedIn && (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Addressed in {draftLabel(comment.addressedIn)}
+                </p>
               )}
-              {!allPageComments && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => previewStore.send({ type: "setCommentMode", enabled: true })}
-                >
-                  <CornerLeftUp className="text-muted-foreground" />
-                  See all
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label="Archive comment"
-                disabled={setResolved.isPending}
-                onClick={() => {
-                  setResolved.mutate({
-                    pageId,
-                    id: comment.id,
-                    resolved: true,
-                  });
-                }}
-              >
-                <Archive className="text-muted-foreground" />
-                Archive
-              </Button>
-            </ButtonGroup>
+            </div>
           </div>
         ))}
         {allPageComments && (
           <SendFeedbackDialog key={pageId} pageId={pageId} disabled={visible.length === 0} />
         )}
-        {!allPageComments && (
+        {isPopover && (
           <InputGroup>
             <InputGroupTextarea
               ref={textarea}

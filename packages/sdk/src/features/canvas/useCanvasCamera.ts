@@ -87,6 +87,7 @@ export function useCanvasCamera(
     refreshFlight: () => void;
     zoomAt: (point: CanvasPoint, scale: number) => void;
     keepInView: (worldX: number, screenX: number) => void;
+    fitAll: () => void;
   } | null>(null);
   const flyTo = React.useCallback((key: string) => {
     flightControls.current?.flyTo(key);
@@ -100,6 +101,10 @@ export function useCanvasCamera(
   /** Pan immediately so a world x sits at or right of a screen x; never pans otherwise. */
   const keepInView = React.useCallback((worldX: number, screenX: number) => {
     flightControls.current?.keepInView(worldX, screenX);
+  }, []);
+  /** Zoom out to the whole Canvas, keeping the selection: its caller decides what it becomes. */
+  const fitAll = React.useCallback(() => {
+    flightControls.current?.fitAll();
   }, []);
   React.useLayoutEffect(() => {
     rowRef.current = row;
@@ -445,8 +450,14 @@ export function useCanvasCamera(
           ),
         );
       },
+      fitAll: () => {
+        gesture = undefined;
+        snappedKey = undefined;
+        updateGeometry();
+        move(fitCanvas(viewportSize, contentSize), false, false);
+      },
     };
-    const move = (next: CanvasCamera, immediate = false) => {
+    const move = (next: CanvasCamera, immediate = false, deselect = true) => {
       markMoving();
       cancelCameraFlight();
       // Any new camera interaction takes precedence over the remembered view.
@@ -455,6 +466,7 @@ export function useCanvasCamera(
       const selected = targets().find((candidate) => candidate.key === rowRef.current?.selected);
       const selectedScale = selected && fitCanvasPage(viewportSize, selected).scale;
       if (
+        deselect &&
         selectedScale !== undefined &&
         target.scale >= selectedScale - 1e-8 &&
         next.scale < selectedScale - 1e-8
@@ -796,5 +808,5 @@ export function useCanvasCamera(
     };
   }, [workspaceKey, continuity]);
 
-  return { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView };
+  return { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView, fitAll };
 }

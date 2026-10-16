@@ -23,7 +23,7 @@ const probeImports = `
   import {PreviewEditingOwnerContext} from ${JSON.stringify(ownerUrl)};
 `;
 
-// Keep LeftSidebar, navigation, queries, cache seeding, and preview ownership real.
+// Keep navigation, queries, cache seeding, and preview ownership real.
 // Replace leaf UI only, so RPC/rendering assertions don't require the entire studio.
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -51,28 +51,25 @@ registerHooks({
               "data-focus-created-block": String(focusCreatedBlock),
             });
           }`;
-    }
-    if (context.parentURL?.endsWith("/LeftSidebar.tsx")) {
-      const name =
-        specifier === "./PageNavigatorSidebar"
-          ? "PageNavigatorSidebar"
-          : specifier === "./DerivedLayoutSidebar"
-            ? "DerivedLayoutSidebar"
-            : undefined;
-      if (name)
+      if (specifier.endsWith("/PageSidebar"))
         source = `${probeImports}
-          export function ${name}({page, layout}) {
+          export function PageSidebar({pageId, derivedLayout}) {
             const location = useLocation();
             const navigate = useNavigate();
             const owner = React.useContext(PreviewEditingOwnerContext);
             return React.createElement("button", {
-              "data-sidebar": "${name}",
-              "data-id": page?.id ?? layout?.layoutId,
+              "data-sidebar": "PageSidebar",
+              "data-id": pageId ?? derivedLayout?.layoutId,
               "data-path": location.pathname,
               "data-owner": JSON.stringify(owner),
               onClick: () => navigate({to: "/articles/hello%20world"}),
-            }, page?.metaTitle ?? layout?.layoutId);
+            }, pageId ?? derivedLayout?.layoutId);
           }`;
+      if (specifier.endsWith("/queries"))
+        source = `export const blockQueries = {getPagesUsing: (projectId, type) => ({
+          queryKey: ["blockPages", projectId, type],
+          queryFn: () => globalThis.canvasBlockPages[type] ?? [],
+        })};`;
     }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
@@ -136,6 +133,12 @@ async function setup() {
     cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
     IS_REACT_ACT_ENVIRONMENT: true,
     canvasSidebarApi: api,
+    canvasBlockPages: {
+      hero: [
+        { id: "7", nickname: "Home", fullPath: "/" },
+        { id: "83", nickname: "Special article", fullPath: "/articles/special" },
+      ],
+    } as Record<string, { id: string; nickname: string; fullPath: string }[]>,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -152,6 +155,7 @@ async function setup() {
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
   const navigations: { to: string; replace?: boolean }[] = [];
+  let canvasShown = 0;
   return {
     api,
     calls,
@@ -159,10 +163,14 @@ async function setup() {
     mount,
     navigations,
     store,
+    get canvasShown() {
+      return canvasShown;
+    },
     async render(
       url: string,
       page: CanvasPage | undefined,
       navigator: Partial<CanvasNavigator> = {},
+      catalog?: { block: Block; projectId: number },
     ) {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
@@ -177,7 +185,9 @@ async function setup() {
               <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
                 <CanvasLeftSidebar
                   page={page}
+                  catalog={catalog}
                   navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}
+                  onShowCanvas={() => canvasShown++}
                 />
                 <main>Canvas stays visible</main>
               </PreviewEditingOwnerContext>
@@ -205,7 +215,7 @@ async function setup() {
   };
 }
 
-void test("curated sidebar shares the selected path cache and forwards picker/dialog site navigation", async () => {
+void test("curated sidebar shares the selected path cache and forwards sidebar/dialog site navigation", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
   dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
@@ -213,11 +223,11 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
   try {
     await dom.render("/", home);
     await dom.settle();
-    const picker = dom.mount.querySelector<HTMLButtonElement>("[data-sidebar]")!;
-    assert.equal(picker.getAttribute("data-path"), "/");
-    assert.equal(picker.getAttribute("data-owner"), "null");
-    assert.equal(picker.getAttribute("data-id"), "7");
-    assert.equal(dom.mount.querySelectorAll("aside").length, 1, "uses actual LeftSidebar");
+    const sidebar = dom.mount.querySelector<HTMLButtonElement>("[data-sidebar]")!;
+    assert.equal(sidebar.getAttribute("data-path"), "/");
+    assert.equal(sidebar.getAttribute("data-owner"), "null");
+    assert.equal(sidebar.getAttribute("data-id"), "7");
+    assert.equal(dom.mount.querySelectorAll("aside").length, 1);
     assert.deepEqual(dom.calls, [{ path: "/", projectSlug: "test-project" }]);
     assert.deepEqual(clientPage(dom.client, "/"), pageStructure("/"));
     assert.equal(dom.mount.querySelector("[data-add-block]")?.getAttribute("data-add-block"), "/");
@@ -225,7 +235,7 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
       dom.mount.querySelector("[data-add-block]")?.getAttribute("data-focus-created-block"),
       "false",
     );
-    await React.act(async () => picker.click());
+    await React.act(async () => sidebar.click());
     await React.act(async () =>
       dom.mount.querySelector<HTMLButtonElement>("[data-create-page]")!.click(),
     );
@@ -233,7 +243,7 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
       { to: "/articles/hello%20world" },
       { to: "/created", replace: true },
     ]);
-    assert.equal(picker.getAttribute("data-path"), "/", "selection waits for the outer URL");
+    assert.equal(sidebar.getAttribute("data-path"), "/", "selection waits for the outer URL");
     await dom.render("/other", {
       ...home,
       key: "page:8",
@@ -269,7 +279,6 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
       await dom.render(path, page);
       await dom.settle();
       const sidebar = dom.mount.querySelector("[data-sidebar]")!;
-      assert.equal(sidebar.getAttribute("data-sidebar"), "DerivedLayoutSidebar");
       assert.equal(sidebar.getAttribute("data-id"), page.layoutId);
       assert.equal(sidebar.getAttribute("data-path"), path);
       assert.equal(sidebar.getAttribute("data-owner"), "null");
@@ -385,6 +394,75 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
       "a Page restores its sidebar",
     );
     assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-id"), "7");
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("a selected item's sidebar names it under a back button that shows the whole Canvas", async () => {
+  const dom = await setup();
+  try {
+    for (const [url, page] of [
+      ["/", home],
+      ["/about", singleton],
+    ] as const) {
+      await dom.render(url, page);
+      await dom.settle();
+      const aside = dom.mount.querySelector("aside")!;
+      assert.equal(aside.querySelector("h2")?.textContent, page.title);
+      assert.equal(aside.getAttribute("aria-label"), page.title);
+      assert.equal(dom.mount.querySelector("[data-canvas-navigator-sidebar]"), null);
+    }
+    const back = dom.mount.querySelector<HTMLButtonElement>('[aria-label="Back to the Canvas"]')!;
+    await React.act(async () => back.click());
+    assert.equal(dom.canvasShown, 1);
+    assert.deepEqual(dom.navigations, [], "the Canvas, not the sidebar, leaves the selection");
+  } finally {
+    await dom.close();
+  }
+});
+
+void test("a selected block shows its description and the Pages using it, which select the Page", async () => {
+  const dom = await setup();
+  const block = (id: string, description = `${id} description`) =>
+    ({ _internal: { id, title: id, description, layoutOnly: false } }) as Block;
+  const showBlock = async (id: string, description?: string, url = `/camox/blocks/${id}`) => {
+    await dom.render(url, undefined, {}, { block: block(id, description), projectId: 1 });
+    await dom.settle();
+  };
+  try {
+    await showBlock("hero", undefined, "/camox/blocks/hero?zoom=2#top");
+    assert.equal(dom.mount.querySelector("aside h2")?.textContent, "hero");
+    assert.match(dom.mount.textContent, /hero description/);
+    assert.equal(dom.mount.querySelector("[data-sidebar]"), null, "no Page sidebar");
+    assert.equal(dom.mount.querySelector("[data-canvas-navigator-sidebar]"), null);
+    const pages = [...dom.mount.querySelectorAll<HTMLButtonElement>("aside li button")];
+    assert.deepEqual(
+      pages.map((page) => page.textContent),
+      ["Home/", "Special article/articles/special"],
+    );
+    await React.act(async () => pages[1]!.click());
+    assert.deepEqual(
+      dom.navigations,
+      [{ to: "/articles/special?zoom=2#top" }],
+      "a sidebar selection keeps the search and hash like a Canvas selection, but isn't canvas-sourced, so the camera flies to the Page",
+    );
+    await React.act(async () =>
+      dom.mount.querySelector<HTMLButtonElement>('[aria-label="Back to the Canvas"]')!.click(),
+    );
+    assert.equal(dom.canvasShown, 1, "a block leads back to the Canvas too");
+
+    await showBlock("tabs");
+    assert.match(dom.mount.textContent, /tabs description/);
+    assert.equal(dom.mount.querySelector("aside li"), null);
+    assert.match(dom.mount.textContent, /No pages use this block/);
+
+    await showBlock("faq", "");
+    assert.equal(
+      [...dom.mount.querySelectorAll("aside p")].filter((p) => p.textContent === "").length,
+      0,
+      "an empty description leaves no empty paragraph",
+    );
   } finally {
     await dom.close();
   }

@@ -225,6 +225,8 @@ type CanvasWorkspaceHandle = {
    * it. A Page without a path to select, or the selected item, only gets the flight.
    */
   showItem: (key: string) => void;
+  /** Leaves the selection and zooms out to the whole Canvas. */
+  showCanvas: () => void;
 };
 
 function CanvasWorkspace({
@@ -318,22 +320,23 @@ function CanvasWorkspace({
       collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedItemKey),
   )?.key;
   const snapTargets = canvasSnapTargets(items);
-  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView } = useCanvasCamera(
-    workspaceKey,
-    snapTargets.find(({ key }) => key === selectedKey),
-    {
-      targets: snapTargets,
-      width,
-      onSelect: (key) => {
-        const block = blocksByKey.get(key);
-        if (block) return selectBlock(block);
-        const pathname = pageSlots.get(key)?.pathname;
-        if (pathname) selectPage(pathname);
+  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView, fitAll } =
+    useCanvasCamera(
+      workspaceKey,
+      snapTargets.find(({ key }) => key === selectedKey),
+      {
+        targets: snapTargets,
+        width,
+        onSelect: (key) => {
+          const block = blocksByKey.get(key);
+          if (block) return selectBlock(block);
+          const pathname = pageSlots.get(key)?.pathname;
+          if (pathname) selectPage(pathname);
+        },
+        selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
+        onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
       },
-      selected: intendedItemKey && positions.has(intendedItemKey) ? intendedItemKey : null,
-      onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
-    },
-  );
+    );
   // A collapsing marker's area may start off-screen. Its vertical bar should take
   // the place of the marker's visible part, so pan before the collapse paints.
   const collapsingShelf = React.useRef<string | null>(null);
@@ -379,6 +382,10 @@ function CanvasWorkspace({
       }
       if (collapsedShelves.has(shelf.key)) toggleShelf(shelf.key);
       setPendingFlight(key);
+    },
+    showCanvas() {
+      selectPage(STUDIO_CANVAS_PATH);
+      fitAll();
     },
   }));
 
@@ -647,6 +654,9 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   // A Canvas selection commits once its route payload loads. Until then, the
   // sidebars and the camera already follow it, so they move as the camera snaps.
   const [intent, setIntent] = React.useState<{ from: string; to: typeof location } | null>(null);
+  // An intent ends once the location leaves where it started, committed or not, so
+  // coming back there later doesn't revive it.
+  if (intent && intent.from !== location.pathname) setIntent(null);
   const intended = intent?.from === location.pathname ? intent.to : location;
   const intendedSelection = selectionAt(intended.pathname);
   const navigate = useNavigate();
@@ -722,16 +732,26 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
       {selectedPage?.pageId != null && !isCommentMode && <CuratedBlockShortcuts />}
       {/* The sidebars stay mounted and route to the intended selection, or the Canvas itself. */}
       <NavigationProvider location={intended} navigate={navigate}>
-        <CanvasLeftSidebar
-          page={intendedSelection.page}
-          navigator={{
-            shelves: getCanvasShelves(canvasPages, blockCatalog),
-            selectedKey: intendedItemKey,
-            onShowItem: (key) => workspace.current?.showItem(key),
-          }}
-          owner={editingOwner}
-          pageRecord={pageRecord}
-        />
+        {/* The record page's record, which its sidebar edits. */}
+        <PageRecordContext value={recordResult}>
+          <CanvasLeftSidebar
+            page={intendedSelection.page}
+            catalog={
+              intendedSelection.block && {
+                block: intendedSelection.block,
+                projectId: project.data.id,
+              }
+            }
+            navigator={{
+              shelves: getCanvasShelves(canvasPages, blockCatalog),
+              selectedKey: intendedItemKey,
+              onShowItem: (key) => workspace.current?.showItem(key),
+            }}
+            onShowCanvas={() => workspace.current?.showCanvas()}
+            owner={editingOwner}
+            pageRecord={pageRecord}
+          />
+        </PageRecordContext>
       </NavigationProvider>
       <CanvasWorkspace
         ref={workspace}
@@ -758,19 +778,11 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
         }
       />
       <NavigationProvider location={intended} navigate={navigate}>
-        {/* The record page's record, which its sidebar edits. */}
-        <PageRecordContext value={recordResult}>
-          <CanvasRightSidebar
-            page={intendedSelection.page}
-            catalog={
-              intendedSelection.block && {
-                block: intendedSelection.block,
-                projectId: project.data.id,
-              }
-            }
-            owner={editingOwner}
-          />
-        </PageRecordContext>
+        <CanvasRightSidebar
+          page={intendedSelection.page}
+          pages={canvasPages}
+          blockSelected={intendedSelection.block != null}
+        />
       </NavigationProvider>
     </div>
   );
