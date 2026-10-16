@@ -1,7 +1,7 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture } from "../../../test/fixtures";
 import { blocks, drafts } from "../../schema";

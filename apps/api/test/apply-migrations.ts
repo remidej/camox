@@ -1,4 +1,8 @@
-import { applyD1Migrations } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 
-await applyD1Migrations(env.DB, env.TEST_MIGRATIONS ?? []);
+// Mirrors `applyD1Migrations` from `cloudflare:test`. Importing that module from
+// a setup file makes workerd exit before the next test file on the same worker
+// (@cloudflare/vitest-plugin 1.4 with Vitest 5).
+for (const migration of env.TEST_MIGRATIONS ?? []) {
+  await env.DB.batch(migration.queries.map((query) => env.DB.prepare(query)));
+}

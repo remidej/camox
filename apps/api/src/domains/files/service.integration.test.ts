@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   callSeedingLive,

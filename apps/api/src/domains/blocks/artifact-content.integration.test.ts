@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { blockTypesProvider } from "../../../../../packages/ai-tools/src/providers/block-types";
 import { blocksProvider } from "../../../../../packages/ai-tools/src/providers/blocks";

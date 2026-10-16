@@ -8,7 +8,7 @@ import { call } from "@orpc/server";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";

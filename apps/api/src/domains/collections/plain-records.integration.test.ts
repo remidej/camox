@@ -1,5 +1,5 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";

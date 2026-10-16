@@ -38,9 +38,9 @@ export default defineConfig({
     dts: true,
     minify: false,
     outExtensions: () => ({ js: ".js" }),
-    deps: {
-      skipNodeModulesBundle: true,
-      neverBundle: [
+    deps: { neverBundle: true },
+    inputOptions: {
+      external: [
         "virtual:camox-studio-css",
         "virtual:camox-overlay-css",
         // Self-import in `createLayout.tsx` — must stay as the bare specifier

@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { ConflictError, InvalidInputError, NotFoundError, UnauthenticatedError } from "./errors";
 import { runService } from "./run-service";
