@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 
@@ -12,8 +13,15 @@ Object.assign(globalThis, {
 });
 const { initApiClient } = await import("./api-client");
 const { seedStartedDraft } = await import("./studio-draft");
-const { blockQueries, collectionQueries, commentQueries, fileQueries, layoutQueries, pageQueries } =
-  await import("./queries");
+const {
+  blockQueries,
+  collectionQueries,
+  commentQueries,
+  fileQueries,
+  layoutQueries,
+  pageMutations,
+  pageQueries,
+} = await import("./queries");
 
 /** Every query the studio reads content with, as built while the studio is at `url`. */
 function keysAt(url: string) {
@@ -48,4 +56,28 @@ void test("a draft started by the first edit starts from what Live showed", () =
   const [blockInDraft] = keysAt("/about?camox-draft=d1");
   assert.deepEqual(client.getQueryData(blockInDraft!), { title: "Edited on Live" });
   client.clear();
+});
+
+void test("changing a page's custom OG image on Live starts a draft, and the studio enters it", async (t) => {
+  keysAt("/about");
+  const sent: { method: string; draft: string | null; create: string | null }[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
+    const headers = new Headers(init.headers);
+    sent.push({
+      method: init.method ?? "GET",
+      draft: headers.get(DRAFT_HEADER),
+      create: headers.get(DRAFT_CREATE_HEADER),
+    });
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const file = new File(["bytes"], "og.png", { type: "image/png" });
+  await pageMutations.uploadCustomOgImage().mutationFn({ pageId: "page-1", file });
+  await pageMutations.deleteCustomOgImage().mutationFn({ pageId: "page-1" });
+
+  const [upload, removal] = sent;
+  assert.equal(upload?.create, "1");
+  assert.ok(upload.draft);
+  assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), upload.draft);
+  assert.deepEqual(removal, { method: "DELETE", draft: upload.draft, create: null });
 });
