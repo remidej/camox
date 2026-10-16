@@ -13,13 +13,9 @@ import type { DerivedLayoutStructure } from "./DerivedLayoutSidebar";
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/PageSidebar.tsx")) return nextResolve(specifier, context);
-    const name = [
-      "PageInfoSidebar",
-      "PageTree",
-      "DerivedLayoutSidebar",
-      "DerivedPageInfoSidebar",
-      "PageEditorSidebar",
-    ].find((candidate) => specifier === `./${candidate}`);
+    const name = ["PageInfoSidebar", "PageTree", "DerivedLayoutSidebar", "PageEditorSidebar"].find(
+      (candidate) => specifier === `./${candidate}`,
+    );
     if (!name) return nextResolve(specifier, context);
     const source = `
       export function ${name}({pageId, layoutId, layout}) {
@@ -105,10 +101,7 @@ void test("without a selection, a page shows its blocks, then what's about it", 
       ["PageInfoSidebar", "7"],
     ]);
     await dom.render({ derivedLayout: docs });
-    assert.deepEqual(dom.panels(), [
-      ["DerivedLayoutSidebar", "docs"],
-      ["DerivedPageInfoSidebar", "docs"],
-    ]);
+    assert.deepEqual(dom.panels(), [["DerivedLayoutSidebar", "docs"]]);
     await dom.render({});
     assert.deepEqual(dom.panels(), []);
     assert.match(dom.text(), /No page blocks/);

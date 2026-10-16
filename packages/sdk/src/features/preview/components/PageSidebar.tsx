@@ -6,7 +6,6 @@ import type { PageRecordId } from "../pageRecord";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, selectionForOwner } from "../previewStore";
 import { DerivedLayoutSidebar, type DerivedLayoutStructure } from "./DerivedLayoutSidebar";
-import { DerivedPageInfoSidebar } from "./DerivedPageInfoSidebar";
 import { PageEditorSidebar } from "./PageEditorSidebar";
 import { PageInfoSidebar } from "./PageInfoSidebar";
 import { PageTree } from "./PageTree";
@@ -45,7 +44,6 @@ const PageSidebar = ({
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
         <DerivedLayoutSidebar layout={derivedLayout} pageRecord={pageRecord} />
-        <DerivedPageInfoSidebar layoutId={derivedLayout.layoutId} />
       </div>
     );
   }
