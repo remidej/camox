@@ -1,5 +1,6 @@
 import { PulsingBorder } from "@paper-design/shaders-react";
 import { createBlock } from "camox/createBlock";
+import { usePreviewPaused } from "camox/dom";
 import { useEffect, useRef, useState } from "react";
 
 import { blockSideBorder } from "@/components/BlockContainer";
@@ -33,8 +34,10 @@ const hero = createBlock({
 function HeroComponent() {
   const sectionRef = useRef<HTMLElement>(null);
   // Pause the WebGL shader when the hero is off-screen so it stops eating GPU
-  // while the user scrolls the rest of the page.
+  // while the user scrolls the rest of the page, and when Camox pauses its
+  // preview, such as a Canvas frame nobody is looking at.
   const [isVisible, setIsVisible] = useState(true);
+  const isPreviewPaused = usePreviewPaused(sectionRef);
 
   useEffect(() => {
     const el = sectionRef.current;
@@ -65,7 +68,7 @@ function HeroComponent() {
           pulse={0}
           smoke={0.32}
           smokeSize={0.5}
-          speed={isVisible ? 0.15 : 0}
+          speed={isVisible && !isPreviewPaused ? 0.15 : 0}
           minPixelRatio={1}
           scale={1.1}
           marginLeft={0}

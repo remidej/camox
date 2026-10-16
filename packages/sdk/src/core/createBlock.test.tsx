@@ -23,6 +23,23 @@ const options = {
   toMarkdown: (content: { title: string }) => [content.title],
 };
 
+void test("repeaters without an item limit serialize without maxItems", () => {
+  const block = createBlock({
+    ...options,
+    content: (field: ContentFieldBuilder) => ({
+      items: field.repeater({
+        content: (item) => ({ title: item.string({ default: "Item" }) }),
+        minItems: 1,
+        maxItems: Infinity,
+        toMarkdown: (item) => [item.title],
+      }),
+    }),
+    toMarkdown: () => [],
+  });
+  const schema = JSON.parse(JSON.stringify(block._internal.contentSchema));
+  assert.equal("maxItems" in schema.properties.items, false);
+});
+
 void test("synced defaults to false", () => {
   assert.equal(createBlock(options)._internal.synced, false);
   assert.equal(createBlock({ ...options, synced: false })._internal.synced, false);
