@@ -35,6 +35,16 @@ const { initApiClient } = await import("@/lib/api-client");
 const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
 const { getDraftRequestHeaders, readDraftFromUrl } = await import("@/lib/studio-draft");
+const { CommandPalette, useCommandPaletteActions } =
+  await import("@/features/provider/components/CommandPalette");
+const { useAdminShortcuts } = await import("@/features/provider/useAdminShortcuts");
+
+/** The command palette as the authenticated studio mounts it, opened with its shortcut. */
+function Palette() {
+  useAdminShortcuts();
+  useCommandPaletteActions();
+  return <CommandPalette />;
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 const project = { id: 1, slug: "site", name: "Site" };
@@ -140,6 +150,66 @@ const menuItems = () =>
   );
 const itemNamed = (name: RegExp) => menuItems().find((item) => name.test(item.textContent ?? ""));
 
+const palette = () => window.document.querySelector("[cmdk-root]");
+const paletteItems = () =>
+  [...window.document.querySelectorAll("[cmdk-item]")].map(
+    (item) => item as unknown as HTMLElement,
+  );
+const paletteLabels = () => paletteItems().map((item) => item.textContent);
+const paletteItem = (label: string) => paletteItems().find((item) => item.textContent === label);
+
+async function togglePalette() {
+  await React.act(async () => {
+    window.document.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+async function openPalette() {
+  if (!palette()) await togglePalette();
+  assert.ok(palette(), "expected the command palette to open");
+}
+
+/** Opens the palette and selects the action with this visible label. */
+async function runCommand(label: string) {
+  await openPalette();
+  await click(paletteItem(label));
+}
+
+/** The palette's commands under its Drafts heading. */
+const draftsCommands = () => {
+  const group = [...window.document.querySelectorAll("[cmdk-group]")].find(
+    (candidate) => candidate.querySelector("[cmdk-group-heading]")?.textContent === "Drafts",
+  );
+  return [...(group?.querySelectorAll("[cmdk-item]") ?? [])].map((item) => item.textContent);
+};
+
+/**
+ * Types into the palette's search field. React tracks an input's value and ignores an input
+ * event whose value it already knows, so assigning `input.value` would be swallowed; setting
+ * it through the prototype's native setter bypasses that tracker, and React sees the change.
+ */
+async function search(text: string) {
+  const input = window.document.querySelector("[cmdk-input]") as unknown as HTMLInputElement;
+  assert.ok(input, "expected the palette's search field");
+  await React.act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
+    setValue.set!.call(input, text);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+const dialogTitle = () =>
+  window.document.querySelector('[role="dialog"] [data-slot="dialog-title"]')?.textContent ?? "";
+
+const nameInput = () =>
+  window.document.querySelector('[role="dialog"] input[aria-label="Draft name"]') as unknown as
+    | HTMLInputElement
+    | undefined;
+
 async function render(t: test.TestContext, at: string | null) {
   window.history.replaceState(null, "", at ? `/?${DRAFT_SEARCH_PARAM}=${at}` : "/");
   readDraftFromUrl();
@@ -161,6 +231,7 @@ async function render(t: test.TestContext, at: string | null) {
         <AuthContext.Provider value={auth}>
           <NavigationProvider navigate={(options) => void navigations.push(options)}>
             <DraftsControl />
+            <Palette />
           </NavigationProvider>
         </AuthContext.Provider>
       </QueryClientProvider>,
@@ -168,6 +239,7 @@ async function render(t: test.TestContext, at: string | null) {
   );
   await settle();
   t.after(async () => {
+    if (palette()) await togglePalette();
     await React.act(async () => root.unmount());
     host.remove();
     client.clear();
@@ -330,4 +402,121 @@ void test("says Started a new draft when the first edit starts one, without aski
     ["Started a new draft"],
   );
   assert.equal(window.document.querySelector("input"), null);
+});
+
+void test("the palette's Review and publish opens the draft's review", async (t) => {
+  mockApi(t);
+  await render(t, spring);
+
+  await runCommand("Review and publish");
+
+  assert.equal(palette(), null);
+  assert.equal(dialogTitle(), "Spring campaign");
+  assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Publish all/);
+  assert.equal(window.document.querySelector('input[aria-label="Draft name"]'), null);
+});
+
+void test("the palette's Discard draft… asks for confirmation without discarding", async (t) => {
+  const calls = mockApi(t);
+  await render(t, spring);
+
+  await runCommand("Discard draft…");
+
+  const confirm = window.document.querySelector('[role="alertdialog"]');
+  assert.match(confirm?.textContent ?? "", /Discard this draft\?/);
+  assert.equal(calls.filter((call) => call.path === "drafts/discard").length, 0);
+});
+
+void test("the palette's Rename draft… opens the review with the draft's name being edited", async (t) => {
+  mockApi(t);
+  await render(t, spring);
+
+  await runCommand("Rename draft…");
+
+  assert.equal(nameInput()?.value, "Spring campaign");
+});
+
+void test("the palette's Switch to Live leaves the draft for the same page", async (t) => {
+  mockApi(t);
+  const { navigations } = await render(t, spring);
+
+  await runCommand("Switch to Live");
+
+  assert.deepEqual(navigations, [
+    { to: `http://localhost:3000/?${DRAFT_SEARCH_PARAM}=${spring}`, draft: null },
+  ]);
+});
+
+void test("the palette's Switch to draft… lists the other regular drafts and switches to the one picked", async (t) => {
+  mockApi(t);
+  const { navigations } = await render(t, spring);
+
+  await runCommand("Switch to draft…");
+  assert.deepEqual(paletteLabels(), ['Switch to "Ada, Oct 13"']);
+  await click(paletteItem('Switch to "Ada, Oct 13"'));
+
+  assert.deepEqual(
+    navigations.map((navigation) => navigation.draft),
+    [adas],
+  );
+});
+
+void test("on Live, the palette's only drafts command is Switch to draft…", async (t) => {
+  mockApi(t);
+  await render(t, null);
+  await openPalette();
+
+  assert.deepEqual(draftsCommands(), ["Switch to draft…"]);
+});
+
+void test("in a draft, the palette offers the draft's actions and switching", async (t) => {
+  mockApi(t);
+  await render(t, spring);
+  await openPalette();
+
+  assert.deepEqual(draftsCommands(), [
+    "Review and publish",
+    "Discard draft…",
+    "Rename draft…",
+    "Switch to Live",
+    "Switch to draft…",
+  ]);
+});
+
+void test("on Live, the palette's Switch to draft… lists every regular draft, not the development draft", async (t) => {
+  mockApi(t);
+  await render(t, null);
+
+  await runCommand("Switch to draft…");
+
+  assert.deepEqual(paletteLabels(), ['Switch to "Spring campaign"', 'Switch to "Ada, Oct 13"']);
+});
+
+void test("the palette hides Switch to draft… when no other draft is open", async (t) => {
+  mockApi(t, (path) =>
+    path === "drafts/list" ? json({ ...list, drafts: [drafts[0], drafts[2]] }) : undefined,
+  );
+  await render(t, spring);
+  await openPalette();
+
+  assert.ok(draftsCommands().includes("Switch to Live"));
+  assert.equal(draftsCommands().includes("Switch to draft…"), false);
+});
+
+void test("searching the palette for a creator's name finds their draft", async (t) => {
+  mockApi(t);
+  await render(t, null);
+  await openPalette();
+
+  await search("Rémi");
+
+  assert.deepEqual(draftsCommands(), ['Switch to "Spring campaign"']);
+});
+
+void test("the localhost studio's palette offers its development draft's review and discard, without switching", async (t) => {
+  devMode(t);
+  await render(t, null);
+  await openPalette();
+
+  assert.deepEqual(draftsCommands(), ["Review and publish", "Discard draft…"]);
 });

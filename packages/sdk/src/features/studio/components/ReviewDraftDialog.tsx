@@ -181,11 +181,22 @@ export function useLeaveDraft() {
   };
 }
 
-/** The draft's name in the review's header, renamed in place by any member (#203). */
-function DraftName({ projectId, draft }: { projectId: number; draft: DraftSummary }) {
+/**
+ * The draft's name in the review's header, renamed in place by any member (#203). It starts in
+ * edit mode when the review was opened to rename the draft.
+ */
+function DraftName({
+  projectId,
+  draft,
+  startRenaming,
+}: {
+  projectId: number;
+  draft: DraftSummary;
+  startRenaming: boolean;
+}) {
   const queryClient = useQueryClient();
-  const [editing, setEditing] = React.useState(false);
-  const [value, setValue] = React.useState("");
+  const [editing, setEditing] = React.useState(startRenaming);
+  const [value, setValue] = React.useState(draft.name ?? "");
   const rename = useMutation({
     ...draftMutations.rename(),
     onSuccess: (renamed) => {
@@ -247,11 +258,14 @@ export function ReviewDraftDialog({
   projectId,
   draftId,
   open,
+  startRenaming = false,
   onOpenChange,
 }: {
   projectId: number;
   draftId: string;
   open: boolean;
+  /** Opens with the draft's name being edited, as if the member had clicked it. */
+  startRenaming?: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
@@ -295,7 +309,11 @@ export function ReviewDraftDialog({
         <DialogContent className="flex h-[min(42rem,calc(100dvh-4rem))] flex-col gap-0 p-0 sm:max-w-5xl">
           <div className="border-b p-4 pr-12">
             <DialogTitle>
-              {draft.data ? <DraftName projectId={projectId} draft={draft.data} /> : "Draft"}
+              {draft.data ? (
+                <DraftName projectId={projectId} draft={draft.data} startRenaming={startRenaming} />
+              ) : (
+                "Draft"
+              )}
             </DialogTitle>
             <DialogDescription>
               {draft.data
