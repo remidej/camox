@@ -54,7 +54,9 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "`{ published: false, reason: 'conflictsChanged' | 'blocked', message, preview }` with a " +
       "fresh preview and token: show the new list and ask again before retrying. When the draft " +
       "has no changes, nothing is published and it returns " +
-      "`{ published: false, reason: 'empty', message }`.",
+      "`{ published: false, reason: 'empty', message }`. When the draft was already discarded, " +
+      "nothing is published and it returns `{ published: false, reason: 'discarded', message, " +
+      "ended }`.",
     inputSchema: publishToolInput,
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
@@ -68,6 +70,10 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
           Effect.map(({ empty, ended }) => {
             if (empty)
               return { published: false as const, reason: "empty" as const, message: EMPTY };
+            if (ended?.outcome === "discarded") {
+              const message = `${ended.endedBy.name} discarded the draft.`;
+              return { published: false as const, reason: "discarded" as const, message, ended };
+            }
             return { published: true as const, ended };
           }),
           Effect.catchTags({

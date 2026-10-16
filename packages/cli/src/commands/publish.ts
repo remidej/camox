@@ -1,3 +1,4 @@
+import { DRAFT_ENDED_ERROR_CODE } from "@camox/api-contract/drafts";
 import { object } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
@@ -41,6 +42,7 @@ type Args = {
 type PublishResult =
   | { published: true }
   | { published: false; reason: "empty"; message: string }
+  | { published: false; reason: "discarded"; message: string }
   | {
       published: false;
       reason: "conflictsChanged" | "blocked";
@@ -84,6 +86,14 @@ export async function handler(args: Args): Promise<never> {
     if (isJsonMode(outputMode)) printResult(result, outputMode);
     else process.stdout.write("Your development draft has no changes: nothing to publish.\n");
     process.exit(0);
+  }
+
+  if (result.reason === "discarded") {
+    printError({
+      code: DRAFT_ENDED_ERROR_CODE,
+      message: `${result.message} Nothing was published.`,
+    });
+    process.exit(1);
   }
 
   // Nothing was published: show the new list, which the user reviews before confirming again.

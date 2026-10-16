@@ -88,6 +88,18 @@ function tool(name, args) {
           },
         };
       }
+      if (api.discardedBy) {
+        const endedBy = { id: "ada", name: api.discardedBy };
+        return {
+          ok: true,
+          result: {
+            published: false,
+            reason: "discarded",
+            message: `${api.discardedBy} discarded the draft.`,
+            ended: { draftId: "draft-1", outcome: "discarded", endedBy, endedAt: 1 },
+          },
+        };
+      }
       if (api.changes.length === 0) {
         return {
           ok: true,
@@ -233,6 +245,20 @@ void test("publish --confirm on a draft without changes says nothing was publish
   assert.equal(printed.published, false);
   assert.equal(printed.reason, "empty");
   assert.equal(api.published, 0);
+});
+
+void test("publish --confirm on a discarded draft fails and says nothing was published", async () => {
+  const { token } = JSON.parse((await cli("publish", "--json")).stdout);
+  api.discardedBy = "Ada";
+
+  const result = await cli("publish", "--confirm", token, "--json");
+
+  assert.notEqual(result.code, 0);
+  assert.equal(api.published, 0);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, "DRAFT_ENDED");
+  assert.match(error.message, /Ada discarded/);
+  assert.match(error.message, /Nothing was published/);
 });
 
 void test("discard --yes empties the development draft", async () => {
