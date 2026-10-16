@@ -194,9 +194,31 @@ export const getCollectionRecord = Effect.fn("collections.getCollectionRecord")(
     Effect.gen(function* () {
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();
-      return yield* recordView(ctx, definition, record);
+      return yield* recordRead(ctx, definition, record);
     }),
   );
+});
+
+/**
+ * A record as the studio reads and saves it: its view, and whether another record's page is
+ * found by the same value (ADR 0009).
+ */
+const recordRead = Effect.fn("collections.recordRead")(function* (
+  ctx: ServiceContext,
+  definition: ScopedDefinition,
+  record: RecordRow,
+) {
+  const records = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: collectionRecords.id, content: collectionRecords.content })
+      .from(collectionRecords)
+      .where(recordsOf(definition, definition.draft)),
+  );
+  const duplicates = yield* duplicatePageValueIds(ctx, definition, records);
+  return {
+    ...(yield* recordView(ctx, definition, record)),
+    duplicatePageValue: duplicates.has(record.id),
+  };
 });
 
 /**
@@ -276,30 +298,45 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
           .where(recordsOf(definition, definition.draft))
           .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id)),
       );
-      const contents = new Map(
-        records.map((record) => [
-          record.id,
-          conformRecordContent(definition.contentSchema, record.content),
-        ]),
-      );
-      const recordPages = (yield* recordPageLayouts(ctx.db, definition)).filter(
-        (layout) => layout.collectionId === definition.collectionId,
-      );
-      const duplicates = new Set(
-        recordPages.flatMap(({ field }) =>
-          recordsSharingPageValues(records, (record) =>
-            pageValue(contents.get(record.id)!, field),
-          ).flatMap((group) => group.map((record) => record.id)),
-        ),
-      );
+      const duplicates = yield* duplicatePageValueIds(ctx, definition, records);
       return records.map((record) => ({
         id: record.id,
         label: lexicalStateToPlainText(
-          contents.get(record.id)![definition.label] as string | Record<string, unknown>,
+          conformRecordContent(definition.contentSchema, record.content)[definition.label] as
+            | string
+            | Record<string, unknown>,
         ),
         duplicatePageValue: duplicates.has(record.id),
       }));
     }),
+  );
+});
+
+/**
+ * The ids of the collection's records sharing the value their record pages are found by with
+ * another record: a duplicate path (ADR 0009). `records` are all the collection's records.
+ */
+const duplicatePageValueIds = Effect.fn("collections.duplicatePageValueIds")(function* (
+  ctx: ServiceContext,
+  definition: ScopedDefinition,
+  records: readonly Pick<RecordRow, "id" | "content">[],
+) {
+  const recordPages = (yield* recordPageLayouts(ctx.db, definition)).filter(
+    (layout) => layout.collectionId === definition.collectionId,
+  );
+  if (recordPages.length === 0) return new Set<string>();
+  const contents = new Map(
+    records.map((record) => [
+      record.id,
+      conformRecordContent(definition.contentSchema, record.content),
+    ]),
+  );
+  return new Set(
+    recordPages.flatMap(({ field }) =>
+      recordsSharingPageValues(records, (record) =>
+        pageValue(contents.get(record.id)!, field),
+      ).flatMap((group) => group.map((record) => record.id)),
+    ),
   );
 });
 
@@ -390,7 +427,7 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
       });
       if (!record) return yield* new ConflictError({ message: "This record id is already taken" });
       invalidateRecord(ctx, definition, input, record.id);
-      return yield* recordView(ctx, definition, record);
+      return yield* recordRead(ctx, definition, record);
     }),
   );
 });
@@ -558,7 +595,7 @@ export const editRecord = Effect.fn("collections.editRecord")(function* (
       );
       if (!updated) return yield* new NotFoundError();
       invalidateRecord(ctx, definition, input, record.id);
-      return yield* recordView(ctx, definition, updated);
+      return yield* recordRead(ctx, definition, updated);
     }),
   );
 });
