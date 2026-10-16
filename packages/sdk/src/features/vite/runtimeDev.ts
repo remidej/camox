@@ -265,6 +265,8 @@ function shouldHandleRequest(request) {
   }
   if (pathname === "/og" || pathname === "/sitemap.xml") return true;
   if (pathname === "/camox" || pathname.startsWith("/camox/")) return true;
+  // A page's Markdown Representation is the only file-like URL the runtime answers.
+  if (pathname.endsWith(".md")) return true;
   if (/\\.[a-z0-9]+$/i.test(pathname)) return false;
   if (pathname.startsWith("/@") || pathname.startsWith("/src/")) return false;
   if (pathname.startsWith("/__vite")) return false;
@@ -392,6 +394,8 @@ export function shouldHandleRuntimeRequest(request: Request, runtimeBasePath?: s
   }
   if (url.pathname === "/og" || url.pathname === "/sitemap.xml") return true;
   if (url.pathname === "/camox" || url.pathname.startsWith("/camox/")) return true;
+  // A page's Markdown Representation is the only file-like URL the runtime answers.
+  if (url.pathname.endsWith(".md")) return true;
   if (/\.[a-z0-9]+$/i.test(url.pathname)) return false;
   if (url.pathname.startsWith("/@") || url.pathname.startsWith("/src/")) return false;
   if (url.pathname.startsWith("/__vite")) return false;

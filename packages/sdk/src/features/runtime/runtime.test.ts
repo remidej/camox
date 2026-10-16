@@ -197,6 +197,10 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
     assert.ok(head.indexOf("camox:studio:theme") < head.indexOf('href="/studio.css"'));
     assert.ok(head.indexOf("camoxPlatform") >= 0);
     assert.ok(head.indexOf("camoxPlatform") < head.indexOf('href="/studio.css"'));
+    // Curated pages always have Markdown; layouts only when they declare toMarkdown.
+    if (path === "/about")
+      assert.match(head, /<link[^>]*rel="alternate"[^>]*href="https:\/\/site.test\/about.md"/);
+    if (path === "/pokemon/pikachu") assert.doesNotMatch(head, /rel="alternate"/);
   }
   assert.ok(calls.includes("/rpc/layouts/get"));
 });
@@ -474,6 +478,37 @@ void test("public Markdown responses read the page without a session", async (t)
     },
     { path: "/rpc/blocks/getPageMarkdown", input: { pageId: "7" }, session: null },
   ]);
+});
+
+void test("a page's .md URL serves its Markdown whatever the request accepts", async (t) => {
+  const requestedPaths: unknown[] = [];
+  t.mock.method(globalThis, "fetch", async (request: Request) => {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith("/pages/getByPath")) {
+      const { json } = (await request.json()) as { json: { path: string } };
+      requestedPaths.push(json.path);
+      if (json.path === "/missing")
+        return Response.json(
+          { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not found" } },
+          { status: 404 },
+        );
+      return Response.json({ json: { page: { id: "7" } } });
+    }
+    return Response.json({ json: { markdown: "# Page", blocks: [] } });
+  });
+  const request = (path: string) =>
+    handleCamoxRequest(new Request(`https://site.test${path}`, { headers: { Accept: "*/*" } }), {
+      apiUrl: "https://api.test",
+      projectSlug: "test",
+    });
+
+  for (const path of ["/index.md", "/blog/post.md"]) {
+    const response = await request(path);
+    assert.equal(response?.headers.get("Content-Type"), "text/markdown; charset=utf-8");
+    assert.equal(await response?.text(), "# Page");
+  }
+  assert.deepEqual(requestedPaths, ["/", "/blog/post"]);
+  assert.equal((await request("/missing.md"))?.status, 404);
 });
 
 function appWithRoutes(routes: () => unknown) {

@@ -12,6 +12,7 @@ import { CamoxPreview, PageContent } from "../preview/CamoxPreview";
 import {
   buildCamoxPageHead,
   createMarkdownResponse,
+  prefersMarkdown,
   isNotFoundError,
   loadCamoxPageForRequest,
   type CamoxPageLoaderData,
@@ -52,6 +53,7 @@ function throwNotFoundOrRethrow(error: unknown): never {
 
 export function createMarkdownMiddleware(apiUrl: string, projectSlug: string) {
   return createMiddleware().server(async ({ next, request }) => {
+    if (!prefersMarkdown(request.headers.get("Accept") ?? "")) return next();
     const response = await createMarkdownResponse({
       apiUrl,
       projectSlug,
