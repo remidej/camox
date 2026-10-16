@@ -100,7 +100,7 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
       .select()
       .from(drafts)
       .where(
-        // Development drafts stay out of the production studio: only the localhost studio
+        // Development drafts stay out of the hosted studio: only the localhost studio
         // shows its owner's (ADR 0006).
         and(eq(drafts.projectId, projectId), eq(drafts.kind, "regular")),
       ),

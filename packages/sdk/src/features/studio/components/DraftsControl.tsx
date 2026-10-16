@@ -71,7 +71,7 @@ export function DraftsControl() {
   // Without its development draft, the localhost studio has nothing to show or switch to.
   if (developmentMode && !draftId) return null;
   const current = draftId ? draft.data : undefined;
-  // The production studio never lists development drafts (ADR 0011).
+  // The hosted studio never lists development drafts (ADR 0011).
   const regular = (list.data?.drafts ?? []).filter((listed) => listed.kind === "regular");
   const live = list.data?.live;
 

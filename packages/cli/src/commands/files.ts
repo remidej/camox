@@ -55,7 +55,7 @@ export const parser = command(
         ...common,
       }),
       {
-        description: message`Upload media (maximum 100 MiB). Example: camox files upload --url https://example.com/hero.webp --alt "Product screenshot". Returns the stored file ID and URL. Without metadata options, raster images use automatic metadata.`,
+        description: message`Upload a file (maximum 100 MiB). Example: camox files upload --url https://example.com/hero.webp --alt "Product screenshot". Returns the stored file ID and URL. Without metadata options, raster images use automatic metadata.`,
       },
     ),
     command(
@@ -104,7 +104,7 @@ export const parser = command(
     ),
   ),
   {
-    description: message`Upload and manage media in your development draft.`,
+    description: message`Upload and manage files in your development draft.`,
   },
 );
 
