@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { NavigationProvider } from "../features/navigation/navigation";
+import { initApiClient } from "../lib/api-client";
+import { AuthContext } from "../lib/auth";
+import { NormalizedDataProvider } from "../lib/normalized-data";
+import { viewPageQueries, viewProjectQueries } from "../lib/view-queries";
 import { createBlock, type ContentFieldBuilder } from "./createBlock";
 
 const options = {
@@ -39,4 +48,55 @@ void test("rejects fields declared in the wrong context by untyped callers", () 
     () => createBlock({ ...options, settings: () => ({ label: text }) } as never),
     /setting "label" must be an enum or a boolean/,
   );
+});
+
+void test("a link field renders a link to an existing page and plain text for a missing one", () => {
+  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
+  initApiClient("https://api.example.test");
+  const projectId = 7;
+  const existingPageId = "0199f0a0-0000-7000-8000-000000000001";
+  const missingPageId = "0199f0a0-0000-7000-8000-000000000002";
+  const block = createBlock({
+    ...options,
+    id: "cta",
+    content: (field: ContentFieldBuilder) => ({
+      cta: field.link({ default: { text: "Go", href: "/", newTab: false } }),
+    }),
+    component: () => <block.Link name="cta">{(props) => <a {...props} />}</block.Link>,
+    toMarkdown: () => [],
+  });
+  const render = (pageId: string) => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(viewProjectQueries.getBySlug("test").queryKey, {
+      id: projectId,
+    } as never);
+    queryClient.setQueryData(viewPageQueries.list(projectId).queryKey, [
+      { id: existingPageId, fullPath: "/pricing" },
+    ]);
+    return renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <AuthContext.Provider
+          value={{ projectSlug: "test" } as React.ContextType<typeof AuthContext>}
+        >
+          <NavigationProvider>
+            <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
+              <block._internal.Component
+                mode="site"
+                blockData={{
+                  _id: "1",
+                  type: "cta",
+                  position: "a0",
+                  content: {
+                    cta: { type: "page", pageId, text: "See pricing", newTab: false } as never,
+                  },
+                }}
+              />
+            </NormalizedDataProvider>
+          </NavigationProvider>
+        </AuthContext.Provider>
+      </QueryClientProvider>,
+    );
+  };
+  assert.match(render(existingPageId), />(<a to="\/pricing">See pricing<\/a>)<\/div>$/);
+  assert.match(render(missingPageId), />See pricing<\/div>$/);
 });
