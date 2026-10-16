@@ -178,8 +178,37 @@ async function runCommand(label: string) {
   await click(paletteItem(label));
 }
 
+/** The palette's commands under its Drafts heading. */
+const draftsCommands = () => {
+  const group = [...window.document.querySelectorAll("[cmdk-group]")].find(
+    (candidate) => candidate.querySelector("[cmdk-group-heading]")?.textContent === "Drafts",
+  );
+  return [...(group?.querySelectorAll("[cmdk-item]") ?? [])].map((item) => item.textContent);
+};
+
+/**
+ * Types into the palette's search field. React tracks an input's value and ignores an input
+ * event whose value it already knows, so assigning `input.value` would be swallowed; setting
+ * it through the prototype's native setter bypasses that tracker, and React sees the change.
+ */
+async function search(text: string) {
+  const input = window.document.querySelector("[cmdk-input]") as unknown as HTMLInputElement;
+  assert.ok(input, "expected the palette's search field");
+  await React.act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
+    setValue.set!.call(input, text);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
 const dialogTitle = () =>
   window.document.querySelector('[role="dialog"] [data-slot="dialog-title"]')?.textContent ?? "";
+
+const nameInput = () =>
+  window.document.querySelector('[role="dialog"] input[aria-label="Draft name"]') as unknown as
+    | HTMLInputElement
+    | undefined;
 
 async function render(t: test.TestContext, at: string | null) {
   window.history.replaceState(null, "", at ? `/?${DRAFT_SEARCH_PARAM}=${at}` : "/");
@@ -398,11 +427,6 @@ void test("the palette's Discard draft… asks for confirmation without discardi
   assert.equal(calls.filter((call) => call.path === "drafts/discard").length, 0);
 });
 
-const nameInput = () =>
-  window.document.querySelector('[role="dialog"] input[aria-label="Draft name"]') as unknown as
-    | HTMLInputElement
-    | undefined;
-
 void test("the palette's Rename draft… opens the review with the draft's name being edited", async (t) => {
   mockApi(t);
   await render(t, spring);
@@ -437,14 +461,6 @@ void test("the palette's Switch to draft… lists the other regular drafts and s
   );
 });
 
-/** The palette's commands under its Drafts heading. */
-const draftsCommands = () => {
-  const group = [...window.document.querySelectorAll("[cmdk-group]")].find(
-    (candidate) => candidate.querySelector("[cmdk-group-heading]")?.textContent === "Drafts",
-  );
-  return [...(group?.querySelectorAll("[cmdk-item]") ?? [])].map((item) => item.textContent);
-};
-
 void test("on Live, the palette's only drafts command is Switch to draft…", async (t) => {
   mockApi(t);
   await render(t, null);
@@ -467,6 +483,15 @@ void test("in a draft, the palette offers the draft's actions and switching", as
   ]);
 });
 
+void test("on Live, the palette's Switch to draft… lists every regular draft, not the development draft", async (t) => {
+  mockApi(t);
+  await render(t, null);
+
+  await runCommand("Switch to draft…");
+
+  assert.deepEqual(paletteLabels(), ['Switch to "Spring campaign"', 'Switch to "Ada, Oct 13"']);
+});
+
 void test("the palette hides Switch to draft… when no other draft is open", async (t) => {
   mockApi(t, (path) =>
     path === "drafts/list" ? json({ ...list, drafts: [drafts[0], drafts[2]] }) : undefined,
@@ -477,17 +502,6 @@ void test("the palette hides Switch to draft… when no other draft is open", as
   assert.ok(draftsCommands().includes("Switch to Live"));
   assert.equal(draftsCommands().includes("Switch to draft…"), false);
 });
-
-async function search(text: string) {
-  const input = window.document.querySelector("[cmdk-input]") as unknown as HTMLInputElement;
-  assert.ok(input, "expected the palette's search field");
-  await React.act(async () => {
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
-    setValue.set!.call(input, text);
-    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  });
-}
 
 void test("searching the palette for a creator's name finds their draft", async (t) => {
   mockApi(t);

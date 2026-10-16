@@ -21,7 +21,8 @@ import { AuthContext } from "@/lib/auth";
 import { draftQueries, projectQueries, type DraftList, type DraftSummary } from "@/lib/queries";
 import { isDevelopmentMode, onDraftStarted } from "@/lib/studio-draft";
 
-import { type Action, actionsStore } from "../../provider/actionsStore";
+import type { Action } from "../../provider/actionsStore";
+import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
 import {
@@ -44,7 +45,7 @@ const draftClassName =
  * The studio's one drafts control (#203): what the studio is viewing, Live or a draft, the
  * draft's actions, and the drafts to switch to. Live is read-only; the first edit starts a draft.
  * The localhost studio works only in the development draft, so it shows that draft alone, with
- * nothing to switch to (ADR 0006). The command palette offers the same actions (#288).
+ * nothing to switch to (ADR 0006). The command palette offers the same actions.
  */
 export function DraftsControl() {
   const draftId = useCurrentDraftId();
@@ -79,17 +80,24 @@ export function DraftsControl() {
     enabled: !!projectId && !!draftId,
   });
 
+  const drafts = list.data?.drafts;
   // The hosted studio never lists development drafts (ADR 0011).
-  const regular = (list.data?.drafts ?? []).filter((listed) => listed.kind === "regular");
+  const regular = React.useMemo(
+    () => (drafts ?? []).filter((listed) => listed.kind === "regular"),
+    [drafts],
+  );
   const live = list.data?.live;
 
-  const switchTo = (value: unknown) => {
-    const next = value === LIVE ? null : String(value);
-    if (next === draftId) return;
-    void navigate({ to: window.location.href, draft: next });
-  };
+  /** Views the same page in another draft, or in Live when `next` is null. */
+  const switchTo = React.useCallback(
+    (next: string | null) => {
+      if (next === draftId) return;
+      void navigate({ to: window.location.href, draft: next });
+    },
+    [draftId, navigate],
+  );
 
-  useDraftsActions({ enabled: !!projectId, draftId, drafts: list.data?.drafts });
+  useDraftsActions({ enabled: !!projectId, draftId, developmentMode, regular, switchTo });
 
   if (!projectId) return null;
   // Without its development draft, the localhost studio has nothing to show or switch to.
@@ -145,7 +153,10 @@ export function DraftsControl() {
           {!developmentMode && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={draftId ?? LIVE} onValueChange={switchTo}>
+              <DropdownMenuRadioGroup
+                value={draftId ?? LIVE}
+                onValueChange={(value) => switchTo(value === LIVE ? null : String(value))}
+              >
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>Switch to</DropdownMenuLabel>
                   <DropdownMenuRadioItem value={LIVE} closeOnClick>
@@ -197,24 +208,20 @@ export function DraftsControl() {
 function useDraftsActions({
   enabled,
   draftId,
-  drafts,
+  developmentMode,
+  regular,
+  switchTo,
 }: {
   enabled: boolean;
   draftId: string | null;
-  drafts: DraftSummary[] | undefined;
+  developmentMode: boolean;
+  regular: DraftSummary[];
+  switchTo: (next: string | null) => void;
 }) {
-  const developmentMode = isDevelopmentMode();
-  const navigate = useNavigate();
   React.useEffect(() => {
     const inDraft = enabled && !!draftId;
-    const switchTo = (next: string | null) =>
-      void navigate({ to: window.location.href, draft: next });
-    // Like the control's menu, the hosted studio never lists development drafts (ADR 0011), and
-    // the localhost studio lists none.
-    const others = (drafts ?? []).filter(
-      (listed) => listed.kind === "regular" && listed.id !== draftId,
-    );
-    const actions: Action[] = [
+    const others = regular.filter((listed) => listed.id !== draftId);
+    const actions = [
       {
         id: "review-draft",
         label: "Review and publish",
@@ -268,13 +275,13 @@ function useDraftsActions({
           execute: () => switchTo(other.id),
         }),
       ),
-    ];
+    ] satisfies Action[];
 
     actionsStore.send({ type: "registerManyActions", actions });
     return () => {
       actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
     };
-  }, [enabled, draftId, drafts, developmentMode, navigate]);
+  }, [enabled, draftId, developmentMode, regular, switchTo]);
 }
 
 /** Who published Live last and when: a member, a release, or nobody yet. */
