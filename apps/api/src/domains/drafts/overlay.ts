@@ -550,7 +550,8 @@ const registeredTableOf = (column: AnySQLiteColumn) =>
 
 /**
  * Where a row of the relation's parent table matches the entity at `alias`. A registered
- * parent counts when Live or the draft `draftId` holds it, tombstones aside; with `anywhere`,
+ * parent counts when Live or the draft `draftId` holds it, tombstones aside, and the draft
+ * didn't delete it; with `anywhere`,
  * when Live or any draft does.
  */
 function parentRowMatches(
@@ -574,6 +575,13 @@ function parentRowMatches(
     matches.push(
       sql`("parent".${ident(draftColumn)} is null or "parent".${ident(draftColumn)} = ${holder.draftId})`,
     );
+  }
+  // Live's row doesn't hold a parent the draft deleted.
+  if (parentTable && holder !== "anywhere") {
+    matches.push(sql`not exists (select 1 from ${tableOf(key)} as "tomb"
+      where ${at("tomb", parentTable.draftId)} = ${holder.draftId}
+        and ${at("tomb", parentTable.id)} = "parent".${ident(parentTable.id)}
+        and ${at("tomb", parentTable.deleted)} = 1)`);
   }
   return sql`exists (select 1 from ${tableOf(key)} as "parent" where ${sql.join(matches, sql` and `)})`;
 }

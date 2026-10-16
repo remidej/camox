@@ -280,6 +280,25 @@ describe("publishing a draft", () => {
     await expect(titleIn(created.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
+  it("lists a block the draft changed on a page it deletes as lost, and deletes it with the page", async () => {
+    const { createBlock, createPage, editTitle, member, preview, publish, titleIn } =
+      await fixture();
+    const about = await createPage("/about");
+    const block = await createBlock("Live", {}, { pageId: about.id });
+    const draft = generateUuidv7();
+    await editTitle(block.id, "Mine", startingDraft(draft));
+    await call(router.pages.delete, { id: about.id }, member(inDraft(draft)));
+
+    const { lost, conflicts } = await preview(draft);
+    expect(lost.map(({ id, reason }) => ({ id, reason }))).toEqual([
+      { id: block.id, reason: "parentGone" },
+    ]);
+    expect(conflicts).toEqual([]);
+
+    await publish(draft);
+    await expect(titleIn(block.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("lists Live items added to a block after the draft deleted it as lost, and deletes them with the block", async () => {
     const { createBlock, deleteBlock, member, preview, publish } = await fixture();
     const block = await createBlock("Live");
