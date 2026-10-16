@@ -66,10 +66,7 @@ html[data-camox-edit-mode] iframe {
   border-radius: 0.5rem;
   background: color-mix(in srgb, var(--camox-overlay-color-selected) 8%, transparent);
   color: var(--camox-overlay-color-selected);
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+  font-family: system-ui, -apple-system, sans-serif;
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.25;
@@ -91,10 +88,7 @@ html[data-camox-edit-mode] iframe {
   border: 2px dashed var(--camox-overlay-color-selected);
   border-radius: 0.5rem;
   background: #000;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
 .camox-block-error-title {

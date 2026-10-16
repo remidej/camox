@@ -24,26 +24,22 @@ export function getPageDestinations(
   return [
     ...pages
       .filter((page) => !page.needsLayout && !page.shadowed)
-      .map(
-        (page): PageDestination => ({
-          key: `page:${page.id}`,
-          kind: "curated",
-          pageId: page.id,
-          title: page.nickname,
-          fullPath: page.fullPath,
-        }),
-      ),
+      .map((page): PageDestination => ({
+        key: `page:${page.id}`,
+        kind: "curated",
+        pageId: page.id,
+        title: page.nickname,
+        fullPath: page.fullPath,
+      })),
     ...layouts
       .filter((layout) => layout._internal.kind === "singleton")
-      .map(
-        ({ _internal: layout }): PageDestination => ({
-          key: `singleton:${layout.id}`,
-          kind: "singleton",
-          layoutId: layout.id,
-          title: layout.title,
-          fullPath: `/${layout.id.split(".").map(encodeURIComponent).join("/")}`,
-        }),
-      ),
+      .map(({ _internal: layout }): PageDestination => ({
+        key: `singleton:${layout.id}`,
+        kind: "singleton",
+        layoutId: layout.id,
+        title: layout.title,
+        fullPath: `/${layout.id.split(".").map(encodeURIComponent).join("/")}`,
+      })),
   ];
 }
 

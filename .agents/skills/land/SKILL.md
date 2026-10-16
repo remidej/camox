@@ -177,7 +177,7 @@ Examples without remote CI:
 - Success title: `Landed on main`; description: a verified short-SHA commit link
   followed by `Local checks passed.`
 - Failure title: `Blocked by checks`; description: `Local verification failed.
-Not landed.`
+  Not landed.`
 
 Ask any necessary questions in the conversation, not in status events. Do not
 report skill installation, a passing build, or routine progress as landing success.

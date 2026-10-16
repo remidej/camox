@@ -12,8 +12,9 @@ Use one `.tsx` file per layout in `src/layouts/`, a named `layout` or `Layout` e
 
 ```tsx
 import { createLayout } from "camox/createLayout";
-import { block as navbarBlock } from "../blocks/navbar";
+
 import { block as footerBlock } from "../blocks/footer";
+import { block as navbarBlock } from "../blocks/navbar";
 
 const myLayout = createLayout({
   id: "my-layout",

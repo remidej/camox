@@ -29,8 +29,8 @@ The architectural review is rendered as a single self-contained HTML file in the
       }
     </style>
   </head>
-  <body class="bg-stone-50 text-slate-900 font-sans">
-    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+  <body class="bg-stone-50 font-sans text-slate-900">
+    <main class="mx-auto max-w-5xl space-y-12 px-6 py-12">
       <header>...</header>
       <section id="candidates" class="space-y-10">...</section>
       <section id="top-recommendation">...</section>

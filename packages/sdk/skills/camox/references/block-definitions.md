@@ -317,7 +317,7 @@ Renders outside the block's DOM container for fixed/floating elements. Spread it
 ```tsx
 <myBlock.Detached>
   {(props) => (
-    <div {...props} className="fixed top-0 left-0 right-0 z-50">
+    <div {...props} className="fixed top-0 right-0 left-0 z-50">
       {/* floating content */}
     </div>
   )}
