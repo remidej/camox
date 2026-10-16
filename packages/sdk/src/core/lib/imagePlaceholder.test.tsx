@@ -1,3 +1,4 @@
+/* oxlint-disable react/jsx-key -- fixtures are compared, never rendered as a list */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

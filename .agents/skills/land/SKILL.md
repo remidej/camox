@@ -98,8 +98,8 @@ checks passed. Always inspect current Git status and the outgoing diff and commi
   `pnpm check` merely because landing started; use hook coverage and the scoped
   verification below unless applicable repository instructions require more.
 - Let commits run the hooks, rather than manually running `vp staged` first.
-  `.vite-hooks/pre-commit` runs `vp staged`; `vite.config.ts` configures affected
-  project checks and staged formatting. `.vite-hooks/commit-msg` runs commitlint.
+  `.vite-hooks/pre-commit` runs `vp staged`; `vite.config.ts` runs `vp check --fix`
+  (format, lint, type check) on staged files. `.vite-hooks/commit-msg` runs commitlint.
   These hooks do **not** run tests. Reuse their successful coverage, but do not
   assume staged-file checks verified every outgoing commit. If hooks are not
   installed, use the repository's `pnpm exec vp config` setup; never bypass them.
@@ -111,8 +111,8 @@ checks passed. Always inspect current Git status and the outgoing diff and commi
   ```
 
   Use the recorded SHA, not the literal placeholder. This covers the full
-  outgoing range, including already-committed changes. Use the same range with
-  `-t check` if project-check coverage is missing. Do not use `--head=HEAD` to
+  outgoing range, including already-committed changes. Run `pnpm check` if
+  repo-wide static check coverage is missing. Do not use `--head=HEAD` to
   validate uncommitted changes. Include targeted tests outside Nx as appropriate
   (for example, `pnpm test:dev` for changes to `scripts/dev.mjs`).
 

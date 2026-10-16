@@ -409,7 +409,11 @@ function createViewBlock(options: EditableOptions) {
     const schema = useFieldSchema(name);
     const record = resolveReference(useValue(name), schema.collectionId, recordsMap);
     if (!record) return null;
-    return <RecordScope block={block} schema={schema} record={record} children={children} />;
+    return (
+      <RecordScope block={block} schema={schema} record={record}>
+        {children}
+      </RecordScope>
+    );
   };
 
   const ReferenceList = ({ name, children }: any) => {
@@ -428,13 +432,9 @@ function createViewBlock(options: EditableOptions) {
       : stored;
     const { recordsMap } = normalizedData;
     return resolveReferenceList(ids, schema.collectionId, recordsMap).map((record) => (
-      <RecordScope
-        key={record.id}
-        block={block}
-        schema={schema}
-        record={record}
-        children={children}
-      />
+      <RecordScope key={record.id} block={block} schema={schema} record={record}>
+        {children}
+      </RecordScope>
     ));
   };
 

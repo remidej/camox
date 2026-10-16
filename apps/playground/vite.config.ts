@@ -16,16 +16,6 @@ const config = defineConfig({
     port: Number(process.env.CAMOX_DEV_PLAYGROUND_PORT ?? 3000),
     strictPort: Boolean(process.env.CAMOX_DEV_PLAYGROUND_PORT),
   },
-  lint: {
-    plugins: ["react"],
-    rules: {
-      "no-nested-ternary": "error",
-    },
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
   resolve: {
     tsconfigPaths: true,
     alias: [

@@ -12,7 +12,6 @@
     "dev:servers": "node scripts/dev.mjs -p @camox/api dashboard --parallel=2",
     "test:dev": "node --test scripts/*.test.mjs",
     "db:studio": "nx run @camox/api:db:studio",
-    "lint": "nx run-many -t lint --all",
     "test": "nx run-many -t test --all",
     "format": "vp fmt .",
     "check": "vp check",
@@ -24,7 +23,6 @@
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
-    "@typescript/native-preview": "7.0.0-dev.20260412.1",
     "nx": "^21.6.11",
     "vite-plus": "catalog:"
   },

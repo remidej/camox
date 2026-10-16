@@ -14,17 +14,6 @@ const config = defineConfig({
     // reallocate the port; Vite must not silently move to a different one.
     strictPort: Boolean(process.env.CAMOX_DEV_DASHBOARD_PORT),
   },
-  lint: {
-    plugins: ["react"],
-    rules: {
-      "no-nested-ternary": "error",
-    },
-    ignorePatterns: ["src/routeTree.gen.ts"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
   resolve: {
     tsconfigPaths: true,
   },
