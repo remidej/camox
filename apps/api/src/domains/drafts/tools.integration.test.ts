@@ -123,6 +123,17 @@ describe("draft AI tools", () => {
     expect(await f.titleIn()).toBe("Mine");
   });
 
+  it("publishDraft on a development draft without changes says there is nothing to publish", async () => {
+    const f = await fixture();
+    const { token } = await f.result("previewPublish");
+
+    expect(await f.result("publishDraft", { token })).toMatchObject({
+      published: false,
+      reason: "empty",
+    });
+    expect(await f.titleIn()).toBe("Live");
+  });
+
   it("discardDraft empties the development draft and leaves Live untouched", async () => {
     const f = await fixture();
     await f.editTitle("Discarded", development);

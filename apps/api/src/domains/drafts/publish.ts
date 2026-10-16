@@ -823,9 +823,20 @@ const broadcastDiscarded = (ctx: ServiceContext, projectId: number) =>
   });
 
 /**
+ * What publishing did: nothing, for an empty draft, which publishing leaves as is; or how the
+ * draft ended, also when an earlier attempt ended it (null for a development draft, which stays
+ * open, emptied).
+ */
+export type PublishResult =
+  | { empty: true; ended: null }
+  | { empty: false; ended: EndedDraft | null };
+
+const nothingToPublish: PublishResult = { empty: true, ended: null };
+const endedAs = (ended: EndedDraft | null): PublishResult => ({ empty: false, ended });
+
+/**
  * Publishes the request's draft whole, once it has no blockers, if its conflicts are still
- * those the token was given for. Returns how the draft ended, also when an earlier attempt
- * ended it, or null for an empty draft, which publishing leaves as is.
+ * those the token was given for.
  */
 export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   ctx: ServiceContext,
@@ -833,12 +844,12 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
 ) {
   const { projectId, token } = yield* decodeInput(publishInput, rawInput);
   const earlier = yield* endedEarlier(ctx, projectId);
-  if (earlier) return { ended: earlier as EndedDraft | null };
+  if (earlier) return endedAs(earlier);
 
   const scope = yield* requireDraft(ctx, projectId);
   const shown = yield* decodeToken(token);
   const stored = yield* overlay.changesOf(ctx.db, scope);
-  if (stored.length === 0) return { ended: null };
+  if (stored.length === 0) return nothingToPublish;
 
   const preview = yield* computePreview(ctx, scope);
   if (preview.blockers.length > 0) {
@@ -864,7 +875,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   if (applied._tag === "Failure") {
     // A concurrent publish or discard may have ended the draft; otherwise Live changed.
     const ended = yield* findEndedDraft(ctx.db, projectId, scope.id);
-    if (ended) return { ended };
+    if (ended) return endedAs(ended);
     return yield* new ConflictsChangedError({
       message: "Live changed since the preview. Review the new preview before publishing.",
     });
@@ -875,7 +886,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   broadcastPublished(ctx, projectId);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
   broadcastEnded(ctx, projectId, ended);
-  return { ended };
+  return endedAs(ended);
 });
 
 /**

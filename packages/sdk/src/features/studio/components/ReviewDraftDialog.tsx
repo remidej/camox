@@ -270,7 +270,11 @@ export function ReviewDraftDialog({
 
   const publish = useMutation({
     ...draftMutations.publish(),
-    onSuccess: ({ ended }) => leave(ended),
+    onSuccess: ({ empty, ended }) => {
+      if (!empty) return leave(ended);
+      toast.info("This draft has no changes, so there is nothing to publish.");
+      void preview.refetch();
+    },
     onError: (error) => {
       if ((error as { code?: string }).code === CONFLICTS_CHANGED_ERROR) {
         toast.error("Live changed since you opened this review. Check the new list.");

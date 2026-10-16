@@ -40,6 +40,7 @@ type Args = {
 
 type PublishResult =
   | { published: true }
+  | { published: false; reason: "empty"; message: string }
   | {
       published: false;
       reason: "conflictsChanged" | "blocked";
@@ -75,6 +76,13 @@ export async function handler(args: Args): Promise<never> {
   if (result.published !== false) {
     if (isJsonMode(outputMode)) printResult(result, outputMode);
     else process.stdout.write("Published your development draft to Live.\n");
+    process.exit(0);
+  }
+
+  // Nothing to publish isn't a failure: a retry after publishing finds the draft emptied.
+  if (result.reason === "empty") {
+    if (isJsonMode(outputMode)) printResult(result, outputMode);
+    else process.stdout.write("Your development draft has no changes: nothing to publish.\n");
     process.exit(0);
   }
 
