@@ -107,6 +107,51 @@ async function fixture() {
     createdAt: 1,
     updatedAt: 1,
   });
+  // A card list whose cards need an author, and a synced banner that needs one too.
+  const requiredAuthor = {
+    fieldType: "Reference",
+    collectionId: "authors",
+    title: "Author",
+    required: true,
+    anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+    default: null,
+  };
+  await base.db.insert(blockDefinitions).values([
+    {
+      projectId,
+      blockId: "cards",
+      title: "Cards",
+      description: "",
+      contentSchema: {
+        type: "object",
+        properties: {
+          cards: {
+            fieldType: "Repeater",
+            type: "array",
+            items: {
+              type: "object",
+              properties: { label: text("Label"), author: requiredAuthor },
+            },
+          },
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    {
+      projectId,
+      blockId: "banner",
+      title: "Banner",
+      description: "",
+      synced: true,
+      contentSchema: {
+        type: "object",
+        properties: { title: text("Title"), author: requiredAuthor },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  ]);
 
   // Pages get a manual meta title, so their SEO (ADR 0012) stays out of these checks.
   const createPage = async (pathSegment: string, headers: Headers = {}) => {
@@ -148,6 +193,18 @@ async function fixture() {
     callSeedingLive(router.blocks.create, { pageId, type: "byline", content }, member());
   const editByline = (id: string, content: Record<string, unknown>, headers: Headers = {}) =>
     callSeedingLive(router.blocks.updateContent, { id, content }, member(headers));
+  const createBlock = (
+    pageId: string,
+    type: string,
+    content: Record<string, unknown>,
+    headers: Headers = {},
+  ) => callSeedingLive(router.blocks.create, { pageId, type, content }, member(headers));
+  const addCard = (blockId: string, content: Record<string, unknown>, headers: Headers = {}) =>
+    callSeedingLive(
+      router.repeatableItems.create,
+      { blockId, fieldName: "cards", content },
+      member(headers),
+    );
   const deletePage = (id: string, headers: Headers = {}) =>
     callSeedingLive(router.pages.delete, { id }, member(headers));
 
@@ -172,6 +229,8 @@ async function fixture() {
     listAuthors,
     createByline,
     editByline,
+    createBlock,
+    addCard,
     preview,
     publish,
   };
@@ -384,6 +443,52 @@ describe("dangling references", () => {
     await f.deletePage(about.id, startingDraft(draft));
 
     expect((await f.preview(draft)).blockers).toEqual([]);
+  });
+});
+
+describe("empty required references", () => {
+  it("blocks an empty one in a repeatable item and in synced shared content the draft changed", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const ada = await f.createAuthor("Ada");
+    const cards = await f.createBlock(home.id, "cards", {});
+    const banner = await f.createBlock(home.id, "banner", { title: "Hi", author: ada.id });
+    const draft = generateUuidv7();
+    const card = await f.addCard(cards.id, { label: "Card" }, startingDraft(draft));
+    await f.editByline(banner.id, { author: null }, inDraft(draft));
+
+    const { blockers, warnings } = await f.preview(draft);
+    const found = blockers.map(({ code, entity, field }) => ({ code, entity, field }));
+    expect(found.toSorted((a, b) => a.entity.localeCompare(b.entity))).toEqual([
+      { code: "emptyRequiredReference", entity: "repeatableItem", field: "author" },
+      { code: "emptyRequiredReference", entity: "sharedContent", field: "author" },
+    ]);
+    expect(blockers.find((problem) => problem.entity === "repeatableItem")?.id).toBe(card.id);
+    expect(blockers.find((problem) => problem.entity === "sharedContent")).toMatchObject({
+      owner: { kind: "syncedBlock", name: "banner" },
+    });
+    expect(warnings).toEqual([]);
+    await expect(f.publish(draft)).rejects.toMatchObject({ code: "PUBLISH_BLOCKED" });
+  });
+
+  it("only warns about an empty one in an untouched Live item", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const cards = await f.createBlock(home.id, "cards", {});
+    const card = await f.addCard(cards.id, { label: "Card" });
+    const draft = generateUuidv7();
+    await f.createPage("about", startingDraft(draft));
+
+    const { blockers, warnings } = await f.preview(draft);
+    expect(blockers).toEqual([]);
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        code: "emptyRequiredReference",
+        entity: "repeatableItem",
+        id: card.id,
+        field: "author",
+      }),
+    ]);
   });
 });
 
