@@ -79,7 +79,7 @@ void test("maps unresolved field comments to exact visible field geometry", asyn
   ];
 
   assert.deepEqual(
-    canvasCommentIndicators(comments, targets).map(({ comment: entry, x, y }) => ({
+    canvasCommentIndicators(comments, targets, null).map(({ comment: entry, x, y }) => ({
       id: entry.id,
       x,
       y,
@@ -115,11 +115,13 @@ void test("maps blocks and nested repeatable items to their own visible top-righ
     comment("deleted", null),
   ];
   assert.deepEqual(
-    canvasCommentIndicators(comments, [block, item, nested, hidden]).map(({ comment, x, y }) => ({
-      id: comment.id,
-      x,
-      y,
-    })),
+    canvasCommentIndicators(comments, [block, item, nested, hidden], null).map(
+      ({ comment, x, y }) => ({
+        id: comment.id,
+        x,
+        y,
+      }),
+    ),
     [
       { id: "block", x: 110, y: 20 },
       { id: "item", x: 130, y: 100 },
@@ -144,6 +146,7 @@ void test("groups nearby comments transitively while preserving distant field an
       field(window.document as unknown as Document, "1__c", 110, 200),
       field(window.document as unknown as Document, "1__d", 400, 200),
     ],
+    null,
   );
   const groups = groupCanvasCommentIndicators(indicators, { x: 60, y: 60 });
   assert.deepEqual(
@@ -168,6 +171,7 @@ void test("nearby copies of one field do not duplicate a comment in its group", 
       field(window.document as unknown as Document, "12__title", 10, 100),
       field(window.document as unknown as Document, "12__title", 40, 100),
     ],
+    null,
   );
   assert.equal(indicators.length, 2, "each visible field copy has an anchor");
   const groups = groupCanvasCommentIndicators(indicators);
@@ -190,6 +194,7 @@ void test("zooming out groups comments that separate again when zooming in", asy
       field(window.document as unknown as Document, "1__left", 20, 40),
       field(window.document as unknown as Document, "1__right", 120, 40),
     ],
+    null,
   );
 
   assert.equal(groupCanvasCommentIndicators(indicators, canvasCommentGroupDistance(0.3)).length, 1);
@@ -234,6 +239,7 @@ void test("renders a rounded clickable comment inset from its field's top-right 
     await React.act(async () => {
       root.render(
         <CanvasCommentIndicators
+          draftId={null}
           comments={[
             comment(
               "comment-1",
@@ -273,6 +279,7 @@ void test("renders a rounded clickable comment inset from its field's top-right 
     await React.act(async () => {
       root.render(
         <CanvasCommentIndicators
+          draftId={null}
           comments={[
             comment("comment-1", { kind: "block-field", blockId: "12", fieldName: "title" }),
             comment(
@@ -311,6 +318,7 @@ void test("renders a rounded clickable comment inset from its field's top-right 
     await React.act(async () => {
       root.render(
         <CanvasCommentIndicators
+          draftId={null}
           comments={[
             comment("comment-1", { kind: "block-field", blockId: "12", fieldName: "title" }),
             comment("comment-2", { kind: "block-field", blockId: "12", fieldName: "title" }),
@@ -349,6 +357,7 @@ void test("renders a rounded clickable comment inset from its field's top-right 
         await React.act(async () => {
           root.render(
             <CanvasCommentIndicators
+              draftId={null}
               comments={[
                 ...Array.from({ length: count }, (_, index) => comment(`new-${index}`, target)),
                 comment("resolved", target, { resolved: true }),

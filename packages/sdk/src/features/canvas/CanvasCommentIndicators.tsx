@@ -9,8 +9,7 @@ import {
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
-import { getCurrentDraftId } from "../../lib/studio-draft";
-import { isSettledIn } from "../preview/commentStatus";
+import { isSettledIn, useCommentDraftId } from "../preview/commentStatus";
 import { AttachedComments } from "../preview/components/AttachedComments";
 import { previewCommentsStore, type CommentPopover } from "../preview/previewCommentsStore";
 import { usePageComments } from "../preview/usePageComments";
@@ -65,6 +64,7 @@ function commentTargetLabel(target: CommentTarget) {
 export function canvasCommentIndicators(
   comments: Comment[],
   targets: CanvasOverlayTarget[],
+  draftId: string | null,
 ): CanvasCommentIndicator[] {
   const anchors = new Map<string, { target: CanvasOverlayTarget; index: number }[]>();
   targets.forEach((target, index) => {
@@ -77,7 +77,7 @@ export function canvasCommentIndicators(
   });
 
   return comments.flatMap((comment) => {
-    if (isSettledIn(comment, getCurrentDraftId()) || !comment.target) return [];
+    if (isSettledIn(comment, draftId) || !comment.target) return [];
     const target = comment.target;
     return (anchors.get(commentTargetKey(target)) ?? []).map(({ target: anchor, index }) => ({
       key: `${comment.id}:${index}`,
@@ -337,6 +337,7 @@ export function CanvasCommentIndicators({
   onSelect,
   openTarget,
   placement = "preview",
+  draftId,
 }: {
   comments: Comment[];
   targets: CanvasOverlayTarget[];
@@ -345,12 +346,13 @@ export function CanvasCommentIndicators({
   onSelect: (comment: Comment, anchor?: Element) => void;
   openTarget?: CommentTarget;
   placement?: "preview" | "header";
+  /** The draft the studio is in, as comments name it: its settled comments aren't shown. */
+  draftId: string | null;
 }) {
   const indicators =
     placement === "header"
       ? comments.flatMap((comment): CanvasCommentIndicator[] => {
-          if (isSettledIn(comment, getCurrentDraftId()) || comment.target?.kind !== "page")
-            return [];
+          if (isSettledIn(comment, draftId) || comment.target?.kind !== "page") return [];
           return [
             {
               key: comment.id,
@@ -361,7 +363,7 @@ export function CanvasCommentIndicators({
             },
           ];
         })
-      : canvasCommentIndicators(comments, targets);
+      : canvasCommentIndicators(comments, targets, draftId);
   const groups = groupCanvasCommentIndicators(indicators, canvasCommentGroupDistance(zoom));
   return groups.map((group) => {
     const style: React.CSSProperties =
@@ -499,6 +501,7 @@ export const CanvasPageCommentIndicators = React.memo(function CanvasPageComment
   placement = "preview",
 }: CanvasPageCommentIndicatorsProps) {
   const comments = usePageComments(pageId);
+  const draftId = useCommentDraftId();
   const popover = useSelector(previewCommentsStore, (state) => state.context.popover);
   React.useEffect(
     () => () => {
@@ -519,6 +522,7 @@ export const CanvasPageCommentIndicators = React.memo(function CanvasPageComment
     <div style={{ display: placement === "header" ? "flex" : "contents", position: "relative" }}>
       <CanvasCommentIndicators
         comments={comments.data ?? []}
+        draftId={draftId}
         targets={targets}
         placement={placement}
         zoom={zoom}

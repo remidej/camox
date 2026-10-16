@@ -8,10 +8,9 @@ import { useSelector } from "@xstate/store-react";
 import { MessageCircle, X } from "lucide-react";
 
 import { DeviceSelector } from "@/components/DeviceSelector";
-import { getCurrentDraftId } from "@/lib/studio-draft";
 import { formatShortcut } from "@/lib/utils";
 
-import { isSettledIn } from "../commentStatus";
+import { isSettledIn, useCommentDraftId } from "../commentStatus";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsCommentMode, selectIsEditMode } from "../previewStore";
 import { usePageComments } from "../usePageComments";
@@ -33,8 +32,8 @@ export const PreviewToolbar = ({
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
   const { data: comments } = usePageComments(pageId);
-  const hasComments =
-    comments?.some((comment) => !isSettledIn(comment, getCurrentDraftId())) ?? false;
+  const draftId = useCommentDraftId();
+  const hasComments = comments?.some((comment) => !isSettledIn(comment, draftId)) ?? false;
 
   if (isToolbarHidden) return null;
 

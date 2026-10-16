@@ -793,3 +793,45 @@ void test("feedback loads with experimental features unset or disabled and still
     await dom.close();
   }
 });
+
+void test("the localhost studio hides Live comments resolved from its development draft", async (t) => {
+  const dom = await setupDom();
+  const { DEVELOPMENT_DRAFT } = await import("@camox/api-contract/drafts");
+  const { queryKeys } = await import("@camox/api-contract/query-keys");
+  const { readDraftFromUrl } = await import("@/lib/studio-draft");
+  const { AttachedComments } = await import("./AttachedComments");
+  Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: true });
+  readDraftFromUrl();
+  t.after(() => {
+    Object.assign(globalThis, { __CAMOX_DEVELOPMENT_DRAFT__: false });
+    readDraftFromUrl();
+  });
+  const developmentDraftId = "019a0000-0000-7000-8000-00000000000c";
+  const addressedIn = (draftId: string) => ({
+    draftId,
+    name: null,
+    createdBy: { name: "Rémi" },
+    createdAt: 1,
+  });
+  // What the studio's provider loaded for dev mode: the development draft, named by its id.
+  dom.client.setQueryData([...queryKeys.drafts.get, DEVELOPMENT_DRAFT], {
+    id: developmentDraftId,
+  });
+  dom.client.setQueryData(
+    ["comments", "3"],
+    [
+      { ...comment("here", "3", { kind: "page" }), addressedIn: addressedIn(developmentDraftId) },
+      {
+        ...comment("elsewhere", "3", { kind: "page" }),
+        addressedIn: addressedIn("019a0000-0000-7000-8000-00000000000a"),
+      },
+    ],
+  );
+  try {
+    await dom.render(<AttachedComments pageId="3" />);
+    assert.doesNotMatch(dom.host.textContent, /Feedback here/);
+    assert.match(dom.host.textContent, /Feedback elsewhere/);
+  } finally {
+    await dom.close();
+  }
+});
