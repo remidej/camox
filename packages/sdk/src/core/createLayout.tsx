@@ -378,8 +378,9 @@ function createLayoutDefinition<
         record={{ id, label: fieldPlainText(content[label]), content, references }}
         properties={contentSchema.properties}
         hop={1}
-        children={children}
-      />
+      >
+        {children}
+      </RecordScope>
     );
     if (!editingRuntime?.renderLayoutItem) return readOnly;
     return editingRuntime.renderLayoutItem({

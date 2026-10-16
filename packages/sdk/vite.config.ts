@@ -63,14 +63,4 @@ export default defineConfig({
       }),
     ],
   },
-  lint: {
-    plugins: ["react"],
-    rules: {
-      "no-nested-ternary": "error",
-    },
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
 });

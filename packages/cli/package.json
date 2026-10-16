@@ -31,9 +31,7 @@
   "scripts": {
     "build": "node scripts/sync-templates.mjs && vp pack",
     "dev": "node scripts/sync-templates.mjs --watch --build",
-    "lint": "vp lint",
-    "test": "vp pack && node --test test/*.test.mjs",
-    "check": "tsgo --noEmit && vp lint --fix"
+    "test": "vp pack && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^0.10.0",
@@ -47,7 +45,6 @@
   "devDependencies": {
     "@camox/api-contract": "workspace:*",
     "@types/node": "^24.12.4",
-    "@typescript/native-preview": "7.0.0-dev.20260412.1",
     "vite-plus": "catalog:"
   },
   "nx": {

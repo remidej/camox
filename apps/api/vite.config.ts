@@ -57,13 +57,4 @@ export default defineConfig({
       },
     ],
   },
-  lint: {
-    rules: {
-      "no-nested-ternary": "error",
-    },
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
 });

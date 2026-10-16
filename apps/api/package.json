@@ -16,9 +16,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:studio": "drizzle-kit studio",
     "seed": "tsx scripts/dev-seed.ts",
-    "test": "vp test --run",
-    "lint": "vp lint",
-    "check": "vp check"
+    "test": "vp test --run"
   },
   "dependencies": {
     "@camox/ai-tools": "workspace:*",

@@ -135,12 +135,9 @@ const Reference = ({ name, children }: any) => {
   const { schema, linked } = useLinked(name);
   if (!linked || Array.isArray(linked) || linked.collectionId !== schema?.collectionId) return null;
   return (
-    <RecordScope
-      record={linked}
-      properties={schema.referenceSchema.properties}
-      hop={2}
-      children={children}
-    />
+    <RecordScope record={linked} properties={schema.referenceSchema.properties} hop={2}>
+      {children}
+    </RecordScope>
   );
 };
 
@@ -155,8 +152,9 @@ const ReferenceList = ({ name, children }: any) => {
         record={record}
         properties={schema.referenceSchema.properties}
         hop={2}
-        children={children}
-      />
+      >
+        {children}
+      </RecordScope>
     ));
 };
 

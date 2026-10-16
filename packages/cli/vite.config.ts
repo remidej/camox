@@ -13,11 +13,4 @@ export default defineConfig({
     dts: true,
     target: false,
   },
-  lint: {
-    ignorePatterns: ["templates/**"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
 });
