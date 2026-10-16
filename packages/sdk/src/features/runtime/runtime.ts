@@ -989,6 +989,9 @@ async function createCanvasOnlyResponse({
     loaderData: null,
     dehydratedState: dehydrate(new QueryClient()),
     canvasOnly: blockId ? { blockId } : {},
+    // Nothing here reads the draft, but it is the one the Page left was in: client
+    // navigation remounts the studio, leaving Edit Mode, when the draft changes.
+    draftId: studio ? getRequestDraftId(request, options) : undefined,
   };
   // Block frames build their documents from the site head; there is no page content.
   const document = (await options.getDocument?.()) ?? {};

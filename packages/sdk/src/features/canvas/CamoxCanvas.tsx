@@ -654,6 +654,9 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   // A Canvas selection commits once its route payload loads. Until then, the
   // sidebars and the camera already follow it, so they move as the camera snaps.
   const [intent, setIntent] = React.useState<{ from: string; to: typeof location } | null>(null);
+  // An intent ends once the location leaves where it started, committed or not, so
+  // coming back there later doesn't revive it.
+  if (intent && intent.from !== location.pathname) setIntent(null);
   const intended = intent?.from === location.pathname ? intent.to : location;
   const intendedSelection = selectionAt(intended.pathname);
   const navigate = useNavigate();

@@ -406,6 +406,32 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
     assert.match(html, /<title>Canvas<\/title>/);
   });
 
+  // Navigation remounts the whole studio when the draft changes, so it must
+  // see the same draft as the Page it leaves.
+  await t.test("the Canvas keeps the draft a member's request names", async () => {
+    const draft = async (path: string, runtime: Partial<RuntimeOptions> = {}, cookie = true) => {
+      const response = await handleCamoxRequest(
+        new Request(`https://site.test/site${path}`, {
+          headers: cookie ? { Cookie: "camox_auth_cookie=token%3Dtest" } : {},
+        }),
+        { ...options, ...runtime },
+      );
+      return ((await response!.json()) as PageRenderInput).draftId;
+    };
+    assert.equal(await draft("/_camox/data?path=/camox/canvas"), undefined, "Live");
+    assert.equal(await draft("/_camox/data?path=/camox/canvas&camox-draft=spring"), "spring");
+    assert.equal(await draft("/_camox/data?path=/camox/blocks/hero&camox-draft=spring"), "spring");
+    assert.equal(
+      await draft("/_camox/data?path=/camox/canvas", { developmentDraft: true }),
+      "development",
+    );
+    assert.equal(
+      await draft("/_camox/data?path=/camox/canvas&camox-draft=spring", {}, false),
+      undefined,
+      "anyone else sees Live",
+    );
+  });
+
   for (const [name, path] of [
     ["an unknown block", "/camox/blocks/missing"],
     ["a Layout-only Block", "/camox/blocks/navbar"],

@@ -828,6 +828,26 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
           assert.equal(shownPage("Left"), undefined);
           assert.equal(sidebarPathname, "/camox/canvas");
 
+          // Going back from outside the Canvas, to the Page it was left from, selects it again.
+          globals.CanvasLocation = {
+            ...globals.CanvasLocation,
+            pathname: "/about",
+            source: undefined,
+          };
+          await render();
+          assert.equal(cameraRow.selected, about);
+          for (const side of ["Left", "Right"]) {
+            assert.equal(shownPage(side), about, "the deselection is over, not intended again");
+          }
+          assert.equal(sidebarPathname, "/about");
+          globals.CanvasLocation = {
+            ...globals.CanvasLocation,
+            pathname: "/camox/canvas",
+            source: "canvas",
+          };
+          await render();
+          flights.length = 0;
+
           await React.act(async () => snap(contact!));
           assert.equal(cameraRow.selected, contact);
           for (const side of ["Left", "Right"]) {
