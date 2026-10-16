@@ -114,7 +114,6 @@ const PageInfoSidebar = ({
     <>
       <div className={cn("space-y-4 p-2 pt-4", scrollable && "flex-1 overflow-auto")}>
         <section className="space-y-4">
-          {!aboutOnly && <p className="text-base font-semibold">About this page</p>}
           <PageNicknameSidebarEditor data={data} />
           <div className="space-y-2">
             <Label>Page path</Label>

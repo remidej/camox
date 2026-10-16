@@ -33,9 +33,9 @@ const PageSidebar = ({
   if (pageId != null) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-        <section aria-label="Page blocks" className="flex flex-col gap-2 p-2">
-          <PageTree />
-        </section>
+        <div className="px-2 pt-4">
+          <PageTree collapsible />
+        </div>
         <PageInfoSidebar pageId={pageId} scrollable={false} />
       </div>
     );

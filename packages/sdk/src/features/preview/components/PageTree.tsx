@@ -1,4 +1,5 @@
 import { Button } from "@camox/ui/button";
+import { Label } from "@camox/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
 import {
   DndContext,
@@ -22,7 +23,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useSelector } from "@xstate/store-react";
-import { Ellipsis, GripVertical, LayoutTemplate, Plus } from "lucide-react";
+import { ChevronsUpDown, Ellipsis, GripVertical, LayoutTemplate, Plus } from "lucide-react";
 import * as React from "react";
 
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
@@ -283,10 +284,66 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
 };
 
 /* -------------------------------------------------------------------------------------------------
+ * BlocksGroup
+ * -----------------------------------------------------------------------------------------------*/
+
+/** A sidebar field labelled "Blocks", holding a page's blocks and what acts on them. */
+export const BlocksGroup = ({ children }: { children: React.ReactNode }) => {
+  const labelId = React.useId();
+
+  return (
+    <section aria-labelledby={labelId} className="flex flex-col gap-2">
+      <Label id={labelId}>Blocks</Label>
+      {children}
+    </section>
+  );
+};
+
+/* -------------------------------------------------------------------------------------------------
+ * CollapsedPageTree
+ * -----------------------------------------------------------------------------------------------*/
+
+/** A page's blocks, collapsed by default behind a bordered toggle showing their count. */
+export const CollapsedPageTree = ({
+  blockCount,
+  children,
+}: {
+  blockCount: number;
+  children: React.ReactNode;
+}) => {
+  const [expanded, setExpanded] = React.useState(false);
+
+  return (
+    <div className="border-input flex flex-col overflow-hidden rounded-lg border shadow-xs">
+      <BlockTreeItemHeader shouldShowHover shouldShowActive={false} className="rounded-none px-2">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          className={cn(
+            "cursor-default flex flex-1 items-center gap-1 text-sm text-left rounded-sm min-w-0",
+            "focus-visible:underline outline-none focus-visible:decoration-ring/50 focus-visible:decoration-4",
+          )}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span className="text-muted-foreground flex size-8 shrink-0 items-center justify-center">
+            <ChevronsUpDown className="h-4 w-4" />
+          </span>
+          <span className="truncate py-2">
+            {blockCount} page {blockCount === 1 ? "block" : "blocks"}
+          </span>
+        </button>
+      </BlockTreeItemHeader>
+      {expanded && <div className="border-input flex flex-col gap-2 border-t p-1">{children}</div>}
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------------------------------
  * PageTree
  * -----------------------------------------------------------------------------------------------*/
 
-const PageTree = () => {
+/** A page's blocks. When `collapsible`, they start collapsed behind a toggle showing their count. */
+const PageTree = ({ collapsible = false }: { collapsible?: boolean }) => {
   const page = usePreviewedPage();
   const {
     pageBlocks,
@@ -369,71 +426,91 @@ const PageTree = () => {
 
   const layout = page.layout ? camoxApp.getLayoutById(page.layout.layoutId) : undefined;
 
-  return (
-    <>
-      <div className="flex flex-col gap-0.5">
-        {layoutBeforeBlocks.map((block) => (
-          <LayoutBlockItem
-            key={block.id}
-            block={block}
-            layoutName={layout?._internal.title ?? "Unknown"}
-          />
-        ))}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={handleDragCancel}
-          modifiers={[restrictToVerticalAxis]}
-        >
-          <SortableContext
-            items={pageBlocks.map((block) => block.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="relative flex flex-col gap-0.5">
-              {pageBlocks.map((block) => (
-                <SortableBlock key={block.id} block={block} />
-              ))}
-            </div>
-          </SortableContext>
-          <DragOverlay dropAnimation={null}>
-            {activeId
-              ? (() => {
-                  const activeBlock = pageBlocks.find((b) => b.id === activeId);
-                  if (!activeBlock) return null;
-                  return (
-                    <div className="bg-accent text-accent-foreground rounded-lg shadow-md">
-                      <div className="flex items-center gap-1 px-1 py-2 text-sm">
-                        <GripVertical className="text-muted-foreground mx-1.5 h-4 w-4" />
-                        <span className="truncate">{activeBlock.summary}</span>
-                      </div>
-                    </div>
-                  );
-                })()
-              : null}
-          </DragOverlay>
-        </DndContext>
-        {layoutAfterBlocks.map((block) => (
-          <LayoutBlockItem
-            key={block.id}
-            block={block}
-            layoutName={layout?._internal.title ?? "Unknown"}
-          />
-        ))}
-      </div>
-      <Button
-        variant="secondary"
-        onClick={() => {
-          previewStore.send({
-            type: "openAddBlockDialog",
-          });
-        }}
+  const list = (
+    <div className="flex flex-col gap-0.5">
+      {layoutBeforeBlocks.map((block) => (
+        <LayoutBlockItem
+          key={block.id}
+          block={block}
+          layoutName={layout?._internal.title ?? "Unknown"}
+        />
+      ))}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+        modifiers={[restrictToVerticalAxis]}
       >
-        <Plus />
-        Add block
-      </Button>
-    </>
+        <SortableContext
+          items={pageBlocks.map((block) => block.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="relative flex flex-col gap-0.5">
+            {pageBlocks.map((block) => (
+              <SortableBlock key={block.id} block={block} />
+            ))}
+          </div>
+        </SortableContext>
+        <DragOverlay dropAnimation={null}>
+          {activeId
+            ? (() => {
+                const activeBlock = pageBlocks.find((b) => b.id === activeId);
+                if (!activeBlock) return null;
+                return (
+                  <div className="bg-accent text-accent-foreground rounded-lg shadow-md">
+                    <div className="flex items-center gap-1 px-1 py-2 text-sm">
+                      <GripVertical className="text-muted-foreground mx-1.5 h-4 w-4" />
+                      <span className="truncate">{activeBlock.summary}</span>
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
+        </DragOverlay>
+      </DndContext>
+      {layoutAfterBlocks.map((block) => (
+        <LayoutBlockItem
+          key={block.id}
+          block={block}
+          layoutName={layout?._internal.title ?? "Unknown"}
+        />
+      ))}
+    </div>
+  );
+  const addBlockButton = (
+    <Button
+      variant="secondary"
+      onClick={() => {
+        previewStore.send({
+          type: "openAddBlockDialog",
+        });
+      }}
+    >
+      <Plus />
+      Add block
+    </Button>
+  );
+
+  if (!collapsible) {
+    return (
+      <>
+        {list}
+        {addBlockButton}
+      </>
+    );
+  }
+
+  const blockCount = layoutBeforeBlocks.length + pageBlocks.length + layoutAfterBlocks.length;
+
+  return (
+    <BlocksGroup>
+      <div className="flex flex-col gap-1">
+        <CollapsedPageTree blockCount={blockCount}>{list}</CollapsedPageTree>
+        {addBlockButton}
+      </div>
+    </BlocksGroup>
   );
 };
 

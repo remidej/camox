@@ -5,7 +5,7 @@ import { usePageBlocks } from "@/lib/normalized-data";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import type { PageRenderInput } from "../../runtime/runtime";
 import type { PageRecordId } from "../pageRecord";
-import { LayoutBlockItem } from "./PageTree";
+import { BlocksGroup, CollapsedPageTree, LayoutBlockItem } from "./PageTree";
 
 export type DerivedLayoutStructure = NonNullable<PageRenderInput["derived"]>["layout"];
 const EMPTY_PAGE = { blockIds: [] as string[] };
@@ -33,26 +33,32 @@ export function DerivedLayoutSidebar({
   const singleton = definition?._internal.kind === "singleton";
 
   return (
-    <div className="flex flex-col gap-4 p-2">
-      {(
-        [
-          ["Before", beforeBlocks],
-          ["After", afterBlocks],
-        ] as const
-      ).map(([title, blocks]) => (
-        <section key={title} className="space-y-1">
-          <h2 className="text-muted-foreground px-2 text-xs font-medium">{title}</h2>
-          {blocks.length === 0 ? (
-            <p className="text-muted-foreground px-2 py-2 text-sm">
-              No {title.toLowerCase()} blocks
-            </p>
-          ) : (
-            blocks.map((block) => (
-              <LayoutBlockItem key={block.id} block={block} layoutName={layoutName} derived />
-            ))
-          )}
-        </section>
-      ))}
+    <div className="flex flex-col gap-4 px-2 pt-4">
+      <BlocksGroup>
+        <CollapsedPageTree blockCount={beforeBlocks.length + afterBlocks.length}>
+          <div className="flex flex-col gap-4 py-1">
+            {(
+              [
+                ["Before", beforeBlocks],
+                ["After", afterBlocks],
+              ] as const
+            ).map(([title, blocks]) => (
+              <section key={title} className="space-y-1">
+                <h2 className="text-muted-foreground px-2 text-xs font-medium">{title}</h2>
+                {blocks.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-2 text-sm">
+                    No {title.toLowerCase()} blocks
+                  </p>
+                ) : (
+                  blocks.map((block) => (
+                    <LayoutBlockItem key={block.id} block={block} layoutName={layoutName} derived />
+                  ))
+                )}
+              </section>
+            ))}
+          </div>
+        </CollapsedPageTree>
+      </BlocksGroup>
       <Alert>
         <AlertTitle>{singleton ? "Code-owned page" : "Shared layout blocks"}</AlertTitle>
         <AlertDescription>{layoutNotice(singleton, !!pageRecord)}</AlertDescription>

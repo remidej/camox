@@ -10,7 +10,6 @@ function DerivedPageInfoSidebar({ layoutId }: { layoutId: string }) {
 
   return (
     <div className="flex-1 space-y-4 p-2 pt-4">
-      <p className="text-base font-semibold">About this page</p>
       <Alert>
         <AlertTitle>{singleton ? "Singleton page" : "Derived page"}</AlertTitle>
         <AlertDescription>

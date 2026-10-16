@@ -1,12 +1,12 @@
 import { Button } from "@camox/ui/button";
-import { ArrowLeft } from "lucide-react";
+import { Minimize2 } from "lucide-react";
 import type * as React from "react";
 
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 
 /**
- * The left sidebar of a selected Canvas item: its name, under a back button that
- * leaves the selection and zooms out to the whole Canvas, then the item's content.
+ * The left sidebar of a selected Canvas item: its name, beside a button that leaves
+ * the selection and zooms out to the whole Canvas, then the item's content.
  */
 export function CanvasItemSidebar({
   title,
@@ -32,9 +32,9 @@ export function CanvasItemSidebar({
           aria-label="Back to the Canvas"
           onClick={onBack}
         >
-          <ArrowLeft />
+          <Minimize2 />
         </Button>
-        <h2 className="truncate text-base font-semibold">{title}</h2>
+        <h2 className="truncate text-base font-medium">{title}</h2>
       </header>
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </aside>
