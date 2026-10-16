@@ -761,10 +761,8 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       shown,
       publishedBy: user.id,
       now: Date.now(),
-      alongside: [
-        ...draftComments.publishStatements(ctx.db, scope.id),
-        ...generatedValueStatements.publishStatements(ctx.db, scope.id),
-      ],
+      alongside: draftComments.publishStatements(ctx.db, scope.id),
+      after: generatedValueStatements.publishStatements(ctx.db, scope),
     }),
   );
   if (applied._tag === "Failure") {

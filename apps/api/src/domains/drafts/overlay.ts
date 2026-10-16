@@ -448,11 +448,11 @@ export function anchoredToDeletionIn(draftId: string): SQL {
   return checks.length ? or(...checks)! : sql`0`;
 }
 
-/** Per registered entity, the ids of what a draft deletes, as a subquery. */
-export function deletionsIn(draftId: string): { entity: string; ids: SQL }[] {
+/** Per registered entity, the ids Live holds, as a subquery. */
+export function liveIds(): { entity: string; ids: SQL }[] {
   return tables().map((table) => ({
     entity: registrationOf(table).entity,
-    ids: sql`select ${at("d", table.id)} from ${sql.identifier(getTableName(table))} as "d" where ${at("d", table.draftId)} = ${draftId} and ${at("d", table.deleted)} = 1`,
+    ids: sql`select ${at("l", table.id)} from ${sql.identifier(getTableName(table))} as "l" where ${at("l", table.draftId)} is null`,
   }));
 }
 
@@ -550,7 +550,8 @@ const registeredTableOf = (column: AnySQLiteColumn) =>
 
 /**
  * Where a row of the relation's parent table matches the entity at `alias`. A registered
- * parent counts when Live or the draft `draftId` holds it, tombstones aside; with `anywhere`,
+ * parent counts when Live or the draft `draftId` holds it, tombstones aside, and the draft
+ * didn't delete it; with `anywhere`,
  * when Live or any draft does.
  */
 function parentRowMatches(
@@ -575,6 +576,13 @@ function parentRowMatches(
       sql`("parent".${ident(draftColumn)} is null or "parent".${ident(draftColumn)} = ${holder.draftId})`,
     );
   }
+  // Live's row doesn't hold a parent the draft deleted.
+  if (parentTable && holder !== "anywhere") {
+    matches.push(sql`not exists (select 1 from ${tableOf(key)} as "tomb"
+      where ${at("tomb", parentTable.draftId)} = ${holder.draftId}
+        and ${at("tomb", parentTable.id)} = "parent".${ident(parentTable.id)}
+        and ${at("tomb", parentTable.deleted)} = 1)`);
+  }
   return sql`exists (select 1 from ${tableOf(key)} as "parent" where ${sql.join(matches, sql` and `)})`;
 }
 
@@ -587,15 +595,96 @@ function parentsExist(table: ContentTable, alias: string, draftId: string): SQL 
   return checks.length ? sql.join(checks, sql` and `) : sql`1`;
 }
 
+/** Registered tables whose entities can be a table's ancestors, then the table: parents first. */
+function lineageOf(table: ContentTable): ContentTable[] {
+  const lineage: ContentTable[] = [];
+  const visit = (current: ContentTable) => {
+    if (lineage.includes(current)) return;
+    for (const { key } of registrationOf(current).parents) {
+      const parentTable = registeredTableOf(key);
+      if (parentTable && parentTable !== current) visit(parentTable);
+    }
+    lineage.push(current);
+  };
+  visit(table);
+  return lineage;
+}
+
+const goneName = (table: ContentTable) => sql.identifier(`gone_${getTableName(table)}`);
+
+/**
+ * A recursive common table, `gone_<table>`, of a table's rows that a draft's deletions take
+ * away: its tombstones, and Live rows whose parent is gone, recursively. Each row also has when
+ * the deletion above it was drafted (`gone_at`) and which entity it deleted (`gone_entity`,
+ * `gone_id`). Reads the common tables of the parents' tables.
+ */
+function goneTable(table: ContentTable, draftId: string): SQL {
+  const { entity, parents } = registrationOf(table);
+  const t = sql.identifier(getTableName(table));
+  const underParent = (relation: ParentRelation, parentTable: ContentTable) => {
+    const matches = [
+      sql`"p".${ident(relation.key)} = ${at("x", relation.column)}`,
+      ...(relation.within ?? []).map(
+        ([child, parent]) => sql`"p".${ident(parent)} = ${at("x", child)}`,
+      ),
+    ];
+    return sql`select "x".*, "p"."gone_at", "p"."gone_entity", "p"."gone_id"
+      from ${t} as "x" join ${goneName(parentTable)} as "p" on ${sql.join(matches, sql` and `)}
+      where ${at("x", table.draftId)} is null`;
+  };
+  const related = parents.flatMap((relation) => {
+    const parentTable = registeredTableOf(relation.key);
+    return parentTable ? [{ relation, parentTable }] : [];
+  });
+  // The recursive terms, through a parent in the same table, come last.
+  const ordered = [
+    ...related.filter(({ parentTable }) => parentTable !== table),
+    ...related.filter(({ parentTable }) => parentTable === table),
+  ];
+  const terms = [
+    sql`select "x".*, ${at("x", table.updatedAt)} as "gone_at", ${entity} as "gone_entity",
+        ${at("x", table.id)} as "gone_id"
+      from ${t} as "x" where ${at("x", table.draftId)} = ${draftId} and ${at("x", table.deleted)} = 1`,
+    ...ordered.map(({ relation, parentTable }) => underParent(relation, parentTable)),
+  ];
+  return sql`${goneName(table)} as (${sql.join(terms, sql` union `)})`;
+}
+
+/**
+ * One table's Live descendants of what the draft deletes that were written or published after
+ * the deletion was drafted, which publishing deletes. Those the draft stores itself are its own
+ * changes, not descendants. Selects the descendant (`id`, `version`, `published_at`,
+ * `published_by`) and the deleted entity above it (`gone_entity`, `gone_id`). Undefined for a
+ * table without registered parents.
+ */
+function descendantsWrittenAfterDeletion(table: ContentTable, draftId: string): SQL | undefined {
+  if (!registrationOf(table).parents.some((relation) => registeredTableOf(relation.key))) {
+    return undefined;
+  }
+  const t = sql.identifier(getTableName(table));
+  return sql`with recursive ${sql.join(
+    lineageOf(table).map((member) => goneTable(member, draftId)),
+    sql`, `,
+  )}
+    select "g"."id", "g"."version", "g"."published_at", "g"."published_by",
+      "g"."gone_entity", "g"."gone_id"
+    from ${goneName(table)} as "g"
+    where "g".${ident(table.draftId)} is null
+      and max("g".${ident(table.updatedAt)}, coalesce("g".${ident(table.publishedAt)}, 0)) >= "g"."gone_at"
+      and not exists (select 1 from ${t} as "h"
+        where ${at("h", table.draftId)} = ${draftId} and ${at("h", table.id)} = "g"."id")`;
+}
+
 /**
  * The draft's conflicts in one table: entities it copied or deleted whose Live version moved
- * past the copy's base, or that Live deleted. Lost changes, and deletions of what Live deleted
+ * past the copy's base, or that Live deleted, and Live descendants of what it deletes that were
+ * published after the deletion was drafted. Lost changes, and deletions of what Live deleted
  * too, aren't conflicts.
  */
 function conflictsIn(table: ContentTable, draftId: string): SQL {
   const { entity } = registrationOf(table);
   const t = sql.identifier(getTableName(table));
-  return sql`select ${entity} as "entity", ${at("d", table.id)} as "id",
+  const copied = sql`select ${entity} as "entity", ${at("d", table.id)} as "id",
       ${at("l", table.version)} as "live_version",
       ${at("l", table.publishedAt)} as "published_at",
       ${at("l", table.publishedBy)} as "published_by"
@@ -606,6 +695,13 @@ function conflictsIn(table: ContentTable, draftId: string): SQL {
       and ${parentsExist(table, "d", draftId)}
       and ((${at("l", table.id)} is null and ${at("d", table.deleted)} = 0)
         or ${at("l", table.version)} != ${at("d", table.baseVersion)})`;
+  const descendants = descendantsWrittenAfterDeletion(table, draftId);
+  if (!descendants) return copied;
+  // A descendant under several deleted entities is still one conflict.
+  return sql`${copied}
+    union all
+    select distinct ${entity}, "w"."id", "w"."version", "w"."published_at", "w"."published_by"
+    from (${descendants}) as "w"`;
 }
 
 export type StoredChange = {
@@ -757,7 +853,8 @@ export type StoredLoss =
 
 /**
  * The changes publishing drops: entities the draft changed whose parent exists neither in Live
- * nor in the draft, and Live entities published under a parent after the draft deleted it.
+ * nor in the draft, and Live descendants written or published after the draft deleted an
+ * entity above them (`parent`), which are conflicts too.
  */
 export const lostOf = Effect.fn("overlay.lostOf")(function* (
   db: Database,
@@ -765,7 +862,7 @@ export const lostOf = Effect.fn("overlay.lostOf")(function* (
 ) {
   const lost: StoredLoss[] = [];
   for (const table of tables()) {
-    const { entity, parents } = registrationOf(table);
+    const { entity } = registrationOf(table);
     const t = sql.identifier(getTableName(table));
     const orphans = yield* Effect.promise(() =>
       db.all<{ id: string }>(sql`select ${at("d", table.id)} as "id" from ${t} as "d"
@@ -774,33 +871,22 @@ export const lostOf = Effect.fn("overlay.lostOf")(function* (
     );
     for (const { id } of orphans) lost.push({ reason: "parentGone", entity, id });
 
-    for (const relation of parents) {
-      const parentTable = registeredTableOf(relation.key);
-      if (!parentTable) continue;
-      const { column, key, within = [] } = relation;
-      const matches = [
-        sql`${at("tomb", key)} = ${at("x", column)}`,
-        ...within.map(([child, parent]) => sql`${at("tomb", parent)} = ${at("x", child)}`),
-      ];
-      const rows = yield* Effect.promise(() =>
-        db.all<{ id: string; parent_id: string }>(sql`
-          select ${at("x", table.id)} as "id", ${at("tomb", parentTable.id)} as "parent_id"
-          from ${t} as "x"
-          join ${sql.identifier(getTableName(parentTable))} as "tomb" on ${sql.join(matches, sql` and `)}
-          where ${at("x", table.draftId)} is null
-            and ${at("tomb", parentTable.draftId)} = ${scope.id}
-            and ${at("tomb", parentTable.deleted)} = 1
-            and max(${at("x", table.updatedAt)}, coalesce(${at("x", table.publishedAt)}, 0))
-              >= ${at("tomb", parentTable.updatedAt)}`),
-      );
-      for (const row of rows) {
-        lost.push({
-          reason: "writtenAfterDeletion",
-          entity,
-          id: row.id,
-          parent: { entity: registrationOf(parentTable).entity, id: row.parent_id },
-        });
-      }
+    const descendants = descendantsWrittenAfterDeletion(table, scope.id);
+    if (!descendants) continue;
+    const rows = yield* Effect.promise(() =>
+      db.all<{ id: string; gone_entity: string; gone_id: string }>(descendants),
+    );
+    // A descendant under several deleted entities is listed once.
+    const listed = new Set<string>();
+    for (const row of rows) {
+      if (listed.has(row.id)) continue;
+      listed.add(row.id);
+      lost.push({
+        reason: "writtenAfterDeletion",
+        entity,
+        id: row.id,
+        parent: { entity: row.gone_entity, id: row.gone_id },
+      });
     }
   }
   return lost;
@@ -983,12 +1069,18 @@ export const publish = (
     publishedBy,
     now,
     alongside = [],
+    after = [],
   }: {
     shown: ConflictKey[];
     publishedBy: string;
     now: number;
     /** Statements of other domains, run after the guard and before any row is applied. */
     alongside?: BatchItem[];
+    /**
+     * Statements of other domains, run once Live holds what the publish leaves, descendants
+     * deleted and lost changes dropped, before the draft ends.
+     */
+    after?: BatchItem[];
   },
 ) => {
   const statements = [
@@ -997,6 +1089,7 @@ export const publish = (
     ...tables().flatMap((table) => applyStatements(table, scope.id, publishedBy, now)),
     ...tables().flatMap((table) => descendantsStatement(table) ?? []),
     ...tables().flatMap(dependentStatements),
+    ...after,
     ...endStatements(db, scope, "published", publishedBy, now),
   ];
   return Effect.tryPromise(() => runBatch(db, statements));

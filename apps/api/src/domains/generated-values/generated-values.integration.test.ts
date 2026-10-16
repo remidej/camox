@@ -1,7 +1,7 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { inArray, isNull, and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,7 +12,7 @@ import {
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { drafts, pages } from "../../schema";
+import { drafts, generatedValues, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { runBlockSummaryJob } from "../blocks/service";
 import { runPageSeoJob } from "../pages/ai";
@@ -124,6 +124,7 @@ async function fixture() {
   return {
     ...base,
     page,
+    member,
     createBlock,
     editTitle,
     summaryIn,
@@ -236,7 +237,50 @@ describe("publishing generated values", () => {
       expect.objectContaining({ entityTable: "pages", entityId: page.id, draftId: null }),
     ]);
   });
+  it("drops Live's values of what the draft deletes and of the descendants deleted with it", async () => {
+    const { db, member, createPage, summarize, generateSeo, publish } = await fixture();
+    const { page: about } = await createPage("about", {});
+    const block = await callSeedingLive(
+      router.blocks.create,
+      { pageId: about.id, type: "hero", content: { title: "On about" } },
+      member(),
+    );
+    await summarize(block.id, null, "Live summary");
+    await generateSeo(about.id, null, { metaTitle: "About", metaDescription: "About us" });
+    const draft = generateUuidv7();
+    await call(router.pages.delete, { id: about.id }, member(startingDraft(draft)));
+
+    await publish(draft);
+
+    expect(await liveValuesOf(db, [about.id, block.id])).toEqual([]);
+  });
+
+  it("copies no value of a change dropped as lost", async () => {
+    const { db, member, createPage, editTitle, summarize, publish } = await fixture();
+    const { page: about } = await createPage("about", {});
+    const block = await callSeedingLive(
+      router.blocks.create,
+      { pageId: about.id, type: "hero", content: { title: "On about" } },
+      member(),
+    );
+    const draft = generateUuidv7();
+    await editTitle(block.id, "Mine", startingDraft(draft));
+    await summarize(block.id, draft, "Draft summary");
+    const other = generateUuidv7();
+    await call(router.pages.delete, { id: about.id }, member(startingDraft(other)));
+    await publish(other);
+    expect((await publish(draft)).ended).toMatchObject({ outcome: "published" });
+
+    expect(await liveValuesOf(db, [block.id])).toEqual([]);
+  });
 });
+
+/** Live's generated values of entities, whatever entity they describe. */
+const liveValuesOf = (db: Awaited<ReturnType<typeof fixture>>["db"], ids: string[]) =>
+  db
+    .select({ entity: generatedValues.entity, entityId: generatedValues.entityId })
+    .from(generatedValues)
+    .where(and(isNull(generatedValues.draftId), inArray(generatedValues.entityId, ids)));
 
 describe("a page's SEO group", () => {
   it("becomes manual when one field is written, keeping the generated value of the other", async () => {
