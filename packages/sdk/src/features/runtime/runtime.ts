@@ -39,6 +39,7 @@ import {
   STUDIO_CONTENT_PATH,
 } from "../studio/routes";
 import { STUDIO_THEME_SCRIPT } from "../studio/studioTheme";
+import { omitArtifactSources } from "./artifactSources";
 import { getPageBlockTypes } from "./pageBlockTypes";
 import type { StudioRenderInput } from "./studioApp";
 
@@ -487,6 +488,15 @@ async function preparePreviewDocument(
   input.previewDocument = `<!doctype html><html${siteHead.htmlAttrs}><head><base href="${escapeXml(href)}">${siteHead.headTags}</head><body${siteHead.bodyAttrs}>${siteHead.bodyTagsOpen}<div id="root" data-camox-preview-root>${siteHtml}</div>${siteHead.bodyTags}</body></html>`;
 }
 
+/**
+ * The render input a page's HTML embeds for hydration. Visitors load public pages, whose HTML
+ * already holds each rendered artifact source in its frame, so their copy leaves those out.
+ */
+function hydrationInputFor(input: PageRenderInput, html: string): PageRenderInput {
+  if (input.presentation === "studio") return input;
+  return { ...input, dehydratedState: omitArtifactSources(input.dehydratedState, html) };
+}
+
 function renderStudioThemeScript(enabled: boolean) {
   return enabled
     ? `<script data-camox-studio>${STUDIO_THEME_SCRIPT}${PLATFORM_SCRIPT}</script>`
@@ -603,7 +613,7 @@ async function createPageHtmlResponse({
 ${renderStudioThemeScript(studio)}
 ${renderedHead.headTags}
 ${renderBlockPreloads(options, dehydratedState)}
-<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(pageRenderInput)}</script>
+<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(pageRenderInput, appHtml))}</script>
 </head>
 <body${renderedHead.bodyAttrs}>
 ${renderedHead.bodyTagsOpen}
@@ -844,7 +854,7 @@ async function createDerivedResponse(
       studio ? options.studioStylesheetUrl : undefined,
     );
     return new Response(
-      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, html))}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
       {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
