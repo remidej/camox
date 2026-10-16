@@ -20,12 +20,11 @@ const png = Uint8Array.from(
 );
 
 async function fixture() {
-  const { db, project, environment } = await createProjectFixture(crypto.randomUUID());
+  const { db, project } = await createProjectFixture(crypto.randomUUID());
   const file = await db
     .insert(files)
     .values({
       projectId: project.id,
-      environmentId: environment.id,
       url: "http://localhost/files/serve/test.png",
       alt: null,
       filename: null,

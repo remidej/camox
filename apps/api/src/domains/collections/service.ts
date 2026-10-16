@@ -15,7 +15,6 @@ import {
   type ServiceError,
 } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
-import { resolveEnvironment, resolveProjectEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { projects } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
@@ -71,10 +70,8 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
     );
     const { project } = target;
     const draftId = definitionsDraftOf(target.scope);
-    const environment = yield* resolveProjectEnvironment(ctx.db, project.id);
     const scope = and(
       eq(collectionDefinitions.projectId, project.id),
-      eq(collectionDefinitions.environmentId, environment.id),
       definitionsIn(collectionDefinitions, target.scope),
     );
     const hashes = yield* Effect.promise(() =>
@@ -106,16 +103,11 @@ export const syncCollectionDefinitions = Effect.fn("collections.syncCollectionDe
             schemaHash: hashes[index]!,
             draftId,
             projectId: project.id,
-            environmentId: environment.id,
           })
           .onConflictDoUpdate(
             draftId === null
               ? {
-                  target: [
-                    collectionDefinitions.projectId,
-                    collectionDefinitions.environmentId,
-                    collectionDefinitions.collectionId,
-                  ],
+                  target: [collectionDefinitions.projectId, collectionDefinitions.collectionId],
                   targetWhere: sql`${collectionDefinitions.draftId} is null`,
                   set: { ...definition, schemaHash: hashes[index]! },
                 }
@@ -233,7 +225,6 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
     const user = yield* requireUser(ctx);
     const project = yield* getAuthorizedProjectBySlug(ctx.db, input.projectSlug, user.id);
     const scope = yield* resolveDraftScope(ctx, project.id);
-    const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
     return yield* Effect.promise(() =>
       ctx.db
         .select({
@@ -246,7 +237,6 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
         .where(
           and(
             eq(collectionDefinitions.projectId, project.id),
-            eq(collectionDefinitions.environmentId, environment.id),
             definitionsIn(collectionDefinitions, scope),
           ),
         )
@@ -335,7 +325,6 @@ const definitionFor = Effect.fn("collections.definitionFor")(function* (
   collectionId: string,
   draft: DraftScope,
 ) {
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   const definition = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -343,7 +332,6 @@ const definitionFor = Effect.fn("collections.definitionFor")(function* (
       .where(
         and(
           eq(collectionDefinitions.projectId, projectId),
-          eq(collectionDefinitions.environmentId, environment.id),
           definitionsIn(collectionDefinitions, draft),
           eq(collectionDefinitions.collectionId, collectionId),
         ),
@@ -394,7 +382,7 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
       // Reads conform the record to whatever schema a later sync brings.
       const record = yield* overlay.insert(ctx.db, definition.draft, collectionRecords, {
         id: input.id ?? generateUuidv7(),
-        environmentId: definition.environmentId,
+        projectId: definition.projectId,
         collectionId: definition.collectionId,
         content,
         createdAt: now,

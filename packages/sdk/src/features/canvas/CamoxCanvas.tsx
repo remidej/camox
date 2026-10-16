@@ -253,7 +253,7 @@ function CanvasWorkspace({
   onSelectionIntent: (pathname: string) => void;
   ref?: React.Ref<CanvasWorkspaceHandle>;
 }) {
-  const { apiUrl, projectSlug, environmentName } = useAuthContext();
+  const { apiUrl, projectSlug } = useAuthContext();
   const queryClient = useQueryClient();
   const updatePage = useMutation(pageMutations.update());
   const renamePage = async (pageId: string, nickname: string) => {
@@ -275,12 +275,7 @@ function CanvasWorkspace({
     void navigate({ to: `${pathname}${location.search}${location.hash}`, source: "canvas" });
   };
   const selectBlock = (block: Block) => selectPage(blockCatalogPath(block._internal.id));
-  const workspaceKey = JSON.stringify([
-    apiUrl,
-    projectSlug,
-    environmentName ?? "production",
-    runtimeBasePath,
-  ]);
+  const workspaceKey = JSON.stringify([apiUrl, projectSlug, runtimeBasePath]);
   // Keep other derived layout previews visible; selection itself is always read from the URL.
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},

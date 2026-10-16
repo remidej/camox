@@ -12,7 +12,6 @@ import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
-import { resolveEnvironment } from "../../lib/resolve-environment";
 import { files } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
@@ -303,9 +302,6 @@ export const blobsOfDraft = Effect.fn("files.blobsOfDraft")(function* (
 
 // --- Reads ---
 
-const inEnvironment = (projectId: number, environmentId: number) =>
-  and(eq(files.projectId, projectId), eq(files.environmentId, environmentId));
-
 /**
  * The project of a file, from its Live row or the named draft's, so a request naming a draft
  * finds a file the draft uploaded. Undefined without a draft: the request reads Live.
@@ -344,13 +340,7 @@ export const listFiles = Effect.fn("files.listFiles")(function* (
   scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(listFilesInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const rows = yield* overlay.select(
-    ctx.db,
-    scope,
-    files,
-    inEnvironment(projectId, environment.id),
-  );
+  const rows = yield* overlay.select(ctx.db, scope, files, eq(files.projectId, projectId));
   return yield* withFileMetadata(ctx.db, scope, rows);
 });
 
@@ -377,13 +367,13 @@ export const getFileUsageCount = Effect.fn("files.getFileUsageCount")(function* 
 
   const uses = yield* referencesTo(
     ctx.db,
-    { projectId: file.projectId!, environmentId: file.environmentId, draft: scope },
+    { projectId: file.projectId, draft: scope },
     { kind: "file", id: file.id },
   );
   return { count: uses.length };
 });
 
-// Authenticated, project/environment-scoped access for agent tools.
+// Authenticated, project-scoped access for agent tools.
 export const getProjectFile = Effect.fn("files.getProjectFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof projectFileInput>,
@@ -392,9 +382,8 @@ export const getProjectFile = Effect.fn("files.getProjectFile")(function* (
   const user = yield* requireUser(ctx);
   const { projectId, id } = yield* decodeInput(projectFileInput, rawInput);
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   const file = yield* overlay.get(ctx.db, scope, files, id);
-  if (!file || file.projectId !== projectId || file.environmentId !== environment.id) {
+  if (!file || file.projectId !== projectId) {
     return yield* new NotFoundError();
   }
   return yield* fileView(ctx.db, scope, file);

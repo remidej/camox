@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
-import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
-import { environments, projects } from "../projects/schema";
+import { projects } from "../projects/schema";
 
 /** Which collection a layout's record pages render, and the field they're found by. */
 export type RecordPages = { collectionId: string; field: string };
@@ -20,9 +20,6 @@ export const layouts = sqliteTable(
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
-    environmentId: int("environment_id")
-      .notNull()
-      .references(() => environments.id),
     // The layout's name, given by code. It identifies the layout within a project.
     layoutId: text("layout_id").notNull(),
     description: text(),
@@ -41,11 +38,10 @@ export const layouts = sqliteTable(
   },
   (table) => [
     uniqueIndex("layouts_live_idx")
-      .on(table.projectId, table.environmentId, table.layoutId)
+      .on(table.projectId, table.layoutId)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("layouts_draft_idx")
       .on(table.draftId, table.layoutId)
       .where(sql`${table.draftId} is not null`),
-    index("layouts_environment_layout_idx").on(table.environmentId, table.layoutId),
   ],
 );

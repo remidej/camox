@@ -8,7 +8,6 @@ export type ServiceContext = {
   user: Auth["$Infer"]["Session"]["user"] | null;
   env: Bindings;
   waitUntil: (promise: Promise<unknown>) => void;
-  environmentName: string;
   /**
    * Free-form identifier for the calling client, set from the `X-Camox-Client`
    * request header. Known values: "studio", "cli", "mcp:<name>", "camox-agent",

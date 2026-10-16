@@ -34,7 +34,7 @@ export interface CanvasBlockFrameProps {
 
 /**
  * A live frame of the Block Catalog: one block with its default content, or a
- * Synced Block's shared content when the environment has some, bare and
+ * Synced Block's shared content when the project has some, bare and
  * interactive, but with no editing. It mounts once it comes near the
  * Canvas viewport and stays mounted, so its state survives panning away,
  * though it only runs while selected and the camera is still.
@@ -152,7 +152,7 @@ function DefaultBlockContent({ block }: { block: Block }) {
   );
 }
 
-/** A Synced Block shows the environment's shared content, or its defaults until it has some. */
+/** A Synced Block shows the project's shared content, or its defaults until it has some. */
 function SyncedBlockContent({ block, projectId }: { block: Block; projectId: number }) {
   const { data: shared } = useSuspenseQuery(
     blockQueries.getSyncedContent(projectId, block._internal.id),

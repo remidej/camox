@@ -68,7 +68,6 @@ async function fixture() {
   );
   await base.db.insert(blockDefinitions).values({
     projectId,
-    environmentId: base.environment.id,
     blockId: "byline",
     title: "Byline",
     description: "",

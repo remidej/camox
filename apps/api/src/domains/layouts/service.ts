@@ -7,7 +7,6 @@ import { z } from "zod";
 import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, NotFoundError } from "../../lib/errors";
-import { resolveEnvironment, resolveProjectEnvironment } from "../../lib/resolve-environment";
 import {
   blockDefinitions,
   blocks,
@@ -91,18 +90,11 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
 ) {
   const { projectId } = yield* decodeInput(listLayoutsInput, rawInput);
   const scope = yield* resolveDraftScope(ctx, projectId);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(
-        and(
-          eq(layouts.projectId, projectId),
-          eq(layouts.environmentId, environment.id),
-          definitionsIn(layouts, scope),
-        ),
-      ),
+      .where(and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope))),
   );
 });
 
@@ -117,14 +109,13 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );
   if (!project) return yield* new NotFoundError();
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
       .where(
         and(
-          eq(layouts.environmentId, environment.id),
+          eq(layouts.projectId, project.id),
           eq(layouts.layoutId, layoutId),
           definitionsIn(layouts, scope),
         ),
@@ -215,7 +206,7 @@ const updateSyncedLayout = Effect.fn("layouts.updateSyncedLayout")(function* (
 
 type DeclaredBlock = Pick<
   typeof blocks.$inferInsert,
-  "environmentId" | "layoutId" | "type" | "content" | "settings" | "slot" | "position"
+  "projectId" | "layoutId" | "type" | "content" | "settings" | "slot" | "position"
 >;
 type ItemSeed = {
   tempId: string;
@@ -314,8 +305,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     { create: autoCreate },
   );
   const projectId = project.id;
-  const environment = yield* resolveProjectEnvironment(ctx.db, projectId);
-  const inTarget = and(eq(layouts.environmentId, environment.id), definitionsIn(layouts, scope));
+  const inTarget = and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope));
   const existingLayouts = yield* Effect.promise(() =>
     ctx.db.select().from(layouts).where(inTarget),
   );
@@ -327,11 +317,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       .select()
       .from(blockDefinitions)
       .where(
-        and(
-          eq(blockDefinitions.projectId, projectId),
-          eq(blockDefinitions.environmentId, environment.id),
-          definitionsIn(blockDefinitions, scope),
-        ),
+        and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
       ),
   );
   const definitionsByType = new Map(
@@ -380,7 +366,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       if (declaredInTarget.has(`${def.layoutId}:${block.type}:${block.slot ?? ""}`)) continue;
       yield* validateReferenceValues(
         ctx,
-        { projectId, environmentId: environment.id, draft: scope },
+        { projectId, draft: scope },
         definitionsByType.get(block.type)?.contentSchema,
         block.bundle,
       );
@@ -398,7 +384,6 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
               draftId: definitionsDraftOf(scope),
               schemaHash: await layoutSchemaHash(def),
               projectId,
-              environmentId: environment.id,
               layoutId: def.layoutId,
               kind: def.kind,
               description: def.description,
@@ -463,7 +448,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         ctx,
         scope,
         {
-          environmentId: layout.environmentId,
+          projectId: layout.projectId,
           layoutId: layout.layoutId,
           type: blockDef.type,
           content: blockDef.content,
@@ -537,11 +522,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       .selectDistinct({ type: blocks.type })
       .from(blocks)
       .where(
-        and(
-          eq(blocks.environmentId, environment.id),
-          isNotNull(blocks.layoutId),
-          visibleIn(blocks, scope),
-        ),
+        and(eq(blocks.projectId, projectId), isNotNull(blocks.layoutId), visibleIn(blocks, scope)),
       ),
   );
   const usedTypeSet = new Set(usedTypes.map((r) => r.type));
@@ -559,7 +540,6 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         .where(
           and(
             eq(blockDefinitions.projectId, projectId),
-            eq(blockDefinitions.environmentId, environment.id),
             definitionsIn(blockDefinitions, scope),
             inArray(blockDefinitions.blockId, deletedDefinitionTypes),
           ),

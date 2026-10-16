@@ -48,7 +48,7 @@ Object.assign(globalThis, {
     return { id: article.id, content: article.content, createdAt: 1, updatedAt: article.updatedAt };
   },
 });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 const previewSelectionUrl = new URL("../../features/preview/previewSelection.ts", import.meta.url);
 registerHooks({
   resolve(specifier, context, nextResolve) {

@@ -13,7 +13,7 @@ import {
   type ServiceError,
   UnauthenticatedError,
 } from "./lib/errors";
-import { member, blocks, environments, pages, projects, repeatableItems } from "./schema";
+import { member, blocks, pages, projects, repeatableItems } from "./schema";
 
 // --- Definition Sync ---
 
@@ -198,9 +198,8 @@ export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
 ) {
   const result = yield* Effect.promise(() =>
     db
-      .select({ block: blocks, projectId: environments.projectId, pagePath: pages.fullPath })
+      .select({ block: blocks, projectId: blocks.projectId, pagePath: pages.fullPath })
       .from(blocks)
-      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .leftJoin(pages, and(eq(blocks.pageId, pages.id), visibleIn(pages, scope)))
       .where(and(visibleIn(blocks, scope), eq(blocks.id, blockId)))
       .get(),
@@ -223,25 +222,20 @@ export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess"
     db
       .select({
         item: repeatableItems,
-        projectId: environments.projectId,
+        projectId: sql<number | null>`coalesce(${blocks.projectId}, ${repeatableItems.projectId})`,
         pagePath: pages.fullPath,
       })
       .from(repeatableItems)
       // An item's tree is rooted in a block or in a synced definition's shared content.
       .leftJoin(blocks, and(eq(repeatableItems.blockId, blocks.id), visibleIn(blocks, scope)))
-      .innerJoin(
-        environments,
-        eq(
-          environments.id,
-          sql`coalesce(${blocks.environmentId}, ${repeatableItems.environmentId})`,
-        ),
-      )
       .leftJoin(pages, and(eq(blocks.pageId, pages.id), visibleIn(pages, scope)))
       .where(and(visibleIn(repeatableItems, scope), eq(repeatableItems.id, itemId)))
       .get(),
   );
-  if (!result) return yield* new NotFoundError();
-  if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
-  yield* assertProjectMembership(db, result.projectId, userId);
-  return result;
+  // An item whose block is gone has no project to belong to.
+  if (!result || result.projectId === null) return yield* new NotFoundError();
+  const { projectId } = result;
+  if (scope && scope.projectId !== projectId) return yield* new NotFoundError();
+  yield* assertProjectMembership(db, projectId, userId);
+  return { ...result, projectId };
 });

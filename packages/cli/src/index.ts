@@ -5,7 +5,7 @@ import { runSync } from "@optique/run";
 
 import * as blocks from "./commands/blocks";
 import * as comments from "./commands/comments";
-import * as env from "./commands/env";
+import * as discard from "./commands/discard";
 import * as files from "./commands/files";
 import * as init from "./commands/init";
 import * as layouts from "./commands/layouts";
@@ -13,6 +13,7 @@ import * as login from "./commands/login";
 import * as logout from "./commands/logout";
 import * as pages from "./commands/pages";
 import * as preview from "./commands/preview";
+import * as publish from "./commands/publish";
 import * as release from "./commands/release";
 import * as status from "./commands/status";
 
@@ -32,7 +33,8 @@ type Result =
   | Parameters<typeof blocks.handler>[0]
   | Parameters<typeof comments.handler>[0]
   | Parameters<typeof layouts.handler>[0]
-  | Parameters<typeof env.handler>[0]
+  | Parameters<typeof publish.handler>[0]
+  | Parameters<typeof discard.handler>[0]
   | Parameters<typeof files.handler>[0];
 
 const program = defineProgram({
@@ -47,7 +49,8 @@ const program = defineProgram({
     blocks.parser,
     comments.parser,
     layouts.parser,
-    env.parser,
+    publish.parser,
+    discard.parser,
     files.parser,
   ),
   metadata: {
@@ -110,9 +113,10 @@ switch (result.command) {
   case "layouts.get":
     await layouts.handler(result);
     break;
-  case "env.check":
-  case "env.push":
-  case "env.pull":
-    await env.handler(result);
+  case "publish":
+    await publish.handler(result);
+    break;
+  case "discard":
+    await discard.handler(result);
     break;
 }

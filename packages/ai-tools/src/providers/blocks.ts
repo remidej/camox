@@ -129,7 +129,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "editBlock",
     description:
       "Update a block's `content` and/or `settings`. Provide at least one. Both are merged into the existing values, so partial patches are fine. " +
-      "Submitted fields are validated against the owning environment's JSON Schemas before writes; errors include field paths. " +
+      "Submitted fields are validated against the draft's block definitions' JSON Schemas before writes; errors include field paths. " +
       "Repeater arrays replace the field and must satisfy its minItems/maxItems; preserve existing items with _itemId. " +
       REFERENCE_VALUES,
     inputSchema: editBlockToolInput,

@@ -22,7 +22,7 @@ import { prepareBlockContent } from "./prepare-content";
 
 /**
  * A synced block definition's shared content (ADR 0004, 0005) is one entity per definition name
- * and environment. Every placement of the definition shows it, and placements hold only their
+ * in a project. Every placement of the definition shows it, and placements hold only their
  * identity, position and slot. A definition is synced exactly while its shared content exists:
  * definition syncs create and delete it (ADR 0007).
  *
@@ -37,12 +37,12 @@ export type SharedContentRow = typeof sharedContents.$inferSelect;
 
 /** The placements of a definition, as a scope reads them. */
 function placementsWhere(key: DefinitionKey) {
-  return and(eq(blocks.environmentId, key.environmentId), eq(blocks.type, key.type))!;
+  return and(eq(blocks.projectId, key.projectId), eq(blocks.type, key.type))!;
 }
 
 /** The definition a block places. */
-export function definitionOf(block: { environmentId: number; type: string }): DefinitionKey {
-  return { environmentId: block.environmentId, type: block.type };
+export function definitionOf(block: { projectId: number; type: string }): DefinitionKey {
+  return { projectId: block.projectId, type: block.type };
 }
 
 /** A definition's shared content as a scope reads it. */
@@ -74,7 +74,7 @@ const insertSharedContent = Effect.fn("insertSharedContent")(function* (
 export const contentOwnerOf = Effect.fn("contentOwnerOf")(function* (
   db: Database,
   scope: DraftScope,
-  block: { id: string; environmentId: number; type: string },
+  block: { id: string; projectId: number; type: string },
 ) {
   const key = definitionOf(block);
   const shared = yield* findSharedContent(db, scope, key);
@@ -145,7 +145,7 @@ const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends 
   blockRows: readonly B[],
   itemRows: readonly ItemRow[],
 ) {
-  const environmentIds = [...new Set(blockRows.map((block) => block.environmentId))];
+  const projectIds = [...new Set(blockRows.map((block) => block.projectId))];
   const types = [...new Set(blockRows.map((block) => block.type))];
   const ownItems = (items: readonly ItemRow[]) =>
     items.filter((item): item is ItemRow & { blockId: string } => item.blockId !== null);
@@ -157,17 +157,17 @@ const sharedContentShown = Effect.fn("sharedContentShown")(function* <B extends 
     db,
     scope,
     sharedContents,
-    and(inArray(sharedContents.environmentId, environmentIds), inArray(sharedContents.type, types)),
+    and(inArray(sharedContents.projectId, projectIds), inArray(sharedContents.type, types)),
   );
   if (shared.length === 0) return { blocks: unshared(blockRows), items: ownItems(itemRows) };
-  const keyOf = ({ environmentId, type }: DefinitionKey) => `${environmentId}:${type}`;
+  const keyOf = ({ projectId, type }: DefinitionKey) => `${projectId}:${type}`;
   const sharedByKey = new Map(shared.map((row) => [keyOf(row), row]));
   const sharedItems = yield* overlay.select(
     db,
     scope,
     repeatableItems,
     and(
-      inArray(repeatableItems.environmentId, environmentIds),
+      inArray(repeatableItems.projectId, projectIds),
       inArray(
         repeatableItems.sharedContentType,
         shared.map((row) => row.type),

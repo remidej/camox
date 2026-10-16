@@ -6,8 +6,8 @@ import { storedIn } from "../domains/drafts/overlay";
 import { layoutNamed } from "../domains/layouts/identity";
 import { blocks, layouts, pages } from "../schema";
 
-/** A block's owner: a page, or a layout named within the block's environment. */
-type BlockParent = { environmentId?: number; pageId?: string | null; layoutId?: string | null };
+/** A block's owner: a page, or a layout named within the block's project. */
+type BlockParent = { projectId?: number; pageId?: string | null; layoutId?: string | null };
 
 /**
  * Bumps `content_updated_at` on the Live parent page or layout that owns these
@@ -20,7 +20,7 @@ export const bumpContentUpdatedAt = Effect.fn("bumpContentUpdatedAt")(function* 
   parent: BlockParent,
 ) {
   const now = Date.now();
-  const { environmentId, pageId, layoutId } = parent;
+  const { projectId, pageId, layoutId } = parent;
   if (pageId != null) {
     yield* Effect.promise(() =>
       db
@@ -30,9 +30,9 @@ export const bumpContentUpdatedAt = Effect.fn("bumpContentUpdatedAt")(function* 
     );
     return;
   }
-  if (layoutId != null && environmentId != null) {
+  if (layoutId != null && projectId != null) {
     yield* Effect.promise(() =>
-      db.update(layouts).set({ contentUpdatedAt: now }).where(layoutNamed(environmentId, layoutId)),
+      db.update(layouts).set({ contentUpdatedAt: now }).where(layoutNamed(projectId, layoutId)),
     );
   }
 });
@@ -45,7 +45,7 @@ export const bumpContentUpdatedAtForBlock = Effect.fn("bumpContentUpdatedAtForBl
   const row = yield* Effect.promise(() =>
     db
       .select({
-        environmentId: blocks.environmentId,
+        projectId: blocks.projectId,
         pageId: blocks.pageId,
         layoutId: blocks.layoutId,
       })
@@ -66,7 +66,7 @@ export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForB
   const rows = yield* Effect.promise(() =>
     db
       .select({
-        environmentId: blocks.environmentId,
+        projectId: blocks.projectId,
         pageId: blocks.pageId,
         layoutId: blocks.layoutId,
       })
@@ -74,12 +74,12 @@ export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForB
       .where(and(inArray(blocks.id, blockIds), storedIn(blocks, null))),
   );
   const pageIds = new Set<string>();
-  const layoutKeys = new Map<string, { environmentId: number; layoutId: string }>();
+  const layoutKeys = new Map<string, { projectId: number; layoutId: string }>();
   for (const row of rows) {
     if (row.pageId != null) pageIds.add(row.pageId);
     else if (row.layoutId != null)
-      layoutKeys.set(`${row.environmentId}:${row.layoutId}`, {
-        environmentId: row.environmentId,
+      layoutKeys.set(`${row.projectId}:${row.layoutId}`, {
+        projectId: row.projectId,
         layoutId: row.layoutId,
       });
   }
@@ -97,7 +97,7 @@ export const bumpContentUpdatedAtForBlocks = Effect.fn("bumpContentUpdatedAtForB
       db
         .update(layouts)
         .set({ contentUpdatedAt: now })
-        .where(layoutNamed(layout.environmentId, layout.layoutId)),
+        .where(layoutNamed(layout.projectId, layout.layoutId)),
     );
   }
 });

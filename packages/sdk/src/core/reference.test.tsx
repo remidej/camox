@@ -436,7 +436,7 @@ void test("repeatable items render the records they link, at any repeater depth"
     position: "a0",
     createdAt: 0,
     updatedAt: 0,
-    environmentId: null,
+    projectId: null,
     sharedContentType: null,
     references,
   });

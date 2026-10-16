@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
-import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
-import { environments, projects } from "../projects/schema";
+import { projects } from "../projects/schema";
 
 /**
  * A block definition. Live holds the released definitions (no draft), and each development
@@ -18,9 +18,6 @@ export const blockDefinitions = sqliteTable(
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
-    environmentId: int("environment_id")
-      .notNull()
-      .references(() => environments.id),
     // The block definition's name, given by code. It identifies the definition within a project.
     blockId: text("block_id").notNull(),
     title: text().notNull(),
@@ -39,11 +36,10 @@ export const blockDefinitions = sqliteTable(
   },
   (table) => [
     uniqueIndex("block_definitions_live_idx")
-      .on(table.projectId, table.environmentId, table.blockId)
+      .on(table.projectId, table.blockId)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("block_definitions_draft_idx")
       .on(table.draftId, table.blockId)
       .where(sql`${table.draftId} is not null`),
-    index("block_definitions_environment_block_idx").on(table.environmentId, table.blockId),
   ],
 );

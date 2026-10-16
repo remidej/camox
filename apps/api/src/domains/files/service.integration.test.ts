@@ -14,7 +14,7 @@ import {
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blocks, environments, files, layouts, repeatableItems } from "../../schema";
+import { blocks, drafts, files, repeatableItems } from "../../schema";
 import type { AppEnv } from "../../types";
 import { callTool } from "../agent/service";
 import { saveValue } from "../generated-values/service";
@@ -35,6 +35,19 @@ const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const CLIENT_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
 const MISSING_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c";
 
+/** Opens a regular draft in the project and returns its id. */
+async function openDraft(
+  db: Awaited<ReturnType<typeof createProjectFixture>>["db"],
+  projectId: number,
+  userId: string,
+) {
+  const id = generateUuidv7();
+  await db
+    .insert(drafts)
+    .values({ id, projectId, kind: "regular", createdBy: userId, createdAt: Date.now() });
+  return id;
+}
+
 async function fixture(media?: MediaBinding) {
   const fixture = await createProjectFixture(crypto.randomUUID());
   const scheduleAiJob = vi.fn().mockResolvedValue(new Response(null));
@@ -53,7 +66,6 @@ async function fixture(media?: MediaBinding) {
   app.use("*", async (c, next) => {
     c.set("db", fixture.db);
     c.set("user", fixture.memberUser);
-    c.set("environmentName", "production");
     await next();
   });
   app.route("/files", fileHonoRoutes);
@@ -221,7 +233,7 @@ describe("media persistence", () => {
     });
   });
 
-  it("updates metadata atomically and enforces project, environment and membership boundaries", async () => {
+  it("updates metadata atomically and enforces project and membership boundaries", async () => {
     const { upload, ctx, db, project, outsiderUser, scheduleAiJob } = await fixture();
     const record = await (await upload()).json<typeof files.$inferSelect>();
     const target = { projectId: project.id, id: record.id };
@@ -238,23 +250,6 @@ describe("media persistence", () => {
       aiMetadata: false,
     });
     expect(await runService(listFiles(ctx, { projectId: project.id }, null))).toHaveLength(1);
-    const staging = { ...ctx, environmentName: "staging" };
-    await db.insert(environments).values({
-      projectId: project.id,
-      name: staging.environmentName,
-      type: "development",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    await expect(runService(getProjectFile(staging, target, null))).rejects.toMatchObject({
-      code: "NOT_FOUND",
-    });
-    await expect(
-      runService(updateFile(staging, { ...target, alt: "Wrong environment" }, null)),
-    ).rejects.toMatchObject({
-      code: "NOT_FOUND",
-    });
-    expect(await runService(listFiles(staging, { projectId: project.id }, null))).toEqual([]);
     await expect(
       runService(getProjectFile(createServiceContext(db, outsiderUser), target, null)),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -311,8 +306,8 @@ describe("media persistence", () => {
     ).toMatchObject({ ok: false });
   });
 
-  it("replaces bytes and metadata together while keeping references and isolating environments", async () => {
-    const { upload, ctx, db, project, layout, app, scheduleAiJob } = await fixture();
+  it("replaces bytes and metadata together, keeping references and bytes another draft names", async () => {
+    const { upload, ctx, db, project, layout, memberUser, app, scheduleAiJob } = await fixture();
     const original = await (
       await upload({ alt: "Original alt" })
     ).json<typeof files.$inferSelect>();
@@ -320,7 +315,7 @@ describe("media persistence", () => {
     const block = await db
       .insert(blocks)
       .values({
-        environmentId: layout.environmentId,
+        projectId: layout.projectId,
         layoutId: layout.layoutId,
         type: "hero",
         content: { image: { _fileId: original.id }, html: `<img src="${original.url}">` },
@@ -342,45 +337,9 @@ describe("media persistence", () => {
       })
       .returning()
       .get();
-    const dev = await db
-      .insert(environments)
-      .values({
-        projectId: project.id,
-        name: "staging",
-        type: "development",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    const devLayout = await db
-      .insert(layouts)
-      .values({
-        projectId: project.id,
-        environmentId: dev.id,
-        layoutId: "default",
-        createdAt: now,
-        updatedAt: now,
-        contentUpdatedAt: now,
-      })
-      .returning()
-      .get();
-    const devBlock = await db
-      .insert(blocks)
-      .values({
-        environmentId: devLayout.environmentId,
-        layoutId: devLayout.layoutId,
-        type: "hero",
-        content: { url: original.url },
-        position: "a0",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    // Simulate environment replication sharing the same R2 object.
-    const { id: _id, rowId: _rowId, ...copy } = original;
-    await db.insert(files).values({ ...copy, environmentId: dev.id });
+    // Another draft still holds the file as it was, naming the same R2 object.
+    const otherDraftId = await openDraft(db, project.id, memberUser.id);
+    await db.insert(files).values({ ...original, rowId: undefined, draftId: otherDraftId });
     scheduleAiJob.mockClear();
     const response = await upload(
       { alt: "New alt" },
@@ -412,9 +371,7 @@ describe("media persistence", () => {
     ).toMatchObject({
       content: { image: { _fileId: original.id }, url: original.url },
     });
-    expect(await db.select().from(blocks).where(eq(blocks.id, devBlock.id)).get()).toMatchObject({
-      content: { url: original.url },
-    });
+    // The other draft still names the old bytes, so they stay stored.
     expect(await ctx.env.FILES_BUCKET.head(original.blobId)).not.toBeNull();
     const served = await app.request(replaced.url, {}, env);
     expect(new TextDecoder().decode(await served.arrayBuffer())).toBe("new bytes");
@@ -467,7 +424,7 @@ describe("media persistence", () => {
   });
 
   it("rejects invalid replacement metadata and out-of-scope targets without storing uploads", async () => {
-    const { upload, ctx, db, project } = await fixture();
+    const { upload, ctx, db, project, memberUser } = await fixture();
     const original = await (await upload({ alt: "Original" })).json<typeof files.$inferSelect>();
     const before = await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` });
     expect(
@@ -491,24 +448,14 @@ describe("media persistence", () => {
         )
       ).status,
     ).toBe(403);
-    const dev = await db
-      .insert(environments)
-      .values({
-        projectId: project.id,
-        name: "staging",
-        type: "development",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      })
-      .returning()
-      .get();
+    // A file only another draft holds is out of reach of an upload in a new draft.
     const { id: _id, rowId: _rowId, ...copy } = original;
-    const devFile = await db
+    const draftFile = await db
       .insert(files)
-      .values({ ...copy, environmentId: dev.id })
+      .values({ ...copy, draftId: await openDraft(db, project.id, memberUser.id) })
       .returning()
       .get();
-    expect((await upload({}, "image/png", "dev.png", devFile.id)).status).toBe(404);
+    expect((await upload({}, "image/png", "draft.png", draftFile.id)).status).toBe(404);
     expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual(
       before.objects,
     );
@@ -670,7 +617,7 @@ describe("stable file identity", () => {
     const block = await db
       .insert(blocks)
       .values({
-        environmentId: layout.environmentId,
+        projectId: layout.projectId,
         layoutId: layout.layoutId,
         type: "hero",
         content: {

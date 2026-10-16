@@ -103,6 +103,8 @@ describe("Live is read-only", () => {
         "setPageLayout",
         "setPageSeo",
         "deletePage",
+        "publishDraft",
+        "discardDraft",
       ].sort(),
     );
   });
@@ -126,7 +128,6 @@ describe("Live is read-only", () => {
     app.use("*", async (c, next) => {
       c.set("db", f.db);
       c.set("user", f.memberUser);
-      c.set("environmentName", "production");
       await next();
     });
     app.route("/files", fileHonoRoutes);
@@ -159,7 +160,6 @@ describe("Live is read-only", () => {
       .insert(pages)
       .values({
         projectId: f.project.id,
-        environmentId: f.environment.id,
         layoutId: f.layout.layoutId,
         pathSegment: "",
         fullPath: "/",

@@ -115,7 +115,11 @@ export async function resolveCommandContext(opts: Pick<DispatchOptions, "project
   };
 }
 
-export async function dispatch(opts: DispatchOptions): Promise<never> {
+/**
+ * Resolve auth + project and call a tool, returning its result for the command to render.
+ * Exits like `dispatch` when the call fails.
+ */
+export async function callToolResult(opts: Omit<DispatchOptions, "outputMode">): Promise<unknown> {
   const context = await resolveCommandContext(opts);
   const response = await callRemote({
     ...context,
@@ -127,7 +131,11 @@ export async function dispatch(opts: DispatchOptions): Promise<never> {
     printError(response.error);
     process.exit(1);
   }
+  return response.result;
+}
 
-  printResult(response.result, opts.outputMode);
+export async function dispatch(opts: DispatchOptions): Promise<never> {
+  const result = await callToolResult(opts);
+  printResult(result, opts.outputMode);
   process.exit(0);
 }

@@ -4,7 +4,7 @@ import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-c
 
 import { user } from "../auth/schema";
 import { drafts } from "../drafts/schema";
-import { environments, projects } from "../projects/schema";
+import { projects } from "../projects/schema";
 
 /**
  * A page. Live and every draft store pages side by side (ADR 0005), like blocks: a Live row has
@@ -30,9 +30,6 @@ export const pages = sqliteTable(
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
-    environmentId: int("environment_id")
-      .notNull()
-      .references(() => environments.id),
     pathSegment: text("path_segment").notNull(),
     fullPath: text("full_path").notNull(),
     // No foreign key: content tables don't reference each other (ADR 0005).
@@ -61,6 +58,5 @@ export const pages = sqliteTable(
     index("pages_full_path_idx").on(table.fullPath),
     index("pages_parent_idx").on(table.parentPageId),
     index("pages_project_idx").on(table.projectId),
-    index("pages_environment_full_path_idx").on(table.environmentId, table.fullPath),
   ],
 );

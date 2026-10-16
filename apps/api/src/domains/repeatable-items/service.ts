@@ -41,7 +41,6 @@ import { draftScopeOfJob } from "../drafts/service";
 import {
   copyValue,
   homeOf,
-  projectOfEnvironment,
   readValue,
   requestGeneration,
   saveValue,
@@ -389,8 +388,7 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
     Effect.orElseSucceed(() => null),
   );
   if (!tree) return null;
-  const projectId = yield* projectOfEnvironment(db, tree.definition.environmentId);
-  if (projectId === null) return null;
+  const { projectId } = tree.definition;
 
   const schema = yield* treeSchema(db, tree, scope);
   const itemSchema = yield* Effect.gen(function* () {
@@ -593,7 +591,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   });
   yield* validateReferenceValues(
     ctx,
-    yield* blockScope(ctx, access.block, scope),
+    blockScope(access.block, scope),
     repeater?.items,
     contentWithItems,
   );
@@ -692,7 +690,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
     const sanitizedPatch = yield* sanitizeItemContent(content, itemSchema?.properties, schema);
     yield* validateReferenceValues(
       ctx,
-      yield* blockScope(ctx, tree.definition, scope),
+      blockScope(tree.definition, scope),
       itemSchema,
       sanitizedPatch,
     );

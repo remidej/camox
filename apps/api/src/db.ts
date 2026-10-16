@@ -13,7 +13,6 @@ import {
   collectionRecords,
   blocks,
   drafts,
-  environments,
   files,
   generatedValues,
   layouts,
@@ -24,7 +23,6 @@ import {
 
 const schema = {
   projects,
-  environments,
   drafts,
   pages,
   layouts,

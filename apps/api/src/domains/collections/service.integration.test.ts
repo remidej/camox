@@ -6,8 +6,7 @@ import { collection as articles } from "../../../../playground/src/collections/a
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { markdownToLexicalState, plainTextToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
-import { environments, files, layouts, pages } from "../../schema";
-import { checkCompatibility, replicateEnvironment } from "../environments/service";
+import { files, pages } from "../../schema";
 import { deleteProject } from "../projects/service";
 import { collectionDefinitions } from "./schema";
 import {
@@ -63,7 +62,6 @@ async function fixture(suffix: string) {
       .insert(files)
       .values({
         projectId: base.project.id,
-        environmentId: base.environment.id,
         url: `https://example.com/${name}`,
         alt: `Alt for ${name}`,
         filename: name,
@@ -180,9 +178,6 @@ describe("authenticated collection browsing", () => {
       code: "NOT_FOUND",
     });
     await expect(
-      runService(getCollectionDefinition({ ...f.ctx, environmentName: "missing" }, f.scope)),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(
       runService(getCollectionDefinition(f.ctx, { ...f.scope, collectionId: "missing" })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
@@ -222,9 +217,6 @@ describe("authenticated collection browsing", () => {
     ]);
     await f.sync([]);
     expect(await runService(listCollectionDefinitions(f.ctx, input))).toEqual([]);
-    await expect(
-      runService(listCollectionDefinitions({ ...f.ctx, environmentName: "missing" }, input)),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("hides a removed collection's records and brings them back with it", async () => {
@@ -469,7 +461,6 @@ describe("collection record lifecycle", () => {
       .insert(pages)
       .values({
         projectId: f.project.id,
-        environmentId: f.environment.id,
         layoutId: f.layout.layoutId,
         pathSegment: "about",
         fullPath: "/about",
@@ -487,36 +478,8 @@ describe("collection record lifecycle", () => {
     expect(record.content).toMatchObject({ body });
   });
 
-  it("does not block existing replication/deletion workflows for empty definitions", async () => {
+  it("does not block project deletion for empty definitions", async () => {
     const f = await fixture("empty-guards");
-    const target = await f.db
-      .insert(environments)
-      .values({
-        projectId: f.project.id,
-        name: "target",
-        type: "development",
-        createdAt: 1,
-        updatedAt: 1,
-      })
-      .returning()
-      .get();
-    await f.db.insert(layouts).values({
-      projectId: f.project.id,
-      environmentId: target.id,
-      layoutId: "default",
-      contentUpdatedAt: 1,
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    const replication = {
-      projectId: f.project.id,
-      sourceEnvName: "production",
-      targetEnvName: "target",
-    };
-    expect(await runService(checkCompatibility(f.ctx, replication))).toMatchObject({
-      compatible: true,
-    });
-    await runService(replicateEnvironment(f.ctx, replication));
     expect(
       await f.db
         .select()
@@ -598,22 +561,8 @@ describe("collection record lifecycle", () => {
       createRecord(f.ctx, { ...f.scope, content: { ...article, cover: { _fileId: file.id } } }),
     );
     expect(record.content.cover).toMatchObject({ url: file.url, filename: file.filename });
-    const devEnvironment = await f.db
-      .insert(environments)
-      .values({
-        projectId: f.project.id,
-        name: "other",
-        type: "development",
-        createdAt: 1,
-        updatedAt: 1,
-      })
-      .returning()
-      .get();
-    const foreign = await f.insertFile("foreign.png");
-    await f.db
-      .update(files)
-      .set({ environmentId: devEnvironment.id })
-      .where(eq(files.id, foreign.id));
+    const otherProject = await fixture("validation-other");
+    const foreign = await otherProject.insertFile("foreign.png");
     await expect(
       runService(
         editRecord(f.ctx, {
@@ -661,25 +610,6 @@ describe("collection record lifecycle", () => {
     ).toHaveLength(1);
     await expect(runService(deleteProject(f.ctx, { id: f.project.id }))).rejects.toMatchObject({
       status: 409,
-    });
-    await f.db.insert(environments).values({
-      projectId: f.project.id,
-      name: "target",
-      type: "development",
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    const replication = {
-      projectId: f.project.id,
-      sourceEnvName: "production",
-      targetEnvName: "target",
-    };
-    expect(await runService(checkCompatibility(f.ctx, replication))).toMatchObject({
-      compatible: false,
-      reasons: expect.arrayContaining([{ kind: "collections-replication-unsupported" }]),
-    });
-    await expect(runService(replicateEnvironment(f.ctx, replication))).rejects.toMatchObject({
-      code: "FAILED_PRECONDITION",
     });
   });
 });

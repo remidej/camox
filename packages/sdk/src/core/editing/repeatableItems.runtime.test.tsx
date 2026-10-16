@@ -25,7 +25,7 @@ Object.assign(globalThis, {
   __CAMOX_TELEMETRY_DISABLED__: true,
   captureItemSelection: (selection: unknown) => selections.push(selection),
 });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))

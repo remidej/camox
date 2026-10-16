@@ -194,7 +194,7 @@ export const conformBlocksIn = Effect.fn("conformBlocksIn")(function* <
   I extends ConformableItem,
 >(
   ctx: ServiceContext,
-  scope: { environmentId: number },
+  scope: { projectId: number },
   draft: DraftScope,
   blocks: readonly B[],
   items: readonly I[],
@@ -209,7 +209,7 @@ export const conformBlocksIn = Effect.fn("conformBlocksIn")(function* <
       .from(blockDefinitions)
       .where(
         and(
-          eq(blockDefinitions.environmentId, scope.environmentId),
+          eq(blockDefinitions.projectId, scope.projectId),
           definitionsIn(blockDefinitions, draft),
         ),
       ),

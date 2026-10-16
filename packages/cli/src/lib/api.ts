@@ -128,6 +128,25 @@ export async function getProjectBySlug(token: string, slug: string, apiUrl?: str
   return client.projects.getBySlug({ slug });
 }
 
+// --- Drafts ---
+
+/**
+ * The caller's development draft in a project, summarized: it fails with
+ * `NO_DEVELOPMENT_DRAFT` until dev mode created it.
+ */
+export async function getDevelopmentDraft(params: {
+  token: string;
+  apiUrl: string;
+  projectId: number;
+  disableTelemetry?: boolean;
+}) {
+  const client = createRpcClient(params.token, params.apiUrl, {
+    developmentDraft: true,
+    disableTelemetry: params.disableTelemetry,
+  });
+  return client.drafts.get({ projectId: params.projectId });
+}
+
 // --- Agentic tools ---
 
 export type CallToolResponse =

@@ -10,7 +10,7 @@ import { collectionQueries } from "./queries";
 
 void test("record edits invalidate the collection's placements and statuses, not other collections", async () => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-  initApiClient("http://localhost:8788", "development");
+  initApiClient("http://localhost:8788");
   const client = new QueryClient();
   const placementKeys = [
     queryKeys.blocks.get("1"),

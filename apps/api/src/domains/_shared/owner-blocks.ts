@@ -17,7 +17,7 @@ import type { ServiceContext } from "./service-context";
  */
 export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
   ctx: ServiceContext,
-  owner: { pageId: string } | { environmentId: number; layoutId: string },
+  owner: { pageId: string } | { projectId: number; layoutId: string },
   scope: DraftScope,
 ) {
   const ownerBlocks = overlay.sortByPosition(

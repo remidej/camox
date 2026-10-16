@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 import type { ServiceError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
-import { blocks, environments, pages, projects, repeatableItems } from "../../schema";
+import { blocks, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import type { DraftScope } from "../drafts/scope";
 import { inDraftScope, storedForRequest } from "../drafts/service";
@@ -28,9 +28,8 @@ export const projectOfBlock = Effect.fn("blocks.projectOfBlock")(function* (
   if (!ctx.draft) return undefined;
   const row = yield* Effect.promise(() =>
     ctx.db
-      .select({ projectId: environments.projectId })
+      .select({ projectId: blocks.projectId })
       .from(blocks)
-      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .where(and(eq(blocks.id, blockId), storedForRequest(blocks, ctx)))
       .get(),
   );
@@ -61,20 +60,15 @@ export const projectOfItem = Effect.fn("blocks.projectOfItem")(function* (
   if (!ctx.draft) return undefined;
   const row = yield* Effect.promise(() =>
     ctx.db
-      .select({ projectId: environments.projectId })
+      .select({
+        projectId: sql<number | null>`coalesce(${blocks.projectId}, ${repeatableItems.projectId})`,
+      })
       .from(repeatableItems)
       .leftJoin(blocks, and(eq(blocks.id, repeatableItems.blockId), storedForRequest(blocks, ctx)))
-      .innerJoin(
-        environments,
-        eq(
-          environments.id,
-          sql`coalesce(${blocks.environmentId}, ${repeatableItems.environmentId})`,
-        ),
-      )
       .where(and(eq(repeatableItems.id, itemId), storedForRequest(repeatableItems, ctx)))
       .get(),
   );
-  return row?.projectId;
+  return row?.projectId ?? undefined;
 });
 
 /** The project named by a slug. */

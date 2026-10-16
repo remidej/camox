@@ -78,7 +78,6 @@ async function fixture(assets = false) {
     .insert(pages)
     .values({
       projectId: f.project.id,
-      environmentId: f.environment.id,
       layoutId: f.layout.layoutId,
       pathSegment: "reference",
       fullPath: "/reference",
@@ -107,7 +106,6 @@ async function fixture(assets = false) {
   };
   await f.db.insert(blockDefinitions).values({
     projectId: f.project.id,
-    environmentId: f.environment.id,
     blockId: "testimonial",
     title: "Testimonial",
     description: "",
@@ -137,7 +135,6 @@ describe("single collection references", () => {
       .values([
         {
           projectId: f.project.id,
-          environmentId: f.environment.id,
           url: "https://assets.example.com/logo.png",
           alt: "Library logo",
           filename: "logo.png",
@@ -150,7 +147,6 @@ describe("single collection references", () => {
         },
         {
           projectId: f.project.id,
-          environmentId: f.environment.id,
           url: "https://assets.example.com/report.pdf",
           alt: "",
           filename: "report.pdf",
@@ -337,7 +333,6 @@ async function listFixture() {
   );
   await f.db.insert(blockDefinitions).values({
     projectId: f.project.id,
-    environmentId: f.environment.id,
     blockId: "logo-grid",
     title: "Logo grid",
     description: "",
@@ -536,7 +531,6 @@ async function itemFixture() {
   };
   await f.db.insert(blockDefinitions).values({
     projectId: f.project.id,
-    environmentId: f.environment.id,
     blockId: "logo-wall",
     title: "Logo wall",
     description: "",
@@ -698,8 +692,7 @@ describe("references in repeatable items", () => {
       ),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message:
-        "logos[0].customer: reference is missing or outside this collection/project/environment",
+      message: "logos[0].customer: reference is missing or outside this collection/project",
     });
     await expect(
       runService(
@@ -828,7 +821,6 @@ async function relationFixture() {
     .insert(pages)
     .values({
       projectId: f.project.id,
-      environmentId: f.environment.id,
       layoutId: f.layout.layoutId,
       pathSegment: "relations",
       fullPath: "/relations",
@@ -841,7 +833,6 @@ async function relationFixture() {
     .get();
   await f.db.insert(blockDefinitions).values({
     projectId: f.project.id,
-    environmentId: f.environment.id,
     blockId: "article-teaser",
     title: "Article teaser",
     description: "",
@@ -1052,7 +1043,6 @@ async function queryFixture() {
     .insert(pages)
     .values({
       projectId: f.project.id,
-      environmentId: f.environment.id,
       layoutId: f.layout.layoutId,
       pathSegment: "articles",
       fullPath: "/articles",
@@ -1078,7 +1068,6 @@ async function queryFixture() {
   };
   await f.db.insert(blockDefinitions).values({
     projectId: f.project.id,
-    environmentId: f.environment.id,
     blockId: "article-index",
     title: "Article index",
     description: "",
@@ -1379,9 +1368,9 @@ describe("query-backed reference lists", () => {
     expect(await f.titles("recent", "member")).toHaveLength(3);
     // Seed the 96 extra records in one statement: going through createRecord one at a time
     // (each mocking the clock) takes seconds, and record creation is covered elsewhere.
-    const { environmentId, collectionId } = await f.db
+    const { projectId, collectionId } = await f.db
       .select({
-        environmentId: collectionRecords.environmentId,
+        projectId: collectionRecords.projectId,
         collectionId: collectionRecords.collectionId,
       })
       .from(collectionRecords)
@@ -1390,10 +1379,10 @@ describe("query-backed reference lists", () => {
       .then((row) => row!);
     await f.db.run(sql`
       WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 95)
-      INSERT INTO collection_records (id, environment_id, collection_id, content, created_at, updated_at)
+      INSERT INTO collection_records (id, project_id, collection_id, content, created_at, updated_at)
       SELECT lower(printf('%s-%s-7%s-a%s-%s', hex(randomblob(4)), hex(randomblob(2)),
           substr(hex(randomblob(2)), 2), substr(hex(randomblob(2)), 2), hex(randomblob(6)))),
-        ${environmentId}, ${collectionId},
+        ${projectId}, ${collectionId},
         json_object('title', 'Extra ' || i, 'excerpt', '', 'cover', json('null')), 10 + i, 10 + i
       FROM n
     `);

@@ -56,7 +56,7 @@ async function snapshot(db: Awaited<ReturnType<typeof fixture>>["db"]) {
     definitions: await db
       .select()
       .from(blockDefinitions)
-      .orderBy(blockDefinitions.environmentId, blockDefinitions.blockId),
+      .orderBy(blockDefinitions.projectId, blockDefinitions.blockId),
   };
 }
 

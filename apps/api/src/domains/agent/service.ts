@@ -36,7 +36,6 @@ export const buildToolContext = Effect.fn("agent.buildToolContext")(function* (
     user,
     env: ctx.env,
     waitUntil: ctx.waitUntil,
-    environmentName: ctx.environmentName,
     client: ctx.client,
     telemetryDisabled: ctx.telemetryDisabled,
     draft: ctx.draft,

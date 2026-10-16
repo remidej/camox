@@ -361,7 +361,7 @@ function DeleteProjectSection({ project }: { project: Project }) {
           <AlertDialogTitle>Delete project</AlertDialogTitle>
           <AlertDialogDescription>
             This will permanently delete the project <strong>{project.name}</strong> and all of its
-            data including environments, pages, blocks, and files. This action cannot be undone.
+            data including drafts, pages, blocks, and files. This action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-2">

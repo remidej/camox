@@ -12,12 +12,10 @@ export type ServerApiClient = RouterClient<Router>;
  */
 export function createServerApiClient(
   apiUrl: string,
-  environmentName?: string,
   authToken?: string,
   draftId?: string,
 ): ServerApiClient {
   const headers: Record<string, string> = {};
-  if (environmentName) headers["x-environment-name"] = environmentName;
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
   if (draftId) headers[DRAFT_HEADER] = draftId;
   const link = new RPCLink({ url: `${apiUrl}/rpc`, headers });

@@ -37,21 +37,21 @@ For DOM listeners, scrolling, scripts, widgets, or JavaScript-driven animation, 
 
 ## The `createBlock` options
 
-| Option        | Required | Description                                                                                    |
-| ------------- | -------- | ---------------------------------------------------------------------------------------------- |
-| `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                          |
-| `title`       | yes      | CMS display name.                                                                              |
-| `description` | yes      | Agent guidance on placement, expected content, and tone.                                       |
-| `content`     | yes      | `(field) => ({ ... })`: field names mapped to `field.*` builders for editable content.         |
-| `settings`    | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`.   |
-| `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.          |
-| `synced`      | no       | Defaults to false. Shares content/settings across placements within an environment; see below. |
-| `component`   | yes      | Named React function component.                                                                |
-| `toMarkdown`  | yes      | `(c, s) => [...]` markdown builder; see below.                                                 |
+| Option        | Required | Description                                                                                  |
+| ------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `id`          | yes      | Unique kebab-case identifier matching the filename without extension.                        |
+| `title`       | yes      | CMS display name.                                                                            |
+| `description` | yes      | Agent guidance on placement, expected content, and tone.                                     |
+| `content`     | yes      | `(field) => ({ ... })`: field names mapped to `field.*` builders for editable content.       |
+| `settings`    | no       | `(setting) => ({ ... })`: settings-panel options; only `setting.enum` and `setting.boolean`. |
+| `layoutOnly`  | no       | If true, restricts placement to layouts and hides the type from the add-block picker.        |
+| `synced`      | no       | Defaults to false. Shares content/settings across placements; see below.                     |
+| `component`   | yes      | Named React function component.                                                              |
+| `toMarkdown`  | yes      | `(c, s) => [...]` markdown builder; see below.                                               |
 
 ## Synced blocks (`synced`, optional)
 
-`synced: true` shares content and settings, including nested repeatable items and their settings, across every placement of the block **definition** within one environment. Dev and production remain independent. Synced blocks have purple editor highlights.
+`synced: true` shares content and settings, including nested repeatable items and their settings, across every placement of the block **definition**. Like any content, the shared content is changed in a draft and reaches Live when the draft is published. Synced blocks have purple editor highlights.
 
 For shared navbar/footer data across layouts, use `layoutOnly: true, synced: true`. These flags are independent: synced blocks can also be ordinary page-content blocks.
 

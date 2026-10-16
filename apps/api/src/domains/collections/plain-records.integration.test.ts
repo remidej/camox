@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blockDefinitions, blocks, environments, files, pages } from "../../schema";
+import { blockDefinitions, blocks, files, pages } from "../../schema";
 import { createBlock, getBlock } from "../blocks/service";
 import { deleteFile, getFileUsageCount, updateFile } from "../files/service";
 import { createRepeatableItem } from "../repeatable-items/service";
@@ -79,7 +79,6 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "used-in",
       fullPath: "/used-in",
@@ -92,7 +91,6 @@ async function fixture() {
     .get();
   await base.db.insert(blockDefinitions).values({
     projectId: base.project.id,
-    environmentId: base.environment.id,
     blockId: "picture",
     title: "Picture",
     description: "",
@@ -102,7 +100,6 @@ async function fixture() {
   });
   await base.db.insert(blockDefinitions).values({
     projectId: base.project.id,
-    environmentId: base.environment.id,
     blockId: "byline",
     title: "Byline",
     description: "",
@@ -170,7 +167,6 @@ async function fixture() {
       .values({
         id,
         projectId: base.project.id,
-        environmentId: base.environment.id,
         url: `https://example.com/${id}.png`,
         alt: `File ${id}`,
         filename: `${id}.png`,
@@ -205,7 +201,7 @@ describe("used in counts", () => {
     // Stored as is, as content written before validation or by another tool could be.
     const long = await f.insertFile(`${short.id}7`);
     await f.db.insert(blocks).values({
-      environmentId: f.environment.id,
+      projectId: f.project.id,
       pageId: f.page.id,
       type: "picture",
       content: { image: { _fileId: long.id } },
@@ -238,7 +234,7 @@ describe("used in counts", () => {
     const f = await fixture();
     const ada = await f.createAuthor("Ada");
     await f.db.insert(blocks).values({
-      environmentId: f.environment.id,
+      projectId: f.project.id,
       pageId: f.page.id,
       type: "byline",
       content: { author: `${ada.id}7` },
@@ -314,28 +310,17 @@ describe("used in counts for records", () => {
     expect(await usage(grace.id)).toBe(0);
   });
 
-  it("counts only uses in the record's own environment", async () => {
+  it("counts only uses in the record's own project", async () => {
     const f = await fixture();
     const ada = await f.createAuthor("Ada");
     await f.createArticle("Hello", ada.id);
-    // Another environment's content holding the same id is not a use of this record.
-    const other = await f.db
-      .insert(environments)
-      .values({
-        projectId: f.project.id,
-        name: "staging",
-        type: "development",
-        createdAt: 1,
-        updatedAt: 1,
-      })
-      .returning()
-      .get();
+    // Another project's content holding the same id is not a use of this record.
+    const other = await createProjectFixture(`plain-records-other-${crypto.randomUUID()}`);
     const elsewhere = await f.db
       .insert(pages)
       .values({
-        projectId: f.project.id,
-        environmentId: other.id,
-        layoutId: f.layout.layoutId,
+        projectId: other.project.id,
+        layoutId: other.layout.layoutId,
         pathSegment: "elsewhere",
         fullPath: "/elsewhere",
         nickname: "",
@@ -346,7 +331,7 @@ describe("used in counts for records", () => {
       .returning()
       .get();
     await f.db.insert(blocks).values({
-      environmentId: other.id,
+      projectId: other.project.id,
       pageId: elsewhere.id,
       type: "byline",
       content: { author: ada.id },

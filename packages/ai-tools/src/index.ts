@@ -4,7 +4,7 @@ export { rewriteAssetSchema } from "./lib/rewrite-asset-schema";
 export { blockTypesProvider } from "./providers/block-types";
 export { blocksProvider } from "./providers/blocks";
 export { collectionsProvider } from "./providers/collections";
-export { environmentsProvider } from "./providers/environments";
+export { draftsProvider } from "./providers/drafts";
 export { layoutsProvider } from "./providers/layouts";
 export { pagesProvider } from "./providers/pages";
 export { toolProviders } from "./registry";

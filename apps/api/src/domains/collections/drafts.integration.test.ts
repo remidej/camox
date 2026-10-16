@@ -90,7 +90,6 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
@@ -103,7 +102,6 @@ async function fixture() {
     .get();
   await base.db.insert(blockDefinitions).values({
     projectId,
-    environmentId: base.environment.id,
     blockId: "byline",
     title: "Byline",
     description: "",

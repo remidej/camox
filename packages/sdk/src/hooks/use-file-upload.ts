@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
-import { getApiUrl, getEnvironmentName } from "@/lib/api-client";
+import { getApiUrl } from "@/lib/api-client";
 import { getAuthCookieHeader } from "@/lib/auth";
 import { getUploadDraftHeaders } from "@/lib/studio-draft";
 
@@ -79,8 +79,6 @@ export function useFileUpload(options?: UseFileUploadOptions) {
         xhr.open("POST", uploadUrl);
         xhr.withCredentials = !authCookieHeader;
         if (authCookieHeader) xhr.setRequestHeader("Better-Auth-Cookie", authCookieHeader);
-        const envName = getEnvironmentName();
-        if (envName) xhr.setRequestHeader("x-environment-name", envName);
         for (const [name, value] of Object.entries(draft.headers)) {
           xhr.setRequestHeader(name, value);
         }

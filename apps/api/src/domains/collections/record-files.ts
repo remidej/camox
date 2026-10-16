@@ -37,7 +37,7 @@ const isAssetListField = (field: Field) =>
  */
 export const resolveRecordFiles = Effect.fn("collections.resolveRecordFiles")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number; draft?: DraftScope },
+  scope: { projectId: number; draft?: DraftScope },
   schema: unknown,
   content: Record<string, unknown>,
 ) {
@@ -68,7 +68,6 @@ export const resolveRecordFiles = Effect.fn("collections.resolveRecordFiles")(fu
           overlay.visibleIn(files, scope.draft ?? null),
           inArray(files.id, [...ids]),
           eq(files.projectId, scope.projectId),
-          eq(files.environmentId, scope.environmentId),
         ),
       ),
   );

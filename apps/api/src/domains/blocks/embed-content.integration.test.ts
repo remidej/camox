@@ -3,14 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import {
-  blockDefinitions,
-  blocks,
-  environments,
-  layouts,
-  pages,
-  repeatableItems,
-} from "../../schema";
+import { blocks, layouts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { createRepeatableItem, updateRepeatableItemContent } from "../repeatable-items/service";
 import { createBlock, updateBlockContent } from "./service";
@@ -69,7 +62,6 @@ async function fixture(suffix: string) {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
@@ -490,104 +482,6 @@ describe("embed content validation", () => {
       );
     },
   );
-
-  it("uses the owning environment's embed schema despite a different context environment", async () => {
-    const { db, ctx, project, page } = await fixture("environment");
-    const now = 1_700_000_000_000;
-    const development = await db
-      .insert(environments)
-      .values({
-        projectId: project.id,
-        name: "development",
-        type: "development",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    // The production definition was inserted first, and accepts this URL.
-    // Selecting that arbitrary row would bypass the development restriction.
-    const definition = await db
-      .select()
-      .from(blockDefinitions)
-      .where(eq(blockDefinitions.projectId, project.id))
-      .get();
-    await db.insert(blockDefinitions).values({
-      ...definition!,
-      rowId: undefined,
-      environmentId: development.id,
-      contentSchema: {
-        properties: {
-          videos: {
-            fieldType: "Repeater",
-            items: {
-              properties: {
-                embed: { ...embed, pattern: "^https://development\\.example/" },
-              },
-            },
-          },
-        },
-      },
-    });
-    const developmentLayout = await db
-      .insert(layouts)
-      .values({
-        projectId: project.id,
-        environmentId: development.id,
-        layoutId: "default",
-        contentUpdatedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    await db
-      .update(pages)
-      .set({ environmentId: development.id, layoutId: developmentLayout.layoutId })
-      .where(eq(pages.id, page.id));
-    // Context still selects production; writes must use the owning page's schema.
-    const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "video", content: {} }, null),
-    );
-    const item = await runService(
-      createRepeatableItem(
-        ctx,
-        {
-          blockId: block.id,
-          fieldName: "videos",
-          content: { embed: "https://development.example/embed/123" },
-        },
-        null,
-      ),
-    );
-    await expectRejectedWithoutWrites(db, () =>
-      runService(
-        createRepeatableItem(
-          ctx,
-          {
-            blockId: block.id,
-            fieldName: "videos",
-            content: { embed: validEmbed },
-          },
-          null,
-        ),
-      ),
-    );
-    await expectRejectedWithoutWrites(db, () =>
-      runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { embed: validEmbed } }, null),
-      ),
-    );
-    await expectRejectedWithoutWrites(db, () =>
-      runService(
-        updateBlockContent(
-          ctx,
-          { id: block.id, content: { videos: [{ embed: validEmbed }] } },
-          null,
-        ),
-      ),
-    );
-  });
 
   it("accepts matching strings and strings on embeds without a pattern", async () => {
     const { db, ctx, page } = await fixture("valid");

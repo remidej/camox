@@ -182,12 +182,10 @@ describe("pages in a draft", () => {
   });
 
   it("changes a page's nickname, layout and SEO in the draft only", async () => {
-    const { createPage, db, environment, getPage, member, project, publish, updatePage } =
-      await fixture();
+    const { createPage, db, getPage, member, project, publish, updatePage } = await fixture();
     const now = Date.now();
     await db.insert(layouts).values({
       projectId: project.id,
-      environmentId: environment.id,
       layoutId: "landing",
       contentUpdatedAt: now,
       createdAt: now,

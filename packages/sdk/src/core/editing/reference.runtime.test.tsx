@@ -38,7 +38,7 @@ Object.assign(globalThis, {
     return { id: source.id, content: source.content, createdAt: 1, updatedAt: 2 };
   },
 });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))
@@ -1313,7 +1313,7 @@ void test("repeatable items place records of their own, selected and linked per 
     position: `a${id}`,
     createdAt: 0,
     updatedAt: 0,
-    environmentId: null,
+    projectId: null,
     sharedContentType: null,
     references,
   });

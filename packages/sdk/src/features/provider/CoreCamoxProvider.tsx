@@ -14,7 +14,6 @@ export interface CoreCamoxProviderProps {
   authenticationUrl: string;
   camoxApp: CamoxApp;
   children: React.ReactNode;
-  environmentName?: string;
   projectSlug: string;
   initialAuthenticated?: boolean;
   initialProject?: Project;
@@ -37,7 +36,6 @@ export function CoreCamoxProvider({
   authenticationUrl,
   camoxApp,
   children,
-  environmentName,
   projectSlug,
   initialAuthenticated = false,
   initialProject,
@@ -46,7 +44,7 @@ export function CoreCamoxProvider({
   const authClient = React.useMemo(() => createCamoxAuthClient(apiUrl), [apiUrl]);
   const initializedApiUrl = React.useRef<string | null>(null);
   if (initializedApiUrl.current !== apiUrl) {
-    initApiClient(apiUrl, environmentName);
+    initApiClient(apiUrl);
     initializedApiUrl.current = apiUrl;
   }
 
@@ -70,11 +68,7 @@ export function CoreCamoxProvider({
 
   // OTT processing deliberately does not blank the public tree. Successful
   // exchange still reloads after mirroring the server cookie.
-  const { ready, error } = useProcessOtt(
-    authClient,
-    { projectSlug, environmentName, apiUrl },
-    initialAuthenticated,
-  );
+  const { ready, error } = useProcessOtt(authClient, { projectSlug, apiUrl }, initialAuthenticated);
   const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
   React.useEffect(() => {
     setIsPreviewHandoff(new URL(window.location.href).searchParams.has("camox-preview"));
@@ -95,7 +89,6 @@ export function CoreCamoxProvider({
         authenticationUrl,
         apiUrl,
         projectSlug,
-        environmentName,
         initialAuthenticated,
       }}
     >

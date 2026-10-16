@@ -2,13 +2,7 @@ import { ORPCError } from "@orpc/server";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import {
-  ConflictError,
-  IncompatibleEnvironmentsError,
-  InvalidInputError,
-  NotFoundError,
-  UnauthenticatedError,
-} from "./errors";
+import { ConflictError, InvalidInputError, NotFoundError, UnauthenticatedError } from "./errors";
 import { runService } from "./run-service";
 
 describe("runService", () => {
@@ -21,9 +15,9 @@ describe("runService", () => {
       [new UnauthenticatedError(), "UNAUTHORIZED", "Unauthorized"],
       [new NotFoundError(), "NOT_FOUND", "Not Found"],
       [
-        new NotFoundError({ message: 'Environment "dev" not found' }),
+        new NotFoundError({ message: 'Page "/about" not found' }),
         "NOT_FOUND",
-        'Environment "dev" not found',
+        'Page "/about" not found',
       ],
       [new ConflictError({ message: "Path taken" }), "CONFLICT", "Path taken"],
     ] as const;
@@ -41,11 +35,10 @@ describe("runService", () => {
     ).catch((e: unknown) => e);
     expect(invalid).toMatchObject({ code: "BAD_REQUEST", data: { field: "title" } });
 
-    const reasons = [{ kind: "collections-replication-unsupported" as const }];
-    const incompatible = await runService(
-      Effect.fail(new IncompatibleEnvironmentsError({ reasons })),
+    const missing = await runService(
+      Effect.fail(new NotFoundError({ data: { draftId: "draft-1" } })),
     ).catch((e: unknown) => e);
-    expect(incompatible).toMatchObject({ code: "FAILED_PRECONDITION", data: { reasons } });
+    expect(missing).toMatchObject({ code: "NOT_FOUND", data: { draftId: "draft-1" } });
   });
 
   it("rethrows defects untouched so the transport answers with a 500", async () => {

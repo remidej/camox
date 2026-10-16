@@ -11,13 +11,11 @@ import {
   requireUser,
 } from "../../authorization";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { resolveProjectEnvironment } from "../../lib/resolve-environment";
 import {
   blockDefinitions,
   collectionDefinitions,
   collectionRecords,
   blocks,
-  environments,
   files,
   generatedValues,
   layouts,
@@ -43,7 +41,7 @@ import type { DraftScope } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { homeOf, requestGeneration } from "../generated-values/service";
 import { requestPageSeo } from "../pages/service";
-import { itemsInEnvironment } from "../repeatable-items/roots";
+import { itemsInProject } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -209,16 +207,6 @@ export const createProject = Effect.fn("projects.createProject")(function* (
       .get(),
   );
 
-  yield* Effect.promise(() =>
-    ctx.db.insert(environments).values({
-      projectId: result.id,
-      name: "production",
-      type: "production",
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
-
   return result;
 });
 
@@ -257,7 +245,7 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
       .innerJoin(
         collectionDefinitions,
         and(
-          eq(collectionDefinitions.environmentId, collectionRecords.environmentId),
+          eq(collectionDefinitions.projectId, collectionRecords.projectId),
           eq(collectionDefinitions.collectionId, collectionRecords.collectionId),
         ),
       )
@@ -272,32 +260,17 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   }
 
   // Collect IDs needed for cascade deletion
-  // Blocks on pages and in layouts both belong to one of the project's environments.
+  // Blocks on pages and in layouts both belong to the project.
   const blockRows = yield* Effect.promise(() =>
-    ctx.db
-      .select({ id: blocks.id })
-      .from(blocks)
-      .where(
-        inArray(
-          blocks.environmentId,
-          ctx.db
-            .select({ id: environments.id })
-            .from(environments)
-            .where(eq(environments.projectId, projectId)),
-        ),
-      ),
+    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.projectId, projectId)),
   );
   const blockIds = blockRows.map((r) => r.id);
 
-  const projectEnvironmentIds = ctx.db
-    .select({ id: environments.id })
-    .from(environments)
-    .where(eq(environments.projectId, projectId));
   const repeatableItemRows = yield* Effect.promise(() =>
     ctx.db
       .select({ id: repeatableItems.id })
       .from(repeatableItems)
-      .where(itemsInEnvironment(projectEnvironmentIds)),
+      .where(itemsInProject(projectId)),
   );
   const repeatableItemIds = repeatableItemRows.map((r) => r.id);
 
@@ -319,9 +292,7 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
     );
   }
   yield* Effect.promise(() =>
-    ctx.db
-      .delete(sharedContents)
-      .where(inArray(sharedContents.environmentId, projectEnvironmentIds)),
+    ctx.db.delete(sharedContents).where(eq(sharedContents.projectId, projectId)),
   );
   if (blockIds.length > 0) {
     yield* Effect.promise(() => ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)));
@@ -350,9 +321,6 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   );
   yield* Effect.promise(() =>
     ctx.db.delete(collectionDefinitions).where(eq(collectionDefinitions.projectId, projectId)),
-  );
-  yield* Effect.promise(() =>
-    ctx.db.delete(environments).where(eq(environments.projectId, projectId)),
   );
 
   const result = yield* Effect.promise(() =>
@@ -397,14 +365,12 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     { create: true },
   );
 
-  const environment = yield* resolveProjectEnvironment(ctx.db, project.id);
-
   // Skip when the target already reads pages (idempotent).
   const existingPage = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(pages)
-      .where(and(eq(pages.environmentId, environment.id), visibleIn(pages, draft)))
+      .where(and(eq(pages.projectId, project.id), visibleIn(pages, draft)))
       .limit(1)
       .get(),
   );
@@ -422,7 +388,6 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       .where(
         and(
           eq(layouts.projectId, project.id),
-          eq(layouts.environmentId, environment.id),
           definitionsIn(layouts, draft),
           eq(layouts.layoutId, input.layoutId),
         ),
@@ -438,11 +403,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       .select()
       .from(blockDefinitions)
       .where(
-        and(
-          eq(blockDefinitions.projectId, project.id),
-          eq(blockDefinitions.environmentId, environment.id),
-          definitionsIn(blockDefinitions, draft),
-        ),
+        and(eq(blockDefinitions.projectId, project.id), definitionsIn(blockDefinitions, draft)),
       ),
   );
   const definitionsByType = new Map(
@@ -465,7 +426,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   });
 
   for (const block of preparedBlocks) {
-    const scope = { projectId: project.id, environmentId: environment.id, draft };
+    const scope = { projectId: project.id, draft };
     const schema = definitionsByType.get(block.type)?.contentSchema;
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
     const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
@@ -481,7 +442,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   // Create homepage
   const homepage = yield* seed(ctx, draft, pages, {
     projectId: project.id,
-    environmentId: environment.id,
+
     pathSegment: "",
     fullPath: "/",
     layoutId: layout.layoutId,
@@ -500,7 +461,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     prevPosition = position;
 
     const block = yield* seed(ctx, draft, blocks, {
-      environmentId: environment.id,
+      projectId: project.id,
       pageId: homepage.id,
       type: blockDef.type,
       content: blockDef.content,

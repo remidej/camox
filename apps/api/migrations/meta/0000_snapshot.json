@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6365ee9b-a35f-4d25-a5a1-8ba6eb4dd0c3",
+  "id": "6f380514-f4e2-40f9-8b0a-fce9ad8ecc87",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -538,79 +538,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "environments": {
-      "name": "environments",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "environments_project_name_idx": {
-          "name": "environments_project_name_idx",
-          "columns": ["project_id", "name"],
-          "isUnique": true
-        },
-        "environments_project_idx": {
-          "name": "environments_project_idx",
-          "columns": ["project_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "environments_project_id_projects_id_fk": {
-          "name": "environments_project_id_projects_id_fk",
-          "tableFrom": "environments",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "projects": {
       "name": "projects",
       "columns": {
@@ -716,13 +643,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "environment_id": {
-          "name": "environment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "layout_id": {
           "name": "layout_id",
           "type": "text",
@@ -785,7 +705,7 @@
       "indexes": {
         "layouts_live_idx": {
           "name": "layouts_live_idx",
-          "columns": ["project_id", "environment_id", "layout_id"],
+          "columns": ["project_id", "layout_id"],
           "isUnique": true,
           "where": "\"layouts\".\"draft_id\" is null"
         },
@@ -794,11 +714,6 @@
           "columns": ["draft_id", "layout_id"],
           "isUnique": true,
           "where": "\"layouts\".\"draft_id\" is not null"
-        },
-        "layouts_environment_layout_idx": {
-          "name": "layouts_environment_layout_idx",
-          "columns": ["environment_id", "layout_id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -816,15 +731,6 @@
           "tableFrom": "layouts",
           "tableTo": "projects",
           "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "layouts_environment_id_environments_id_fk": {
-          "name": "layouts_environment_id_environments_id_fk",
-          "tableFrom": "layouts",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -904,13 +810,6 @@
         },
         "project_id": {
           "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "environment_id": {
-          "name": "environment_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1035,11 +934,6 @@
           "name": "pages_project_idx",
           "columns": ["project_id"],
           "isUnique": false
-        },
-        "pages_environment_full_path_idx": {
-          "name": "pages_environment_full_path_idx",
-          "columns": ["environment_id", "full_path"],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1057,15 +951,6 @@
           "tableFrom": "pages",
           "tableTo": "projects",
           "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "pages_environment_id_environments_id_fk": {
-          "name": "pages_environment_id_environments_id_fk",
-          "tableFrom": "pages",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1103,13 +988,6 @@
         },
         "project_id": {
           "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "environment_id": {
-          "name": "environment_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1205,7 +1083,7 @@
       "indexes": {
         "block_definitions_live_idx": {
           "name": "block_definitions_live_idx",
-          "columns": ["project_id", "environment_id", "block_id"],
+          "columns": ["project_id", "block_id"],
           "isUnique": true,
           "where": "\"block_definitions\".\"draft_id\" is null"
         },
@@ -1214,11 +1092,6 @@
           "columns": ["draft_id", "block_id"],
           "isUnique": true,
           "where": "\"block_definitions\".\"draft_id\" is not null"
-        },
-        "block_definitions_environment_block_idx": {
-          "name": "block_definitions_environment_block_idx",
-          "columns": ["environment_id", "block_id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1236,15 +1109,6 @@
           "tableFrom": "block_definitions",
           "tableTo": "projects",
           "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "block_definitions_environment_id_environments_id_fk": {
-          "name": "block_definitions_environment_id_environments_id_fk",
-          "tableFrom": "block_definitions",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1322,8 +1186,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "environment_id": {
-          "name": "environment_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1413,7 +1277,7 @@
         },
         "blocks_layout_idx": {
           "name": "blocks_layout_idx",
-          "columns": ["environment_id", "layout_id"],
+          "columns": ["project_id", "layout_id"],
           "isUnique": false
         },
         "blocks_type_idx": {
@@ -1432,11 +1296,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "blocks_environment_id_environments_id_fk": {
-          "name": "blocks_environment_id_environments_id_fk",
+        "blocks_project_id_projects_id_fk": {
+          "name": "blocks_project_id_projects_id_fk",
           "tableFrom": "blocks",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1514,8 +1378,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "environment_id": {
-          "name": "environment_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1572,7 +1436,7 @@
         },
         "shared_contents_definition_idx": {
           "name": "shared_contents_definition_idx",
-          "columns": ["environment_id", "type"],
+          "columns": ["project_id", "type"],
           "isUnique": false
         }
       },
@@ -1586,11 +1450,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "shared_contents_environment_id_environments_id_fk": {
-          "name": "shared_contents_environment_id_environments_id_fk",
+        "shared_contents_project_id_projects_id_fk": {
+          "name": "shared_contents_project_id_projects_id_fk",
           "tableFrom": "shared_contents",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1675,8 +1539,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "environment_id": {
-          "name": "environment_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -1769,7 +1633,7 @@
         },
         "repeatable_items_shared_content_idx": {
           "name": "repeatable_items_shared_content_idx",
-          "columns": ["environment_id", "shared_content_type"],
+          "columns": ["project_id", "shared_content_type"],
           "isUnique": false
         }
       },
@@ -1783,11 +1647,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "repeatable_items_environment_id_environments_id_fk": {
-          "name": "repeatable_items_environment_id_environments_id_fk",
+        "repeatable_items_project_id_projects_id_fk": {
+          "name": "repeatable_items_project_id_projects_id_fk",
           "tableFrom": "repeatable_items",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1798,7 +1662,7 @@
       "checkConstraints": {
         "repeatable_items_one_root": {
           "name": "repeatable_items_one_root",
-          "value": "(\"repeatable_items\".\"block_id\" is null) != (\"repeatable_items\".\"shared_content_type\" is null) and (\"repeatable_items\".\"environment_id\" is null) = (\"repeatable_items\".\"shared_content_type\" is null)"
+          "value": "(\"repeatable_items\".\"block_id\" is null) != (\"repeatable_items\".\"shared_content_type\" is null) and (\"repeatable_items\".\"project_id\" is null) = (\"repeatable_items\".\"shared_content_type\" is null)"
         }
       }
     },
@@ -1872,13 +1736,6 @@
         },
         "project_id": {
           "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "environment_id": {
-          "name": "environment_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1977,11 +1834,6 @@
           "name": "files_project_idx",
           "columns": ["project_id"],
           "isUnique": false
-        },
-        "files_environment_idx": {
-          "name": "files_environment_idx",
-          "columns": ["environment_id"],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2002,15 +1854,6 @@
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "files_environment_id_environments_id_fk": {
-          "name": "files_environment_id_environments_id_fk",
-          "tableFrom": "files",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2027,8 +1870,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "environment_id": {
-          "name": "environment_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -2112,9 +1955,9 @@
           "columns": ["page_id", "created_at"],
           "isUnique": false
         },
-        "comments_environment_idx": {
-          "name": "comments_environment_idx",
-          "columns": ["environment_id"],
+        "comments_project_idx": {
+          "name": "comments_project_idx",
+          "columns": ["project_id"],
           "isUnique": false
         },
         "comments_block_idx": {
@@ -2139,11 +1982,11 @@
         }
       },
       "foreignKeys": {
-        "comments_environment_id_environments_id_fk": {
-          "name": "comments_environment_id_environments_id_fk",
+        "comments_project_id_projects_id_fk": {
+          "name": "comments_project_id_projects_id_fk",
           "tableFrom": "comments",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -2204,13 +2047,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "environment_id": {
-          "name": "environment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "collection_id": {
           "name": "collection_id",
           "type": "text",
@@ -2258,7 +2094,7 @@
       "indexes": {
         "collection_definitions_live_idx": {
           "name": "collection_definitions_live_idx",
-          "columns": ["project_id", "environment_id", "collection_id"],
+          "columns": ["project_id", "collection_id"],
           "isUnique": true,
           "where": "\"collection_definitions\".\"draft_id\" is null"
         },
@@ -2284,15 +2120,6 @@
           "tableFrom": "collection_definitions",
           "tableTo": "projects",
           "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "collection_definitions_environment_id_environments_id_fk": {
-          "name": "collection_definitions_environment_id_environments_id_fk",
-          "tableFrom": "collection_definitions",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -2370,8 +2197,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "environment_id": {
-          "name": "environment_id",
+        "project_id": {
+          "name": "project_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -2421,7 +2248,7 @@
         },
         "collection_records_collection": {
           "name": "collection_records_collection",
-          "columns": ["environment_id", "collection_id"],
+          "columns": ["project_id", "collection_id"],
           "isUnique": false
         }
       },
@@ -2435,11 +2262,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "collection_records_environment_id_environments_id_fk": {
-          "name": "collection_records_environment_id_environments_id_fk",
+        "collection_records_project_id_projects_id_fk": {
+          "name": "collection_records_project_id_projects_id_fk",
           "tableFrom": "collection_records",
-          "tableTo": "environments",
-          "columnsFrom": ["environment_id"],
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"

@@ -5,7 +5,6 @@ import { validatePreviewTarget } from "./preview-handoff";
 
 const target = {
   projectSlug: "site",
-  environmentName: "dev:me@example.test",
   apiUrl: "https://api.example.test",
 };
 
@@ -18,11 +17,9 @@ void test("ordinary sign-in and matching preview destinations are accepted", () 
   );
 });
 
-void test("mismatched project, environment, and backend fail closed before token exchange", () => {
+void test("mismatched project and backend fail closed before token exchange", () => {
   for (const expected of [
     { ...target, projectSlug: "other" },
-    { ...target, environmentName: "production" },
-    { ...target, environmentName: "dev:someone-else@example.test" },
     { ...target, apiUrl: "https://other.example.test" },
     {},
     null,

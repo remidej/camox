@@ -59,7 +59,6 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",

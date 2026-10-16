@@ -182,7 +182,7 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
-        environmentId: null,
+        projectId: null,
         sharedContentType: null,
         references: {},
       });

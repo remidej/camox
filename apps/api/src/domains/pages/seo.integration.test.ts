@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { drafts, environments, pages } from "../../schema";
+import { drafts, pages } from "../../schema";
 import { callTool } from "../agent/service";
 import { executePageSeo } from "./ai";
 import { getPage } from "./service";
@@ -26,7 +26,6 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "about",
       fullPath: "/about",
@@ -99,8 +98,8 @@ describe("setPageSeo", () => {
     expect(scheduleAiJob).toHaveBeenCalledOnce();
   });
 
-  it("rejects empty or conflicting input, and pages outside the project or environment", async () => {
-    const { db, ctx, page, project, tool } = await fixture();
+  it("rejects empty or conflicting input, and pages outside the project", async () => {
+    const { page, tool } = await fixture();
     for (const input of [
       { id: page.id },
       { id: page.id, path: "/about", metaTitle: "Both targets" },
@@ -117,21 +116,6 @@ describe("setPageSeo", () => {
       ok: false,
       error: { code: "NOT_FOUND" },
     });
-    const stagingName = "staging";
-    await db.insert(environments).values({
-      projectId: project.id,
-      name: stagingName,
-      type: "development",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    expect(
-      await tool(
-        "setPageSeo",
-        { id: page.id, metaTitle: "Wrong environment" },
-        { ...ctx, environmentName: stagingName },
-      ),
-    ).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
   });
 
   it("replaces the separate meta title and description tools", async () => {

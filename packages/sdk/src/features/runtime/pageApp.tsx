@@ -38,7 +38,6 @@ export function PageApp({
               authenticationUrl={input.authenticationUrl}
               apiUrl={input.apiUrl}
               projectSlug={input.projectSlug}
-              environmentName={input.environmentName}
               initialAuthenticated={input.presentation === "studio"}
               initialProject={currentInput.project}
             >

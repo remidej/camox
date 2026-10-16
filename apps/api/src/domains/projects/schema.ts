@@ -20,21 +20,3 @@ export const projects = sqliteTable(
     index("projects_organization_idx").on(table.organizationId),
   ],
 );
-
-export const environments = sqliteTable(
-  "environments",
-  {
-    id: int().primaryKey({ autoIncrement: true }),
-    projectId: int("project_id")
-      .notNull()
-      .references(() => projects.id),
-    name: text().notNull(),
-    type: text().notNull().$type<"production" | "development">(),
-    createdAt: int("created_at").notNull(),
-    updatedAt: int("updated_at").notNull(),
-  },
-  (table) => [
-    uniqueIndex("environments_project_name_idx").on(table.projectId, table.name),
-    index("environments_project_idx").on(table.projectId),
-  ],
-);

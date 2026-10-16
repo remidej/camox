@@ -23,12 +23,10 @@ import {
   NotFoundError,
   type ServiceError,
 } from "../../lib/errors";
-import { resolveEnvironment } from "../../lib/resolve-environment";
 import {
   blockDefinitions,
   blocks,
   comments,
-  environments,
   layouts,
   member,
   pages,
@@ -104,7 +102,7 @@ export const getLayoutMarkdownInput = z.object({
   layoutId: z.string(),
 });
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
-// A Block Definition within a project's current environment.
+// A Block Definition within a project.
 export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });
 /** The server mints the id; a client may mint one for an optimistic insert. */
 export const createBlockInput = z.object({
@@ -362,14 +360,8 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   const stored = yield* overlay.get(db, scope, blocks, blockId);
   if (!stored) return null;
 
-  // Get block definition for content schema and field order. Scope by
-  // environmentId — the same blockId can exist with different shapes across
-  // environments (e.g. mid-migration).
-  const environmentId = stored.environmentId;
-  const environment = yield* Effect.promise(() =>
-    db.select().from(environments).where(eq(environments.id, environmentId)).get(),
-  );
-  const projectId = environment?.projectId ?? null;
+  // Get block definition for content schema and field order, in the block's project.
+  const projectId = stored.projectId;
 
   const def = projectId
     ? yield* Effect.promise(() =>
@@ -379,7 +371,6 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
           .where(
             and(
               eq(blockDefinitions.projectId, projectId),
-              eq(blockDefinitions.environmentId, environmentId),
               definitionsIn(blockDefinitions, scope),
               eq(blockDefinitions.blockId, stored.type),
             ),
@@ -841,7 +832,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     (item as any).content = itemContent;
   }
 
-  const referenceScope = yield* blockScope(ctx, block, scope);
+  const referenceScope = blockScope(block, scope);
   const hydratedBlock = (yield* hydrateReferences(ctx, referenceScope, [{ ...block, content }]))[0];
   const hydratedItems = yield* hydrateItemReferences(ctx, referenceScope, [block], sorted);
 
@@ -880,9 +871,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
   blockRows: RenderableBlock[],
   itemRows: RenderableItem[],
 ) {
-  // Get block definitions for content schemas and Markdown representations. Scope
-  // by environmentId — the same blockId can exist with different shapes across
-  // environments (e.g. mid-migration).
+  // Get the project's block definitions for content schemas and Markdown representations.
   const defs = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -890,7 +879,6 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
       .where(
         and(
           eq(blockDefinitions.projectId, scope.projectId),
-          eq(blockDefinitions.environmentId, scope.environmentId),
           definitionsIn(blockDefinitions, scope.draft),
         ),
       ),
@@ -997,7 +985,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
     ctx.db
       .select()
       .from(layouts)
-      .where(and(layoutNamed(page.environmentId, page.layoutId), definitionsIn(layouts, scope)))
+      .where(and(layoutNamed(page.projectId, page.layoutId), definitionsIn(layouts, scope)))
       .get(),
   );
   if (!servesPages(pageLayout)) return yield* new NotFoundError();
@@ -1005,7 +993,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   const { blocks: sorted, items: allItems } = yield* readOwnerBlocks(ctx, { pageId }, scope);
   const { blocks: sortedLayout, items: layoutAllItems } = yield* readOwnerBlocks(
     ctx,
-    { environmentId: page.environmentId, layoutId: page.layoutId },
+    { projectId: page.projectId, layoutId: page.layoutId },
     scope,
   );
 
@@ -1044,14 +1032,13 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
     ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );
   if (!project) return yield* new NotFoundError();
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
       .where(
         and(
-          eq(layouts.environmentId, environment.id),
+          eq(layouts.projectId, project.id),
           eq(layouts.layoutId, layoutId),
           definitionsIn(layouts, scope),
         ),
@@ -1070,7 +1057,6 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
   scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(getBlocksUsageCountsInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
       .select({
@@ -1078,13 +1064,13 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
         count: sql<number>`count(*)`,
       })
       .from(blocks)
-      .where(and(overlay.visibleIn(blocks, scope), eq(blocks.environmentId, environment.id)))
+      .where(and(overlay.visibleIn(blocks, scope), eq(blocks.projectId, projectId)))
       .groupBy(blocks.type),
   );
 });
 
 /**
- * The distinct Pages of the current environment that place a Block Definition.
+ * The distinct Pages of the project that place a Block Definition.
  * Unlike usage counts, several placements on one Page count once, and layout
  * placements don't count, since they aren't on a Page.
  */
@@ -1094,7 +1080,6 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
   scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
       .selectDistinct({ id: pages.id, nickname: pages.nickname, fullPath: pages.fullPath })
@@ -1104,7 +1089,7 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
         and(
           overlay.visibleIn(blocks, scope),
           eq(blocks.type, type),
-          eq(pages.environmentId, environment.id),
+          eq(pages.projectId, projectId),
         ),
       )
       .orderBy(pages.fullPath),
@@ -1112,7 +1097,7 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
 });
 
 /**
- * A Synced Block's shared content in the current environment, as a
+ * A Synced Block's shared content in the project, as a
  * block bundle. Null when the block isn't synced or has no placement yet.
  */
 export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(function* (
@@ -1121,8 +1106,7 @@ export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(f
   scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const id = yield* sharedPlacementId(ctx.db, scope, { environmentId: environment.id, type });
+  const id = yield* sharedPlacementId(ctx.db, scope, { projectId: projectId, type });
   if (id === null) return null;
   return yield* getBlock(ctx, { id }, scope);
 });
@@ -1184,8 +1168,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 
   // Look up the block definition's content schema and normalize inline repeatable
   // arrays into seeds, so the agent (and any caller) can produce a flat shape.
-  // Scope by environmentId — the same blockId can exist with different shapes
-  // across environments (e.g. mid-migration).
   const def = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -1193,7 +1175,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       .where(
         and(
           eq(blockDefinitions.projectId, access.page.projectId),
-          eq(blockDefinitions.environmentId, access.page.environmentId),
           definitionsIn(blockDefinitions, scope),
           eq(blockDefinitions.blockId, type),
         ),
@@ -1253,7 +1234,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   }
   const result = yield* overlay.insert(ctx.db, scope, blocks, {
     id,
-    environmentId: access.page.environmentId,
+    projectId: access.page.projectId,
     pageId,
     type,
     content: prepared.content,
@@ -1357,12 +1338,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 
   const patch = yield* prepareContentPatch(content, contentSchema);
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
-  yield* validateReferenceValues(
-    ctx,
-    yield* blockScope(ctx, access.block, scope),
-    contentSchema,
-    patch,
-  );
+  yield* validateReferenceValues(ctx, blockScope(access.block, scope), contentSchema, patch);
   const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
   // Repeater patches write the Live repeatable items, even from a draft, until items move into
   // drafts (#238).
@@ -1549,8 +1525,7 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     ctx.db
       .select({ id: blocks.id, projectId: projects.id })
       .from(blocks)
-      .innerJoin(environments, eq(environments.id, blocks.environmentId))
-      .innerJoin(projects, eq(projects.id, environments.projectId))
+      .innerJoin(projects, eq(projects.id, blocks.projectId))
       .innerJoin(
         member,
         and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
@@ -1637,7 +1612,7 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   const position = generateKeyBetween(original.position, nextBlock?.position ?? null);
 
   const result = yield* overlay.insert(ctx.db, scope, blocks, {
-    environmentId: original.environmentId,
+    projectId: original.projectId,
     pageId: original.pageId,
     layoutId: original.layoutId,
     type: original.type,

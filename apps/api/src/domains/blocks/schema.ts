@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
-import { environments } from "../projects/schema";
+import { projects } from "../projects/schema";
 
 /**
  * A block. A placement of a synced block definition holds only its identity, position and
@@ -29,9 +29,9 @@ export const blocks = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
-    environmentId: int("environment_id")
+    projectId: int("project_id")
       .notNull()
-      .references(() => environments.id),
+      .references(() => projects.id),
     // No foreign key: content tables don't reference each other (ADR 0005).
     pageId: text("page_id"),
     // The name of the layout whose slot holds this block. Deleting a layout deletes its blocks.
@@ -52,14 +52,14 @@ export const blocks = sqliteTable(
       .on(table.draftId, table.id)
       .where(sql`${table.draftId} is not null`),
     index("blocks_page_idx").on(table.pageId),
-    index("blocks_layout_idx").on(table.environmentId, table.layoutId),
+    index("blocks_layout_idx").on(table.projectId, table.layoutId),
     index("blocks_type_idx").on(table.type),
   ],
 );
 
 /**
  * The shared content of a synced block definition (ADR 0004, 0005): one entity per definition
- * name and environment, shown by every placement of the definition. It owns its repeatable
+ * name in a project, shown by every placement of the definition. It owns its repeatable
  * items.
  *
  * Live and every draft store it side by side, like blocks. Its id is derived from the
@@ -80,9 +80,9 @@ export const sharedContents = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
-    environmentId: int("environment_id")
+    projectId: int("project_id")
       .notNull()
-      .references(() => environments.id),
+      .references(() => projects.id),
     // The name of the synced block definition.
     type: text().notNull(),
     content: text({ mode: "json" }).notNull(),
@@ -97,11 +97,11 @@ export const sharedContents = sqliteTable(
     uniqueIndex("shared_contents_draft_id_idx")
       .on(table.draftId, table.id)
       .where(sql`${table.draftId} is not null`),
-    index("shared_contents_definition_idx").on(table.environmentId, table.type),
+    index("shared_contents_definition_idx").on(table.projectId, table.type),
   ],
 );
 
 /** The id of a definition's shared content, the same in Live and in every draft. */
-export function sharedContentId(key: { environmentId: number; type: string }) {
-  return `${key.environmentId}:${key.type}`;
+export function sharedContentId(key: { projectId: number; type: string }) {
+  return `${key.projectId}:${key.type}`;
 }

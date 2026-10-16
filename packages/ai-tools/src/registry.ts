@@ -2,7 +2,7 @@ import { blockTypesProvider } from "./providers/block-types";
 import { blocksProvider } from "./providers/blocks";
 import { collectionsProvider } from "./providers/collections";
 import { commentsProvider } from "./providers/comments";
-import { environmentsProvider } from "./providers/environments";
+import { draftsProvider } from "./providers/drafts";
 import { filesProvider } from "./providers/files";
 import { layoutsProvider } from "./providers/layouts";
 import { pagesProvider } from "./providers/pages";
@@ -15,6 +15,6 @@ export const toolProviders: ToolProvider[] = [
   blocksProvider,
   commentsProvider,
   collectionsProvider,
-  environmentsProvider,
   filesProvider,
+  draftsProvider,
 ];

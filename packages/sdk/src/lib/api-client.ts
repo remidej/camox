@@ -14,15 +14,12 @@ export type ApiClient = RouterClient<Router>;
 let _client: ApiClient | null = null;
 let _orpc: ReturnType<typeof createTanstackQueryUtils<ApiClient>> | null = null;
 let _apiUrl: string | null = null;
-let _environmentName: string | null = null;
 
-export function initApiClient(apiUrl: string, environmentName?: string): ApiClient {
+export function initApiClient(apiUrl: string): ApiClient {
   _apiUrl = apiUrl;
-  _environmentName = environmentName ?? null;
   readDraftFromUrl();
 
   const headers: Record<string, string> = { "x-camox-client": "studio" };
-  if (environmentName) headers["x-environment-name"] = environmentName;
   if (__CAMOX_TELEMETRY_DISABLED__) headers["x-camox-telemetry-disabled"] = "1";
 
   const link = new RPCLink({
@@ -60,8 +57,4 @@ export function getOrpc() {
 export function getApiUrl(): string {
   if (!_apiUrl) throw new Error("API client not initialized — call initApiClient first");
   return _apiUrl;
-}
-
-export function getEnvironmentName(): string | null {
-  return _environmentName;
 }

@@ -14,7 +14,7 @@ import { NavigationProvider, type NavigateOptions } from "../navigation/navigati
 import { useDerivedPageResult, useFollowPageRecord } from "./pageRecord";
 
 Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 
 const record = (title: string): AnyLayoutLoaderResult => ({
   kind: "collection-item",

@@ -37,7 +37,7 @@ import { ContentCollection, ContentCollectionItemEditor } from "./ContentCollect
 
 // tsx loads workspace UI sources with the classic JSX transform, unlike Vite.
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 
 const collections: CollectionDefinition[] = [
   { collectionId: "articles", title: "Articles", description: "News and updates", label: "title" },

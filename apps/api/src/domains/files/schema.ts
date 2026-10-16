@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
-import { environments, projects } from "../projects/schema";
+import { projects } from "../projects/schema";
 
 /**
  * A file: an uploaded image, video or document whose bytes are a blob in R2.
@@ -29,10 +29,9 @@ export const files = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
-    projectId: int("project_id").references(() => projects.id),
-    environmentId: int("environment_id")
+    projectId: int("project_id")
       .notNull()
-      .references(() => environments.id),
+      .references(() => projects.id),
     url: text().notNull(),
     // Manual metadata, all null or all set (ADR 0012): null means the generated values apply.
     alt: text(),
@@ -54,6 +53,5 @@ export const files = sqliteTable(
       .where(sql`${table.draftId} is not null`),
     index("files_blob_id_idx").on(table.blobId),
     index("files_project_idx").on(table.projectId),
-    index("files_environment_idx").on(table.environmentId),
   ],
 );

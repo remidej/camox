@@ -6,7 +6,6 @@ import { Hono, type Handler } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
 import { isRasterImage } from "../../lib/image-transform";
-import { resolveEnvironment } from "../../lib/resolve-environment";
 import { runService } from "../../lib/run-service";
 import { authed, contentWrite, liveReadOnlyError, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
@@ -199,7 +198,6 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     db: c.var.db,
     user: c.var.user,
     env: c.env,
-    environmentName: c.var.environmentName,
     client: c.var.client ?? "unknown",
     telemetryDisabled: c.var.telemetryDisabled ?? false,
     draft,
@@ -237,7 +235,6 @@ const uploadContent: Handler<AppEnv> = async (c) => {
 
   const upload = Effect.gen(function* () {
     yield* getAuthorizedProject(ctx.db, projectId, c.var.user!.id);
-    const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
     return yield* inDraftScope(ctx, projectId, (scope) =>
       Effect.gen(function* () {
         // Reject a missing target before storing any blob.
@@ -269,7 +266,6 @@ const uploadContent: Handler<AppEnv> = async (c) => {
                   ...(typeof newId === "string" ? { id: newId } : {}),
                   ...asset,
                   projectId,
-                  environmentId: environment.id,
                   createdAt: now,
                   updatedAt: now,
                 },

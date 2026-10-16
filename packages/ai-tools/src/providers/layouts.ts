@@ -28,7 +28,7 @@ export const layoutsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "getLayout",
     description:
-      "Fetch a layout by name in the current project and environment. Returns layout metadata, " +
+      "Fetch a layout by name in the current project, as the draft sees it. Returns layout metadata, " +
       "ordered blocks with ids, types, layout slot, and content, repeatableItems, and files. " +
       "Use this to discover shared navigation and footer blocks.",
     inputSchema: getLayoutToolInput,

@@ -25,7 +25,6 @@ import { comments } from "../comments/schema";
 import { files } from "../files/schema";
 import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
-import { environments } from "../projects/schema";
 import { repeatableItems } from "../repeatable-items/schema";
 import { drafts, endedDrafts } from "./schema";
 import type { DraftScope } from "./scope";
@@ -130,10 +129,6 @@ export function registrationOf(table: ContentTable): ContentTableRegistration {
   return registration;
 }
 
-/** The ids of a project's environments, as a subquery. */
-const environmentsOf = (projectId: number) =>
-  sql`(select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`;
-
 registerContentTable(pages, {
   entity: "page",
   parents: [{ column: pages.parentPageId, key: pages.id }],
@@ -151,13 +146,13 @@ registerContentTable(blocks, {
     {
       column: blocks.layoutId,
       key: layouts.layoutId,
-      within: [[blocks.environmentId, layouts.environmentId]],
+      within: [[blocks.projectId, layouts.projectId]],
     },
   ],
   rewritable: [],
   dependents: [{ onDelete: "detach", column: comments.blockId }],
   commentAnchor: comments.blockId,
-  inProject: (projectId) => sql`${blocks.environmentId} in ${environmentsOf(projectId)}`,
+  inProject: (projectId) => eq(blocks.projectId, projectId),
 });
 
 registerContentTable(sharedContents, {
@@ -165,7 +160,7 @@ registerContentTable(sharedContents, {
   parents: [],
   rewritable: [],
   dependents: [],
-  inProject: (projectId) => sql`${sharedContents.environmentId} in ${environmentsOf(projectId)}`,
+  inProject: (projectId) => eq(sharedContents.projectId, projectId),
 });
 
 registerContentTable(repeatableItems, {
@@ -176,15 +171,15 @@ registerContentTable(repeatableItems, {
     {
       column: repeatableItems.sharedContentType,
       key: sharedContents.type,
-      within: [[repeatableItems.environmentId, sharedContents.environmentId]],
+      within: [[repeatableItems.projectId, sharedContents.projectId]],
     },
   ],
   rewritable: [],
   dependents: [{ onDelete: "detach", column: comments.itemId }],
   commentAnchor: comments.itemId,
-  // An item's tree is rooted in a shared content of the environment, or in a block.
+  // An item's tree is rooted in a shared content of the project, or in a block.
   inProject: (projectId) =>
-    sql`(${repeatableItems.environmentId} in ${environmentsOf(projectId)} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."environment_id" in ${environmentsOf(projectId)}))`,
+    sql`(${repeatableItems.projectId} = ${projectId} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."project_id" = ${projectId}))`,
 });
 
 // A file belongs to its project only; content points at it by `_fileId`, which publishing checks.
@@ -203,8 +198,7 @@ registerContentTable(collectionRecords, {
   parents: [],
   rewritable: [],
   dependents: [],
-  inProject: (projectId) =>
-    sql`${collectionRecords.environmentId} in (select ${environments.id} from ${environments} where ${environments.projectId} = ${projectId})`,
+  inProject: (projectId) => eq(collectionRecords.projectId, projectId),
 });
 
 /** The rows stored in a scope itself: Live's rows, or one draft's rows including tombstones. */

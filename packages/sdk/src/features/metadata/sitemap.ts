@@ -5,7 +5,6 @@ import type { RouterClient } from "@orpc/server";
 
 declare const __CAMOX_API_URL__: string;
 declare const __CAMOX_PROJECT_SLUG__: string;
-declare const __CAMOX_ENVIRONMENT_NAME__: string;
 
 export type SitemapEntry = {
   loc: string;
@@ -13,12 +12,8 @@ export type SitemapEntry = {
 };
 
 export async function generateSitemap(origin: string): Promise<SitemapEntry[]> {
-  const headers: Record<string, string> = {
-    "x-environment-name": __CAMOX_ENVIRONMENT_NAME__,
-  };
-
   const api = createORPCClient<RouterClient<Router>>(
-    new RPCLink({ url: `${__CAMOX_API_URL__}/rpc`, headers }),
+    new RPCLink({ url: `${__CAMOX_API_URL__}/rpc` }),
   );
 
   const pages = await api.pages.listBySlug({ projectSlug: __CAMOX_PROJECT_SLUG__ });
