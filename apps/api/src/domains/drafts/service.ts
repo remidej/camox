@@ -78,6 +78,26 @@ export function storedForRequest(table: overlay.ContentTable, ctx: DraftScopeCon
 }
 
 /**
+ * Creates a regular draft unless its id is taken or belonged to a draft that ended, so an ended
+ * draft never comes back. Whether this call created it.
+ */
+export const startDraft = Effect.fn("startDraft")(function* (
+  db: ServiceContext["db"],
+  draft: { id: string; projectId: number; createdBy: string; name: string | null },
+) {
+  // Two requests racing to start the same draft both land here; the primary key keeps one.
+  // The insert skips an ended draft's id in the same statement, so it can't race an ending.
+  const inserted = yield* Effect.promise(() =>
+    db.run(sql`
+      insert into ${drafts} (id, project_id, kind, name, created_by, created_at)
+      select ${draft.id}, ${draft.projectId}, 'regular', ${draft.name}, ${draft.createdBy}, ${Date.now()}
+      where not exists (select 1 from ${endedDrafts} where ${endedDrafts.id} = ${draft.id})
+      on conflict do nothing`),
+  );
+  return inserted.meta.changes > 0;
+});
+
+/**
  * Turn the draft a request names (`ctx.draft`) into the scope a service reads and writes, once
  * the service knows the project. No draft means Live, which is public. Naming a draft needs a
  * member of the project's organization: anonymous callers fail with 401, outsiders with 403. A
@@ -101,19 +121,9 @@ const resolveRequestedDraft = Effect.fn("resolveRequestedDraft")(function* (
     return { scope: scopeOf(draft), started: false };
   }
 
-  let started = false;
-  if (requested.create) {
-    // Two requests racing to start the same draft both land here; the primary key keeps one.
-    // The insert skips an ended draft's id in the same statement, so it can't race an ending.
-    const inserted = yield* Effect.promise(() =>
-      ctx.db.run(sql`
-        insert into ${drafts} (id, project_id, kind, created_by, created_at)
-        select ${requested.id}, ${projectId}, 'regular', ${user.id}, ${Date.now()}
-        where not exists (select 1 from ${endedDrafts} where ${endedDrafts.id} = ${requested.id})
-        on conflict do nothing`),
-    );
-    started = inserted.meta.changes > 0;
-  }
+  const started = requested.create
+    ? yield* startDraft(ctx.db, { id: requested.id, projectId, createdBy: user.id, name: null })
+    : false;
 
   const draft = yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.id, requested.id)).get(),

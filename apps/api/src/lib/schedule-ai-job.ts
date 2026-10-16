@@ -1,6 +1,19 @@
 type AiJobType = "summary" | "fileMetadata" | "seo";
 type EntityTable = "blocks" | "repeatableItems" | "files" | "pages";
 
+/**
+ * Names a job: its Durable Object, and its logs. A draft's job and Live's job on the same entity
+ * run apart instead of replacing each other.
+ */
+export function aiJobKey(job: {
+  entityTable: string;
+  entityId: string;
+  type: string;
+  draftId?: string | null;
+}) {
+  return `${job.entityTable}:${job.entityId}:${job.type}:${job.draftId ?? "live"}`;
+}
+
 export function scheduleAiJob(
   doNamespace: DurableObjectNamespace,
   options: {
@@ -15,9 +28,7 @@ export function scheduleAiJob(
     draftId?: string | null;
   },
 ) {
-  // A draft's job and Live's job on the same entity run apart instead of replacing each other.
-  const name = `${options.entityTable}:${options.entityId}:${options.type}:${options.draftId ?? "live"}`;
-  const id = doNamespace.idFromName(name);
+  const id = doNamespace.idFromName(aiJobKey(options));
   const stub = doNamespace.get(id);
   return stub.fetch("http://do/schedule", {
     method: "POST",

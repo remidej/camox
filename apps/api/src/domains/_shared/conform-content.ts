@@ -136,20 +136,21 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
   const itemById = new Map(items.map((item) => [item.id, item]));
   // An item's repeater field, found by walking up to its block; null when the path is gone.
   const repeaterOf = new Map<string, Field | null>();
+  // The schema an item's repeater field is in: its block's content, or its parent's repeater.
+  const containerOf = (item: I, seen: Set<string>): unknown => {
+    if (item.parentItemId === null) {
+      const block = blockById.get(item.blockId);
+      return block ? definitions.get(block.type)?.contentSchema : undefined;
+    }
+    const parent = itemById.get(item.parentItemId);
+    return parent ? resolve(parent, seen)?.items : undefined;
+  };
   const resolve = (item: I, seen: Set<string>): Field | null => {
     const known = repeaterOf.get(item.id);
     if (known !== undefined) return known;
     if (seen.has(item.id)) return null;
     seen.add(item.id);
-    let container: unknown;
-    if (item.parentItemId === null) {
-      const block = blockById.get(item.blockId);
-      container = block ? definitions.get(block.type)?.contentSchema : undefined;
-    } else {
-      const parent = itemById.get(item.parentItemId);
-      container = parent ? resolve(parent, seen)?.items : undefined;
-    }
-    const field = propertiesOf(container)[item.fieldName];
+    const field = propertiesOf(containerOf(item, seen))[item.fieldName];
     const repeater = field?.fieldType === "Repeater" ? field : null;
     repeaterOf.set(item.id, repeater);
     return repeater;

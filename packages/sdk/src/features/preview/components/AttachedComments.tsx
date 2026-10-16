@@ -15,9 +15,8 @@ import * as React from "react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
 import { commentMutations, commentQueries } from "@/lib/queries";
-import { getCurrentDraftId } from "@/lib/studio-draft";
 
-import { draftLabel, isSettledIn } from "../commentStatus";
+import { draftLabel, isSettledIn, useCommentDraftId } from "../commentStatus";
 import { type CommentTarget, previewCommentsStore } from "../previewCommentsStore";
 import { previewStore } from "../previewStore";
 import { usePageComments } from "../usePageComments";
@@ -85,7 +84,7 @@ function AttachedCommentsContent({
         (!("itemId" in entry.target) || entry.target.itemId === itemId) &&
         (!("fieldName" in entry.target) || entry.target.fieldName === fieldName)));
   const attached = (commentsQuery.data ?? []).filter(matches);
-  const draftId = getCurrentDraftId();
+  const draftId = useCommentDraftId();
   const visible = attached.filter((comment) => !isSettledIn(comment, draftId));
   const currentDraft = draft && matches(draft) ? draft : null;
   const selected = attached.find((comment) => comment.id === activeId);

@@ -239,33 +239,33 @@ export const copyValue = Effect.fn("generatedValues.copy")(function* (
 // --- Publishing and discarding (ADR 0012) ---
 
 /**
- * Publishing copies the draft's values over Live's, drops Live's values of what the draft
- * deletes, and deletes the draft's own, also when a development draft stays.
+ * Run once Live holds what the publish leaves: copies the draft's values over Live's, then drops
+ * Live's values of entities Live doesn't hold (what the draft deleted, the descendants deleted
+ * with it, and changes dropped as lost), and deletes the draft's own, also when a development
+ * draft stays.
  */
-export function publishStatements(db: Database, draftId: string): overlay.BatchItem[] {
+export function publishStatements(
+  db: Database,
+  scope: NonNullable<DraftScope>,
+): overlay.BatchItem[] {
   const entities = new Set<string>(GENERATED_ENTITIES);
+  const heldByLive = sql.join(
+    overlay
+      .liveIds()
+      .filter(({ entity }) => entities.has(entity))
+      .map(({ entity, ids }) => sql`("v"."entity" = ${entity} and "v"."entity_id" in (${ids}))`),
+    sql` or `,
+  );
   return [
     sql`insert into ${generatedValues} (project_id, draft_id, entity, entity_id, type, value, requested_at, generated_at)
       select "d"."project_id", null, "d"."entity", "d"."entity_id", "d"."type", "d"."value", null, "d"."generated_at"
       from ${generatedValues} as "d"
-      where "d"."draft_id" = ${draftId} and "d"."value" is not null
+      where "d"."draft_id" = ${scope.id} and "d"."value" is not null
       on conflict (entity, entity_id, type) where draft_id is null
       do update set value = excluded.value, generated_at = excluded.generated_at`,
-    ...overlay
-      .deletionsIn(draftId)
-      .filter(({ entity }) => entities.has(entity))
-      .map(({ entity, ids }) =>
-        db
-          .delete(generatedValues)
-          .where(
-            and(
-              isNull(generatedValues.draftId),
-              eq(generatedValues.entity, entity as GeneratedEntity),
-              sql`${generatedValues.entityId} in (${ids})`,
-            ),
-          ),
-      ),
-    db.delete(generatedValues).where(eq(generatedValues.draftId, draftId)),
+    sql`delete from ${generatedValues} as "v"
+      where "v"."draft_id" is null and "v"."project_id" = ${scope.projectId} and not (${heldByLive})`,
+    db.delete(generatedValues).where(eq(generatedValues.draftId, scope.id)),
   ];
 }
 

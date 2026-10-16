@@ -2,7 +2,7 @@ import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { type ApiClient, getApiUrl, getOrpc } from "./api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
-import { scopedKey } from "./studio-draft";
+import { getUploadDraftHeaders, scopedKey } from "./studio-draft";
 
 // --- Inferred API response types ---
 
@@ -260,11 +260,28 @@ export const repeatableItemMutations = {
   updatePosition: () => getOrpc().repeatableItems.updatePosition.mutationOptions(),
 };
 
-function ogImageHeaders(): Record<string, string> {
+/**
+ * Sends a change to a page's custom OG image. Like a file upload it is a content write outside
+ * oRPC: on Live it starts a draft, which the studio enters once the change succeeds.
+ */
+async function sendOgImageChange(pageId: string, init: { method: string; body?: FormData }) {
   const authCookieHeader = getAuthCookieHeader();
-  const headers: Record<string, string> = {};
-  if (authCookieHeader) headers["Better-Auth-Cookie"] = authCookieHeader;
-  return headers;
+  const draft = getUploadDraftHeaders();
+  try {
+    const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
+      ...init,
+      headers: {
+        ...(authCookieHeader ? { "Better-Auth-Cookie": authCookieHeader } : {}),
+        ...draft.headers,
+      },
+      credentials: getAuthRequestCredentials(authCookieHeader),
+    });
+    draft.settle(res.ok);
+    return res;
+  } catch (error) {
+    draft.settle(false);
+    throw error;
+  }
 }
 
 export const pageMutations = {
@@ -277,12 +294,7 @@ export const pageMutations = {
     mutationFn: async ({ pageId, file }: { pageId: string; file: globalThis.File }) => {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
-        method: "POST",
-        body: formData,
-        headers: ogImageHeaders(),
-        credentials: getAuthRequestCredentials(),
-      });
+      const res = await sendOgImageChange(pageId, { method: "POST", body: formData });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? `Upload failed: ${res.status}`);
@@ -292,11 +304,7 @@ export const pageMutations = {
   }),
   deleteCustomOgImage: () => ({
     mutationFn: async ({ pageId }: { pageId: string }) => {
-      const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
-        method: "DELETE",
-        headers: ogImageHeaders(),
-        credentials: getAuthRequestCredentials(),
-      });
+      const res = await sendOgImageChange(pageId, { method: "DELETE" });
       if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
       return res.json();
     },

@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { blockDefinitions, blocks, files } from "../../schema";
-import { definitionsIn } from "../_shared/definitions";
+import { files } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+import type { Holder } from "../drafts/content-checks";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { withFileMetadata } from "./generated-metadata";
@@ -13,7 +13,6 @@ import { withFileMetadata } from "./generated-metadata";
 // already on Live, which are warnings.
 
 type Scope = NonNullable<DraftScope>;
-type BlockRow = typeof blocks.$inferSelect;
 
 export type FileProblemCode =
   | "emptyRequiredFile"
@@ -21,9 +20,9 @@ export type FileProblemCode =
   | "missingFileBytes"
   | "unacceptedFileType";
 
-/** A problem found in a block's field, or in a file itself (`entity: "file"`). */
+/** A problem found in a field of content, or in a file itself (`entity: "file"`). */
 export type Finding = {
-  entity: "block" | "file";
+  entity: Holder["entity"] | "file";
   id: string;
   code: FileProblemCode;
   field: string;
@@ -40,31 +39,11 @@ type FieldSchema = {
 
 const ASSET_FIELDS = new Set(["Image", "File", "ImageList", "FileList"]);
 
-/** The content schemas of a project's block definitions, by name. Synced placements hold none. */
-const definitionsOf = Effect.fn("files.definitionsOf")(function* (
-  ctx: ServiceContext,
-  scope: NonNullable<DraftScope>,
-) {
-  const rows = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, scope.projectId),
-          definitionsIn(blockDefinitions, scope),
-        ),
-      ),
-  );
-  const fields = new Map<string, [string, FieldSchema][]>();
-  for (const definition of rows) {
-    if (definition.synced) continue;
-    const properties =
-      (definition.contentSchema as { properties?: Record<string, FieldSchema> }).properties ?? {};
-    fields.set(definition.blockId, Object.entries(properties));
-  }
-  return fields;
-});
+function fieldsOf(schema: unknown): [string, FieldSchema][] {
+  const properties = (schema as { properties?: unknown } | null | undefined)?.properties;
+  if (!properties || typeof properties !== "object") return [];
+  return Object.entries(properties as Record<string, FieldSchema>);
+}
 
 /** Every `_fileId` anywhere in a value. */
 function fileIdsIn(value: unknown, found: string[] = []): string[] {
@@ -113,11 +92,10 @@ function acceptOf(schema: FieldSchema): string[] | undefined {
 export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* (
   ctx: ServiceContext,
   scope: Scope,
-  { changed, untouched }: { changed: BlockRow[]; untouched: BlockRow[] },
+  holders: Holder[],
 ) {
   const blockers: Finding[] = [];
   const warnings: Finding[] = [];
-  const definitions = yield* definitionsOf(ctx, scope);
   const inProject = eq(files.projectId, scope.projectId);
   const shownFiles = new Map(
     (yield* withFileMetadata(
@@ -157,12 +135,13 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
     });
   }
 
-  const check = (block: BlockRow, draftChangedIt: boolean) => {
-    const content = (block.content ?? {}) as Record<string, unknown>;
-    for (const [field, schema] of definitions.get(block.type) ?? []) {
+  for (const holder of holders) {
+    const draftChangedIt = holder.changed;
+    const content = (holder.content ?? {}) as Record<string, unknown>;
+    for (const [field, schema] of fieldsOf(holder.schema)) {
       const title = schema.title ?? field;
       const value = content[field];
-      const at = { entity: "block" as const, id: block.id, field };
+      const at = { entity: holder.entity, id: holder.id, field };
 
       // Lists can't be required: an empty list is always valid.
       const single = schema.fieldType === "Image" || schema.fieldType === "File";
@@ -196,9 +175,7 @@ export const checkFileProblems = Effect.fn("files.checkFileProblems")(function* 
         });
       }
     }
-  };
-  for (const block of changed) check(block, true);
-  for (const block of untouched) check(block, false);
+  }
 
   return { blockers, warnings, files: new Map([...liveFiles, ...shownFiles]) };
 });

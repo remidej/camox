@@ -1,4 +1,5 @@
 import type { DraftKind } from "@camox/api-contract/drafts";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
@@ -11,7 +12,7 @@ import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
-import { resolveDraftScope } from "./service";
+import { resolveDraftScope, startDraft } from "./service";
 
 // The drafts the studio's control lists and switches between (ADR 0011). An unnamed draft is
 // labelled on the client from its creator and creation date; that label is never stored.
@@ -44,6 +45,10 @@ export const getInput = z.object({ projectId: z.number() });
 export const renameInput = z.object({
   projectId: z.number(),
   name: z.string().max(200).nullable(),
+});
+export const createInput = z.object({
+  projectId: z.number(),
+  name: z.string().max(200).nullable().optional(),
 });
 
 const FORMER_MEMBER = "A former member";
@@ -100,7 +105,7 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
       .select()
       .from(drafts)
       .where(
-        // Development drafts stay out of the production studio: only the localhost studio
+        // Development drafts stay out of the hosted studio: only the localhost studio
         // shows its owner's (ADR 0006).
         and(eq(drafts.projectId, projectId), eq(drafts.kind, "regular")),
       ),
@@ -119,6 +124,35 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
     },
     drafts: summaries,
   } satisfies DraftList;
+});
+
+/**
+ * Creates an empty regular draft in the project, by the caller and named or not, for surfaces
+ * that open a draft before its first change. The studio starts drafts with its first write
+ * instead (ADR 0011). A blank name leaves the draft unnamed, like renaming it to nothing.
+ */
+export const createDraft = Effect.fn("drafts.create")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof createInput>,
+) {
+  const { projectId, name } = yield* decodeInput(createInput, rawInput);
+  const user = yield* requireUser(ctx);
+  yield* getAuthorizedProject(ctx.db, projectId, user.id);
+
+  const id = generateUuidv7();
+  yield* startDraft(ctx.db, { id, projectId, createdBy: user.id, name: name?.trim() || null });
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    projectId,
+    draftId: null,
+    targets: [queryKeys.drafts.all],
+  });
+  const draft = yield* Effect.promise(() =>
+    ctx.db.select().from(drafts).where(eq(drafts.id, id)).get(),
+  );
+  const [summary] = yield* summarize(ctx.db, [draft!]);
+  return summary!;
 });
 
 /** The draft the request names, which getting and renaming need. */

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import { authed, contentWrite, pub } from "../../orpc";
-import { inScope, projectOfBlock, projectOfPage, projectOfSlug } from "./draft-scope";
+import { inScope, projectOfBlock, projectOfPage, projectOfSlug } from "../drafts/request-scope";
 import * as service from "./service";
 
 // Public procedures

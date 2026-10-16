@@ -1,5 +1,5 @@
 import { authed, contentWrite, pub } from "../../orpc";
-import { inScope, projectOfBlock, projectOfItem } from "../blocks/draft-scope";
+import { inScope, projectOfBlock, projectOfItem } from "../drafts/request-scope";
 import * as service from "./service";
 
 // Every procedure reads and writes items in the draft the request names (ADR 0011).

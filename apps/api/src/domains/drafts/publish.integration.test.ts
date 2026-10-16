@@ -280,6 +280,25 @@ describe("publishing a draft", () => {
     await expect(titleIn(created.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
+  it("lists a block the draft changed on a page it deletes as lost, and deletes it with the page", async () => {
+    const { createBlock, createPage, editTitle, member, preview, publish, titleIn } =
+      await fixture();
+    const about = await createPage("/about");
+    const block = await createBlock("Live", {}, { pageId: about.id });
+    const draft = generateUuidv7();
+    await editTitle(block.id, "Mine", startingDraft(draft));
+    await call(router.pages.delete, { id: about.id }, member(inDraft(draft)));
+
+    const { lost, conflicts } = await preview(draft);
+    expect(lost.map(({ id, reason }) => ({ id, reason }))).toEqual([
+      { id: block.id, reason: "parentGone" },
+    ]);
+    expect(conflicts).toEqual([]);
+
+    await publish(draft);
+    await expect(titleIn(block.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("lists Live items added to a block after the draft deleted it as lost, and deletes them with the block", async () => {
     const { createBlock, deleteBlock, member, preview, publish } = await fixture();
     const block = await createBlock("Live");
@@ -307,6 +326,75 @@ describe("publishing a draft", () => {
         call(router.repeatableItems.get, { id: item.id }, member()),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
     }
+  });
+
+  it("lists Live descendants published after the draft deleted their page as conflicts, with who published them", async () => {
+    const { createBlock, createPage, member, preview, publish, publishedOnLive, titleIn } =
+      await fixture();
+    const about = await createPage("/about");
+    const older = await createBlock("Older", {}, { pageId: about.id });
+    const draft = generateUuidv7();
+    await call(router.pages.delete, { id: about.id }, member(startingDraft(draft)));
+    const before = Date.now();
+    let added = { id: "" };
+    await publishedOnLive(async (headers) => {
+      added = await createBlock("Added", headers, { pageId: about.id });
+    });
+    const item = await call(
+      seedingLive(router.repeatableItems.create),
+      { blockId: older.id, fieldName: "links", content: { label: "Added" } },
+      member(),
+    );
+
+    const { conflicts, lost } = await preview(draft);
+
+    expect(
+      conflicts.map(({ entity, id }) => ({ entity, id })).sort((a, b) => (a.id < b.id ? -1 : 1)),
+    ).toEqual(
+      [
+        { entity: "block", id: added.id },
+        { entity: "repeatableItem", id: item.id },
+      ].sort((a, b) => (a.id < b.id ? -1 : 1)),
+    );
+    expect(conflicts.find((conflict) => conflict.id === added.id)).toMatchObject({
+      publishedBy: expect.objectContaining({ name: "Member" }),
+      publishedAt: expect.any(Number),
+    });
+    expect(
+      conflicts.find((conflict) => conflict.id === added.id)!.publishedAt,
+    ).toBeGreaterThanOrEqual(before);
+    expect(lost.map(({ id, reason }) => ({ id, reason }))).toEqual(
+      expect.arrayContaining([
+        { id: added.id, reason: "writtenAfterDeletion" },
+        { id: item.id, reason: "writtenAfterDeletion" },
+      ]),
+    );
+    expect(lost.map(({ id }) => id)).not.toContain(older.id);
+
+    await publish(draft);
+    await expect(titleIn(added.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(titleIn(older.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("aborts when a Live descendant of what the draft deletes is published between preview and publish", async () => {
+    const { createBlock, createPage, member, preview, publishWith, publishedOnLive, titleIn } =
+      await fixture();
+    const about = await createPage("/about");
+    const draft = generateUuidv7();
+    await call(router.pages.delete, { id: about.id }, member(startingDraft(draft)));
+    const { token, conflicts } = await preview(draft);
+    expect(conflicts).toEqual([]);
+
+    let added = { id: "" };
+    await publishedOnLive(async (headers) => {
+      added = await createBlock("Added", headers, { pageId: about.id });
+    });
+
+    await expect(publishWith(draft, token)).rejects.toMatchObject({
+      code: "CONFLICTS_CHANGED",
+    });
+    expect(await titleIn(added.id)).toBe("Added");
+    expect((await preview(draft)).conflicts.map((conflict) => conflict.id)).toEqual([added.id]);
   });
 
   it("blocks publishing on an empty required reference in a block the draft changed", async () => {
@@ -405,12 +493,12 @@ describe("publishing a draft", () => {
     expect(await titleIn(kept.id)).toBe("Kept");
   });
 
-  it("does nothing when publishing an empty draft", async () => {
+  it("does nothing when publishing an empty draft, and says so", async () => {
     const { createBlock, openDraft, preview, publish, titleIn } = await fixture();
     const block = await createBlock("Live");
     const draft = await openDraft("regular");
 
-    expect(await publish(draft)).toEqual({ ended: null });
+    expect(await publish(draft)).toEqual({ empty: true, ended: null });
 
     expect((await preview(draft)).changes).toEqual([]);
     expect(await titleIn(block.id, inDraft(draft))).toBe("Live");

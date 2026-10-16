@@ -1,17 +1,13 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER, DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { ORPCError } from "@orpc/server";
 import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
 import { isRasterImage } from "../../lib/image-transform";
-import { runService } from "../../lib/run-service";
-import { authed, contentWrite, liveReadOnlyError, pub } from "../../orpc";
+import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
+import { authed, contentWrite, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
-import type { ServiceContext } from "../_shared/service-context";
-import { inScope } from "../blocks/draft-scope";
-import type { DraftRequest } from "../drafts/scope";
+import { inScope, projectOfFile } from "../drafts/request-scope";
 import { inDraftScope } from "../drafts/service";
 import * as service from "./service";
 import { optimizeVideo } from "./video-optimization";
@@ -30,7 +26,7 @@ const list = pub
 const get = pub
   .input(service.getFileInput)
   .handler(({ context, input }) =>
-    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
       service.getFile(context, input, scope),
     ),
   );
@@ -38,7 +34,7 @@ const get = pub
 const getUsageCount = pub
   .input(service.getFileUsageCountInput)
   .handler(({ context, input }) =>
-    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
       service.getFileUsageCount(context, input, scope),
     ),
   );
@@ -48,7 +44,7 @@ const getUsageCount = pub
 const setAlt = contentWrite
   .input(service.setFileAltInput)
   .handler(({ context, input }) =>
-    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
       service.setFileAlt(context, input, scope),
     ),
   );
@@ -56,7 +52,7 @@ const setAlt = contentWrite
 const setFilename = contentWrite
   .input(service.setFileFilenameInput)
   .handler(({ context, input }) =>
-    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
       service.setFileFilename(context, input, scope),
     ),
   );
@@ -64,14 +60,14 @@ const setFilename = contentWrite
 const deleteFn = contentWrite
   .input(service.deleteFileInput)
   .handler(({ context, input }) =>
-    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
       service.deleteFile(context, input, scope),
     ),
   );
 
 const deleteMany = contentWrite.input(service.deleteFilesInput).handler(({ context, input }) => {
   const [first] = input.ids;
-  const project = first === undefined ? undefined : service.projectOfFile(context, first);
+  const project = first === undefined ? undefined : projectOfFile(context, first);
   return inScope(context, project ?? Effect.succeed(undefined), (scope) =>
     service.deleteFiles(context, input, scope),
   );
@@ -80,7 +76,7 @@ const deleteMany = contentWrite.input(service.deleteFilesInput).handler(({ conte
 const setAiMetadata = contentWrite
   .input(service.setFileAiMetadataInput)
   .handler(({ context, input }) =>
-    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
       service.setFileAiMetadata(context, input, scope),
     ),
   );
@@ -88,7 +84,7 @@ const setAiMetadata = contentWrite
 const generateMetadata = authed
   .input(service.generateFileMetadataInput)
   .handler(({ context, input }) =>
-    inScope(context, service.projectOfFile(context, input.id), (scope) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
       service.generateFileMetadata(context, input, scope),
     ),
   );
@@ -104,15 +100,6 @@ export const fileProcedures = {
   setAiMetadata,
   generateMetadata,
 };
-
-/** The draft an upload names in its headers, like any oRPC request (ADR 0011). */
-function draftRequestOf(headers: Headers): DraftRequest | null | "invalid" {
-  const id = headers.get(DRAFT_HEADER);
-  if (!id) return null;
-  if (id === DEVELOPMENT_DRAFT) return { development: true };
-  if (!uuidv7Schema.safeParse(id).success) return "invalid";
-  return { id, create: headers.get(DRAFT_CREATE_HEADER) === "1" };
-}
 
 // --- Hono routes (binary serving + multipart upload) ---
 
@@ -186,23 +173,8 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   if (id !== undefined && !uuidv7Schema.safeParse(id).success) {
     return c.json({ error: "Invalid file id" }, 400);
   }
-  const draft = draftRequestOf(c.req.raw.headers);
-  if (draft === "invalid") {
-    return c.json({ error: `${DRAFT_HEADER} must be a UUIDv7 or "${DEVELOPMENT_DRAFT}"` }, 400);
-  }
-  if (!draft) {
-    const error = liveReadOnlyError();
-    return c.json({ error: error.message, code: error.code }, 409);
-  }
-  const ctx: ServiceContext = {
-    db: c.var.db,
-    user: c.var.user,
-    env: c.env,
-    client: c.var.client ?? "unknown",
-    telemetryDisabled: c.var.telemetryDisabled ?? false,
-    draft,
-    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
-  };
+  const ctx = uploadContextOf(c, c.var.user);
+  if (ctx instanceof Response) return ctx;
 
   const body = await c.req.parseBody();
   const file = body["file"];
@@ -278,16 +250,7 @@ const uploadContent: Handler<AppEnv> = async (c) => {
     );
   });
 
-  try {
-    const result = await runService(upload);
-    return c.json(result, id !== undefined ? 200 : 201);
-  } catch (error) {
-    if (!(error instanceof ORPCError)) throw error;
-    return c.json(
-      { error: error.message, code: error.code, data: error.data },
-      error.status as 400,
-    );
-  }
+  return respondToUpload(c, upload, id !== undefined ? 200 : 201);
 };
 
 fileHonoRoutes.post("/upload", uploadContent);

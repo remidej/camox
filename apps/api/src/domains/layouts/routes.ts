@@ -1,6 +1,6 @@
 import { runService } from "../../lib/run-service";
 import { pub } from "../../orpc";
-import { projectOfSlug, inScope } from "../blocks/draft-scope";
+import { projectOfSlug, inScope } from "../drafts/request-scope";
 import * as service from "./service";
 
 // Public procedures

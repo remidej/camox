@@ -21,7 +21,7 @@ const draftScope = (ctx: ToolContext) => resolveDraftScope(ctx, ctx.projectId);
 export const filesProvider: ToolProvider = (ctx) => [
   {
     name: "listFiles",
-    description: "List media in the current project, as the draft sees them.",
+    description: "List files in the current project, as the draft sees them.",
     inputSchema: z.object({}),
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async () =>

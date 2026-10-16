@@ -54,14 +54,14 @@ async function fixture() {
   );
   await openDevelopmentDraft(base.db, projectId, base.memberUser.id);
 
-  const callTool = async (name: string, args: unknown = {}) =>
+  const callTool = async (name: string, args: unknown = {}, headers = development) =>
     (await call(
       router.agent.callTool,
       { projectId, name, arguments: args },
-      member(development),
+      member(headers),
     )) as ToolResponse;
-  const result = async (name: string, args: unknown = {}) => {
-    const response = await callTool(name, args);
+  const result = async (name: string, args: unknown = {}, headers = development) => {
+    const response = await callTool(name, args, headers);
     if (!response.ok) throw new Error(`${name} failed: ${JSON.stringify(response.error)}`);
     return response.result;
   };
@@ -121,6 +121,33 @@ describe("draft AI tools", () => {
       published: true,
     });
     expect(await f.titleIn()).toBe("Mine");
+  });
+
+  it("publishDraft on a development draft without changes says there is nothing to publish", async () => {
+    const f = await fixture();
+    const { token } = await f.result("previewPublish");
+
+    expect(await f.result("publishDraft", { token })).toMatchObject({
+      published: false,
+      reason: "empty",
+    });
+    expect(await f.titleIn()).toBe("Live");
+  });
+
+  it("publishDraft on a draft an earlier attempt discarded says it was discarded, not published", async () => {
+    const f = await fixture();
+    const draft = generateUuidv7();
+    await f.editTitle("Discarded", { [DRAFT_HEADER]: draft, [DRAFT_CREATE_HEADER]: "1" });
+    const inDraft = { [DRAFT_HEADER]: draft };
+    const { token } = await f.result("previewPublish", {}, inDraft);
+    await f.result("discardDraft", {}, inDraft);
+
+    expect(await f.result("publishDraft", { token }, inDraft)).toMatchObject({
+      published: false,
+      reason: "discarded",
+      ended: { outcome: "discarded" },
+    });
+    expect(await f.titleIn()).toBe("Live");
   });
 
   it("discardDraft empties the development draft and leaves Live untouched", async () => {

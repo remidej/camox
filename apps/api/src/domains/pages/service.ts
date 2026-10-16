@@ -365,7 +365,12 @@ export const getPage = Effect.fn("pages.getPage")(function* (
         ctx.db.select({ name: user.name }).from(user).where(eq(user.id, createdById)).get(),
       )
     : undefined;
-  return { ...(yield* pageView(ctx.db, scope, row)), createdBy: creator?.name ?? null };
+  const duplicates = duplicatePathIds(yield* pagesIn(ctx, scope, row.projectId));
+  return {
+    ...(yield* pageView(ctx.db, scope, row)),
+    createdBy: creator?.name ?? null,
+    duplicatePath: duplicates.has(row.id),
+  };
 });
 
 // --- Writes ---

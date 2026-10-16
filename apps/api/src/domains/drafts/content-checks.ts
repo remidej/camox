@@ -40,6 +40,7 @@ type RecordRow = typeof collectionRecords.$inferSelect;
 export type ContentProblemCode =
   | "duplicatePath"
   | "duplicateRecordPageValue"
+  | "emptyRequiredReference"
   | "danglingReference"
   | "danglingPageLink"
   | "wrongKindValue"
@@ -47,7 +48,7 @@ export type ContentProblemCode =
   | "metaTitlePending";
 
 /** An entity holding content, as previews name it. */
-type ContentEntity = "page" | "block" | "sharedContent" | "repeatableItem" | "record";
+type ContentEntity = Exclude<overlay.EntityKind, "file">;
 
 /** A problem found in an entity's field. */
 export type ContentFinding = {
@@ -191,7 +192,7 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
 );
 
 /** Content to check against its definition: a block, shared content, item or record. */
-type Holder = {
+export type Holder = {
   entity: Exclude<ContentEntity, "page">;
   id: string;
   projectId: number;
@@ -392,6 +393,28 @@ function checkDanglingPointers(
 }
 
 /**
+ * Required references left empty. In content the draft changed they block publishing; on Live
+ * they're warnings.
+ */
+function checkEmptyRequiredReferences(holders: Holder[], found: Findings) {
+  for (const holder of holders) {
+    const content = (holder.content ?? {}) as Record<string, unknown>;
+    for (const [name, field] of Object.entries(propertiesOf(holder.schema))) {
+      if (field.fieldType !== "Reference" || field.required !== true) continue;
+      const value = content[name];
+      if (value !== null && value !== undefined && value !== "") continue;
+      (holder.changed ? found.blockers : found.warnings).push({
+        entity: holder.entity,
+        id: holder.id,
+        code: "emptyRequiredReference",
+        field: name,
+        message: `"${field.title ?? name}" is required but empty`,
+      });
+    }
+  }
+}
+
+/**
  * Values of the wrong kind for their definition, which reading replaces with the default
  * (ADR 0007). In content the draft changed they block publishing; on Live they're warnings.
  */
@@ -450,6 +473,7 @@ export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(fun
     new Set(draftPages.map((page) => page.id)),
     draftRecords,
   );
+  checkEmptyRequiredReferences(holders, found);
   checkDanglingPointers(
     holders,
     { draft: (key) => inDraft.has(key), live: (key) => onLive.has(key) },
@@ -457,5 +481,5 @@ export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(fun
   );
   checkWrongKinds(holders, found);
 
-  return { ...found, records: draftRecords };
+  return { ...found, records: draftRecords, holders };
 });

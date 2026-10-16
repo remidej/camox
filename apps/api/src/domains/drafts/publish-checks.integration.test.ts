@@ -107,6 +107,51 @@ async function fixture() {
     createdAt: 1,
     updatedAt: 1,
   });
+  // A card list whose cards need an author, and a synced banner that needs one too.
+  const requiredAuthor = {
+    fieldType: "Reference",
+    collectionId: "authors",
+    title: "Author",
+    required: true,
+    anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+    default: null,
+  };
+  await base.db.insert(blockDefinitions).values([
+    {
+      projectId,
+      blockId: "cards",
+      title: "Cards",
+      description: "",
+      contentSchema: {
+        type: "object",
+        properties: {
+          cards: {
+            fieldType: "Repeater",
+            type: "array",
+            items: {
+              type: "object",
+              properties: { label: text("Label"), author: requiredAuthor },
+            },
+          },
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    {
+      projectId,
+      blockId: "banner",
+      title: "Banner",
+      description: "",
+      synced: true,
+      contentSchema: {
+        type: "object",
+        properties: { title: text("Title"), author: requiredAuthor },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  ]);
 
   // Pages get a manual meta title, so their SEO (ADR 0012) stays out of these checks.
   const createPage = async (pathSegment: string, headers: Headers = {}) => {
@@ -125,6 +170,8 @@ async function fixture() {
     callSeedingLive(router.pages.update, { id, pathSegment }, member(headers));
   const listPages = (headers: Headers = {}) =>
     call(router.pages.list, { projectId }, member(headers));
+  const getPage = (id: string, headers: Headers = {}) =>
+    call(router.pages.get, { id }, member(headers));
 
   const createAuthor = (name: string, mentor: string | null = null, headers: Headers = {}) =>
     callSeedingLive(
@@ -144,10 +191,28 @@ async function fixture() {
       { projectSlug, collectionId: "authors" },
       member(headers),
     );
+  const getAuthor = (id: string, headers: Headers = {}) =>
+    call(
+      router.collectionDefinitions.getRecord,
+      { projectSlug, collectionId: "authors", id },
+      member(headers),
+    );
   const createByline = (pageId: string, content: Record<string, unknown>) =>
     callSeedingLive(router.blocks.create, { pageId, type: "byline", content }, member());
   const editByline = (id: string, content: Record<string, unknown>, headers: Headers = {}) =>
     callSeedingLive(router.blocks.updateContent, { id, content }, member(headers));
+  const createBlock = (
+    pageId: string,
+    type: string,
+    content: Record<string, unknown>,
+    headers: Headers = {},
+  ) => callSeedingLive(router.blocks.create, { pageId, type, content }, member(headers));
+  const addCard = (blockId: string, content: Record<string, unknown>, headers: Headers = {}) =>
+    callSeedingLive(
+      router.repeatableItems.create,
+      { blockId, fieldName: "cards", content },
+      member(headers),
+    );
   const deletePage = (id: string, headers: Headers = {}) =>
     callSeedingLive(router.pages.delete, { id }, member(headers));
 
@@ -166,12 +231,16 @@ async function fixture() {
     createPage,
     renamePage,
     listPages,
+    getPage,
     deletePage,
     createAuthor,
     deleteAuthor,
     listAuthors,
+    getAuthor,
     createByline,
     editByline,
+    createBlock,
+    addCard,
     preview,
     publish,
   };
@@ -203,6 +272,21 @@ describe("duplicate paths", () => {
 
     await f.renamePage(team.id, "people", inDraft(draft));
     expect((await f.preview(draft)).blockers).toEqual([]);
+  });
+
+  it("flags a duplicate path on a page read on its own", async () => {
+    const f = await fixture();
+    const about = await f.createPage("about");
+    const team = await f.createPage("team");
+    const draft = generateUuidv7();
+    await f.renamePage(team.id, "about", startingDraft(draft));
+
+    expect(await f.getPage(team.id, inDraft(draft))).toMatchObject({ duplicatePath: true });
+    expect(await f.getPage(about.id, inDraft(draft))).toMatchObject({ duplicatePath: true });
+    expect(await f.getPage(about.id)).toMatchObject({ duplicatePath: false });
+
+    await f.renamePage(team.id, "people", inDraft(draft));
+    expect(await f.getPage(team.id, inDraft(draft))).toMatchObject({ duplicatePath: false });
   });
 });
 
@@ -256,6 +340,24 @@ describe("duplicate record page values", () => {
     ]);
     expect(warnings).toEqual([]);
     await expect(f.publish(draft)).rejects.toMatchObject({ code: "PUBLISH_BLOCKED" });
+  });
+
+  it("flags a duplicate record page value on a record read on its own", async () => {
+    const f = await fixture();
+    await withAuthorPages(f);
+    const ada = await f.createAuthor("ada");
+    const grace = await f.createAuthor("grace");
+    const draft = generateUuidv7();
+    const twin = await f.createAuthor("ada", null, startingDraft(draft));
+
+    // Saving returns the record as reads do.
+    expect(twin).toMatchObject({ duplicatePageValue: true });
+    expect(await f.getAuthor(twin.id, inDraft(draft))).toMatchObject({ duplicatePageValue: true });
+    expect(await f.getAuthor(ada.id, inDraft(draft))).toMatchObject({ duplicatePageValue: true });
+    expect(await f.getAuthor(grace.id, inDraft(draft))).toMatchObject({
+      duplicatePageValue: false,
+    });
+    expect(await f.getAuthor(ada.id)).toMatchObject({ duplicatePageValue: false });
   });
 
   it("only warns about records already sharing a value on Live", async () => {
@@ -384,6 +486,52 @@ describe("dangling references", () => {
     await f.deletePage(about.id, startingDraft(draft));
 
     expect((await f.preview(draft)).blockers).toEqual([]);
+  });
+});
+
+describe("empty required references", () => {
+  it("blocks an empty one in a repeatable item and in synced shared content the draft changed", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const ada = await f.createAuthor("Ada");
+    const cards = await f.createBlock(home.id, "cards", {});
+    const banner = await f.createBlock(home.id, "banner", { title: "Hi", author: ada.id });
+    const draft = generateUuidv7();
+    const card = await f.addCard(cards.id, { label: "Card" }, startingDraft(draft));
+    await f.editByline(banner.id, { author: null }, inDraft(draft));
+
+    const { blockers, warnings } = await f.preview(draft);
+    const found = blockers.map(({ code, entity, field }) => ({ code, entity, field }));
+    expect(found.toSorted((a, b) => a.entity.localeCompare(b.entity))).toEqual([
+      { code: "emptyRequiredReference", entity: "repeatableItem", field: "author" },
+      { code: "emptyRequiredReference", entity: "sharedContent", field: "author" },
+    ]);
+    expect(blockers.find((problem) => problem.entity === "repeatableItem")?.id).toBe(card.id);
+    expect(blockers.find((problem) => problem.entity === "sharedContent")).toMatchObject({
+      owner: { kind: "syncedBlock", name: "banner" },
+    });
+    expect(warnings).toEqual([]);
+    await expect(f.publish(draft)).rejects.toMatchObject({ code: "PUBLISH_BLOCKED" });
+  });
+
+  it("only warns about an empty one in an untouched Live item", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const cards = await f.createBlock(home.id, "cards", {});
+    const card = await f.addCard(cards.id, { label: "Card" });
+    const draft = generateUuidv7();
+    await f.createPage("about", startingDraft(draft));
+
+    const { blockers, warnings } = await f.preview(draft);
+    expect(blockers).toEqual([]);
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        code: "emptyRequiredReference",
+        entity: "repeatableItem",
+        id: card.id,
+        field: "author",
+      }),
+    ]);
   });
 });
 
