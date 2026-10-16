@@ -47,7 +47,7 @@ import type { DraftScope } from "./scope";
 import { findEndedDraft, resolveDraftScope } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
-export type { Owner, Subject } from "./subjects";
+export type { Owner, Subject, SubjectKind } from "./subjects";
 
 // Publishing a draft and discarding it (ADR 0009). The preview lists what publishing will do;
 // its token records the conflicts it showed, and publishing aborts when they've changed since.
@@ -94,7 +94,9 @@ export const previewPublishInput = z.object({ projectId: z.number() });
 export const publishInput = z.object({ projectId: z.number(), token: z.string() });
 export const discardInput = z.object({ projectId: z.number() });
 
-const tokenSchema = z.array(z.tuple([z.string(), z.string(), z.number().nullable()]));
+const tokenSchema = z.array(
+  z.tuple([z.enum(overlay.ENTITY_KINDS), z.string(), z.number().nullable()]),
+);
 
 function encodeToken(conflicts: overlay.StoredConflict[]): string {
   const keys: overlay.ConflictKey[] = conflicts

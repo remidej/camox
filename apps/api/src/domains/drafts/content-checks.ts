@@ -48,7 +48,7 @@ export type ContentProblemCode =
   | "metaTitlePending";
 
 /** An entity holding content, as previews name it. */
-type ContentEntity = "page" | "block" | "sharedContent" | "repeatableItem" | "record";
+type ContentEntity = Exclude<overlay.EntityKind, "file">;
 
 /** A problem found in an entity's field. */
 export type ContentFinding = {

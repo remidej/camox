@@ -91,9 +91,20 @@ type ParentRelation = {
  */
 type Dependent = { onDelete: "delete" | "detach"; column: AnySQLiteColumn };
 
+/** The kinds of entity drafts hold: what changes, conflicts and publish tokens name. */
+export const ENTITY_KINDS = [
+  "page",
+  "block",
+  "sharedContent",
+  "repeatableItem",
+  "file",
+  "record",
+] as const;
+export type EntityKind = (typeof ENTITY_KINDS)[number];
+
 export type ContentTableRegistration = {
   /** What the entity is called in changes, conflicts and publish tokens. */
-  entity: string;
+  entity: EntityKind;
   /**
    * The columns naming the entity's parent. A change whose parent is gone is lost, and
    * publishing deletes Live entities whose parent nothing holds any more: descendants of what
@@ -449,7 +460,7 @@ export function anchoredToDeletionIn(draftId: string): SQL {
 }
 
 /** Per registered entity, the ids Live holds, as a subquery. */
-export function liveIds(): { entity: string; ids: SQL }[] {
+export function liveIds(): { entity: EntityKind; ids: SQL }[] {
   return tables().map((table) => ({
     entity: registrationOf(table).entity,
     ids: sql`select ${at("l", table.id)} from ${sql.identifier(getTableName(table))} as "l" where ${at("l", table.draftId)} is null`,
@@ -519,7 +530,7 @@ export function sortByPosition<T extends { position: string; id: string }>(rows:
 // table, so one D1 `batch()` publishes a draft of any size atomically.
 
 /** A conflict as shown to the caller and sent back to publish: entity, id, Live version. */
-export type ConflictKey = [entity: string, id: string, liveVersion: number | null];
+export type ConflictKey = [entity: EntityKind, id: string, liveVersion: number | null];
 
 /** A statement of a publish or discard batch: raw SQL or a query builder. */
 export type BatchItem = SQL | { toSQL(): { sql: string; params: unknown[] } };
@@ -706,7 +717,7 @@ function conflictsIn(table: ContentTable, draftId: string): SQL {
 
 export type StoredChange = {
   table: ContentTable;
-  entity: string;
+  entity: EntityKind;
   row: Row<ContentTable>;
   change: "created" | "changed" | "deleted";
 };
@@ -806,7 +817,7 @@ export const latestLivePublish = Effect.fn("overlay.latestLivePublish")(function
 });
 
 export type StoredConflict = {
-  entity: string;
+  entity: EntityKind;
   id: string;
   liveVersion: number | null;
   publishedAt: number | null;
@@ -822,7 +833,7 @@ export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (
   for (const table of tables()) {
     const rows = yield* Effect.promise(() =>
       db.all<{
-        entity: string;
+        entity: EntityKind;
         id: string;
         live_version: number | null;
         published_at: number | null;
@@ -843,12 +854,12 @@ export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (
 });
 
 export type StoredLoss =
-  | { reason: "parentGone"; entity: string; id: string }
+  | { reason: "parentGone"; entity: EntityKind; id: string }
   | {
       reason: "writtenAfterDeletion";
-      entity: string;
+      entity: EntityKind;
       id: string;
-      parent: { entity: string; id: string };
+      parent: { entity: EntityKind; id: string };
     };
 
 /**
@@ -874,7 +885,7 @@ export const lostOf = Effect.fn("overlay.lostOf")(function* (
     const descendants = descendantsWrittenAfterDeletion(table, scope.id);
     if (!descendants) continue;
     const rows = yield* Effect.promise(() =>
-      db.all<{ id: string; gone_entity: string; gone_id: string }>(descendants),
+      db.all<{ id: string; gone_entity: EntityKind; gone_id: string }>(descendants),
     );
     // A descendant under several deleted entities is listed once.
     const listed = new Set<string>();

@@ -38,16 +38,19 @@ export type Owner =
   | { kind: "collection"; name: string; title: string }
   | null;
 
+/** What a preview can mention: an entity drafts hold, feedback, or a definition (ADR 0006). */
+export type SubjectKind = overlay.EntityKind | "comment" | "definition";
+
 /** An entity as people know it. */
 export type Subject = {
-  entity: string;
+  entity: SubjectKind;
   id: string;
   /** What the entity is to people, e.g. a block's summary or its definition's title. */
   label: string;
   owner: Owner;
 };
 
-export type Mention = { entity: string; id: string };
+export type Mention = { entity: SubjectKind; id: string };
 
 /** The rows of `ids` the draft holds, or Live's where it holds none. */
 const rowsSeenBy = <T extends overlay.ContentTable>(
@@ -81,7 +84,7 @@ const contentDescriber = Effect.fn("drafts.contentDescriber")(function* (
   scope: Scope,
   mentions: Mention[],
 ) {
-  const idsOf = (entity: string) => [
+  const idsOf = (entity: overlay.EntityKind) => [
     ...new Set(mentions.filter((m) => m.entity === entity).map((m) => m.id)),
   ];
   const items = yield* rowsSeenBy(ctx, scope, repeatableItems, idsOf("repeatableItem"));
@@ -136,7 +139,7 @@ const contentDescriber = Effect.fn("drafts.contentDescriber")(function* (
     return null;
   };
 
-  return (entity: string, id: string): Subject => {
+  return (entity: SubjectKind, id: string): Subject => {
     if (entity === "page") {
       return { entity, id, label: "Page", owner: pageOwner(id) };
     }
@@ -235,7 +238,7 @@ export const describeSubjects = Effect.fn("drafts.describeSubjects")(function* (
 ) {
   const describeContent = yield* contentDescriber(ctx, scope, mentions);
   const describeRecord = yield* recordDescriber(ctx, scope, known.records);
-  return (entity: string, id: string): Subject => {
+  return (entity: SubjectKind, id: string): Subject => {
     if (entity === "record") return describeRecord(id);
     if (entity === "file") return describeFile(id, known.files.get(id));
     return describeContent(entity, id);

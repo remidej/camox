@@ -28,7 +28,7 @@ type Subject = PublishPreview["changes"][number];
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
 /** Where a subject sits: its page or layout, or the files, which belong to neither. */
-function ownerName(owner: Subject["owner"], entity: string): string {
+function ownerName(owner: Subject["owner"], entity: Subject["entity"]): string {
   if (!owner) return entity === "file" ? "Files" : "Elsewhere";
   if (owner.kind === "layout") return `Layout ${owner.name}`;
   if (owner.kind === "syncedBlock") return `Synced block ${owner.title}`;
