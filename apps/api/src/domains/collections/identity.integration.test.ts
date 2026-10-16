@@ -1,5 +1,5 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { collection as customers } from "../../../../playground/src/collections/customers";
 import {

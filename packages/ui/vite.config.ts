@@ -11,7 +11,7 @@ export default defineConfig({
     minify: false,
     outExtensions: () => ({ js: ".js" }),
     deps: {
-      skipNodeModulesBundle: true,
+      neverBundle: true,
     },
   },
 });

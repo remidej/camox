@@ -1,6 +1,6 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { collection as articles } from "../../../../playground/src/collections/articles";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";

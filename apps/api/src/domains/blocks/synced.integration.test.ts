@@ -1,6 +1,6 @@
 import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { eq, inArray, sql } from "drizzle-orm";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { blocksProvider } from "../../../../../packages/ai-tools/src/providers/blocks";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";

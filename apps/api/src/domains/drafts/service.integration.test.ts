@@ -3,7 +3,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";

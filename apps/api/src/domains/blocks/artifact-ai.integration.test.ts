@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";

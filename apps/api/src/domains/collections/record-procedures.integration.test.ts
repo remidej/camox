@@ -1,7 +1,7 @@
 import { DEVELOPMENT_DRAFT, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import type { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { collectionsProvider } from "../../../../../packages/ai-tools/src/providers/collections";
 import { collection as customers } from "../../../../playground/src/collections/customers";

@@ -1,5 +1,5 @@
 import { ICON_CATALOG_VERSION } from "@camox/api-contract";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { iconRoutes } from "./routes";
 

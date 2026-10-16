@@ -20,7 +20,7 @@ export default defineConfig({
     // bundled types. Third-party types stay as imports.
     tsconfig: "tsconfig.dts.json",
     deps: {
-      skipNodeModulesBundle: true,
+      neverBundle: true,
     },
     dts: true,
   },
