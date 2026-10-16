@@ -125,6 +125,8 @@ async function fixture() {
     callSeedingLive(router.pages.update, { id, pathSegment }, member(headers));
   const listPages = (headers: Headers = {}) =>
     call(router.pages.list, { projectId }, member(headers));
+  const getPage = (id: string, headers: Headers = {}) =>
+    call(router.pages.get, { id }, member(headers));
 
   const createAuthor = (name: string, mentor: string | null = null, headers: Headers = {}) =>
     callSeedingLive(
@@ -142,6 +144,12 @@ async function fixture() {
     call(
       router.collectionDefinitions.listRecords,
       { projectSlug, collectionId: "authors" },
+      member(headers),
+    );
+  const getAuthor = (id: string, headers: Headers = {}) =>
+    call(
+      router.collectionDefinitions.getRecord,
+      { projectSlug, collectionId: "authors", id },
       member(headers),
     );
   const createByline = (pageId: string, content: Record<string, unknown>) =>
@@ -166,10 +174,12 @@ async function fixture() {
     createPage,
     renamePage,
     listPages,
+    getPage,
     deletePage,
     createAuthor,
     deleteAuthor,
     listAuthors,
+    getAuthor,
     createByline,
     editByline,
     preview,
@@ -203,6 +213,21 @@ describe("duplicate paths", () => {
 
     await f.renamePage(team.id, "people", inDraft(draft));
     expect((await f.preview(draft)).blockers).toEqual([]);
+  });
+
+  it("flags a duplicate path on a page read on its own", async () => {
+    const f = await fixture();
+    const about = await f.createPage("about");
+    const team = await f.createPage("team");
+    const draft = generateUuidv7();
+    await f.renamePage(team.id, "about", startingDraft(draft));
+
+    expect(await f.getPage(team.id, inDraft(draft))).toMatchObject({ duplicatePath: true });
+    expect(await f.getPage(about.id, inDraft(draft))).toMatchObject({ duplicatePath: true });
+    expect(await f.getPage(about.id)).toMatchObject({ duplicatePath: false });
+
+    await f.renamePage(team.id, "people", inDraft(draft));
+    expect(await f.getPage(team.id, inDraft(draft))).toMatchObject({ duplicatePath: false });
   });
 });
 
@@ -256,6 +281,24 @@ describe("duplicate record page values", () => {
     ]);
     expect(warnings).toEqual([]);
     await expect(f.publish(draft)).rejects.toMatchObject({ code: "PUBLISH_BLOCKED" });
+  });
+
+  it("flags a duplicate record page value on a record read on its own", async () => {
+    const f = await fixture();
+    await withAuthorPages(f);
+    const ada = await f.createAuthor("ada");
+    const grace = await f.createAuthor("grace");
+    const draft = generateUuidv7();
+    const twin = await f.createAuthor("ada", null, startingDraft(draft));
+
+    // Saving returns the record as reads do.
+    expect(twin).toMatchObject({ duplicatePageValue: true });
+    expect(await f.getAuthor(twin.id, inDraft(draft))).toMatchObject({ duplicatePageValue: true });
+    expect(await f.getAuthor(ada.id, inDraft(draft))).toMatchObject({ duplicatePageValue: true });
+    expect(await f.getAuthor(grace.id, inDraft(draft))).toMatchObject({
+      duplicatePageValue: false,
+    });
+    expect(await f.getAuthor(ada.id)).toMatchObject({ duplicatePageValue: false });
   });
 
   it("only warns about records already sharing a value on Live", async () => {
