@@ -2,7 +2,7 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
@@ -17,7 +17,7 @@ import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { draftScopeOfJob, storedForRequest } from "../drafts/service";
+import { draftScopeOfJob } from "../drafts/service";
 import { homeOf, requestGeneration, saveValue, settleRequest } from "../generated-values/service";
 import {
   fileView,
@@ -301,25 +301,6 @@ export const blobsOfDraft = Effect.fn("files.blobsOfDraft")(function* (
 });
 
 // --- Reads ---
-
-/**
- * The project of a file, from its Live row or the named draft's, so a request naming a draft
- * finds a file the draft uploaded. Undefined without a draft: the request reads Live.
- */
-export const projectOfFile = Effect.fn("files.projectOfFile")(function* (
-  ctx: Pick<ServiceContext, "db" | "draft" | "user">,
-  fileId: string,
-) {
-  if (!ctx.draft) return undefined;
-  const row = yield* Effect.promise(() =>
-    ctx.db
-      .select({ projectId: files.projectId })
-      .from(files)
-      .where(and(eq(files.id, fileId), storedForRequest(files, ctx)))
-      .get(),
-  );
-  return row?.projectId ?? undefined;
-});
 
 /** The file as the scope reads it, for a member of its project. */
 const authorizedFile = Effect.fn("files.authorizedFile")(function* (

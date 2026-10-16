@@ -1,6 +1,5 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { Hono } from "hono";
 
@@ -11,7 +10,8 @@ import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import type { AppEnv } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
-import { inDraftScope, storedForRequest } from "../drafts/service";
+import { projectOfPage } from "../drafts/request-scope";
+import { inDraftScope } from "../drafts/service";
 import { deleteUnreferencedOgImageBlobs } from "./og-image-blobs";
 import { pages } from "./schema";
 
@@ -35,22 +35,6 @@ const OG_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "im
 
 export const pageHonoRoutes = new Hono<AppEnv>();
 
-/** The page's project as Live or the request's draft stores it, before the draft is checked. */
-const projectOfPage = Effect.fn("pages.og.projectOfPage")(function* (
-  ctx: ServiceContext,
-  pageId: string,
-) {
-  const page = yield* Effect.promise(() =>
-    ctx.db
-      .select({ projectId: pages.projectId })
-      .from(pages)
-      .where(and(eq(pages.id, pageId), storedForRequest(pages, ctx)))
-      .get(),
-  );
-  if (!page) return yield* new NotFoundError();
-  return page.projectId;
-});
-
 type OgImage = { blobId: string; url: string };
 
 /**
@@ -66,6 +50,7 @@ const writeOgImage = (
   Effect.gen(function* () {
     const user = yield* requireUser(ctx);
     const projectId = yield* projectOfPage(ctx, pageId);
+    if (projectId === undefined) return yield* new NotFoundError();
     return yield* inDraftScope(ctx, projectId, (scope) =>
       Effect.gen(function* () {
         const access = yield* assertPageAccess(ctx.db, pageId, user.id, scope);
