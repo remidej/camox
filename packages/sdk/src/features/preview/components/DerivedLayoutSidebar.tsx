@@ -1,12 +1,10 @@
 import { Alert, AlertDescription, AlertTitle } from "@camox/ui/alert";
-import { PanelContent, PanelHeader } from "@camox/ui/panel";
 
 import { usePageBlocks } from "@/lib/normalized-data";
 
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import type { PageRenderInput } from "../../runtime/runtime";
 import type { PageRecordId } from "../pageRecord";
-import { PagePicker } from "./PagePicker";
 import { LayoutBlockItem } from "./PageTree";
 
 export type DerivedLayoutStructure = NonNullable<PageRenderInput["derived"]>["layout"];
@@ -35,37 +33,30 @@ export function DerivedLayoutSidebar({
   const singleton = definition?._internal.kind === "singleton";
 
   return (
-    <>
-      <PanelHeader className="flex flex-col gap-2 p-2">
-        <div className="flex w-full">
-          <PagePicker />
-        </div>
-      </PanelHeader>
-      <PanelContent className="flex grow basis-0 flex-col gap-4 overflow-auto p-2">
-        {(
-          [
-            ["Before", beforeBlocks],
-            ["After", afterBlocks],
-          ] as const
-        ).map(([title, blocks]) => (
-          <section key={title} className="space-y-1">
-            <h2 className="text-muted-foreground px-2 text-xs font-medium">{title}</h2>
-            {blocks.length === 0 ? (
-              <p className="text-muted-foreground px-2 py-2 text-sm">
-                No {title.toLowerCase()} blocks
-              </p>
-            ) : (
-              blocks.map((block) => (
-                <LayoutBlockItem key={block.id} block={block} layoutName={layoutName} derived />
-              ))
-            )}
-          </section>
-        ))}
-        <Alert>
-          <AlertTitle>{singleton ? "Code-owned page" : "Shared layout blocks"}</AlertTitle>
-          <AlertDescription>{layoutNotice(singleton, !!pageRecord)}</AlertDescription>
-        </Alert>
-      </PanelContent>
-    </>
+    <div className="flex flex-col gap-4 p-2">
+      {(
+        [
+          ["Before", beforeBlocks],
+          ["After", afterBlocks],
+        ] as const
+      ).map(([title, blocks]) => (
+        <section key={title} className="space-y-1">
+          <h2 className="text-muted-foreground px-2 text-xs font-medium">{title}</h2>
+          {blocks.length === 0 ? (
+            <p className="text-muted-foreground px-2 py-2 text-sm">
+              No {title.toLowerCase()} blocks
+            </p>
+          ) : (
+            blocks.map((block) => (
+              <LayoutBlockItem key={block.id} block={block} layoutName={layoutName} derived />
+            ))
+          )}
+        </section>
+      ))}
+      <Alert>
+        <AlertTitle>{singleton ? "Code-owned page" : "Shared layout blocks"}</AlertTitle>
+        <AlertDescription>{layoutNotice(singleton, !!pageRecord)}</AlertDescription>
+      </Alert>
+    </div>
   );
 }

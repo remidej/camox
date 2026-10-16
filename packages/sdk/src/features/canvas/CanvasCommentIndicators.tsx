@@ -324,7 +324,7 @@ function CanvasCommentPopover({
         previewCommentsStore.send({ type: "closePopover" });
       }}
     >
-      <AttachedComments pageId={popover.pageId} {...popover.target} presentation="popover" />
+      <AttachedComments pageId={popover.pageId} {...popover.target} />
     </div>
   );
 }
