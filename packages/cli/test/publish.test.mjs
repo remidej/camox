@@ -88,6 +88,24 @@ function tool(name, args) {
           },
         };
       }
+      if (api.discardedBy) {
+        const endedBy = { id: "ada", name: api.discardedBy };
+        return {
+          ok: true,
+          result: {
+            published: false,
+            reason: "discarded",
+            message: `${api.discardedBy} discarded the draft.`,
+            ended: { draftId: "draft-1", outcome: "discarded", endedBy, endedAt: 1 },
+          },
+        };
+      }
+      if (api.changes.length === 0) {
+        return {
+          ok: true,
+          result: { published: false, reason: "empty", message: "The draft has no changes." },
+        };
+      }
       api.published += 1;
       api.changes = [];
       return { ok: true, result: { published: true, ended: null } };
@@ -213,6 +231,34 @@ void test("a stale token publishes nothing, reprints the new list and fails", as
   const retried = await cli("publish", "--confirm", reprinted.token, "--json");
   assert.equal(retried.code, 0, retried.stderr);
   assert.equal(api.published, 1);
+});
+
+void test("publish --confirm on a draft without changes says nothing was published", async () => {
+  const { token } = JSON.parse((await cli("publish", "--json")).stdout);
+  api.changes = [];
+
+  const result = await cli("publish", "--confirm", token, "--json");
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  const printed = JSON.parse(result.stdout);
+  assert.equal(printed.published, false);
+  assert.equal(printed.reason, "empty");
+  assert.equal(api.published, 0);
+});
+
+void test("publish --confirm on a discarded draft fails and says nothing was published", async () => {
+  const { token } = JSON.parse((await cli("publish", "--json")).stdout);
+  api.discardedBy = "Ada";
+
+  const result = await cli("publish", "--confirm", token, "--json");
+
+  assert.notEqual(result.code, 0);
+  assert.equal(api.published, 0);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, "DRAFT_ENDED");
+  assert.match(error.message, /Ada discarded/);
+  assert.match(error.message, /Nothing was published/);
 });
 
 void test("discard --yes empties the development draft", async () => {

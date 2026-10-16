@@ -329,11 +329,11 @@ describe("development drafts", () => {
     const [draft] = await f.developmentDrafts();
 
     await f.editTitle(block.id, "Published", development);
-    expect(await f.publish()).toEqual({ ended: null });
+    expect(await f.publish()).toEqual({ empty: false, ended: null });
     expect((await f.contentOf(block.id)).title).toBe("Published");
     expect((await f.preview()).changes).toEqual([]);
     // A retry finds the draft empty and does nothing.
-    expect(await f.publish()).toEqual({ ended: null });
+    expect(await f.publish()).toEqual({ empty: true, ended: null });
 
     await f.editTitle(block.id, "Discarded", development);
     expect(await f.discard()).toEqual({ ended: null });

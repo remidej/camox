@@ -1,30 +1,12 @@
 // What publishing the development draft would do, as the `previewPublish` tool returns it
 // (ADR 0009), and its plain-text rendering for a terminal.
 
-type Owner =
-  | { kind: "page"; id: string; path: string; nickname: string }
-  | { kind: "layout"; name: string }
-  | { kind: "syncedBlock"; name: string; title: string }
-  | { kind: "collection"; name: string; title: string }
-  | null;
+import type { PublishPreview } from "@camox/api-contract";
 
-type Subject = { entity: string; id: string; label: string; owner: Owner };
+export type { PublishPreview };
 
-type Problem = Subject & { code: string; field: string; message: string };
-
-export type PublishPreview = {
-  blockers: Problem[];
-  conflicts: (Subject & {
-    liveVersion: number | null;
-    publishedBy: { id: string; name: string } | null;
-    publishedAt: number | null;
-    release: boolean;
-  })[];
-  lost: (Subject & { reason: "parentGone" | "writtenAfterDeletion" })[];
-  warnings: Problem[];
-  changes: (Subject & { change: "created" | "changed" | "deleted" })[];
-  token: string;
-};
+type Subject = Omit<PublishPreview["changes"][number], "change">;
+type Owner = Subject["owner"];
 
 function where(owner: Owner): string {
   if (!owner) return "";
@@ -87,11 +69,13 @@ export function formatPreview(preview: PublishPreview): string {
     ),
   ];
   if (preview.changes.length === 0) lines.push("Your development draft has no changes.", "");
-  lines.push(`Token: ${preview.token}`);
-  if (preview.blockers.length > 0) {
-    lines.push("Publishing is blocked until the blockers are fixed.");
-  } else if (preview.changes.length > 0) {
-    lines.push(`Publish with: camox publish --confirm ${preview.token}`);
-  }
+  lines.push(`Token: ${preview.token}`, ...nextStep(preview));
   return `${lines.join("\n")}\n`;
+}
+
+/** What to do next: fix the blockers, or publish when there is something to publish. */
+function nextStep(preview: PublishPreview): string[] {
+  if (preview.blockers.length > 0) return ["Publishing is blocked until the blockers are fixed."];
+  if (preview.changes.length === 0) return [];
+  return [`Publish with: camox publish --confirm ${preview.token}`];
 }

@@ -493,12 +493,12 @@ describe("publishing a draft", () => {
     expect(await titleIn(kept.id)).toBe("Kept");
   });
 
-  it("does nothing when publishing an empty draft", async () => {
+  it("does nothing when publishing an empty draft, and says so", async () => {
     const { createBlock, openDraft, preview, publish, titleIn } = await fixture();
     const block = await createBlock("Live");
     const draft = await openDraft("regular");
 
-    expect(await publish(draft)).toEqual({ ended: null });
+    expect(await publish(draft)).toEqual({ empty: true, ended: null });
 
     expect((await preview(draft)).changes).toEqual([]);
     expect(await titleIn(block.id, inDraft(draft))).toBe("Live");

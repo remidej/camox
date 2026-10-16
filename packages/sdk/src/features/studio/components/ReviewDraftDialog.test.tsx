@@ -287,6 +287,23 @@ void test("shows the new conflicts when Live changed since the preview, then pub
   }
 });
 
+void test("stays in the draft when publishing finds nothing to publish", async (t) => {
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") return json(emptyPreview);
+    return json({ empty: true, ended: null });
+  });
+  const close = await openReview();
+  try {
+    await click(buttonNamed(/Publish all/));
+
+    assert.equal(calls.filter((call) => call.path === "drafts/publish").length, 1);
+    assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), draftId);
+    assert.equal(getCurrentDraftId(), draftId);
+  } finally {
+    await close();
+  }
+});
+
 void test("shows a conflict a release made as changed by a release", async (t) => {
   mockApi(t, () =>
     json({

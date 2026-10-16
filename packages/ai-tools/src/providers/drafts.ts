@@ -28,6 +28,8 @@ const PREVIEW_SHAPE =
   "same problems already on Live, which don't block; `changes` lists everything the draft " +
   "creates, changes or deletes. `token` records the conflicts shown.";
 
+const EMPTY = "The draft has no changes, so there is nothing to publish.";
+
 export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "previewPublish",
@@ -50,7 +52,11 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "(a development draft stays open, emptied, so `ended` is null for it). When Live changed " +
       "since the preview, or the draft has blockers, nothing is published and it returns " +
       "`{ published: false, reason: 'conflictsChanged' | 'blocked', message, preview }` with a " +
-      "fresh preview and token: show the new list and ask again before retrying.",
+      "fresh preview and token: show the new list and ask again before retrying. When the draft " +
+      "has no changes, nothing is published and it returns " +
+      "`{ published: false, reason: 'empty', message }`. When the draft was already discarded, " +
+      "nothing is published and it returns `{ published: false, reason: 'discarded', message, " +
+      "ended }`.",
     inputSchema: publishToolInput,
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
@@ -61,7 +67,15 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
         );
       return runService(
         publishDraft(ctx, { projectId: ctx.projectId, token }).pipe(
-          Effect.map((result) => ({ published: true as const, ...result })),
+          Effect.map(({ empty, ended }) => {
+            if (empty)
+              return { published: false as const, reason: "empty" as const, message: EMPTY };
+            if (ended?.outcome === "discarded") {
+              const message = `${ended.endedBy.name} discarded the draft.`;
+              return { published: false as const, reason: "discarded" as const, message, ended };
+            }
+            return { published: true as const, ended };
+          }),
           Effect.catchTags({
             ConflictsChangedError: (error) => notPublished("conflictsChanged", error.message),
             PublishBlockedError: (error) => notPublished("blocked", error.message),
