@@ -49,10 +49,24 @@ export function readDraftFromUrl(rendered?: DraftRead) {
     currentDraftId = developmentDraftRead ? DEVELOPMENT_DRAFT : null;
     return;
   }
-  currentDraftId =
-    typeof window === "undefined"
-      ? null
-      : new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM) || null;
+  // A server render has no URL to follow: it keeps the draft `renderInDraft` gave it.
+  if (typeof window === "undefined") return;
+  currentDraftId = new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM) || null;
+}
+
+/**
+ * Runs a synchronous server render in the draft its request read, so its queries read the
+ * keys the server seeded. The render can't interleave with another request's, since nothing
+ * awaits until it returns.
+ */
+export function renderInDraft<T>(draftId: string | undefined, render: () => T): T {
+  const previous = currentDraftId;
+  currentDraftId = draftId ?? null;
+  try {
+    return render();
+  } finally {
+    currentDraftId = previous;
+  }
 }
 
 export function getCurrentDraftId(): string | null {

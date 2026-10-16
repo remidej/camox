@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 
 import type { CamoxApp } from "../../core/createApp";
 import { prefetchIcons } from "../../core/lib/icons";
+import { renderInDraft } from "../../lib/studio-draft";
 import { PageApp } from "./pageApp";
 import type { PageRenderInput } from "./runtime";
 
@@ -18,7 +19,7 @@ export async function renderPageWithApp(input: PageRenderInput & { camoxApp: Cam
   // so the document serializer includes the SVGs fetched for this render.
   Object.assign(input.dehydratedState as object, dehydrate(queryClient));
 
-  return renderToString(
-    <PageApp camoxApp={input.camoxApp} input={input} queryClient={queryClient} />,
+  return renderInDraft(input.draftId, () =>
+    renderToString(<PageApp camoxApp={input.camoxApp} input={input} queryClient={queryClient} />),
   );
 }
