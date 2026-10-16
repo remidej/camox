@@ -248,13 +248,13 @@
     "build": "vp pack"
   },
   "dependencies": {
-    "@base-ui/react": "^1.4.1",
+    "@base-ui/react": "^1.9.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "lucide-react": "^0.476.0",
-    "sonner": "^2.0.7",
-    "tailwind-merge": "^3.6.0"
+    "lucide-react": "^1.57.0",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@types/react": "catalog:",

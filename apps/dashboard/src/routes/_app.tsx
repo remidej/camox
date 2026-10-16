@@ -26,7 +26,9 @@ export const Route = createFileRoute("/_app")({
     <div className="dark bg-background text-foreground flex h-screen flex-1 flex-col items-center justify-center">
       <TriangleAlert className="h-8 w-8" />
       <p>An error occurred</p>
-      <p className="text-muted-foreground">{error.message}</p>
+      <p className="text-muted-foreground">
+        {error instanceof Error ? error.message : String(error)}
+      </p>
     </div>
   ),
 });

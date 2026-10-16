@@ -1,4 +1,4 @@
-import { QueryClient, hydrate, dehydrate } from "@tanstack/react-query";
+import { type DehydratedState, QueryClient, hydrate, dehydrate } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 
 import type { CamoxApp } from "../../core/createApp";
@@ -9,7 +9,7 @@ import type { PageRenderInput } from "./runtime";
 
 export async function renderPageWithApp(input: PageRenderInput & { camoxApp: CamoxApp }) {
   const queryClient = new QueryClient();
-  hydrate(queryClient, input.dehydratedState);
+  hydrate(queryClient, input.dehydratedState as DehydratedState);
   await prefetchIcons(
     queryClient,
     input.dehydratedState,

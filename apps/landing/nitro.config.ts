@@ -13,7 +13,6 @@ export default defineConfig({
           enabled: true,
           invocation_logs: true,
         },
-        // @ts-expect-error Nitro's embedded Wrangler types do not expose traces yet.
         traces: {
           enabled: true,
         },

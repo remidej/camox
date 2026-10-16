@@ -1,6 +1,6 @@
 import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { LIVE_KEY_SCOPE, scopeOfKey } from "@camox/api-contract/query-keys";
-import { hydrate, type QueryClient } from "@tanstack/react-query";
+import { type DehydratedState, hydrate, type QueryClient } from "@tanstack/react-query";
 import { createHead, renderDOMHead } from "@unhead/react/client";
 import * as React from "react";
 import type { ActiveHeadEntry, UseHeadInput } from "unhead/types";
@@ -194,13 +194,13 @@ export function PageNavigationProvider({
         }
         hydrate(
           queryClient,
-          switching
+          (switching
             ? next.dehydratedState
             : preserveStableLayoutBlockCaches(
                 next.dehydratedState,
                 current.current.layoutIdentity,
                 next.layoutIdentity,
-              ),
+              )) as DehydratedState,
         );
         next = { ...next, href: target.url.href };
         current.current = next;

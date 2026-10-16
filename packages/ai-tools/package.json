@@ -22,10 +22,10 @@
   "scripts": {},
   "dependencies": {
     "@camox/api-contract": "workspace:*",
-    "@orpc/server": "^1.14.3",
-    "drizzle-orm": "^0.45.2",
-    "effect": "^4.0.1",
-    "zod": "^4.4.3"
+    "@orpc/server": "^1.15.7",
+    "drizzle-orm": "^0.45.4",
+    "effect": "^4.0.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260519.1",
