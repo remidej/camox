@@ -1,13 +1,5 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
-  "tasksRunnerOptions": {
-    "default": {
-      "runner": "nx/tasks-runners/default",
-      "options": {
-        "cacheableOperations": ["build", "test", "lint", "check"]
-      }
-    }
-  },
   "namedInputs": {
     "default": ["{projectRoot}/**/*"],
     "production": [
@@ -19,7 +11,12 @@
   },
   "targetDefaults": {
     "build": {
-      "inputs": ["production", "^production"],
+      "inputs": [
+        "production",
+        "^production",
+        { "env": "VITE_API_URL" },
+        { "env": "VITE_DASHBOARD_URL" }
+      ],
       "outputs": ["{projectRoot}/dist", "{projectRoot}/.output"],
       "dependsOn": ["^build"],
       "cache": true
@@ -50,5 +47,6 @@
   "tui": {
     "enabled": false
   },
-  "defaultBase": "main"
+  "defaultBase": "main",
+  "nxCloudId": "6ad1deecb8130ab58ee864b3"
 }

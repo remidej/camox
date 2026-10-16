@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+# Fork PRs get no secrets and fall back to read-only cache access.
+env:
+  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -22,14 +26,6 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-
-      # Each run saves a fresh entry and restores the newest one from this
-      # branch or main; Nx hashes decide which cached tasks are still valid.
-      - uses: actions/cache@v4
-        with:
-          path: .nx/cache
-          key: nx-${{ runner.os }}-${{ github.sha }}
-          restore-keys: nx-${{ runner.os }}-
 
       - run: pnpm install --frozen-lockfile
 
