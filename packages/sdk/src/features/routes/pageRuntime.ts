@@ -107,6 +107,19 @@ export function prefersMarkdown(accept: string): boolean {
   return markdownQ > 0 && markdownQ >= htmlQ;
 }
 
+/** Where a page's Markdown Representation lives: `/index.md` for the home page, `<path>.md` otherwise. */
+export function getMarkdownPath(pageFullPath: string): string {
+  const path = pageFullPath.replace(/\/+$/, "");
+  return path ? `${path}.md` : "/index.md";
+}
+
+/** The page path a Markdown URL represents, or null when the URL isn't one. */
+export function parseMarkdownPath(pathname: string): string | null {
+  if (!pathname.endsWith(".md")) return null;
+  if (pathname === "/index.md") return "/";
+  return pathname.slice(0, -".md".length) || null;
+}
+
 export function createServerApiClient(
   apiUrl: string,
   options?: { authCookieHeader?: string; draftId?: string },
@@ -382,9 +395,6 @@ export async function createMarkdownResponse({
   /** Answers for a path without a curated page, such as a derived layout's page. */
   onNotFound?: () => Promise<Response | null>;
 }): Promise<Response | null> {
-  const accept = request.headers.get("Accept") ?? "";
-  if (!prefersMarkdown(accept)) return null;
-
   const api = createServerApiClient(apiUrl);
   const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
@@ -417,6 +427,8 @@ export interface PageHeadInput {
   pageFullPath: string;
   origin: string;
   faviconUrl: string;
+  /** Whether the page has a Markdown Representation, which the head then links to. */
+  hasMarkdown: boolean;
 }
 
 export type PageHead = {
@@ -462,10 +474,15 @@ export function buildPageHead(input: PageHeadInput): PageHead {
   );
   if (description) meta.push({ property: "og:description", content: description });
 
-  return {
-    meta,
-    links: [{ rel: "icon", href: input.faviconUrl }],
-  };
+  const links: Array<Record<string, string>> = [{ rel: "icon", href: input.faviconUrl }];
+  if (input.hasMarkdown)
+    links.push({
+      rel: "alternate",
+      type: "text/markdown",
+      href: `${input.origin}${getMarkdownPath(input.pageFullPath)}`,
+    });
+
+  return { meta, links };
 }
 
 export function buildCamoxPageHead(camoxApp: CamoxApp, loaderData?: CamoxPageLoaderData): PageHead {
@@ -485,5 +502,6 @@ export function buildCamoxPageHead(camoxApp: CamoxApp, loaderData?: CamoxPageLoa
     pageFullPath: page.page.fullPath,
     origin,
     faviconUrl,
+    hasMarkdown: true,
   });
 }

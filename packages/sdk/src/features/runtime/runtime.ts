@@ -20,6 +20,7 @@ import {
   buildFaviconUrl,
   buildPageHead,
   createMarkdownResponse,
+  parseMarkdownPath,
   createServerApiClient,
   isNotFoundError,
   seedBlockCaches,
@@ -395,8 +396,19 @@ export function createPageHeadInput(head: {
 
   const pageLinks: Link[] = [];
   for (const entry of links) {
-    if (entry.rel !== "icon" || !entry.href) continue;
-    pageLinks.push({ rel: "icon", href: entry.href, "data-camox-page-head": "true" });
+    if (!entry.href) continue;
+    if (entry.rel === "icon") {
+      pageLinks.push({ rel: "icon", href: entry.href, "data-camox-page-head": "true" });
+      continue;
+    }
+    if (entry.rel === "alternate" && entry.type) {
+      pageLinks.push({
+        rel: "alternate",
+        type: entry.type,
+        href: entry.href,
+        "data-camox-page-head": "true",
+      });
+    }
   }
 
   return {
@@ -791,6 +803,7 @@ async function createDerivedResponse(
       pageFullPath: pathname,
       origin: new URL(request.url).origin,
       faviconUrl: buildFaviconUrl(options.apiUrl!, shared.project),
+      hasMarkdown: match.layout._internal.toMarkdown !== undefined,
     });
     const input: PageRenderInput = {
       project,
@@ -1158,26 +1171,30 @@ export async function handleCamoxRequest(
   }
 
   if (match.kind === "page") {
+    // Agents reach the Markdown Representation by asking for it, or at the page's `.md` URL.
+    const markdownPathname = parseMarkdownPath(match.pathname);
     if (
       options.apiUrl &&
       options.projectSlug &&
-      prefersMarkdown(request.headers.get("Accept") ?? "")
+      (markdownPathname || prefersMarkdown(request.headers.get("Accept") ?? ""))
     ) {
+      const pathname = markdownPathname ?? match.pathname;
       // Same precedence as HTML: singleton, curated page, then derived layout.
       const app = await options.getCamoxApp?.();
-      const layoutMatch = app && matchDerivedLayout(app.getLayouts(), match.pathname);
+      const layoutMatch = app && matchDerivedLayout(app.getLayouts(), pathname);
       const markdownResponse =
         layoutMatch?.layout._internal.kind === "singleton"
           ? await createLayoutMarkdownResponse(options, layoutMatch)
           : await createMarkdownResponse({
               apiUrl: options.apiUrl,
-              pathname: match.pathname,
+              pathname,
               projectSlug: options.projectSlug,
               request,
               onNotFound: async () =>
                 layoutMatch ? createLayoutMarkdownResponse(options, layoutMatch) : null,
             });
       if (markdownResponse) return markdownResponse;
+      if (markdownPathname) return new Response("Page not found", { status: 404 });
     }
 
     return createPageHtmlResponse({ options, pathname: match.pathname, request });
