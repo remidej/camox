@@ -50,17 +50,7 @@ export function CanvasNavigatorSidebar({
         <CommandList className="max-h-none flex-1">
           <CommandEmpty>Nothing found.</CommandEmpty>
           {shelves.map((shelf) => (
-            <CommandGroup
-              key={shelf.key}
-              heading={
-                <>
-                  {shelf.label}{" "}
-                  <span data-canvas-navigator-count className="tabular-nums opacity-70">
-                    {shelf.items.length}
-                  </span>
-                </>
-              }
-            >
+            <CommandGroup key={shelf.key} heading={`${shelf.label} (${shelf.items.length})`}>
               {shelf.items.map((item) => (
                 <CommandItem
                   key={item.key}

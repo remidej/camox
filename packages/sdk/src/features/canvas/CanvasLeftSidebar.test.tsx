@@ -353,11 +353,11 @@ void test("the Canvas navigator lists every item under its shelf, searches, and 
     assert.deepEqual(
       entries(),
       [
-        { text: "Home", current: null, group: "Pages 2" },
-        { text: "About", current: null, group: "Pages 2" },
-        { text: "FAQ", current: null, group: "Blocks 3" },
-        { text: "Hero", current: "true", group: "Blocks 3" },
-        { text: "Tabs", current: null, group: "Blocks 3" },
+        { text: "Home", current: null, group: "Pages (2)" },
+        { text: "About", current: null, group: "Pages (2)" },
+        { text: "FAQ", current: null, group: "Blocks (3)" },
+        { text: "Hero", current: "true", group: "Blocks (3)" },
+        { text: "Tabs", current: null, group: "Blocks (3)" },
       ],
       "every item, in Canvas order, under its shelf and its count, with the selected one marked",
     );

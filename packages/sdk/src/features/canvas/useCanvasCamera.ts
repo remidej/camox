@@ -169,7 +169,8 @@ export function useCanvasCamera(
     let previousTime = 0;
     let flight:
       | {
-          page: CanvasSnapTarget;
+          /** The page the flight frames, if any, snapped to on arrival. */
+          page?: CanvasSnapTarget;
           path: ReturnType<typeof createCanvasFlight>;
           startedAt?: number;
         }
@@ -338,7 +339,7 @@ export function useCanvasCamera(
           animation = requestAnimationFrame(animate);
           return;
         }
-        snappedKey = flight.page.key;
+        snappedKey = flight.page?.key;
         flight = undefined;
         animation = 0;
         previousTime = 0;
@@ -387,6 +388,13 @@ export function useCanvasCamera(
       cancelCameraFlight();
       const destination = targets().find((candidate) => candidate.key === key);
       if (!destination) return;
+      flyToCamera(() => fitCanvasPage(viewportSize, destination), destination);
+    };
+    const startOverviewFlight = () => {
+      cancelCameraFlight();
+      flyToCamera(() => fitCanvas(viewportSize, contentSize));
+    };
+    const flyToCamera = (destinationCamera: () => CanvasCamera, page?: CanvasSnapTarget) => {
       cancelAnimationFrame(animation);
       animation = 0;
       previousTime = 0;
@@ -398,18 +406,14 @@ export function useCanvasCamera(
       // committed DOM now so even reduced-motion arrivals use the new bounds.
       updateGeometry();
       camera = constrainCanvasCamera(camera, viewportSize, contentSize);
-      target = constrainCanvasCamera(
-        fitCanvasPage(viewportSize, destination),
-        viewportSize,
-        contentSize,
-      );
+      target = constrainCanvasCamera(destinationCamera(), viewportSize, contentSize);
       const path = createCanvasFlight(camera, target, viewportSize, contentSize);
       if (reducedMotion.matches || path.duration === 0) {
-        snappedKey = destination.key;
+        snappedKey = page?.key;
         applyCamera(target, true);
         return;
       }
-      flight = { page: { ...destination }, path };
+      flight = { page: page && { ...page }, path };
       animation = requestAnimationFrame(animate);
     };
     flightControls.current = {
@@ -426,8 +430,8 @@ export function useCanvasCamera(
         applyCamera({ ...camera, x }, true);
       },
       refreshFlight: () => {
-        if (!flight) return;
-        const destination = targets().find((candidate) => candidate.key === flight?.page.key);
+        if (!flight?.page) return;
+        const destination = targets().find((candidate) => candidate.key === flight?.page?.key);
         if (!destination) {
           cancelCameraFlight();
           return;
@@ -450,12 +454,7 @@ export function useCanvasCamera(
           ),
         );
       },
-      fitAll: () => {
-        gesture = undefined;
-        snappedKey = undefined;
-        updateGeometry();
-        move(fitCanvas(viewportSize, contentSize), false, false);
-      },
+      fitAll: startOverviewFlight,
     };
     const move = (next: CanvasCamera, immediate = false, deselect = true) => {
       markMoving();
@@ -571,7 +570,8 @@ export function useCanvasCamera(
       if (flight) {
         // Iframe sizing and window resizes must not jump to the old destination.
         camera = constrainCanvasCamera(camera, viewportSize, contentSize);
-        startFlight(flight.page.key);
+        if (flight.page) startFlight(flight.page.key);
+        else startOverviewFlight();
         return;
       }
       if (restoredCamera) {
