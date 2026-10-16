@@ -13,6 +13,7 @@ import { rootOfItem } from "../domains/repeatable-items/roots";
 import { runRepeatableItemSummaryJob } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
+import { aiJobKey } from "../lib/schedule-ai-job";
 import { blocks, repeatableItems } from "../schema";
 import type { Bindings } from "../types";
 
@@ -72,7 +73,7 @@ export class AiJobScheduler extends DurableObject<Bindings> {
 
     const { entityTable, entityId, type } = job;
     const draftId = job.draftId ?? null;
-    const label = `${entityTable}:${entityId}:${type}:${draftId ?? "live"}`;
+    const label = aiJobKey(job);
     const refresh = (projectId: number, targets: QueryKey[]) =>
       broadcastInvalidation({
         waitUntil: deps.waitUntil,
