@@ -63,6 +63,20 @@ function dropRefusedDraft(input: PageRenderInput) {
   window.history.replaceState(window.history.state, "", url.href);
 }
 
+/**
+ * Records a navigation in the browser's history. Back and forward already moved it, and only
+ * replace their entry when the page refused its draft, so the URL drops the draft it showed
+ * Live for.
+ */
+function recordInHistory(
+  href: string,
+  { pop, replace, refusedDraft }: { pop: boolean; replace?: boolean; refusedDraft: boolean },
+) {
+  if (pop && !refusedDraft) return;
+  if (pop || replace) return window.history.replaceState(null, "", href);
+  window.history.pushState(null, "", href);
+}
+
 export function PageNavigationProvider({
   camoxApp,
   children,
@@ -191,12 +205,7 @@ export function PageNavigationProvider({
         next = { ...next, href: target.url.href };
         current.current = next;
 
-        if (pop && next.refusedDraft) {
-          window.history.replaceState(null, "", target.url.href);
-        } else if (!pop) {
-          if (replace) window.history.replaceState(null, "", target.url.href);
-          else window.history.pushState(null, "", target.url.href);
-        }
+        recordInHistory(target.url.href, { pop, replace, refusedDraft: !!next.refusedDraft });
         readDraftFromUrl(next);
         if (next.refusedDraft?.notice) reportDraftNotice(next.refusedDraft.notice);
         if (!headManager.current) {
