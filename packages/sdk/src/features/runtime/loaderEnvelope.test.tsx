@@ -362,7 +362,10 @@ void test("derived pages get the curated head, built from their loader data", as
     html,
     /og:image" content="https:\/\/site.test\/og\?layoutId=pokemon.%24name&title=pikachu/,
   );
-  assert.match(html, /<link rel="icon" href="https:\/\/api.test\/favicons\/1\?v=7"/);
+  assert.match(
+    html,
+    /<link rel="icon" href="https:\/\/api.test\/favicons\/1\?v=7&placeholder=camox"/,
+  );
 
   // Client navigation receives the same head.
   const data = await handleCamoxRequest(

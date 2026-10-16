@@ -21,6 +21,7 @@ const {
   layoutQueries,
   pageMutations,
   pageQueries,
+  projectMutations,
 } = await import("./queries");
 
 /** Every query the studio reads content with, as built while the studio is at `url`. */
@@ -80,4 +81,30 @@ void test("changing a page's custom OG image on Live starts a draft, and the stu
   assert.ok(upload.draft);
   assert.equal(new URL(window.location.href).searchParams.get(DRAFT_SEARCH_PARAM), upload.draft);
   assert.deepEqual(removal, { method: "DELETE", draft: upload.draft, create: null });
+});
+
+void test("changing the favicon in a draft updates the whole site, so it starts no draft", async (t) => {
+  keysAt("/about?camox-draft=d1");
+  const sent: { method: string; draft: string | null; create: string | null }[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
+    const headers = new Headers(init.headers);
+    sent.push({
+      method: init.method ?? "GET",
+      draft: headers.get(DRAFT_HEADER),
+      create: headers.get(DRAFT_CREATE_HEADER),
+    });
+    return new Response('{"updatedAt":1}', {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  const file = new File(["bytes"], "favicon.png", { type: "image/png" });
+  await projectMutations.uploadFavicon().mutationFn({ projectId: 1, file });
+  await projectMutations.deleteFavicon().mutationFn({ projectId: 1 });
+
+  assert.deepEqual(sent, [
+    { method: "POST", draft: null, create: null },
+    { method: "DELETE", draft: null, create: null },
+  ]);
 });
