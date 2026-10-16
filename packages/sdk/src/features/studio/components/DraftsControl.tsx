@@ -12,6 +12,7 @@ import {
 } from "@camox/ui/dropdown-menu";
 import { toast } from "@camox/ui/toaster";
 import { useQuery } from "@tanstack/react-query";
+import { useSelector } from "@xstate/store-react";
 import { ChevronDownIcon, Eye, Trash2 } from "lucide-react";
 import * as React from "react";
 
@@ -20,7 +21,9 @@ import { AuthContext } from "@/lib/auth";
 import { draftQueries, projectQueries, type DraftList, type DraftSummary } from "@/lib/queries";
 import { isDevelopmentMode, onDraftStarted } from "@/lib/studio-draft";
 
+import { type Action, actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
+import { studioStore } from "../studioStore";
 import {
   DiscardDraftDialog,
   ReviewDraftDialog,
@@ -29,6 +32,7 @@ import {
 } from "./ReviewDraftDialog";
 
 const LIVE = "live";
+const SWITCH_TO_DRAFT_ID = "switch-to-draft";
 
 // Green while viewing Live, blue in a draft: the tints of the former site status indicator.
 const liveClassName =
@@ -40,18 +44,26 @@ const draftClassName =
  * The studio's one drafts control (#203): what the studio is viewing, Live or a draft, the
  * draft's actions, and the drafts to switch to. Live is read-only; the first edit starts a draft.
  * The localhost studio works only in the development draft, so it shows that draft alone, with
- * nothing to switch to (ADR 0006).
+ * nothing to switch to (ADR 0006). The command palette offers the same actions (#288).
  */
 export function DraftsControl() {
   const draftId = useCurrentDraftId();
   const authCtx = React.useContext(AuthContext);
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
-  const [reviewing, setReviewing] = React.useState(false);
-  const [discarding, setDiscarding] = React.useState(false);
+  const review = useSelector(studioStore, (state) => state.context.reviewDraftDialog);
+  const discarding = useSelector(studioStore, (state) => state.context.isDiscardDraftDialogOpen);
   const developmentMode = isDevelopmentMode();
 
   React.useEffect(() => onDraftStarted(() => void toast.success("Started a new draft")), []);
+  // The dialogs belong to the draft they were opened in.
+  React.useEffect(
+    () => () => {
+      studioStore.send({ type: "closeReviewDraftDialog" });
+      studioStore.send({ type: "closeDiscardDraftDialog" });
+    },
+    [draftId],
+  );
 
   const project = useQuery({
     ...projectQueries.getBySlug(authCtx?.projectSlug ?? ""),
@@ -67,10 +79,6 @@ export function DraftsControl() {
     enabled: !!projectId && !!draftId,
   });
 
-  if (!projectId) return null;
-  // Without its development draft, the localhost studio has nothing to show or switch to.
-  if (developmentMode && !draftId) return null;
-  const current = draftId ? draft.data : undefined;
   // The hosted studio never lists development drafts (ADR 0011).
   const regular = (list.data?.drafts ?? []).filter((listed) => listed.kind === "regular");
   const live = list.data?.live;
@@ -80,6 +88,13 @@ export function DraftsControl() {
     if (next === draftId) return;
     void navigate({ to: window.location.href, draft: next });
   };
+
+  useDraftsActions({ enabled: !!projectId, draftId, drafts: list.data?.drafts });
+
+  if (!projectId) return null;
+  // Without its development draft, the localhost studio has nothing to show or switch to.
+  if (developmentMode && !draftId) return null;
+  const current = draftId ? draft.data : undefined;
 
   return (
     <>
@@ -108,11 +123,14 @@ export function DraftsControl() {
         <DropdownMenuContent className="w-80" align="end">
           {draftId ? (
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => setReviewing(true)}>
+              <DropdownMenuItem onClick={() => studioStore.send({ type: "openReviewDraftDialog" })}>
                 <Eye />
                 Review and publish
               </DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onClick={() => setDiscarding(true)}>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => studioStore.send({ type: "openDiscardDraftDialog" })}
+              >
                 <Trash2 />
                 Discard draft…
               </DropdownMenuItem>
@@ -151,19 +169,112 @@ export function DraftsControl() {
           <ReviewDraftDialog
             projectId={projectId}
             draftId={draftId}
-            open={reviewing}
-            onOpenChange={setReviewing}
+            open={review.open}
+            startRenaming={review.startRenaming}
+            onOpenChange={(open) => {
+              if (!open) studioStore.send({ type: "closeReviewDraftDialog" });
+            }}
           />
           <DiscardDraftDialog
             projectId={projectId}
             open={discarding}
-            onOpenChange={setDiscarding}
+            onOpenChange={(open) => {
+              if (!open) studioStore.send({ type: "closeDiscardDraftDialog" });
+            }}
             onDiscarded={leaveDraft}
           />
         </>
       )}
     </>
   );
+}
+
+/**
+ * The drafts control's actions in the command palette, offered where the control's menu offers
+ * them. The palette only opens the review and the discard confirmation; it never publishes or
+ * discards by itself.
+ */
+function useDraftsActions({
+  enabled,
+  draftId,
+  drafts,
+}: {
+  enabled: boolean;
+  draftId: string | null;
+  drafts: DraftSummary[] | undefined;
+}) {
+  const developmentMode = isDevelopmentMode();
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    const inDraft = enabled && !!draftId;
+    const switchTo = (next: string | null) =>
+      void navigate({ to: window.location.href, draft: next });
+    // Like the control's menu, the hosted studio never lists development drafts (ADR 0011), and
+    // the localhost studio lists none.
+    const others = (drafts ?? []).filter(
+      (listed) => listed.kind === "regular" && listed.id !== draftId,
+    );
+    const actions: Action[] = [
+      {
+        id: "review-draft",
+        label: "Review and publish",
+        aliases: ["Publish", "Deploy", "Go live", "Push to production", "Ship"],
+        groupLabel: "Drafts",
+        checkIfAvailable: () => inDraft,
+        execute: () => studioStore.send({ type: "openReviewDraftDialog" }),
+      },
+      {
+        id: "discard-draft",
+        label: "Discard draft…",
+        aliases: ["Delete draft", "Throw away changes", "Revert changes"],
+        groupLabel: "Drafts",
+        checkIfAvailable: () => inDraft,
+        execute: () => studioStore.send({ type: "openDiscardDraftDialog" }),
+      },
+      {
+        id: "rename-draft",
+        label: "Rename draft…",
+        aliases: ["Name draft"],
+        groupLabel: "Drafts",
+        // Only a regular draft has a name.
+        checkIfAvailable: () => inDraft && !developmentMode,
+        execute: () => studioStore.send({ type: "openReviewDraftDialog", startRenaming: true }),
+      },
+      {
+        id: "switch-to-live",
+        label: "Switch to Live",
+        aliases: ["Leave draft", "Exit draft", "Production", "Public website"],
+        groupLabel: "Drafts",
+        checkIfAvailable: () => inDraft && !developmentMode,
+        execute: () => switchTo(null),
+      },
+      {
+        id: SWITCH_TO_DRAFT_ID,
+        label: "Switch to draft…",
+        aliases: ["Open draft", "Change draft", "Drafts"],
+        groupLabel: "Drafts",
+        checkIfAvailable: () => others.length > 0,
+        hasChildren: true,
+        execute: () => {},
+      },
+      ...others.map(
+        (other): Action => ({
+          id: `${SWITCH_TO_DRAFT_ID}-${other.id}`,
+          parentActionId: SWITCH_TO_DRAFT_ID,
+          label: `Switch to "${draftLabel(other)}"`,
+          aliases: [other.createdBy.name],
+          groupLabel: "Drafts",
+          checkIfAvailable: () => true,
+          execute: () => switchTo(other.id),
+        }),
+      ),
+    ];
+
+    actionsStore.send({ type: "registerManyActions", actions });
+    return () => {
+      actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
+    };
+  }, [enabled, draftId, drafts, developmentMode, navigate]);
 }
 
 /** Who published Live last and when: a member, a release, or nobody yet. */

@@ -1,6 +1,6 @@
 import { createStore } from "@xstate/store-react";
 
-export type ActionGroupLabel = "Preview" | "Studio" | "Navigation" | "Invisible";
+export type ActionGroupLabel = "Preview" | "Studio" | "Navigation" | "Drafts" | "Invisible";
 
 export interface Action {
   id: string;
