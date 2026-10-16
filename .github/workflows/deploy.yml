@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
 
+# Only main writes to the shared Nx cache; PR runs get a cache scoped to the PR.
 env:
   NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
 

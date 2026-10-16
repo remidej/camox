@@ -6,10 +6,6 @@ on:
 permissions:
   contents: read
 
-# Fork PRs get no secrets and fall back to read-only cache access.
-env:
-  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
-
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
