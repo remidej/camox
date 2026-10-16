@@ -1,6 +1,7 @@
 import { createBlock } from "camox/createBlock";
+import { usePreviewPaused } from "camox/dom";
 import { Play, SkipForward } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BlockContainer } from "@/components/BlockContainer";
 import { Pill } from "@/components/Pill";
@@ -75,25 +76,30 @@ function getYoutubeId(url: string): string | null {
   }
 }
 
+function sendPlayerCommand(iframe: HTMLIFrameElement | null, func: string, args: unknown[] = []) {
+  iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
+}
+
 function YoutubeDemoComponent() {
+  const playerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [startSeconds, setStartSeconds] = useState<number | null>(null);
+  // Camox pauses media in a preview it pauses, but can't reach into the
+  // cross-origin YouTube player, so pause it through the player API.
+  const isPreviewPaused = usePreviewPaused(playerRef);
+
+  useEffect(() => {
+    if (!isPreviewPaused) return;
+    sendPlayerCommand(iframeRef.current, "pauseVideo");
+  }, [isPreviewPaused]);
 
   const playFrom = (seconds: number) => {
     if (startSeconds === null) {
       setStartSeconds(seconds);
       return;
     }
-    const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-    iframe.contentWindow.postMessage(
-      JSON.stringify({ event: "command", func: "seekTo", args: [seconds, true] }),
-      "*",
-    );
-    iframe.contentWindow.postMessage(
-      JSON.stringify({ event: "command", func: "playVideo", args: [] }),
-      "*",
-    );
+    sendPlayerCommand(iframeRef.current, "seekTo", [seconds, true]);
+    sendPlayerCommand(iframeRef.current, "playVideo");
   };
 
   return (
@@ -102,7 +108,10 @@ function YoutubeDemoComponent() {
         {(props) => <Pill {...props} className="mb-6" />}
       </youtubeDemo.Field>
       <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-3 md:gap-8">
-        <div className="bg-accent/30 border-accent relative overflow-hidden rounded-xl border md:col-span-2 md:col-start-2">
+        <div
+          ref={playerRef}
+          className="bg-accent/30 border-accent relative overflow-hidden rounded-xl border md:col-span-2 md:col-start-2"
+        >
           {startSeconds === null ? (
             <div className="relative">
               <youtubeDemo.Image name="facade">

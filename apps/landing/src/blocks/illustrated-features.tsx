@@ -8,7 +8,7 @@ const illustratedFeatures = createBlock({
   id: "illustrated-features",
   title: "Illustrated Features",
   description:
-    "Use this block to showcase a list of product features in depth. The section opens with a pill label, a large headline and supporting description, then presents features in a 2-column grid with rounded borders. Each cell shows the title, description, and an illustration anchored to the bottom. Good fit for marketing pages that need to explain several capabilities with visual support.",
+    "Use this block to showcase a list of product features in depth. The section opens with a pill label, a large headline and supporting description, then presents features in a 2-column grid with rounded borders. Each cell shows the title, description, and an illustrative artifact anchored to the bottom. Good fit for marketing pages that need to explain several capabilities with visual support.",
   content: (field) => ({
     pill: field.string({
       default: "Features",
@@ -34,7 +34,8 @@ const illustratedFeatures = createBlock({
             "Skip the boilerplate and get straight to building. Our primitives are designed to be fast by default, so your product stays snappy at any scale.",
           title: "Feature description",
         }),
-        illustration: field.image({
+        illustration: field.artifact({
+          size: "fill",
           title: "Illustration",
         }),
       }),
@@ -96,14 +97,11 @@ function IllustratedFeaturesComponent() {
                     {(props) => <p {...props} className="text-muted-foreground text-base" />}
                   </item.Field>
                 </div>
-                <item.Image name="illustration">
-                  {(props) => (
-                    <img
-                      {...props}
-                      className="border-border rounded-t-xl border-t border-r border-l"
-                    />
-                  )}
-                </item.Image>
+                <div className="border-border aspect-5/3 overflow-hidden rounded-t-xl border-t border-r border-l">
+                  <item.Artifact name="illustration">
+                    {(props) => <iframe {...props} className="size-full" />}
+                  </item.Artifact>
+                </div>
               </div>
             )}
           </illustratedFeatures.Repeater>

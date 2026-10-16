@@ -918,7 +918,8 @@ export const contentFieldBuilder: ContentFieldBuilder = {
 
     return TypeBoxType.Array(objectSchema, {
       minItems: options.minItems,
-      maxItems: options.maxItems,
+      // JSON has no Infinity: serialized, it would become a `null` limit.
+      ...(Number.isFinite(options.maxItems) ? { maxItems: options.maxItems } : {}),
       default: defaultArray,
       title: options.title,
       fieldType: "Repeater" as const,
