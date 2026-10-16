@@ -1,7 +1,6 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq, inArray, type SQL } from "drizzle-orm";
-import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -13,7 +12,6 @@ import {
   InvalidInputError,
   PublishBlockedError,
 } from "../../lib/errors";
-import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import {
   blockDefinitions,
   blocks,
@@ -26,7 +24,6 @@ import {
   repeatableItems,
   sharedContents,
 } from "../../schema";
-import { conformRecordContent } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
@@ -35,9 +32,8 @@ import * as draftComments from "../comments/drafts";
 import { metadataGenerated, withFileMetadata } from "../files/generated-metadata";
 import { checkFileProblems, type FileProblemCode, type Finding } from "../files/publish-checks";
 import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
-import type { GeneratedEntity } from "../generated-values/schema";
 import * as generatedValueStatements from "../generated-values/service";
-import { homeOf, readValues, requestGeneration } from "../generated-values/service";
+import { homeOf, requestGeneration } from "../generated-values/service";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { requestPageSeo } from "../pages/service";
 import { rootOfItem } from "../repeatable-items/roots";
@@ -49,34 +45,15 @@ import {
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
 import { findEndedDraft, resolveDraftScope } from "./service";
+import { describeSubjects, type RecordRow, type Subject } from "./subjects";
+
+export type { Owner, Subject } from "./subjects";
 
 // Publishing a draft and discarding it (ADR 0009). The preview lists what publishing will do;
 // its token records the conflicts it showed, and publishing aborts when they've changed since.
 
 type Scope = NonNullable<DraftScope>;
-type BlockRow = typeof blocks.$inferSelect;
-type RecordRow = typeof collectionRecords.$inferSelect;
 type FileRow = typeof files.$inferSelect;
-
-/**
- * Where an entity sits, so people can find it: its page, its layout, its synced block or its
- * collection.
- */
-export type Owner =
-  | { kind: "page"; id: string; path: string; nickname: string }
-  | { kind: "layout"; name: string }
-  | { kind: "syncedBlock"; name: string; title: string }
-  | { kind: "collection"; name: string; title: string }
-  | null;
-
-/** An entity as people know it. */
-export type Subject = {
-  entity: string;
-  id: string;
-  /** What the entity is to people, e.g. a block's summary or its definition's title. */
-  label: string;
-  owner: Owner;
-};
 
 export type Change = Subject & { change: "created" | "changed" | "deleted" };
 
@@ -131,182 +108,6 @@ const decodeToken = (token: string) =>
     try: () => tokenSchema.parse(JSON.parse(atob(token))) as overlay.ConflictKey[],
     catch: () => new InvalidInputError({ message: "Invalid publish token" }),
   });
-
-// --- Describing entities ---
-
-/** The rows of `ids` the draft holds, or Live's where it holds none. */
-const rowsSeenBy = <T extends overlay.ContentTable>(
-  ctx: ServiceContext,
-  scope: Scope,
-  table: T,
-  ids: string[],
-) =>
-  Effect.gen(function* () {
-    if (ids.length === 0) return new Map<string, T["$inferSelect"]>();
-    const rows = (yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(table as SQLiteTable)
-        .where(and(inArray(table.id, ids), overlay.storedInLiveOrDraft(table, scope.id))),
-    )) as T["$inferSelect"][];
-    const byId = new Map<string, T["$inferSelect"]>();
-    for (const row of rows) {
-      if (!byId.has(row.id) || row.draftId !== null) byId.set(row.id, row);
-    }
-    return byId;
-  });
-
-type Mention = { entity: string; id: string };
-
-/**
- * Labels and owners for the entities a preview mentions, from the rows the draft holds or
- * Live's: a block or item sits on its page or layout, or in its synced block; a page is its own.
- */
-const describer = Effect.fn("drafts.describer")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-  mentions: Mention[],
-) {
-  const idsOf = (entity: string) => [
-    ...new Set(mentions.filter((m) => m.entity === entity).map((m) => m.id)),
-  ];
-  const items = yield* rowsSeenBy(ctx, scope, repeatableItems, idsOf("repeatableItem"));
-  const blockIds = [
-    ...idsOf("block"),
-    ...[...items.values()].flatMap((item) => (item.blockId ? [item.blockId] : [])),
-  ];
-  const blockRows = yield* rowsSeenBy(ctx, scope, blocks, [...new Set(blockIds)]);
-  const pageIds = [
-    ...idsOf("page"),
-    ...[...blockRows.values()].flatMap((row) => (row.pageId ? [row.pageId] : [])),
-  ];
-  const pageRows = yield* rowsSeenBy(ctx, scope, pages, [...new Set(pageIds)]);
-  const shared = yield* rowsSeenBy(ctx, scope, sharedContents, idsOf("sharedContent"));
-  // Summaries are generated values the draft reads (ADR 0012).
-  const summary = (entity: GeneratedEntity, ids: Iterable<string>) =>
-    Effect.map(
-      readValues(ctx.db, scope, entity, "summary", [...ids]),
-      (values) => (id: string) => values.get(id)?.value?.summary ?? "",
-    );
-  const sharedSummary = yield* summary("sharedContent", shared.keys());
-  const itemSummary = yield* summary("repeatableItem", items.keys());
-  const blockSummary = yield* summary("block", blockRows.keys());
-  const definitions = yield* Effect.promise(() =>
-    ctx.db
-      .select({ blockId: blockDefinitions.blockId, title: blockDefinitions.title })
-      .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, scope.projectId),
-          definitionsIn(blockDefinitions, scope),
-        ),
-      ),
-  );
-  const titles = new Map(definitions.map((definition) => [definition.blockId, definition.title]));
-
-  const pageOwner = (pageId: string | null): Owner => {
-    const page = pageId ? pageRows.get(pageId) : undefined;
-    return page
-      ? { kind: "page", id: page.id, path: page.fullPath, nickname: page.nickname }
-      : null;
-  };
-  const syncedOwner = (type: string): Owner => ({
-    kind: "syncedBlock",
-    name: type,
-    title: titles.get(type) ?? type,
-  });
-  const blockOwner = (block: BlockRow | undefined): Owner => {
-    if (!block) return null;
-    if (block.pageId) return pageOwner(block.pageId);
-    if (block.layoutId) return { kind: "layout", name: block.layoutId };
-    return null;
-  };
-
-  return (entity: string, id: string): Subject => {
-    if (entity === "page") {
-      return { entity, id, label: "Page", owner: pageOwner(id) };
-    }
-    if (entity === "sharedContent") {
-      const row = shared.get(id);
-      const type = row?.type ?? id;
-      return {
-        entity,
-        id,
-        label: sharedSummary(id) || "Shared content",
-        owner: syncedOwner(type),
-      };
-    }
-    if (entity === "repeatableItem") {
-      const item = items.get(id);
-      let owner: Owner = null;
-      if (item?.sharedContentType) owner = syncedOwner(item.sharedContentType);
-      else if (item?.blockId) owner = blockOwner(blockRows.get(item.blockId));
-      return { entity, id, label: itemSummary(id) || "Item", owner };
-    }
-    const row = blockRows.get(id);
-    if (!row) return { entity, id, label: "Block", owner: null };
-    return {
-      entity,
-      id,
-      label: blockSummary(id) || titles.get(row.type) || row.type,
-      owner: blockOwner(row),
-    };
-  };
-});
-
-/** A file as people know it: by its filename. Files belong to no page or layout. */
-const describeFile = (id: string, file?: { filename: string }): Subject => ({
-  entity: "file",
-  id,
-  label: file?.filename ?? "File",
-  owner: null,
-});
-
-/** Labels for records, from the rows the draft holds, each under its collection. */
-const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-  rows: RecordRow[],
-) {
-  const definitions = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(collectionDefinitions)
-      .where(
-        and(
-          eq(collectionDefinitions.projectId, scope.projectId),
-          definitionsIn(collectionDefinitions, scope),
-        ),
-      ),
-  );
-  const definitionOf = (row: RecordRow) =>
-    definitions.find(
-      (definition) =>
-        definition.projectId === row.projectId && definition.collectionId === row.collectionId,
-    );
-  const byId = new Map(rows.map((row) => [row.id, row]));
-
-  return (id: string): Subject => {
-    const row = byId.get(id);
-    if (!row) return { entity: "record", id, label: "Record", owner: null };
-    const definition = definitionOf(row);
-    // A record of a removed collection is still named by its collection's name (ADR 0007).
-    if (!definition) {
-      const owner: Owner = { kind: "collection", name: row.collectionId, title: row.collectionId };
-      return { entity: "record", id, label: "Record", owner };
-    }
-    const content = conformRecordContent(definition.contentSchema, row.content);
-    const label = lexicalStateToPlainText(
-      content[definition.label] as string | Record<string, unknown>,
-    );
-    return {
-      entity: "record",
-      id,
-      label: label || "Untitled record",
-      owner: { kind: "collection", name: definition.collectionId, title: definition.title },
-    };
-  };
-});
 
 // --- Blockers ---
 
@@ -371,36 +172,6 @@ const checkComments = Effect.fn("drafts.checkComments")(function* (
       "Unresolved feedback on content this draft deletes: publishing deletes it",
     ),
   };
-});
-
-/**
- * Content and file findings as problems, each naming the entity it's in and where that sits.
- */
-const findingDescriber = Effect.fn("drafts.findingDescriber")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-  findings: (ContentFinding | Finding)[],
-  records: RecordRow[],
-  fileRows: Map<string, { filename: string }>,
-) {
-  const describeContent = yield* describer(ctx, scope, findings);
-  const ids = new Set(findings.flatMap((f) => (f.entity === "record" ? [f.id] : [])));
-  const describeRecord = yield* recordDescriber(
-    ctx,
-    scope,
-    records.filter((record) => ids.has(record.id)),
-  );
-  const describe = (entity: string, id: string) => {
-    if (entity === "record") return describeRecord(id);
-    if (entity === "file") return describeFile(id, fileRows.get(id));
-    return describeContent(entity, id);
-  };
-  return ({ entity, id, code, field, message }: ContentFinding | Finding): Problem => ({
-    ...describe(entity, id),
-    code,
-    field,
-    message,
-  });
 });
 
 // --- Definitions of a development draft (ADR 0006) ---
@@ -481,48 +252,59 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const stored = yield* overlay.changesOf(ctx.db, scope);
   const storedConflicts = yield* overlay.conflictsOf(ctx.db, scope);
   const losses = yield* overlay.lostOf(ctx.db, scope);
-  const describeContent = yield* describer(ctx, scope, [
-    ...stored.map(({ entity, row }) => ({ entity, id: row.id })),
-    ...storedConflicts,
-    ...losses.flatMap((loss) => (loss.reason === "parentGone" ? [loss] : [loss, loss.parent])),
-  ]);
-  const describeRecord = yield* recordDescriber(
-    ctx,
-    scope,
-    stored.filter((change) => change.table === collectionRecords).map((c) => c.row as RecordRow),
-  );
-  const fileNames = new Map(
-    (yield* withFileMetadata(
-      ctx.db,
-      scope,
-      stored.flatMap((change) => (change.entity === "file" ? [change.row as FileRow] : [])),
-    )).map((file) => [file.id, file] as const),
-  );
-  const describe = (entity: string, id: string) => {
-    if (entity === "record") return describeRecord(id);
-    if (entity === "file") return describeFile(id, fileNames.get(id));
-    return describeContent(entity, id);
-  };
-
   const feedback = yield* checkComments(ctx, scope);
   const checked = yield* checkContentProblems(ctx, scope);
   const fileChecks = yield* checkFileProblems(ctx, scope, checked.holders);
-  const describeFinding = yield* findingDescriber(
+  const findings = [
+    ...fileChecks.blockers,
+    ...fileChecks.warnings,
+    ...checked.blockers,
+    ...checked.warnings,
+  ];
+
+  const changedFiles = yield* withFileMetadata(
+    ctx.db,
+    scope,
+    stored.flatMap((change) => (change.entity === "file" ? [change.row as FileRow] : [])),
+  );
+  const describe = yield* describeSubjects(
     ctx,
     scope,
-    [...fileChecks.blockers, ...fileChecks.warnings, ...checked.blockers, ...checked.warnings],
-    checked.records,
-    fileChecks.files,
+    [
+      ...stored.map(({ entity, row }) => ({ entity, id: row.id })),
+      ...storedConflicts,
+      ...losses.flatMap((loss) => (loss.reason === "parentGone" ? [loss] : [loss, loss.parent])),
+      ...findings,
+    ],
+    {
+      records: [
+        ...checked.records,
+        ...stored.flatMap((change) =>
+          change.table === collectionRecords ? [change.row as RecordRow] : [],
+        ),
+      ],
+      files: new Map([
+        ...fileChecks.files,
+        ...changedFiles.map((file) => [file.id, file] as const),
+      ]),
+    },
   );
+  const asProblem = ({ entity, id, code, field, message }: ContentFinding | Finding): Problem => ({
+    ...describe(entity, id),
+    code,
+    field,
+    message,
+  });
+
   const blockers = [
     ...(yield* checkDefinitions(ctx, scope)),
-    ...fileChecks.blockers.map(describeFinding),
-    ...checked.blockers.map(describeFinding),
+    ...fileChecks.blockers.map(asProblem),
+    ...checked.blockers.map(asProblem),
     ...feedback.blockers,
   ];
   const warnings = [
-    ...fileChecks.warnings.map(describeFinding),
-    ...checked.warnings.map(describeFinding),
+    ...fileChecks.warnings.map(asProblem),
+    ...checked.warnings.map(asProblem),
     ...feedback.warnings,
   ];
 
