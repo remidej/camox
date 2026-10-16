@@ -4,12 +4,19 @@
     "default": {
       "runner": "nx/tasks-runners/default",
       "options": {
-        "cacheableOperations": ["build", "test", "lint", "check"]
+        "cacheableOperations": [
+          "build",
+          "test",
+          "lint",
+          "check"
+        ]
       }
     }
   },
   "namedInputs": {
-    "default": ["{projectRoot}/**/*"],
+    "default": [
+      "{projectRoot}/**/*"
+    ],
     "production": [
       "default",
       "!{projectRoot}/**/*.spec.ts",
@@ -19,30 +26,53 @@
   },
   "targetDefaults": {
     "build": {
-      "inputs": ["production", "^production"],
-      "outputs": ["{projectRoot}/dist", "{projectRoot}/.output"],
-      "dependsOn": ["^build"],
+      "inputs": [
+        "production",
+        "^production"
+      ],
+      "outputs": [
+        "{projectRoot}/dist",
+        "{projectRoot}/.output"
+      ],
+      "dependsOn": [
+        "^build"
+      ],
       "cache": true
     },
     "build:watch": {
-      "inputs": ["production", "^production"],
-      "outputs": ["{projectRoot}/dist"],
+      "inputs": [
+        "production",
+        "^production"
+      ],
+      "outputs": [
+        "{projectRoot}/dist"
+      ],
       "cache": false
     },
     "dev": {
       "cache": false
     },
     "test": {
-      "inputs": ["default", "^production"],
+      "inputs": [
+        "default",
+        "^production"
+      ],
       "cache": true
     },
     "lint": {
-      "inputs": ["default"],
+      "inputs": [
+        "default"
+      ],
       "cache": true
     },
     "check": {
-      "inputs": ["default", "^production"],
-      "dependsOn": ["^build"],
+      "inputs": [
+        "default",
+        "^production"
+      ],
+      "dependsOn": [
+        "^build"
+      ],
       "cache": true
     }
   },
@@ -50,5 +80,6 @@
   "tui": {
     "enabled": false
   },
-  "defaultBase": "main"
+  "defaultBase": "main",
+  "nxCloudId": "6ad1deecb8130ab58ee864b3"
 }
