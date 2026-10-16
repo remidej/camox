@@ -22,30 +22,30 @@
     "@camox/ai-tools": "workspace:*",
     "@camox/api-contract": "workspace:*",
     "@cfworker/json-schema": "^4.1.1",
-    "@hono/zod-validator": "^0.7.6",
-    "@orpc/server": "^1.14.3",
+    "@hono/zod-validator": "^0.9.1",
+    "@orpc/server": "^1.15.7",
     "@tanstack/ai": "0.21.3",
     "@tanstack/ai-openrouter": "^0.9.7",
-    "better-auth": "^1.6.11",
-    "drizzle-orm": "^0.45.2",
-    "effect": "^4.0.1",
-    "fractional-indexing": "^3.2.0",
-    "hono": "^4.12.19",
+    "better-auth": "~1.6.33",
+    "drizzle-orm": "^0.45.4",
+    "effect": "^4.0.5",
+    "fractional-indexing": "^4.0.0",
+    "hono": "^4.13.13",
     "hono-party": "^2.1.0",
     "outdent": "^0.8.0",
-    "partyserver": "^0.4.1",
+    "partyserver": "^0.5.10",
     "slugify": "^1.6.9",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.3",
     "@cloudflare/workers-types": "^4.20260519.1",
-    "@libsql/client": "^0.17.3",
+    "@libsql/client": "^0.18.0",
     "@types/node": "^22.19.19",
-    "drizzle-kit": "^0.31.10",
-    "tsx": "^4.22.2",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
     "vite-plus": "catalog:",
-    "wrangler": "^4.92.0"
+    "wrangler": "^4.151.0"
   },
   "nx": {
     "tags": [
