@@ -470,3 +470,175 @@ describe("files in drafts", () => {
     expect(await count(inDraft(draftId))).toBe(0);
   });
 });
+
+describe("file checks beyond blocks", () => {
+  const assetFields = {
+    photo: imageField(true),
+    sheet: {
+      fieldType: "File" as const,
+      type: "object",
+      properties: { url: { type: "string" } },
+      accept: ["application/pdf"],
+    },
+  };
+
+  /**
+   * The fixture's project with a card list whose cards hold a photo and a datasheet, a synced
+   * banner holding the same, and a collection of people holding the same.
+   */
+  async function withHolders() {
+    const f = await fixture();
+    const definitionContext = createServiceContext(f.db, null);
+    const define = (blockId: string, synced: boolean, properties: Record<string, unknown>) =>
+      runService(
+        upsertBlockDefinition(definitionContext, {
+          projectSlug: f.project.slug,
+          deployToken: f.project.deployToken,
+          blockId,
+          title: blockId,
+          description: blockId,
+          synced,
+          contentSchema: { type: "object", properties, toMarkdown: [`# ${blockId}`] },
+        }),
+      );
+    await define("cards", false, {
+      cards: {
+        fieldType: "Repeater",
+        type: "array",
+        items: { type: "object", properties: assetFields },
+      },
+    });
+    await define("banner", true, assetFields);
+    await call(
+      router.collectionDefinitions.sync,
+      {
+        projectSlug: f.project.slug,
+        deployToken: f.project.deployToken,
+        autoCreate: false,
+        definitions: [
+          {
+            collectionId: "people",
+            title: "People",
+            description: "",
+            label: "name",
+            contentSchema: {
+              type: "object",
+              // Collection fields are never required.
+              properties: {
+                name: { type: "string", fieldType: "String" },
+                ...assetFields,
+                photo: {
+                  fieldType: "Image",
+                  type: "object",
+                  properties: { url: { type: "string" } },
+                  accept: ["image/*"],
+                },
+              },
+              required: ["name", "photo", "sheet"],
+              additionalProperties: false,
+            },
+          },
+        ],
+      },
+      { context: createRpcContext(f.db, null) },
+    );
+    const [page] = await f.db.select().from(pages).where(eq(pages.projectId, f.project.id));
+    const cards = await callSeedingLive(
+      router.blocks.create,
+      { pageId: page.id, type: "cards", content: {} },
+      f.member(),
+    );
+
+    /**
+     * Gives an item, the shared banner and, unless left out, a record `content`, in the draft
+     * `headers` name.
+     */
+    const holdAssets = async (
+      content: Record<string, unknown>,
+      headers: Headers = {},
+      { record = true } = {},
+    ) => {
+      const card = await callSeedingLive(
+        router.repeatableItems.create,
+        { blockId: cards.id, fieldName: "cards", content },
+        f.member(headers),
+      );
+      await callSeedingLive(
+        router.blocks.create,
+        { pageId: page.id, type: "banner", content },
+        f.member(headers),
+      );
+      if (!record) return { card: card.id, person: null };
+      const person = await callSeedingLive(
+        router.collectionDefinitions.createRecord,
+        {
+          projectSlug: f.project.slug,
+          collectionId: "people",
+          content: { name: "Ada", ...content },
+        },
+        f.member(headers),
+      );
+      return { card: card.id, person: person.id };
+    };
+    /** Each blocker's code and the kind of entity it's in. */
+    const blocked = (problems: { code: string; entity: string }[]) =>
+      problems.map(({ code, entity }) => `${code}:${entity}`).toSorted();
+    return { ...f, holdAssets, blocked };
+  }
+
+  it("an empty required image blocks publishing in an item and synced shared content the draft changed", async () => {
+    const f = await withHolders();
+    const draftId = generateUuidv7();
+    // Records never hold an empty image or file: writing one fails.
+    const { card } = await f.holdAssets({ photo: null }, startingDraft(draftId), {
+      record: false,
+    });
+
+    const { blockers } = await f.preview(draftId);
+    expect(f.blocked(blockers)).toEqual([
+      "emptyRequiredFile:repeatableItem",
+      "emptyRequiredFile:sharedContent",
+    ]);
+    expect(blockers.map((problem) => problem.id)).toContain(card);
+  });
+
+  it("deleting a file an item, synced shared content and a record use on Live blocks publishing", async () => {
+    const f = await withHolders();
+    const used = await f.upload();
+    const pdf = await f.upload({}, { type: "application/pdf", name: "spec.pdf" });
+    const { card, person } = await f.holdAssets({
+      photo: { _fileId: used.id },
+      sheet: { _fileId: pdf.id },
+    });
+    const draftId = generateUuidv7();
+    await callSeedingLive(router.files.delete, { id: used.id }, f.member(startingDraft(draftId)));
+
+    const { blockers } = await f.preview(draftId);
+    expect(f.blocked(blockers)).toEqual([
+      "missingFile:record",
+      "missingFile:repeatableItem",
+      "missingFile:sharedContent",
+    ]);
+    expect(blockers.map((problem) => problem.id)).toEqual(expect.arrayContaining([card, person]));
+  });
+
+  it("replacing a file with a type an item, synced shared content and a record using it don't accept blocks publishing", async () => {
+    const f = await withHolders();
+    const image = await f.upload();
+    const pdf = await f.upload({}, { type: "application/pdf", name: "spec.pdf" });
+    const { card, person } = await f.holdAssets({
+      photo: { _fileId: image.id },
+      sheet: { _fileId: pdf.id },
+    });
+    const draftId = generateUuidv7();
+    await f.replace(pdf.id, startingDraft(draftId), { type: "image/png", name: "spec.png" });
+
+    const { blockers } = await f.preview(draftId);
+    expect(f.blocked(blockers)).toEqual([
+      "unacceptedFileType:record",
+      "unacceptedFileType:repeatableItem",
+      "unacceptedFileType:sharedContent",
+    ]);
+    expect(blockers.map((problem) => problem.id)).toEqual(expect.arrayContaining([card, person]));
+  });
+});

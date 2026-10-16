@@ -1,6 +1,6 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, type SQL } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -93,7 +93,6 @@ export type LostChange = Subject & { reason: "parentGone" | "writtenAfterDeletio
 /** A blocker, or the same problem already on Live as a warning, naming what to fix. */
 export type Problem = Subject & {
   code:
-    | "emptyRequiredReference"
     | "unresolvedComment"
     | "commentDeleted"
     | "definitionsDiffer"
@@ -166,21 +165,16 @@ const describer = Effect.fn("drafts.describer")(function* (
   ctx: ServiceContext,
   scope: Scope,
   mentions: Mention[],
-  known: BlockRow[] = [],
 ) {
   const idsOf = (entity: string) => [
     ...new Set(mentions.filter((m) => m.entity === entity).map((m) => m.id)),
   ];
   const items = yield* rowsSeenBy(ctx, scope, repeatableItems, idsOf("repeatableItem"));
-  const knownBlocks = new Map(known.map((row) => [row.id, row]));
   const blockIds = [
     ...idsOf("block"),
     ...[...items.values()].flatMap((item) => (item.blockId ? [item.blockId] : [])),
-  ].filter((id) => !knownBlocks.has(id));
-  const blockRows = new Map([
-    ...(yield* rowsSeenBy(ctx, scope, blocks, [...new Set(blockIds)])),
-    ...knownBlocks,
-  ]);
+  ];
+  const blockRows = yield* rowsSeenBy(ctx, scope, blocks, [...new Set(blockIds)]);
   const pageIds = [
     ...idsOf("page"),
     ...[...blockRows.values()].flatMap((row) => (row.pageId ? [row.pageId] : [])),
@@ -315,99 +309,6 @@ const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
 
 // --- Blockers ---
 
-/** Live blocks of a project the draft doesn't store: untouched Live content. */
-const untouchedLiveBlocks = (ctx: ServiceContext, scope: Scope) =>
-  Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blocks)
-      .where(
-        and(
-          overlay.visibleIn(blocks, null),
-          eq(blocks.projectId, scope.projectId),
-          sql`not exists (select 1 from ${blocks} as "copy" where "copy"."draft_id" = ${scope.id} and "copy"."id" = ${blocks.id})`,
-        ),
-      ),
-  );
-
-type FieldSchema = { fieldType?: string; required?: unknown; title?: string };
-
-/**
- * Required references left empty, per block. Synced blocks hold their content elsewhere, so
- * their placements are skipped.
- */
-const emptyRequiredReferences = Effect.fn("drafts.emptyRequiredReferences")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-  rows: BlockRow[],
-) {
-  const definitions = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(blockDefinitions)
-      .where(
-        and(
-          eq(blockDefinitions.projectId, scope.projectId),
-          definitionsIn(blockDefinitions, scope),
-        ),
-      ),
-  );
-  const byName = new Map(definitions.map((definition) => [definition.blockId, definition]));
-  const found: { id: string; field: string; title: string }[] = [];
-  for (const row of rows) {
-    const definition = byName.get(row.type);
-    if (!definition || definition.synced) continue;
-    const properties =
-      (definition.contentSchema as { properties?: Record<string, FieldSchema> }).properties ?? {};
-    const content = (row.content ?? {}) as Record<string, unknown>;
-    for (const [field, schema] of Object.entries(properties)) {
-      if (schema.fieldType !== "Reference" || schema.required !== true) continue;
-      const value = content[field];
-      if (value !== null && value !== undefined && value !== "") continue;
-      found.push({ id: row.id, field, title: schema.title ?? field });
-    }
-  }
-  return found;
-});
-
-/**
- * Blockers in what the draft changed, and the same problems in untouched Live content as
- * warnings. Each check sees the blocks the draft creates or changes, and Live's untouched ones.
- */
-const checkProblems = Effect.fn("drafts.checkProblems")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-  changed: BlockRow[],
-) {
-  const untouched = yield* untouchedLiveBlocks(ctx, scope);
-  const describe = yield* describer(ctx, scope, [], [...changed, ...untouched]);
-  const problems = (found: { id: string; field: string; title: string }[]): Problem[] =>
-    found.map(({ id, field, title }) => ({
-      ...describe("block", id),
-      code: "emptyRequiredReference",
-      field,
-      message: `"${title}" is required but empty`,
-    }));
-  const fileChecks = yield* checkFileProblems(ctx, scope, { changed, untouched });
-  const fileProblems = (found: Finding[]): Problem[] =>
-    found.map(({ entity, id, code, field, message }) => ({
-      ...(entity === "file" ? describeFile(id, fileChecks.files.get(id)) : describe("block", id)),
-      code,
-      field,
-      message,
-    }));
-  return {
-    blockers: [
-      ...problems(yield* emptyRequiredReferences(ctx, scope, changed)),
-      ...fileProblems(fileChecks.blockers),
-    ],
-    warnings: [
-      ...problems(yield* emptyRequiredReferences(ctx, scope, untouched)),
-      ...fileProblems(fileChecks.warnings),
-    ],
-  };
-});
-
 /** Feedback as a problem: on its page, naming the field it's anchored to, if any. */
 const commentProblems = Effect.fn("drafts.commentProblems")(function* (
   ctx: ServiceContext,
@@ -471,12 +372,15 @@ const checkComments = Effect.fn("drafts.checkComments")(function* (
   };
 });
 
-/** Content findings as problems, each naming the entity it's in and where that sits. */
+/**
+ * Content and file findings as problems, each naming the entity it's in and where that sits.
+ */
 const findingDescriber = Effect.fn("drafts.findingDescriber")(function* (
   ctx: ServiceContext,
   scope: Scope,
-  findings: ContentFinding[],
+  findings: (ContentFinding | Finding)[],
   records: RecordRow[],
+  fileRows: Map<string, { filename: string }>,
 ) {
   const describeContent = yield* describer(ctx, scope, findings);
   const ids = new Set(findings.flatMap((f) => (f.entity === "record" ? [f.id] : [])));
@@ -485,8 +389,13 @@ const findingDescriber = Effect.fn("drafts.findingDescriber")(function* (
     scope,
     records.filter((record) => ids.has(record.id)),
   );
-  return ({ entity, id, code, field, message }: ContentFinding): Problem => ({
-    ...(entity === "record" ? describeRecord(id) : describeContent(entity, id)),
+  const describe = (entity: string, id: string) => {
+    if (entity === "record") return describeRecord(id);
+    if (entity === "file") return describeFile(id, fileRows.get(id));
+    return describeContent(entity, id);
+  };
+  return ({ entity, id, code, field, message }: ContentFinding | Finding): Problem => ({
+    ...describe(entity, id),
     code,
     field,
     message,
@@ -571,9 +480,6 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
   const stored = yield* overlay.changesOf(ctx.db, scope);
   const storedConflicts = yield* overlay.conflictsOf(ctx.db, scope);
   const losses = yield* overlay.lostOf(ctx.db, scope);
-  const blockRows = stored
-    .filter((change) => change.table === blocks)
-    .map((c) => c.row as BlockRow);
   const describeContent = yield* describer(ctx, scope, [
     ...stored.map(({ entity, row }) => ({ entity, id: row.id })),
     ...storedConflicts,
@@ -597,24 +503,24 @@ const computePreview = Effect.fn("drafts.computePreview")(function* (
     return describeContent(entity, id);
   };
 
-  const changed = blockRows.filter((row) => !row.deleted);
-  const content = yield* checkProblems(ctx, scope, changed);
   const feedback = yield* checkComments(ctx, scope);
   const checked = yield* checkContentProblems(ctx, scope);
+  const fileChecks = yield* checkFileProblems(ctx, scope, checked.holders);
   const describeFinding = yield* findingDescriber(
     ctx,
     scope,
-    [...checked.blockers, ...checked.warnings],
+    [...fileChecks.blockers, ...fileChecks.warnings, ...checked.blockers, ...checked.warnings],
     checked.records,
+    fileChecks.files,
   );
   const blockers = [
     ...(yield* checkDefinitions(ctx, scope)),
-    ...content.blockers,
+    ...fileChecks.blockers.map(describeFinding),
     ...checked.blockers.map(describeFinding),
     ...feedback.blockers,
   ];
   const warnings = [
-    ...content.warnings,
+    ...fileChecks.warnings.map(describeFinding),
     ...checked.warnings.map(describeFinding),
     ...feedback.warnings,
   ];
