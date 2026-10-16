@@ -27,6 +27,7 @@ const VIRTUAL_STUDIO_CLIENT = "virtual:camox/studio-client";
 const RESOLVED_VIRTUAL_STUDIO_CLIENT_URL = "\0virtual:camox/studio-client-url";
 const RESOLVED_VIRTUAL_BLOCK_CHUNKS = "\0virtual:camox/block-chunks";
 import { generateAppFile, watchAppFile } from "./appGeneration";
+import { transformArtifactRuntime } from "./artifactRuntimeMinification";
 import { readAuthTokenForUrl } from "./auth";
 import { watchNewBlockFiles } from "./blockBoilerplate";
 import { collectBlockChunks } from "./blockChunks";
@@ -186,6 +187,10 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         return `export default ${JSON.stringify(blockChunks)};`;
       }
       return loadRuntimeDevModule(id, { runtimeBasePath, ssr: loadOptions?.ssr });
+    },
+    // Apps that compile the SDK from source minify the artifact runtime as its build does.
+    transform(code, id) {
+      return transformArtifactRuntime(code, id);
     },
     generateBundle(_outputOptions, bundle) {
       if (this.environment.name !== "client") return;

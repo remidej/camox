@@ -1,3 +1,4 @@
+import { artifactThemeColors } from "./artifactColors";
 import type { ArtifactData } from "./artifactData";
 import { observeArtifactTheme, readArtifactTheme } from "./artifactTheme";
 
@@ -194,7 +195,7 @@ export function connectArtifactHost(
     const serialized = JSON.stringify(tokens);
     if (!force && serialized === sentTheme) return;
     sentTheme = serialized;
-    post("theme", { tokens });
+    post("theme", { tokens, colors: artifactThemeColors(tokens, page) });
   };
 
   let viewport: ReturnType<typeof trackViewport> | null = null;

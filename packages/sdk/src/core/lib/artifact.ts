@@ -60,13 +60,15 @@ function renderLink(link: Record<string, unknown>) {
   return `<link${attributes}>`;
 }
 
+const DATA_SCRIPT_OPEN = '<script type="application/json" data-camox-data>';
+
 /**
  * The initial Artifact Data as an inert JSON script, which the runtime reads on first access.
  * `<` is escaped so no value can close the script early.
  */
 function artifactDataScript(data: ArtifactData) {
   const json = JSON.stringify(data).replaceAll("<", "\\u003c");
-  return `<script type="application/json" data-camox-data>${json}</script>`;
+  return `${DATA_SCRIPT_OPEN}${json}</script>`;
 }
 
 /**
@@ -96,6 +98,21 @@ export function artifactFontLinks(document: CamoxDocument | undefined) {
 function artifactDocument(source: string, { fontLinks = "", data = {} }: ArtifactDocumentOptions) {
   const head = `<script>${ARTIFACT_RUNTIME}</script>${fontLinks}${artifactDataScript(data)}`;
   return `<!doctype html>${head}${source}`;
+}
+
+/**
+ * The artifact source inside an artifact's document, the reverse of `artifactDocument`, or `null`
+ * for any other document. The font links can't hold `<` (their attributes escape it) and the data
+ * JSON escapes it too, so the first `</script>` after the data's opening tag ends the data.
+ */
+export function artifactSourceOf(document: string) {
+  const head = `<!doctype html><script>${ARTIFACT_RUNTIME}</script>`;
+  if (!document.startsWith(head)) return null;
+  const data = document.indexOf(DATA_SCRIPT_OPEN, head.length);
+  if (data < 0 || document.slice(head.length, data).includes("<script")) return null;
+  const end = document.indexOf("</script>", data + DATA_SCRIPT_OPEN.length);
+  if (end < 0) return null;
+  return document.slice(end + "</script>".length);
 }
 
 /**

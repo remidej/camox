@@ -1,6 +1,8 @@
 import pluginBabel from "@rollup/plugin-babel";
 import { defineConfig } from "vite-plus";
 
+import { transformArtifactRuntime } from "./src/features/vite/artifactRuntimeMinification";
+
 export default defineConfig({
   pack: {
     entry: {
@@ -48,6 +50,7 @@ export default defineConfig({
       ],
     },
     plugins: [
+      { name: "camox:minify-artifact-runtime", transform: transformArtifactRuntime },
       pluginBabel({
         babelHelpers: "bundled",
         parserOpts: {
