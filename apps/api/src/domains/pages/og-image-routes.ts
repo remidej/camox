@@ -5,7 +5,6 @@ import { Effect } from "effect";
 import { Hono } from "hono";
 
 import { assertPageAccess, requireUser } from "../../authorization";
-import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { NotFoundError } from "../../lib/errors";
 import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
@@ -13,6 +12,7 @@ import type { AppEnv } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import { inDraftScope, storedForRequest } from "../drafts/service";
+import { deleteUnreferencedOgImageBlobs } from "./og-image-blobs";
 import { pages } from "./schema";
 
 // --- Hono routes (multipart upload for the per-page custom OG image) ---
@@ -34,23 +34,6 @@ import { pages } from "./schema";
 const OG_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 export const pageHonoRoutes = new Hono<AppEnv>();
-
-/** Deletes an OG image blob once no page row, Live or in any draft, names it. */
-const deleteOgBlobIfUnreferenced = Effect.fn("deleteOgBlobIfUnreferenced")(function* (
-  db: Database,
-  bucket: R2Bucket,
-  blobId: string,
-) {
-  const referenced = yield* Effect.promise(() =>
-    db
-      .select({ id: pages.id })
-      .from(pages)
-      .where(eq(pages.customOgImageBlobId, blobId))
-      .limit(1)
-      .get(),
-  );
-  if (!referenced) yield* Effect.promise(() => bucket.delete(blobId));
-});
 
 /** The page's project as Live or the request's draft stores it, before the draft is checked. */
 const projectOfPage = Effect.fn("pages.og.projectOfPage")(function* (
@@ -89,7 +72,7 @@ const writeOgImage = (
         const prevBlobId = access.page.customOgImageBlobId;
         const image = yield* store(access.page.projectId);
         const dropStored = image
-          ? deleteOgBlobIfUnreferenced(ctx.db, ctx.env.FILES_BUCKET, image.blobId)
+          ? deleteUnreferencedOgImageBlobs(ctx, [image.blobId])
           : Effect.void;
 
         const result = yield* overlay
@@ -105,7 +88,7 @@ const writeOgImage = (
         }
 
         if (prevBlobId && prevBlobId !== image?.blobId) {
-          yield* deleteOgBlobIfUnreferenced(ctx.db, ctx.env.FILES_BUCKET, prevBlobId);
+          yield* deleteUnreferencedOgImageBlobs(ctx, [prevBlobId]);
         }
 
         broadcastInvalidation({

@@ -38,6 +38,7 @@ import { blobsOfDraft, deleteUnreferencedBlobs } from "../files/service";
 import type { GeneratedEntity } from "../generated-values/schema";
 import * as generatedValueStatements from "../generated-values/service";
 import { homeOf, readValues, requestGeneration } from "../generated-values/service";
+import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { requestPageSeo } from "../pages/service";
 import { rootOfItem } from "../repeatable-items/roots";
 import {
@@ -767,6 +768,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   const user = yield* requireUser(ctx);
   // Collected before the batch drops the draft's rows and replaces Live's.
   const blobs = yield* blobsOfDraft(ctx.db, scope);
+  const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
   const applied = yield* Effect.result(
     overlay.publish(ctx.db, scope, {
       shown,
@@ -786,6 +788,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   }
 
   yield* deleteUnreferencedBlobs(ctx, blobs);
+  yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
   yield* requestLiveGeneration(ctx, scope, stored);
   broadcastPublished(ctx, projectId);
   const ended = (yield* findEndedDraft(ctx.db, projectId, scope.id)) ?? null;
@@ -810,6 +813,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   const user = yield* requireUser(ctx);
   // Collected before the cascade drops the draft's rows.
   const blobs = yield* blobsOfDraft(ctx.db, scope);
+  const ogImageBlobs = yield* ogImageBlobsOf(ctx.db, projectId);
   const result = yield* Effect.result(
     overlay.discard(ctx.db, scope, {
       discardedBy: user.id,
@@ -824,6 +828,7 @@ export const discardDraft = Effect.fn("drafts.discardDraft")(function* (
   if (result._tag === "Failure" && !ended) return yield* Effect.die(result.failure);
   if (result._tag === "Success") {
     yield* deleteUnreferencedBlobs(ctx, blobs);
+    yield* deleteUnreferencedOgImageBlobs(ctx, ogImageBlobs);
     broadcastDiscarded(ctx, projectId);
     broadcastEnded(ctx, projectId, ended);
   }

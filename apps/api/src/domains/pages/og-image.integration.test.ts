@@ -46,6 +46,7 @@ async function fixture() {
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",
+      metaTitle: "Home",
       customOgImageBlobId: liveBlobId,
       customOgImageUrl: `http://localhost/files/serve/${liveBlobId}`,
       contentUpdatedAt: now,
@@ -89,9 +90,23 @@ async function fixture() {
     return (await env.FILES_BUCKET.get(blobId))?.text();
   };
 
+  const rpc = (headers: Headers) => ({
+    context: createRpcContext(base.db, base.memberUser, headers),
+  });
+  async function publish(draftId: string) {
+    const projectId = base.project.id;
+    const preview = await call(router.drafts.previewPublish, { projectId }, rpc(inDraft(draftId)));
+    expect(preview.blockers).toEqual([]);
+    await call(router.drafts.publish, { projectId, token: preview.token }, rpc(inDraft(draftId)));
+  }
+  const discard = (draftId: string) =>
+    call(router.drafts.discard, { projectId: base.project.id }, rpc(inDraft(draftId)));
+
   return {
     ...base,
     page,
+    publish,
+    discard,
     liveBlobId,
     upload: (headers: Headers, bytes?: string) => send("POST", headers, bytes),
     remove: (headers: Headers) => send("DELETE", headers),
@@ -155,5 +170,31 @@ describe("page custom OG image in drafts", () => {
     expect(drafted.customOgImageUrl).toBeNull();
     expect((await f.getPage()).customOgImageBlobId).toBe(f.liveBlobId);
     expect(await f.blobExists(f.liveBlobId)).toBe(true);
+  });
+
+  it("publishing a replaced image deletes Live's old blob and keeps the draft's", async () => {
+    const f = await fixture();
+    const draftId = generateUuidv7();
+    await f.upload(startingDraft(draftId), "draft bytes");
+    const drafted = (await f.getPage(inDraft(draftId))).customOgImageBlobId!;
+
+    await f.publish(draftId);
+
+    expect((await f.getPage()).customOgImageBlobId).toBe(drafted);
+    expect(await f.blobExists(drafted)).toBe(true);
+    expect(await f.blobExists(f.liveBlobId)).toBe(false);
+  });
+
+  it("discarding a replaced image deletes the draft's blob and keeps Live's", async () => {
+    const f = await fixture();
+    const draftId = generateUuidv7();
+    await f.upload(startingDraft(draftId), "draft bytes");
+    const drafted = (await f.getPage(inDraft(draftId))).customOgImageBlobId!;
+
+    await f.discard(draftId);
+
+    expect((await f.getPage()).customOgImageBlobId).toBe(f.liveBlobId);
+    expect(await f.blobExists(f.liveBlobId)).toBe(true);
+    expect(await f.blobExists(drafted)).toBe(false);
   });
 });
