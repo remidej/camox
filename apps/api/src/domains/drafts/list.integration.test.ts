@@ -319,3 +319,44 @@ describe("renaming a draft", () => {
     await expect(rename(development, "Mine")).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("creating a draft", () => {
+  it("creates an empty regular draft by the caller, named or not, listed for every member", async () => {
+    const { ada, me, as, project, list, get } = await fixture();
+    const before = Date.now();
+
+    const named = await call(
+      router.drafts.create,
+      { projectId: project.id, name: "  Spring campaign " },
+      as(ada),
+    );
+    const unnamed = await call(router.drafts.create, { projectId: project.id }, as(ada));
+
+    expect(named).toMatchObject({
+      kind: "regular",
+      name: "Spring campaign",
+      createdBy: { id: ada.id, name: "Ada" },
+      changeCount: 0,
+      lastChangedAt: null,
+    });
+    expect(named.createdAt).toBeGreaterThanOrEqual(before);
+    expect(unnamed.name).toBeNull();
+    expect(unnamed.id).not.toBe(named.id);
+    expect(await get(named.id, me)).toEqual(named);
+    expect((await list(me)).drafts.map((draft) => draft.id)).toEqual(
+      expect.arrayContaining([named.id, unnamed.id]),
+    );
+    expect(broadcastInvalidation).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: project.id, targets: [queryKeys.drafts.all] }),
+    );
+  });
+
+  it("is refused to people outside the project", async () => {
+    const { outsiderUser, as, project, list } = await fixture();
+
+    await expect(
+      call(router.drafts.create, { projectId: project.id, name: "Mine" }, as(outsiderUser)),
+    ).rejects.toMatchObject({ status: 403 });
+    expect((await list()).drafts).toEqual([]);
+  });
+});
