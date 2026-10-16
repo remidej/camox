@@ -399,7 +399,10 @@ function CanvasWorkspace({
       data-camox-canvas
       // While Space arms the hand tool, the whole canvas (page frames and their
       // controls included) shows the hand and hands the drag to the camera.
-      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
+      // Only this element's children place themselves with the camera's
+      // position. Ending its inheritance below them keeps a pan from restyling
+      // every frame, header and overlay in the Canvas.
+      className="bg-muted relative min-h-0 min-w-0 flex-1 touch-none overflow-clip outline-none *:*:[--canvas-x:initial] *:*:[--canvas-y:initial] data-[canvas-pan]:cursor-grab data-[canvas-pan]:**:cursor-[inherit]! data-[canvas-pan=dragging]:cursor-grabbing data-[canvas-pan]:[&_iframe]:pointer-events-none"
       style={{
         userSelect: "none",
         overscrollBehavior: "none",
