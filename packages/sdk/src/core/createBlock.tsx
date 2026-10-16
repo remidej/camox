@@ -88,9 +88,11 @@ function resolveLinkHref(
   link: LinkValue,
   pages: Array<{ id: string; fullPath: string }> | undefined,
   pathname: string,
-) {
+): string | null {
   if (link.type === "page") {
-    return pages?.find((page) => page.id === link.pageId)?.fullPath ?? pathname;
+    // Until pages load, the current path stands in; a link to a missing page has no href (ADR 0009).
+    if (!pages) return pathname;
+    return pages.find((page) => page.id === link.pageId)?.fullPath ?? null;
   }
   if (!link.href || link.href.startsWith("#")) return `${pathname}${link.href ?? ""}`;
   return link.href;
@@ -307,7 +309,9 @@ function createViewBlock(options: EditableOptions) {
       ? { content: item.itemContent, settings: item.itemSettings }
       : { content: block.content, settings: block.settings };
     return artifactData(field, owner, {
-      linkHref: (link) => resolveLinkHref(normalizeLinkValue(link), pages as Page[], pathname),
+      linkHref: (link) =>
+        resolveLinkHref(normalizeLinkValue(link), pages as Page[] | undefined, pathname) ??
+        pathname,
       asset: (value) => resolveAssetValue(value, filesMap) as Record<string, unknown> | null,
     });
   }
@@ -324,6 +328,7 @@ function createViewBlock(options: EditableOptions) {
     });
     const pathname = useLocation({ select: (location) => location.pathname });
     const href = resolveLinkHref(value, pages as Page[] | undefined, pathname);
+    if (href == null) return value.text;
     return children(
       {
         to: href,
