@@ -70,3 +70,17 @@ createCollection({
   }),
   label: "title",
 });
+
+createCollection({
+  id: "brochures",
+  title: "Brochures",
+  description: "",
+  content: (field) => ({
+    title: field.string(),
+    // @ts-expect-error Collection images are never required.
+    cover: field.image({ required: true }),
+    // @ts-expect-error Collection files are never required.
+    brochure: field.file({ accept: ["application/pdf"], required: true }),
+  }),
+  label: "title",
+});

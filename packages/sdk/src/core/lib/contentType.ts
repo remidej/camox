@@ -635,8 +635,22 @@ export interface SettingBuilder {
  */
 export interface CollectionFieldBuilder extends Pick<
   ContentFieldBuilder,
-  "image" | "imageList" | "file" | "fileList" | "embed"
+  "imageList" | "fileList" | "embed"
 > {
+  /**
+   * An image asset. Never required: collection fields can't be (the API rejects it).
+   *
+   * @example
+   * field.image({ title: "Cover" })
+   */
+  image: (options?: { title?: string }) => ImageField;
+  /**
+   * A file asset. Never required: collection fields can't be (the API rejects it).
+   *
+   * @example
+   * field.file({ accept: ["application/pdf"], title: "Brochure" })
+   */
+  file: (options: { accept: string[]; title?: string }) => FileField;
   /**
    * An ordered list of distinct records of another collection, e.g. an article's co-authors.
    * Collections hold manual lists only: a query would fan out across a whole collection.
@@ -926,9 +940,9 @@ export const collectionFieldBuilder: CollectionFieldBuilder = {
     }) as StringField,
   enum: enumSetting,
   boolean: booleanSetting,
-  image: contentFieldBuilder.image,
+  image: (options = {}) => contentFieldBuilder.image({ title: options.title }),
   imageList: contentFieldBuilder.imageList,
-  file: contentFieldBuilder.file,
+  file: (options) => contentFieldBuilder.file({ accept: options.accept, title: options.title }),
   fileList: contentFieldBuilder.fileList,
   embed: contentFieldBuilder.embed,
   reference: (collection, options = {}) =>
