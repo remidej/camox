@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { iconCollectionIds, resolveIconSvg, scopeIconSvgIds } from "@camox/api-contract";
+import { scopeIconSvgIds } from "@camox/api-contract";
+import { iconCollectionIds, resolveIconSvg } from "@camox/api-contract/icon-catalog";
 import { QueryClient, QueryClientProvider, dehydrate, hydrate } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 

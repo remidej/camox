@@ -316,7 +316,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
             "camox > @dnd-kit/modifiers",
             "camox > @dnd-kit/sortable",
             "camox > @dnd-kit/utilities",
-            "camox > @iconify/utils",
             "camox > @lexical/react/LexicalComposer",
             "camox > @lexical/react/LexicalComposerContext",
             "camox > @lexical/react/LexicalContentEditable",

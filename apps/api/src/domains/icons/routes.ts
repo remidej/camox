@@ -1,9 +1,9 @@
+import { ICON_CATALOG_VERSION } from "@camox/api-contract";
 import {
-  ICON_CATALOG_VERSION,
   loadIconCollection,
   iconCollectionIds,
   resolveIconSvg,
-} from "@camox/api-contract";
+} from "@camox/api-contract/icon-catalog";
 import { Hono } from "hono";
 
 export const iconRoutes = new Hono();
