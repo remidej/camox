@@ -37,21 +37,16 @@ export function recordsSharingPageValues<T>(
   return [...byValue.values()].filter((group) => group.length > 1);
 }
 
-/** The record pages layouts declare, in one environment or in every one of a project. */
+/** The record pages a project's layouts declare. */
 export const recordPageLayouts = Effect.fn("collections.recordPageLayouts")(function* (
   db: Database,
-  where: ({ environmentId: number } | { projectId: number }) & { draft: DraftScope },
+  where: { projectId: number; draft: DraftScope },
 ) {
-  const scope = and(
-    "environmentId" in where
-      ? eq(layouts.environmentId, where.environmentId)
-      : eq(layouts.projectId, where.projectId),
-    definitionsIn(layouts, where.draft),
-  );
+  const scope = and(eq(layouts.projectId, where.projectId), definitionsIn(layouts, where.draft));
   const rows = yield* Effect.promise(() =>
     db
       .select({
-        environmentId: layouts.environmentId,
+        projectId: layouts.projectId,
         layoutId: layouts.layoutId,
         recordPages: layouts.recordPages,
       })

@@ -48,7 +48,6 @@ app.use(
       "Content-Type",
       "Authorization",
       "Better-Auth-Cookie",
-      "x-environment-name",
       "x-camox-client",
       "x-camox-telemetry-disabled",
       DRAFT_HEADER,
@@ -79,9 +78,8 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-// Environment name middleware — reads x-environment-name header, defaults to "production"
+// Client attribution and telemetry opt-out headers.
 app.use("*", async (c, next) => {
-  c.set("environmentName", c.req.header("x-environment-name") || "production");
   c.set("client", c.req.header("x-camox-client") || "unknown");
   c.set("telemetryDisabled", c.req.header("x-camox-telemetry-disabled") === "1");
   await next();
@@ -132,7 +130,6 @@ app.all("/rpc/*", async (c) => {
       session: c.var.session,
       env: c.env,
       headers: c.req.raw.headers,
-      environmentName: c.var.environmentName,
       client: c.var.client,
       telemetryDisabled: c.var.telemetryDisabled,
       waitUntil: (promise) => c.executionCtx.waitUntil(promise),

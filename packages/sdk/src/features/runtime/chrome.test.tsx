@@ -77,7 +77,6 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
     projectSlug: "test",
-    environmentName: "production",
     href: "https://site.test/",
     pathname: "/",
     runtimeBasePath: "",

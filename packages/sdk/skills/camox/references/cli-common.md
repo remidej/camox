@@ -28,7 +28,7 @@ Use root or group help only to discover unfamiliar commands. Reuse verified help
 
 ## Dev-first workflow
 
-Every command reads and writes the current developer's development draft, never Live. Make content changes there and summarize them for review; they reach Live only when the developer publishes the draft from the studio.
+Every command reads and writes the current developer's development draft, never Live. Make content changes there and summarize them for review; they reach Live only when the draft is published (see [CLI Publishing](cli-publishing.md)). Don't publish unless the user asks.
 
 - If a command fails with "run the site locally first", the development draft doesn't exist yet: the dev server creates it on its first sync after `camox login`.
 
@@ -41,10 +41,10 @@ CLI credentials and browser sessions are separate. A fresh browser isn't signed 
    `{{CAMOX_CMD}} preview --url http://localhost:3000/about --json`
    (Use the actual port; add `--cwd apps/site` in a monorepo.)
 3. Open the returned `url` in your verification browser, not a separate default browser.
-4. Wait for `[data-camox-preview="ready"]`. Its text identifies the project and developer environment; the server has loaded authenticated content. `[data-camox-preview="error"]` means verification failed, not that the write failed.
+4. Wait for `[data-camox-preview="ready"]`. Its text identifies the project and the development draft; the server has loaded authenticated content. `[data-camox-preview="error"]` means verification failed, not that the write failed.
 5. Inspect the changed content.
 
-The URL is a single-use sign-in credential valid for three minutes. Do not share, commit, or include it in reports. Generate a new URL if expired or consumed. Only loopback HTTP(S) destinations are supported; production preview is intentionally unsupported. The SDK must support this handoff: if the ready marker never appears, check the installed SDK version rather than assuming the write failed. A project/backend/environment mismatch requires correcting `--cwd` or `--url` (or restarting a dev server running under another account).
+The URL is a single-use sign-in credential valid for three minutes. Do not share, commit, or include it in reports. Generate a new URL if expired or consumed. Only loopback HTTP(S) destinations are supported; previewing a deployed site is intentionally unsupported. The SDK must support this handoff: if the ready marker never appears, check the installed SDK version rather than assuming the write failed. A project or backend mismatch requires correcting `--cwd` or `--url` (or restarting a dev server running under another account).
 
 ## Write grounded content
 

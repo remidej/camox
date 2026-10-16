@@ -11,7 +11,6 @@ import {
   blockDefinitions,
   collectionDefinitions,
   drafts,
-  environments,
   layouts,
   member,
   organizationTable,
@@ -75,22 +74,10 @@ export async function createProjectFixture(suffix: string) {
     })
     .returning()
     .get();
-  const environment = await db
-    .insert(environments)
-    .values({
-      projectId: project.id,
-      name: "production",
-      type: "production",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
   const layout = await db
     .insert(layouts)
     .values({
       projectId: project.id,
-      environmentId: environment.id,
       layoutId: "default",
       contentUpdatedAt: now,
       createdAt: now,
@@ -99,7 +86,7 @@ export async function createProjectFixture(suffix: string) {
     .returning()
     .get();
 
-  return { db, environment, layout, memberUser, outsiderUser, project };
+  return { db, layout, memberUser, outsiderUser, project };
 }
 
 export function createServiceContext(
@@ -111,7 +98,6 @@ export function createServiceContext(
     user: selectedUser,
     env: env as unknown as Bindings,
     waitUntil: () => undefined,
-    environmentName: "production",
     client: "test",
     telemetryDisabled: true,
     draft: null,

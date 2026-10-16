@@ -24,11 +24,6 @@ export function toORPCError(error: ServiceError) {
       return new ORPCError("BAD_REQUEST", { message: error.message, data: error.data });
     case "ConflictError":
       return new ORPCError("CONFLICT", { message: error.message });
-    case "IncompatibleEnvironmentsError":
-      return new ORPCError("FAILED_PRECONDITION", {
-        message: "Environments are incompatible — see data.reasons.",
-        data: { reasons: error.reasons },
-      });
     case "DraftEndedError":
       return new ORPCError(DRAFT_ENDED_ERROR_CODE, {
         status: 410,

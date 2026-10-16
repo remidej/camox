@@ -1,27 +1,27 @@
-import { and, eq, inArray, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
 import { blocks } from "../blocks/schema";
 import { repeatableItems } from "./schema";
 
 /**
- * A block definition named within an environment. It also identifies the definition's shared
+ * A block definition named within a project. It also identifies the definition's shared
  * content while the definition is synced (ADR 0004).
  */
-export type DefinitionKey = { environmentId: number; type: string };
+export type DefinitionKey = { projectId: number; type: string };
 
 /** The root of a repeatable item tree: a block, or a synced definition's shared content. */
 export type ItemRoot = { blockId: string } | { sharedContent: DefinitionKey };
 
 type ItemRootColumns = Pick<
   typeof repeatableItems.$inferSelect,
-  "blockId" | "environmentId" | "sharedContentType"
+  "blockId" | "projectId" | "sharedContentType"
 >;
 
 /** The items in the tree under a root. */
 export function itemsUnder(root: ItemRoot): SQL {
   if ("blockId" in root) return eq(repeatableItems.blockId, root.blockId);
   return and(
-    eq(repeatableItems.environmentId, root.sharedContent.environmentId),
+    eq(repeatableItems.projectId, root.sharedContent.projectId),
     eq(repeatableItems.sharedContentType, root.sharedContent.type),
   )!;
 }
@@ -29,11 +29,11 @@ export function itemsUnder(root: ItemRoot): SQL {
 /** The columns placing an item in a root's tree. */
 export function rootColumns(root: ItemRoot): ItemRootColumns {
   if ("blockId" in root) {
-    return { blockId: root.blockId, environmentId: null, sharedContentType: null };
+    return { blockId: root.blockId, projectId: null, sharedContentType: null };
   }
   return {
     blockId: null,
-    environmentId: root.sharedContent.environmentId,
+    projectId: root.sharedContent.projectId,
     sharedContentType: root.sharedContent.type,
   };
 }
@@ -41,7 +41,7 @@ export function rootColumns(root: ItemRoot): ItemRootColumns {
 export function rootOfItem(item: ItemRootColumns): ItemRoot {
   if (item.blockId !== null) return { blockId: item.blockId };
   return {
-    sharedContent: { environmentId: item.environmentId!, type: item.sharedContentType! },
+    sharedContent: { projectId: item.projectId!, type: item.sharedContentType! },
   };
 }
 
@@ -50,25 +50,19 @@ export function blockIdsOf(items: readonly Pick<ItemRootColumns, "blockId">[]) {
   return items.flatMap((item) => (item.blockId === null ? [] : [item.blockId]));
 }
 
-/** Items of the shared contents in one environment, or in several (a subquery of ids). */
-export function sharedContentItemsIn(environment: number | SQLWrapper) {
-  return typeof environment === "number"
-    ? eq(repeatableItems.environmentId, environment)
-    : inArray(repeatableItems.environmentId, environment);
+/** Items of a project's shared contents. */
+export function sharedContentItemsIn(projectId: number) {
+  return eq(repeatableItems.projectId, projectId);
 }
 
 /**
- * Every item of an environment, or of several (a subquery of ids): items of its blocks, on pages
- * and in layouts, and items of its synced definitions' shared contents.
+ * Every item of a project: items of its blocks, on pages and in layouts, and items of its synced
+ * definitions' shared contents.
  */
-export function itemsInEnvironment(environment: number | SQLWrapper) {
-  const blockEnvironment =
-    typeof environment === "number"
-      ? eq(blocks.environmentId, environment)
-      : inArray(blocks.environmentId, environment);
+export function itemsInProject(projectId: number) {
   return or(
-    sql`${repeatableItems.blockId} in (select ${blocks.id} from ${blocks} where ${blockEnvironment})`,
-    sharedContentItemsIn(environment),
+    sql`${repeatableItems.blockId} in (select ${blocks.id} from ${blocks} where ${eq(blocks.projectId, projectId)})`,
+    sharedContentItemsIn(projectId),
   )!;
 }
 

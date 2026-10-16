@@ -22,7 +22,7 @@ import { collectionQueries } from "@/lib/queries";
 import { referencePickerFocus } from "../referencePickerFocus";
 
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 
 const customers = createCollection({
   id: "customers",

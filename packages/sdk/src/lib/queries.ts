@@ -1,6 +1,6 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 
-import { type ApiClient, getApiUrl, getEnvironmentName, getOrpc } from "./api-client";
+import { type ApiClient, getApiUrl, getOrpc } from "./api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
 import { scopedKey } from "./studio-draft";
 
@@ -264,8 +264,6 @@ function ogImageHeaders(): Record<string, string> {
   const authCookieHeader = getAuthCookieHeader();
   const headers: Record<string, string> = {};
   if (authCookieHeader) headers["Better-Auth-Cookie"] = authCookieHeader;
-  const envName = getEnvironmentName();
-  if (envName) headers["x-environment-name"] = envName;
   return headers;
 }
 

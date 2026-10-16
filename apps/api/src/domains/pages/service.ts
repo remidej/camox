@@ -7,7 +7,6 @@ import { z } from "zod";
 import { assertPageAccess, getAuthorizedProject, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { resolveEnvironment } from "../../lib/resolve-environment";
 import { blocks, comments, layouts, pages, projects, repeatableItems, user } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsIn } from "../_shared/definitions";
@@ -130,9 +129,9 @@ function invalidatePage(ctx: ServiceContext, scope: DraftScope, projectId: numbe
 // Pages are read and written in the request's draft scope through the draft overlay (ADR 0005):
 // a draft shows its own pages over Live's, minus the ones it deleted.
 
-/** The pages of an environment as a scope reads them. */
-const pagesIn = (ctx: ServiceContext, scope: DraftScope, environmentId: number) =>
-  overlay.select(ctx.db, scope, pages, eq(pages.environmentId, environmentId));
+/** The pages of a project as a scope reads them. */
+const pagesIn = (ctx: ServiceContext, scope: DraftScope, projectId: number) =>
+  overlay.select(ctx.db, scope, pages, eq(pages.projectId, projectId));
 
 /** A block as a page reads it, with its summary (ADR 0012). */
 type BlockRow = typeof blocks.$inferSelect & { summary: string };
@@ -142,7 +141,7 @@ type ItemRow = typeof repeatableItems.$inferSelect & { blockId: string; summary:
 type ViewItem = ItemRow & { references: ResolvedReferences };
 type FileRow = FileView;
 
-/** The page at a path in the project's environment, with its project and layout. */
+/** The page at a path in the project, with its project and layout. */
 const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
   ctx: ServiceContext,
   projectSlug: string,
@@ -153,12 +152,11 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
     ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );
   if (!project) return yield* new NotFoundError();
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
   const [page] = yield* overlay.select(
     ctx.db,
     scope,
     pages,
-    and(eq(pages.fullPath, fullPath), eq(pages.environmentId, environment.id)),
+    and(eq(pages.fullPath, fullPath), eq(pages.projectId, project.id)),
   );
   if (!page) return yield* new NotFoundError();
   const layout =
@@ -166,7 +164,7 @@ const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
       ctx.db
         .select()
         .from(layouts)
-        .where(and(layoutNamed(page.environmentId, page.layoutId), definitionsIn(layouts, scope)))
+        .where(and(layoutNamed(page.projectId, page.layoutId), definitionsIn(layouts, scope)))
         .get(),
     )) ?? null;
   // A page whose layout was removed or is no longer curated isn't served (ADR 0007).
@@ -299,11 +297,11 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
  */
 const withPageProblems = Effect.fn("pages.withPageProblems")(function* (
   ctx: ServiceContext,
-  environmentId: number,
+  projectId: number,
   scope: DraftScope,
   rows: PageView[],
 ) {
-  const problems = yield* pageServingProblems(ctx, environmentId, scope);
+  const problems = yield* pageServingProblems(ctx, projectId, scope);
   const duplicates = duplicatePathIds(rows);
   return rows.map((page) => ({
     ...page,
@@ -318,11 +316,10 @@ export const listPages = Effect.fn("pages.listPages")(function* (
   scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(listPagesInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const rows = (yield* pagesIn(ctx, scope, environment.id)).filter(
+  const rows = (yield* pagesIn(ctx, scope, projectId)).filter(
     (page) => page.projectId === projectId,
   );
-  return yield* withPageProblems(ctx, environment.id, scope, yield* withSeo(ctx.db, scope, rows));
+  return yield* withPageProblems(ctx, projectId, scope, yield* withSeo(ctx.db, scope, rows));
 });
 
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
@@ -335,12 +332,10 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
     ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );
   if (!project) return yield* new NotFoundError();
-
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
-  const rows = (yield* pagesIn(ctx, scope, environment.id)).filter(
+  const rows = (yield* pagesIn(ctx, scope, project.id)).filter(
     (page) => page.projectId === project.id,
   );
-  return yield* withPageProblems(ctx, environment.id, scope, yield* withSeo(ctx.db, scope, rows));
+  return yield* withPageProblems(ctx, project.id, scope, yield* withSeo(ctx.db, scope, rows));
 });
 
 export const getPage = Effect.fn("pages.getPage")(function* (
@@ -354,16 +349,11 @@ export const getPage = Effect.fn("pages.getPage")(function* (
   if ("id" in parsed) {
     row = yield* overlay.get(ctx.db, scope, pages, parsed.id);
   } else {
-    const environment = yield* resolveEnvironment(ctx.db, parsed.projectId, ctx.environmentName);
     [row] = yield* overlay.select(
       ctx.db,
       scope,
       pages,
-      and(
-        eq(pages.projectId, parsed.projectId),
-        eq(pages.environmentId, environment.id),
-        eq(pages.fullPath, parsed.path),
-      ),
+      and(eq(pages.projectId, parsed.projectId), eq(pages.fullPath, parsed.path)),
     );
   }
   if (!row) return yield* new NotFoundError();
@@ -394,22 +384,20 @@ export const createPage = Effect.fn("pages.createPage")(function* (
     rawInput,
   );
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
 
-  yield* assertCuratedLayout(ctx, environment.id, layoutId, scope);
+  yield* assertCuratedLayout(ctx, projectId, layoutId, scope);
   let fullPath = `/${pathSegment}`;
   if (parentPageId) {
     const parent = yield* overlay.get(ctx.db, scope, pages, parentPageId);
-    if (parent?.environmentId !== environment.id) return yield* new NotFoundError();
+    if (parent?.projectId !== projectId) return yield* new NotFoundError();
     fullPath = `${parent.fullPath.replace(/\/$/, "")}/${pathSegment}`;
   }
-  yield* assertUnreservedPagePaths(ctx, environment.id, [fullPath], scope);
+  yield* assertUnreservedPagePaths(ctx, projectId, [fullPath], scope);
 
   const now = Date.now();
   const page = yield* overlay.insert(ctx.db, scope, pages, {
     id,
     projectId,
-    environmentId: environment.id,
     pathSegment,
     fullPath,
     parentPageId: parentPageId ?? null,
@@ -444,32 +432,27 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
 
   const pathChanges = new Map<string, string>();
   if (body.pathSegment !== undefined || body.parentPageId !== undefined) {
-    const environmentPages = yield* pagesIn(ctx, scope, access.page.environmentId);
+    const projectPages = yield* pagesIn(ctx, scope, access.page.projectId);
     const parentId = body.parentPageId === undefined ? access.page.parentPageId : body.parentPageId;
-    const parent = environmentPages.find((page) => page.id === parentId);
+    const parent = projectPages.find((page) => page.id === parentId);
     if (parentId != null && !parent) return yield* new NotFoundError();
     // Reject cycles before calculating paths for this page and its descendants.
     let ancestor = parent;
     while (ancestor) {
       if (ancestor.id === id)
         return yield* new InvalidInputError({ message: "A page cannot be its own ancestor" });
-      ancestor = environmentPages.find((page) => page.id === ancestor!.parentPageId);
+      ancestor = projectPages.find((page) => page.id === ancestor!.parentPageId);
     }
     const fullPath = `${parent?.fullPath.replace(/\/$/, "") ?? ""}/${body.pathSegment ?? access.page.pathSegment}`;
     const visit = (pageId: string, path: string) => {
       pathChanges.set(pageId, path);
-      for (const child of environmentPages.filter((page) => page.parentPageId === pageId))
+      for (const child of projectPages.filter((page) => page.parentPageId === pageId))
         visit(child.id, `${path.replace(/\/$/, "")}/${child.pathSegment}`);
     };
     visit(id, fullPath);
-    yield* assertUnreservedPagePaths(
-      ctx,
-      access.page.environmentId,
-      [...pathChanges.values()],
-      scope,
-    );
+    yield* assertUnreservedPagePaths(ctx, access.page.projectId, [...pathChanges.values()], scope);
     // Only descendants whose full path changes are rewritten.
-    for (const page of environmentPages) {
+    for (const page of projectPages) {
       if (page.id !== id && pathChanges.get(page.id) === page.fullPath) pathChanges.delete(page.id);
     }
   }
@@ -588,7 +571,7 @@ export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
   const user = yield* requireUser(ctx);
   const { id, layoutId } = yield* decodeInput(setPageLayoutInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
-  yield* assertCuratedLayout(ctx, access.page.environmentId, layoutId, scope);
+  yield* assertCuratedLayout(ctx, access.page.projectId, layoutId, scope);
   return yield* pageView(ctx.db, scope, (yield* writePage(ctx, scope, id, { layoutId })).result);
 });
 

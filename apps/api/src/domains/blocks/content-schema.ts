@@ -9,9 +9,9 @@ import type { DefinitionKey } from "../repeatable-items/roots";
 import type { FieldSchema } from "./normalize-content";
 
 /**
- * Content writes use the target block's environment, not the caller's default, and the
+ * Content writes use the target block's project and the
  * definitions the scope reads (ADR 0006). Callers without an authorized project (background
- * jobs) pass `null`: the block's environment alone pins its definition.
+ * jobs) pass `null`: the block's project alone pins its definition.
  */
 export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
   db: Database,
@@ -34,7 +34,7 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
         and(
           projectId == null ? undefined : eq(blockDefinitions.projectId, projectId),
           eq(blockDefinitions.blockId, blocks.type),
-          eq(blockDefinitions.environmentId, blocks.environmentId),
+          eq(blockDefinitions.projectId, blocks.projectId),
           definitionsIn(blockDefinitions, scope),
         ),
       )
@@ -49,7 +49,7 @@ export const loadBlockSchemas = Effect.fn("loadBlockSchemas")(function* (
 });
 
 /**
- * A block definition named within an environment, as a scope reads it, or nothing when it's
+ * A block definition named within a project, as a scope reads it, or nothing when it's
  * gone.
  */
 export const findDefinition = Effect.fn("findDefinition")(function* (
@@ -63,7 +63,7 @@ export const findDefinition = Effect.fn("findDefinition")(function* (
       .from(blockDefinitions)
       .where(
         and(
-          eq(blockDefinitions.environmentId, definition.environmentId),
+          eq(blockDefinitions.projectId, definition.projectId),
           eq(blockDefinitions.blockId, definition.type),
           definitionsIn(blockDefinitions, scope),
         ),
@@ -72,7 +72,7 @@ export const findDefinition = Effect.fn("findDefinition")(function* (
   );
 });
 
-/** The schemas of a block definition, named within an environment, as a scope reads it. */
+/** The schemas of a block definition, named within a project, as a scope reads it. */
 export const loadDefinitionSchemas = Effect.fn("loadDefinitionSchemas")(function* (
   db: Database,
   key: DefinitionKey,

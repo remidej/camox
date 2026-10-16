@@ -95,7 +95,6 @@ export interface PageRenderInput extends DraftRead {
   apiUrl: string;
   authenticationUrl: string;
   dehydratedState: unknown;
-  environmentName?: string;
   head: unknown;
   href: string;
   layoutIdentity: LayoutIdentity | null;
@@ -120,7 +119,6 @@ export interface RuntimeOptions {
    * (ADR 0006).
    */
   developmentDraft?: boolean;
-  environmentName?: string;
   pageClientEntryUrl?: string;
   studioClientEntryUrl?: string;
   getCamoxApp?: () => Promise<CamoxApp>;
@@ -234,7 +232,7 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
     return Response.json({ message: "Camox sitemap is not configured." }, { status: 500 });
   }
 
-  const api = createServerApiClient(options.apiUrl, options.environmentName);
+  const api = createServerApiClient(options.apiUrl);
   const origin = new URL(request.url).origin;
   const pages = await api.pages.listBySlug({ projectSlug: options.projectSlug });
   const app = await options.getCamoxApp?.();
@@ -298,7 +296,6 @@ async function resolveRequestMember(
   return resolveMemberProject({
     apiUrl: options.apiUrl,
     authCookieHeader: getServerAuthCookieHeader(request.headers),
-    environmentName: options.environmentName,
     projectSlug: options.projectSlug,
   });
 }
@@ -510,7 +507,6 @@ async function createPageHtmlResponse({
       presentation: "public",
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl,
-      environmentName: options.environmentName,
       projectSlug: options.projectSlug,
       href: requestUrl.href,
       pathname,
@@ -544,7 +540,6 @@ async function createPageHtmlResponse({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: getRequestDraftId(request, options),
-      environmentName: options.environmentName,
       origin: new URL(request.url).origin,
       pathname,
       projectSlug: options.projectSlug,
@@ -570,7 +565,6 @@ async function createPageHtmlResponse({
       dehydratedState,
       draftId: result.draftId,
       refusedDraft: result.refusedDraft,
-      environmentName: options.environmentName,
       head,
       href: renderedHref(request.url, result),
       layoutIdentity: getLayoutIdentity(result.data.page.layout),
@@ -630,9 +624,9 @@ function createLayoutRequestContext(
   authCookieHeader?: string,
   draftId?: string,
 ): LayoutRequestContext {
-  const { apiUrl, projectSlug, environmentName } = options;
+  const { apiUrl, projectSlug } = options;
   if (!apiUrl || !projectSlug) return createRequestContext({});
-  const api = createServerApiClient(apiUrl, environmentName, {
+  const api = createServerApiClient(apiUrl, {
     authCookieHeader: source === "draft" ? authCookieHeader : undefined,
     draftId,
   });
@@ -694,7 +688,7 @@ async function createLayoutMarkdownResponse(
   const { toMarkdown, id } = match.layout._internal;
   const { apiUrl, projectSlug } = options;
   if (!toMarkdown || !apiUrl || !projectSlug) return null;
-  const api = createServerApiClient(apiUrl, options.environmentName);
+  const api = createServerApiClient(apiUrl);
   const app = await options.getCamoxApp?.();
   /** The layout's own Markdown, between its before and after blocks. */
   const layoutMarkdown = async (): Promise<readonly string[]> => {
@@ -761,7 +755,7 @@ async function createDerivedResponse(
     const requestedDraft = getRequestDraftId(request, options);
     const readLayout = () =>
       readDraftOrLive(requestedDraft, studio, (draftId) =>
-        createServerApiClient(options.apiUrl!, options.environmentName, {
+        createServerApiClient(options.apiUrl!, {
           authCookieHeader,
           draftId,
         }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
@@ -804,7 +798,6 @@ async function createDerivedResponse(
       apiUrl: options.apiUrl!,
       authenticationUrl: options.authenticationUrl!,
       projectSlug: options.projectSlug!,
-      environmentName: options.environmentName,
       dehydratedState: dehydrate(queryClient),
       draftId: read.draftId,
       refusedDraft: read.refusedDraft,
@@ -889,7 +882,6 @@ async function createStudioHtmlResponse({
     apiUrl: options.apiUrl,
     authenticationUrl: options.authenticationUrl,
     dehydratedState: dehydrate(queryClient),
-    environmentName: options.environmentName,
     href: new URL(request.url).href,
     pathname: match.pathname,
     projectSlug: options.projectSlug,
@@ -988,7 +980,6 @@ async function createCanvasOnlyResponse({
     presentation: studio ? "studio" : "public",
     apiUrl: options.apiUrl,
     authenticationUrl: options.authenticationUrl,
-    environmentName: options.environmentName,
     projectSlug: options.projectSlug,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
     href: request.url,
@@ -1046,7 +1037,6 @@ async function createPageDataResponse({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
       draftId: getRequestDraftId(request, options),
-      environmentName: options.environmentName,
       origin: new URL(request.url).origin,
       pathname,
       projectSlug: options.projectSlug,
@@ -1067,7 +1057,6 @@ async function createPageDataResponse({
     const input: PageRenderInput = {
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl ?? "",
-      environmentName: options.environmentName,
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
       href: renderedHref(request.url, result),
@@ -1179,7 +1168,6 @@ export async function handleCamoxRequest(
           ? await createLayoutMarkdownResponse(options, layoutMatch)
           : await createMarkdownResponse({
               apiUrl: options.apiUrl,
-              environmentName: options.environmentName,
               pathname: match.pathname,
               projectSlug: options.projectSlug,
               request,

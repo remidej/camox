@@ -1,8 +1,8 @@
 /**
  * Deterministic JSON serialization with sorted object keys.
  *
- * Used to compare JSON columns (e.g. `block_definitions.contentSchema`) across
- * environments during the environment-replication compatibility check. Drizzle
+ * Used to compare JSON columns (e.g. `block_definitions.contentSchema`) when a
+ * definition sync decides whether a definition changed. Drizzle
  * hands these to us as already-parsed objects, but SQLite gives no guarantee
  * about key order, so direct `JSON.stringify` would produce false mismatches.
  *

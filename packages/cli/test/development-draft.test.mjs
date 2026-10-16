@@ -47,6 +47,10 @@ const COMMANDS = [
   ["files", "update", "--id", ID, "--alt", "Hero"],
   ["files", "upload", "--file", "hero.png"],
   ["files", "update", "--id", ID, "--file", "hero.png"],
+  ["publish"],
+  ["publish", "--confirm", "token"],
+  ["discard", "--yes"],
+  ["status"],
 ];
 
 before(async () => {
@@ -83,6 +87,10 @@ before(async () => {
     }
     if (req.url.startsWith("/rpc/projects/getBySlug")) {
       res.end(JSON.stringify({ json: { id: 7 } }));
+      return;
+    }
+    if (req.url.startsWith("/rpc/drafts/get")) {
+      res.end(JSON.stringify({ json: { changeCount: 0 } }));
       return;
     }
     res.end(JSON.stringify({ json: { ok: true, result: {} } }));
@@ -137,7 +145,6 @@ void test("every command names the development draft on each request", async () 
     assert.equal(calls.length, 2, label);
     for (const call of calls) {
       assert.equal(call.headers["x-camox-draft"], "development", `${label} → ${call.url}`);
-      assert.equal(call.headers["x-environment-name"], undefined, `${label} → ${call.url}`);
     }
   }
 });
@@ -150,8 +157,6 @@ void test("no command takes a production or Live flag", async () => {
     }
   }
   assert.equal(calls.length, 0);
-  const status = await cli("status", "--production");
-  assert.notEqual(status.code, 0);
 });
 
 void test("explains how to create the development draft when it doesn't exist yet", async () => {
@@ -175,5 +180,4 @@ void test("status reports the development draft", async () => {
   assert.equal(result.code, 0, result.stderr);
   const status = JSON.parse(result.stdout);
   assert.equal(status.draft, "development");
-  assert.equal("environmentName" in status, false);
 });

@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { drafts } from "../drafts/schema";
-import { environments, projects } from "../projects/schema";
+import { projects } from "../projects/schema";
 
 /**
  * A collection definition, stored like block definitions: Live's have no draft, a development
@@ -18,9 +18,6 @@ export const collectionDefinitions = sqliteTable(
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id),
-    environmentId: int("environment_id")
-      .notNull()
-      .references(() => environments.id),
     // The collection's name, given by code. It identifies the collection within a project.
     collectionId: text("collection_id").notNull(),
     title: text().notNull(),
@@ -35,7 +32,7 @@ export const collectionDefinitions = sqliteTable(
   },
   (table) => [
     uniqueIndex("collection_definitions_live_idx")
-      .on(table.projectId, table.environmentId, table.collectionId)
+      .on(table.projectId, table.collectionId)
       .where(sql`${table.draftId} is null`),
     uniqueIndex("collection_definitions_draft_idx")
       .on(table.draftId, table.collectionId)
@@ -64,9 +61,9 @@ export const collectionRecords = sqliteTable(
     firstPublishedAt: int("first_published_at"),
     publishedAt: int("published_at"),
     publishedBy: text("published_by"),
-    environmentId: int("environment_id")
+    projectId: int("project_id")
       .notNull()
-      .references(() => environments.id),
+      .references(() => projects.id),
     // The collection's name.
     collectionId: text("collection_id").notNull(),
     content: text({ mode: "json" }).notNull().$type<Record<string, unknown>>(),
@@ -80,6 +77,6 @@ export const collectionRecords = sqliteTable(
     uniqueIndex("collection_records_draft_id_idx")
       .on(table.draftId, table.id)
       .where(sql`${table.draftId} is not null`),
-    index("collection_records_collection").on(table.environmentId, table.collectionId),
+    index("collection_records_collection").on(table.projectId, table.collectionId),
   ],
 );

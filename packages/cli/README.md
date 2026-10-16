@@ -2,8 +2,8 @@
 
 ## Runtime lookup and monorepos
 
-Runtime-backed commands (`status`, `pages`, `blocks`, `layouts`, `env`, `files`,
-`preview`, and `logout`) accept `--cwd PATH`:
+Runtime-backed commands (`status`, `pages`, `blocks`, `layouts`, `files`,
+`publish`, `discard`, `preview`, and `logout`) accept `--cwd PATH`:
 
 ```sh
 camox pages list --cwd apps/site
@@ -24,10 +24,42 @@ instead of falling back to the shell's directory.
 ## Your development draft
 
 Every command reads and writes your development draft: it shows Live wherever
-it changes nothing, and publishing it lands on Live. No command takes a draft,
-Live or production flag. Dev mode creates the draft on its first sync after
-`camox login`, so run your site locally once (e.g. `pnpm dev`) before using
-the CLI; until then, commands fail with `NO_DEVELOPMENT_DRAFT`.
+it changes nothing, and publishing it lands on Live. No command takes a draft
+flag. Dev mode creates the draft on its first sync after `camox login`, so run
+your site locally once (e.g. `pnpm dev`) before using the CLI; until then,
+commands fail with `NO_DEVELOPMENT_DRAFT`.
+
+Agents in parallel worktrees share their developer's development draft, and
+publish or discard it together.
+
+## Publishing and discarding
+
+```sh
+camox status                    # whether your development draft exists, and how many changes it holds
+camox publish                   # what publishing would do, with a token
+camox publish --confirm TOKEN   # publish to Live
+camox discard                   # empty your development draft (asks first; --yes skips the question)
+```
+
+`camox publish` lists, in order:
+
+- **Blockers**, which prevent publishing until they're fixed in the draft. They
+  include definitions that differ from Live's: your local code changed a block,
+  layout or collection, and only a release (`camox release`) can ship it to Live.
+- **Conflicts**: content Live changed or deleted since your draft changed it,
+  with who published it and when. Publishing overwrites Live's version.
+- **Lost changes**, which publishing drops because what they belong to is gone.
+- **Warnings**: the same problems already on Live, which don't block.
+- **Changes**: everything your draft creates, changes or deletes.
+
+The token records the conflicts the list showed. `camox publish --confirm TOKEN`
+publishes the whole draft, which then stays open, emptied. If Live changed since
+the list was printed, nothing is published: the command prints the new list and
+token, fails with `CONFLICTS_CHANGED`, and you review it before confirming again.
+
+`camox discard` empties your development draft without touching Live. It asks
+for confirmation in a terminal; elsewhere it fails with `CONFIRMATION_REQUIRED`
+unless you pass `--yes`.
 
 ## Authenticated local preview
 
@@ -39,15 +71,15 @@ camox preview --cwd apps/site --url http://localhost:3000/about --json
 ```
 
 Open the returned `url` in the browser you use for verification. Wait for
-`[data-camox-preview="ready"]`, which identifies the project and developer
-environment after authenticated rendering. Errors appear as
+`[data-camox-preview="ready"]`, which identifies the project and your
+development draft after authenticated rendering. Errors appear as
 `[data-camox-preview="error"]`; expired or consumed links require a fresh command.
 The CLI and SDK must both support the preview handoff.
 
 The URL transfers your signed-in session: treat it as a credential, do not share
 or commit it, and use it within three minutes. Only HTTP(S) loopback URLs are
-accepted. The destination must match the CLI's project, backend, and developer
-environment. There is no production mode or automatic default-browser opening.
+accepted. The destination must match the CLI's project and backend. There is no
+automatic default-browser opening.
 The local dev server must already be running.
 
 ## Page SEO
@@ -73,7 +105,8 @@ camox pages set-seo --id "$PAGE_ID" --ai-seo off
 - `--ai-seo off` keeps current metadata as manual. `--ai-seo on` schedules asynchronous
   generation; the returned page contains current values, not necessarily generated
   values. Use `pages get` to inspect them later.
-- Changes are visible on the site right away.
+- Changes are visible in your development draft right away, and reach Live
+  when you publish it.
 - Commands support `--project SLUG` and `--json`, with structured JSON
   output/errors.
 

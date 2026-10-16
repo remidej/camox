@@ -6,17 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import {
-  blockDefinitions,
-  blocks,
-  comments,
-  environments,
-  layouts,
-  pages,
-  repeatableItems,
-} from "../../schema";
+import { blockDefinitions, blocks, comments, pages, repeatableItems } from "../../schema";
 import { callTool } from "../agent/service";
-import { replicateEnvironment } from "../environments/service";
 import { commentProcedures } from "./routes";
 import { createComment, listComments, setCommentResolved } from "./service";
 
@@ -33,7 +24,6 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "about",
       fullPath: "/about",
@@ -46,7 +36,6 @@ async function fixture() {
     .get();
   await base.db.insert(blockDefinitions).values({
     projectId: base.project.id,
-    environmentId: base.environment.id,
     blockId: "hero",
     title: "Hero",
     description: "",
@@ -70,7 +59,7 @@ async function fixture() {
   const block = await base.db
     .insert(blocks)
     .values({
-      environmentId: base.environment.id,
+      projectId: base.project.id,
       pageId: page.id,
       type: "hero",
       content: {},
@@ -153,7 +142,6 @@ describe("comments", () => {
     for (const [ctx, code] of [
       [{ ...f.ctx, user: null }, "UNAUTHORIZED"],
       [{ ...f.ctx, user: f.outsiderUser }, "FORBIDDEN"],
-      [{ ...f.ctx, environmentName: "other" }, "NOT_FOUND"],
     ] as const) {
       await expect(runService(setCommentResolved(ctx, input))).rejects.toMatchObject({ code });
     }
@@ -218,7 +206,7 @@ describe("comments", () => {
         await f.db.insert(comments).values({
           id: generateUuidv7(),
           pageId: f.page.id,
-          environmentId: f.environment.id,
+          projectId: f.project.id,
           authorId: f.memberUser.id,
           message: "Repeated feedback",
           target,
@@ -315,7 +303,7 @@ describe("comments", () => {
         resolved: false,
         target,
         author: { name: "Member", image: null },
-        environmentId: f.environment.id,
+        projectId: f.project.id,
         createdAt: expect.any(Number),
       });
       expect(await runService(createComment(f.ctx, input))).toEqual(first);
@@ -330,7 +318,7 @@ describe("comments", () => {
     );
   });
 
-  it("rejects anonymous/nonmember/wrong-environment access and malformed/foreign targets", async () => {
+  it("rejects anonymous/nonmember access and malformed/foreign targets", async () => {
     const f = await fixture();
     const other = await fixture();
     const input = {
@@ -342,7 +330,6 @@ describe("comments", () => {
     for (const [ctx, code] of [
       [{ ...f.ctx, user: null }, "UNAUTHORIZED"],
       [{ ...f.ctx, user: f.outsiderUser }, "FORBIDDEN"],
-      [{ ...f.ctx, environmentName: "other" }, "NOT_FOUND"],
     ] as const) {
       await expect(runService(createComment(ctx, input))).rejects.toMatchObject({ code });
       await expect(runService(listComments(ctx, { pageId: f.page.id }))).rejects.toMatchObject({
@@ -382,112 +369,12 @@ describe("comments", () => {
     await f.db
       .update(blockDefinitions)
       .set({ contentSchema: { properties: {} } })
-      .where(eq(blockDefinitions.environmentId, f.environment.id));
+      .where(eq(blockDefinitions.projectId, f.project.id));
     expect(
       (await runService(listComments(f.ctx, { pageId: f.page.id }))).every(
         (c) => c.target === null,
       ),
     ).toBe(true);
-  });
-
-  it("replaces destination comments, remaps nested targets, preserves provenance and unavailable feedback", async () => {
-    const f = await fixture();
-    const now = Date.now();
-    const destination = await f.db
-      .insert(environments)
-      .values({
-        projectId: f.project.id,
-        name: "staging",
-        type: "development",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    const layout = await f.db
-      .insert(layouts)
-      .values({ ...f.layout, rowId: undefined, environmentId: destination.id })
-      .returning()
-      .get();
-    const definition = await f.db
-      .select()
-      .from(blockDefinitions)
-      .where(eq(blockDefinitions.environmentId, f.environment.id))
-      .get();
-    await f.db
-      .insert(blockDefinitions)
-      .values({ ...definition!, rowId: undefined, environmentId: destination.id });
-    const page = await f.db
-      .insert(pages)
-      .values({
-        ...f.page,
-        rowId: undefined,
-        id: undefined,
-        environmentId: destination.id,
-        layoutId: layout.layoutId,
-      })
-      .returning()
-      .get();
-    const old = await runService(
-      createComment(
-        { ...f.ctx, environmentName: destination.name },
-        {
-          id: generateUuidv7(),
-          pageId: page.id,
-          message: "Old destination",
-          target: { kind: "page" },
-        },
-      ),
-    );
-    const original = await f.create({
-      kind: "item-field",
-      blockId: f.block.id,
-      itemId: f.nested.id,
-      fieldName: "text",
-    });
-    const unavailable = await f.create({ kind: "block", blockId: f.block.id });
-    await runService(
-      setCommentResolved(f.ctx, { pageId: f.page.id, id: original.id, resolved: true }),
-    );
-    // Delete a separate target without removing the nested target.
-    const deleted = await f.db
-      .insert(blocks)
-      .values({ ...f.block, rowId: undefined, id: undefined })
-      .returning()
-      .get();
-    await f.create({ kind: "block", blockId: deleted.id });
-    await f.db.delete(blocks).where(eq(blocks.id, deleted.id));
-    const result = await runService(
-      replicateEnvironment(f.ctx, {
-        projectId: f.project.id,
-        sourceEnvName: "production",
-        targetEnvName: destination.name,
-      }),
-    );
-    expect(result.copied.comments).toBe(3);
-    expect(await f.db.select().from(comments).where(eq(comments.id, old.id))).toEqual([]);
-    const copied = await f.db
-      .select()
-      .from(comments)
-      .where(eq(comments.environmentId, destination.id));
-    expect(copied).toHaveLength(3);
-    const nested = copied.find((c) => c.target?.kind === "item-field")!;
-    expect(nested.id).not.toBe(original.id);
-    expect(nested.pageId).not.toBe(f.page.id);
-    expect(nested.blockId).not.toBe(f.block.id);
-    expect(nested.itemId).not.toBe(f.nested.id);
-    expect(nested.createdAt).toBe(original.createdAt);
-    expect(nested.authorId).toBe(f.memberUser.id);
-    expect(nested.resolved).toBe(true);
-    expect(nested.target).toMatchObject({
-      blockId: nested.blockId,
-      itemId: nested.itemId,
-      fieldName: "text",
-    });
-    expect(copied.filter((c) => c.target === null)).toHaveLength(1);
-    expect(await f.db.select().from(comments).where(eq(comments.id, unavailable.id))).toHaveLength(
-      1,
-    );
   });
 });
 

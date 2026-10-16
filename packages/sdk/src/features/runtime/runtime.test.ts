@@ -50,7 +50,6 @@ void test("preview authenticates before loading the page", async (t) => {
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      environmentName: "dev:me@example.test",
       projectSlug: "test",
       pageClientEntryUrl: "/client.js",
       renderPage: async (input) => {

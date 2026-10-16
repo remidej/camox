@@ -8,7 +8,7 @@ import { updateBlockContent } from "../blocks/service";
 import { getPageByPath } from "./service";
 
 describe("page persistence", () => {
-  it("enforces tenant and environment boundaries with a real local D1 database", async () => {
+  it("enforces tenant boundaries with a real local D1 database", async () => {
     const { db, memberUser, outsiderUser, project } = await createProjectFixture("auth");
 
     await expect(
@@ -43,14 +43,13 @@ describe("page persistence", () => {
   });
 
   it("returns a page's current rows to visitors and members alike", async () => {
-    const { db, environment, layout, memberUser, project } = await createProjectFixture("current");
+    const { db, layout, memberUser, project } = await createProjectFixture("current");
     const memberCtx = createServiceContext(db, memberUser);
     const visitorCtx = createServiceContext(db, null);
     const page = await db
       .insert(pages)
       .values({
         projectId: project.id,
-        environmentId: environment.id,
         pathSegment: "about",
         fullPath: "/about",
         layoutId: layout.layoutId,
@@ -64,7 +63,6 @@ describe("page persistence", () => {
       .get();
     await db.insert(blockDefinitions).values({
       projectId: project.id,
-      environmentId: environment.id,
       blockId: "hero",
       title: "Hero",
       description: "",
@@ -75,7 +73,7 @@ describe("page persistence", () => {
     const block = await db
       .insert(blocks)
       .values({
-        environmentId: environment.id,
+        projectId: project.id,
         pageId: page.id,
         type: "hero",
         content: { title: "First title" },

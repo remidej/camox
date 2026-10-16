@@ -14,14 +14,14 @@ const deleteInput = collections.deleteRecordInput.omit({ projectSlug: true });
 
 export const collectionsProvider: ToolProvider = (ctx) => {
   // Never accept a caller-supplied project scope. Membership is checked here and
-  // by each service; the session environment is passed through unchanged.
+  // by each service; the session's draft is passed through unchanged.
   const scope = getProject(ctx, { id: ctx.projectId }).pipe(
     Effect.map((project) => ({ projectSlug: project.slug })),
   );
   return [
     {
       name: "listCollections",
-      description: "List the code-defined collections in this project and environment.",
+      description: "List the code-defined collections in this project.",
       inputSchema: listInput,
       meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
       handler: async (input) => {

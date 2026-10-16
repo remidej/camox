@@ -18,7 +18,7 @@ const { blockQueries, collectionQueries, commentQueries, fileQueries, layoutQuer
 /** Every query the studio reads content with, as built while the studio is at `url`. */
 function keysAt(url: string) {
   window.history.replaceState(null, "", url);
-  initApiClient("http://api.test", "production");
+  initApiClient("http://api.test");
   return [
     blockQueries.get("block-1").queryKey,
     blockQueries.getUsageCounts(1).queryKey,
@@ -48,8 +48,4 @@ void test("a draft started by the first edit starts from what Live showed", () =
   const [blockInDraft] = keysAt("/about?camox-draft=d1");
   assert.deepEqual(client.getQueryData(blockInDraft!), { title: "Edited on Live" });
   client.clear();
-});
-
-void test("collection keys no longer name the environment", () => {
-  for (const key of keysAt("/about")) assert.ok(!key.includes("production"), String(key));
 });

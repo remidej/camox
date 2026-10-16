@@ -37,7 +37,6 @@ interface LoadPageOptions {
   authCookieHeader?: string;
   /** The draft to read instead of Live. Only sent along with a session. */
   draftId?: string;
-  environmentName?: string;
   pathname: string;
   projectSlug: string;
   queryClient: QueryClient;
@@ -48,7 +47,6 @@ interface LoadPageForRequestOptions {
   authCookieHeader?: string;
   /** The draft the request's URL names. Only a member reads it; anyone else reads Live. */
   draftId?: string;
-  environmentName?: string;
   origin: string;
   pathname: string;
   projectSlug: string;
@@ -111,11 +109,9 @@ export function prefersMarkdown(accept: string): boolean {
 
 export function createServerApiClient(
   apiUrl: string,
-  environmentName?: string,
   options?: { authCookieHeader?: string; draftId?: string },
 ): RouterClient<Router> {
   const headers: Record<string, string> = {};
-  if (environmentName) headers["x-environment-name"] = environmentName;
   // Only a session can read a draft, so a draft is only ever named along with one.
   if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
   return createORPCClient<RouterClient<Router>>(
@@ -267,12 +263,11 @@ export async function loadCamoxPage({
   apiUrl,
   authCookieHeader,
   draftId,
-  environmentName,
   pathname,
   projectSlug,
   queryClient,
 }: LoadPageOptions): Promise<PageStructure> {
-  const serverApi = createServerApiClient(apiUrl, environmentName, { authCookieHeader, draftId });
+  const serverApi = createServerApiClient(apiUrl, { authCookieHeader, draftId });
   // Only a session names the draft, so without one the read is Live's.
   const scope = draftId && authCookieHeader ? draftId : null;
   return queryClient.ensureQueryData({
@@ -305,17 +300,15 @@ export async function loadCamoxPage({
 export async function resolveMemberProject({
   apiUrl,
   authCookieHeader,
-  environmentName,
   projectSlug,
 }: {
   apiUrl: string;
   authCookieHeader?: string;
-  environmentName?: string;
   projectSlug: string;
 }): Promise<{ project?: MemberProject; clearAuthCookie: boolean }> {
   if (!authCookieHeader) return { clearAuthCookie: false };
   try {
-    const project = await createServerApiClient(apiUrl, environmentName, {
+    const project = await createServerApiClient(apiUrl, {
       authCookieHeader,
     }).projects.getBySlug({ slug: projectSlug });
     return { project, clearAuthCookie: false };
@@ -344,7 +337,6 @@ export async function loadCamoxPageForRequest({
   apiUrl,
   authCookieHeader,
   draftId,
-  environmentName,
   origin,
   pathname,
   projectSlug,
@@ -355,7 +347,6 @@ export async function loadCamoxPageForRequest({
   const member = await resolveMemberProject({
     apiUrl,
     authCookieHeader,
-    environmentName,
     projectSlug,
   });
   if (member.clearAuthCookie) console.warn("[camox] Ignoring stale camox_auth_cookie.");
@@ -364,7 +355,6 @@ export async function loadCamoxPageForRequest({
       apiUrl,
       authCookieHeader: member.project ? authCookieHeader : undefined,
       draftId: readDraftId,
-      environmentName,
       pathname,
       projectSlug,
       queryClient,
@@ -380,14 +370,12 @@ export async function loadCamoxPageForRequest({
 
 export async function createMarkdownResponse({
   apiUrl,
-  environmentName,
   pathname,
   projectSlug,
   request,
   onNotFound,
 }: {
   apiUrl: string;
-  environmentName?: string;
   pathname?: string;
   projectSlug: string;
   request: Request;
@@ -397,7 +385,7 @@ export async function createMarkdownResponse({
   const accept = request.headers.get("Accept") ?? "";
   if (!prefersMarkdown(accept)) return null;
 
-  const api = createServerApiClient(apiUrl, environmentName);
+  const api = createServerApiClient(apiUrl);
   const requestPathname = pathname ?? new URL(request.url).pathname;
   try {
     const page = await api.pages.getByPath({ path: requestPathname, projectSlug });

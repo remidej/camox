@@ -1,6 +1,6 @@
 ---
 name: camox
-description: Use when working in a Camox codebase with Block Definitions, Layout Definitions, Pages, Block content, the Camox CLI, publishing, or Environments. Applies to code-defined site structure and agent-driven content changes.
+description: Use when working in a Camox codebase with Block Definitions, Layout Definitions, Pages, Block content, the Camox CLI, or publishing. Applies to code-defined site structure and agent-driven content changes.
 ---
 
 # Camox
@@ -38,8 +38,8 @@ For any CLI operation, first read [CLI common guidance](references/cli-common.md
   [CLI Content](references/cli-content.md).
 - List comments on a Page or resolve a comment by its ID:
   [CLI Content — Comments](references/cli-content.md#comments).
-- Where the CLI writes, or environment replication:
-  [CLI Environments](references/cli-environments.md).
+- Where the CLI writes, publishing or discarding the development draft, or its status:
+  [CLI Publishing](references/cli-publishing.md).
 
 ## Addressing feedback
 

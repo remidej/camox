@@ -36,7 +36,6 @@ export function installDevSignInLink(
   server: ViteDevServer,
   options: {
     projectSlug: string;
-    environmentName: string;
     apiUrl: string;
     authToken: string;
     /** Opt in to opening the generated link; printing remains the default. */
@@ -70,7 +69,6 @@ export function installDevSignInLink(
           destination,
           {
             projectSlug: options.projectSlug,
-            environmentName: options.environmentName,
             apiUrl: options.apiUrl,
           },
           options.authToken,

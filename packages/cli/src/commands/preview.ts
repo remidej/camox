@@ -46,8 +46,6 @@ export async function handler(args: Args): Promise<void> {
     }
     const target = {
       projectSlug: runtime.projectSlug,
-      // Dev mode reads the development draft in the project's one environment (ADR 0006).
-      environmentName: "production",
       apiUrl: normalizeUrl(runtime.apiUrl),
     };
     const signInUrl = await createPreviewSignInUrl(url.href, target, auth.token);

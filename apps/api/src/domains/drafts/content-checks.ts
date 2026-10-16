@@ -165,11 +165,11 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
       draft: scope,
     })) {
       const definition = definitions.find(
-        (d) => d.environmentId === layout.environmentId && d.collectionId === layout.collectionId,
+        (d) => d.projectId === layout.projectId && d.collectionId === layout.collectionId,
       );
       if (!definition) continue;
       const rendered = records.filter(
-        (r) => r.environmentId === layout.environmentId && r.collectionId === layout.collectionId,
+        (r) => r.projectId === layout.projectId && r.collectionId === layout.collectionId,
       );
       const valueOf = (record: RecordRow) =>
         pageValue(conformRecordContent(definition.contentSchema, record.content), layout.field);
@@ -194,7 +194,7 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
 type Holder = {
   entity: Exclude<ContentEntity, "page">;
   id: string;
-  environmentId: number;
+  projectId: number;
   /** Whether the draft created or changed it, rather than reading Live's. */
   changed: boolean;
   content: unknown;
@@ -239,10 +239,8 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
         ),
       ),
   );
-  const blockDef = new Map(blockDefs.map((d) => [`${d.environmentId}:${d.blockId}`, d]));
-  const collectionDef = new Map(
-    collectionDefs.map((d) => [`${d.environmentId}:${d.collectionId}`, d]),
-  );
+  const blockDef = new Map(blockDefs.map((d) => [`${d.projectId}:${d.blockId}`, d]));
+  const collectionDef = new Map(collectionDefs.map((d) => [`${d.projectId}:${d.collectionId}`, d]));
   const holders: Holder[] = [];
   const changed = (row: { draftId: string | null }) => storedBy(scope, row);
 
@@ -250,14 +248,14 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   const roots = new Map<string, unknown>();
   for (const block of yield* rowsIn(ctx, scope, projectId, blocks)) {
     if (block.pageId !== null && !visiblePages.has(block.pageId)) continue;
-    const definition = blockDef.get(`${block.environmentId}:${block.type}`);
+    const definition = blockDef.get(`${block.projectId}:${block.type}`);
     if (!definition) continue;
     roots.set(`block:${block.id}`, definition.contentSchema);
     if (definition.synced) continue;
     holders.push({
       entity: "block",
       id: block.id,
-      environmentId: block.environmentId,
+      projectId: block.projectId,
       changed: changed(block),
       content: block.content,
       schema: definition.contentSchema,
@@ -265,13 +263,13 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
     });
   }
   for (const shared of yield* rowsIn(ctx, scope, projectId, sharedContents)) {
-    const definition = blockDef.get(`${shared.environmentId}:${shared.type}`);
+    const definition = blockDef.get(`${shared.projectId}:${shared.type}`);
     if (!definition) continue;
-    roots.set(`shared:${shared.environmentId}:${shared.type}`, definition.contentSchema);
+    roots.set(`shared:${shared.projectId}:${shared.type}`, definition.contentSchema);
     holders.push({
       entity: "sharedContent",
       id: shared.id,
-      environmentId: shared.environmentId,
+      projectId: shared.projectId,
       changed: changed(shared),
       content: shared.content,
       schema: definition.contentSchema,
@@ -280,15 +278,15 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   }
 
   const items = yield* rowsIn(ctx, scope, projectId, repeatableItems);
-  const blockEnvironment = new Map(
-    holders.filter((h) => h.entity === "block").map((h) => [h.id, h.environmentId]),
+  const blockProject = new Map(
+    holders.filter((h) => h.entity === "block").map((h) => [h.id, h.projectId]),
   );
   const trees = new Map<string, typeof items>();
   for (const item of items) {
     const root =
       item.blockId !== null
         ? `block:${item.blockId}`
-        : `shared:${item.environmentId}:${item.sharedContentType}`;
+        : `shared:${item.projectId}:${item.sharedContentType}`;
     trees.set(root, [...(trees.get(root) ?? []), item]);
   }
   for (const [root, tree] of trees) {
@@ -296,12 +294,12 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
     const schemas = itemSchemas(roots.get(root), tree);
     for (const item of tree) {
       const schema = schemas.get(item.id);
-      const environmentId = item.environmentId ?? blockEnvironment.get(item.blockId ?? "");
-      if (!schema || environmentId === undefined) continue;
+      const projectId = item.projectId ?? blockProject.get(item.blockId ?? "");
+      if (!schema || projectId === undefined) continue;
       holders.push({
         entity: "repeatableItem",
         id: item.id,
-        environmentId,
+        projectId,
         changed: changed(item),
         content: item.content,
         schema,
@@ -311,12 +309,12 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   }
 
   for (const record of records) {
-    const definition = collectionDef.get(`${record.environmentId}:${record.collectionId}`);
+    const definition = collectionDef.get(`${record.projectId}:${record.collectionId}`);
     if (!definition) continue;
     holders.push({
       entity: "record",
       id: record.id,
-      environmentId: record.environmentId,
+      projectId: record.projectId,
       changed: changed(record),
       content: record.content,
       schema: definition.contentSchema,
@@ -370,11 +368,11 @@ function checkDanglingPointers(
     if (typeof content !== "object") continue;
     for (const [name, field] of Object.entries(propertiesOf(holder.schema))) {
       const missing = pointersOf(field, content[name]).filter(
-        (pointer) => !exists.draft(keyOf(holder.environmentId, pointer)),
+        (pointer) => !exists.draft(keyOf(holder.projectId, pointer)),
       );
       if (missing.length === 0) continue;
       const deletedByDraft = missing.some((pointer) =>
-        exists.live(keyOf(holder.environmentId, pointer)),
+        exists.live(keyOf(holder.projectId, pointer)),
       );
       const title = field.title ?? name;
       const what = missing[0].kind === "page" ? "a page" : "a record";
@@ -417,10 +415,10 @@ function checkWrongKinds(holders: Holder[], found: Findings) {
   }
 }
 
-function keyOf(environmentId: number, pointer: Pointer) {
+function keyOf(projectId: number, pointer: Pointer) {
   return pointer.kind === "page"
-    ? `${environmentId}:page:${pointer.id}`
-    : `${environmentId}:record:${pointer.collectionId}:${pointer.id}`;
+    ? `${projectId}:page:${pointer.id}`
+    : `${projectId}:record:${pointer.collectionId}:${pointer.id}`;
 }
 
 /** Blockers and warnings about content: what the draft changed, and untouched Live content. */
@@ -441,8 +439,8 @@ export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(fun
 
   const keys = (pageRows: typeof draftPages, recordRows: RecordRow[]) =>
     new Set([
-      ...pageRows.map((page) => `${page.environmentId}:page:${page.id}`),
-      ...recordRows.map((r) => `${r.environmentId}:record:${r.collectionId}:${r.id}`),
+      ...pageRows.map((page) => `${page.projectId}:page:${page.id}`),
+      ...recordRows.map((r) => `${r.projectId}:record:${r.collectionId}:${r.id}`),
     ]);
   const inDraft = keys(draftPages, draftRecords);
   const onLive = keys(livePages, liveRecords);

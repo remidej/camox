@@ -33,7 +33,6 @@ for (const base of ["", "/mounted"]) {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
       projectSlug: "test",
-      environmentName: "production",
       href: window.location.href,
       pathname: "/",
       runtimeBasePath: base,

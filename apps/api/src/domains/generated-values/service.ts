@@ -6,7 +6,6 @@ import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import type { Bindings } from "../../types";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { environments } from "../projects/schema";
 import {
   generatedValues,
   type GeneratedEntity,
@@ -37,21 +36,6 @@ export type ShownValue<T extends GeneratedType> = {
 export const homeOf = (scope: DraftScope, projectId: number): ValueHome => ({
   projectId,
   draftId: scope?.id ?? null,
-});
-
-/** The project an environment belongs to, or null when it's gone. */
-export const projectOfEnvironment = Effect.fn("generatedValues.projectOfEnvironment")(function* (
-  db: Database,
-  environmentId: number,
-) {
-  const row = yield* Effect.promise(() =>
-    db
-      .select({ projectId: environments.projectId })
-      .from(environments)
-      .where(eq(environments.id, environmentId))
-      .get(),
-  );
-  return row?.projectId ?? null;
 });
 
 // D1 binds at most 100 parameters per statement.

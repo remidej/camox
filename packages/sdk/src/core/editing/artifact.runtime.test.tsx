@@ -38,7 +38,7 @@ Object.assign(globalThis, {
   useTestEditMode: () => useSelector(previewStore, selectIsEditMode),
   captureArtifactSelection: (selection: unknown) => selections.push(selection),
 });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/createEditableBlock.tsx"))

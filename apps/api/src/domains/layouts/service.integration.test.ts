@@ -1,24 +1,20 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
-import { runService } from "../../lib/run-service";
 import {
-  blockDefinitions,
-  blocks,
-  environments,
-  files,
-  layouts,
-  pages,
-  repeatableItems,
-} from "../../schema";
+  createProjectFixture,
+  createServiceContext,
+  openDevelopmentDraft,
+} from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
+import { blockDefinitions, blocks, files, layouts, pages, repeatableItems } from "../../schema";
+import type { ServiceContext } from "../_shared/service-context";
 import { callTool } from "../agent/service";
 import { getLayout } from "./service";
 
 describe("standalone shared layout reads", () => {
   it("loads ordered layout blocks, nested items and files without creating a page", async () => {
-    const { db, environment, layout, memberUser, project } =
-      await createProjectFixture("layout-view");
+    const { db, layout, memberUser, project } = await createProjectFixture("layout-view");
     const ctx = createServiceContext(db, memberUser);
     const now = Date.now();
     const title = { type: "string", fieldType: "String" };
@@ -51,7 +47,6 @@ describe("standalone shared layout reads", () => {
         { blockId: "footer", properties: { title } },
       ].map(({ blockId, properties }) => ({
         projectId: project.id,
-        environmentId: environment.id,
         blockId,
         title: blockId,
         description: "",
@@ -64,7 +59,6 @@ describe("standalone shared layout reads", () => {
       .insert(files)
       .values({
         projectId: project.id,
-        environmentId: environment.id,
         url: "https://example.com/logo.png",
         filename: "logo.png",
         mimeType: "image/png",
@@ -79,7 +73,7 @@ describe("standalone shared layout reads", () => {
     const footer = await db
       .insert(blocks)
       .values({
-        environmentId: environment.id,
+        projectId: project.id,
         layoutId: layout.layoutId,
         type: "footer",
         slot: "after",
@@ -93,7 +87,7 @@ describe("standalone shared layout reads", () => {
     const navbar = await db
       .insert(blocks)
       .values({
-        environmentId: environment.id,
+        projectId: project.id,
         layoutId: layout.layoutId,
         type: "navbar",
         slot: "before",
@@ -165,28 +159,18 @@ describe("standalone shared layout reads", () => {
     expect(await db.select().from(pages)).toEqual([]);
   });
 
-  it("scopes layout names in the tool to the selected project and environment", async () => {
+  it("scopes layout names in the tool to the selected project and draft", async () => {
     const { db, layout, memberUser, project } = await createProjectFixture("layout-tool-scope");
     const ctx = createServiceContext(db, memberUser);
     // Another project's layout has the same name.
     await createProjectFixture("layout-tool-other");
     const now = Date.now();
-    const development = await db
-      .insert(environments)
-      .values({
-        projectId: project.id,
-        name: "development",
-        type: "development",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
+    // Only the member's development draft declares this layout; Live doesn't.
     const devLayout = await db
       .insert(layouts)
       .values({
         projectId: project.id,
-        environmentId: development.id,
+        draftId: await openDevelopmentDraft(db, project.id, memberUser.id),
         layoutId: "development-only",
         contentUpdatedAt: now,
         createdAt: now,
@@ -194,21 +178,18 @@ describe("standalone shared layout reads", () => {
       })
       .returning()
       .get();
-    const read = (layoutId: unknown, environmentName = ctx.environmentName) =>
+    const read = (layoutId: unknown, draft: ServiceContext["draft"] = null) =>
       runService(
         callTool(
-          { ...ctx, environmentName },
+          { ...ctx, draft },
           { projectId: project.id, name: "getLayout", arguments: { layoutId } },
         ),
       );
+    const development = { development: true as const };
     for (const layoutId of ["missing", devLayout.layoutId]) {
       expect(await read(layoutId)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     }
-    expect(await read(layout.layoutId, development.name)).toMatchObject({
-      ok: false,
-      error: { code: "NOT_FOUND" },
-    });
-    expect(await read(layout.layoutId, "missing")).toMatchObject({
+    expect(await read("missing", development)).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -216,7 +197,7 @@ describe("standalone shared layout reads", () => {
       ok: true,
       result: { layout: { layoutId: layout.layoutId } },
     });
-    expect(await read(devLayout.layoutId, development.name)).toMatchObject({
+    expect(await read(devLayout.layoutId, development)).toMatchObject({
       ok: true,
       result: { layout: { layoutId: devLayout.layoutId } },
     });
@@ -225,17 +206,12 @@ describe("standalone shared layout reads", () => {
     }
   });
 
-  it("returns not found for a missing layout, environment or project", async () => {
+  it("returns not found for a missing layout or project", async () => {
     const { db, layout, memberUser, project } = await createProjectFixture("layout-access");
     const input = { projectSlug: project.slug, layoutId: layout.layoutId };
     const ctx = createServiceContext(db, memberUser);
     await expect(
       runService(getLayout(ctx, { ...input, layoutId: "missing" }, null)),
-    ).rejects.toMatchObject({
-      status: 404,
-    });
-    await expect(
-      runService(getLayout({ ...ctx, environmentName: "missing" }, input, null)),
     ).rejects.toMatchObject({
       status: 404,
     });

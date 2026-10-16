@@ -27,7 +27,7 @@ export function normalizePagePath(path: string) {
 
 export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(function* (
   ctx: ServiceContext,
-  environmentId: number,
+  projectId: number,
   layoutId: string,
   scope: DraftScope,
 ) {
@@ -38,13 +38,13 @@ export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(func
       .where(
         and(
           eq(layouts.layoutId, layoutId),
-          eq(layouts.environmentId, environmentId),
+          eq(layouts.projectId, projectId),
           definitionsIn(layouts, scope),
         ),
       )
       .get(),
   );
-  if (!layout) return yield* new NotFoundError({ message: "Layout not found in this environment" });
+  if (!layout) return yield* new NotFoundError({ message: "Layout not found in this project" });
   if (layout.kind !== "curated")
     return yield* new InvalidInputError({
       message: "Only curated layouts can be assigned to pages",
@@ -53,7 +53,7 @@ export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(func
 
 export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPagePaths")(function* (
   ctx: ServiceContext,
-  environmentId: number,
+  projectId: number,
   paths: string[],
   scope: DraftScope,
 ) {
@@ -63,7 +63,7 @@ export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPage
       .from(layouts)
       .where(
         and(
-          eq(layouts.environmentId, environmentId),
+          eq(layouts.projectId, projectId),
           definitionsIn(layouts, scope),
           eq(layouts.kind, "singleton"),
         ),
@@ -91,14 +91,14 @@ export function servesPages(layout: { kind: string } | null | undefined) {
  */
 export const pageServingProblems = Effect.fn("layouts.pageServingProblems")(function* (
   ctx: ServiceContext,
-  environmentId: number,
+  projectId: number,
   scope: DraftScope,
 ) {
   const rows = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environmentId), definitionsIn(layouts, scope))),
+      .where(and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope))),
   );
   const byName = new Map(rows.map((layout) => [layout.layoutId, layout]));
   const pathOf = (path: Effect.Effect<string, InvalidInputError>) =>

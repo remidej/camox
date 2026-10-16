@@ -22,7 +22,7 @@ function comment(
   return {
     id,
     pageId: "7",
-    environmentId: 1,
+    projectId: 1,
     draftId: null,
     addressedIn: null,
     message: `Message ${id}`,

@@ -4,7 +4,6 @@ import { z } from "zod";
 
 import { assertSyncAccess } from "../../authorization";
 import { decodeInput } from "../../lib/errors";
-import { resolveEnvironment, resolveProjectEnvironment } from "../../lib/resolve-environment";
 import { stableStringify } from "../../lib/stable-stringify";
 import { blockDefinitions } from "../../schema";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
@@ -53,18 +52,12 @@ export const deleteBlockDefinitionInput = z.object({
 });
 
 /**
- * A block definition is identified by its name within a project's environment, in the set a
+ * A block definition is identified by its name within a project, in the set a
  * scope reads: Live's, or a development draft's (ADR 0006).
  */
-function definitionScope(
-  projectId: number,
-  environmentId: number,
-  scope: DraftScope,
-  blockId: string,
-) {
+function definitionScope(projectId: number, scope: DraftScope, blockId: string) {
   return and(
     eq(blockDefinitions.projectId, projectId),
-    eq(blockDefinitions.environmentId, environmentId),
     definitionsIn(blockDefinitions, scope),
     eq(blockDefinitions.blockId, blockId),
   );
@@ -108,17 +101,12 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
 ) {
   const { projectId } = yield* decodeInput(listBlockDefinitionsInput, rawInput);
   const scope = yield* resolveDraftScope(ctx, projectId);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(blockDefinitions)
       .where(
-        and(
-          eq(blockDefinitions.projectId, projectId),
-          eq(blockDefinitions.environmentId, environment.id),
-          definitionsIn(blockDefinitions, scope),
-        ),
+        and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
       ),
   );
 });
@@ -131,18 +119,18 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
  */
 const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* (
   ctx: ServiceContext,
-  target: { projectId: number; environmentId: number; scope: DraftScope },
+  target: { projectId: number; scope: DraftScope },
   def: DefinitionFields,
   now: number,
 ) {
-  const { projectId, environmentId, scope } = target;
-  const key = { environmentId, type: def.blockId };
+  const { projectId, scope } = target;
+  const key = { projectId, type: def.blockId };
   const fields = yield* Effect.promise(() => definitionColumns(def));
   const existing = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(blockDefinitions)
-      .where(definitionScope(projectId, environmentId, scope, def.blockId))
+      .where(definitionScope(projectId, scope, def.blockId))
       .get(),
   );
 
@@ -154,7 +142,7 @@ const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* 
       ctx.db
         .update(blockDefinitions)
         .set({ ...fields, updatedAt: now })
-        .where(definitionScope(projectId, environmentId, scope, def.blockId))
+        .where(definitionScope(projectId, scope, def.blockId))
         .returning()
         .get(),
     );
@@ -171,7 +159,6 @@ const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* 
         ...fields,
         draftId: definitionsDraftOf(scope),
         projectId,
-        environmentId,
         blockId: def.blockId,
         createdAt: now,
         updatedAt: now,
@@ -207,17 +194,11 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
   );
   const projectId = target.project.id;
   const { scope } = target;
-  const environment = yield* resolveProjectEnvironment(ctx.db, projectId);
   const now = Date.now();
   const results = [];
 
   for (const def of definitions) {
-    const written = yield* writeDefinition(
-      ctx,
-      { projectId, environmentId: environment.id, scope },
-      def,
-      now,
-    );
+    const written = yield* writeDefinition(ctx, { projectId, scope }, def, now);
     results.push(written.row);
   }
 
@@ -234,11 +215,7 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
       })
       .from(blockDefinitions)
       .where(
-        and(
-          eq(blockDefinitions.projectId, projectId),
-          eq(blockDefinitions.environmentId, environment.id),
-          definitionsIn(blockDefinitions, scope),
-        ),
+        and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
       ),
   );
   const orphans = existingDefs.filter((d) => !incomingIds.has(d.blockId) && d.layoutOnly !== true);
@@ -248,9 +225,7 @@ export const syncBlockDefinitions = Effect.fn("blockDefinitions.syncBlockDefinit
   const deletedDefinitionTypes = orphans.map((orphan) => orphan.blockId);
   for (const blockId of deletedDefinitionTypes) {
     yield* Effect.promise(() =>
-      ctx.db
-        .delete(blockDefinitions)
-        .where(definitionScope(projectId, environment.id, scope, blockId)),
+      ctx.db.delete(blockDefinitions).where(definitionScope(projectId, scope, blockId)),
     );
   }
 
@@ -279,13 +254,7 @@ export const upsertBlockDefinition = Effect.fn("blockDefinitions.upsertBlockDefi
     { create: true },
   );
   const projectId = target.project.id;
-  const environment = yield* resolveProjectEnvironment(ctx.db, projectId);
-  const written = yield* writeDefinition(
-    ctx,
-    { projectId, environmentId: environment.id, scope: target.scope },
-    body,
-    Date.now(),
-  );
+  const written = yield* writeDefinition(ctx, { projectId, scope: target.scope }, body, Date.now());
   const action = written.action === "created" ? "created" : "updated";
   return { ...written.row, action: action as "created" | "updated" };
 });
@@ -303,11 +272,10 @@ export const deleteBlockDefinition = Effect.fn("blockDefinitions.deleteBlockDefi
     draft: ctx.draft,
     deployToken,
   });
-  const environment = yield* resolveProjectEnvironment(ctx.db, target.project.id);
   const result = yield* Effect.promise(() =>
     ctx.db
       .delete(blockDefinitions)
-      .where(definitionScope(target.project.id, environment.id, target.scope, blockId))
+      .where(definitionScope(target.project.id, target.scope, blockId))
       .returning()
       .get(),
   );

@@ -32,8 +32,8 @@ import {
 import { CamoxProvider } from "camox/CamoxProvider";
 import { camoxApp } from "@/camox/app";
 
-const markdownMiddleware = createMarkdownMiddleware(__CAMOX_API_URL__, __CAMOX_PROJECT_SLUG__, __CAMOX_ENVIRONMENT_NAME__);
-const loader = createPageLoader(__CAMOX_API_URL__, __CAMOX_PROJECT_SLUG__, __CAMOX_ENVIRONMENT_NAME__);
+const markdownMiddleware = createMarkdownMiddleware(__CAMOX_API_URL__, __CAMOX_PROJECT_SLUG__);
+const loader = createPageLoader(__CAMOX_API_URL__, __CAMOX_PROJECT_SLUG__);
 const head = createPageHead(camoxApp);
 
 export const Route = createFileRoute("/(camox)/(_preview)/$")({
@@ -48,7 +48,7 @@ export const Route = createFileRoute("/(camox)/(_preview)/$")({
 
 function RouteComponent() {
   return (
-    <CamoxProvider camoxApp={camoxApp} authenticationUrl="${authenticationUrl}" apiUrl={__CAMOX_API_URL__} projectSlug={__CAMOX_PROJECT_SLUG__} environmentName={__CAMOX_ENVIRONMENT_NAME__}>
+    <CamoxProvider camoxApp={camoxApp} authenticationUrl="${authenticationUrl}" apiUrl={__CAMOX_API_URL__} projectSlug={__CAMOX_PROJECT_SLUG__}>
       <PageRouteComponent />
     </CamoxProvider>
   );
@@ -88,7 +88,7 @@ export const Route = createFileRoute("/(camox)/(_studio)/${STUDIO_ROUTE_SEGMENT}
 
 function RouteComponent() {
   return (
-    <CamoxProvider camoxApp={camoxApp} authenticationUrl="${authenticationUrl}" apiUrl={__CAMOX_API_URL__} projectSlug={__CAMOX_PROJECT_SLUG__} environmentName={__CAMOX_ENVIRONMENT_NAME__}>
+    <CamoxProvider camoxApp={camoxApp} authenticationUrl="${authenticationUrl}" apiUrl={__CAMOX_API_URL__} projectSlug={__CAMOX_PROJECT_SLUG__}>
       <CamoxStudio>
         <Outlet />
       </CamoxStudio>

@@ -15,7 +15,7 @@ import { NO_DEVELOPMENT_DRAFT_ERROR } from "@camox/api-contract/drafts";
 
 export type OutputMode = "auto" | "json";
 
-function isJsonMode(mode: OutputMode): boolean {
+export function isJsonMode(mode: OutputMode): boolean {
   if (mode === "json") return true;
   return !process.stdout.isTTY;
 }

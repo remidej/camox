@@ -17,7 +17,6 @@ export type BaseContext = {
   session: Auth["$Infer"]["Session"]["session"] | null;
   env: Bindings;
   headers: Headers;
-  environmentName: string;
   client: string;
   telemetryDisabled: boolean;
   waitUntil: (promise: Promise<unknown>) => void;

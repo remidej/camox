@@ -50,15 +50,10 @@ function throwNotFoundOrRethrow(error: unknown): never {
  * Factories
  * -----------------------------------------------------------------------------------------------*/
 
-export function createMarkdownMiddleware(
-  apiUrl: string,
-  projectSlug: string,
-  environmentName?: string,
-) {
+export function createMarkdownMiddleware(apiUrl: string, projectSlug: string) {
   return createMiddleware().server(async ({ next, request }) => {
     const response = await createMarkdownResponse({
       apiUrl,
-      environmentName,
       projectSlug,
       request,
     });
@@ -68,7 +63,7 @@ export function createMarkdownMiddleware(
   });
 }
 
-export function createPageLoader(apiUrl: string, projectSlug: string, environmentName?: string) {
+export function createPageLoader(apiUrl: string, projectSlug: string) {
   return async ({
     location,
     context,
@@ -85,7 +80,6 @@ export function createPageLoader(apiUrl: string, projectSlug: string, environmen
       const result = await loadCamoxPageForRequest({
         apiUrl,
         authCookieHeader,
-        environmentName,
         origin: await getOrigin(),
         pathname: location.pathname,
         projectSlug,

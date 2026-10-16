@@ -21,9 +21,9 @@ import { blocks, drafts, member, pages, sharedContents, user } from "../../schem
 import { syncBlockDefinitions } from "../block-definitions/service";
 import { syncLayouts } from "../layouts/service";
 
-// Development drafts replace development environments (ADR 0006): each member's dev mode syncs
-// the definitions of their local code into their own development draft, which holds content
-// like any draft and publishes once a release gave Live the same definitions.
+// Development drafts (ADR 0006): each member's dev mode syncs the definitions of their local
+// code into their own development draft, which holds content like any draft and publishes once
+// a release gave Live the same definitions.
 
 const development = { [DRAFT_HEADER]: DEVELOPMENT_DRAFT };
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
@@ -128,7 +128,6 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId,
-      environmentId: base.environment.id,
       layoutId: "default",
       pathSegment: "",
       fullPath: "/",

@@ -69,7 +69,7 @@ registerHooks({
 });
 
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 
 const pageOwner: EditingOwner = { kind: "page", pageId: "1" };
 const BLOCK_ID = "7";

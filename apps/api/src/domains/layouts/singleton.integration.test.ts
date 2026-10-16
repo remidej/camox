@@ -100,13 +100,8 @@ describe("singleton page ownership", () => {
     ]);
     await sync([{ ...definitions[0], kind: "singleton" }]);
     expect(
-      (
-        await db
-          .select()
-          .from(layouts)
-          .where(layoutNamed(layout.environmentId, layout.layoutId))
-          .get()
-      )?.kind,
+      (await db.select().from(layouts).where(layoutNamed(layout.projectId, layout.layoutId)).get())
+        ?.kind,
     ).toBe("singleton");
     expect(await runService(listPages(ctx, { projectId: project.id }, null))).toMatchObject([
       { fullPath: "/pokedex", needsLayout: true },

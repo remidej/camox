@@ -2,8 +2,6 @@ import type { EndedDraft } from "@camox/api-contract/drafts";
 import { Data, Effect } from "effect";
 import type { z } from "zod";
 
-import type { CompatibilityReason } from "../domains/environments/service";
-
 // --- Expected service errors ---
 //
 // Services return `Effect<A, ServiceError>` and fail with one of these tagged
@@ -51,13 +49,6 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly message: string;
 }> {}
 
-/** Push/pull was refused because the two environments' schemas diverge. */
-export class IncompatibleEnvironmentsError extends Data.TaggedError(
-  "IncompatibleEnvironmentsError",
-)<{
-  readonly reasons: CompatibilityReason[];
-}> {}
-
 /** The request names a draft that was published or discarded (ADR 0009). */
 export class DraftEndedError extends Data.TaggedError("DraftEndedError")<{
   readonly ended: EndedDraft;
@@ -98,7 +89,6 @@ export type ServiceError =
   | NotFoundError
   | InvalidInputError
   | ConflictError
-  | IncompatibleEnvironmentsError
   | DraftEndedError
   | LiveReadOnlyError
   | NoDevelopmentDraftError

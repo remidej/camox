@@ -253,7 +253,7 @@ export interface PeekItem {
   position: string;
   createdAt: number;
   updatedAt: number;
-  environmentId: number | null;
+  projectId: number | null;
   sharedContentType: string | null;
   /** Peek items link no records. */
   references: Record<string, never>;
@@ -388,7 +388,7 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
-        environmentId: null,
+        projectId: null,
         sharedContentType: null,
         references: {},
       });

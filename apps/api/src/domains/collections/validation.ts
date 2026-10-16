@@ -151,7 +151,6 @@ export type AssetValue = { _fileId: string };
 const validateAsset = Effect.fn("collections.validateAsset")(function* (
   ctx: ServiceContext,
   projectId: number,
-  environmentId: number,
   draft: DraftScope,
   field: z.infer<typeof property>,
   value: unknown,
@@ -170,18 +169,13 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
       .select()
       .from(files)
       .where(
-        and(
-          overlay.visibleIn(files, draft),
-          eq(files.id, fileId),
-          eq(files.projectId, projectId),
-          eq(files.environmentId, environmentId),
-        ),
+        and(overlay.visibleIn(files, draft), eq(files.id, fileId), eq(files.projectId, projectId)),
       )
       .get(),
   );
   if (!file)
     return yield* new InvalidInputError({
-      message: "Asset is outside this project/environment or missing",
+      message: "Asset is outside this project or missing",
     });
   const { filename } = yield* fileView(ctx.db, draft, file);
   if (field.fieldType.startsWith("Image") && !file.mimeType.startsWith("image/")) {
@@ -285,15 +279,7 @@ export const validateContent = Effect.fn("collections.validateContent")(function
       result[key] = yield* Effect.forEach(
         values,
         (value) =>
-          validateAsset(
-            ctx,
-            definition.projectId,
-            definition.environmentId,
-            definition.draft,
-            item,
-            value,
-            held.files,
-          ),
+          validateAsset(ctx, definition.projectId, definition.draft, item, value, held.files),
         { concurrency: "unbounded" },
       );
       continue;
@@ -305,7 +291,6 @@ export const validateContent = Effect.fn("collections.validateContent")(function
         : yield* validateAsset(
             ctx,
             definition.projectId,
-            definition.environmentId,
             definition.draft,
             field,
             value,

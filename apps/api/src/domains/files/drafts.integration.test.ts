@@ -73,7 +73,6 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
@@ -89,7 +88,6 @@ async function fixture() {
   app.use("*", async (c, next) => {
     c.set("db", base.db);
     c.set("user", base.memberUser);
-    c.set("environmentName", "production");
     await next();
   });
   app.route("/files", fileHonoRoutes);

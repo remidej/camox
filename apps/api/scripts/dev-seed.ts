@@ -17,7 +17,6 @@ import {
   collectionDefinitions,
   collectionRecords,
   comments,
-  environments,
   files,
   invitation,
   layouts,
@@ -73,7 +72,6 @@ async function clearAll(db: ReturnType<typeof createDrizzle>) {
   await db.delete(collectionRecords).run();
   await db.delete(collectionDefinitions).run();
   await db.delete(files).run();
-  await db.delete(environments).run();
   await db.delete(projects).run();
   await db.run(sql`DELETE FROM member`);
   await db.run(sql`DELETE FROM invitation`);
@@ -110,7 +108,6 @@ function createDrizzle(sqlitePath: string) {
       member,
       invitation,
       projects,
-      environments,
       layouts,
       pages,
       blocks,
@@ -176,14 +173,6 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
       })
       .returning()
       .get();
-
-    await db.insert(environments).values({
-      projectId: project.id,
-      name: "production",
-      type: "production",
-      createdAt: now,
-      updatedAt: now,
-    });
 
     return project;
   }

@@ -26,7 +26,7 @@ export interface LoadedRecord<Content = Record<string, unknown>> {
   updatedAt?: number;
 }
 
-/** Reads records, scoped to the project and environment. */
+/** Reads records, scoped to the project and the draft the request reads. */
 export interface RecordLookup {
   /** The records whose String field's plain text equals `value`. */
   findByField(input: {

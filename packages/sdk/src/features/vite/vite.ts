@@ -92,7 +92,6 @@ export interface CamoxAfterSyncContext {
   /** Sends the dev session and reads and writes the developer's development draft. */
   client: ServerApiClient;
   projectSlug: string;
-  environmentName: string;
   logger: Logger;
 }
 
@@ -141,7 +140,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
   let isBuild = false;
   let isRelease = false;
   let resolvedConfig: ResolvedConfig;
-  let environmentName: string;
   let localAuth: StoredAuth | null = null;
   let blockChunks: Record<string, string[]> = {};
 
@@ -219,9 +217,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       );
       isBuild = env.command === "build";
       isRelease = isBuild && process.env.CAMOX_INTERNAL_RELEASE === "1";
-      // Everything lives in the project's one environment; drafts tell Live and the
-      // development draft apart (ADR 0003, ADR 0006).
-      environmentName = "production";
       if (!isRelease) {
         localAuth = readAuthTokenForUrl(authenticationUrl);
         if (isBuild && !localAuth) {
@@ -241,7 +236,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: JSON.stringify(
             options._internal?.enableExperimentalFeatures ?? false,
           ),
-          __CAMOX_ENVIRONMENT_NAME__: JSON.stringify(environmentName),
           // Anything but a release works in the developer's development draft (ADR 0006).
           __CAMOX_DEVELOPMENT_DRAFT__: JSON.stringify(!isRelease),
           __CAMOX_API_URL__: JSON.stringify(apiUrl),
@@ -412,7 +406,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
       if (localAuth?.email) {
         installDevSignInLink(server, {
           projectSlug: options.projectSlug,
-          environmentName,
           apiUrl,
           authToken: localAuth.token,
           open: options._internal?.devSignIn?.open,
@@ -433,7 +426,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
         void syncDefinitions(server, {
           projectSlug: options.projectSlug,
           apiUrl,
-          environmentName,
           autoCreate: true,
           authToken,
         }).then(async (synced) => {
@@ -442,9 +434,8 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           const logger = server.config.logger;
           try {
             await afterSync({
-              client: createServerApiClient(apiUrl, environmentName, authToken, DEVELOPMENT_DRAFT),
+              client: createServerApiClient(apiUrl, authToken, DEVELOPMENT_DRAFT),
               projectSlug: options.projectSlug,
-              environmentName,
               logger,
             });
           } catch (error) {
@@ -489,7 +480,6 @@ export function camox(options: CamoxPluginOptions): CamoxVitePlugin {
           camoxApp: camoxModule.camoxApp,
           projectSlug: options.projectSlug,
           apiUrl,
-          environmentName,
           autoCreate: false,
           deployToken,
           logger: resolvedConfig.logger,

@@ -20,7 +20,6 @@ import {
   collectionDefinitions,
   collectionRecords,
   comments,
-  environments,
   files,
   layouts,
   pages,
@@ -288,8 +287,7 @@ const recordDescriber = Effect.fn("drafts.recordDescriber")(function* (
   const definitionOf = (row: RecordRow) =>
     definitions.find(
       (definition) =>
-        definition.environmentId === row.environmentId &&
-        definition.collectionId === row.collectionId,
+        definition.projectId === row.projectId && definition.collectionId === row.collectionId,
     );
   const byId = new Map(rows.map((row) => [row.id, row]));
 
@@ -326,13 +324,7 @@ const untouchedLiveBlocks = (ctx: ServiceContext, scope: Scope) =>
       .where(
         and(
           overlay.visibleIn(blocks, null),
-          inArray(
-            blocks.environmentId,
-            ctx.db
-              .select({ id: environments.id })
-              .from(environments)
-              .where(eq(environments.projectId, scope.projectId)),
-          ),
+          eq(blocks.projectId, scope.projectId),
           sql`not exists (select 1 from ${blocks} as "copy" where "copy"."draft_id" = ${scope.id} and "copy"."id" = ${blocks.id})`,
         ),
       ),
@@ -721,7 +713,7 @@ const requestLiveGeneration = Effect.fn("drafts.requestLiveGeneration")(function
       blockIds.add(root.blockId);
       continue;
     }
-    const key = `${root.sharedContent.environmentId}:${root.sharedContent.type}`;
+    const key = `${root.sharedContent.projectId}:${root.sharedContent.type}`;
     if (!placementOf.has(key)) {
       placementOf.set(key, yield* sharedPlacementId(ctx.db, null, root.sharedContent));
     }

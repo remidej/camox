@@ -18,7 +18,6 @@ import {
   updatePageInput,
 } from "../../../../apps/api/src/domains/pages/service";
 import { NotFoundError } from "../../../../apps/api/src/lib/errors";
-import { resolveEnvironment } from "../../../../apps/api/src/lib/resolve-environment";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import type { ToolDefinition, ToolProvider } from "../types";
 
@@ -57,7 +56,7 @@ const setPageSeoToolInput = z
     message: "Pass exactly one of `id` or `path`.",
   });
 
-/** A page the session's project and environment hold, by id or path. */
+/** A page of the session's project, by id or path. */
 const resolveOwnPage = Effect.fn("resolveOwnPage")(function* (
   ctx: Parameters<ToolProvider>[0],
   target: z.infer<typeof pageMutationTargetInput>,
@@ -65,10 +64,7 @@ const resolveOwnPage = Effect.fn("resolveOwnPage")(function* (
   const id = yield* resolvePageTargetId(ctx, target);
   const scope = yield* draftScope(ctx);
   const page = yield* getPage(ctx, { id }, scope);
-  const environment = yield* resolveEnvironment(ctx.db, ctx.projectId, ctx.environmentName);
-  if (page.projectId !== ctx.projectId || page.environmentId !== environment.id) {
-    return yield* new NotFoundError();
-  }
+  if (page.projectId !== ctx.projectId) return yield* new NotFoundError();
   return { id, scope };
 });
 

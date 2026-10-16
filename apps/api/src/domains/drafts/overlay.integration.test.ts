@@ -28,7 +28,7 @@ async function fixture(suffix: string) {
   const pageId = generateUuidv7();
   const newBlock = (values: { position: string; content?: unknown; id?: string }) => ({
     id: values.id,
-    environmentId: base.environment.id,
+    projectId: base.project.id,
     pageId,
     type: "hero",
     content: values.content ?? { title: "Live" },

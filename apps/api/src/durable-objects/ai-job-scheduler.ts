@@ -13,7 +13,7 @@ import { rootOfItem } from "../domains/repeatable-items/roots";
 import { runRepeatableItemSummaryJob } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
-import { blocks, environments, repeatableItems } from "../schema";
+import { blocks, repeatableItems } from "../schema";
 import type { Bindings } from "../types";
 
 type JobParams = {
@@ -118,13 +118,12 @@ export class AiJobScheduler extends DurableObject<Bindings> {
           .get(),
       );
       if (item) {
-        // A shared content's item names its environment instead of a block.
+        // A shared content's item names its project instead of a block.
         const root = rootOfItem(item);
-        const projectId = yield* Effect.promise(() =>
+        const projectId =
           "blockId" in root
-            ? this.getBlockProjectId(db, root.blockId)
-            : this.getEnvironmentProjectId(db, root.sharedContent.environmentId),
-        );
+            ? yield* Effect.promise(() => this.getBlockProjectId(db, root.blockId))
+            : root.sharedContent.projectId;
         if (projectId) refresh(projectId, summaryTargets);
       }
     } else if (entityTable === "files" && type === "fileMetadata") {
@@ -148,26 +147,13 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     }
   });
 
-  private async getEnvironmentProjectId(
-    db: ReturnType<typeof createDb>,
-    environmentId: number,
-  ): Promise<number | null> {
-    const result = await db
-      .select({ projectId: environments.projectId })
-      .from(environments)
-      .where(eq(environments.id, environmentId))
-      .get();
-    return result?.projectId ?? null;
-  }
-
   private async getBlockProjectId(
     db: ReturnType<typeof createDb>,
     blockId: string,
   ): Promise<number | null> {
     const result = await db
-      .select({ projectId: environments.projectId })
+      .select({ projectId: blocks.projectId })
       .from(blocks)
-      .innerJoin(environments, eq(environments.id, blocks.environmentId))
       .where(eq(blocks.id, blockId))
       .get();
     return result?.projectId ?? null;

@@ -6,7 +6,7 @@ import { blocks, sharedContents } from "../blocks/schema";
 import { collectionDefinitions, collectionRecords } from "../collections/schema";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
-import { itemsInEnvironment } from "../repeatable-items/roots";
+import { itemsInProject } from "../repeatable-items/roots";
 import { repeatableItems } from "../repeatable-items/schema";
 import { definitionsIn } from "./definitions";
 
@@ -24,14 +24,14 @@ export type ReferencingContent =
   | { kind: "record"; id: string };
 
 /**
- * The content that references `target`, in one project and environment, as Live or a draft
+ * The content that references `target`, in one project, as Live or a draft
  * reads it right now. Content is matched on whole JSON values, so an id never matches another id
  * it is a prefix of. Record references are the record's id as a string anywhere in content; file
  * references are `_fileId` markers. Run on demand: nothing indexes references ahead of time.
  */
 export const referencesTo = Effect.fn("references.referencesTo")(function* (
   db: Database,
-  scope: { projectId: number; environmentId: number; draft: DraftScope },
+  scope: { projectId: number; draft: DraftScope },
   target: ReferenceTarget,
 ) {
   const matches = (content: SQL) =>
@@ -40,30 +40,29 @@ export const referencesTo = Effect.fn("references.referencesTo")(function* (
           where t.key = '_fileId' and t.atom = ${target.id})`
       : sql`exists (select 1 from json_tree(${content}) t
           where t.type = 'text' and t.atom = ${target.id})`;
-  // An environment belongs to one project, so its id alone scopes content.
   const rows = yield* Effect.promise(() =>
     db.all<{ kind: ReferencingContent["kind"]; id: string }>(sql`
       select 'block' as kind, ${blocks.id} as id from ${blocks}
-      where ${blocks.environmentId} = ${scope.environmentId}
+      where ${blocks.projectId} = ${scope.projectId}
         and ${overlay.visibleIn(blocks, scope.draft)}
         and ${matches(sql`${blocks.content}`)}
       union all
       select 'sharedContent', ${sharedContents.type} from ${sharedContents}
-      where ${sharedContents.environmentId} = ${scope.environmentId}
+      where ${sharedContents.projectId} = ${scope.projectId}
         and ${overlay.visibleIn(sharedContents, scope.draft)}
         and ${matches(sql`${sharedContents.content}`)}
       union all
       select 'repeatableItem', ${repeatableItems.id} from ${repeatableItems}
-      where ${itemsInEnvironment(scope.environmentId)}
+      where ${itemsInProject(scope.projectId)}
         and ${overlay.visibleIn(repeatableItems, scope.draft)}
         and ${matches(sql`${repeatableItems.content}`)}
       union all
       select 'record', ${collectionRecords.id} from ${collectionRecords}
       join ${collectionDefinitions}
-        on ${collectionDefinitions.environmentId} = ${collectionRecords.environmentId}
+        on ${collectionDefinitions.projectId} = ${collectionRecords.projectId}
         and ${collectionDefinitions.collectionId} = ${collectionRecords.collectionId}
         and ${definitionsIn(collectionDefinitions, scope.draft)}
-      where ${collectionRecords.environmentId} = ${scope.environmentId}
+      where ${collectionRecords.projectId} = ${scope.projectId}
         and ${overlay.visibleIn(collectionRecords, scope.draft)}
         and ${collectionRecords.id} != ${target.id}
         and ${matches(sql`${collectionRecords.content}`)}

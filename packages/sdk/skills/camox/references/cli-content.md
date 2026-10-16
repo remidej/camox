@@ -35,7 +35,7 @@ current value of the other, and cannot be combined with `--ai-seo on`.
 asynchronous generation, so read the Page again to inspect results. An empty
 meta title blocks publishing.
 
-Metadata edits apply right away in the selected Environment. Read metadata
+Metadata edits apply right away in the development draft. Read metadata
 with `pages get`.
 
 ## Comments
@@ -92,7 +92,7 @@ and synced Block types can share Content across Layouts.
 
 Creation initializes omitted Content and Settings fields from the Block definition's defaults, including when `--content '{}'` is supplied. Explicit values are not replaced by defaults and must satisfy the field's JSON Schema; defaults do not merge into a supplied Link object. Omitted Repeaters initialize their default item count (or minimum count) with item defaults. Supplied arrays use exactly those items and must satisfy `minItems`/`maxItems`; `[]` is accepted only when the minimum allows it. Asset placeholders are not stored. Existing synced Block data still takes precedence for synced types.
 
-Content and Settings writes are validated server-side against the owning environment's schemas before mutation. Validation errors include field paths. String fields contain Markdown strings (not rich-text JSON objects); Embed fields contain strings matching their pattern. Assets use managed `{ "_fileId": "<file UUIDv7>" }` references, with asset lists stored as arrays of references. Asset normalization drops hydrated URL metadata and converts placeholders to null.
+Content and Settings writes are validated server-side against the development draft's definitions before mutation. Validation errors include field paths. String fields contain Markdown strings (not rich-text JSON objects); Embed fields contain strings matching their pattern. Assets use managed `{ "_fileId": "<file UUIDv7>" }` references, with asset lists stored as arrays of references. Asset normalization drops hydrated URL metadata and converts placeholders to null.
 
 Updates validate only submitted fields, so unrelated historical invalid values do not prevent an edit. New records validate after defaults are applied. Unknown properties follow the schema's `additionalProperties` policy (allowed when unspecified); missing definitions retain legacy permissive behavior. Saved snapshots are not retroactively migrated or revalidated when restored.
 
@@ -168,4 +168,4 @@ The response's `repeatableItems` contains each item's `id`, `fieldName`, `parent
 {{CAMOX_CMD}} blocks get --id <BLOCK_UUID>
 ```
 
-Reads return the current content. Pages, Layouts and Blocks have no separate draft or published state: every edit is visible on the site of the selected Environment right away.
+Reads return the content of the development draft, which shows Live wherever it changes nothing. Every edit lands in the development draft right away and reaches Live only when the draft is published (see [CLI Publishing](cli-publishing.md)).

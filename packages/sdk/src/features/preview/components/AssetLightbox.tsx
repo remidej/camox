@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isRasterImage, transformImageUrl } from "@/core/lib/imageTransform";
 import { UploadDropZone } from "@/features/content/components/UploadDropZone";
-import { getApiUrl, getEnvironmentName } from "@/lib/api-client";
+import { getApiUrl } from "@/lib/api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "@/lib/auth";
 import { fileMutations, fileQueries } from "@/lib/queries";
 import { getUploadDraftHeaders } from "@/lib/studio-draft";
@@ -234,7 +234,6 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
         formData.append("file", droppedFile);
         formData.append("projectId", String(file?.projectId ?? 0));
 
-        const envName = getEnvironmentName();
         const authCookieHeader = getAuthCookieHeader();
         const uploadRes = await fetch(`${getApiUrl()}/files/${fileId}/content`, {
           method: "POST",
@@ -242,7 +241,6 @@ const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
           credentials: getAuthRequestCredentials(authCookieHeader),
           headers: {
             ...(authCookieHeader ? { "Better-Auth-Cookie": authCookieHeader } : {}),
-            ...(envName ? { "x-environment-name": envName } : {}),
             ...draft.headers,
           },
         });

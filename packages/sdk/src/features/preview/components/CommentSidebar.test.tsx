@@ -14,7 +14,7 @@ const api = {
   list: async (_pageId: string): Promise<Comment[]> => [],
   create: async (input: CreateInput): Promise<Comment> => ({
     ...input,
-    environmentId: 1,
+    projectId: 1,
     draftId: null,
     addressedIn: null,
     author: { name: "Reviewer", image: null },
@@ -96,7 +96,7 @@ function comment(id: string, pageId: string, target: CommentTarget | null): Comm
   return {
     id,
     pageId,
-    environmentId: 1,
+    projectId: 1,
     draftId: null,
     addressedIn: null,
     target,

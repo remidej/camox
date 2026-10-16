@@ -10,12 +10,10 @@ import {
 import { lexicalStateToMarkdown, markdownToLexicalState } from "../../lib/lexical-state";
 import { runService } from "../../lib/run-service";
 import type { BaseContext } from "../../orpc";
-import { blockDefinitions, environments, layouts } from "../../schema";
 import { callTool } from "../agent/service";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { blockProcedures as blockRoutes } from "../blocks/routes";
 import { commentProcedures as commentRoutes } from "../comments/routes";
-import { replicateEnvironment } from "../environments/service";
 import { repeatableItemProcedures as itemRoutes } from "../repeatable-items/routes";
 import { pageProcedures as pageRoutes } from "./routes";
 
@@ -296,55 +294,13 @@ describe("stable page tree identity", () => {
       f.options,
     );
     expect(markdown.markdown).toContain(`[About us](camox:page:${f.page.id})`);
-
-    const target = await f.db
-      .insert(environments)
-      .values({
-        projectId: f.project.id,
-        name: "target",
-        type: "development",
-        createdAt: 1,
-        updatedAt: 1,
-      })
-      .returning()
-      .get();
-    await f.db.insert(layouts).values({ ...f.layout, rowId: undefined, environmentId: target.id });
-    for (const definition of await f.db.select().from(blockDefinitions)) {
-      if (definition.environmentId !== f.environment.id) continue;
-      await f.db
-        .insert(blockDefinitions)
-        .values({ ...definition, rowId: undefined, environmentId: target.id });
-    }
-    await runService(
-      replicateEnvironment(f.ctx, {
-        projectId: f.project.id,
-        sourceEnvName: "production",
-        targetEnvName: "target",
-      }),
-    );
-    const replicaCtx = {
-      ...f.options,
-      context: { ...f.options.context, environmentName: "target" },
-    };
-    const [replica] = await callSeedingLive(
-      pageRoutes.list,
-      { projectId: f.project.id },
-      replicaCtx,
-    );
-    expect(replica!.id).toMatch(UUIDV7);
-    const replicaMarkdown = await callSeedingLive(
-      blockRoutes.getPageMarkdown,
-      { pageId: replica!.id },
-      replicaCtx,
-    );
-    expect(replicaMarkdown.markdown).toContain(`[About us](camox:page:${replica!.id})`);
-    const { block: replicaBlock } = await callSeedingLive(
+    const { block } = await callSeedingLive(
       blockRoutes.get,
-      { id: replicaMarkdown.blocks[0]!.id },
-      replicaCtx,
+      { id: markdown.blocks[0]!.id },
+      f.options,
     );
-    expect(lexicalStateToMarkdown((replicaBlock.content as { body: string }).body)).toBe(
-      `[About](camox:page:${replica!.id})`,
+    expect(lexicalStateToMarkdown((block.content as { body: string }).body)).toBe(
+      `[About](camox:page:${f.page.id})`,
     );
   });
 

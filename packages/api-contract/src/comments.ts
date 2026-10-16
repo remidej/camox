@@ -22,7 +22,7 @@ export const commentTargetSchema = z.discriminatedUnion("kind", [
 export const commentSchema = z.object({
   id: uuidv7Schema,
   pageId: uuidv7Schema,
-  environmentId: z.number().int().positive(),
+  projectId: z.number().int().positive(),
   /** Where the comment was written: null for Live, seen in every draft, or the draft it's in. */
   draftId: uuidv7Schema.nullable(),
   /**

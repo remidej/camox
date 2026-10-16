@@ -15,14 +15,7 @@ import { assertPageAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { stableStringify } from "../../lib/stable-stringify";
-import {
-  blockDefinitions,
-  blocks,
-  comments,
-  environments,
-  repeatableItems,
-  user,
-} from "../../schema";
+import { blockDefinitions, blocks, comments, repeatableItems, user } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
@@ -47,10 +40,6 @@ export const setCommentResolvedInput = listCommentsInput.extend({
 const authorize = Effect.fn("authorize")(function* (ctx: ServiceContext, pageId: string) {
   const currentUser = yield* requireUser(ctx);
   const access = yield* assertPageAccess(ctx.db, pageId, currentUser.id, null);
-  const environment = yield* Effect.promise(() =>
-    ctx.db.select().from(environments).where(eq(environments.id, access.page.environmentId)).get(),
-  );
-  if (environment?.name !== ctx.environmentName) return yield* new NotFoundError();
   const scope = yield* resolveDraftScope(ctx, access.projectId);
   return { ...access, scope };
 });
@@ -69,7 +58,7 @@ function selectComments(ctx: ServiceContext) {
     .select({
       id: comments.id,
       pageId: comments.pageId,
-      environmentId: comments.environmentId,
+      projectId: comments.projectId,
       draftId: comments.draftId,
       addressedInDraftId: comments.addressedInDraftId,
       target: comments.target,
@@ -228,7 +217,7 @@ const loadTargets = Effect.fn("loadTargets")(function* (
               ctx.db.select({ id: blocks.id }).from(blocks).where(scope),
             ),
             // Synced placements show their shared content's items.
-            sharedContentItemsIn(page.environmentId),
+            sharedContentItemsIn(page.projectId),
           ),
         ),
       ),
@@ -239,7 +228,7 @@ const loadTargets = Effect.fn("loadTargets")(function* (
       .from(blockDefinitions)
       .where(
         and(
-          eq(blockDefinitions.environmentId, page.environmentId),
+          eq(blockDefinitions.projectId, page.projectId),
           definitionsIn(blockDefinitions, draftScope),
         ),
       ),
@@ -257,8 +246,8 @@ type TargetLookups = Effect.Success<ReturnType<typeof loadTargets>>;
 function blockShows(block: typeof blocks.$inferSelect, item: typeof repeatableItems.$inferSelect) {
   const root = rootOfItem(item);
   if ("blockId" in root) return root.blockId === block.id;
-  const { environmentId, type } = root.sharedContent;
-  return environmentId === block.environmentId && type === block.type;
+  const { projectId, type } = root.sharedContent;
+  return projectId === block.projectId && type === block.type;
 }
 
 const validateTarget = Effect.fn("validateTarget")(function* (
@@ -318,7 +307,7 @@ export const createComment = Effect.fn("comments.createComment")(function* (
           .insert(comments)
           .values({
             ...input,
-            environmentId: access.page.environmentId,
+            projectId: access.page.projectId,
             draftId: access.scope?.id ?? null,
             blockId: "blockId" in input.target ? input.target.blockId : null,
             itemId: "itemId" in input.target ? input.target.itemId : null,

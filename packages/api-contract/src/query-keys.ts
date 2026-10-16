@@ -79,10 +79,6 @@ export const queryKeys = {
     get: ["camox", "drafts", "get"],
     previewPublish: ["camox", "drafts", "previewPublish"],
   },
-  environments: {
-    all: ["camox", "environments"],
-    checkCompatibility: ["camox", "environments", "checkCompatibility"],
-  },
 } satisfies Record<string, QueryKeyGroup>;
 
 /** The last segment of a query key: what the query reads, Live or a draft (ADR 0011). */

@@ -16,12 +16,12 @@ Camox owns page routing, SSR, hydration, client navigation, Studio, sitemap, mar
 ## Demo content
 
 No manual step is needed. On a fresh clone or worktree, `scripts/prepare.sh` migrates and
-seeds the local database, and the first `pnpm dev` creates your environment. Once the
+seeds the local database, and the first `pnpm dev` creates your development draft. Once the
 definitions are synced, `demoArticles.ts` fills the **Articles** collection: five
 articles with distinct titles, slugs, excerpts and bodies, no cover, four published one
 after another and the last one, "Notes on our next release (draft)", left as a draft.
 
-Seeding runs only when the environment has no articles, so restarting dev never duplicates
+Seeding runs only when your development draft has no articles, so restarting dev never duplicates
 them, and articles you create or delete are left alone. To start over, run `pnpm seed` at
 the repository root, which resets the whole local database, then `pnpm dev` again.
 
@@ -49,8 +49,8 @@ Camox development API. They do not use collections or route discovery.
 
 `src/collections/customers.ts` is discovered and synced by the Vite plugin; no
 page needs to reference an item before it can be authored. The playground already enables experimental Studio features.
-With `pnpm dev` running, sign into Studio, select the playground project and the
-intended environment, and open **Content → Customers**:
+With `pnpm dev` running, sign into Studio, select the playground project, and open
+**Content → Customers**:
 
 1. Create an item named “Ada Lovelace”, company “Analytical Engines”, and save.
    The browser shows **Draft**; saving does not publish.
@@ -174,7 +174,7 @@ links nothing further.
 4. Deleting an author that any article or block links is rejected.
 
 Authors used to link their articles instead. A schema change is rejected while records exist,
-so if your environment still has authors from before, run `pnpm seed` at the repository root
+so if your development draft still has authors from before, run `pnpm seed` at the repository root
 to start over.
 
 ## Recent articles and article list (slice 6, query-backed reference lists)

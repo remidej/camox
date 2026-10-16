@@ -15,11 +15,11 @@ export function handler(): never {
   p.intro("camox release");
 
   if (!process.env.CAMOX_DEPLOY_TOKEN) {
-    p.log.error("CAMOX_DEPLOY_TOKEN is required to release to production.");
+    p.log.error("CAMOX_DEPLOY_TOKEN is required to release to Live.");
     process.exit(1);
   }
 
-  p.log.info("Building and syncing the production environment...");
+  p.log.info("Building and syncing definitions to Live...");
 
   const executable = process.platform === "win32" ? "vp.cmd" : "vp";
   const result = spawnSync(executable, ["build"], {
@@ -31,15 +31,15 @@ export function handler(): never {
   });
 
   if (result.error) {
-    p.log.error(`Could not start the production build: ${result.error.message}`);
+    p.log.error(`Could not start the release build: ${result.error.message}`);
     process.exit(1);
   }
 
   if (result.status !== 0) {
-    p.log.error("Production release failed.");
+    p.log.error("Release failed.");
     process.exit(result.status ?? 1);
   }
 
-  p.outro("Production release prepared successfully.");
+  p.outro("Release prepared successfully.");
   process.exit(0);
 }

@@ -22,13 +22,13 @@ const draftScopeProbe = pub
 
 // A write that stores a block in the draft, as a concurrent first edit would, and then fails.
 const storeThenFailProbe = pub
-  .input(z.object({ projectId: z.number(), environmentId: z.number() }))
+  .input(z.object({ projectId: z.number() }))
   .handler(({ context, input }) =>
     runService(
       inDraftScope(context, input.projectId, (scope) =>
         overlay
           .insert(context.db, scope, blocks, {
-            environmentId: input.environmentId,
+            projectId: input.projectId,
             type: "hero",
             content: {},
             position: "a0",
@@ -63,7 +63,7 @@ async function fixture() {
   const storeThenFail = (headers: Record<string, string>) =>
     call(
       storeThenFailProbe,
-      { projectId: base.project.id, environmentId: base.environment.id },
+      { projectId: base.project.id },
       { context: createRpcContext(base.db, base.memberUser, headers) },
     );
 

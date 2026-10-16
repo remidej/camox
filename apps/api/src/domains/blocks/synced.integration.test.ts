@@ -109,10 +109,7 @@ async function fixture(suffix: string, synced?: boolean) {
       layouts: layoutDefinitions,
     }),
   );
-  const rows = await base.db
-    .select()
-    .from(layouts)
-    .where(eq(layouts.environmentId, base.environment.id));
+  const rows = await base.db.select().from(layouts).where(eq(layouts.projectId, base.project.id));
   const first = (await base.db.select().from(blocks).where(blocksOfLayout(base.layout)).get())!;
   const otherLayout = rows.find((row) => row.layoutId === "other")!;
   const second = (await base.db.select().from(blocks).where(blocksOfLayout(otherLayout)).get())!;
@@ -121,7 +118,6 @@ async function fixture(suffix: string, synced?: boolean) {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
       layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",

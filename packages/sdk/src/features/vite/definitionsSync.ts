@@ -13,7 +13,6 @@ const SYNC_DEBOUNCE_DELAY_MS = 100;
 interface SyncDefinitionsOptions {
   projectSlug: string;
   apiUrl: string;
-  environmentName: string;
   autoCreate: boolean;
   authToken?: string;
   deployToken?: string;
@@ -24,14 +23,9 @@ interface SyncDefinitionsOptions {
  * sends the developer's session and syncs their development draft, which its first sync
  * creates (ADR 0006).
  */
-function createSyncClient(options: {
-  apiUrl: string;
-  environmentName: string;
-  authToken?: string;
-  deployToken?: string;
-}) {
+function createSyncClient(options: { apiUrl: string; authToken?: string; deployToken?: string }) {
   const draftId = options.deployToken ? undefined : DEVELOPMENT_DRAFT;
-  return createServerApiClient(options.apiUrl, options.environmentName, options.authToken, draftId);
+  return createServerApiClient(options.apiUrl, options.authToken, draftId);
 }
 
 /**
@@ -56,10 +50,19 @@ function isNotFoundError(error: unknown): boolean {
   );
 }
 
-function throwUnknownEnvironmentError(environmentName: string): never {
+/**
+ * A sync that may not create the development draft finds nothing to write to: a release names a
+ * project that doesn't exist, or dev mode has no development draft yet (ADR 0006).
+ */
+function throwSyncTargetNotFoundError(projectSlug: string, deployToken?: string): never {
+  if (deployToken) {
+    throw new Error(
+      `[camox] Project "${projectSlug}" does not exist. Check the camox() projectSlug.`,
+    );
+  }
   throw new Error(
-    `[camox] Environment "${environmentName}" does not exist. ` +
-      `Run the dev server while authenticated to create your personal environment first.`,
+    `[camox] You have no development draft in project "${projectSlug}" yet. ` +
+      `Run the dev server while authenticated to create it first.`,
   );
 }
 
@@ -67,13 +70,12 @@ export async function syncDefinitionsToApi(options: {
   camoxApp: CamoxApp;
   projectSlug: string;
   apiUrl: string;
-  environmentName: string;
   autoCreate: boolean;
   authToken?: string;
   deployToken?: string;
   logger: Logger;
 }): Promise<void> {
-  const { camoxApp, projectSlug, environmentName, autoCreate, deployToken, logger } = options;
+  const { camoxApp, projectSlug, autoCreate, deployToken, logger } = options;
   const client = createSyncClient(options);
 
   const blocks = camoxApp.getBlocks();
@@ -118,7 +120,8 @@ export async function syncDefinitionsToApi(options: {
     deletedDefinitionTypes = result.deletedDefinitionTypes;
   } catch (error) {
     throwIfSyncAuthError(error);
-    if (!autoCreate && isNotFoundError(error)) throwUnknownEnvironmentError(environmentName);
+    if (!autoCreate && isNotFoundError(error))
+      throwSyncTargetNotFoundError(projectSlug, deployToken);
     throw error;
   }
 
@@ -166,7 +169,8 @@ export async function syncDefinitionsToApi(options: {
       });
     } catch (error) {
       throwIfSyncAuthError(error);
-      if (!autoCreate && isNotFoundError(error)) throwUnknownEnvironmentError(environmentName);
+      if (!autoCreate && isNotFoundError(error))
+        throwSyncTargetNotFoundError(projectSlug, deployToken);
       throw error;
     }
     logger.info(
@@ -211,7 +215,7 @@ export async function syncDefinitionsToApi(options: {
     }
   }
 
-  // Initialize content for fresh environments (no-ops if pages already exist)
+  // Initialize content for a fresh project or draft (no-ops if pages already exist)
   const initialPage = await camoxApp.getInitialPageBundles();
   if (initialPage) {
     try {
@@ -287,7 +291,7 @@ export async function syncDefinitions(
   server: ViteDevServer,
   options: SyncDefinitionsOptions,
 ): Promise<boolean> {
-  const { projectSlug, apiUrl, environmentName, autoCreate, authToken, deployToken } = options;
+  const { projectSlug, apiUrl, autoCreate, authToken, deployToken } = options;
   const client = createSyncClient(options);
   const blocksDirs = [
     path.resolve(server.config.root, "src/blocks"),
@@ -326,7 +330,6 @@ export async function syncDefinitions(
       camoxApp: camoxModule.camoxApp,
       projectSlug,
       apiUrl,
-      environmentName,
       autoCreate,
       authToken,
       deployToken,

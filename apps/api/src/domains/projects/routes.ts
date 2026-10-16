@@ -67,7 +67,7 @@ export const projectProcedures = {
 // --- Hono routes (favicon binary serving + multipart upload) ---
 //
 // Favicons live in R2 at `favicons/${projectId}` — one per project, shared
-// across environments. No `files` row (so they stay out of the media library).
+// by Live and every draft. No `files` row (so they stay out of the media library).
 // We bump `projects.updatedAt` on writes so `?v=${updatedAt}` busts the URL.
 
 const FAVICON_MIME_ALLOWLIST = new Set([

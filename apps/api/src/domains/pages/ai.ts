@@ -139,11 +139,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
       .select()
       .from(blockDefinitions)
       .where(
-        and(
-          eq(blockDefinitions.projectId, page.projectId),
-          eq(blockDefinitions.environmentId, page.environmentId),
-          definitionsIn(blockDefinitions, scope),
-        ),
+        and(eq(blockDefinitions.projectId, page.projectId), definitionsIn(blockDefinitions, scope)),
       ),
   );
   const definitions = new Map(defs.map((def) => [def.blockId, def]));

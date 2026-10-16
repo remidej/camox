@@ -326,15 +326,7 @@ export function useProcessOtt(
       }
       setReady(true);
     })();
-  }, [
-    authClient,
-    ready,
-    error,
-    initialAuthenticated,
-    target.projectSlug,
-    target.environmentName,
-    target.apiUrl,
-  ]);
+  }, [authClient, ready, error, initialAuthenticated, target.projectSlug, target.apiUrl]);
 
   return { ready, error };
 }
@@ -349,7 +341,6 @@ interface AuthContextValue {
   authenticationUrl: string;
   apiUrl: string;
   projectSlug: string;
-  environmentName?: string;
 }
 
 export const AuthContext = React.createContext<AuthContextValue | null>(null);

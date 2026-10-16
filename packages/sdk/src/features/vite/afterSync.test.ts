@@ -147,14 +147,12 @@ void test("the dev server syncs definitions and runs afterSync in the dev user's
       path,
       session: headers.authorization,
       draft: headers[DRAFT_HEADER],
-      environment: headers["x-environment-name"],
     })),
     ["blockDefinitions.sync", "collectionDefinitions.sync", "collectionDefinitions.list"].map(
       (path) => ({
         path,
         session: "Bearer dev-session",
         draft: DEVELOPMENT_DRAFT,
-        environment: "production",
       }),
     ),
   );
@@ -183,7 +181,6 @@ void test("a release syncs Live's definitions: its requests name no draft", asyn
     camoxApp,
     projectSlug: "checkout",
     apiUrl: checkout.apiUrl,
-    environmentName: "production",
     autoCreate: false,
     deployToken: "deploy-token",
     logger: createLogger("silent"),

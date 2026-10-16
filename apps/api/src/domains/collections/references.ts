@@ -3,9 +3,9 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
+import { InvalidInputError, type ServiceError } from "../../lib/errors";
 import { lexicalStateToPlainText, pageTextLinkIds } from "../../lib/lexical-state";
-import { blockDefinitions, environments } from "../../schema";
+import { blockDefinitions } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
@@ -340,7 +340,6 @@ const definitionIn = Effect.fn("collections.definitionIn")(function* (
       .where(
         and(
           eq(collectionDefinitions.projectId, scope.projectId),
-          eq(collectionDefinitions.environmentId, scope.environmentId),
           definitionsIn(collectionDefinitions, scope.draft),
           eq(collectionDefinitions.collectionId, String(field.collectionId)),
         ),
@@ -395,7 +394,6 @@ const blockDefinitionsIn = Effect.fn("collections.blockDefinitionsIn")(function*
       .where(
         and(
           eq(blockDefinitions.projectId, scope.projectId),
-          eq(blockDefinitions.environmentId, scope.environmentId),
           definitionsIn(blockDefinitions, scope.draft),
         ),
       ),
@@ -532,7 +530,6 @@ export const recordInScope = Effect.fn("collections.recordInScope")(function* (
           eq(collectionRecords.id, validId.data),
           overlay.visibleIn(collectionRecords, scope.draft),
           eq(collectionDefinitions.projectId, scope.projectId),
-          eq(collectionDefinitions.environmentId, scope.environmentId),
           definitionsIn(collectionDefinitions, scope.draft),
           eq(collectionDefinitions.collectionId, String(field.collectionId)),
         ),
@@ -548,26 +545,13 @@ function invalidList(name: string, problem: string) {
 
 export function missingReference(name: string) {
   return new InvalidInputError({
-    message: `${name}: reference is missing or outside this collection/project/environment`,
+    message: `${name}: reference is missing or outside this collection/project`,
   });
 }
 
 /**
- * The project and environment a block belongs to, whether on a page or in a layout, read as
- * Live or as `draft`.
+ * The project a block belongs to, whether on a page or in a layout, read as Live or as `draft`.
  */
-export const blockScope = Effect.fn("collections.blockScope")(function* (
-  ctx: ServiceContext,
-  block: { environmentId: number },
-  draft: DraftScope,
-) {
-  const environment = yield* Effect.promise(() =>
-    ctx.db.select().from(environments).where(eq(environments.id, block.environmentId)).get(),
-  );
-  if (!environment) return yield* new NotFoundError();
-  return {
-    projectId: environment.projectId,
-    environmentId: environment.id,
-    draft,
-  } satisfies ContentScope;
-});
+export function blockScope(block: { projectId: number }, draft: DraftScope): ContentScope {
+  return { projectId: block.projectId, draft };
+}
