@@ -17,6 +17,10 @@ export default defineConfig({
     },
   },
   test: {
+    // Project Room broadcasts are fire-and-forget (`waitUntil`). One can reach its Durable
+    // Object after its test file ended, and loading the worker then fails because the pool
+    // already tore the file's environment down. It cannot affect any test's outcome.
+    onUnhandledError: (error) => !error.message?.includes("after the environment was torn down"),
     projects: [
       {
         // Pure logic runs in Node: booting workerd and migrating D1 per file
