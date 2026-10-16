@@ -6,7 +6,7 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 
 import { ViewportContinuity, ViewportContinuityContext } from "../preview/viewportContinuity";
-import { fitCanvas, fitCanvasPage } from "./canvasCamera";
+import { canvasMinimumScale, fitCanvasPage } from "./canvasCamera";
 import { useCanvasCamera } from "./useCanvasCamera";
 
 void test("real camera handoffs use held snaps, preserve exact overview returns, and accept moved preview anchors", async () => {
@@ -83,10 +83,11 @@ void test("real camera handoffs use held snaps, preserve exact overview returns,
       offsetWidth: { get: () => contentSize.width },
       offsetHeight: { get: () => contentSize.height },
     });
-    Object.defineProperties(iframe, {
-      contentDocument: { value: frameWindow.document },
-      getBoundingClientRect: { value: () => ({ top: 84 + read().y, left: 300 + read().x }) },
+    // The camera measures the Page, whose frame sits at its top.
+    Object.defineProperty(content.querySelector("[data-canvas-page]")!, "getBoundingClientRect", {
+      value: () => ({ top: 84 + read().y, left: 300 + read().x }),
     });
+    Object.defineProperties(iframe, { contentDocument: { value: frameWindow.document } });
     frameWindow.document.body.innerHTML = '<div data-camox-viewport-block="42"></div>';
     Object.defineProperty(frameWindow.document.body.firstElementChild, "getBoundingClientRect", {
       value: () => ({ top: 1000, bottom: 3000, height: 2000 }),
@@ -138,7 +139,7 @@ void test("real camera handoffs use held snaps, preserve exact overview returns,
       animate(16);
       assert.equal(
         read().scale,
-        fitCanvas(size, contentSize).scale,
+        canvasMinimumScale(size, contentSize),
         `restoration refreshes the zoom floor ${observeBeforeZoom ? "after" : "before"} observer delivery`,
       );
     }

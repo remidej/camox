@@ -8,9 +8,11 @@ import { createRoot } from "react-dom/client";
 
 import {
   CANVAS_WHEEL_ZOOM_RATE,
+  canvasOverview,
   constrainCanvasCamera,
   fitCanvas,
   fitCanvasPage,
+  MIN_CANVAS_ZOOM,
   PAN_SNAP_CAPTURE,
   PAN_SNAP_RELEASE,
   ZOOM_SNAP_CAPTURE,
@@ -1346,20 +1348,18 @@ void test("canvas gestures own the camera, reveal keyboard controls, and clean u
     );
     viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "Home" }));
     flush();
+    assert.ok(fitCanvas(viewportSize, contentSize).scale < MIN_CANVAS_ZOOM);
     assert.equal(
       Number(style.getPropertyValue("--canvas-zoom")),
-      fitCanvas(viewportSize, contentSize).scale,
-    );
-    assert.ok(
-      Number(style.getPropertyValue("--canvas-zoom")) < 0.05,
-      "very tall pages can fit below 5%",
+      MIN_CANVAS_ZOOM,
+      "very tall pages stop at the zoom floor instead of fitting",
     );
     contentSize.height = 6000;
     viewportSize.width = 1000;
     resized();
     assert.equal(
       Number(style.getPropertyValue("--canvas-zoom")),
-      fitCanvas(viewportSize, contentSize).scale,
+      canvasOverview(viewportSize, contentSize).scale,
       "overview follows document and viewport resizing",
     );
 
@@ -1476,7 +1476,7 @@ void test("workspace cameras survive route remounts and delayed iframe sizing", 
 
   try {
     await render("restore-a");
-    assert.deepEqual(read(), fitCanvas(viewportSize, contentSize));
+    assert.deepEqual(read(), canvasOverview(viewportSize, contentSize));
     key("0");
     flush();
     key("ArrowDown");
@@ -1520,10 +1520,14 @@ void test("workspace cameras survive route remounts and delayed iframe sizing", 
     await render(null);
     contentSize.height = 900;
     await render("restore-a");
-    assert.deepEqual(read(), fitCanvas(viewportSize, contentSize));
+    assert.deepEqual(read(), canvasOverview(viewportSize, contentSize));
     contentSize.height = 10000;
     resized();
-    assert.deepEqual(read(), fitCanvas(viewportSize, contentSize), "saved overview stays fitted");
+    assert.deepEqual(
+      read(),
+      canvasOverview(viewportSize, contentSize),
+      "saved overview stays fitted",
+    );
 
     key("0");
     flush();
@@ -1531,7 +1535,7 @@ void test("workspace cameras survive route remounts and delayed iframe sizing", 
     await render("restore-b");
     assert.deepEqual(
       read(),
-      fitCanvas(viewportSize, contentSize),
+      canvasOverview(viewportSize, contentSize),
       "another workspace starts fresh",
     );
     await render("restore-a");
@@ -1549,6 +1553,103 @@ void test("workspace cameras survive route remounts and delayed iframe sizing", 
       constrainCanvasCamera(userView, viewportSize, contentSize),
       "new input takes precedence over restoration during loading",
     );
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("the camera paints onto mirrored elements outside the viewport until released", async () => {
+  const dom = new Window({ url: "http://localhost/camox/canvas" });
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let resize = () => {};
+  let sequence = 0;
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  Object.defineProperty(dom, "matchMedia", { value: () => ({ matches: true }) });
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("mirror", undefined, { targets: [], onSelect: () => {} });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => 900 },
+      clientHeight: { get: () => 800 },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => 8000 },
+      offsetHeight: { get: () => 6000 },
+    });
+    resize();
+    const camera = (element: { style: { getPropertyValue: (name: string) => string } }) =>
+      ["--canvas-x", "--canvas-y", "--canvas-zoom"].map((name) =>
+        element.style.getPropertyValue(name),
+      );
+    const flush = () => {
+      for (let count = 0; callbacks.size && count < 200; count++) {
+        const batch = [...callbacks.values()];
+        callbacks.clear();
+        batch.forEach((callback) => callback(0));
+      }
+    };
+    const mirror = dom.document.createElement("div") as unknown as HTMLElement;
+    const release = controls.mirrorCamera(mirror);
+    assert.deepEqual(camera(mirror), camera(viewport), "a mirror starts with the current camera");
+    viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "0" }));
+    flush();
+    assert.notDeepEqual(camera(viewport), ["", "", ""]);
+    assert.deepEqual(camera(mirror), camera(viewport), "camera moves reach the mirror");
+    const space = (type: string) =>
+      dom.document.body.dispatchEvent(
+        new dom.KeyboardEvent(type, { code: "Space", key: " ", bubbles: true }),
+      );
+    space("keydown");
+    assert.equal(mirror.dataset.canvasPan, viewport.dataset.canvasPan);
+    assert.equal(mirror.dataset.canvasPan, "ready", "the hand tool reaches the mirror");
+    space("keyup");
+    assert.equal(mirror.dataset.canvasPan, undefined);
+
+    release();
+    assert.deepEqual(camera(mirror), ["", "", ""], "releasing clears the mirrored camera");
+    viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "-" }));
+    flush();
+    assert.deepEqual(camera(mirror), ["", "", ""], "a released mirror no longer follows");
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();

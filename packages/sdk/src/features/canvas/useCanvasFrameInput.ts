@@ -2,15 +2,19 @@ import * as React from "react";
 
 /**
  * Keep the Canvas camera working over an interactive frame: forward its wheel
- * input, and the Space key that arms the hand tool, to the host document.
+ * input, and the Space key that arms the hand tool, to the host document. They
+ * bubble from the frame, unless it sits outside the Canvas and names the
+ * element to dispatch them on.
  */
 export function useCanvasFrameInput(
   iframeRef: React.RefObject<HTMLIFrameElement | null>,
   mount: HTMLElement | null,
+  target?: HTMLElement | null,
 ) {
   React.useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe || !mount) return;
+    const host = target ?? iframe;
     const doc = mount.ownerDocument;
     // Native wheel events do not bubble out of a document. Keep the existing
     // camera behavior over interactive frames, using host-space coordinates.
@@ -18,7 +22,7 @@ export function useCanvasFrameInput(
       event.preventDefault();
       const rect = iframe.getBoundingClientRect();
       const scale = rect.width / iframe.offsetWidth;
-      iframe.dispatchEvent(
+      host.dispatchEvent(
         new WheelEvent("wheel", {
           bubbles: true,
           cancelable: true,
@@ -50,7 +54,7 @@ export function useCanvasFrameInput(
         altKey: event.altKey,
         shiftKey: event.shiftKey,
       });
-      iframe.dispatchEvent(forwarded);
+      host.dispatchEvent(forwarded);
       if (forwarded.defaultPrevented) event.preventDefault();
     };
     doc.addEventListener("wheel", forwardWheel, { passive: false });
@@ -61,5 +65,5 @@ export function useCanvasFrameInput(
       doc.removeEventListener("keydown", forwardSpace);
       doc.removeEventListener("keyup", forwardSpace);
     };
-  }, [iframeRef, mount]);
+  }, [iframeRef, mount, target]);
 }

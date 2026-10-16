@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { canvasPageIframe } from "../preview/previewPageFrame";
 import {
   captureViewportAnchor,
   resolveViewportAnchor,
@@ -12,7 +13,8 @@ import {
   canvasVerticalRail,
   canvasWheelDelta,
   constrainCanvasCamera,
-  fitCanvas,
+  canvasMinimumScale,
+  canvasOverview,
   fitCanvasPage,
   isCanvasPageScale,
   isNearCanvasPageScale,
@@ -31,6 +33,12 @@ import { createCanvasFlight } from "./canvasFlight";
 import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
+const CAMERA_PROPERTIES = [
+  "--canvas-x",
+  "--canvas-y",
+  "--canvas-zoom",
+  "--canvas-overlays-display",
+];
 const MIN_OVERLAY_ZOOM = 0.3;
 /** The camera counts as moving until it has been still this long. */
 const CAMERA_SETTLE_MS = 150;
@@ -77,6 +85,9 @@ export function useCanvasCamera(
   row?: CanvasCameraRow,
 ) {
   const continuity = React.useContext(ViewportContinuityContext);
+  // Elements outside the Canvas viewport that follow the camera, such as the
+  // Preview page frame placed over the selected Page.
+  const mirrors = React.useRef(new Set<HTMLElement>());
   const viewportRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const initialTargetRef = React.useRef(initialTarget);
@@ -97,6 +108,17 @@ export function useCanvasCamera(
   }, []);
   const zoomAt = React.useCallback((point: CanvasPoint, scale: number) => {
     flightControls.current?.zoomAt(point, scale);
+  }, []);
+  const paintMirror = React.useRef<((element: HTMLElement) => void) | null>(null);
+  /** Paints the camera onto an element outside the viewport until the returned cleanup. */
+  const mirrorCamera = React.useCallback((element: HTMLElement) => {
+    mirrors.current.add(element);
+    paintMirror.current?.(element);
+    return () => {
+      mirrors.current.delete(element);
+      for (const name of CAMERA_PROPERTIES) element.style.removeProperty(name);
+      delete element.dataset.canvasPan;
+    };
   }, []);
   /** Pan immediately so a world x sits at or right of a screen x; never pans otherwise. */
   const keepInView = React.useCallback((worldX: number, screenX: number) => {
@@ -140,7 +162,7 @@ export function useCanvasCamera(
       height: content.offsetHeight,
     });
     let contentSize = measureContent();
-    let minimumScale = fitCanvas(viewportSize, contentSize).scale;
+    let minimumScale = canvasMinimumScale(viewportSize, contentSize);
     const updateGeometry = (
       nextViewport = { width: viewport.clientWidth, height: viewport.clientHeight },
       nextContent = measureContent(),
@@ -149,7 +171,7 @@ export function useCanvasCamera(
       // can consume a resize before ResizeObserver delivers the same dimensions.
       viewportSize = nextViewport;
       contentSize = nextContent;
-      minimumScale = fitCanvas(viewportSize, contentSize).scale;
+      minimumScale = canvasMinimumScale(viewportSize, contentSize);
     };
     // Keep the saved view as the restoration target while iframe heights load.
     // Clamping against their temporary placeholder sizes must not overwrite it.
@@ -160,7 +182,7 @@ export function useCanvasCamera(
     const initialCamera = () =>
       fittingInitialPage && page
         ? constrainCanvasCamera(fitCanvasPage(viewportSize, page), viewportSize, contentSize)
-        : fitCanvas(viewportSize, contentSize);
+        : canvasOverview(viewportSize, contentSize);
     let camera = restoredCamera
       ? constrainCanvasCamera(restoredCamera, viewportSize, contentSize)
       : initialCamera();
@@ -288,9 +310,11 @@ export function useCanvasCamera(
     // an ordinary surface. Middle-button and touch drags always move the camera.
     let spaceHeld = false;
     const paintPanState = () => {
-      if (pointers.size) viewport.dataset.canvasPan = "dragging";
-      else if (spaceHeld) viewport.dataset.canvasPan = "ready";
-      else delete viewport.dataset.canvasPan;
+      for (const element of [viewport, ...mirrors.current]) {
+        if (pointers.size) element.dataset.canvasPan = "dragging";
+        else if (spaceHeld) element.dataset.canvasPan = "ready";
+        else delete element.dataset.canvasPan;
+      }
     };
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -316,14 +340,22 @@ export function useCanvasCamera(
         setMoving(false);
       }, CAMERA_SETTLE_MS);
     };
-    const paint = () => {
-      viewport.style.setProperty("--canvas-x", `${camera.x}px`);
-      viewport.style.setProperty("--canvas-y", `${camera.y}px`);
-      viewport.style.setProperty("--canvas-zoom", String(camera.scale));
-      viewport.style.setProperty(
+    const paintElement = (element: HTMLElement) => {
+      element.style.setProperty("--canvas-x", `${camera.x}px`);
+      element.style.setProperty("--canvas-y", `${camera.y}px`);
+      element.style.setProperty("--canvas-zoom", String(camera.scale));
+      element.style.setProperty(
         "--canvas-overlays-display",
         camera.scale < MIN_OVERLAY_ZOOM ? "none" : "block",
       );
+    };
+    paintMirror.current = (element) => {
+      paintElement(element);
+      paintPanState();
+    };
+    const paint = () => {
+      paintElement(viewport);
+      for (const element of mirrors.current) paintElement(element);
       remember();
     };
     const animate = (time: number) => {
@@ -392,7 +424,7 @@ export function useCanvasCamera(
     };
     const startOverviewFlight = () => {
       cancelCameraFlight();
-      flyToCamera(() => fitCanvas(viewportSize, contentSize));
+      flyToCamera(() => canvasOverview(viewportSize, contentSize));
     };
     const flyToCamera = (destinationCamera: () => CanvasCamera, page?: CanvasSnapTarget) => {
       cancelAnimationFrame(animation);
@@ -495,15 +527,14 @@ export function useCanvasCamera(
           Array.from(content.querySelectorAll<HTMLElement>("[data-canvas-page]")).find(
             (element) => element.dataset.canvasPage === snapped.key,
           );
-        const frame = element ? element.querySelector("iframe") : undefined;
-        const doc = frame?.contentDocument;
+        const doc = element ? canvasPageIframe(element)?.contentDocument : undefined;
         const anchor =
-          doc && frame
+          doc && element
             ? captureViewportAnchor(
                 doc,
                 Math.max(
                   0,
-                  (viewport.getBoundingClientRect().top - frame.getBoundingClientRect().top) /
+                  (viewport.getBoundingClientRect().top - element.getBoundingClientRect().top) /
                     camera.scale,
                 ),
               )
@@ -523,10 +554,10 @@ export function useCanvasCamera(
         const selected = initialTargetRef.current;
         const destination = targets().find((candidate) => candidate.left === selected?.left);
         if (!destination) return;
-        const frame = Array.from(content.querySelectorAll<HTMLElement>("[data-canvas-page]"))
-          .find((element) => element.dataset.canvasPage === destination.key)
-          ?.querySelector("iframe");
-        const doc = frame?.contentDocument;
+        const page = Array.from(content.querySelectorAll<HTMLElement>("[data-canvas-page]")).find(
+          (element) => element.dataset.canvasPage === destination.key,
+        );
+        const doc = page ? canvasPageIframe(page)?.contentDocument : undefined;
         updateGeometry();
         const fit = fitCanvasPage(viewportSize, destination);
         let next = previous ?? camera;
@@ -534,10 +565,8 @@ export function useCanvasCamera(
           const scale =
             previous?.scale ?? (saved && !saved.fitted ? saved.camera.scale : fit.scale);
           const y = resolveViewportAnchor(doc, anchor);
-          const frameOffsetY = frame
-            ? (frame.getBoundingClientRect().top -
-                viewport.getBoundingClientRect().top -
-                camera.y) /
+          const frameOffsetY = page
+            ? (page.getBoundingClientRect().top - viewport.getBoundingClientRect().top - camera.y) /
               camera.scale
             : 0;
           next = placeCanvasPageAnchor(viewportSize, destination, y, scale, frameOffsetY);
@@ -586,7 +615,7 @@ export function useCanvasCamera(
       // Stay in overview while pages finish loading. Once zoomed in, preserve
       // the working view and only correct positions invalidated by new bounds.
       camera = constrainCanvasCamera(camera, viewportSize, contentSize);
-      applyCamera(wasFitted ? fitCanvas(viewportSize, contentSize) : target, true);
+      applyCamera(wasFitted ? canvasOverview(viewportSize, contentSize) : target, true);
     });
     resize.observe(viewport);
     resize.observe(content);
@@ -754,7 +783,7 @@ export function useCanvasCamera(
       if (event.key === "Home" || (event.shiftKey && event.code === "Digit1")) {
         gesture = undefined;
         event.preventDefault();
-        move(fitCanvas(viewportSize, contentSize));
+        move(canvasOverview(viewportSize, contentSize));
         return;
       }
       const directions: Record<string, CanvasPoint> = {
@@ -805,8 +834,18 @@ export function useCanvasCamera(
       ownerWindow.removeEventListener("keyup", onSpaceUp);
       ownerWindow.removeEventListener("blur", releaseSpace);
       delete viewport.dataset.canvasPan;
+      paintMirror.current = null;
     };
   }, [workspaceKey, continuity]);
 
-  return { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView, fitAll };
+  return {
+    viewportRef,
+    contentRef,
+    flyTo,
+    cancelFlight,
+    zoomAt,
+    mirrorCamera,
+    keepInView,
+    fitAll,
+  };
 }

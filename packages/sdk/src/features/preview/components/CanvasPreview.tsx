@@ -1,6 +1,7 @@
 import { toast } from "@camox/ui/toaster";
 import * as React from "react";
 
+import { PreviewPageFrame, PreviewPageFrameContext } from "../previewPageFrame";
 import { PreviewPreparationContext } from "../previewPreparation";
 import { ViewportContinuity, ViewportContinuityContext } from "../viewportContinuity";
 import { PreviewActivationContext } from "./PreviewActivation";
@@ -109,8 +110,9 @@ function usePreparationToast(
 }
 
 /**
- * Suspense handles module loading; the selected frame signals document/content
- * readiness. Keep the same read-only tree mounted until both have finished.
+ * Suspense handles module loading; the Canvas signals readiness once laid out.
+ * The Preview stays mounted throughout: while the Canvas shows, its page frame
+ * sits in the selected Page's slot.
  */
 export function CanvasPreview({
   enabled,
@@ -164,9 +166,9 @@ export function CanvasPreview({
 
   const signals = React.useMemo(
     () => ({
-      ready: () => {
+      ready: (options?: { restore?: boolean }) => {
         if (!activeAttempt.current.enabled || activeAttempt.current.attempt !== attempt) return;
-        continuity.restoreCanvas();
+        if (options?.restore !== false) continuity.restoreCanvas();
         setPreparation((current) => {
           if (!current.enabled || current.attempt !== attempt || current.phase !== "preparing")
             return current;
@@ -203,42 +205,49 @@ export function CanvasPreview({
     [attempt, pathname],
   );
 
+  const [pageFrame] = React.useState(() => new PreviewPageFrame());
+  const pageFrameContext = React.useMemo(
+    () => ({ frame: pageFrame, revealed: ready }),
+    [pageFrame, ready],
+  );
+
   return (
     <ViewportContinuityContext value={continuity}>
-      <ViewportHandoff
-        enabled={enabled}
-        canvasVisible={ready}
-        pathname={pathname}
-        continuity={continuity}
-      >
-        <div className="relative flex min-h-0 flex-1 flex-col" data-preview-surface>
-          {!ready && (
+      <PreviewPageFrameContext value={pageFrameContext}>
+        <ViewportHandoff
+          enabled={enabled}
+          canvasVisible={ready}
+          pathname={pathname}
+          continuity={continuity}
+        >
+          <div className="relative flex min-h-0 flex-1 flex-col" data-preview-surface>
+            {/* Never unmounted: the Canvas borrows its page frame for the selected Page. */}
             <div className="flex min-h-0 flex-1 flex-col" data-read-only-preview>
               {children}
             </div>
-          )}
-          {enabled && phase !== "failed" && (
-            <div
-              key={attempt}
-              className="absolute inset-0 flex min-h-0 flex-col"
-              data-canvas-preparation={phase}
-              aria-hidden={!ready}
-              inert={!ready}
-              // Keep real geometry for iframe sizing and the camera, without exposing
-              // even site content that explicitly sets visibility: visible.
-              style={{ opacity: ready ? 1 : 0, pointerEvents: ready ? undefined : "none" }}
-            >
-              <CanvasBoundary onError={onFatalError}>
-                <PreviewPreparationContext value={signals}>
-                  <React.Suspense fallback={null}>
-                    <Canvas runtimeBasePath={runtimeBasePath} />
-                  </React.Suspense>
-                </PreviewPreparationContext>
-              </CanvasBoundary>
-            </div>
-          )}
-        </div>
-      </ViewportHandoff>
+            {enabled && phase !== "failed" && (
+              <div
+                key={attempt}
+                className="absolute inset-0 flex min-h-0 flex-col"
+                data-canvas-preparation={phase}
+                aria-hidden={!ready}
+                inert={!ready}
+                // Keep real geometry for iframe sizing and the camera, without exposing
+                // even site content that explicitly sets visibility: visible.
+                style={{ opacity: ready ? 1 : 0, pointerEvents: ready ? undefined : "none" }}
+              >
+                <CanvasBoundary onError={onFatalError}>
+                  <PreviewPreparationContext value={signals}>
+                    <React.Suspense fallback={null}>
+                      <Canvas runtimeBasePath={runtimeBasePath} />
+                    </React.Suspense>
+                  </PreviewPreparationContext>
+                </CanvasBoundary>
+              </div>
+            )}
+          </div>
+        </ViewportHandoff>
+      </PreviewPageFrameContext>
     </ViewportContinuityContext>
   );
 }

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   canvasBounds,
+  canvasOverview,
   constrainCanvasCamera,
   fitCanvas,
   MAX_CANVAS_ZOOM,
@@ -122,7 +123,7 @@ void test("stationary-center zoom is monotonic and never overshoots endpoints", 
 
 void test("all intermediate cameras respect overview bounds and maximum zoom", () => {
   const bounds = canvasBounds(viewport, content);
-  const overview = fitCanvas(viewport, content);
+  const overview = canvasOverview(viewport, content);
   for (const [from, to] of [
     [start, end],
     [end, start],

@@ -5,6 +5,7 @@ import { Window } from "happy-dom";
 
 import {
   adaptCanvasStyleSheets,
+  adoptCanvasDocument,
   canvasPageHref,
   createCanvasDocument,
   logicalViewportValue,
@@ -349,5 +350,65 @@ void test("sizing grows and shrinks from a fixed baseline, batches changes, and 
   cleanup();
   assert.equal(disconnected, 2);
   assert.equal(queued, undefined);
+  void window.happyDOM.close();
+});
+
+void test("an adopted document fills the Canvas, then the Preview again exactly as before", (t) => {
+  const window = new Window();
+  const doc = window.document;
+  const root = doc.createElement("div");
+  doc.body.appendChild(root);
+  const host = new Window().document;
+  const iframe = host.createElement("iframe") as unknown as HTMLIFrameElement;
+  for (const [key, value] of [
+    ["requestAnimationFrame", () => 1],
+    ["cancelAnimationFrame", () => {}],
+    [
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    ],
+    [
+      "MutationObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    ],
+  ] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    t.after(() => {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    });
+  }
+  // The site's own scrolling container and overscroll choice.
+  doc.body.style.setProperty("overflow", "auto");
+  doc.body.style.setProperty("overscroll-behavior", "contain");
+  Object.defineProperty(root, "scrollHeight", { get: () => 2400 });
+  const styles = () => doc.head.querySelectorAll("style").length;
+  const before = styles();
+
+  const undo = adoptCanvasDocument(iframe, root as unknown as HTMLElement, 800);
+  assert.equal(iframe.style.height, "2400px", "the frame is as tall as its page");
+  assert.equal(doc.documentElement.style.getPropertyValue("--camox-viewport-height"), "800px");
+  for (const element of [doc.documentElement, doc.body]) {
+    assert.equal(element.style.getPropertyValue("overflow"), "hidden");
+    assert.equal(element.style.getPropertyValue("overscroll-behavior"), "none");
+  }
+  assert.equal(styles(), before + 1, "CSS animations can pause with the frame");
+
+  undo();
+  assert.equal(iframe.style.height, "");
+  assert.equal(doc.documentElement.style.getPropertyValue("--camox-viewport-height"), "");
+  assert.equal(doc.documentElement.style.getPropertyValue("overflow"), "");
+  assert.equal(doc.body.style.getPropertyValue("overflow"), "auto");
+  assert.equal(doc.body.style.getPropertyValue("overscroll-behavior"), "contain");
+  assert.equal(doc.documentElement.style.getPropertyValue("overscroll-behavior"), "");
+  assert.equal(styles(), before);
   void window.happyDOM.close();
 });

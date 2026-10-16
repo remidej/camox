@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   canvasBounds,
   canvasInsets,
+  canvasOverview,
   findCanvasSnapTarget,
   canvasVerticalRail,
   canvasWheelDelta,
@@ -284,7 +285,8 @@ void test("the shorter axis can pan inside the overview's spare space after zoom
 void test("animation between valid cameras never needs intermediate clamping", () => {
   const viewport = { width: 1280, height: 523 };
   const content = { width: 6184, height: 5058 };
-  const start = fitCanvas(viewport, content);
+  // The most zoomed-out valid camera: this overview is too large to fit above the floor.
+  const start = canvasOverview(viewport, content);
   const end = constrainCanvasCamera({ x: -1e6, y: 1e6, scale: 1 }, viewport, content);
   for (let step = 0; step <= 100; step++) {
     const amount = step / 100;

@@ -54,12 +54,13 @@ registerHooks({
   },
 });
 
-void test("retained preview masks editing runtime in every mode without remounting content", async () => {
+void test("retained preview keeps the editing runtime but is never editable in any mode, without remounting content", async () => {
   const dom = await setup();
   const { PreviewPanel } = await import("./PreviewPanel");
   const { previewStore: store } = await import("../previewStore");
   const { BlockEditingRuntimeProvider, useBlockEditingRuntime } =
     await import("../../../core/editing/BlockEditingRuntime");
+  const { EditableSurfaceContext } = await import("../../../core/hooks/useIsEditable");
   let mounts = 0;
   const runtime = {
     useSetting: () => {
@@ -73,7 +74,9 @@ void test("retained preview masks editing runtime in every mode without remounti
     },
   };
   function Content() {
-    assert.equal(useBlockEditingRuntime(), null);
+    // Swapping the runtime would remount every block; the surface switches editing instead.
+    assert.equal(useBlockEditingRuntime(), runtime);
+    assert.equal(React.use(EditableSurfaceContext), false);
     React.useEffect(() => {
       mounts++;
     }, []);

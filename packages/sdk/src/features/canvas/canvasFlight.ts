@@ -1,6 +1,6 @@
 import {
   constrainCanvasCamera,
-  fitCanvas,
+  canvasMinimumScale,
   type CanvasCamera,
   type CanvasSize,
 } from "./canvasCamera";
@@ -68,7 +68,7 @@ export function createCanvasFlight(
     dy > 0 ? (Math.max(1, viewport.height) * ROUTE_VIEW_FRACTION) / dy : Infinity,
   );
   const travelScale = Math.max(
-    fitCanvas(viewport, content).scale,
+    canvasMinimumScale(viewport, content),
     Math.min(endpointScale, routeScale),
   );
   const retreat = travelScale < endpointScale;

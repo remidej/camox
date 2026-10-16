@@ -107,7 +107,7 @@ async function setup() {
   };
 }
 
-void test("PreviewShell lazily swaps the single preview for Canvas by mode, including derived layouts", async (t) => {
+void test("PreviewShell lazily adds Canvas by mode and keeps the single preview's content, including derived layouts", async (t) => {
   const dom = await setup();
   const { PreviewShell } = await import("./CamoxPreview");
   const { previewStore: store } = await import("./previewStore");
@@ -133,8 +133,9 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
   };
   const assertCanvas = () => {
     assert.equal(count("[data-canvas]"), 1);
-    assert.equal(count("[data-preview]"), 0);
-    assert.equal(count("[data-content]"), 0);
+    // The Canvas borrows the preview's frame for the selected Page, so it stays mounted.
+    assert.equal(count("[data-preview]"), 1);
+    assert.equal(count("[data-content]"), 1);
     assert.equal(
       dom.host.querySelector("[data-canvas]")?.getAttribute("data-runtime-base-path"),
       "/nested/studio",
@@ -172,6 +173,10 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
           </PreviewShell>,
         );
         assertPreview();
+        // Edit Mode never remounts the page, in either direction.
+        const content = dom.host.querySelector("[data-content]");
+        const assertSameContent = () =>
+          assert.equal(dom.host.querySelector("[data-content]"), content);
         if (name === "derived layout") {
           assert.equal(
             dom.host.querySelector("[data-preview]")?.getAttribute("data-layout-id"),
@@ -180,19 +185,23 @@ void test("PreviewShell lazily swaps the single preview for Canvas by mode, incl
         }
         await React.act(async () => store.send({ type: "enterEditMode" }));
         assertCanvas();
+        assertSameContent();
         assert.equal(count("[data-toolbar]"), 1);
         assert.ok(canvasImports > 0);
 
         await React.act(async () => store.send({ type: "exitEditMode" }));
         assertPreview();
+        assertSameContent();
         await React.act(async () => {
           store.send({ type: "enterEditMode" });
           store.send({ type: "setCommentMode", enabled: true });
         });
         assert.equal(store.getSnapshot().context.mode, "commenting-draft");
         assertCanvas();
+        assertSameContent();
         await React.act(async () => store.send({ type: "exitEditMode" }));
         assertPreview();
+        assertSameContent();
         assert.ok(canvasImports > 0);
       });
     }

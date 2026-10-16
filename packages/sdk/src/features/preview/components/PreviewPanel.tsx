@@ -4,18 +4,35 @@ import * as React from "react";
 
 import { checkIfInputFocused, cn } from "@/lib/utils";
 
-import { BlockEditingRuntimeProvider } from "../../../core/editing/BlockEditingRuntime";
 import { ArtifactStudioContext } from "../../../core/hooks/useArtifactHost";
+import { EditableSurfaceContext } from "../../../core/hooks/useIsEditable";
+import { adoptCanvasDocument, pauseCanvasDocument } from "../../canvas/canvasFrameDocument";
+import { CanvasWorkspaceContext } from "../../canvas/canvasZoom";
+import { useCanvasFrameInput } from "../../canvas/useCanvasFrameInput";
+import { NavigationDisabled } from "../../navigation/navigation";
 import { actionsStore } from "../../provider/actionsStore";
 import { SharedChromeContext } from "../../runtime/SharedChromeContext";
+import {
+  PREVIEW_PAGE_Z_INDEX,
+  previewPageIframeProps,
+  usePreviewPageFrame,
+  type PreviewPageSlot,
+} from "../previewPageFrame";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import { previewStore, type EditingOwner, type ViewportMode } from "../previewStore";
+import {
+  previewStore,
+  selectIsCommentMode,
+  type EditingOwner,
+  type ViewportMode,
+} from "../previewStore";
 import { useBlockActionsShortcuts } from "./BlockActionsPopover";
 import { FieldOverlayStyles } from "./FieldOverlayStyles";
 import { Frame, useFrame } from "./Frame";
 import { MobilePreviewDrawer } from "./MobilePreviewDrawer";
+import { Overlays } from "./Overlays";
 import { OverlayTracker } from "./OverlayTracker";
 import type { PreviewedPage } from "./PageNavigatorSidebar";
+import { PreviewComments } from "./PreviewComments";
 import { PreviewToolbar } from "./PreviewToolbar";
 
 /* -------------------------------------------------------------------------------------------------
@@ -26,15 +43,25 @@ export const PreviewFrame = ({
   children,
   style,
   className,
+  iframeProps,
+  inCanvas,
   onIframeReady,
 }: {
   children: React.ReactNode;
   style?: React.CSSProperties;
   className?: string;
+  iframeProps?: Record<string, string>;
+  inCanvas?: boolean;
   onIframeReady?: (iframe: HTMLIFrameElement) => void;
 }) => {
   return (
-    <Frame className={className} style={style} onIframeReady={onIframeReady}>
+    <Frame
+      className={className}
+      style={style}
+      iframeProps={iframeProps}
+      inCanvas={inCanvas}
+      onIframeReady={onIframeReady}
+    >
       {children}
       <KeyDownForwarder />
     </Frame>
@@ -164,6 +191,91 @@ export function CuratedBlockShortcuts() {
   return null;
 }
 
+/**
+ * What the Preview page frame does while it shows in the Canvas, like any Canvas
+ * frame: it takes its slot's size, keeps the camera's input, activates its Page
+ * when used, pauses with the camera, and draws its editing overlays.
+ */
+function PreviewPageCanvasEffects({ owner }: { owner: EditingOwner | null }) {
+  const { window: frameWindow, iframeElement } = useFrame();
+  const { frame, slot, inCanvas } = usePreviewPageFrame();
+  const iframeRef = React.useRef(iframeElement);
+  iframeRef.current = iframeElement;
+  const root = frameWindow?.document.querySelector<HTMLElement>("[data-camox-preview-root]");
+  const placed = inCanvas && slot && iframeElement && root ? slot : null;
+  const viewportHeight = placed?.viewportHeight;
+  React.useLayoutEffect(() => {
+    if (!frame || !iframeElement || !root || viewportHeight === undefined) return;
+    const undo = adoptCanvasDocument(iframeElement, root, viewportHeight);
+    const report = () => frame.setHeight(iframeElement.offsetHeight);
+    // The first height places the frame before paint. Later ones resize the slot, which
+    // the camera observes too, so they wait for the next frame rather than loop observers.
+    report();
+    let pending = 0;
+    const resize = new ResizeObserver(() => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(report);
+    });
+    resize.observe(iframeElement);
+    return () => {
+      cancelAnimationFrame(pending);
+      resize.disconnect();
+      undo();
+    };
+  }, [frame, iframeElement, root, viewportHeight]);
+  const live = !placed || placed.mode === "live";
+  React.useEffect(() => {
+    if (live || !root) return;
+    return pauseCanvasDocument(root.ownerDocument);
+  }, [live, root]);
+  useCanvasFrameInput(iframeRef, placed ? (root ?? null) : null, placed?.viewport);
+  const onInteract = placed?.onInteract;
+  React.useEffect(() => {
+    const doc = root?.ownerDocument;
+    if (!doc || !onInteract) return;
+    // Frame links never navigate the Canvas; the Preview's own handler respects this.
+    const preventLinkNavigation = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest?.("a")) event.preventDefault();
+    };
+    for (const type of ["pointerdown", "focusin", "click"])
+      doc.addEventListener(type, onInteract, true);
+    doc.addEventListener("click", preventLinkNavigation);
+    return () => {
+      for (const type of ["pointerdown", "focusin", "click"])
+        doc.removeEventListener(type, onInteract, true);
+      doc.removeEventListener("click", preventLinkNavigation);
+    };
+  }, [root, onInteract]);
+  React.useEffect(() => {
+    if (!frame || !iframeElement) return;
+    frame.setIframe(iframeElement);
+    return () => frame.setIframe(null);
+  }, [frame, iframeElement]);
+  if (!placed) return null;
+  return (
+    <>
+      <FieldOverlayStyles />
+      <OverlayTracker />
+      {owner?.kind === "page" && <PreviewComments iframeElement={iframeElement} />}
+      <PreviewPageOverlays owner={owner} iframeElement={iframeElement} />
+    </>
+  );
+}
+
+function PreviewPageOverlays({
+  owner,
+  iframeElement,
+}: {
+  owner: EditingOwner | null;
+  iframeElement: HTMLIFrameElement | null;
+}) {
+  const isCommentMode = useSelector(previewStore, selectIsCommentMode);
+  if (isCommentMode) return null;
+  return (
+    <Overlays iframeElement={iframeElement} owner={owner} canAddBlocks={owner?.kind === "page"} />
+  );
+}
+
 const PreviewPanel = ({
   children,
   active = true,
@@ -207,12 +319,28 @@ const PreviewPanel = ({
   }, []);
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
   const isToolbarHidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  // Keep the same boundary from the initial render so mode changes never enable
-  // editing in this tree or remount the retained page while Canvas prepares.
-  const readOnlyChildren = (
-    <BlockEditingRuntimeProvider runtime={null}>
-      <ArtifactStudioContext value={READ_ONLY_ARTIFACT_STUDIO}>{children}</ArtifactStudioContext>
-    </BlockEditingRuntimeProvider>
+  const { frame, slot, inCanvas, revealed } = usePreviewPageFrame();
+  const placed = !isMobileExperience && inCanvas ? slot : null;
+  // Under the Canvas, the Preview only shows its frame, in the selected Page's slot.
+  const underCanvas = revealed && !isMobileExperience;
+  const overlaysRef = React.useCallback(
+    (element: HTMLDivElement | null) => frame?.setOverlays(element),
+    [frame],
+  );
+  // The same tree in every placement, so Edit Mode never remounts the page: the
+  // editing runtime stays, and the Canvas placement only makes it editable.
+  const pageContent = (
+    <EditableSurfaceContext value={!!placed}>
+      <CanvasWorkspaceContext value={placed?.workspace ?? null}>
+        {/* Like any Canvas frame, it never navigates the Studio from the Canvas. */}
+        <NavigationDisabled disabled={!!placed}>
+          <ArtifactStudioContext value={READ_ONLY_ARTIFACT_STUDIO}>
+            {children}
+          </ArtifactStudioContext>
+          <PreviewPageCanvasEffects owner={owner} />
+        </NavigationDisabled>
+      </CanvasWorkspaceContext>
+    </EditableSurfaceContext>
   );
 
   if (isMobileExperience) {
@@ -221,7 +349,7 @@ const PreviewPanel = ({
         <PanelContent className="flex min-h-0 flex-col overflow-hidden bg-black">
           <div className="relative min-h-0 flex-1">
             <PreviewFrame className="h-full w-full" onIframeReady={handleIframeReady}>
-              {readOnlyChildren}
+              {pageContent}
             </PreviewFrame>
           </div>
           {active &&
@@ -236,28 +364,127 @@ const PreviewPanel = ({
     );
   }
 
+  const device = viewportMode !== "full" && !placed;
   return (
     <PreviewEditingOwnerContext value={owner}>
-      <PanelContent className="relative overflow-hidden bg-black">
-        <div className="absolute inset-0">
-          {viewportMode === "full" ? (
-            <PreviewFrame className="checkered h-full w-full" onIframeReady={handleIframeReady}>
-              {readOnlyChildren}
-            </PreviewFrame>
-          ) : (
-            <div className="checkered flex h-full items-center justify-center">
-              <div className={cn("relative overflow-hidden", viewportClassName[viewportMode])}>
-                <PreviewFrame className="overflow-auto" onIframeReady={handleIframeReady}>
-                  {readOnlyChildren}
-                </PreviewFrame>
-              </div>
-            </div>
+      <PanelContent className={cn("relative overflow-hidden", !underCanvas && "bg-black")}>
+        <PreviewPageClip
+          slot={placed}
+          className={cn(
+            "absolute",
+            !placed && "inset-0",
+            underCanvas && !placed && "invisible",
+            device && "checkered flex items-center justify-center",
           )}
-          {active && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
-        </div>
+        >
+          <div
+            data-preview-page-host
+            className={cn(
+              placed && "absolute top-0 left-0",
+              !placed && !device && "h-full w-full",
+              device && cn("relative overflow-hidden", viewportClassName[viewportMode]),
+            )}
+            style={
+              placed
+                ? {
+                    width: placed.width,
+                    // The camera paints its variables onto the clip, like onto the viewport.
+                    transform: `translate(calc(var(--canvas-x, 0px) + ${placed.left}px * var(--canvas-zoom, 1)), calc(var(--canvas-y, 0px) + ${placed.top}px * var(--canvas-zoom, 1))) scale(var(--canvas-zoom, 1))`,
+                    transformOrigin: "0 0",
+                    willChange: "transform",
+                  }
+                : undefined
+            }
+          >
+            <PreviewFrame
+              className={cn(
+                !placed && !device && "checkered h-full w-full",
+                device && "overflow-auto",
+              )}
+              iframeProps={previewPageIframeProps}
+              inCanvas={!!placed}
+              onIframeReady={handleIframeReady}
+            >
+              {pageContent}
+            </PreviewFrame>
+            <div
+              ref={overlaysRef}
+              data-preview-page-overlays
+              className="pointer-events-none absolute inset-0"
+              hidden={!placed}
+            />
+          </div>
+        </PreviewPageClip>
+        {active && !sharedChrome && <PreviewToolbar {...toolbarProps} />}
       </PanelContent>
     </PreviewEditingOwnerContext>
   );
 };
+
+/**
+ * Fills the Preview, or clips the frame to the Canvas viewport above the Canvas
+ * row, where the camera moves it. Space + drag pans through it.
+ */
+function PreviewPageClip({
+  slot,
+  className,
+  children,
+}: {
+  slot: PreviewPageSlot | null;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [rect, setRect] = React.useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const viewport = slot?.viewport;
+  const mirrorCamera = slot?.workspace?.mirrorCamera;
+  React.useLayoutEffect(() => {
+    const clip = ref.current;
+    const parent = clip?.offsetParent;
+    if (!clip || !parent || !viewport) {
+      setRect(null);
+      return;
+    }
+    const measure = () => {
+      const from = parent.getBoundingClientRect();
+      const to = viewport.getBoundingClientRect();
+      setRect({
+        left: to.left - from.left,
+        top: to.top - from.top,
+        width: to.width,
+        height: to.height,
+      });
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(viewport);
+    resize.observe(parent);
+    return () => resize.disconnect();
+  }, [viewport]);
+  React.useLayoutEffect(() => {
+    const clip = ref.current;
+    if (!clip || !mirrorCamera) return;
+    return mirrorCamera(clip);
+  }, [mirrorCamera]);
+  return (
+    <div
+      ref={ref}
+      data-preview-page-clip
+      className={cn(
+        className,
+        slot &&
+          "overflow-hidden data-[canvas-pan]:pointer-events-none data-[canvas-pan]:**:pointer-events-none",
+      )}
+      style={slot && rect ? { ...rect, zIndex: PREVIEW_PAGE_Z_INDEX } : undefined}
+    >
+      {children}
+    </div>
+  );
+}
 
 export { PreviewPanel };

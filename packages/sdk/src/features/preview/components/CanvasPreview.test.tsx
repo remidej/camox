@@ -63,7 +63,7 @@ registerHooks({
   },
 });
 
-void test("Canvas handoff retains the original preview through loading, cancellation, failure and retry", async () => {
+void test("Canvas handoff never remounts the original preview through loading, reveal, cancellation, failure and retry", async () => {
   const window = new Window();
   let loadModule!: () => void;
   const signals: Signals[] = [];
@@ -177,7 +177,8 @@ void test("Canvas handoff retains the original preview through loading, cancella
       ["restore", { blockId: "42", offset: 200, y: 800 }, undefined, "0"],
       "position is staged before revealing the canvas",
     );
-    assert.equal(preview(), null);
+    assert.equal(preview(), original, "revealing keeps the preview: the Canvas borrows its frame");
+    assert.equal(preview()?.value, "Keep this value");
     assert.equal(canvas(), firstCanvas, "revealing does not remount the prepared workspace");
     assert.equal(preparation()?.style.opacity, "1");
     assert.equal(preparation()?.hasAttribute("inert"), false);
@@ -234,7 +235,7 @@ void test("Canvas handoff retains the original preview through loading, cancella
     await React.act(async () => current.ready());
     assert.equal(preparation()?.style.opacity, "0", "failed attempt cannot win over its retry");
     await React.act(async () => retry.ready());
-    assert.equal(preview(), null);
+    assert.equal(preview(), original);
 
     await render(false);
     const beforeNavigation = preview();
@@ -259,7 +260,7 @@ void test("Canvas handoff retains the original preview through loading, cancella
     Object.assign(globalThis, { canvasRenderFails: false });
     await retryToast();
     await React.act(async () => signals.at(-1)!.ready());
-    assert.equal(preview(), null);
+    assert.equal(preview(), original);
     assert.ok(canvas());
 
     await render(false);
@@ -272,7 +273,8 @@ void test("Canvas handoff retains the original preview through loading, cancella
     await retryToast();
     assert.equal(preview(), beforeImportFailure);
     await React.act(async () => signals.at(-1)!.ready());
-    assert.equal(preview(), null, "retry uses a fresh lazy component after a rejected import");
+    assert.ok(canvas(), "retry uses a fresh lazy component after a rejected import");
+    assert.equal(preview(), original);
     assert.equal(toast.getToasts().length, 0);
     assert.equal(
       toast

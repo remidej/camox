@@ -102,6 +102,42 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   return `<!doctype html>${doc.documentElement.outerHTML}`;
 }
 
+/**
+ * Give a loaded document what `createCanvasDocument` builds into a Canvas frame's,
+ * for as long as it shows in the Canvas: no swipe navigation, CSS animations that
+ * pause with the frame, and a page as tall as its content. Returns how to undo
+ * all of it, so the document can fill the Preview again.
+ */
+export function adoptCanvasDocument(
+  iframe: HTMLIFrameElement,
+  root: HTMLElement,
+  viewportHeight: number,
+) {
+  const doc = root.ownerDocument;
+  const paused = doc.createElement("style");
+  paused.textContent = PAUSED_ANIMATIONS_STYLE;
+  doc.head.appendChild(paused);
+  const restored = [doc.documentElement, doc.body].map((element) => ({
+    element,
+    overscroll: element.style.getPropertyValue("overscroll-behavior"),
+    overflow: element.style.getPropertyValue("overflow"),
+    overflowPriority: element.style.getPropertyPriority("overflow"),
+  }));
+  for (const { element } of restored) element.style.setProperty("overscroll-behavior", "none");
+  const stopObserving = observeCanvasDocument(iframe, root, viewportHeight);
+  return () => {
+    stopObserving();
+    paused.remove();
+    for (const { element, overscroll, overflow, overflowPriority } of restored) {
+      element.style.setProperty("overscroll-behavior", overscroll);
+      element.style.setProperty("overflow", overflow, overflowPriority);
+    }
+    // Adapted rules fall back to the real viewport height without the property.
+    doc.documentElement.style.removeProperty("--camox-viewport-height");
+    iframe.style.removeProperty("height");
+  };
+}
+
 function isMedia(target: EventTarget | null): target is HTMLMediaElement {
   const name = (target as Element | null)?.localName;
   return name === "video" || name === "audio";
