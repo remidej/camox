@@ -69,11 +69,13 @@ export function formatPreview(preview: PublishPreview): string {
     ),
   ];
   if (preview.changes.length === 0) lines.push("Your development draft has no changes.", "");
-  lines.push(`Token: ${preview.token}`);
-  if (preview.blockers.length > 0) {
-    lines.push("Publishing is blocked until the blockers are fixed.");
-  } else if (preview.changes.length > 0) {
-    lines.push(`Publish with: camox publish --confirm ${preview.token}`);
-  }
+  lines.push(`Token: ${preview.token}`, ...nextStep(preview));
   return `${lines.join("\n")}\n`;
+}
+
+/** What to do next: fix the blockers, or publish when there is something to publish. */
+function nextStep(preview: PublishPreview): string[] {
+  if (preview.blockers.length > 0) return ["Publishing is blocked until the blockers are fixed."];
+  if (preview.changes.length === 0) return [];
+  return [`Publish with: camox publish --confirm ${preview.token}`];
 }
