@@ -23,6 +23,10 @@
     "./drafts": {
       "types": "./src/drafts.ts",
       "default": "./src/drafts.ts"
+    },
+    "./icon-catalog": {
+      "types": "./src/icon-catalog.ts",
+      "default": "./src/icon-catalog.ts"
     }
   },
   "publishConfig": {
@@ -42,6 +46,10 @@
       "./drafts": {
         "types": "./dist/drafts.d.ts",
         "default": "./dist/drafts.js"
+      },
+      "./icon-catalog": {
+        "types": "./dist/icon-catalog.d.ts",
+        "default": "./dist/icon-catalog.js"
       }
     }
   },

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { iconCollectionIds, loadIconCollection } from "@camox/api-contract";
+import { iconCollectionIds, loadIconCollection } from "@camox/api-contract/icon-catalog";
 
 export async function generateIconTypes(root: string, prefix?: string) {
   const ids = prefix ? iconCollectionIds(await loadIconCollection(prefix)) : [];
