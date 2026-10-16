@@ -1,3 +1,4 @@
+import type { PublishPreview } from "@camox/api-contract";
 import { CONFLICTS_CHANGED_ERROR, type EndedDraft } from "@camox/api-contract/drafts";
 import {
   AlertDialog,
@@ -17,14 +18,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import type { ApiClient } from "@/lib/api-client";
 import { draftMutations, draftQueries, type DraftSummary } from "@/lib/queries";
 import { getCurrentDraftId, isDevelopmentMode, switchToLive } from "@/lib/studio-draft";
 
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 
-type Preview = Awaited<ReturnType<ApiClient["drafts"]["previewPublish"]>>;
-type Subject = Preview["changes"][number];
+type Subject = PublishPreview["changes"][number];
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
@@ -50,7 +49,7 @@ const GROUP_ORDER: (NonNullable<Subject["owner"]>["kind"] | "files" | "elsewhere
  * A problem as one line. One with nowhere to find it, like a definition that differs from
  * Live's, names only itself.
  */
-function problemLine(problem: Preview["blockers"][number]): string {
+function problemLine(problem: PublishPreview["blockers"][number]): string {
   if (!problem.owner && problem.entity !== "file") return `${problem.label}: ${problem.message}`;
   return `${problem.label} on ${ownerName(problem.owner, problem.entity)}: ${problem.message}`;
 }
@@ -68,14 +67,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** Who made Live's version of a conflicting entity: a member, a release, or nobody known. */
-function changedBy(conflict: Preview["conflicts"][number]) {
+function changedBy(conflict: PublishPreview["conflicts"][number]) {
   if (conflict.release) return " by a release";
   if (conflict.publishedBy) return ` by ${conflict.publishedBy.name}`;
   return "";
 }
 
 /** The left column: what publishing will do, in the order ADR 0009 lists it. */
-function BeforeYouPublish({ preview }: { preview: Preview }) {
+function BeforeYouPublish({ preview }: { preview: PublishPreview }) {
   const { blockers, conflicts, lost, warnings } = preview;
   if (!blockers.length && !conflicts.length && !lost.length && !warnings.length) {
     return (
@@ -124,8 +123,8 @@ function BeforeYouPublish({ preview }: { preview: Preview }) {
 }
 
 /** The right column: the draft's changes, grouped by page, then layout, then collection. */
-function Changes({ changes }: { changes: Preview["changes"] }) {
-  const groups = new Map<string, Preview["changes"]>();
+function Changes({ changes }: { changes: PublishPreview["changes"] }) {
+  const groups = new Map<string, PublishPreview["changes"]>();
   const sorted = [...changes].sort((a, b) => groupRank(a) - groupRank(b));
   for (const change of sorted) {
     const name = ownerName(change.owner, change.entity);
