@@ -132,17 +132,15 @@ const commentProblems = Effect.fn("drafts.commentProblems")(function* (
       .leftJoin(pages, eq(pages.id, comments.pageId))
       .where(where),
   );
-  return rows.map(
-    (row): Problem => ({
-      entity: "comment",
-      id: row.id,
-      label: `Feedback "${excerpt(row.message)}"`,
-      owner: row.page ? { kind: "page", ...row.page } : null,
-      code,
-      field: row.target && "fieldName" in row.target ? row.target.fieldName : "",
-      message,
-    }),
-  );
+  return rows.map((row): Problem => ({
+    entity: "comment",
+    id: row.id,
+    label: `Feedback "${excerpt(row.message)}"`,
+    owner: row.page ? { kind: "page", ...row.page } : null,
+    code,
+    field: row.target && "fieldName" in row.target ? row.target.fieldName : "",
+    message,
+  }));
 });
 
 const EXCERPT_LENGTH = 60;

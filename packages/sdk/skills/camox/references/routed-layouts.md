@@ -13,11 +13,12 @@ Declare a singleton in `src/layouts/pokedex.tsx`. The file identity defines `/po
 
 ```tsx
 import { createLayout } from "camox/createLayout";
+
+import { block as footerBlock } from "../blocks/footer";
 import { block as navbarBlock } from "../blocks/navbar";
 import { block as pokedexIntroBlock } from "../blocks/pokedex-intro";
-import { block as footerBlock } from "../blocks/footer";
-import { loadPokemon } from "../lib/pokemon";
 import { PokemonBrowser } from "../components/pokemon-browser";
+import { loadPokemon } from "../lib/pokemon";
 
 export const layout = createLayout("pokedex")({
   kind: "singleton",
@@ -95,6 +96,7 @@ A **Record Page** renders one collection record, found by one of its fields. Spr
 
 ```tsx
 import { createLayout } from "camox/createLayout";
+
 import { collection as articles } from "../collections/articles";
 
 export const Layout = createLayout("articles.$slug")({

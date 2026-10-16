@@ -559,11 +559,13 @@ export function createEditableBlock<
 
   // Only allow string fields - not objects, arrays, embed URLs or artifact sources
   type StringFields = {
-    [K in keyof TContent as TContent[K] extends EmbedURL | IconValue | ArtifactSource
-      ? never
-      : TContent[K] extends string
-        ? K
-        : never]: TContent[K];
+    [
+      K in keyof TContent as TContent[K] extends EmbedURL | IconValue | ArtifactSource
+        ? never
+        : TContent[K] extends string
+          ? K
+          : never
+    ]: TContent[K];
   };
 
   // Only allow embed URL fields
@@ -571,9 +573,9 @@ export function createEditableBlock<
     [K in keyof TContent as TContent[K] extends IconValue ? K : never]: TContent[K];
   };
   type ItemIconFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends IconValue
-      ? F
-      : never]: RepeatableItemType<K>[F];
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends IconValue ? F : never
+    ]: RepeatableItemType<K>[F];
   };
 
   type EmbedFields = {
@@ -591,58 +593,68 @@ export function createEditableBlock<
 
   // Only allow image fields
   type ImageFields = {
-    [K in keyof TContent as ImageValue extends TContent[K]
-      ? TContent[K] extends ImageValue
-        ? K
+    [
+      K in keyof TContent as ImageValue extends TContent[K]
+        ? TContent[K] extends ImageValue
+          ? K
+          : never
         : never
-      : never]: TContent[K];
+    ]: TContent[K];
   };
 
   // Only allow file fields
   type FileFields = {
-    [K in keyof TContent as FileValue extends TContent[K]
-      ? TContent[K] extends FileValue
-        ? K
+    [
+      K in keyof TContent as FileValue extends TContent[K]
+        ? TContent[K] extends FileValue
+          ? K
+          : never
         : never
-      : never]: TContent[K];
+    ]: TContent[K];
   };
 
   // Top-level field.imageList() fields
   type ImageListFields = {
-    [K in keyof TContent as TContent[K] extends Array<infer U>
-      ? ImageValue extends U
-        ? U extends ImageValue
-          ? K
+    [
+      K in keyof TContent as TContent[K] extends Array<infer U>
+        ? ImageValue extends U
+          ? U extends ImageValue
+            ? K
+            : never
           : never
         : never
-      : never]: TContent[K];
+    ]: TContent[K];
   };
 
   // Top-level field.fileList() fields
   type FileListFields = {
-    [K in keyof TContent as TContent[K] extends Array<infer U>
-      ? FileValue extends U
-        ? U extends FileValue
-          ? K
+    [
+      K in keyof TContent as TContent[K] extends Array<infer U>
+        ? FileValue extends U
+          ? U extends FileValue
+            ? K
+            : never
           : never
         : never
-      : never]: TContent[K];
+    ]: TContent[K];
   };
 
   // Only allow array fields from field.repeater() (excludes asset list arrays —
   // those are handled by ImageList/FileList and intentionally rejected here so
   // <block.Repeater name="gallery"> on a field.imageList() is a TS error).
   type RepeatableFields = {
-    [K in keyof TContent as TContent[K] extends Array<infer U>
-      ? ImageValue extends U
-        ? never
-        : FileValue extends U
+    [
+      K in keyof TContent as TContent[K] extends Array<infer U>
+        ? ImageValue extends U
           ? never
-          : // Reference lists store record ids, not items.
-            U extends string
+          : FileValue extends U
             ? never
-            : K
-      : never]: TContent[K];
+            : // Reference lists store record ids, not items.
+              U extends string
+              ? never
+              : K
+        : never
+    ]: TContent[K];
   };
 
   // Extract the element type from a repeatable array field
@@ -651,85 +663,101 @@ export function createEditableBlock<
 
   // Extract string fields from a repeatable item type
   type ItemStringFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends IconValue | ArtifactSource
-      ? never
-      : RepeatableItemType<K>[F] extends string
-        ? F
-        : never]: RepeatableItemType<K>[F];
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends
+        | IconValue
+        | ArtifactSource
+        ? never
+        : RepeatableItemType<K>[F] extends string
+          ? F
+          : never
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract link fields from a repeatable item type
   type ItemLinkFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends LinkValue
-      ? F
-      : never]: RepeatableItemType<K>[F];
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends LinkValue ? F : never
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract embed URL fields from a repeatable item type
   type ItemEmbedFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends EmbedURL
-      ? F
-      : never]: RepeatableItemType<K>[F];
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends EmbedURL ? F : never
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract artifact fields from a repeatable item type
   type ItemArtifactFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends ArtifactSource
-      ? F
-      : never]: RepeatableItemType<K>[F];
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends ArtifactSource
+        ? F
+        : never
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract image fields from a repeatable item type
   type ItemImageFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as ImageValue extends RepeatableItemType<K>[F]
-      ? RepeatableItemType<K>[F] extends ImageValue
-        ? F
+    [
+      F in keyof RepeatableItemType<K> as ImageValue extends RepeatableItemType<K>[F]
+        ? RepeatableItemType<K>[F] extends ImageValue
+          ? F
+          : never
         : never
-      : never]: RepeatableItemType<K>[F];
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract file fields from a repeatable item type
   type ItemFileFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as FileValue extends RepeatableItemType<K>[F]
-      ? RepeatableItemType<K>[F] extends FileValue
-        ? F
+    [
+      F in keyof RepeatableItemType<K> as FileValue extends RepeatableItemType<K>[F]
+        ? RepeatableItemType<K>[F] extends FileValue
+          ? F
+          : never
         : never
-      : never]: RepeatableItemType<K>[F];
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract field.imageList() fields nested inside a Repeater
   type ItemImageListFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
-      ? ImageValue extends U
-        ? U extends ImageValue
-          ? F
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
+        ? ImageValue extends U
+          ? U extends ImageValue
+            ? F
+            : never
           : never
         : never
-      : never]: RepeatableItemType<K>[F];
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract field.fileList() fields nested inside a Repeater
   type ItemFileListFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
-      ? FileValue extends U
-        ? U extends FileValue
-          ? F
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
+        ? FileValue extends U
+          ? U extends FileValue
+            ? F
+            : never
           : never
         : never
-      : never]: RepeatableItemType<K>[F];
+    ]: RepeatableItemType<K>[F];
   };
 
   // Extract nested field.repeater() array fields (excludes asset and reference list arrays)
   type ItemRepeatableFields<K extends keyof RepeatableFields> = {
-    [F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
-      ? ImageValue extends U
-        ? never
-        : FileValue extends U
+    [
+      F in keyof RepeatableItemType<K> as RepeatableItemType<K>[F] extends Array<infer U>
+        ? ImageValue extends U
           ? never
-          : U extends string
+          : FileValue extends U
             ? never
-            : F
-      : never]: RepeatableItemType<K>[F];
+            : U extends string
+              ? never
+              : F
+        : never
+    ]: RepeatableItemType<K>[F];
   };
 
   // The item's field schemas, which carry the collections its reference fields link.

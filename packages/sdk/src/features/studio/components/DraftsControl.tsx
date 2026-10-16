@@ -264,17 +264,15 @@ function useDraftsActions({
         hasChildren: true,
         execute: () => {},
       },
-      ...others.map(
-        (other): Action => ({
-          id: `${SWITCH_TO_DRAFT_ID}-${other.id}`,
-          parentActionId: SWITCH_TO_DRAFT_ID,
-          label: `Switch to "${draftLabel(other)}"`,
-          aliases: [other.createdBy.name],
-          groupLabel: "Drafts",
-          checkIfAvailable: () => true,
-          execute: () => switchTo(other.id),
-        }),
-      ),
+      ...others.map((other): Action => ({
+        id: `${SWITCH_TO_DRAFT_ID}-${other.id}`,
+        parentActionId: SWITCH_TO_DRAFT_ID,
+        label: `Switch to "${draftLabel(other)}"`,
+        aliases: [other.createdBy.name],
+        groupLabel: "Drafts",
+        checkIfAvailable: () => true,
+        execute: () => switchTo(other.id),
+      })),
     ] satisfies Action[];
 
     actionsStore.send({ type: "registerManyActions", actions });

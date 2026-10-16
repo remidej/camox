@@ -559,17 +559,15 @@ export function usePreviewPagesActions() {
         execute: () => {},
       },
       // One action per page
-      ...pages.map(
-        (page): Action => ({
-          id: `go-to-page-${page.key}`,
-          parentActionId: GO_TO_PAGE_ID,
-          label: `Go to "${page.title}"`,
-          aliases: [page.fullPath],
-          groupLabel: "Preview",
-          checkIfAvailable: () => true,
-          execute: () => navigate({ to: page.fullPath }),
-        }),
-      ),
+      ...pages.map((page): Action => ({
+        id: `go-to-page-${page.key}`,
+        parentActionId: GO_TO_PAGE_ID,
+        label: `Go to "${page.title}"`,
+        aliases: [page.fullPath],
+        groupLabel: "Preview",
+        checkIfAvailable: () => true,
+        execute: () => navigate({ to: page.fullPath }),
+      })),
     ];
 
     actionsStore.send({

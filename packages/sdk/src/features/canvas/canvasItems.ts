@@ -79,13 +79,11 @@ export function getCanvasShelves(
       label: "Blocks",
       // The Block Catalog always has its place on the Canvas.
       shownWhenEmpty: true,
-      items: getBlockCatalog(blocks).map(
-        (block): CanvasBlockItem => ({
-          kind: "block",
-          key: canvasBlockKey(block._internal.id),
-          block,
-        }),
-      ),
+      items: getBlockCatalog(blocks).map((block): CanvasBlockItem => ({
+        kind: "block",
+        key: canvasBlockKey(block._internal.id),
+        block,
+      })),
     },
   ];
 }

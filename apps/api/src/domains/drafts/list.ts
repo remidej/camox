@@ -76,17 +76,15 @@ const summarize = Effect.fn("drafts.summarize")(function* (
     db,
     rows.map((row) => row.createdBy),
   );
-  return rows.map(
-    (row): DraftSummary => ({
-      id: row.id,
-      kind: row.kind,
-      name: row.name,
-      createdBy: person(row.createdBy),
-      createdAt: row.createdAt,
-      lastChangedAt: activity.get(row.id)?.lastChangedAt ?? null,
-      changeCount: activity.get(row.id)?.changeCount ?? 0,
-    }),
-  );
+  return rows.map((row): DraftSummary => ({
+    id: row.id,
+    kind: row.kind,
+    name: row.name,
+    createdBy: person(row.createdBy),
+    createdAt: row.createdAt,
+    lastChangedAt: activity.get(row.id)?.lastChangedAt ?? null,
+    changeCount: activity.get(row.id)?.changeCount ?? 0,
+  }));
 });
 
 /**
