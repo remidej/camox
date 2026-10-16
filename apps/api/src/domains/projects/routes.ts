@@ -78,6 +78,11 @@ const FAVICON_MIME_ALLOWLIST = new Set([
 ]);
 const FAVICON_MAX_BYTES = 500 * 1024;
 
+// The Camox mark, served instead of a 404 when the request asks for `?placeholder=camox`, so a
+// project without a favicon still shows it, both as the site's tab icon and in the studio. The
+// dashboard omits it to learn whether a favicon was uploaded.
+const FAVICON_PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 191.03 191.03"><path d="M0 22.55A22.55 22.55 0 0 1 22.55 0L90.19 0A5.32 5.32 0 0 1 95.52 5.32L95.52 36.48L36.48 36.48L36.48 95.52L5.32 95.52A5.32 5.32 0 0 1 0 90.19ZM95.52 36.48L181.48 36.48A5.32 5.32 0 0 1 186.01 44.61L138.61 121.31A22.55 22.55 0 0 1 119.43 132L41.81 132A5.32 5.32 0 0 1 36.48 126.68L36.48 95.52L95.52 95.52Z" fill="#00BC7D" transform="translate(0 29.52)"/></svg>`;
+
 function faviconKey(projectId: number) {
   return `favicons/${projectId}`;
 }
@@ -98,6 +103,18 @@ function authorizeFavicon(db: Database, projectId: number, userId: string) {
 
 export const faviconHonoRoutes = new Hono<AppEnv>();
 
+function faviconPlaceholderResponse() {
+  return new Response(FAVICON_PLACEHOLDER_SVG, {
+    headers: {
+      "Content-Type": "image/svg+xml",
+      "Cache-Control": "public, max-age=3600",
+      "Content-Disposition": "inline",
+    },
+  });
+}
+
+faviconHonoRoutes.get("/placeholder", () => faviconPlaceholderResponse());
+
 faviconHonoRoutes.get("/:projectId", async (c) => {
   const projectId = Number(c.req.param("projectId"));
   if (!projectId || Number.isNaN(projectId)) {
@@ -105,6 +122,7 @@ faviconHonoRoutes.get("/:projectId", async (c) => {
   }
 
   const object = await c.env.FILES_BUCKET.get(faviconKey(projectId));
+  if (!object && c.req.query("placeholder") === "camox") return faviconPlaceholderResponse();
   if (!object) return c.notFound();
 
   const ifNoneMatch = c.req.header("If-None-Match");

@@ -143,6 +143,41 @@ export const projectQueries = {
   }),
 };
 
+/**
+ * Sends a change to the project's favicon. Unlike content writes it carries no draft: the favicon
+ * is shared by Live and every draft, so changing it updates the whole site at once.
+ */
+async function sendFaviconChange(path: string, init: { method: string; body?: FormData }) {
+  const authCookieHeader = getAuthCookieHeader();
+  const res = await fetch(`${getApiUrl()}/favicons/${path}`, {
+    ...init,
+    headers: authCookieHeader ? { "Better-Auth-Cookie": authCookieHeader } : {},
+    credentials: getAuthRequestCredentials(authCookieHeader),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `Favicon change failed: ${res.status}`);
+  }
+  return res;
+}
+
+export const projectMutations = {
+  uploadFavicon: () => ({
+    mutationFn: async ({ projectId, file }: { projectId: number; file: globalThis.File }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("projectId", String(projectId));
+      const res = await sendFaviconChange("upload", { method: "POST", body: formData });
+      return res.json() as Promise<{ updatedAt: number }>;
+    },
+  }),
+  deleteFavicon: () => ({
+    mutationFn: async ({ projectId }: { projectId: number }) => {
+      await sendFaviconChange(String(projectId), { method: "DELETE" });
+    },
+  }),
+};
+
 export const layoutQueries = {
   list: (projectId: number) => ({
     ...getOrpc().layouts.list.queryOptions({

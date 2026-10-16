@@ -47,6 +47,10 @@
       "types": "./src/components/dropdown-menu.tsx",
       "default": "./src/components/dropdown-menu.tsx"
     },
+    "./favicon-drop-zone": {
+      "types": "./src/components/favicon-drop-zone.tsx",
+      "default": "./src/components/favicon-drop-zone.tsx"
+    },
     "./floating-toolbar": {
       "types": "./src/components/floating-toolbar.tsx",
       "default": "./src/components/floating-toolbar.tsx"
@@ -161,6 +165,10 @@
       "./dropdown-menu": {
         "types": "./dist/components/dropdown-menu.d.ts",
         "default": "./dist/components/dropdown-menu.js"
+      },
+      "./favicon-drop-zone": {
+        "types": "./dist/components/favicon-drop-zone.d.ts",
+        "default": "./dist/components/favicon-drop-zone.js"
       },
       "./floating-toolbar": {
         "types": "./dist/components/floating-toolbar.d.ts",
