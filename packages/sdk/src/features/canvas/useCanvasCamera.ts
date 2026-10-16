@@ -12,7 +12,8 @@ import {
   canvasVerticalRail,
   canvasWheelDelta,
   constrainCanvasCamera,
-  fitCanvas,
+  canvasMinimumScale,
+  canvasOverview,
   fitCanvasPage,
   isCanvasPageScale,
   isNearCanvasPageScale,
@@ -140,7 +141,7 @@ export function useCanvasCamera(
       height: content.offsetHeight,
     });
     let contentSize = measureContent();
-    let minimumScale = fitCanvas(viewportSize, contentSize).scale;
+    let minimumScale = canvasMinimumScale(viewportSize, contentSize);
     const updateGeometry = (
       nextViewport = { width: viewport.clientWidth, height: viewport.clientHeight },
       nextContent = measureContent(),
@@ -149,7 +150,7 @@ export function useCanvasCamera(
       // can consume a resize before ResizeObserver delivers the same dimensions.
       viewportSize = nextViewport;
       contentSize = nextContent;
-      minimumScale = fitCanvas(viewportSize, contentSize).scale;
+      minimumScale = canvasMinimumScale(viewportSize, contentSize);
     };
     // Keep the saved view as the restoration target while iframe heights load.
     // Clamping against their temporary placeholder sizes must not overwrite it.
@@ -160,7 +161,7 @@ export function useCanvasCamera(
     const initialCamera = () =>
       fittingInitialPage && page
         ? constrainCanvasCamera(fitCanvasPage(viewportSize, page), viewportSize, contentSize)
-        : fitCanvas(viewportSize, contentSize);
+        : canvasOverview(viewportSize, contentSize);
     let camera = restoredCamera
       ? constrainCanvasCamera(restoredCamera, viewportSize, contentSize)
       : initialCamera();
@@ -392,7 +393,7 @@ export function useCanvasCamera(
     };
     const startOverviewFlight = () => {
       cancelCameraFlight();
-      flyToCamera(() => fitCanvas(viewportSize, contentSize));
+      flyToCamera(() => canvasOverview(viewportSize, contentSize));
     };
     const flyToCamera = (destinationCamera: () => CanvasCamera, page?: CanvasSnapTarget) => {
       cancelAnimationFrame(animation);
@@ -586,7 +587,7 @@ export function useCanvasCamera(
       // Stay in overview while pages finish loading. Once zoomed in, preserve
       // the working view and only correct positions invalidated by new bounds.
       camera = constrainCanvasCamera(camera, viewportSize, contentSize);
-      applyCamera(wasFitted ? fitCanvas(viewportSize, contentSize) : target, true);
+      applyCamera(wasFitted ? canvasOverview(viewportSize, contentSize) : target, true);
     });
     resize.observe(viewport);
     resize.observe(content);
@@ -754,7 +755,7 @@ export function useCanvasCamera(
       if (event.key === "Home" || (event.shiftKey && event.code === "Digit1")) {
         gesture = undefined;
         event.preventDefault();
-        move(fitCanvas(viewportSize, contentSize));
+        move(canvasOverview(viewportSize, contentSize));
         return;
       }
       const directions: Record<string, CanvasPoint> = {

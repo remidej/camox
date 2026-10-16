@@ -50,6 +50,11 @@ export const CANVAS_SHELF_MARKER_HEIGHT = 32;
 /** Unscaled chrome above the row: Shelf Markers, then Page headers. */
 const CANVAS_CHROME_HEIGHT = CANVAS_HEADER_HEIGHT + CANVAS_SHELF_MARKER_HEIGHT;
 export const MAX_CANVAS_ZOOM = 2;
+/**
+ * Below this, Pages are too small to read while every frame comes near the
+ * camera, so painting and panning slow down with the size of the site.
+ */
+export const MIN_CANVAS_ZOOM = 0.1;
 /** Log-scale zoom per pixel of Ctrl/⌘ + wheel, including trackpad pinches. */
 export const CANVAS_WHEEL_ZOOM_RATE = 0.0096;
 
@@ -186,7 +191,6 @@ export function zoomCanvasAt(
 
 export function fitCanvas(viewport: CanvasSize, content: CanvasSize): CanvasCamera {
   const padding = canvasInsets(viewport);
-  // A fixed percentage floor prevents large sites or very tall pages from fitting.
   const scale = Math.max(
     Number.EPSILON,
     Math.min(
@@ -202,6 +206,23 @@ export function fitCanvas(viewport: CanvasSize, content: CanvasSize): CanvasCame
   };
 }
 
+/** The zoom floor: the complete overview, unless the site is too large to fit above MIN_CANVAS_ZOOM. */
+export function canvasMinimumScale(viewport: CanvasSize, content: CanvasSize) {
+  return Math.max(MIN_CANVAS_ZOOM, fitCanvas(viewport, content).scale);
+}
+
+/** The most zoomed-out view: the complete overview, or its start at the zoom floor. */
+export function canvasOverview(viewport: CanvasSize, content: CanvasSize): CanvasCamera {
+  const fit = fitCanvas(viewport, content);
+  if (fit.scale >= MIN_CANVAS_ZOOM) return fit;
+  const padding = canvasInsets(viewport);
+  return constrainCanvasCamera(
+    { x: padding.x, y: padding.top, scale: MIN_CANVAS_ZOOM },
+    viewport,
+    content,
+  );
+}
+
 /** The complete overview defines a world rectangle, including its shorter-axis spare space. */
 export function canvasBounds(viewport: CanvasSize, content: CanvasSize) {
   const fit = fitCanvas(viewport, content);
@@ -210,7 +231,7 @@ export function canvasBounds(viewport: CanvasSize, content: CanvasSize) {
     top: -fit.y / fit.scale,
     right: (viewport.width - fit.x) / fit.scale,
     bottom: (viewport.height - fit.y) / fit.scale,
-    minimumScale: fit.scale,
+    minimumScale: Math.max(MIN_CANVAS_ZOOM, fit.scale),
   };
 }
 
