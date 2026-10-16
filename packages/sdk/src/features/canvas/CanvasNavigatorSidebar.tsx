@@ -1,3 +1,4 @@
+import { Button } from "@camox/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -7,8 +8,10 @@ import {
   CommandItem,
   CommandList,
 } from "@camox/ui/command";
+import { Plus } from "lucide-react";
 
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
+import { previewStore } from "../preview/previewStore";
 import type { CanvasItem, CanvasShelf } from "./canvasItems";
 
 function canvasItemLabel(item: CanvasItem) {
@@ -63,6 +66,19 @@ export function CanvasNavigatorSidebar({
                   <span className="truncate">{canvasItemLabel(item)}</span>
                 </CommandItem>
               ))}
+              {shelf.key === "shelf:pages" && (
+                <div className="p-1">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => previewStore.send({ type: "openCreatePageModal" })}
+                  >
+                    <Plus />
+                    Create page
+                  </Button>
+                </div>
+              )}
             </CommandGroup>
           ))}
         </CommandList>

@@ -3,6 +3,16 @@
  * -----------------------------------------------------------------------------------------------*/
 
 import { Alert, AlertDescription, AlertTitle } from "@camox/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@camox/ui/alert-dialog";
 import { Button } from "@camox/ui/button";
 import {
   Dialog,
@@ -150,7 +160,7 @@ const PageInfoSidebar = ({
               </Button>
             </div>
             <div className="space-y-2">
-              <Label>Markdown</Label>
+              <Label>GEO</Label>
               <Button
                 type="button"
                 variant="outline"
@@ -162,6 +172,7 @@ const PageInfoSidebar = ({
             </div>
           </>
         )}
+        <PageDeleteButton page={page} />
         <Metadata>
           <MetadataRow label="Created">{formatRelativeTime(page.createdAt)}</MetadataRow>
           <MetadataRow label="Created by">{page.createdBy ?? "Unknown"}</MetadataRow>
@@ -185,6 +196,69 @@ const PageInfoSidebar = ({
           />
         </>
       )}
+    </>
+  );
+};
+
+const PageDeleteButton = ({ page }: { page: Pick<Page, "id" | "nickname" | "fullPath"> }) => {
+  const [isConfirmOpen, setIsConfirmOpen] = React.useState(false);
+  const deletePage = useMutation(pageMutations.delete());
+  const navigate = useNavigate();
+
+  // The home page can't be deleted.
+  if (page.fullPath === "/") return null;
+
+  const handleDelete = async () => {
+    try {
+      await deletePage.mutateAsync({ id: page.id });
+      toast.success(`Deleted ${page.nickname} page`);
+      await navigate({ to: "/" });
+    } catch (error) {
+      console.error("Failed to delete page:", error);
+      toast.error(`Could not delete ${page.nickname} page`);
+    } finally {
+      setIsConfirmOpen(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="space-y-2">
+        <Label>Danger zone</Label>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => setIsConfirmOpen(true)}
+        >
+          <Trash2 />
+          Delete page
+        </Button>
+      </div>
+      <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete page?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{page.nickname}</strong> will be deleted in this draft. Live keeps the page
+              until the draft is published.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel variant="outline" size="default">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deletePage.isPending}
+              onClick={() => void handleDelete()}
+            >
+              {deletePage.isPending && <Spinner />}
+              Yes, delete this page
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
