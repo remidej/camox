@@ -8,6 +8,11 @@ import { blockQueries, pageMutations, pageQueries, projectQueries } from "../../
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import { getPageRecord, PageRecordContext } from "../preview/pageRecord";
+import {
+  CANVAS_CHROME_Z_INDEX,
+  PREVIEW_PAGE_SLOT_ATTRIBUTE,
+  PreviewPageFrameContext,
+} from "../preview/previewPageFrame";
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, selectIsCommentMode, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
@@ -34,6 +39,7 @@ import { CanvasLeftSidebar } from "./CanvasLeftSidebar";
 import { CanvasPageFrame } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
 import { CANVAS_DEVICES, canvasPageQuery, getCanvasPages, type CanvasPage } from "./canvasPages";
+import { CanvasPreviewPageSlot } from "./CanvasPreviewPageSlot";
 import { CanvasRightSidebar } from "./CanvasRightSidebar";
 import {
   CANVAS_WORLD_TRANSFORM,
@@ -197,6 +203,7 @@ function CanvasHeaderSlot({
         transform: `translate(${canvasScreenX(left)}, ${canvasScreenAbove(CANVAS_HEADER_HEIGHT)})`,
         width: canvasScreenLength(CANVAS_SLOT_WIDTH),
         willChange: "transform",
+        zIndex: CANVAS_CHROME_Z_INDEX,
       }}
     >
       {children}
@@ -269,6 +276,7 @@ function CanvasWorkspace({
   };
   const location = useLocation();
   const navigate = useNavigate();
+  const previewPageFrame = React.use(PreviewPageFrameContext);
   const [hoveredPageKey, setHoveredPageKey] = React.useState<string | null>(null);
   const selectedPath = location.pathname;
   const selectPage = (pathname: string) => {
@@ -320,7 +328,7 @@ function CanvasWorkspace({
       collapsedShelves.has(shelf.key) && shelf.items.some(({ key }) => key === selectedItemKey),
   )?.key;
   const snapTargets = canvasSnapTargets(items);
-  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, keepInView, fitAll } =
+  const { viewportRef, contentRef, flyTo, cancelFlight, zoomAt, mirrorCamera, keepInView, fitAll } =
     useCanvasCamera(
       workspaceKey,
       snapTargets.find(({ key }) => key === selectedKey),
@@ -337,6 +345,10 @@ function CanvasWorkspace({
         onDeselect: () => selectPage(STUDIO_CANVAS_PATH),
       },
     );
+  const workspace = React.useMemo(
+    () => ({ workspaceKey, zoomAt, mirrorCamera }),
+    [workspaceKey, zoomAt, mirrorCamera],
+  );
   // A collapsing marker's area may start off-screen. Its vertical bar should take
   // the place of the marker's visible part, so pan before the collapse paints.
   const collapsingShelf = React.useRef<string | null>(null);
@@ -408,7 +420,7 @@ function CanvasWorkspace({
         overscrollBehavior: "none",
       }}
     >
-      <CanvasWorkspaceContext value={{ workspaceKey, zoomAt }}>
+      <CanvasWorkspaceContext value={workspace}>
         <div
           ref={contentRef}
           data-canvas-items
@@ -467,6 +479,17 @@ function CanvasWorkspace({
                   const slot = pageSlots.get(item.key);
                   if (!slot) return null;
                   const { page, pathname } = slot;
+                  const selected = page.key === selectedPage?.key;
+                  // The selected Page shows the Preview's own frame, so Edit Mode keeps its state.
+                  const previewed = !!previewPageFrame && selected && pathname === selectedPath;
+                  const onPageActivate = (
+                    owner: EditingOwner,
+                    source: "selection" | "interaction",
+                  ) => {
+                    if (!pathname) return;
+                    onActivate(pathname, owner);
+                    if (source === "interaction") selectPage(pathname);
+                  };
                   return (
                     <div
                       key={page.key}
@@ -477,15 +500,21 @@ function CanvasWorkspace({
                       <div
                         data-canvas-page={page.key}
                         data-canvas-pathname={pathname}
+                        {...(previewed ? { [PREVIEW_PAGE_SLOT_ATTRIBUTE]: "" } : {})}
                         className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
                         style={{ width: viewport.width, minHeight: viewport.height }}
                       >
-                        <CanvasFrameBoundary
-                          key={pathname}
-                          subject="page"
-                          selected={page.key === selectedPage?.key}
-                        >
-                          {pathname ? (
+                        <CanvasFrameBoundary key={pathname} subject="page" selected={selected}>
+                          {previewed ? (
+                            <CanvasPreviewPageSlot
+                              pageId={page.pageId}
+                              derivedLayoutId={page.derivedLayoutId}
+                              width={viewport.width}
+                              viewportHeight={viewport.height}
+                              hovered={hoveredPageKey === page.key}
+                              onActivate={onPageActivate}
+                            />
+                          ) : pathname ? (
                             <CanvasPagePreview
                               hovered={hoveredPageKey === page.key}
                               pathname={pathname}
@@ -493,11 +522,8 @@ function CanvasWorkspace({
                               derivedLayoutId={page.derivedLayoutId}
                               pageId={page.pageId}
                               viewport={viewport}
-                              selected={page.key === selectedPage?.key}
-                              onActivate={(owner, source) => {
-                                onActivate(pathname, owner);
-                                if (source === "interaction") selectPage(pathname);
-                              }}
+                              selected={selected}
+                              onActivate={onPageActivate}
                             />
                           ) : (
                             <CanvasMessage>

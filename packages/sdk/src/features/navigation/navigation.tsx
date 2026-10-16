@@ -109,6 +109,27 @@ function NavigationProvider({
   return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;
 }
 
+const noNavigation = () => {};
+
+/**
+ * Keeps the surrounding location, but turns navigation off while `disabled`.
+ * It renders the same tree either way, so toggling it never remounts children.
+ */
+function NavigationDisabled({
+  disabled,
+  children,
+}: {
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  const parent = React.useContext(NavigationContext);
+  const value = React.useMemo(
+    () => (parent && disabled ? { ...parent, navigate: noNavigation } : parent),
+    [parent, disabled],
+  );
+  return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;
+}
+
 function useLocation<T = LocationState>(options?: { select?: (location: LocationState) => T }): T {
   const context = React.useContext(NavigationContext);
   if (context) {
@@ -177,4 +198,4 @@ function Navigate({ replace, to, source }: NavigateOptions) {
   return null;
 }
 
-export { Link, Navigate, NavigationProvider, useLocation, useNavigate };
+export { Link, Navigate, NavigationDisabled, NavigationProvider, useLocation, useNavigate };

@@ -261,7 +261,9 @@ void test("artifacts in the studio preview follow Edit Mode", async () => {
 void test("artifacts on the Canvas know they are on the Canvas", async () => {
   previewStore.send({ type: "enterEditMode" });
   const { artifacts, unmount } = await mountInStudio(({ children }) => (
-    <CanvasWorkspaceContext value={{ workspaceKey: "test", zoomAt: () => {} }}>
+    <CanvasWorkspaceContext
+      value={{ workspaceKey: "test", zoomAt: () => {}, mirrorCamera: () => () => {} }}
+    >
       <CompleteBlockEditingRuntimeProvider>{children}</CompleteBlockEditingRuntimeProvider>
     </CanvasWorkspaceContext>
   ));

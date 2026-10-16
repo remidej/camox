@@ -43,6 +43,13 @@ interface FrameProps {
   serverOnly?: boolean;
   /** Callback when iframe is ready, receives the iframe element */
   onIframeReady?: (iframe: HTMLIFrameElement) => void;
+  /** Extra attributes for the iframe element */
+  iframeProps?: Record<string, string>;
+  /**
+   * Whether the frame shows in the Canvas. There, it is as tall as its page and
+   * its links never navigate, so it neither scrolls nor follows them.
+   */
+  inCanvas?: boolean;
 }
 
 function ClearServerMarkup({ nodes }: { nodes: ChildNode[] }) {
@@ -61,7 +68,11 @@ export const Frame = ({
   copyStyles = true,
   serverOnly = false,
   onIframeReady,
+  iframeProps,
+  inCanvas = false,
 }: FrameProps) => {
+  const inCanvasRef = React.useRef(inCanvas);
+  inCanvasRef.current = inCanvas;
   const navigate = useNavigate();
   const { pathname, hash, href } = useLocation();
   const previewDocument = React.useContext(PreviewDocumentContext);
@@ -106,6 +117,7 @@ export const Frame = ({
       // React a chance to call preventDefault() first.
       iframeWin.addEventListener("click", (e) => {
         if (
+          inCanvasRef.current ||
           e.defaultPrevented ||
           e.button !== 0 ||
           e.metaKey ||
@@ -189,7 +201,8 @@ export const Frame = ({
   }, [pathname, hash, href, iframeWindow, mountNode, continuity]);
 
   React.useLayoutEffect(() => {
-    if (!continuity || !iframeWindow || !mountNode) return;
+    // The Canvas restores this reading position once the frame fills the Preview again.
+    if (!continuity || !iframeWindow || !mountNode || inCanvas) return;
     const doc = iframeWindow.document;
     // Most sites scroll the document. Also support a site-owned full-height
     // overflow container rather than mistakenly scrolling the studio shell.
@@ -234,7 +247,7 @@ export const Frame = ({
       doc.removeEventListener("scroll", onScroll, true);
       if (continuity.preview === binding) continuity.preview = null;
     };
-  }, [continuity, iframeWindow, mountNode, pathname, hash]);
+  }, [continuity, iframeWindow, mountNode, pathname, hash, inCanvas]);
 
   // Monitor for Base UI portaled popups in body
   React.useEffect(() => {
@@ -267,6 +280,7 @@ export const Frame = ({
       {hasOpenPopup && <div className="absolute top-0 left-0 h-full w-full" />}
       <FrameContext.Provider value={{ window: iframeWindow, iframeElement }}>
         <iframe
+          {...iframeProps}
           ref={iframeRef}
           title="Page preview"
           srcDoc={srcDoc}

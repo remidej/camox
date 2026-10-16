@@ -4,7 +4,13 @@ import { test } from "node:test";
 import { Window } from "happy-dom";
 import * as React from "react";
 
-import { Link, NavigationProvider, useLocation, useNavigate } from "./navigation";
+import {
+  Link,
+  NavigationDisabled,
+  NavigationProvider,
+  useLocation,
+  useNavigate,
+} from "./navigation";
 
 void test("default navigation carries transient provenance and history traversal clears it", async () => {
   const dom = new Window({ url: "https://site.test/about" });
@@ -122,6 +128,60 @@ void test("navigation keeps the draft param across SDK links, and switching draf
     assert.equal(draftOf(), null, "switching to Live drops the param");
     await React.act(async () => navigate({ to: "/contact" }));
     assert.equal(draftOf(), null, "Live stays Live");
+  } finally {
+    await React.act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+void test("disabled navigation keeps the location and children, and never navigates", async () => {
+  const dom = new Window({ url: "https://site.test/about" });
+  const globals = { React, window: dom, document: dom.document, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  const navigations: string[] = [];
+  let mounts = 0;
+  let location!: { pathname: string };
+  let navigate!: ReturnType<typeof useNavigate>;
+  function Probe() {
+    location = useLocation();
+    navigate = useNavigate();
+    React.useEffect(() => {
+      mounts++;
+    }, []);
+    return null;
+  }
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(dom.document.createElement("div") as unknown as HTMLElement);
+  const render = (disabled: boolean) =>
+    React.act(async () =>
+      root.render(
+        <NavigationProvider
+          location={{ pathname: "/about", href: "https://site.test/about", hash: "", search: "" }}
+          navigate={({ to }) => void navigations.push(to)}
+        >
+          <NavigationDisabled disabled={disabled}>
+            <Probe />
+          </NavigationDisabled>
+        </NavigationProvider>,
+      ),
+    );
+  try {
+    await render(true);
+    assert.equal(location.pathname, "/about");
+    await React.act(async () => navigate({ to: "/contact" }));
+    assert.deepEqual(navigations, []);
+    await render(false);
+    await React.act(async () => navigate({ to: "/contact" }));
+    assert.deepEqual(navigations, ["/contact"]);
+    await render(true);
+    assert.equal(mounts, 1, "toggling never remounts its children");
   } finally {
     await React.act(async () => root.unmount());
     await dom.happyDOM.close();

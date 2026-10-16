@@ -44,6 +44,9 @@ registerHooks({
       source = "export const useCanvasCamera = (...args) => globalThis.CanvasCameraProbe(...args)";
     if (specifier.endsWith("/CanvasPageFrame"))
       source = "export const CanvasPageFrame = (props) => globalThis.CanvasFrameProbe(props)";
+    if (specifier.endsWith("/CanvasPreviewPageSlot"))
+      source =
+        "export const CanvasPreviewPageSlot = (props) => { globalThis.CanvasPreviewSlotProbe?.(props); return null }";
     if (specifier.endsWith("/CanvasBlockFrame"))
       source = "export const CanvasBlockFrame = (props) => globalThis.CanvasBlockFrameProbe(props)";
     if (specifier.endsWith("/FieldToolbar")) source = "export const FieldToolbar = () => null";
@@ -724,6 +727,61 @@ void test("Canvas startup failures are selected-only and retryable", async (t) =
         Object.assign(globalThis, globals);
       }
     });
+    await t.test(
+      "the selected Page shows the Preview's own frame, following the selection",
+      async () => {
+        scenario = "";
+        includeNewPage = false;
+        globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+        Object.assign(globalThis, globals);
+        frames.clear();
+        const slots: { pageId?: string }[] = [];
+        Object.assign(globalThis, {
+          CanvasPreviewSlotProbe: (props: { pageId?: string }) => slots.push(props),
+        });
+        const { PreviewPageFrame, PreviewPageFrameContext } =
+          await import("../preview/previewPageFrame");
+        const pageFrame = { frame: new PreviewPageFrame(), revealed: true };
+        const host = dom.document.createElement("div");
+        dom.document.body.append(host);
+        const root = createRoot(host as unknown as HTMLElement);
+        const render = () =>
+          React.act(async () =>
+            root.render(
+              <PreviewPageFrameContext value={pageFrame}>
+                <PreviewPreparationContext value={{ ready: () => {}, fail: () => {} }}>
+                  <CamoxCanvas runtimeBasePath="" />
+                </PreviewPreparationContext>
+              </PreviewPageFrameContext>,
+            ),
+          );
+        const previewed = () =>
+          [...host.querySelectorAll("[data-canvas-preview-page]")].map((page) =>
+            page.getAttribute("data-canvas-pathname"),
+          );
+        try {
+          await render();
+          assert.deepEqual(previewed(), ["/about"]);
+          assert.ok(slots.length > 0, "its slot takes the Preview page frame");
+          assert.equal(frames.has("/about"), false, "the Canvas renders no second frame of it");
+          assert.ok(frames.has("/contact"), "other Pages keep frames of their own");
+
+          globals.CanvasLocation = { ...globals.CanvasLocation, pathname: "/contact" };
+          Object.assign(globalThis, globals);
+          frames.clear();
+          await render();
+          assert.deepEqual(previewed(), ["/contact"]);
+          assert.ok(frames.has("/about"), "the deselected Page gets a frame of its own");
+          assert.equal(frames.has("/contact"), false);
+        } finally {
+          await React.act(async () => root.unmount());
+          host.remove();
+          Reflect.deleteProperty(globalThis, "CanvasPreviewSlotProbe");
+          globals.CanvasLocation = { pathname: "/about", search: "", hash: "", source: undefined };
+          Object.assign(globalThis, globals);
+        }
+      },
+    );
     await t.test("the Canvas route opens the Canvas with nothing selected", async () => {
       scenario = "";
       includeNewPage = false;

@@ -1,3 +1,4 @@
+import { CANVAS_CHROME_Z_INDEX } from "../preview/previewPageFrame";
 import {
   CANVAS_HEADER_HEIGHT,
   CANVAS_PAGE_FIT_PADDING,
@@ -110,6 +111,7 @@ function CanvasShelfMarker({
             height: `calc(100% - ${y})`,
             transform: `translate(${bar.left}, ${y})`,
             willChange: "transform",
+            zIndex: CANVAS_CHROME_Z_INDEX,
           }}
         />
         <div
@@ -120,6 +122,7 @@ function CanvasShelfMarker({
             // Stick to the top of the viewport while the bar runs past it.
             transform: `translate(${bar.left}, max(${y}, 0px))`,
             willChange: "transform",
+            zIndex: CANVAS_CHROME_Z_INDEX,
           }}
         >
           <span className={`${LABEL_CLASS_NAME} rotate-180 [writing-mode:vertical-rl]`}>
@@ -145,6 +148,7 @@ function CanvasShelfMarker({
           width: `calc(${bar.right} - ${bar.left})`,
           transform: `translate(${bar.left}, ${y})`,
           willChange: "transform",
+          zIndex: CANVAS_CHROME_Z_INDEX,
         }}
       />
       <div
@@ -155,6 +159,7 @@ function CanvasShelfMarker({
           width: `max(0px, calc(${end} - ${labelStart}))`,
           transform: `translate(${labelStart}, ${y})`,
           willChange: "transform",
+          zIndex: CANVAS_CHROME_Z_INDEX,
         }}
       >
         <span className={LABEL_CLASS_NAME}>

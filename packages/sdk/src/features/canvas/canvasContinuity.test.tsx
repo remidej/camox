@@ -83,10 +83,11 @@ void test("real camera handoffs use held snaps, preserve exact overview returns,
       offsetWidth: { get: () => contentSize.width },
       offsetHeight: { get: () => contentSize.height },
     });
-    Object.defineProperties(iframe, {
-      contentDocument: { value: frameWindow.document },
-      getBoundingClientRect: { value: () => ({ top: 84 + read().y, left: 300 + read().x }) },
+    // The camera measures the Page, whose frame sits at its top.
+    Object.defineProperty(content.querySelector("[data-canvas-page]")!, "getBoundingClientRect", {
+      value: () => ({ top: 84 + read().y, left: 300 + read().x }),
     });
+    Object.defineProperties(iframe, { contentDocument: { value: frameWindow.document } });
     frameWindow.document.body.innerHTML = '<div data-camox-viewport-block="42"></div>';
     Object.defineProperty(frameWindow.document.body.firstElementChild, "getBoundingClientRect", {
       value: () => ({ top: 1000, bottom: 3000, height: 2000 }),

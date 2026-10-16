@@ -7,6 +7,8 @@ import { canvasStore } from "./canvasStore";
 type CanvasWorkspaceContext = {
   workspaceKey: string;
   zoomAt: (point: CanvasPoint, scale: number) => void;
+  /** Paints the camera onto an element outside the Canvas viewport, until the returned cleanup. */
+  mirrorCamera: (element: HTMLElement) => () => void;
 };
 
 export const CanvasWorkspaceContext = createContext<CanvasWorkspaceContext | null>(null);
