@@ -1,3 +1,4 @@
+import { PAGE_TEXT_LINK_PREFIX, uuidv7Schema } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -40,10 +41,32 @@ export function decodeContent<S extends z.ZodType>(schema: S, value: unknown) {
   );
 }
 
+/** A page link, in text or in a link field, names a page of this project by UUIDv7. */
+export const validatePageLink = Effect.fn("validatePageLink")(function* (
+  ctx: ServiceContext,
+  scope: { projectId: number },
+  pageId: unknown,
+) {
+  const id = uuidv7Schema.safeParse(pageId);
+  if (!id.success)
+    return yield* new InvalidInputError({ message: "A page link must store the page's UUIDv7" });
+  const page = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.id, id.data), eq(pages.projectId, scope.projectId)))
+      .get(),
+  );
+  if (!page)
+    return yield* new InvalidInputError({
+      message: "Page link is outside this project",
+    });
+});
+
 /** Preserve existing authored text, not HTML and not an unvalidated arbitrary object. */
 export const validateText = Effect.fn("collections.validateText")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: { projectId: number },
   value: unknown,
 ) {
   if (typeof value === "string" && !isLexicalState(value)) return { value, text: value };
@@ -88,28 +111,8 @@ export const validateText = Effect.fn("collections.validateText")(function* (
       return yield* new InvalidInputError({ message: "Text container requires children" });
     if (node.type === "link") {
       const url = yield* decodeContent(z.string(), node.url);
-      if (url.startsWith("camox:page:")) {
-        const id = yield* decodeContent(
-          z.coerce.number().int().positive(),
-          url.slice("camox:page:".length),
-        );
-        const page = yield* Effect.promise(() =>
-          ctx.db
-            .select({ id: pages.id })
-            .from(pages)
-            .where(
-              and(
-                eq(pages.id, id),
-                eq(pages.projectId, scope.projectId),
-                eq(pages.environmentId, scope.environmentId),
-              ),
-            )
-            .get(),
-        );
-        if (!page)
-          return yield* new InvalidInputError({
-            message: "Text link is outside this project/environment",
-          });
+      if (url.startsWith(PAGE_TEXT_LINK_PREFIX)) {
+        yield* validatePageLink(ctx, scope, url.slice(PAGE_TEXT_LINK_PREFIX.length));
       } else if (
         !/^https?:\/\/[^\s\\\p{Cc}]+$/u.test(url) &&
         !/^\/(?!\/)[^\s\\\p{Cc}]*$/u.test(url)

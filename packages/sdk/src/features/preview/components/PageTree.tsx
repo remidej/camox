@@ -25,7 +25,6 @@ import { useSelector } from "@xstate/store-react";
 import { Ellipsis, GripVertical, LayoutTemplate, Plus } from "lucide-react";
 import * as React from "react";
 
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { type NormalizedBlock, usePageBlocks } from "@/lib/normalized-data";
 import { cn } from "@/lib/utils";
 
@@ -33,16 +32,9 @@ import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import type { OverlayMessage } from "../overlayMessages";
 import { PreviewEditingOwnerContext } from "../previewSelection";
-import {
-  previewStore,
-  selectPreviewSource,
-  selectionBlockId,
-  selectionForOwner,
-} from "../previewStore";
+import { previewStore, selectionBlockId, selectionForOwner } from "../previewStore";
 import { BlockActionsPopover } from "./BlockActionsPopover";
 import { useUpdateBlockPosition } from "./useUpdateBlockPosition";
-
-const usePreviewSource = () => useSelector(previewStore, selectPreviewSource);
 
 /* -------------------------------------------------------------------------------------------------
  * useBlockTreeItem
@@ -62,7 +54,7 @@ function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
       type: "CAMOX_HOVER_BLOCK",
-      blockId: String(block.id),
+      blockId: block.id,
     };
     iframeElement.contentWindow.postMessage(message, "*");
   };
@@ -71,7 +63,7 @@ function useBlockTreeItem(block: NormalizedBlock, isDragging = false) {
     if (!iframeElement?.contentWindow) return;
     const message: OverlayMessage = {
       type: "CAMOX_HOVER_BLOCK_END",
-      blockId: String(block.id),
+      blockId: block.id,
     };
     iframeElement.contentWindow.postMessage(message, "*");
   };
@@ -185,7 +177,7 @@ const animateLayoutChanges: AnimateLayoutChanges = (args) => {
 const SortableBlock = ({ block }: SortableBlockProps) => {
   const [gripPopoverOpen, setGripPopoverOpen] = React.useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: String(block.id),
+    id: block.id,
     animateLayoutChanges,
   });
   const style = {
@@ -296,13 +288,11 @@ export const LayoutBlockItem = ({ block, layoutName, derived = false }: LayoutBl
 
 const PageTree = () => {
   const page = usePreviewedPage();
-  const previewSource = usePreviewSource();
-  const requireDraft = useRequireDraftSource();
   const {
     pageBlocks,
     beforeBlocks: layoutBeforeBlocks,
     afterBlocks: layoutAfterBlocks,
-  } = usePageBlocks(page, previewSource);
+  } = usePageBlocks(page);
   const camoxApp = useCamoxApp();
 
   const updatePosition = useUpdateBlockPosition();
@@ -333,15 +323,9 @@ const PageTree = () => {
       return;
     }
 
-    // A drag may finish after switching to live preview.
-    if (!requireDraft()) {
-      setActiveId(null);
-      return;
-    }
-
     // Find the old and new indices
-    const oldIndex = pageBlocks.findIndex((block) => String(block.id) === active.id);
-    const newIndex = pageBlocks.findIndex((block) => String(block.id) === over.id);
+    const oldIndex = pageBlocks.findIndex((block) => block.id === active.id);
+    const newIndex = pageBlocks.findIndex((block) => block.id === over.id);
 
     if (oldIndex === -1 || newIndex === -1) {
       setActiveId(null);
@@ -368,7 +352,7 @@ const PageTree = () => {
     // mutate() triggers onMutate synchronously, reordering the list
     // before dnd-kit resets transforms on neighboring items
     updatePosition.mutate({
-      id: Number(active.id),
+      id: String(active.id),
       afterPosition,
       beforePosition,
     });
@@ -390,7 +374,7 @@ const PageTree = () => {
       <div className="flex flex-col gap-0.5">
         {layoutBeforeBlocks.map((block) => (
           <LayoutBlockItem
-            key={String(block.id)}
+            key={block.id}
             block={block}
             layoutName={layout?._internal.title ?? "Unknown"}
           />
@@ -404,19 +388,19 @@ const PageTree = () => {
           modifiers={[restrictToVerticalAxis]}
         >
           <SortableContext
-            items={pageBlocks.map((block) => String(block.id))}
+            items={pageBlocks.map((block) => block.id)}
             strategy={verticalListSortingStrategy}
           >
             <div className="relative flex flex-col gap-0.5">
               {pageBlocks.map((block) => (
-                <SortableBlock key={String(block.id)} block={block} />
+                <SortableBlock key={block.id} block={block} />
               ))}
             </div>
           </SortableContext>
           <DragOverlay dropAnimation={null}>
             {activeId
               ? (() => {
-                  const activeBlock = pageBlocks.find((b) => String(b.id) === activeId);
+                  const activeBlock = pageBlocks.find((b) => b.id === activeId);
                   if (!activeBlock) return null;
                   return (
                     <div className="bg-accent text-accent-foreground rounded-lg shadow-md">
@@ -432,7 +416,7 @@ const PageTree = () => {
         </DndContext>
         {layoutAfterBlocks.map((block) => (
           <LayoutBlockItem
-            key={String(block.id)}
+            key={block.id}
             block={block}
             layoutName={layout?._internal.title ?? "Unknown"}
           />
@@ -441,7 +425,6 @@ const PageTree = () => {
       <Button
         variant="secondary"
         onClick={() => {
-          if (!requireDraft()) return;
           previewStore.send({
             type: "openAddBlockDialog",
           });

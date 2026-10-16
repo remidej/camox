@@ -79,7 +79,7 @@ export const chartData = {
   content: {
     headline: "Revenue </script><p>up",
     cta: { type: "external", text: "Report", href: "https://example.com/q3", newTab: false },
-    photo: { _fileId: 7 },
+    photo: { _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a07" },
     chart: chartSource,
     bars: [
       { id: 3, content: { label: "Q1", bar: chartSource }, settings: { highlighted: true } },
@@ -89,7 +89,7 @@ export const chartData = {
   settings: { accent: "red" },
   files: [
     {
-      id: 7,
+      id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a07",
       url: "https://cdn.example.test/photo.png",
       alt: "Team photo",
       filename: "photo.png",
@@ -133,7 +133,7 @@ function ArtifactBlock({
           <block._internal.Component
             mode="site"
             blockData={{
-              _id: 1,
+              _id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b",
               type: block._internal.id,
               position: "a0",
               content: content as never,

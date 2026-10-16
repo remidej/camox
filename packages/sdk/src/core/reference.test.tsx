@@ -36,7 +36,6 @@ const record: ReferenceRecord = {
   id,
   collectionId: "customers",
   label: "Source label",
-  version: 1,
   content: { name: "Acme", logo: null, images: [] },
 };
 
@@ -106,7 +105,7 @@ void test("public scopes render source fields and labels, never fabricate missin
               <block._internal.Component
                 mode="site"
                 blockData={{
-                  _id: 1,
+                  _id: "1",
                   type: "reference",
                   position: "a0",
                   content: { customer: value },
@@ -130,14 +129,14 @@ void test("public scopes render source fields and labels, never fabricate missin
   assert.equal(calls, 0);
 
   const image = {
-    _fileId: "7",
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a07",
     url: "https://example.test/published.png",
     alt: "Published logo",
     mimeType: "image/png",
     size: 100,
   };
   const file = {
-    _fileId: "8",
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a08",
     url: "https://example.test/published.pdf",
     filename: "published.pdf",
     mimeType: "application/pdf",
@@ -150,8 +149,16 @@ void test("public scopes render source fields and labels, never fabricate missin
   for (const files of [
     [],
     [
-      { id: 7, url: "https://example.test/mutable.png", alt: "Changed" } as NormalizedFile,
-      { id: 8, url: "https://example.test/mutable.pdf", filename: "changed.pdf" } as NormalizedFile,
+      {
+        id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a07",
+        url: "https://example.test/mutable.png",
+        alt: "Changed",
+      } as NormalizedFile,
+      {
+        id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a08",
+        url: "https://example.test/mutable.pdf",
+        filename: "changed.pdf",
+      } as NormalizedFile,
     ],
   ]) {
     const html = render(id, published, files);
@@ -244,7 +251,7 @@ void test("reference lists render each resolved record in stored order and nothi
               <block._internal.Component
                 mode="site"
                 blockData={{
-                  _id: 1,
+                  _id: "1",
                   type: "logo-grid",
                   position: "a0",
                   content: { customers: value as string[] },
@@ -341,8 +348,8 @@ void test("query-backed lists store nothing and render their resolved records in
         files={[]}
         repeatableItems={[
           {
-            id: 30,
-            blockId: 3,
+            id: "30",
+            blockId: "3",
             parentItemId: null,
             fieldName: "rows",
             content: {},
@@ -354,15 +361,15 @@ void test("query-backed lists store nothing and render their resolved records in
             references: { customers: [record] },
           } as never,
         ]}
-        blocks={[{ id: 3, references: { customers: [second, record] } }]}
+        blocks={[{ id: "3", references: { customers: [second, record] } }]}
       >
         <block._internal.Component
           mode="site"
           blockData={{
-            _id: 3,
+            _id: "3",
             type: "recent-customers",
             position: "a0",
-            content: { customers: [id], rows: [{ _itemId: 30 }] } as never,
+            content: { customers: [id], rows: [{ _itemId: "30" }] } as never,
           }}
         />
       </NormalizedDataProvider>
@@ -418,9 +425,9 @@ void test("repeatable items render the records they link, at any repeater depth"
       </block.Repeater>
     ),
   });
-  const item = (itemId: number, parentItemId: number | null, content: object, references = {}) => ({
+  const item = (itemId: string, parentItemId: string | null, content: object, references = {}) => ({
     id: itemId,
-    blockId: 1,
+    blockId: "1",
     parentItemId,
     fieldName: parentItemId === null ? "logos" : "quotes",
     content,
@@ -429,6 +436,8 @@ void test("repeatable items render the records they link, at any repeater depth"
     position: "a0",
     createdAt: 0,
     updatedAt: 0,
+    projectId: null,
+    sharedContentType: null,
     references,
   });
   const html = renderToStaticMarkup(
@@ -441,18 +450,18 @@ void test("repeatable items render the records they link, at any repeater depth"
             files={[]}
             blocks={[]}
             repeatableItems={[
-              item(1, null, { customer: id, quotes: [{ _itemId: 2 }] }, { customer: record }),
-              item(2, 1, { speakers: [id] }, { speakers: [record] }),
-              item(3, null, { customer: null, quotes: [] }),
+              item("1", null, { customer: id, quotes: [{ _itemId: "2" }] }, { customer: record }),
+              item("2", "1", { speakers: [id] }, { speakers: [record] }),
+              item("3", null, { customer: null, quotes: [] }),
             ]}
           >
             <block._internal.Component
               mode="site"
               blockData={{
-                _id: 1,
+                _id: "1",
                 type: "logo-wall",
                 position: "a0",
-                content: { logos: [{ _itemId: 1 }, { _itemId: 3 }] } as never,
+                content: { logos: [{ _itemId: "1" }, { _itemId: "3" }] } as never,
               }}
             />
           </NormalizedDataProvider>
@@ -531,7 +540,12 @@ void test("placed records render the records they link, and nothing a hop furthe
           >
             <block._internal.Component
               mode="site"
-              blockData={{ _id: 1, type: "teaser", position: "a0", content: { article: "launch" } }}
+              blockData={{
+                _id: "1",
+                type: "teaser",
+                position: "a0",
+                content: { article: "launch" },
+              }}
             />
           </NormalizedDataProvider>
         </NavigationProvider>
@@ -542,8 +556,8 @@ void test("placed records render the records they link, and nothing a hop furthe
 });
 
 void test("placement identity is separate from source identity and resolution validates collection", () => {
-  const placement = { blockId: 1, fieldName: "customer", recordId: id };
-  assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: 2 }));
+  const placement = { blockId: "1", fieldName: "customer", recordId: id };
+  assert.notEqual(recordPlacementId(placement), recordPlacementId({ ...placement, blockId: "2" }));
   assert.notEqual(
     recordPlacementId(placement),
     recordPlacementId({ ...placement, fieldName: "o" }),
@@ -556,26 +570,30 @@ void test("placement identity is separate from source identity and resolution va
 
 void test("two placements serialize shared source edits without clobbering another field", async () => {
   const writer = new ReferenceWrites();
-  const requests: Array<{ expectedVersion: number; content: Record<string, unknown> }> = [];
+  const requests: Array<{ content: Record<string, unknown> }> = [];
   const save = async (input: (typeof requests)[number]) => {
     requests.push(input);
     await Promise.resolve();
-    return { id, version: input.expectedVersion + 1, draft: input.content };
+    return { id, content: input.content };
   };
   await Promise.all([
     writer.save(record, "name", "First", save),
     writer.save({ ...record }, "quote", "Second", save),
     writer.save({ ...record }, "name", "Third", save),
   ]);
+  // Each queued save builds on the content the previous one saved.
   assert.deepEqual(
-    requests.map((r) => r.expectedVersion),
-    [1, 2, 3],
+    requests.map((r) => r.content),
+    [
+      { ...record.content, name: "First" },
+      { ...record.content, name: "First", quote: "Second" },
+      { ...record.content, name: "Third", quote: "Second" },
+    ],
   );
-  assert.deepEqual(requests[2].content, { ...record.content, name: "Third", quote: "Second" });
   assert.equal(record.content.name, "Acme");
 });
 
-void test("failed source writes do not retry or advance queued expected versions", async () => {
+void test("failed source writes do not retry, and queued writes behind them are dropped", async () => {
   const writer = new ReferenceWrites();
   let calls = 0;
   const save = async () => {
@@ -591,6 +609,4 @@ void test("failed source writes do not retry or advance queued expected versions
     results.map((r) => r.status),
     ["rejected", "rejected"],
   );
-  await assert.rejects(writer.save({ ...record, version: undefined }, "name", "Live", save));
-  assert.equal(calls, 1);
 });

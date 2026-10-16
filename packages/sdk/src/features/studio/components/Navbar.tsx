@@ -13,9 +13,8 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_CONTENT_PATH } from "../routes";
 import { studioStore } from "../studioStore";
-import { EnvironmentMenu } from "./EnvironmentMenu";
+import { DraftsControl } from "./DraftsControl";
 import { ProjectMenu } from "./ProjectMenu";
-import { SiteStatusIndicator } from "./SiteStatusIndicator";
 import { UserButton } from "./UserButton";
 
 const links = [
@@ -65,7 +64,6 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
       <div className="flex flex-row gap-2">
         <div className="flew-row flex gap-1">
           <ProjectMenu />
-          <EnvironmentMenu />
         </div>
         <ul className="flex items-center gap-1">
           {getNavbarLinks().map((link, index) => {
@@ -99,7 +97,7 @@ const Navbar = ({ isPreview = false }: { isPreview?: boolean }) => {
         </ul>
       </div>
       <div className="flex items-center gap-2">
-        <SiteStatusIndicator isPreview={isPreview} />
+        <DraftsControl />
         <Button variant="outline" onClick={() => studioStore.send({ type: "openCommandPalette" })}>
           <SearchIcon className="text-muted-foreground size-4" />
           <span className="text-muted-foreground">Quick find</span>

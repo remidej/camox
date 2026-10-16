@@ -50,7 +50,7 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   const apiUrl = `http://127.0.0.1:${address.port}`;
-  const target = { projectSlug: "site", environmentName: "dev:me@example.test", apiUrl };
+  const target = { projectSlug: "site", apiUrl };
   let reloads = 0;
   window.location.reload = () => {
     reloads++;
@@ -73,7 +73,6 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
       ...target,
       authenticationUrl: "https://auth.test",
       presentation: initialAuthenticated ? "studio" : "public",
-      source: initialAuthenticated ? "draft" : "live",
       href: window.location.href,
       pathname: "/about",
       runtimeBasePath: "",

@@ -1,4 +1,5 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -10,33 +11,37 @@ import {
   requireUser,
 } from "../../authorization";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { resolveEnvironment } from "../../lib/resolve-environment";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import {
-  aiJobs,
   blockDefinitions,
   collectionDefinitions,
   collectionRecords,
   blocks,
-  environments,
   files,
+  generatedValues,
   layouts,
   organizationTable,
   pages,
   projects,
   repeatableItems,
+  sharedContents,
 } from "../../schema";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
-import { syncBlockData } from "../blocks/synced";
+import { requestBlockSummary } from "../blocks/service";
+import { adoptSharedContent } from "../blocks/shared-content";
 import {
   referenceFields,
   resolveReferences,
   validateReferenceValues,
 } from "../collections/references";
+import * as overlay from "../drafts/overlay";
+import { releasedNew, visibleIn } from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
-import { writeLayoutCheckpointAndPoint } from "../layouts/service";
-import { writePageCheckpointAndPoint } from "../pages/service";
+import { homeOf, requestGeneration } from "../generated-values/service";
+import { requestPageSeo } from "../pages/service";
+import { itemsInProject } from "../repeatable-items/roots";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -202,16 +207,6 @@ export const createProject = Effect.fn("projects.createProject")(function* (
       .get(),
   );
 
-  yield* Effect.promise(() =>
-    ctx.db.insert(environments).values({
-      projectId: result.id,
-      name: "production",
-      type: "production",
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
-
   return result;
 });
 
@@ -249,7 +244,10 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
       .from(collectionRecords)
       .innerJoin(
         collectionDefinitions,
-        eq(collectionRecords.definitionId, collectionDefinitions.id),
+        and(
+          eq(collectionDefinitions.projectId, collectionRecords.projectId),
+          eq(collectionDefinitions.collectionId, collectionRecords.collectionId),
+        ),
       )
       .where(eq(collectionDefinitions.projectId, projectId))
       .get(),
@@ -257,45 +255,23 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   if (collection) {
     return yield* new ConflictError({
       message:
-        "Deleting projects with collection history is not supported yet; no content was changed.",
+        "Deleting projects with collection records is not supported yet; no content was changed.",
     });
   }
 
   // Collect IDs needed for cascade deletion
-  const pageRows = yield* Effect.promise(() =>
-    ctx.db.select({ id: pages.id }).from(pages).where(eq(pages.projectId, projectId)),
+  // Blocks on pages and in layouts both belong to the project.
+  const blockRows = yield* Effect.promise(() =>
+    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.projectId, projectId)),
   );
-  const pageIds = pageRows.map((r) => r.id);
-
-  const layoutRows = yield* Effect.promise(() =>
-    ctx.db.select({ id: layouts.id }).from(layouts).where(eq(layouts.projectId, projectId)),
-  );
-  const layoutIds = layoutRows.map((r) => r.id);
-
-  const blockConditions = [
-    ...(pageIds.length > 0 ? [inArray(blocks.pageId, pageIds)] : []),
-    ...(layoutIds.length > 0 ? [inArray(blocks.layoutId, layoutIds)] : []),
-  ];
-  const blockRows =
-    blockConditions.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select({ id: blocks.id })
-            .from(blocks)
-            .where(or(...blockConditions)),
-        )
-      : [];
   const blockIds = blockRows.map((r) => r.id);
 
-  const repeatableItemRows =
-    blockIds.length > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select({ id: repeatableItems.id })
-            .from(repeatableItems)
-            .where(inArray(repeatableItems.blockId, blockIds)),
-        )
-      : [];
+  const repeatableItemRows = yield* Effect.promise(() =>
+    ctx.db
+      .select({ id: repeatableItems.id })
+      .from(repeatableItems)
+      .where(itemsInProject(projectId)),
+  );
   const repeatableItemIds = repeatableItemRows.map((r) => r.id);
 
   const fileRows = yield* Effect.promise(() =>
@@ -304,58 +280,10 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
       .from(files)
       .where(eq(files.projectId, projectId)),
   );
-  const fileIds = fileRows.map((r) => r.id);
 
-  // Delete AI jobs for all collected entities
-  const aiJobConditions = [
-    ...(pageIds.length > 0
-      ? [
-          and(
-            eq(aiJobs.entityTable, "pages"),
-            inArray(
-              aiJobs.entityId,
-              pageIds.map((id) => String(id)),
-            ),
-          ),
-        ]
-      : []),
-    ...(blockIds.length > 0
-      ? [
-          and(
-            eq(aiJobs.entityTable, "blocks"),
-            inArray(
-              aiJobs.entityId,
-              blockIds.map((id) => String(id)),
-            ),
-          ),
-        ]
-      : []),
-    ...(repeatableItemIds.length > 0
-      ? [
-          and(
-            eq(aiJobs.entityTable, "repeatableItems"),
-            inArray(
-              aiJobs.entityId,
-              repeatableItemIds.map((id) => String(id)),
-            ),
-          ),
-        ]
-      : []),
-    ...(fileIds.length > 0
-      ? [
-          and(
-            eq(aiJobs.entityTable, "files"),
-            inArray(
-              aiJobs.entityId,
-              fileIds.map((id) => String(id)),
-            ),
-          ),
-        ]
-      : []),
-  ];
-  if (aiJobConditions.length > 0) {
-    yield* Effect.promise(() => ctx.db.delete(aiJobs).where(or(...aiJobConditions)));
-  }
+  yield* Effect.promise(() =>
+    ctx.db.delete(generatedValues).where(eq(generatedValues.projectId, projectId)),
+  );
 
   // Delete in FK-safe order
   if (repeatableItemIds.length > 0) {
@@ -363,6 +291,9 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
       ctx.db.delete(repeatableItems).where(inArray(repeatableItems.id, repeatableItemIds)),
     );
   }
+  yield* Effect.promise(() =>
+    ctx.db.delete(sharedContents).where(eq(sharedContents.projectId, projectId)),
+  );
   if (blockIds.length > 0) {
     yield* Effect.promise(() => ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)));
   }
@@ -391,9 +322,6 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   yield* Effect.promise(() =>
     ctx.db.delete(collectionDefinitions).where(eq(collectionDefinitions.projectId, projectId)),
   );
-  yield* Effect.promise(() =>
-    ctx.db.delete(environments).where(eq(environments.projectId, projectId)),
-  );
 
   const result = yield* Effect.promise(() =>
     ctx.db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
@@ -401,22 +329,50 @@ export const deleteProject = Effect.fn("projects.deleteProject")(function* (
   return result;
 });
 
+/**
+ * Inserts content a sync seeds: on Live as released content, in a development draft as a draft
+ * row (ADR 0006).
+ */
+const seed = Effect.fn("projects.seed")(function* <T extends overlay.ContentTable>(
+  ctx: ServiceContext,
+  draft: DraftScope,
+  table: T,
+  values: Omit<T["$inferInsert"], "id" | "draftId">,
+) {
+  if (draft) {
+    return (yield* overlay.insert(ctx.db, draft, table, values as never))! as T["$inferSelect"];
+  }
+  return (yield* Effect.promise(() =>
+    ctx.db
+      .insert(table as SQLiteTable)
+      .values({ ...values, ...releasedNew(Date.now()) } as never)
+      .returning()
+      .get(),
+  )) as T["$inferSelect"];
+});
+
 export const initializeProjectContent = Effect.fn("projects.initializeProjectContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof initializeProjectContentInput>,
 ) {
   const input = yield* decodeInput(initializeProjectContentInput, rawInput);
-  const project = yield* assertSyncAccess(ctx.db, input.projectSlug, {
-    user: ctx.user,
-    environmentName: ctx.environmentName,
-    deployToken: input.deployToken,
-  });
+  // A release seeds Live; dev mode seeds the caller's development draft, as draft rows
+  // (ADR 0006).
+  const { project, scope: draft } = yield* assertSyncAccess(
+    ctx.db,
+    input.projectSlug,
+    { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
+    { create: true },
+  );
 
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
-
-  // Check if environment already has pages — if so, skip (idempotent)
+  // Skip when the target already reads pages (idempotent).
   const existingPage = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.environmentId, environment.id)).limit(1).get(),
+    ctx.db
+      .select()
+      .from(pages)
+      .where(and(eq(pages.projectId, project.id), visibleIn(pages, draft)))
+      .limit(1)
+      .get(),
   );
   if (existingPage) {
     return { created: false };
@@ -432,7 +388,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       .where(
         and(
           eq(layouts.projectId, project.id),
-          eq(layouts.environmentId, environment.id),
+          definitionsIn(layouts, draft),
           eq(layouts.layoutId, input.layoutId),
         ),
       )
@@ -447,10 +403,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       .select()
       .from(blockDefinitions)
       .where(
-        and(
-          eq(blockDefinitions.projectId, project.id),
-          eq(blockDefinitions.environmentId, environment.id),
-        ),
+        and(eq(blockDefinitions.projectId, project.id), definitionsIn(blockDefinitions, draft)),
       ),
   );
   const definitionsByType = new Map(
@@ -473,38 +426,31 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   });
 
   for (const block of preparedBlocks) {
-    const scope = { projectId: project.id, environmentId: environment.id };
+    const scope = { projectId: project.id, draft };
     const schema = definitionsByType.get(block.type)?.contentSchema;
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
-    const live = yield* resolveReferences(ctx, scope, schema, block.content, "live");
-    if (referenceFields(schema).some(([name, field]) => field.required === true && !live[name])) {
+    const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
+    if (
+      referenceFields(schema).some(([name, field]) => field.required === true && !resolved[name])
+    ) {
       return yield* new InvalidInputError({
-        message: "Bootstrap requires published required references",
+        message: "Bootstrap requires its required references to link existing records",
       });
     }
   }
 
   // Create homepage
-  const homepage = yield* Effect.promise(() =>
-    ctx.db
-      .insert(pages)
-      .values({
-        projectId: project.id,
-        environmentId: environment.id,
-        pathSegment: "",
-        fullPath: "/",
-        layoutId: layout.id,
-        nickname: "Home",
-        metaTitle: "Untitled page",
-        metaDescription:
-          "Title and description will be generated by AI as you edit the page's content.",
-        contentUpdatedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get(),
-  );
+  const homepage = yield* seed(ctx, draft, pages, {
+    projectId: project.id,
+
+    pathSegment: "",
+    fullPath: "/",
+    layoutId: layout.layoutId,
+    nickname: "Home",
+    contentUpdatedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
 
   // Create blocks on the homepage
   let prevPosition: string | null = null;
@@ -514,83 +460,50 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
     const position = generateKeyBetween(prevPosition, null);
     prevPosition = position;
 
-    const block = yield* Effect.promise(() =>
-      ctx.db
-        .insert(blocks)
-        .values({
-          pageId: homepage.id,
-          type: blockDef.type,
-          content: blockDef.content,
-          settings: blockDef.settings ?? null,
-          position,
-          summary: "",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get(),
-    );
+    const block = yield* seed(ctx, draft, blocks, {
+      projectId: project.id,
+      pageId: homepage.id,
+      type: blockDef.type,
+      content: blockDef.content,
+      settings: blockDef.settings ?? null,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "blocks",
-        entityId: block.id,
-        type: "summary",
-        delayMs: 0,
-      }),
-    );
+    yield* requestBlockSummary(ctx, draft, project.id, block.id, 0);
 
     const itemSeeds = blockDef.repeatableItems;
     if (itemSeeds && itemSeeds.length > 0) {
-      const tempIdToRealId = new Map<string, number>();
-      for (const seed of itemSeeds) {
-        const parentItemId = seed.parentTempId
-          ? (tempIdToRealId.get(seed.parentTempId) ?? null)
+      const tempIdToRealId = new Map<string, string>();
+      for (const itemSeed of itemSeeds) {
+        const parentItemId = itemSeed.parentTempId
+          ? (tempIdToRealId.get(itemSeed.parentTempId) ?? null)
           : null;
-        const inserted = yield* Effect.promise(() =>
-          ctx.db
-            .insert(repeatableItems)
-            .values({
-              blockId: block.id,
-              parentItemId,
-              fieldName: seed.fieldName,
-              content: seed.content,
-              settings: seed.settings ?? null,
-              summary: "",
-              position: seed.position,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning()
-            .get(),
-        );
-        tempIdToRealId.set(seed.tempId, inserted.id);
-        ctx.waitUntil(
-          scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-            entityTable: "repeatableItems",
-            entityId: inserted.id,
-            type: "summary",
-            delayMs: 0,
-          }),
-        );
+        const inserted = yield* seed(ctx, draft, repeatableItems, {
+          blockId: block.id,
+          parentItemId,
+          fieldName: itemSeed.fieldName,
+          content: itemSeed.content,
+          settings: itemSeed.settings ?? null,
+          position: itemSeed.position,
+          createdAt: now,
+          updatedAt: now,
+        });
+        tempIdToRealId.set(itemSeed.tempId, inserted.id);
+        yield* requestGeneration(ctx, homeOf(draft, project.id), {
+          entity: "repeatableItem",
+          entityId: inserted.id,
+          delayMs: 0,
+        });
       }
     }
 
-    yield* syncBlockData(ctx, block.id, true);
+    yield* adoptSharedContent(ctx, draft, block);
     blockCount++;
   }
 
-  // Auto-publish the homepage (and its layout, if it hasn't been published
-  // yet) so the public site is immediately live after `camox init`. Without
-  // this, the SDK page route 404s on every path until the user manually hits
-  // publish in the studio. We only do it here — once the project exists, the
-  // regular draft → publish UX takes over for new pages.
-  //
-  const syncUserId = ctx.user?.id ?? null;
-  if (layout.livePublishedCheckpointId == null) {
-    yield* writeLayoutCheckpointAndPoint(ctx, { layout, userId: syncUserId });
-  }
-  yield* writePageCheckpointAndPoint(ctx, { page: homepage, userId: syncUserId });
-
+  // The homepage's SEO is generated once its blocks are summarised (ADR 0012).
+  yield* requestPageSeo(ctx, draft, homepage, 15000);
   return { created: true, pageId: homepage.id, blockCount };
 });

@@ -1,14 +1,18 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
-import type { Context } from "hono";
 import { Hono } from "hono";
 
-import { assertPageAccess } from "../../authorization";
-import type { Database } from "../../db";
+import { assertPageAccess, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import type { ForbiddenError, NotFoundError } from "../../lib/errors";
+import { NotFoundError } from "../../lib/errors";
+import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import type { AppEnv } from "../../types";
+import type { ServiceContext } from "../_shared/service-context";
+import * as overlay from "../drafts/overlay";
+import { projectOfPage } from "../drafts/request-scope";
+import { inDraftScope } from "../drafts/service";
+import { deleteUnreferencedOgImageBlobs } from "./og-image-blobs";
 import { pages } from "./schema";
 
 // --- Hono routes (multipart upload for the per-page custom OG image) ---
@@ -17,6 +21,9 @@ import { pages } from "./schema";
 // so it never surfaces in the media library and can't be reused elsewhere.
 // We reuse `/files/serve/:key` to stream the blob back since that handler is
 // table-agnostic (it just reads from R2 by key).
+//
+// Like any content write, setting or clearing it needs a draft: Live is read-only, and the
+// create header starts one (ADR 0011). The draft holds its own copy of the page.
 //
 // Kept in a sibling file to avoid pulling `pages/service.ts` into the import
 // graph from `index.ts` — doing so reshuffles esbuild's bundle order and
@@ -28,135 +35,104 @@ const OG_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "im
 
 export const pageHonoRoutes = new Hono<AppEnv>();
 
-const deleteOgBlobIfUnreferenced = Effect.fn("deleteOgBlobIfUnreferenced")(function* (
-  db: Database,
-  bucket: R2Bucket,
-  blobId: string,
-  excludingPageId: number,
-) {
-  // Env replication copies the blobId across envs, so only drop the R2 object
-  // when no other page row still references it.
-  const sibling = yield* Effect.promise(() =>
-    db
-      .select({ id: pages.id })
-      .from(pages)
-      .where(and(eq(pages.customOgImageBlobId, blobId), sql`${pages.id} != ${excludingPageId}`))
-      .limit(1)
-      .get(),
-  );
-  if (!sibling) yield* Effect.promise(() => bucket.delete(blobId));
-});
+type OgImage = { blobId: string; url: string };
 
-function respondToAccessErrors<A>(
-  c: Context<AppEnv>,
-  effect: Effect.Effect<A, NotFoundError | ForbiddenError>,
-) {
-  return effect.pipe(
-    Effect.catchTags({
-      NotFoundError: () => Effect.succeed(c.json({ error: "Not found" }, 404)),
-      ForbiddenError: () => Effect.succeed(c.json({ error: "Forbidden" }, 403)),
-    }),
-  );
-}
+/**
+ * Sets (or clears, for `null`) a page's custom OG image in the draft the request names, copying
+ * the page into the draft on its first write. The blob the page named before is deleted once no
+ * page row names it; a failed write deletes the new blob again.
+ */
+const writeOgImage = (
+  ctx: ServiceContext,
+  pageId: string,
+  store: (projectId: number) => Effect.Effect<OgImage | null>,
+) =>
+  Effect.gen(function* () {
+    const user = yield* requireUser(ctx);
+    const projectId = yield* projectOfPage(ctx, pageId);
+    if (projectId === undefined) return yield* new NotFoundError();
+    return yield* inDraftScope(ctx, projectId, (scope) =>
+      Effect.gen(function* () {
+        const access = yield* assertPageAccess(ctx.db, pageId, user.id, scope);
+        const prevBlobId = access.page.customOgImageBlobId;
+        const image = yield* store(access.page.projectId);
+        const dropStored = image
+          ? deleteUnreferencedOgImageBlobs(ctx, [image.blobId])
+          : Effect.void;
+
+        const result = yield* overlay
+          .update(ctx.db, scope, pages, pageId, {
+            customOgImageBlobId: image?.blobId ?? null,
+            customOgImageUrl: image?.url ?? null,
+            updatedAt: Math.max(Date.now(), access.page.updatedAt + 1),
+          })
+          .pipe(Effect.onError(() => dropStored));
+        if (!result) {
+          yield* dropStored;
+          return yield* new NotFoundError();
+        }
+
+        if (prevBlobId && prevBlobId !== image?.blobId) {
+          yield* deleteUnreferencedOgImageBlobs(ctx, [prevBlobId]);
+        }
+
+        broadcastInvalidation({
+          waitUntil: ctx.waitUntil,
+          projectRoomNamespace: ctx.env.ProjectRoom,
+          draftId: scope?.id ?? null,
+          projectId: access.page.projectId,
+          targets: [
+            queryKeys.pages.list,
+            queryKeys.pages.getById(pageId),
+            queryKeys.pages.getByPathAll,
+          ],
+        });
+        return result;
+      }),
+    );
+  });
 
 pageHonoRoutes.post("/:id/og-image", async (c) => {
   const user = c.var.user;
   if (!user) return c.json({ error: "Unauthorized" }, 401);
 
-  const pageId = Number(c.req.param("id"));
-  if (!pageId || Number.isNaN(pageId)) return c.json({ error: "Invalid page id" }, 400);
+  const pageId = c.req.param("id");
+  if (!uuidv7Schema.safeParse(pageId).success) return c.json({ error: "Invalid page id" }, 400);
+  const ctx = uploadContextOf(c, user);
+  if (ctx instanceof Response) return ctx;
 
-  const program = Effect.gen(function* () {
-    const access = yield* assertPageAccess(c.var.db, pageId, user.id);
+  const body = await c.req.parseBody();
+  const file = body["file"];
+  if (!(file instanceof File)) return c.json({ error: "Missing file" }, 400);
+  if (!OG_IMAGE_MIME_TYPES.has(file.type)) {
+    return c.json({ error: "Image must be JPEG, PNG, GIF, or WebP" }, 400);
+  }
+  const apiOrigin = new URL(c.req.url).origin;
 
-    const body = yield* Effect.promise(() => c.req.parseBody());
-    const file = body["file"];
-    if (!(file instanceof File)) return c.json({ error: "Missing file" }, 400);
-    if (!OG_IMAGE_MIME_TYPES.has(file.type)) {
-      return c.json({ error: "Image must be JPEG, PNG, GIF, or WebP" }, 400);
-    }
-
-    const now = Date.now();
-    const key = `${access.page.projectId}/page-og/${pageId}-${now}-${file.name}`;
-
-    yield* Effect.promise(() =>
-      c.env.FILES_BUCKET.put(key, file.stream(), {
-        httpMetadata: { contentType: file.type },
-      }),
-    );
-
-    const apiOrigin = new URL(c.req.url).origin;
-    const url = `${apiOrigin}/files/serve/${key}`;
-
-    const prevBlobId = access.page.customOgImageBlobId;
-
-    const result = yield* Effect.promise(() =>
-      c.var.db
-        .update(pages)
-        .set({ customOgImageBlobId: key, customOgImageUrl: url, updatedAt: now })
-        .where(eq(pages.id, pageId))
-        .returning()
-        .get(),
-    );
-
-    if (prevBlobId && prevBlobId !== key) {
-      yield* deleteOgBlobIfUnreferenced(c.var.db, c.env.FILES_BUCKET, prevBlobId, pageId);
-    }
-
-    broadcastInvalidation({
-      waitUntil: (p) => c.executionCtx.waitUntil(p),
-      projectRoomNamespace: c.env.ProjectRoom,
-      projectId: access.page.projectId,
-      targets: [
-        queryKeys.pages.list,
-        queryKeys.pages.getById(pageId),
-        queryKeys.pages.getByPathAll,
-      ],
-    });
-
-    return c.json(result, 200);
-  });
-
-  return Effect.runPromise(respondToAccessErrors(c, program));
+  const upload = writeOgImage(ctx, pageId, (projectId) =>
+    Effect.gen(function* () {
+      const key = `${projectId}/page-og/${pageId}-${Date.now()}-${file.name}`;
+      yield* Effect.promise(() =>
+        c.env.FILES_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } }),
+      );
+      return { blobId: key, url: `${apiOrigin}/files/serve/${key}` };
+    }),
+  );
+  return respondToUpload(c, upload, 200);
 });
 
 pageHonoRoutes.delete("/:id/og-image", async (c) => {
   const user = c.var.user;
   if (!user) return c.json({ error: "Unauthorized" }, 401);
 
-  const pageId = Number(c.req.param("id"));
-  if (!pageId || Number.isNaN(pageId)) return c.json({ error: "Invalid page id" }, 400);
+  const pageId = c.req.param("id");
+  if (!uuidv7Schema.safeParse(pageId).success) return c.json({ error: "Invalid page id" }, 400);
+  const ctx = uploadContextOf(c, user);
+  if (ctx instanceof Response) return ctx;
 
-  const program = Effect.gen(function* () {
-    const access = yield* assertPageAccess(c.var.db, pageId, user.id);
-
-    const blobId = access.page.customOgImageBlobId;
-    if (!blobId) return c.json({ ok: true });
-
-    const result = yield* Effect.promise(() =>
-      c.var.db
-        .update(pages)
-        .set({ customOgImageBlobId: null, customOgImageUrl: null, updatedAt: Date.now() })
-        .where(eq(pages.id, pageId))
-        .returning()
-        .get(),
-    );
-
-    yield* deleteOgBlobIfUnreferenced(c.var.db, c.env.FILES_BUCKET, blobId, pageId);
-
-    broadcastInvalidation({
-      waitUntil: (p) => c.executionCtx.waitUntil(p),
-      projectRoomNamespace: c.env.ProjectRoom,
-      projectId: access.page.projectId,
-      targets: [
-        queryKeys.pages.list,
-        queryKeys.pages.getById(pageId),
-        queryKeys.pages.getByPathAll,
-      ],
-    });
-
-    return c.json(result, 200);
-  });
-
-  return Effect.runPromise(respondToAccessErrors(c, program));
+  return respondToUpload(
+    c,
+    writeOgImage(ctx, pageId, () => Effect.succeed(null)),
+    200,
+  );
 });

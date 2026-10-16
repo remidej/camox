@@ -20,7 +20,10 @@ export type ToolDefinition = {
   outputSchema?: ZodType;
   handler: (input: unknown, ctx: ToolContext) => Promise<unknown>;
   meta: {
+    /** A write changes content, so it needs a draft: Live is read-only (ADR 0003). */
     kind: "read" | "write";
+    /** A write that isn't content, accepted on Live, like resolving a comment. */
+    allowedOnLive?: true;
     risk: ToolRisk;
     surfaces: ToolSurface[];
   };

@@ -2,7 +2,6 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import type { NormalizedItem } from "@/lib/normalized-data";
 import { blockQueries, repeatableItemMutations } from "@/lib/queries";
 
@@ -98,9 +97,9 @@ const buildNestedItemSeeds = (
 };
 
 type UseRepeatableItemActionsArgs = {
-  blockId: number;
+  blockId: string;
   fieldName: string;
-  parentItemId?: number | null;
+  parentItemId?: string | null;
   arraySchema: RepeatableArraySchema | null;
   siblingCount: number;
 };
@@ -117,7 +116,6 @@ export const useRepeatableItemActions = ({
   const owner = React.useContext(PreviewEditingOwnerContext);
   const createRepeatableItem = useMutation(repeatableItemMutations.create());
   const deleteRepeatableItem = useMutation(repeatableItemMutations.delete());
-  const requireDraft = useRequireDraftSource();
 
   const canAdd =
     arraySchema != null &&
@@ -129,7 +127,6 @@ export const useRepeatableItemActions = ({
   const addItem = (options?: AddItemOptions) => {
     if (owner === null) return;
     if (!arraySchema) return;
-    if (!requireDraft()) return;
     const itemsSchema = arraySchema.items;
     const defaultContent = buildDefaultContent(itemsSchema?.properties);
     const defaultSettings = arraySchema.defaultItemSettings;
@@ -154,8 +151,7 @@ export const useRepeatableItemActions = ({
     );
   };
 
-  const removeItem = (itemId: number, options?: { onSuccess?: () => void }) => {
-    if (!requireDraft()) return;
+  const removeItem = (itemId: string, options?: { onSuccess?: () => void }) => {
     deleteRepeatableItem.mutate(
       { id: itemId },
       {
@@ -169,8 +165,8 @@ export const useRepeatableItemActions = ({
 
 const getArraySchemaForItem = (
   contentSchema: unknown,
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): RepeatableArraySchema | null => {
   const path: string[] = [];
   let current = itemsMap.get(itemId);
@@ -196,7 +192,7 @@ const getArraySchemaForItem = (
  * counting siblings. Hook is safe to call when ids are null — it'll just
  * return disabled actions.
  */
-export const useCurrentItemActions = (blockId: number | null, itemId: number | null) => {
+export const useCurrentItemActions = (blockId: string | null, itemId: string | null) => {
   const camoxApp = useCamoxApp();
   const { data: blockBundle } = useQuery({
     ...blockQueries.get(blockId!),
@@ -229,7 +225,7 @@ export const useCurrentItemActions = (blockId: number | null, itemId: number | n
   }, [currentItem, itemsMap]);
 
   const actions = useRepeatableItemActions({
-    blockId: block?.id ?? -1,
+    blockId: block?.id ?? "",
     fieldName: currentItem?.fieldName ?? "",
     parentItemId: currentItem?.parentItemId ?? null,
     arraySchema,

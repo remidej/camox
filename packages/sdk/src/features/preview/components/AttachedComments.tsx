@@ -16,6 +16,7 @@ import * as React from "react";
 import type { FieldType } from "@/core/lib/fieldTypes";
 import { commentMutations, commentQueries } from "@/lib/queries";
 
+import { draftLabel, isSettledIn, useCommentDraftId } from "../commentStatus";
 import { type CommentTarget, previewCommentsStore } from "../previewCommentsStore";
 import { previewStore } from "../previewStore";
 import { usePageComments } from "../usePageComments";
@@ -31,9 +32,9 @@ function resizeComposer(element: HTMLTextAreaElement) {
 }
 
 type AttachedCommentsProps = {
-  pageId?: number;
-  blockId?: number;
-  itemId?: number;
+  pageId?: string;
+  blockId?: string;
+  itemId?: string;
   fieldName?: string;
   fieldType?: FieldType;
   allPageComments?: boolean;
@@ -64,7 +65,7 @@ function AttachedCommentsContent({
   fieldName,
   allPageComments = false,
   presentation = "sidebar",
-}: AttachedCommentsProps & { pageId: number }) {
+}: AttachedCommentsProps & { pageId: string }) {
   const queryClient = useQueryClient();
   const commentsQuery = usePageComments(pageId);
   const selectComment = useSelectComment(pageId);
@@ -74,7 +75,7 @@ function AttachedCommentsContent({
     (state) => state.context,
   );
   const target = editorTarget({ blockId, itemId, fieldName });
-  const matches = (entry: { pageId: number; target: CommentTarget | null }) =>
+  const matches = (entry: { pageId: string; target: CommentTarget | null }) =>
     entry.pageId === pageId &&
     (allPageComments ||
       (entry.target != null &&
@@ -83,7 +84,8 @@ function AttachedCommentsContent({
         (!("itemId" in entry.target) || entry.target.itemId === itemId) &&
         (!("fieldName" in entry.target) || entry.target.fieldName === fieldName)));
   const attached = (commentsQuery.data ?? []).filter(matches);
-  const visible = attached.filter((comment) => !comment.resolved);
+  const draftId = useCommentDraftId();
+  const visible = attached.filter((comment) => !isSettledIn(comment, draftId));
   const currentDraft = draft && matches(draft) ? draft : null;
   const selected = attached.find((comment) => comment.id === activeId);
   const textarea = React.useRef<HTMLTextAreaElement>(null);
@@ -115,7 +117,7 @@ function AttachedCommentsContent({
       void queryClient.invalidateQueries({ queryKey });
       previewCommentsStore.send({
         type: "postSucceeded",
-        draft: submitted,
+        draft: { ...submitted, id: comment.id },
         focusComment: !isPopover,
       });
     },
@@ -245,6 +247,11 @@ function AttachedCommentsContent({
                     <p className="text-muted-foreground text-sm">Target no longer available</p>
                   ))}
                 <p className="text-sm wrap-break-word whitespace-pre-wrap">{comment.message}</p>
+                {comment.addressedIn && (
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Addressed in {draftLabel(comment.addressedIn)}
+                  </p>
+                )}
               </div>
             </div>
             <ButtonGroup className="mt-2 ml-8" aria-label="Comment actions">

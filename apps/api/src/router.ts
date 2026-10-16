@@ -3,7 +3,7 @@ import { blockDefinitionProcedures } from "./domains/block-definitions/routes";
 import { blockProcedures } from "./domains/blocks/routes";
 import { collectionDefinitionProcedures } from "./domains/collections/routes";
 import { commentProcedures } from "./domains/comments/routes";
-import { environmentProcedures } from "./domains/environments/routes";
+import { draftProcedures } from "./domains/drafts/routes";
 import { fileProcedures } from "./domains/files/routes";
 import { layoutProcedures } from "./domains/layouts/routes";
 import { pageProcedures } from "./domains/pages/routes";
@@ -20,7 +20,7 @@ export const router = {
   repeatableItems: repeatableItemProcedures,
   blockDefinitions: blockDefinitionProcedures,
   collectionDefinitions: collectionDefinitionProcedures,
-  environments: environmentProcedures,
+  drafts: draftProcedures,
   agent: agentProcedures,
 };
 

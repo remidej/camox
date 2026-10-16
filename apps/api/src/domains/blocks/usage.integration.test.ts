@@ -2,31 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blocks, environments, pages } from "../../schema";
+import { blocks, pages } from "../../schema";
 import { getBlocksUsageCounts, getPagesUsingBlock } from "./service";
 
 async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);
   const ctx = createServiceContext(base.db, base.memberUser);
   const now = Date.now();
-  const development = await base.db
-    .insert(environments)
-    .values({
-      projectId: base.project.id,
-      name: "development",
-      type: "development",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning()
-    .get();
-  const insertPage = (environmentId: number, fullPath: string, nickname: string) =>
+  const insertPage = (projectId: number, fullPath: string, nickname: string) =>
     base.db
       .insert(pages)
       .values({
-        projectId: base.project.id,
-        environmentId,
-        layoutId: base.layout.id,
+        projectId,
+        layoutId: base.layout.layoutId,
         pathSegment: fullPath.slice(1),
         fullPath,
         nickname,
@@ -36,27 +24,31 @@ async function fixture(suffix: string) {
       })
       .returning()
       .get();
-  const place = (type: string, owner: { pageId: number } | { layoutId: number }, position = "a0") =>
+  const place = (
+    type: string,
+    owner: { projectId: number } & ({ pageId: string } | { layoutId: string }),
+    position = "a0",
+  ) =>
     base.db
       .insert(blocks)
       .values({ ...owner, type, content: {}, position, createdAt: now, updatedAt: now })
       .run();
-  return { ...base, ctx, development, insertPage, place };
+  return { ...base, ctx, insertPage, place };
 }
 
 describe("getPagesUsingBlock", () => {
-  it("returns each Page of the environment that places the block once", async () => {
-    const { ctx, project, environment, insertPage, place } = await fixture("pages-using");
-    const about = await insertPage(environment.id, "/about", "About");
-    const home = await insertPage(environment.id, "/home", "Home");
-    const pricing = await insertPage(environment.id, "/pricing", "Pricing");
-    await place("hero", { pageId: home.id }, "a0");
-    await place("hero", { pageId: home.id }, "a1");
-    await place("hero", { pageId: about.id });
-    await place("faq", { pageId: pricing.id });
+  it("returns each Page of the project that places the block once", async () => {
+    const { ctx, project, insertPage, place } = await fixture("pages-using");
+    const about = await insertPage(project.id, "/about", "About");
+    const home = await insertPage(project.id, "/home", "Home");
+    const pricing = await insertPage(project.id, "/pricing", "Pricing");
+    await place("hero", { projectId: project.id, pageId: home.id }, "a0");
+    await place("hero", { projectId: project.id, pageId: home.id }, "a1");
+    await place("hero", { projectId: project.id, pageId: about.id });
+    await place("faq", { projectId: project.id, pageId: pricing.id });
 
     const result = await runService(
-      getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }),
+      getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }, null),
     );
 
     expect(result).toEqual([
@@ -64,26 +56,24 @@ describe("getPagesUsingBlock", () => {
       { id: home.id, nickname: "Home", fullPath: "/home" },
     ]);
     // Usage counts count placements, which is why Pages need their own query.
-    const counts = await runService(getBlocksUsageCounts(ctx, { projectId: project.id }));
+    const counts = await runService(getBlocksUsageCounts(ctx, { projectId: project.id }, null));
     expect(counts.find(({ type }) => type === "hero")?.count).toBe(3);
   });
 
-  it("leaves out other environments and layout placements", async () => {
-    const { ctx, project, layout, development, insertPage, place } = await fixture("pages-scope");
-    const draft = await insertPage(development.id, "/draft", "Draft");
-    await place("hero", { pageId: draft.id });
-    await place("hero", { layoutId: layout.id });
+  it("leaves out other projects and layout placements", async () => {
+    const { ctx, project, layout, place } = await fixture("pages-scope");
+    const other = await fixture("pages-scope-other");
+    const elsewhere = await other.insertPage(other.project.id, "/elsewhere", "Elsewhere");
+    await other.place("hero", { projectId: other.project.id, pageId: elsewhere.id });
+    await place("hero", { projectId: layout.projectId, layoutId: layout.layoutId });
 
     expect(
-      await runService(getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" })),
+      await runService(getPagesUsingBlock(ctx, { projectId: project.id, type: "hero" }, null)),
     ).toEqual([]);
     expect(
       await runService(
-        getPagesUsingBlock(
-          { ...ctx, environmentName: "development" },
-          { projectId: project.id, type: "hero" },
-        ),
+        getPagesUsingBlock(other.ctx, { projectId: other.project.id, type: "hero" }, null),
       ),
-    ).toEqual([{ id: draft.id, nickname: "Draft", fullPath: "/draft" }]);
+    ).toEqual([{ id: elsewhere.id, nickname: "Elsewhere", fullPath: "/elsewhere" }]);
   });
 });

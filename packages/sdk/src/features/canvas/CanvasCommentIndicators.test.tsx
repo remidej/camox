@@ -21,8 +21,10 @@ function comment(
 ): Comment {
   return {
     id,
-    pageId: 7,
-    environmentId: 1,
+    pageId: "7",
+    projectId: 1,
+    draftId: null,
+    addressedIn: null,
     message: `Message ${id}`,
     resolved: options.resolved ?? false,
     target,
@@ -60,24 +62,24 @@ void test("maps unresolved field comments to exact visible field geometry", asyn
     field(window.document as unknown as Document, "12__34__label", 30, 160),
   ];
   const comments = [
-    comment("block-field", { kind: "block-field", blockId: 12, fieldName: "title" }),
+    comment("block-field", { kind: "block-field", blockId: "12", fieldName: "title" }),
     comment("item-field", {
       kind: "item-field",
-      blockId: 12,
-      itemId: 34,
+      blockId: "12",
+      itemId: "34",
       fieldName: "label",
     }),
     comment(
       "resolved",
-      { kind: "block-field", blockId: 12, fieldName: "title" },
+      { kind: "block-field", blockId: "12", fieldName: "title" },
       { resolved: true },
     ),
-    comment("block", { kind: "block", blockId: 12 }),
-    comment("missing", { kind: "block-field", blockId: 12, fieldName: "missing" }),
+    comment("block", { kind: "block", blockId: "12" }),
+    comment("missing", { kind: "block-field", blockId: "12", fieldName: "missing" }),
   ];
 
   assert.deepEqual(
-    canvasCommentIndicators(comments, targets).map(({ comment: entry, x, y }) => ({
+    canvasCommentIndicators(comments, targets, null).map(({ comment: entry, x, y }) => ({
       id: entry.id,
       x,
       y,
@@ -96,28 +98,30 @@ void test("maps blocks and nested repeatable items to their own visible top-righ
   const block = field(document, "", 10, 20);
   block.element.setAttribute("data-camox-block-id", "12");
   const item = field(document, "", 30, 100);
-  item.item = { blockId: 12, itemId: 34 };
+  item.item = { blockId: "12", itemId: "34" };
   block.element.appendChild(item.element);
   const nested = field(document, "", 40, 200);
-  nested.item = { blockId: 12, itemId: 35 };
+  nested.item = { blockId: "12", itemId: "35" };
   item.element.appendChild(nested.element);
   const hidden = { ...block, visible: false };
   const comments = [
-    comment("block", { kind: "block", blockId: 12 }),
-    comment("item", { kind: "item", blockId: 12, itemId: 34 }),
-    comment("nested", { kind: "item", blockId: 12, itemId: 35 }),
-    comment("wrong-owner", { kind: "item", blockId: 99, itemId: 34 }),
-    comment("missing", { kind: "block", blockId: 99 }),
-    comment("resolved", { kind: "block", blockId: 12 }, { resolved: true }),
+    comment("block", { kind: "block", blockId: "12" }),
+    comment("item", { kind: "item", blockId: "12", itemId: "34" }),
+    comment("nested", { kind: "item", blockId: "12", itemId: "35" }),
+    comment("wrong-owner", { kind: "item", blockId: "99", itemId: "34" }),
+    comment("missing", { kind: "block", blockId: "99" }),
+    comment("resolved", { kind: "block", blockId: "12" }, { resolved: true }),
     comment("page", { kind: "page" }),
     comment("deleted", null),
   ];
   assert.deepEqual(
-    canvasCommentIndicators(comments, [block, item, nested, hidden]).map(({ comment, x, y }) => ({
-      id: comment.id,
-      x,
-      y,
-    })),
+    canvasCommentIndicators(comments, [block, item, nested, hidden], null).map(
+      ({ comment, x, y }) => ({
+        id: comment.id,
+        x,
+        y,
+      }),
+    ),
     [
       { id: "block", x: 110, y: 20 },
       { id: "item", x: 130, y: 100 },
@@ -131,10 +135,10 @@ void test("groups nearby comments transitively while preserving distant field an
   const window = new Window();
   const indicators = canvasCommentIndicators(
     [
-      comment("a", { kind: "block-field", blockId: 1, fieldName: "a" }),
-      comment("b", { kind: "block-field", blockId: 1, fieldName: "b" }),
-      comment("c", { kind: "block-field", blockId: 1, fieldName: "c" }),
-      comment("d", { kind: "block-field", blockId: 1, fieldName: "d" }),
+      comment("a", { kind: "block-field", blockId: "1", fieldName: "a" }),
+      comment("b", { kind: "block-field", blockId: "1", fieldName: "b" }),
+      comment("c", { kind: "block-field", blockId: "1", fieldName: "c" }),
+      comment("d", { kind: "block-field", blockId: "1", fieldName: "d" }),
     ],
     [
       field(window.document as unknown as Document, "1__a", 10, 100),
@@ -142,6 +146,7 @@ void test("groups nearby comments transitively while preserving distant field an
       field(window.document as unknown as Document, "1__c", 110, 200),
       field(window.document as unknown as Document, "1__d", 400, 200),
     ],
+    null,
   );
   const groups = groupCanvasCommentIndicators(indicators, { x: 60, y: 60 });
   assert.deepEqual(
@@ -161,11 +166,12 @@ void test("groups nearby comments transitively while preserving distant field an
 void test("nearby copies of one field do not duplicate a comment in its group", async () => {
   const window = new Window();
   const indicators = canvasCommentIndicators(
-    [comment("one", { kind: "block-field", blockId: 12, fieldName: "title" })],
+    [comment("one", { kind: "block-field", blockId: "12", fieldName: "title" })],
     [
       field(window.document as unknown as Document, "12__title", 10, 100),
       field(window.document as unknown as Document, "12__title", 40, 100),
     ],
+    null,
   );
   assert.equal(indicators.length, 2, "each visible field copy has an anchor");
   const groups = groupCanvasCommentIndicators(indicators);
@@ -181,13 +187,14 @@ void test("zooming out groups comments that separate again when zooming in", asy
   const window = new Window();
   const indicators = canvasCommentIndicators(
     [
-      comment("left", { kind: "block-field", blockId: 1, fieldName: "left" }),
-      comment("right", { kind: "block-field", blockId: 1, fieldName: "right" }),
+      comment("left", { kind: "block-field", blockId: "1", fieldName: "left" }),
+      comment("right", { kind: "block-field", blockId: "1", fieldName: "right" }),
     ],
     [
       field(window.document as unknown as Document, "1__left", 20, 40),
       field(window.document as unknown as Document, "1__right", 120, 40),
     ],
+    null,
   );
 
   assert.equal(groupCanvasCommentIndicators(indicators, canvasCommentGroupDistance(0.3)).length, 1);
@@ -232,10 +239,11 @@ void test("renders a rounded clickable comment inset from its field's top-right 
     await React.act(async () => {
       root.render(
         <CanvasCommentIndicators
+          draftId={null}
           comments={[
             comment(
               "comment-1",
-              { kind: "block-field", blockId: 12, fieldName: "title" },
+              { kind: "block-field", blockId: "12", fieldName: "title" },
               { author: "Grace Hopper" },
             ),
           ]}
@@ -271,11 +279,12 @@ void test("renders a rounded clickable comment inset from its field's top-right 
     await React.act(async () => {
       root.render(
         <CanvasCommentIndicators
+          draftId={null}
           comments={[
-            comment("comment-1", { kind: "block-field", blockId: 12, fieldName: "title" }),
+            comment("comment-1", { kind: "block-field", blockId: "12", fieldName: "title" }),
             comment(
               "comment-2",
-              { kind: "block-field", blockId: 12, fieldName: "subtitle" },
+              { kind: "block-field", blockId: "12", fieldName: "subtitle" },
               { author: "Katherine Johnson" },
             ),
           ]}
@@ -309,9 +318,10 @@ void test("renders a rounded clickable comment inset from its field's top-right 
     await React.act(async () => {
       root.render(
         <CanvasCommentIndicators
+          draftId={null}
           comments={[
-            comment("comment-1", { kind: "block-field", blockId: 12, fieldName: "title" }),
-            comment("comment-2", { kind: "block-field", blockId: 12, fieldName: "title" }),
+            comment("comment-1", { kind: "block-field", blockId: "12", fieldName: "title" }),
+            comment("comment-2", { kind: "block-field", blockId: "12", fieldName: "title" }),
           ]}
           targets={[field(window.document as unknown as Document, "12__title", 20, 40)]}
           onZoom={(point, scale) => zooms.push({ point, scale })}
@@ -334,25 +344,26 @@ void test("renders a rounded clickable comment inset from its field's top-right 
     assert.equal(zooms.length, 1);
 
     for (const target of [
-      { kind: "block", blockId: 12 },
-      { kind: "item", blockId: 12, itemId: 34 },
+      { kind: "block", blockId: "12" },
+      { kind: "item", blockId: "12", itemId: "34" },
       { kind: "page" },
     ] satisfies CommentTarget[]) {
       const anchor = field(window.document as unknown as Document, "", 20, 40);
       anchor.synced = true;
       anchor.element.setAttribute("data-camox-block-id", "12");
-      if (target.kind === "item") anchor.item = { blockId: 12, itemId: 34 };
+      if (target.kind === "item") anchor.item = { blockId: "12", itemId: "34" };
       const label = target.kind === "item" ? "repeatable item" : target.kind;
       for (const count of [1, 2]) {
         await React.act(async () => {
           root.render(
             <CanvasCommentIndicators
+              draftId={null}
               comments={[
                 ...Array.from({ length: count }, (_, index) => comment(`new-${index}`, target)),
                 comment("resolved", target, { resolved: true }),
                 comment("deleted", null),
                 ...(target.kind === "page"
-                  ? [comment("not-page", { kind: "block", blockId: 12 })]
+                  ? [comment("not-page", { kind: "block", blockId: "12" })]
                   : [comment("not-preview", { kind: "page" })]),
               ]}
               targets={[anchor]}

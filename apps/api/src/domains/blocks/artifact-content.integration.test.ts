@@ -48,8 +48,7 @@ async function fixture(suffix: string) {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",
@@ -72,19 +71,19 @@ describe("artifact content validation", () => {
     const { ctx, page } = await fixture("block");
     await expect(
       runService(
-        createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: tooLarge } }),
+        createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: tooLarge } }, null),
       ),
     ).rejects.toMatchObject({ ...tooLargeError, data: { field: "content.visual" } });
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: fits } }),
+      createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: fits } }, null),
     );
     expect(block.content).toMatchObject({ visual: fits });
     await expect(
-      runService(updateBlockContent(ctx, { id: block.id, content: { visual: tooLarge } })),
+      runService(updateBlockContent(ctx, { id: block.id, content: { visual: tooLarge } }, null)),
     ).rejects.toMatchObject(tooLargeError);
     await expect(
       runService(
-        updateBlockContent(ctx, { id: block.id, content: { scenes: [{ scene: tooLarge }] } }),
+        updateBlockContent(ctx, { id: block.id, content: { scenes: [{ scene: tooLarge }] } }, null),
       ),
     ).rejects.toMatchObject(tooLargeError);
   });
@@ -92,26 +91,36 @@ describe("artifact content validation", () => {
   it("applies the same limit to artifacts in repeatable items", async () => {
     const { ctx, page } = await fixture("item");
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "visual", content: {} }),
+      createBlock(ctx, { pageId: page.id, type: "visual", content: {} }, null),
     );
     await expect(
       runService(
-        createRepeatableItem(ctx, {
-          blockId: block.id,
-          fieldName: "scenes",
-          content: { scene: tooLarge },
-        }),
+        createRepeatableItem(
+          ctx,
+          {
+            blockId: block.id,
+            fieldName: "scenes",
+            content: { scene: tooLarge },
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject(tooLargeError);
     const item = await runService(
-      createRepeatableItem(ctx, {
-        blockId: block.id,
-        fieldName: "scenes",
-        content: { scene: fits },
-      }),
+      createRepeatableItem(
+        ctx,
+        {
+          blockId: block.id,
+          fieldName: "scenes",
+          content: { scene: fits },
+        },
+        null,
+      ),
     );
     await expect(
-      runService(updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } })),
+      runService(
+        updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } }, null),
+      ),
     ).rejects.toMatchObject(tooLargeError);
   });
 
@@ -120,11 +129,15 @@ describe("artifact content validation", () => {
     const untitled = "<p>No title</p>";
     const blank = "<title>  </title><p>Blank title</p>";
     const block = await runService(
-      createBlock(ctx, {
-        pageId: page.id,
-        type: "visual",
-        content: { visual: untitled, scenes: [{ scene: "<title>Ok</title>" }, { scene: blank }] },
-      }),
+      createBlock(
+        ctx,
+        {
+          pageId: page.id,
+          type: "visual",
+          content: { visual: untitled, scenes: [{ scene: "<title>Ok</title>" }, { scene: blank }] },
+        },
+        null,
+      ),
     );
     expect(block.content).toMatchObject({ visual: untitled });
     expect(block.warnings).toEqual([
@@ -133,13 +146,15 @@ describe("artifact content validation", () => {
     ]);
 
     const edited = await runService(
-      editBlock(ctx, { id: block.id, content: { visual: "<title>Titled</title>" } }),
+      editBlock(ctx, { id: block.id, content: { visual: "<title>Titled</title>" } }, null),
     );
     expect(edited).not.toHaveProperty("warnings");
-    const emptied = await runService(editBlock(ctx, { id: block.id, content: { visual: "" } }));
+    const emptied = await runService(
+      editBlock(ctx, { id: block.id, content: { visual: "" } }, null),
+    );
     expect(emptied).not.toHaveProperty("warnings");
     expect(
-      await runService(editBlock(ctx, { id: block.id, content: { visual: untitled } })),
+      await runService(editBlock(ctx, { id: block.id, content: { visual: untitled } }, null)),
     ).toMatchObject({ warnings: [expect.stringMatching(/content\.visual/)] });
   });
 

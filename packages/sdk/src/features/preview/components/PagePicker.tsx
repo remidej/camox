@@ -28,7 +28,7 @@ import * as React from "react";
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
-import { layoutQueries, pageMutations, pageQueries, projectQueries } from "@/lib/queries";
+import { pageMutations, pageQueries, projectQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import type { Layout } from "../../../core/createLayout";
@@ -36,7 +36,6 @@ import { matchDerivedLayout, routeSegments } from "../../../core/derivedRoutes";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { DerivedLayoutDialog } from "./DerivedLayoutDialog";
-import { PageStatusBadge } from "./PageStatusBadge";
 
 /* -------------------------------------------------------------------------------------------------
  * PagePicker
@@ -56,13 +55,6 @@ const PagePicker = () => {
 
   const projectSlug = useProjectSlug();
   const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: layoutRecords } = useQuery({
-    ...layoutQueries.list(project?.id ?? 0),
-    enabled: !!project,
-  });
-  const layoutStatusById = new Map(
-    layoutRecords?.map((layout) => [layout.layoutId, layout.status]),
-  );
   const deletePage = useMutation(pageMutations.delete());
   const { data: pages } = useQuery({
     ...pageQueries.list(project?.id ?? 0),
@@ -103,11 +95,108 @@ const PagePicker = () => {
     return skeleton;
   }
 
+  // Pages whose layout is gone aren't served; they're listed apart, to be moved or deleted.
+  const servedPages = pages.filter((page) => !page.needsLayout);
+  const pagesNeedingLayout = pages.filter((page) => page.needsLayout);
   const currentPage = pages.find((page) => page.fullPath === pathname);
+
+  const renderPage = (page: Page) => (
+    <CommandItem
+      key={page.id}
+      value={page.fullPath}
+      className="group/item justify-between"
+      hideCheck
+      onSelect={() => {
+        closePopover();
+        if (page.needsLayout) {
+          previewStore.send({ type: "openEditPageModal", pageId: page.id });
+          return;
+        }
+        void navigate({ to: page.fullPath });
+      }}
+    >
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <Check
+          className={cn(
+            "size-4 mt-0.5 shrink-0",
+            currentPage?.fullPath !== page.fullPath && "invisible",
+          )}
+        />
+        <div className="flex min-w-0 flex-col">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate">{page.nickname}</p>
+            {page.shadowed && (
+              <span
+                className="text-muted-foreground shrink-0 text-xs"
+                title="A singleton layout serves this URL, so this page isn't shown."
+              >
+                Shadowed
+              </span>
+            )}
+            {page.duplicatePath && (
+              <span
+                className="text-destructive shrink-0 text-xs"
+                title="Another page uses this URL. Change one of them before publishing."
+              >
+                Duplicate URL
+              </span>
+            )}
+          </div>
+          <p className="text-muted-foreground truncate font-mono text-xs">{page.fullPath}</p>
+        </div>
+      </div>
+      <div className="hidden gap-1 group-data-[selected=true]/item:flex">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            previewStore.send({
+              type: "openEditPageModal",
+              pageId: page.id,
+            });
+            closePopover();
+          }}
+          onKeyDown={(e) => {
+            // Prevent the button keyboard events from being hyjacked by CommandItem
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              previewStore.send({
+                type: "openEditPageModal",
+                pageId: page.id,
+              });
+              closePopover();
+            }
+          }}
+        >
+          <Pencil className="size-4" />
+        </Button>
+        {page.fullPath !== "/" && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setPageToDelete(page);
+            }}
+            onKeyDown={(e) => {
+              // Prevent the button keyboard events from being hyjacked by CommandItem
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                setPageToDelete(page);
+              }
+            }}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        )}
+      </div>
+    </CommandItem>
+  );
+
   const currentDerived = currentPage ? null : matchDerivedLayout(derivedLayouts, pathname);
-  const currentLayoutStatus = currentDerived
-    ? layoutStatusById.get(currentDerived.layout._internal.id)
-    : undefined;
 
   return (
     <>
@@ -130,14 +219,6 @@ const PagePicker = () => {
             <span className="truncate">
               {currentPage?.nickname ?? currentDerived?.layout._internal.title ?? "Select page"}
             </span>
-            {currentPage && (
-              <PageStatusBadge
-                size="sm"
-                status={currentPage.status}
-                modifiedReason={currentPage.modifiedReason}
-              />
-            )}
-            {currentLayoutStatus && <PageStatusBadge size="sm" status={currentLayoutStatus} />}
           </div>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </PopoverTrigger>
@@ -146,90 +227,12 @@ const PagePicker = () => {
             <CommandInput placeholder="Search page..." className="h-9" />
             <CommandList>
               <CommandEmpty>No page found.</CommandEmpty>
-              <CommandGroup heading="Curated pages">
-                {pages.map((page) => (
-                  <CommandItem
-                    key={page.id}
-                    value={page.fullPath}
-                    className="group/item justify-between"
-                    hideCheck
-                    onSelect={() => {
-                      void navigate({ to: page.fullPath });
-                      closePopover();
-                    }}
-                  >
-                    <div className="flex min-w-0 flex-1 items-start gap-2">
-                      <Check
-                        className={cn(
-                          "size-4 mt-0.5 shrink-0",
-                          currentPage?.fullPath !== page.fullPath && "invisible",
-                        )}
-                      />
-                      <div className="flex min-w-0 flex-col">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <p className="truncate">{page.nickname}</p>
-                          <PageStatusBadge
-                            size="sm"
-                            status={page.status}
-                            modifiedReason={page.modifiedReason}
-                          />
-                        </div>
-                        <p className="text-muted-foreground truncate font-mono text-xs">
-                          {page.fullPath}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="hidden gap-1 group-data-[selected=true]/item:flex">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          previewStore.send({
-                            type: "openEditPageModal",
-                            pageId: page.id,
-                          });
-                          closePopover();
-                        }}
-                        onKeyDown={(e) => {
-                          // Prevent the button keyboard events from being hyjacked by CommandItem
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            previewStore.send({
-                              type: "openEditPageModal",
-                              pageId: page.id,
-                            });
-                            closePopover();
-                          }
-                        }}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      {page.fullPath !== "/" && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPageToDelete(page);
-                          }}
-                          onKeyDown={(e) => {
-                            // Prevent the button keyboard events from being hyjacked by CommandItem
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setPageToDelete(page);
-                            }
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+              <CommandGroup heading="Curated pages">{servedPages.map(renderPage)}</CommandGroup>
+              {pagesNeedingLayout.length > 0 && (
+                <CommandGroup heading="Needing a layout">
+                  {pagesNeedingLayout.map(renderPage)}
+                </CommandGroup>
+              )}
               {(["singleton", "derived"] as const).map((kind) => (
                 <CommandGroup
                   key={kind}
@@ -262,15 +265,7 @@ const PagePicker = () => {
                             )}
                           />
                           <div className="flex min-w-0 flex-col">
-                            <div className="flex min-w-0 items-center gap-1.5">
-                              <p className="truncate">{layout._internal.title}</p>
-                              {layoutStatusById.has(layout._internal.id) && (
-                                <PageStatusBadge
-                                  size="sm"
-                                  status={layoutStatusById.get(layout._internal.id)!}
-                                />
-                              )}
-                            </div>
+                            <p className="truncate">{layout._internal.title}</p>
                             <p className="text-muted-foreground truncate font-mono text-xs">
                               /{routeSegments(layout._internal.id).join("/")}
                             </p>

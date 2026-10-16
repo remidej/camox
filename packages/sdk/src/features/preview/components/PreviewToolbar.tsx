@@ -10,6 +10,7 @@ import { MessageCircle, X } from "lucide-react";
 import { DeviceSelector } from "@/components/DeviceSelector";
 import { formatShortcut } from "@/lib/utils";
 
+import { isSettledIn, useCommentDraftId } from "../commentStatus";
 import { EDIT_MODE_SHORTCUT } from "../previewConstants";
 import { previewStore, selectIsCommentMode, selectIsEditMode } from "../previewStore";
 import { usePageComments } from "../usePageComments";
@@ -17,7 +18,7 @@ import { usePageComments } from "../usePageComments";
 interface PreviewToolbarProps {
   onEditModeChange?: (checked: boolean) => void;
   onCommentModeChange?: (enabled: boolean) => void;
-  pageId?: number;
+  pageId?: string;
 }
 
 export const PreviewToolbar = ({
@@ -31,7 +32,8 @@ export const PreviewToolbar = ({
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
 
   const { data: comments } = usePageComments(pageId);
-  const hasComments = comments?.some((comment) => !comment.resolved) ?? false;
+  const draftId = useCommentDraftId();
+  const hasComments = comments?.some((comment) => !isSettledIn(comment, draftId)) ?? false;
 
   if (isToolbarHidden) return null;
 

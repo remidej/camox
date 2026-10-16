@@ -39,7 +39,6 @@ void test("prints a checkout-specific sign-in link on the actual Vite port after
         configureServer(vite) {
           installDevSignInLink(vite, {
             projectSlug: "checkout",
-            environmentName: "dev:dev@camox.dev",
             apiUrl,
             authToken: "checkout-session",
           });
@@ -65,7 +64,6 @@ void test("prints a checkout-specific sign-in link on the actual Vite port after
     assert.equal(url.searchParams.get("ott"), "test-ott");
     assert.deepEqual(JSON.parse(url.searchParams.get("camox-preview")!), {
       projectSlug: "checkout",
-      environmentName: "dev:dev@camox.dev",
       apiUrl,
     });
     assert.equal(requests, 2);
@@ -100,7 +98,6 @@ void test("closing Vite cancels pending sign-in retries without logging credenti
   });
   installDevSignInLink(server, {
     projectSlug: "checkout",
-    environmentName: "dev:dev@camox.dev",
     apiUrl: `http://127.0.0.1:${address.port}`,
     authToken: "checkout-session",
   });
@@ -170,7 +167,6 @@ function signInFixture(t: TestContext) {
     } as unknown as ViteDevServer;
     installDevSignInLink(vite, {
       projectSlug: "playground",
-      environmentName: "dev:dev@camox.dev",
       apiUrl: "http://localhost:8787",
       authToken: "private-session",
       ...options,
@@ -287,7 +283,7 @@ void test("an atomic marker prevents reopening across independent instances and 
           printUrls() {},
         };
         installDevSignInLink(server, {
-          projectSlug: "playground", environmentName: "dev", apiUrl: "http://localhost:8787",
+          projectSlug: "playground", apiUrl: "http://localhost:8787",
           authToken: "test-session", open: true, openOnceFile: ${JSON.stringify(marker)},
         });
         server.printUrls();

@@ -77,10 +77,11 @@ void test("every runtime-backed command group forwards --cwd", async () => {
   for (const command of [
     ["pages", "list"],
     ["blocks", "types"],
-    ["comments", "list", "--page-id", "1"],
+    ["comments", "list", "--page-id", "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7a"],
     ["layouts", "list"],
-    ["layouts", "get", "--id", "1"],
-    ["env", "check"],
+    ["layouts", "get", "--layout-id", "default"],
+    ["publish"],
+    ["discard", "--yes"],
     ["files", "list"],
   ]) {
     const result = await cli([...command, "--cwd", "apps/site"]);

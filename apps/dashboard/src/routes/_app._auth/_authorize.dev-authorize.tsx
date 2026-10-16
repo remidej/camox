@@ -81,8 +81,9 @@ function DevAuthorizePage() {
         title="Connect your local Camox site"
         description={
           <>
-            Authorize Camox to create and sync your personal development environment for{" "}
-            <span className="text-foreground font-medium">{origin}</span>.
+            Authorize your local dev server at{" "}
+            <span className="text-foreground font-medium">{origin}</span> to sync your code&apos;s
+            definitions into your development draft.
           </>
         }
       />

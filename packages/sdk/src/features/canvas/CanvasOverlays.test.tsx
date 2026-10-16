@@ -92,7 +92,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
         <CanvasOverlays
           document={page.document as unknown as Document}
           activate={() => activations++}
-          pageId={7}
+          pageId="7"
           canAddBlocks
         >
           <iframe title="page" />
@@ -202,7 +202,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
     });
     assert.equal(layer.querySelector("[data-canvas-page-outline]"), null);
     await React.act(async () => {
-      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: 7, blockId: 42 });
+      previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
     });
     assert.equal(layer.querySelector("[data-canvas-page-outline]"), null);
     await React.act(async () => {

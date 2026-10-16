@@ -1,63 +1,93 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
 
 import { getAuthorizedProject } from "../../authorization";
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { isRasterImage } from "../../lib/image-transform";
-import { resolveEnvironment } from "../../lib/resolve-environment";
-import { runService } from "../../lib/run-service";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { authed, pub } from "../../orpc";
-import { files } from "../../schema";
+import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
+import { authed, contentWrite, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
-import type { ServiceContext } from "../_shared/service-context";
+import { inScope, projectOfFile } from "../drafts/request-scope";
+import { inDraftScope } from "../drafts/service";
 import * as service from "./service";
 import { optimizeVideo } from "./video-optimization";
+
+// Every procedure reads and writes files in the draft the request names (`x-camox-draft`),
+// once the file's project is known. Writes need a draft: on Live the create header starts one.
 
 // Public procedures
 
 const list = pub
   .input(service.listFilesInput)
-  .handler(({ context, input }) => runService(service.listFiles(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, input.projectId, (scope) => service.listFiles(context, input, scope)),
+  );
 
 const get = pub
   .input(service.getFileInput)
-  .handler(({ context, input }) => runService(service.getFile(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
+      service.getFile(context, input, scope),
+    ),
+  );
 
 const getUsageCount = pub
   .input(service.getFileUsageCountInput)
-  .handler(({ context, input }) => runService(service.getFileUsageCount(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
+      service.getFileUsageCount(context, input, scope),
+    ),
+  );
 
 // Protected procedures
 
-const setAlt = authed
+const setAlt = contentWrite
   .input(service.setFileAltInput)
-  .handler(({ context, input }) => runService(service.setFileAlt(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
+      service.setFileAlt(context, input, scope),
+    ),
+  );
 
-const setFilename = authed
+const setFilename = contentWrite
   .input(service.setFileFilenameInput)
-  .handler(({ context, input }) => runService(service.setFileFilename(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
+      service.setFileFilename(context, input, scope),
+    ),
+  );
 
-const deleteFn = authed
+const deleteFn = contentWrite
   .input(service.deleteFileInput)
-  .handler(({ context, input }) => runService(service.deleteFile(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
+      service.deleteFile(context, input, scope),
+    ),
+  );
 
-const deleteMany = authed
-  .input(service.deleteFilesInput)
-  .handler(({ context, input }) => runService(service.deleteFiles(context, input)));
+const deleteMany = contentWrite.input(service.deleteFilesInput).handler(({ context, input }) => {
+  const [first] = input.ids;
+  const project = first === undefined ? undefined : projectOfFile(context, first);
+  return inScope(context, project ?? Effect.succeed(undefined), (scope) =>
+    service.deleteFiles(context, input, scope),
+  );
+});
 
-const replace = authed
-  .input(service.replaceFileInput)
-  .handler(({ context, input }) => runService(service.replaceFile(context, input)));
-
-const setAiMetadata = authed
+const setAiMetadata = contentWrite
   .input(service.setFileAiMetadataInput)
-  .handler(({ context, input }) => runService(service.setFileAiMetadata(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
+      service.setFileAiMetadata(context, input, scope),
+    ),
+  );
 
 const generateMetadata = authed
   .input(service.generateFileMetadataInput)
-  .handler(({ context, input }) => runService(service.generateFileMetadata(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfFile(context, input.id), (scope) =>
+      service.generateFileMetadata(context, input, scope),
+    ),
+  );
 
 export const fileProcedures = {
   list,
@@ -67,7 +97,6 @@ export const fileProcedures = {
   setFilename,
   delete: deleteFn,
   deleteMany,
-  replace,
   setAiMetadata,
   generateMetadata,
 };
@@ -132,33 +161,36 @@ fileHonoRoutes.on(["GET", "HEAD"], "/serve/*", async (c) => {
   return new Response(object.body, { status: range ? 206 : 200, headers });
 });
 
+/**
+ * Uploads a new file, or replaces a file's content keeping its id (`/:id/content`), in the
+ * draft the request names. Like any content write it needs one: Live is read-only, and
+ * uploading on Live with the create header starts a draft. The blob
+ * is stored before the row is written, and deleted again when the write fails.
+ */
 const uploadContent: Handler<AppEnv> = async (c) => {
   if (!c.var.user) return c.json({ error: "Unauthorized" }, 401);
-  const idParam = c.req.param("id");
-  const id = idParam === undefined ? undefined : Number(idParam);
-  if (id !== undefined && (!Number.isSafeInteger(id) || id <= 0)) {
+  const id = c.req.param("id");
+  if (id !== undefined && !uuidv7Schema.safeParse(id).success) {
     return c.json({ error: "Invalid file id" }, 400);
   }
-  const ctx: ServiceContext = {
-    db: c.var.db,
-    user: c.var.user,
-    env: c.env,
-    environmentName: c.var.environmentName,
-    client: c.var.client ?? "unknown",
-    telemetryDisabled: c.var.telemetryDisabled ?? false,
-    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
-  };
+  const ctx = uploadContextOf(c, c.var.user);
+  if (ctx instanceof Response) return ctx;
 
   const body = await c.req.parseBody();
   const file = body["file"];
+  // Creating accepts a client-minted id for optimistic inserts; replacing names its target.
+  const newId = body["id"];
+  if (newId !== undefined && (id !== undefined || !uuidv7Schema.safeParse(newId).success)) {
+    return c.json({ error: "Invalid file id" }, 400);
+  }
   const projectId = Number(body["projectId"]);
-  const aiMetadata = body["aiMetadataEnabled"];
+  const aiMetadata = body["aiMetadata"];
   if (aiMetadata !== undefined && aiMetadata !== "true" && aiMetadata !== "false") {
-    return c.json({ error: "aiMetadataEnabled must be true or false" }, 400);
+    return c.json({ error: "aiMetadata must be true or false" }, 400);
   }
   const metadata = service.fileMetadataInput.safeParse({
     alt: body["alt"],
-    aiMetadataEnabled: aiMetadata === undefined ? undefined : aiMetadata === "true",
+    aiMetadata: aiMetadata === undefined ? undefined : aiMetadata === "true",
   });
   if (!metadata.success) return c.json({ error: metadata.error.message }, 400);
 
@@ -166,119 +198,59 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   if (!Number.isSafeInteger(projectId) || projectId <= 0)
     return c.json({ error: "Missing projectId" }, 400);
   if (file.size > 100 * 1024 * 1024) return c.json({ error: "File exceeds 100 MiB limit" }, 413);
-  const canGenerateAiMetadata = isRasterImage(file.type);
-  if (metadata.data.aiMetadataEnabled && !canGenerateAiMetadata) {
+  if (metadata.data.aiMetadata && !isRasterImage(file.type)) {
     return c.json({ error: "Automatic metadata requires a raster image" }, 400);
   }
-  let aiMetadataEnabled = metadata.data.aiMetadataEnabled ?? null;
-  if (metadata.data.alt !== undefined || !canGenerateAiMetadata) aiMetadataEnabled = false;
-
-  // Reject incorrect project/environment targets before creating any stored object.
-  const target =
-    id !== undefined
-      ? Effect.asVoid(service.getProjectFile(ctx, { projectId, id }))
-      : Effect.asVoid(getAuthorizedProject(c.var.db, projectId, c.var.user.id));
-  const rejection = await runService(
-    target.pipe(
-      Effect.as(null),
-      Effect.catchTags({
-        NotFoundError: () => Effect.succeed(c.json({ error: "Not found" }, 404)),
-        ForbiddenError: () => Effect.succeed(c.json({ error: "Forbidden" }, 403)),
-      }),
-    ),
-  );
-  if (rejection) return rejection;
-
-  const environment = await runService(
-    resolveEnvironment(c.var.db, projectId, c.var.environmentName),
-  );
-
-  const now = Date.now();
-  const filename = file.name.split(/[\\/]/).pop() || "upload";
-  // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
-  const key = `${projectId}/${crypto.randomUUID()}`;
-
-  await c.env.FILES_BUCKET.put(key, file.stream(), {
-    httpMetadata: { contentType: file.type },
-  });
 
   const apiOrigin = new URL(c.req.url).origin;
-  const optimized = await Effect.runPromise(
-    optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA),
-  );
-  const url = `${apiOrigin}/files/serve/${optimized?.key ?? key}`;
+  const filename = file.name.split(/[\\/]/).pop() || "upload";
 
-  if (id !== undefined) {
-    try {
-      const result = await runService(
-        service.replaceFileContent(
-          ctx,
-          { projectId, id },
-          {
-            blobId: key,
-            path: key,
-            url,
-            filename,
-            mimeType: file.type,
-            size: file.size,
-            optimizedSize: optimized?.size ?? null,
-          },
-          metadata.data,
-        ),
-      );
-      return c.json(result);
-    } catch (error) {
-      // A failed database transaction must not leave an orphaned upload. Check
-      // references first so a post-commit error cannot remove the active image.
-      await Effect.runPromise(service.deleteUnreferencedFileBlob(ctx, key));
-      throw error;
-    }
-  }
+  const upload = Effect.gen(function* () {
+    yield* getAuthorizedProject(ctx.db, projectId, c.var.user!.id);
+    return yield* inDraftScope(ctx, projectId, (scope) =>
+      Effect.gen(function* () {
+        // Reject a missing target before storing any blob.
+        if (id !== undefined) yield* service.getProjectFile(ctx, { projectId, id }, scope);
 
-  let result: typeof files.$inferSelect;
-  try {
-    result = await c.var.db
-      .insert(files)
-      .values({
-        projectId,
-        environmentId: environment.id,
-        blobId: key,
-        filename,
-        mimeType: file.type,
-        size: file.size,
-        optimizedSize: optimized?.size ?? null,
-        path: key,
-        url,
-        alt: metadata.data.alt ?? "",
-        aiMetadataEnabled,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-  } catch (error) {
-    await Effect.runPromise(service.deleteUnreferencedFileBlob(ctx, key));
-    throw error;
-  }
+        // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
+        const key = `${projectId}/${crypto.randomUUID()}`;
+        yield* Effect.promise(() =>
+          c.env.FILES_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } }),
+        );
+        const optimized = yield* optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
+        const asset = {
+          blobId: key,
+          path: key,
+          url: `${apiOrigin}/files/serve/${optimized?.key ?? key}`,
+          filename,
+          mimeType: file.type,
+          size: file.size,
+          optimizedSize: optimized?.size ?? null,
+        };
 
-  if (aiMetadataEnabled !== false) {
-    c.executionCtx.waitUntil(
-      scheduleAiJob(c.env.AI_JOB_SCHEDULER, {
-        entityTable: "files",
-        entityId: result.id,
-        type: "fileMetadata",
-        delayMs: 0,
+        const now = Date.now();
+        const write =
+          id !== undefined
+            ? service.replaceFileContent(ctx, { projectId, id }, asset, metadata.data, scope)
+            : service.createFile(
+                ctx,
+                {
+                  ...(typeof newId === "string" ? { id: newId } : {}),
+                  ...asset,
+                  projectId,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                metadata.data,
+                scope,
+              );
+        // A failed write must not leave an orphaned blob.
+        return yield* write.pipe(Effect.onError(() => service.deleteUnreferencedBlobs(ctx, [key])));
       }),
     );
-  }
-  broadcastInvalidation({
-    waitUntil: (p) => c.executionCtx.waitUntil(p),
-    projectRoomNamespace: c.env.ProjectRoom,
-    projectId,
-    targets: [queryKeys.files.list, queryKeys.files.get(result.id)],
   });
 
-  return c.json(result, 201);
+  return respondToUpload(c, upload, id !== undefined ? 200 : 201);
 };
 
 fileHonoRoutes.post("/upload", uploadContent);

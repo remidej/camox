@@ -3,7 +3,9 @@ import { mkdtemp, open, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 
+import { developmentDraftHeaders } from "./api";
 import type { resolveCommandContext } from "./dispatch";
+import { NO_DEVELOPMENT_DRAFT_CLI_ERROR, isNoDevelopmentDraft } from "./output";
 
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const TIMEOUT_MS = 120_000;
@@ -145,7 +147,7 @@ async function download(source: string, destination: string) {
 export async function uploadFile(
   context: Awaited<ReturnType<typeof resolveCommandContext>>,
   options: UploadOptions,
-  targetId?: number,
+  targetId?: string,
 ): Promise<unknown> {
   validateUpload(options);
   let temporaryDirectory: string | undefined;
@@ -170,17 +172,9 @@ export async function uploadFile(
     body.set("projectId", String(context.projectId));
     if (options.alt !== undefined) body.set("alt", options.alt);
     if (options.aiMetadata !== undefined || options.alt !== undefined) {
-      body.set(
-        "aiMetadataEnabled",
-        String(options.alt === undefined && options.aiMetadata === "on"),
-      );
+      body.set("aiMetadata", String(options.alt === undefined && options.aiMetadata === "on"));
     }
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${context.token}`,
-      "x-camox-client": "cli",
-      "x-environment-name": context.environmentName,
-    };
-    if (context.disableTelemetry) headers["x-camox-telemetry-disabled"] = "1";
+    const headers = developmentDraftHeaders(context.token, context.disableTelemetry);
     let response: Response;
     try {
       const endpoint = targetId === undefined ? "/files/upload" : `/files/${targetId}/content`;
@@ -200,6 +194,12 @@ export async function uploadFile(
       );
     }
     if (!response.ok) {
+      // Only the error code is read from the body.
+      if (isNoDevelopmentDraft(await response.json().catch(() => null))) {
+        throw Object.assign(new Error(NO_DEVELOPMENT_DRAFT_CLI_ERROR.message), {
+          __cliError: NO_DEVELOPMENT_DRAFT_CLI_ERROR,
+        });
+      }
       // Do not echo arbitrary server bodies, which may contain sensitive data.
       const operation = targetId === undefined ? "Media upload" : "File replacement";
       fail("UPLOAD_FAILED", `${operation} failed (HTTP ${response.status}).`);

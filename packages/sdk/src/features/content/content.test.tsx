@@ -23,6 +23,7 @@ import {
   projectQueries,
   type CollectionDefinition,
 } from "@/lib/queries";
+import { readDraftFromUrl } from "@/lib/studio-draft";
 
 import {
   collectionFormContent,
@@ -36,7 +37,7 @@ import { ContentCollection, ContentCollectionItemEditor } from "./ContentCollect
 
 // tsx loads workspace UI sources with the classic JSX transform, unlike Vite.
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 
 const collections: CollectionDefinition[] = [
   { collectionId: "articles", title: "Articles", description: "News and updates", label: "title" },
@@ -228,19 +229,15 @@ void test("each empty collection has its own title and empty view", () => {
 void test("nonempty collections render record labels rather than an empty state", () => {
   const client = new QueryClient();
   client.setQueryData(collectionQueries.records("site", "articles").queryKey, [
-    { id: "one", version: 1, label: "First article", status: "draft" },
-    { id: "two", version: 1, label: "", status: "published" },
-    { id: "three", version: 2, label: "Edited article", status: "modified" },
+    { id: "one", label: "First article" },
+    { id: "two", label: "" },
+    { id: "three", label: "Edited article" },
   ]);
   const html = renderCollection(collections[0], client);
-  assert.match(html, /First article/);
-  assert.match(html, /Draft/);
-  assert.match(html, /Published/);
-  assert.match(html, /Modified/);
-  assert.match(
-    html,
-    /First article<\/span>[^<]*<span[^>]*data-slot="badge"[^>]*>Draft<\/span><\/button>/,
-  );
+  assert.match(html, /First article<\/span><\/button>/);
+  // Records have no publication status of their own.
+  assert.doesNotMatch(html, /data-slot="badge"/);
+  assert.doesNotMatch(html, />(Draft|Published|Modified|Publish)</);
   assert.match(html, /aria-label="Delete First article"/);
   assert.match(html, /Untitled item/);
   assert.doesNotMatch(html, /\/edit"/);
@@ -268,13 +265,10 @@ void test("loading and failures are not presented as an empty collection", async
   client.clear();
 });
 
-void test("collection query keys isolate projects, environments and collections", () => {
+void test("collection query keys isolate projects and collections", () => {
   const first = collectionQueries.records("site", "articles").queryKey;
   assert.notDeepEqual(first, collectionQueries.records("other-site", "articles").queryKey);
   assert.notDeepEqual(first, collectionQueries.records("site", "authors").queryKey);
-  initApiClient("http://localhost:8788", "production");
-  assert.notDeepEqual(first, collectionQueries.records("site", "articles").queryKey);
-  initApiClient("http://localhost:8788", "development");
   assert.notDeepEqual(collectionQueries.get("site", "articles").queryKey, first);
   const record = collectionQueries.record("site", "articles", "one").queryKey;
   assert.notDeepEqual(record, collectionQueries.record("site", "articles", "two").queryKey);
@@ -384,18 +378,13 @@ void test("collection item controls open the shared create and edit modal", asyn
     contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
   });
   client.setQueryData(collectionQueries.records("site", "articles").queryKey, [
-    {
-      id: "one",
-      version: 1,
-      label: "First article",
-      status: "draft",
-      draft: { title: "Existing article" },
-    },
+    { id: "one", label: "First article" },
   ]);
   client.setQueryData(collectionQueries.record("site", "articles", "one").queryKey, {
     id: "one",
-    version: 1,
-    draft: { title: "Existing article" },
+    content: { title: "Existing article" },
+    createdAt: 1,
+    updatedAt: 1,
   });
   const host = document.createElement("div");
   const root = createRoot(host);
@@ -489,12 +478,14 @@ void test("collection form values round-trip assets and preserve unchanged rich 
     ["gallery", { fieldType: "ImageList" }],
     ["category", { fieldType: "Enum", enum: ["news", "guide"] }],
   ];
+  // Reads resolve a record's `{ _fileId }` to the file's metadata.
   const asset = {
     url: "https://example.com/a.png",
     alt: "Cover",
     filename: "a.png",
     mimeType: "image/png",
-    _fileId: "12",
+    size: 5,
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c",
   };
   const richText = {
     root: {
@@ -505,24 +496,49 @@ void test("collection form values round-trip assets and preserve unchanged rich 
   const original = { title: richText, cover: asset, gallery: [asset], category: "news" };
   const defaults = collectionFormDefaults(fields, original);
   assert.equal(defaults.title, "Hello");
-  assert.equal((defaults.cover as { _fileId: number })._fileId, 12);
-  assert.deepEqual(collectionFormContent(fields, defaults, original), original);
+  assert.equal(
+    (defaults.cover as { _fileId: string })._fileId,
+    "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c",
+  );
+  const stored = {
+    title: richText,
+    cover: { _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c" },
+    gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0c" }],
+  };
+  assert.deepEqual(collectionFormContent(fields, defaults, original), {
+    ...stored,
+    category: "news",
+  });
   assert.equal(
     collectionFormContent(fields, { ...defaults, title: "Changed" }, original).title,
     "Changed",
   );
-  const uploaded = { ...asset, _fileId: 12, fileId: "12", id: 12, projectId: 3 };
+  const uploaded = {
+    ...asset,
+    _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d",
+    fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d",
+    id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d",
+    projectId: 3,
+  };
   assert.deepEqual(
     collectionFormContent(fields, { ...defaults, cover: uploaded }, original).cover,
-    asset,
+    { _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a0d" },
+  );
+  // An asset that isn't a file reference is never stored.
+  assert.equal(
+    collectionFormContent(fields, { ...defaults, cover: { url: asset.url } }, original).cover,
+    null,
   );
   assert.equal(collectionFormDefaults(fields).category, "news");
 });
 
-void test("collection forms create and edit drafts, invalidate lists, and retain values on failure", async (t) => {
+void test("collection forms create and edit records, invalidate lists, and retain values on failure", async (t) => {
   const { Window } = await import("happy-dom");
   const { act } = await import("react");
-  const window = new Window();
+  // In a draft already, so writes don't start one and switch the cached queries' keys.
+  const window = new Window({
+    url: "http://localhost:3000/?camox-draft=019a0000-0000-7000-8000-000000000001",
+  });
   Object.assign(globalThis, {
     window,
     document: window.document,
@@ -532,6 +548,11 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
     Event: window.Event,
     localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  readDraftFromUrl();
+  t.after(() => {
+    window.history.replaceState(null, "", "/");
+    readDraftFromUrl();
   });
   const { createRoot } = await import("react-dom/client");
   const id = "a6479288-341f-4008-b118-dea6d8dd9158";
@@ -546,14 +567,16 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
         {
           json: {
             defined: false,
-            code: "CONFLICT",
-            status: 409,
-            message: "Record changed; reload before retrying",
+            code: "BAD_REQUEST",
+            status: 400,
+            message: "Invalid content; fix and retry",
           },
         },
-        { status: 409 },
+        { status: 400 },
       );
-    return Response.json({ json: { id, version: 3, draft: body.json.content } });
+    return Response.json({
+      json: { id, content: body.json.content, createdAt: 1, updatedAt: 2 },
+    });
   });
   for (const editing of [false, true]) {
     const client = new QueryClient({
@@ -567,8 +590,9 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
     if (editing)
       client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
         id,
-        version: 2,
-        draft: { title: "Existing article" },
+        content: { title: "Existing article" },
+        createdAt: 1,
+        updatedAt: 1,
       });
     const host = document.createElement("div");
     const root = createRoot(host);
@@ -607,7 +631,7 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
         assert.equal(host.querySelector("textarea")?.value, "Existing article");
         fail = true;
         await submit();
-        assert.match(host.querySelector('[role="alert"]')!.textContent!, /reload/);
+        assert.match(host.querySelector('[role="alert"]')!.textContent!, /fix and retry/);
         assert.equal(host.querySelector("textarea")?.value, "Existing article");
         assert.deepEqual(navigations, []);
       }
@@ -620,7 +644,7 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
         projectSlug: "site",
         collectionId: "articles",
         content: { title: editing ? "Existing article" : "New article" },
-        ...(editing ? { id, expectedVersion: 2 } : {}),
+        ...(editing ? { id } : {}),
       });
       assert.deepEqual(navigations, [collectionContentPath("articles")]);
       assert.equal(
@@ -636,7 +660,7 @@ void test("collection forms create and edit drafts, invalidate lists, and retain
   await window.happyDOM.close();
 });
 
-void test("forms only save drafts and keep the reviewed version after failures and refetches", async (t) => {
+void test("forms save the record without publishing, and refetches never replace unsaved values", async (t) => {
   const { Window } = await import("happy-dom");
   const { act } = await import("react");
   const window = new Window();
@@ -655,12 +679,10 @@ void test("forms only save drafts and keep the reviewed version after failures a
   for (const editing of [false, true]) {
     const calls: { path: string; input: Record<string, unknown> }[] = [];
     let failSave = true;
-    let version = editing ? 2 : 0;
     t.mock.method(globalThis, "fetch", async (request: Request) => {
       const path = new URL(request.url).pathname;
       const { json: input } = (await request.json()) as { json: Record<string, unknown> };
       calls.push({ path, input });
-      assert.ok(!path.endsWith("/publishRecord"));
       if (failSave)
         return Response.json(
           {
@@ -673,10 +695,9 @@ void test("forms only save drafts and keep the reviewed version after failures a
           },
           { status: 400 },
         );
-      if (!path.endsWith("/createRecord")) assert.equal(input.expectedVersion, version);
-      version += 1;
-      const record = { id, version, draft: { title: "Article" } };
-      return Response.json({ json: record });
+      return Response.json({
+        json: { id, content: input.content, createdAt: 1, updatedAt: 2 },
+      });
     });
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
@@ -688,8 +709,9 @@ void test("forms only save drafts and keep the reviewed version after failures a
     if (editing)
       client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
         id,
-        version,
-        draft: { title: "Article" },
+        content: { title: "Article" },
+        createdAt: 1,
+        updatedAt: 1,
       });
     const host = document.createElement("div");
     const root = createRoot(host);
@@ -726,31 +748,36 @@ void test("forms only save drafts and keep the reviewed version after failures a
         ),
       );
       assert.equal(host.textContent?.includes("Cancel"), false);
-      assert.equal(host.textContent?.includes("Save and publish"), false);
+      assert.equal(host.textContent?.includes("publish"), false);
       assert.equal(host.querySelectorAll('button[type="submit"]').length, 1);
       await submit();
       assert.equal(calls.length, 1);
       assert.match(host.querySelector('[role="alert"]')!.textContent!, /Could not save item/);
       assert.equal(host.querySelector("textarea")?.value, "Article");
       assert.deepEqual(navigations, []);
-      // A refetch must not silently advance the form's reviewed version.
+      // A refetch must not replace what the form is about to save.
       await act(async () =>
         client.setQueryData(collectionQueries.record("site", "articles", id).queryKey, {
           id,
-          version: 99,
-          draft: { title: "Someone else's edit" },
+          content: { title: "Someone else's edit" },
+          createdAt: 1,
+          updatedAt: 3,
         }),
       );
+      assert.equal(host.querySelector("textarea")?.value, "Article");
       failSave = false;
       await submit();
-      assert.ok(calls.at(-1)!.path.endsWith(editing ? "/editRecord" : "/createRecord"));
-      if (editing) assert.equal(calls.at(-1)!.input.expectedVersion, version - 1);
+      assert.deepEqual(
+        calls.map((call) => call.path.split("/").at(-1)),
+        editing ? ["editRecord", "editRecord"] : ["createRecord", "createRecord"],
+      );
+      assert.deepEqual(calls.at(-1)!.input.content, { title: "Article" });
       assert.deepEqual(navigations, [collectionContentPath("articles")]);
-      assert.equal(
-        client.getQueryData<{ version: number }>(
+      assert.deepEqual(
+        client.getQueryData<{ content: unknown }>(
           collectionQueries.record("site", "articles", id).queryKey,
-        )?.version,
-        version,
+        )?.content,
+        { title: "Article" },
       );
     } finally {
       await act(async () => root.unmount());

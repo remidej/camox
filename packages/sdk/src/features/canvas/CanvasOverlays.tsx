@@ -36,7 +36,7 @@ export function CanvasOverlays({
 }: {
   document: Document | null;
   activate: () => void;
-  pageId?: number;
+  pageId?: string;
   canAddBlocks?: boolean;
   pageHovered?: boolean;
   children: React.ReactNode;

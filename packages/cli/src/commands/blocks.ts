@@ -4,17 +4,15 @@ import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { multiple, optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { choice, integer, string } from "@optique/core/valueparser";
+import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, asCliError, parseJsonFlag, printError } from "../lib/output";
 import { cwdFlag } from "../lib/runtime-options";
+import { uuidv7 } from "../lib/uuidv7";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
-const productionFlag = option("--production");
-// `--live` flips read commands from draft (default) to the published snapshot.
-const liveFlag = option("--live");
 const fieldFileFlag = multiple(
   option("--field-file", string({ metavar: "NAME=PATH" }), {
     description: message`Set the string field NAME to the raw contents of the file at PATH, without JSON escaping. Repeat to set several fields. Merges with --content; when both set a field, the file wins.`,
@@ -27,7 +25,6 @@ const types = command(
     command: constant("blocks.types" as const),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -39,7 +36,6 @@ const describe = command(
     type: multiple(option("--type", string({ metavar: "TYPE" })), { min: 1 }),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -48,11 +44,9 @@ const get = command(
   "get",
   object({
     command: constant("blocks.get" as const),
-    id: option("--id", integer({ metavar: "ID" })),
-    live: liveFlag,
+    id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -61,11 +55,9 @@ const getMany = command(
   "get-many",
   object({
     command: constant("blocks.get-many" as const),
-    id: multiple(option("--id", integer({ metavar: "ID" })), { min: 1 }),
-    live: liveFlag,
+    id: multiple(option("--id", uuidv7()), { min: 1 }),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -74,7 +66,7 @@ const create = command(
   "create",
   object({
     command: constant("blocks.create" as const),
-    pageId: option("--page-id", integer({ metavar: "ID" })),
+    pageId: option("--page-id", uuidv7()),
     type: option("--type", string({ metavar: "TYPE" })),
     content: optional(option("--content", string({ metavar: "JSON" }))),
     fieldFile: fieldFileFlag,
@@ -82,13 +74,12 @@ const create = command(
     position: optional(
       option("--position", choice(["first", "last"] as const, { metavar: "WHERE" })),
     ),
-    afterId: optional(option("--after-id", integer({ metavar: "ID" }))),
-    beforeId: optional(option("--before-id", integer({ metavar: "ID" }))),
+    afterId: optional(option("--after-id", uuidv7())),
+    beforeId: optional(option("--before-id", uuidv7())),
     afterPosition: optional(option("--after-position", string({ metavar: "POS" }))),
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -97,13 +88,12 @@ const edit = command(
   "edit",
   object({
     command: constant("blocks.edit" as const),
-    id: option("--id", integer({ metavar: "ID" })),
+    id: option("--id", uuidv7()),
     content: optional(option("--content", string({ metavar: "JSON" }))),
     fieldFile: fieldFileFlag,
     settings: optional(option("--settings", string({ metavar: "JSON" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -112,17 +102,16 @@ const move = command(
   "move",
   object({
     command: constant("blocks.move" as const),
-    id: option("--id", integer({ metavar: "ID" })),
+    id: option("--id", uuidv7()),
     position: optional(
       option("--position", choice(["first", "last"] as const, { metavar: "WHERE" })),
     ),
-    afterId: optional(option("--after-id", integer({ metavar: "ID" }))),
-    beforeId: optional(option("--before-id", integer({ metavar: "ID" }))),
+    afterId: optional(option("--after-id", uuidv7())),
+    beforeId: optional(option("--before-id", uuidv7())),
     afterPosition: optional(option("--after-position", string({ metavar: "POS" }))),
     beforePosition: optional(option("--before-position", string({ metavar: "POS" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -131,22 +120,21 @@ const del = command(
   "delete",
   object({
     command: constant("blocks.delete" as const),
-    id: option("--id", integer({ metavar: "ID" })),
+    id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
 
 export const parser = command("blocks", or(types, describe, get, getMany, create, edit, move, del));
 
-type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; json: boolean };
 
 type PositioningFlags = {
   position?: "first" | "last";
-  afterId?: number;
-  beforeId?: number;
+  afterId?: string;
+  beforeId?: string;
   afterPosition?: string;
   beforePosition?: string;
 };
@@ -154,11 +142,11 @@ type PositioningFlags = {
 type Args =
   | ({ command: "blocks.types" } & CommonFlags)
   | ({ command: "blocks.describe"; type: readonly string[] } & CommonFlags)
-  | ({ command: "blocks.get"; id: number; live: boolean } & CommonFlags)
-  | ({ command: "blocks.get-many"; id: readonly number[]; live: boolean } & CommonFlags)
+  | ({ command: "blocks.get"; id: string } & CommonFlags)
+  | ({ command: "blocks.get-many"; id: readonly string[] } & CommonFlags)
   | ({
       command: "blocks.create";
-      pageId: number;
+      pageId: string;
       type: string;
       content?: string;
       fieldFile: readonly string[];
@@ -167,13 +155,13 @@ type Args =
       CommonFlags)
   | ({
       command: "blocks.edit";
-      id: number;
+      id: string;
       content?: string;
       fieldFile: readonly string[];
       settings?: string;
     } & CommonFlags)
-  | ({ command: "blocks.move"; id: number } & PositioningFlags & CommonFlags)
-  | ({ command: "blocks.delete"; id: number } & CommonFlags);
+  | ({ command: "blocks.move"; id: string } & PositioningFlags & CommonFlags)
+  | ({ command: "blocks.delete"; id: string } & CommonFlags);
 
 const POSITIONING_FLAGS = [
   ["position", "--position"],
@@ -246,7 +234,6 @@ export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
   const cwd = args.cwd;
   const projectFlag = args.project;
-  const production = args.production;
 
   try {
     switch (args.command) {
@@ -256,7 +243,6 @@ export async function handler(args: Args): Promise<never> {
           args: {},
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.describe":
@@ -265,25 +251,22 @@ export async function handler(args: Args): Promise<never> {
           args: { types: [...args.type] },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.get":
         return dispatch({
           toolName: "getBlock",
-          args: { id: args.id, source: args.live ? "live" : "draft" },
+          args: { id: args.id },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.get-many":
         return dispatch({
           toolName: "getBlocks",
-          args: { ids: [...args.id], source: args.live ? "live" : "draft" },
+          args: { ids: [...args.id] },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       case "blocks.create": {
@@ -313,7 +296,6 @@ export async function handler(args: Args): Promise<never> {
           },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       }
@@ -326,7 +308,6 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id, content, settings },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       }
@@ -352,7 +333,6 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id, ...toolArgs },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
       }
@@ -362,7 +342,6 @@ export async function handler(args: Args): Promise<never> {
           args: { id: args.id },
           cwd,
           projectFlag,
-          production,
           outputMode,
         });
     }

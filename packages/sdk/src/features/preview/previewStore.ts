@@ -1,4 +1,3 @@
-import { toast } from "@camox/ui/toaster";
 import { createStore } from "@xstate/store-react";
 
 import type { FieldType } from "@/core/lib/fieldTypes";
@@ -11,13 +10,13 @@ import type { FieldType } from "@/core/lib/fieldTypes";
  * ------------------------------------------------------------------------------------------------*/
 
 export type Selection =
-  | { type: "block"; blockId: number }
-  | { type: "item"; blockId: number; itemId: number }
-  | { type: "block-field"; blockId: number; fieldName: string; fieldType: FieldType }
+  | { type: "block"; blockId: string }
+  | { type: "item"; blockId: string; itemId: string }
+  | { type: "block-field"; blockId: string; fieldName: string; fieldType: FieldType }
   | {
       type: "item-field";
-      blockId: number;
-      itemId: number;
+      blockId: string;
+      itemId: string;
       fieldName: string;
       fieldType: FieldType;
     }
@@ -44,22 +43,22 @@ type LinkedRecord = {
 
 /** A collection record placed by a reference field of a block or repeatable item. */
 export type BlockRecordPlacement = LinkedRecord & {
-  blockId: number;
+  blockId: string;
   /** The repeatable item whose reference field places the record, if not the block's own. */
-  itemId?: number;
+  itemId?: string;
   /** The block's or item's reference field that places the record. */
   fieldName: string;
   recordId: string;
 };
 
 /** The record a layout renders on one of its record pages, placed by no block. */
-export type LayoutRecordPlacement = LinkedRecord & { layoutId: number; recordId: string };
+export type LayoutRecordPlacement = LinkedRecord & { layoutId: string; recordId: string };
 
 /**
  * The block id of what no block places, like a record page's record: it equals no id, itself
  * included, so no block field or selection ever matches it.
  */
-export const NO_BLOCK_ID = Number.NaN;
+export const NO_BLOCK_ID = "";
 
 /**
  * Whether a block places the record. Checks `blockId` rather than `layoutId`, because editing
@@ -105,7 +104,7 @@ export function samePlacement(a: RecordPlacement, b: RecordPlacement): boolean {
 }
 
 /** Derived routes have no page row, but their persisted layout remains editable. */
-export type EditingOwner = { kind: "page"; pageId: number } | { kind: "layout"; layoutId: number };
+export type EditingOwner = { kind: "page"; pageId: string } | { kind: "layout"; layoutId: string };
 export type EditingContext = EditingOwner & { selection: Selection | null };
 
 export function sameEditingOwner(a: EditingOwner | null, b: EditingOwner | null): boolean {
@@ -131,7 +130,7 @@ export function selectionForOwner(
 /** Read a selection only in the page that contains the editor. */
 export function selectionForPage(
   context: { editingContext: EditingContext | null },
-  pageId: number | null,
+  pageId: string | null,
 ): Selection | null {
   return selectionForOwner(context, pageId === null ? null : { kind: "page", pageId });
 }
@@ -151,13 +150,13 @@ export function isBlockSelection(sel: Selection | null): sel is BlockSelection {
 }
 
 /** Extract the blockId from any selection variant; null for a record a layout places. */
-export function selectionBlockId(sel: Selection | null): number | null {
+export function selectionBlockId(sel: Selection | null): string | null {
   if (!isBlockSelection(sel)) return null;
   return sel.blockId;
 }
 
 /** Extract the itemId from item and item-field selections, and records placed by an item. */
-export function selectionItemId(sel: Selection | null): number | null {
+export function selectionItemId(sel: Selection | null): string | null {
   if (!isBlockSelection(sel)) return null;
   if (sel.type === "item" || sel.type === "item-field") return sel.itemId;
   if (sel.type === "record" || sel.type === "record-field") return sel.itemId ?? null;
@@ -175,27 +174,15 @@ export function selectionField(
   return null;
 }
 
-/**
- * Which side of the draft/publish split the studio is currently previewing.
- * 'draft' (default) shows in-flight editor changes; 'live' shows visitors'
- * view (the page's live published checkpoint snapshot).
- */
-export type PreviewSource = "draft" | "live";
-export type PreviewMode =
-  | "editing-draft"
-  | "commenting-draft"
-  | "previewing-draft"
-  | "previewing-live";
+export type PreviewMode = "editing-draft" | "commenting-draft" | "previewing-draft";
 
 export const selectIsCommentMode = (state: { context: { mode: PreviewMode } }) =>
   state.context.mode === "commenting-draft";
 
-/** Commenting is a draft-only editing submode. */
+/** Commenting is an editing submode. */
 export const selectIsEditMode = (state: { context: { mode: PreviewMode } }) =>
   state.context.mode === "editing-draft" || selectIsCommentMode(state);
 
-export const selectPreviewSource = (state: { context: { mode: PreviewMode } }): PreviewSource =>
-  state.context.mode === "previewing-live" ? "live" : "draft";
 export type ViewportMode = "full" | "tablet" | "mobile";
 
 interface PreviewContext {
@@ -203,7 +190,7 @@ interface PreviewContext {
   isToolbarHidden: boolean;
   addBlockDialog: { afterPosition?: string | null } | null;
   isCreatePageModalOpen: boolean;
-  editingPageId: number | null;
+  editingPageId: string | null;
   viewportMode: ViewportMode;
   editingContext: EditingContext | null;
   iframeElement: HTMLIFrameElement | null;
@@ -253,16 +240,6 @@ export const previewStore = createStore({
       };
     },
     hideToolbar: (context) => ({ ...context, isToolbarHidden: true }),
-    viewLiveSite: (context, _, enqueue) => {
-      enqueue.effect(() => {
-        toast("Viewing live version of the site");
-      });
-      return {
-        ...context,
-        mode: "previewing-live" as const,
-        isToolbarHidden: true,
-      };
-    },
     setViewportMode: (context, event: { mode: ViewportMode }) => {
       if (context.viewportMode === event.mode) return context;
       return { ...context, viewportMode: event.mode };
@@ -278,7 +255,7 @@ export const previewStore = createStore({
     },
     /* --- Selection events --- */
 
-    activatePage: (context, event: { pageId: number | null }) => {
+    activatePage: (context, event: { pageId: string | null }) => {
       const owner: EditingOwner | null =
         event.pageId === null ? null : { kind: "page", pageId: event.pageId };
       if (sameEditingOwner(context.editingContext, owner)) return context;
@@ -288,7 +265,7 @@ export const previewStore = createStore({
         addBlockDialog: null,
       };
     },
-    activateLayout: (context, event: { layoutId: number }) => {
+    activateLayout: (context, event: { layoutId: string }) => {
       const owner: EditingOwner = { kind: "layout", layoutId: event.layoutId };
       if (sameEditingOwner(context.editingContext, owner)) return context;
       return {
@@ -301,12 +278,12 @@ export const previewStore = createStore({
       ...context,
       editingContext: targetContext(event, event.selection),
     }),
-    setFocusedBlock: (context, event: EditingOwner & { blockId: number }) => ({
+    setFocusedBlock: (context, event: EditingOwner & { blockId: string }) => ({
       ...context,
       editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
       addBlockDialog: null,
     }),
-    selectItem: (context, event: EditingOwner & { blockId: number; itemId: number }) => ({
+    selectItem: (context, event: EditingOwner & { blockId: string; itemId: string }) => ({
       ...context,
       editingContext: targetContext(event, {
         type: "item",
@@ -316,7 +293,7 @@ export const previewStore = createStore({
     }),
     selectBlockField: (
       context,
-      event: EditingOwner & { blockId: number; fieldName: string; fieldType: FieldType },
+      event: EditingOwner & { blockId: string; fieldName: string; fieldType: FieldType },
     ) => ({
       ...context,
       editingContext: targetContext(event, {
@@ -329,8 +306,8 @@ export const previewStore = createStore({
     selectItemField: (
       context,
       event: EditingOwner & {
-        blockId: number;
-        itemId: number;
+        blockId: string;
+        itemId: string;
         fieldName: string;
         fieldType: FieldType;
       },
@@ -454,7 +431,7 @@ export const previewStore = createStore({
       ...context,
       addBlockDialog: null,
     }),
-    focusCreatedBlock: (context, event: EditingOwner & { blockId: number }) => ({
+    focusCreatedBlock: (context, event: EditingOwner & { blockId: string }) => ({
       ...context,
       editingContext: targetContext(event, { type: "block", blockId: event.blockId }),
       addBlockDialog: null,
@@ -467,7 +444,7 @@ export const previewStore = createStore({
       ...context,
       isCreatePageModalOpen: false,
     }),
-    openEditPageModal: (context, event: { pageId: number }) => {
+    openEditPageModal: (context, event: { pageId: string }) => {
       if (context.editingPageId === event.pageId) return context;
       return { ...context, editingPageId: event.pageId };
     },
@@ -479,16 +456,5 @@ export const previewStore = createStore({
       ...context,
       iframeElement: event.element,
     }),
-    viewDraftSite: (context, _, enqueue) => {
-      if (context.mode !== "previewing-live") return context;
-      enqueue.effect(() => {
-        toast("Previewing draft content", { duration: 2500 });
-      });
-      return {
-        ...context,
-        mode: "previewing-draft" as const,
-        isToolbarHidden: false,
-      };
-    },
   },
 });

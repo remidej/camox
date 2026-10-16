@@ -13,23 +13,11 @@ import { collectionQueries } from "@/lib/queries";
 import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
-import type { PublicationStatus } from "./PageStatusBadge";
 import { RecordCard } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
 
-function referenceHint({
-  linked,
-  required,
-  status,
-}: {
-  linked: boolean;
-  required: boolean;
-  status?: PublicationStatus;
-}) {
-  if (!linked) return required ? "Required" : null;
-  // Only a record that was never published is missing from the live site.
-  if (status !== "draft" || !required) return null;
-  return "Blocks publishing until this record is included";
+function referenceHint({ linked, required }: { linked: boolean; required: boolean }) {
+  return !linked && required ? "Required" : null;
 }
 
 /** This view owns the reference only. Record content is edited elsewhere. */
@@ -102,15 +90,14 @@ export function ReferenceFieldEditor({
     setPickerOpen(true);
   }, [focusRequested, fieldId, pickerReady]);
 
-  const hint = referenceHint({ linked: selectedId !== null, required, status: selected?.status });
+  const hint = referenceHint({ linked: selectedId !== null, required });
 
   if (drill) {
     return (
       <DrillRow
         label={drill.label}
         preview={selectedId ? selectedLabel : `No ${collectionTitle} linked`}
-        // The field list only flags a missing required record, not publication state.
-        hint={referenceHint({ linked: selectedId !== null, required }) ?? undefined}
+        hint={hint ?? undefined}
         Icon={Link2}
         onClick={drill.onClick}
         hover={{ variant: "field", fieldId: drill.fieldId }}
@@ -125,7 +112,6 @@ export function ReferenceFieldEditor({
         <RecordCard
           label={selectedLabel}
           collectionTitle={collectionTitle}
-          status={selected?.status}
           onOpen={onOpenRecord ? () => onOpenRecord(selectedId) : undefined}
           actions={
             <Tooltip>

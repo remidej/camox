@@ -7,7 +7,10 @@ import * as React from "react";
 
 void test("both delete buttons require confirmation, allow cancellation, and retain errors for retry", async (t) => {
   // Initialize the DOM before importing UI components, which detect portals at module load.
-  const window = new Window();
+  // In a draft already, so deleting doesn't start one and switch the cached queries' keys.
+  const window = new Window({
+    url: "http://localhost:3000/?camox-draft=019a0000-0000-7000-8000-000000000001",
+  });
   Object.assign(globalThis, {
     React,
     window,
@@ -29,7 +32,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
   const { DeleteCollectionItemButton } = await import("./components/DeleteCollectionItemButton");
   const { initApiClient } = await import("@/lib/api-client");
   const { collectionQueries } = await import("@/lib/queries");
-  initApiClient("http://localhost:8788", "development");
+  initApiClient("http://localhost:8788");
   const calls: unknown[] = [];
   let fail = false;
   const id = "a6479288-341f-4008-b118-dea6d8dd9158";
@@ -41,12 +44,12 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         {
           json: {
             defined: false,
-            code: "CONFLICT",
-            status: 409,
-            message: "Record changed; reload before retrying",
+            code: "INTERNAL_SERVER_ERROR",
+            status: 500,
+            message: "Could not delete; try again",
           },
         },
-        { status: 409 },
+        { status: 500 },
       );
     return Response.json({ json: { id } });
   });
@@ -72,7 +75,6 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
               projectSlug="site"
               collectionId="articles"
               id={id}
-              version={2}
               label="Article"
               compact={compact}
               onDeleted={() => {
@@ -86,7 +88,8 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
       await click(host.querySelector("button")!);
       assert.equal(calls.length, before);
       let dialog = window.document.querySelector('[role="alertdialog"]')!;
-      assert.ok(dialog.textContent.includes("revision history"));
+      assert.ok(dialog.textContent.includes("“Article”"));
+      assert.ok(!dialog.textContent.includes("revision history"));
       await click(
         dialog.querySelector('[data-slot="alert-dialog-cancel"]') as unknown as {
           click: () => void;
@@ -102,7 +105,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         },
       );
       assert.equal(deleted, 0);
-      assert.match(dialog.querySelector('[role="alert"]')!.textContent, /reload/);
+      assert.match(dialog.querySelector('[role="alert"]')!.textContent, /try again/);
       fail = false;
       await click(
         dialog.querySelector('[data-slot="alert-dialog-action"]') as unknown as {
@@ -110,12 +113,7 @@ void test("both delete buttons require confirmation, allow cancellation, and ret
         },
       );
       assert.equal(deleted, 1);
-      assert.deepEqual(calls.at(-1), {
-        projectSlug: "site",
-        collectionId: "articles",
-        id,
-        expectedVersion: 2,
-      });
+      assert.deepEqual(calls.at(-1), { projectSlug: "site", collectionId: "articles", id });
       assert.equal(
         client.getQueryData(collectionQueries.record("site", "articles", id).queryKey),
         undefined,

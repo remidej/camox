@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -74,8 +75,7 @@ async function fixture(suffix: string) {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",
@@ -100,13 +100,22 @@ describe("block JSON Schema writes", () => {
   it("fills defaults, validates ordinary schemas, and canonicalizes asset lists", async () => {
     const { db, ctx, page } = await fixture("defaults");
     const block = await runService(
-      createBlock(ctx, {
-        pageId: page.id,
-        type: "schema",
-        content: { gallery: [{ _fileId: "4", url: "invented" }] },
-      }),
+      createBlock(
+        ctx,
+        {
+          pageId: page.id,
+          type: "schema",
+          content: {
+            gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b", url: "invented" }],
+          },
+        },
+        null,
+      ),
     );
-    expect(block.content).toEqual({ title: "Default", gallery: [{ _fileId: 4 }] });
+    expect(block.content).toEqual({
+      title: "Default",
+      gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b" }],
+    });
     expect(block.settings).toEqual({ visible: true, align: "left" });
     const items = await db
       .select()
@@ -114,8 +123,12 @@ describe("block JSON Schema writes", () => {
       .where(eq(repeatableItems.blockId, block.id));
     expect(items[0].content).toEqual({ title: "Default" });
     expect(items[0].settings).toEqual({ visible: true });
-    await runService(updateBlockContent(ctx, { id: block.id, content: { title: "Changed" } }));
-    await runService(updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }));
+    await runService(
+      updateBlockContent(ctx, { id: block.id, content: { title: "Changed" } }, null),
+    );
+    await runService(
+      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, null),
+    );
     for (const content of [
       null,
       [],
@@ -131,7 +144,7 @@ describe("block JSON Schema writes", () => {
     ]) {
       const before = await snapshot(db);
       await expect(
-        runService(updateBlockContent(ctx, { id: block.id, content })),
+        runService(updateBlockContent(ctx, { id: block.id, content }, null)),
       ).rejects.toMatchObject({
         code: "BAD_REQUEST",
         data: { field: expect.any(String) },
@@ -145,35 +158,43 @@ describe("block JSON Schema writes", () => {
     const beforeCreate = await snapshot(db);
     await expect(
       runService(
-        createBlock(ctx, {
-          pageId: page.id,
-          type: "schema",
-          content: {},
-          repeatableItems: [
-            {
-              tempId: "one",
-              parentTempId: null,
-              fieldName: "items",
-              position: "a0",
-              content: {},
-              settings: { visible: "yes" },
-            },
-          ],
-        }),
+        createBlock(
+          ctx,
+          {
+            pageId: page.id,
+            type: "schema",
+            content: {},
+            repeatableItems: [
+              {
+                tempId: "one",
+                parentTempId: null,
+                fieldName: "items",
+                position: "a0",
+                content: {},
+                settings: { visible: "yes" },
+              },
+            ],
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await snapshot(db)).toEqual(beforeCreate);
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }),
+      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, null),
     );
     const beforeEdit = await snapshot(db);
     await expect(
       runService(
-        editBlock(ctx, {
-          id: block.id,
-          content: { title: "Changed" },
-          settings: { align: "center" },
-        }),
+        editBlock(
+          ctx,
+          {
+            id: block.id,
+            content: { title: "Changed" },
+            settings: { align: "center" },
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await snapshot(db)).toEqual(beforeEdit);
@@ -182,21 +203,25 @@ describe("block JSON Schema writes", () => {
   it("plans reference edits before mutation and does not revalidate omitted historical fields", async () => {
     const { db, ctx, page } = await fixture("references");
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }),
+      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, null),
     );
     const item = (await db
       .select()
       .from(repeatableItems)
       .where(eq(repeatableItems.blockId, block.id))
       .get())!;
-    for (const second of [{ _itemId: 999999 }, { _itemId: item.id }, { title: 42 }]) {
+    for (const second of [{ _itemId: generateUuidv7() }, { _itemId: item.id }, { title: 42 }]) {
       const before = await snapshot(db);
       await expect(
         runService(
-          updateBlockContent(ctx, {
-            id: block.id,
-            content: { items: [{ _itemId: item.id, title: "Changed" }, second] },
-          }),
+          updateBlockContent(
+            ctx,
+            {
+              id: block.id,
+              content: { items: [{ _itemId: item.id, title: "Changed" }, second] },
+            },
+            null,
+          ),
         ),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
       expect(await snapshot(db)).toEqual(before);
@@ -210,12 +235,18 @@ describe("block JSON Schema writes", () => {
       .set({ content: { title: 42 } })
       .where(eq(repeatableItems.id, item.id));
     await runService(
-      updateBlockContent(ctx, {
-        id: block.id,
-        content: { count: 3, items: [{ _itemId: item.id }] },
-      }),
+      updateBlockContent(
+        ctx,
+        {
+          id: block.id,
+          content: { count: 3, items: [{ _itemId: item.id }] },
+        },
+        null,
+      ),
     );
-    await runService(updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }));
+    await runService(
+      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, null),
+    );
     expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
       title: 42,
       count: 3,

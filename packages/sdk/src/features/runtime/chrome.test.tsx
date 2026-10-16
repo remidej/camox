@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, QueryClientProvider, dehydrate } from "@tanstack/react-query";
 import * as React from "react";
 import { createElement } from "react";
@@ -13,7 +13,7 @@ import { authPageStyles } from "../../lib/auth-page-styles";
 import { handleCamoxRequest, type PageRenderInput } from "./runtime";
 
 // The URL is supplied by Vite in applications. Nothing else is mocked: render
-// the real Navbar, ProjectMenu, EnvironmentMenu and PreviewToolbar on the server.
+// the real Navbar, ProjectMenu, DraftsControl and PreviewToolbar on the server.
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier.startsWith("virtual:camox-"))
@@ -33,7 +33,7 @@ void test("token links SSR a styled sign-in page before loading any content or s
     throw new Error("The handoff must not load content before authentication");
   });
   const response = await handleCamoxRequest(
-    new Request("http://localhost:3000/draft-only?camox-preview=target&ott=token"),
+    new Request("http://localhost:3000/new-page?camox-preview=target&ott=token"),
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
@@ -63,8 +63,8 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     slug: "test",
     organizationSlug: "team",
   } as NonNullable<PageRenderInput["project"]>;
-  queryClient.setQueryData(queryKeys.pages.getByPath("/", "draft"), {
-    page: { id: 1, blockIds: [], status: "modified", livePublishedCheckpointId: 1 },
+  queryClient.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), {
+    page: { id: 1, blockIds: [] },
     layout: null,
     project,
     projectName: project.name,
@@ -77,8 +77,6 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
     projectSlug: "test",
-    environmentName: "production",
-    source: "draft",
     href: "https://site.test/",
     pathname: "/",
     runtimeBasePath: "",
@@ -100,8 +98,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   assert.match(editModeLabel, /class="camox-platform-other">Ctrl ↵/);
   assert.match(html, /class="camox-platform-mac">⌘ K/);
   assert.match(html, /class="camox-platform-other">Ctrl K/);
-  assert.match(html, /Pending changes/);
-  assert.match(html, /PROD/);
+  assert.match(html, /Viewing Live/);
   assert.doesNotMatch(html, /camox-loading|Loading editor/);
   assert.match(html, /<iframe[^>]+srcDoc=/i);
   assert.match(html, /&lt;main id=&quot;site-content&quot;/);
@@ -121,32 +118,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
   );
   assert.match(studioHtml, /My actual project/);
   assert.match(studioHtml, /Quick find/);
-  assert.match(studioHtml, /Pending changes/);
-  assert.ok(studioHtml.indexOf("Pending changes") < studioHtml.indexOf("Quick find"));
   assert.doesNotMatch(studioHtml, /camox-loading/);
-
-  const { canViewLiveSite, getSiteStatus } =
-    await import("../studio/components/SiteStatusIndicator");
-  assert.equal(getSiteStatus([{ status: "published" }, { status: "published" }]), "live");
-  assert.equal(getSiteStatus([{ status: "published" }, { status: "modified" }]), "pending");
-  assert.equal(getSiteStatus([]), "pending");
-  assert.equal(
-    canViewLiveSite([{ status: "modified", livePublishedCheckpointId: 1 }], "draft"),
-    true,
-  );
-  assert.equal(
-    canViewLiveSite([{ status: "published", livePublishedCheckpointId: 1 }], "draft"),
-    false,
-  );
-  assert.equal(
-    canViewLiveSite([{ status: "modified", livePublishedCheckpointId: null }], "draft"),
-    false,
-  );
-  assert.equal(
-    canViewLiveSite([{ status: "modified", livePublishedCheckpointId: 1 }], "live"),
-    false,
-  );
-  assert.equal(canViewLiveSite([], "draft"), false);
 
   const { getNavbarLinks, isContentNavbarPath } = await import("../studio/components/Navbar");
   assert.equal(isContentNavbarPath("/camox/content"), true);

@@ -103,7 +103,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
       try {
         return renderToString(
           <QueryClientProvider client={client}>
-            <DerivedPageContent camoxApp={app} derived={input.derived!} source={input.source} />
+            <DerivedPageContent camoxApp={app} derived={input.derived!} />
           </QueryClientProvider>,
         );
       } finally {
@@ -184,11 +184,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
             {(current) => (
               <>
                 <CaptureNavigation />
-                <DerivedPageContent
-                  camoxApp={app}
-                  derived={current.derived!}
-                  source={current.source}
-                />
+                <DerivedPageContent camoxApp={app} derived={current.derived!} />
               </>
             )}
           </PageNavigationProvider>

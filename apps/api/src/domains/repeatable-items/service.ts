@@ -1,7 +1,8 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { uuidv7Schema } from "@camox/api-contract/ids";
+import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
@@ -10,16 +11,13 @@ import { z } from "zod";
 import { assertBlockAccess, assertRepeatableItemAccess, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import {
-  bumpContentUpdatedAt,
-  bumpContentUpdatedAtForBlock,
-} from "../../lib/bump-content-updated-at";
+import { bumpContentUpdatedAtForBlock } from "../../lib/bump-content-updated-at";
 import { stripArtifactSources } from "../../lib/content-markdown";
-import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
-import { blocks, files, repeatableItems } from "../../schema";
+import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
+import { blocks, comments, repeatableItems } from "../../schema";
+import { conformBlocksIn } from "../_shared/conform-content";
 import type { ServiceContext } from "../_shared/service-context";
-import { loadBlockSchemas } from "../blocks/content-schema";
+import { loadDefinitionSchemas } from "../blocks/content-schema";
 import { initializeBlockContent } from "../blocks/initialize-content";
 import {
   sanitizeItemContent,
@@ -27,10 +25,35 @@ import {
   type FieldSchema,
 } from "../blocks/normalize-content";
 import { contentWithSeeds } from "../blocks/prepare-content";
-import { syncBlockData } from "../blocks/synced";
+import { requestBlockSummary } from "../blocks/service";
+import {
+  broadcastSharedContentChange,
+  bumpPlacementOwners,
+  contentOwnerOf,
+  definitionOf,
+  sharedPlacementId,
+} from "../blocks/shared-content";
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
-import { collectFileIds } from "../pages/ai";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
+import { draftScopeOfJob } from "../drafts/service";
+import {
+  copyValue,
+  homeOf,
+  readValue,
+  requestGeneration,
+  saveValue,
+} from "../generated-values/service";
+import { buildFileMap, collectFileIds } from "../pages/ai";
+import {
+  descendantIdsOf,
+  itemsUnder,
+  rootColumns,
+  rootOfItem,
+  type DefinitionKey,
+  type ItemRoot,
+} from "./roots";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -45,10 +68,12 @@ const nestedItemSeedSchema = z.object({
   position: z.string(),
 });
 
-export const getRepeatableItemInput = z.object({ id: z.number() });
+export const getRepeatableItemInput = z.object({ id: uuidv7Schema });
+/** The server mints the id; a client may mint one for an optimistic insert. */
 export const createRepeatableItemInput = z.object({
-  blockId: z.number(),
-  parentItemId: z.number().nullable().optional(),
+  id: uuidv7Schema.optional(),
+  blockId: uuidv7Schema,
+  parentItemId: uuidv7Schema.nullable().optional(),
   fieldName: z.string(),
   content: z.unknown(),
   settings: z.unknown().optional(),
@@ -56,21 +81,21 @@ export const createRepeatableItemInput = z.object({
   nestedItems: z.array(nestedItemSeedSchema).optional(),
 });
 export const updateRepeatableItemContentInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   content: z.unknown(),
 });
 export const updateRepeatableItemSettingsInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   settings: z.unknown(),
 });
 export const updateRepeatableItemPositionInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   afterPosition: z.string().nullable().optional(),
   beforePosition: z.string().nullable().optional(),
 });
-export const duplicateRepeatableItemInput = z.object({ id: z.number() });
-export const generateRepeatableItemSummaryInput = z.object({ id: z.number() });
-export const deleteRepeatableItemInput = z.object({ id: z.number() });
+export const duplicateRepeatableItemInput = z.object({ id: uuidv7Schema });
+export const generateRepeatableItemSummaryInput = z.object({ id: uuidv7Schema });
+export const deleteRepeatableItemInput = z.object({ id: uuidv7Schema });
 
 // --- Schema resolution for item content normalization ---
 
@@ -147,25 +172,17 @@ const validateRepeaterCount = Effect.fn("validateRepeaterCount")(function* (
  */
 const resolveItemFieldNamePath = Effect.fn("resolveItemFieldNamePath")(function* (
   db: Database,
-  blockId: number,
-  parentItemId: number | null,
+  scope: DraftScope,
+  root: ItemRoot,
+  parentItemId: string | null,
   fieldName: string,
 ) {
   if (parentItemId == null) return [fieldName];
-  const all = yield* Effect.promise(() =>
-    db
-      .select({
-        id: repeatableItems.id,
-        parentItemId: repeatableItems.parentItemId,
-        fieldName: repeatableItems.fieldName,
-      })
-      .from(repeatableItems)
-      .where(eq(repeatableItems.blockId, blockId)),
-  );
+  const all = yield* itemsOfTree(db, scope, root);
   const byId = new Map(all.map((i) => [i.id, i]));
   const ancestors: string[] = [];
-  const visited = new Set<number>();
-  let cur: number | null = parentItemId;
+  const visited = new Set<string>();
+  let cur: string | null = parentItemId;
   while (cur != null) {
     const item = byId.get(cur);
     if (!item || visited.has(cur)) {
@@ -178,10 +195,91 @@ const resolveItemFieldNamePath = Effect.fn("resolveItemFieldNamePath")(function*
   return [...ancestors, fieldName];
 });
 
-function comparePositions(a: string, b: string): number {
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
+/**
+ * The item tree under a root, with the block definition shaping it: a block's, or a synced
+ * definition's shared content, which every placement of the definition shows.
+ */
+type ItemTree = { root: ItemRoot; definition: DefinitionKey };
+
+/** Every item in a tree as a scope reads it. */
+const itemsOfTree = (db: Database, scope: DraftScope, root: ItemRoot) =>
+  overlay.select(db, scope, repeatableItems, itemsUnder(root));
+
+const treeOfRoot = Effect.fn("treeOfRoot")(function* (
+  db: Database,
+  scope: DraftScope,
+  root: ItemRoot,
+) {
+  if ("sharedContent" in root) return { root, definition: root.sharedContent } satisfies ItemTree;
+  const block = yield* overlay.get(db, scope, blocks, root.blockId);
+  if (!block) return yield* new NotFoundError();
+  return { root, definition: definitionOf(block) } satisfies ItemTree;
+});
+
+/** The tree new items of a block go in: the block's own, or its shared content's. */
+const treeOfBlock = Effect.fn("treeOfBlock")(function* (
+  db: Database,
+  scope: DraftScope,
+  block: typeof blocks.$inferSelect,
+) {
+  const owner = yield* contentOwnerOf(db, scope, block);
+  return { root: owner.root, definition: definitionOf(block) } satisfies ItemTree;
+});
+
+const treeSchema = Effect.fn("treeSchema")(function* (
+  db: Database,
+  tree: ItemTree,
+  scope: DraftScope,
+) {
+  return (yield* loadDefinitionSchemas(db, tree.definition, scope))?.contentSchema;
+});
+
+/** The block bundle an item edit refreshes: its block's, or the shared content's. */
+function treeBundleKey({ root, definition }: ItemTree) {
+  return "blockId" in root
+    ? queryKeys.blocks.get(root.blockId)
+    : queryKeys.blocks.getSyncedContent(definition.type);
+}
+
+/**
+ * Records that a tree's content changed, for every page and layout showing it. A draft's change
+ * leaves Live pages and layouts as they were.
+ */
+const touchTree = Effect.fn("touchTree")(function* (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  { root, definition }: ItemTree,
+  projectId: number,
+) {
+  if ("blockId" in root) {
+    if (!scope) yield* bumpContentUpdatedAtForBlock(ctx.db, root.blockId);
+    return;
+  }
+  if (!scope) yield* bumpPlacementOwners(ctx.db, definition);
+  broadcastSharedContentChange(ctx, scope, projectId, definition.type);
+});
+
+/** Refreshes the reads showing a tree, in the scope it changed in. */
+function invalidateTree(
+  ctx: ServiceContext,
+  scope: DraftScope,
+  projectId: number,
+  tree: ItemTree,
+  pagePath: string | null,
+  extra: QueryKey[] = [],
+) {
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
+    projectId,
+    targets: [
+      treeBundleKey(tree),
+      ...(pagePath ? [queryKeys.pages.getByPath(pagePath)] : [queryKeys.pages.getByPathAll]),
+      queryKeys.pages.list,
+      ...extra,
+    ],
+  });
 }
 
 /** Find the last index where item.position <= target in a sorted array. */
@@ -266,29 +364,41 @@ const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
   );
 });
 
+const itemSummaryKey = (itemId: string) =>
+  ({ entity: "repeatableItem", entityId: itemId, type: "summary" }) as const;
+
 /**
- * Generates and stores a summary for a repeatable item.
- * Returns `{ blockId }` so the caller can cascade to block summary regeneration.
+ * Generates a repeatable item's summary as a scope reads it, into the scope's generated values:
+ * never into the item, so it never copies one into a draft (ADR 0012). Returns the block to
+ * summarise again when the summary changed: the item's own, or a placement of its shared
+ * content.
  */
 export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSummary")(function* (
   db: Database,
   apiKey: string,
-  itemId: number,
+  itemId: string,
+  scope: DraftScope,
   abortController?: AbortController,
 ) {
-  const item = yield* Effect.promise(() =>
-    db.select().from(repeatableItems).where(eq(repeatableItems.id, itemId)).get(),
-  );
+  const startedAt = Date.now();
+  const item = yield* overlay.get(db, scope, repeatableItems, itemId);
   if (!item) return null;
 
-  const block = yield* Effect.promise(() =>
-    db.select().from(blocks).where(eq(blocks.id, item.blockId)).get(),
+  const tree = yield* treeOfRoot(db, scope, rootOfItem(item)).pipe(
+    Effect.orElseSucceed(() => null),
   );
-  if (!block) return null;
+  if (!tree) return null;
+  const { projectId } = tree.definition;
 
-  const schema = (yield* loadBlockSchemas(db, null, block.id))?.contentSchema;
+  const schema = yield* treeSchema(db, tree, scope);
   const itemSchema = yield* Effect.gen(function* () {
-    const path = yield* resolveItemFieldNamePath(db, block.id, item.parentItemId, item.fieldName);
+    const path = yield* resolveItemFieldNamePath(
+      db,
+      scope,
+      tree.root,
+      item.parentItemId,
+      item.fieldName,
+    );
     return (yield* descendRepeaterSchema(schema, path))?.items;
   }).pipe(Effect.orElseSucceed(() => undefined));
   const content = stripArtifactSources(
@@ -296,24 +406,76 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
     item.content as Record<string, unknown>,
   );
 
+  const previous = (yield* readValue(db, scope, itemSummaryKey(itemId))).value?.summary ?? "";
   const summary = yield* generateObjectSummary(
     apiKey,
-    { type: block.type, markdown: JSON.stringify(content), previousSummary: item.summary },
+    {
+      type: tree.definition.type,
+      markdown: JSON.stringify(content),
+      previousSummary: previous,
+    },
     abortController,
   );
 
-  yield* Effect.promise(() =>
-    db
-      .update(repeatableItems)
-      .set({ summary, updatedAt: Date.now() })
-      .where(eq(repeatableItems.id, itemId)),
+  yield* saveValue(db, homeOf(scope, projectId), itemSummaryKey(itemId), { summary }, startedAt);
+
+  if (summary === previous) return null;
+  // A shared content's summary is generated through any of its placements.
+  const blockId =
+    "blockId" in tree.root
+      ? tree.root.blockId
+      : yield* sharedPlacementId(db, scope, tree.definition);
+  return blockId === null ? null : { blockId, projectId };
+});
+
+/** Runs an item summary job in the scope it was scheduled from; nothing once its draft ended. */
+export const runRepeatableItemSummaryJob = Effect.fn("repeatableItems.runSummaryJob")(function* (
+  db: Database,
+  apiKey: string,
+  job: { entityId: string; draftId: string | null },
+  abortController?: AbortController,
+) {
+  const scope = yield* draftScopeOfJob(db, job.draftId);
+  if (scope === undefined) return null;
+  const cascade = yield* executeRepeatableItemSummary(
+    db,
+    apiKey,
+    job.entityId,
+    scope,
+    abortController,
   );
+  return cascade ? { ...cascade, scope } : null;
+});
 
-  if (summary !== item.summary) {
-    return { blockId: item.blockId };
-  }
+/** Requests an item's summary in the scope it was written in (ADR 0012). */
+const requestSummary = (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  projectId: number,
+  entityId: string,
+  delayMs: number,
+) =>
+  requestGeneration(ctx, homeOf(scope, projectId), {
+    entity: "repeatableItem",
+    entityId,
+    delayMs,
+  });
 
-  return null;
+/** The siblings of an item in its repeater, as a scope reads them, in order. */
+const siblingsOf = Effect.fn("repeatableItems.siblingsOf")(function* (
+  db: Database,
+  scope: DraftScope,
+  tree: ItemTree,
+  fieldName: string,
+  parentItemId: string | null,
+) {
+  const rows = yield* overlay.select(
+    db,
+    scope,
+    repeatableItems,
+    and(itemsUnder(tree.root), eq(repeatableItems.fieldName, fieldName)),
+  );
+  return overlay.sortByPosition(rows.filter((item) => item.parentItemId === parentItemId));
 });
 
 // --- Reads ---
@@ -321,26 +483,33 @@ export const executeRepeatableItemSummary = Effect.fn("repeatableItems.executeSu
 export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getRepeatableItemInput>,
+  scope: DraftScope,
 ) {
   const { id } = yield* decodeInput(getRepeatableItemInput, rawInput);
-  const item = yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.id, id)).get(),
+  const stored = yield* overlay.get(ctx.db, scope, repeatableItems, id);
+  if (!stored) return yield* new NotFoundError();
+  // An item conforms through its repeater path, which runs through its tree's definition and
+  // its ancestors.
+  const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(stored));
+  // Conforming walks items up to a block: a stand-in block of the tree's definition holds them.
+  const treeOwner = { id: "tree-owner", type: tree.definition.type, content: {}, settings: null };
+  const siblings = yield* itemsOfTree(ctx.db, scope, tree.root);
+  const conformed = yield* conformBlocksIn(
+    ctx,
+    tree.definition,
+    scope,
+    [treeOwner],
+    siblings.map((sibling) => ({ ...sibling, blockId: treeOwner.id })),
   );
-  if (!item) return yield* new NotFoundError();
+  const found = conformed.items.find((candidate) => candidate.id === id);
+  if (!found) return yield* new NotFoundError();
+  const item = { ...found, blockId: stored.blockId };
 
   // Collect and fetch referenced files
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   collectFileIds(item.content as Record<string, unknown>, fileIds);
 
-  const fileRows =
-    fileIds.size > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(files)
-            .where(inArray(files.id, [...fileIds])),
-        )
-      : [];
+  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, scope)).values()];
 
   return {
     item,
@@ -349,22 +518,30 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
 });
 
 // --- Writes ---
+//
+// Every write lands in the request's draft scope. In a draft, the first write to an item copies
+// it whole, so moving an item carries its content along; a deletion writes a tombstone for the
+// item only, and its nested items read as gone with it (ADR 0005).
 
+/** Adds an item to a block as the request's draft reads it, in that draft. */
 export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableItem")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createRepeatableItemInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
-  const { blockId, parentItemId, fieldName, content, settings, afterPosition, nestedItems } =
+  const { id, blockId, parentItemId, fieldName, content, settings, afterPosition, nestedItems } =
     yield* decodeInput(createRepeatableItemInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, blockId, user.id);
+  const access = yield* assertBlockAccess(ctx.db, blockId, user.id, scope);
 
   const now = Date.now();
 
-  const schema = (yield* loadBlockSchemas(ctx.db, access.projectId, blockId))?.contentSchema;
+  const tree = yield* treeOfBlock(ctx.db, scope, access.block);
+  const schema = yield* treeSchema(ctx.db, tree, scope);
   const rootPath = yield* resolveItemFieldNamePath(
     ctx.db,
-    blockId,
+    scope,
+    tree.root,
     parentItemId ?? null,
     fieldName,
   );
@@ -414,20 +591,13 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
   });
   yield* validateReferenceValues(
     ctx,
-    yield* blockScope(ctx, access.block),
+    blockScope(access.block, scope),
     repeater?.items,
     contentWithItems,
   );
 
   // Get siblings to determine correct position
-  const siblings = (yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(repeatableItems)
-      .where(and(eq(repeatableItems.blockId, blockId), eq(repeatableItems.fieldName, fieldName))),
-  ))
-    .filter((item) => item.parentItemId === (parentItemId ?? null))
-    .sort((a, b) => comparePositions(a.position, b.position));
+  const siblings = yield* siblingsOf(ctx.db, scope, tree, fieldName, parentItemId ?? null);
   yield* validateRepeaterCount(repeater, siblings.length + 1, rootPath.join("."));
 
   let position: string;
@@ -446,95 +616,68 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     );
   }
 
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .insert(repeatableItems)
-      .values({
-        blockId,
-        parentItemId: parentItemId ?? null,
-        fieldName,
-        content: sanitizedContent,
-        settings: sanitizedSettings,
-        summary: "",
-        position,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get(),
-  );
+  const result = yield* overlay.insert(ctx.db, scope, repeatableItems, {
+    id,
+    ...rootColumns(tree.root),
+    parentItemId: parentItemId ?? null,
+    fieldName,
+    content: sanitizedContent,
+    settings: sanitizedSettings,
+    position,
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!result) return yield* new ConflictError({ message: `Repeatable item ${id} already exists` });
 
   // Insert client-provided nested item seeds
   if (preparedSeeds.length > 0) {
-    const tempIdToRealId = new Map<string, number>();
+    const tempIdToRealId = new Map<string, string>();
 
     for (const seed of preparedSeeds) {
       // null parentTempId means child of the item being created
       const seedParentId = seed.parentTempId
         ? (tempIdToRealId.get(seed.parentTempId) ?? result.id)
         : result.id;
-      const inserted = yield* Effect.promise(() =>
-        ctx.db
-          .insert(repeatableItems)
-          .values({
-            blockId,
-            parentItemId: seedParentId,
-            fieldName: seed.fieldName,
-            content: seed.content,
-            settings: seed.settings,
-            summary: "",
-            position: seed.position,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get(),
-      );
-      tempIdToRealId.set(seed.tempId, inserted.id);
+      const inserted = yield* overlay.insert(ctx.db, scope, repeatableItems, {
+        ...rootColumns(tree.root),
+        parentItemId: seedParentId,
+        fieldName: seed.fieldName,
+        content: seed.content,
+        settings: seed.settings,
+        position: seed.position,
+        createdAt: now,
+        updatedAt: now,
+      });
+      tempIdToRealId.set(seed.tempId, inserted!.id);
     }
   }
 
-  yield* syncBlockData(ctx, blockId);
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
-
-  ctx.waitUntil(
-    scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-      entityTable: "repeatableItems",
-      entityId: result.id,
-      type: "summary",
-      delayMs: 0,
-    }),
-  );
-  // Granular invalidation: refetch the parent block bundle (includes new item)
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId: access.projectId,
-    targets: [
-      queryKeys.blocks.get(blockId, "draft"),
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
+  yield* touchTree(ctx, scope, tree, access.projectId);
+  yield* requestSummary(ctx, scope, access.projectId, result.id, 0);
+  invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
+    queryKeys.blocks.getUsageCounts,
+  ]);
 
   return result;
 });
 
 export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepeatableItemContent")(
-  function* (ctx: ServiceContext, rawInput: z.input<typeof updateRepeatableItemContentInput>) {
+  function* (
+    ctx: ServiceContext,
+    rawInput: z.input<typeof updateRepeatableItemContentInput>,
+    scope: DraftScope,
+  ) {
     const user = yield* requireUser(ctx);
     const { id, content } = yield* decodeInput(updateRepeatableItemContentInput, rawInput);
-    const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id);
+    const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
 
     // Resolve schema for the patch and sanitize asset leaks before merging.
-    const schema = (yield* loadBlockSchemas(ctx.db, access.projectId, access.item.blockId))
-      ?.contentSchema;
+    const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item));
+    const schema = yield* treeSchema(ctx.db, tree, scope);
     const itemPath = yield* resolveItemFieldNamePath(
       ctx.db,
-      access.item.blockId,
+      scope,
+      tree.root,
       access.item.parentItemId,
       access.item.fieldName,
     );
@@ -545,50 +688,26 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       rootSchema: schema,
     });
     const sanitizedPatch = yield* sanitizeItemContent(content, itemSchema?.properties, schema);
-    const block = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(eq(blocks.id, access.item.blockId)).get(),
+    yield* validateReferenceValues(
+      ctx,
+      blockScope(tree.definition, scope),
+      itemSchema,
+      sanitizedPatch,
     );
-    if (!block) return yield* new NotFoundError();
-    yield* validateReferenceValues(ctx, yield* blockScope(ctx, block), itemSchema, sanitizedPatch);
 
     // Merge partial content into existing content (frontend sends single-field patches)
     const merged = {
       ...(access.item.content as Record<string, unknown>),
       ...sanitizedPatch,
     };
-    const result = yield* Effect.promise(() =>
-      ctx.db
-        .update(repeatableItems)
-        .set({ content: merged, updatedAt: Date.now() })
-        .where(eq(repeatableItems.id, id))
-        .returning()
-        .get(),
-    );
-
-    yield* syncBlockData(ctx, access.item.blockId);
-    yield* bumpContentUpdatedAtForBlock(ctx.db, access.item.blockId);
-
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "repeatableItems",
-        entityId: id,
-        type: "summary",
-        delayMs: 5000,
-      }),
-    );
-    // Granular invalidation: only refetch the parent block bundle (draft source)
-    broadcastInvalidation({
-      waitUntil: ctx.waitUntil,
-      projectRoomNamespace: ctx.env.ProjectRoom,
-      projectId: access.projectId,
-      targets: [
-        queryKeys.blocks.get(access.item.blockId, "draft"),
-        ...(access.pagePath
-          ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
-          : [queryKeys.pages.getByPathAll]),
-        queryKeys.pages.list,
-      ],
+    const result = yield* overlay.update(ctx.db, scope, repeatableItems, id, {
+      content: merged,
+      updatedAt: Date.now(),
     });
+
+    yield* touchTree(ctx, scope, tree, access.projectId);
+    yield* requestSummary(ctx, scope, access.projectId, id, 5000);
+    invalidateTree(ctx, scope, access.projectId, tree, access.pagePath);
 
     return result;
   },
@@ -596,16 +715,21 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
 
 export const updateRepeatableItemSettings = Effect.fn(
   "repeatableItems.updateRepeatableItemSettings",
-)(function* (ctx: ServiceContext, rawInput: z.input<typeof updateRepeatableItemSettingsInput>) {
+)(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof updateRepeatableItemSettingsInput>,
+  scope: DraftScope,
+) {
   const user = yield* requireUser(ctx);
   const { id, settings } = yield* decodeInput(updateRepeatableItemSettingsInput, rawInput);
-  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id);
+  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
 
-  const schema = (yield* loadBlockSchemas(ctx.db, access.projectId, access.item.blockId))
-    ?.contentSchema;
+  const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item));
+  const schema = yield* treeSchema(ctx.db, tree, scope);
   const itemPath = yield* resolveItemFieldNamePath(
     ctx.db,
-    access.item.blockId,
+    scope,
+    tree.root,
     access.item.parentItemId,
     access.item.fieldName,
   );
@@ -620,58 +744,40 @@ export const updateRepeatableItemSettings = Effect.fn(
     ...(access.item.settings as Record<string, unknown> | null),
     ...(settings as Record<string, unknown>),
   };
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(repeatableItems)
-      .set({ settings: merged, updatedAt: Date.now() })
-      .where(eq(repeatableItems.id, id))
-      .returning()
-      .get(),
-  );
-
-  yield* syncBlockData(ctx, access.item.blockId);
-  yield* bumpContentUpdatedAtForBlock(ctx.db, access.item.blockId);
-
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId: access.projectId,
-    targets: [
-      queryKeys.blocks.get(access.item.blockId, "draft"),
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-    ],
+  const result = yield* overlay.update(ctx.db, scope, repeatableItems, id, {
+    settings: merged,
+    updatedAt: Date.now(),
   });
+
+  yield* touchTree(ctx, scope, tree, access.projectId);
+  invalidateTree(ctx, scope, access.projectId, tree, access.pagePath);
 
   return result;
 });
 
 export const updateRepeatableItemPosition = Effect.fn(
   "repeatableItems.updateRepeatableItemPosition",
-)(function* (ctx: ServiceContext, rawInput: z.input<typeof updateRepeatableItemPositionInput>) {
+)(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof updateRepeatableItemPositionInput>,
+  scope: DraftScope,
+) {
   const user = yield* requireUser(ctx);
   const { id, afterPosition, beforePosition } = yield* decodeInput(
     updateRepeatableItemPositionInput,
     rawInput,
   );
-  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id);
+  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
 
   const item = access.item;
-  const siblings = (yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(repeatableItems)
-      .where(
-        and(
-          eq(repeatableItems.blockId, item.blockId),
-          eq(repeatableItems.fieldName, item.fieldName),
-        ),
-      ),
-  ))
-    .filter((s) => s.id !== id && s.parentItemId === item.parentItemId)
-    .sort((a, b) => comparePositions(a.position, b.position));
+  const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(item));
+  const siblings = (yield* siblingsOf(
+    ctx.db,
+    scope,
+    tree,
+    item.fieldName,
+    item.parentItemId,
+  )).filter((s) => s.id !== id);
 
   const after = afterPosition || null;
   const before = beforePosition || null;
@@ -689,44 +795,33 @@ export const updateRepeatableItemPosition = Effect.fn(
     position = generateKeyBetween(siblings[afterIdx]?.position ?? null, nextPos);
   }
 
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(repeatableItems)
-      .set({ position, updatedAt: Date.now() })
-      .where(eq(repeatableItems.id, id))
-      .returning()
-      .get(),
-  );
-  yield* syncBlockData(ctx, access.item.blockId);
-  yield* bumpContentUpdatedAtForBlock(ctx.db, access.item.blockId);
-  // Granular invalidation: only refetch the parent block bundle (draft source)
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId: access.projectId,
-    targets: [
-      queryKeys.blocks.get(access.item.blockId, "draft"),
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-    ],
+  // In a draft, moving an item copies its content along with its position (ADR 0005).
+  const result = yield* overlay.update(ctx.db, scope, repeatableItems, id, {
+    position,
+    updatedAt: Date.now(),
   });
+  yield* touchTree(ctx, scope, tree, access.projectId);
+  invalidateTree(ctx, scope, access.projectId, tree, access.pagePath);
   return result;
 });
 
 export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepeatableItem")(
-  function* (ctx: ServiceContext, rawInput: z.input<typeof duplicateRepeatableItemInput>) {
+  function* (
+    ctx: ServiceContext,
+    rawInput: z.input<typeof duplicateRepeatableItemInput>,
+    scope: DraftScope,
+  ) {
     const user = yield* requireUser(ctx);
     const { id } = yield* decodeInput(duplicateRepeatableItemInput, rawInput);
-    const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id);
+    const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
     const original = access.item;
 
-    const schema = (yield* loadBlockSchemas(ctx.db, access.projectId, original.blockId))
-      ?.contentSchema;
+    const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(original));
+    const schema = yield* treeSchema(ctx.db, tree, scope);
     const itemPath = yield* resolveItemFieldNamePath(
       ctx.db,
-      original.blockId,
+      scope,
+      tree.root,
       original.parentItemId,
       original.fieldName,
     );
@@ -734,139 +829,131 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
     const now = Date.now();
 
     // Find the next sibling to insert between original and next
-    const siblings = (yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(repeatableItems)
-        .where(
-          and(
-            eq(repeatableItems.blockId, original.blockId),
-            eq(repeatableItems.fieldName, original.fieldName),
-          ),
-        ),
-    ))
-      .filter((item) => item.parentItemId === original.parentItemId)
-      .sort((a, b) => comparePositions(a.position, b.position));
+    const siblings = yield* siblingsOf(
+      ctx.db,
+      scope,
+      tree,
+      original.fieldName,
+      original.parentItemId,
+    );
     yield* validateRepeaterCount(repeater, siblings.length + 1, itemPath.join("."));
     const originalIndex = siblings.findIndex((s) => s.id === id);
     const nextItem = originalIndex >= 0 ? siblings[originalIndex + 1] : undefined;
     const position = generateKeyBetween(original.position, nextItem?.position ?? null);
 
-    const result = yield* Effect.promise(() =>
-      ctx.db
-        .insert(repeatableItems)
-        .values({
-          blockId: original.blockId,
-          parentItemId: original.parentItemId,
-          fieldName: original.fieldName,
-          content: original.content,
-          settings: original.settings,
-          summary: original.summary,
-          position,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get(),
-    );
-    yield* syncBlockData(ctx, original.blockId);
-    yield* bumpContentUpdatedAtForBlock(ctx.db, original.blockId);
-    // Granular invalidation: refetch the parent block bundle (includes new item)
-    broadcastInvalidation({
-      waitUntil: ctx.waitUntil,
-      projectRoomNamespace: ctx.env.ProjectRoom,
-      projectId: access.projectId,
-      targets: [
-        queryKeys.blocks.get(original.blockId, "draft"),
-        ...(access.pagePath
-          ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
-          : [queryKeys.pages.getByPathAll]),
-        queryKeys.pages.list,
-        queryKeys.blocks.getUsageCounts,
-      ],
+    const result = yield* overlay.insert(ctx.db, scope, repeatableItems, {
+      ...rootColumns(tree.root),
+      parentItemId: original.parentItemId,
+      fieldName: original.fieldName,
+      content: original.content,
+      settings: original.settings,
+      position,
+      createdAt: now,
+      updatedAt: now,
     });
+    if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken" });
+    yield* copyValue(
+      ctx.db,
+      scope,
+      homeOf(scope, access.projectId),
+      itemSummaryKey(original.id),
+      result.id,
+    );
+    yield* touchTree(ctx, scope, tree, access.projectId);
+    invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
+      queryKeys.blocks.getUsageCounts,
+    ]);
     return result;
   },
 );
 
 export const generateRepeatableItemSummary = Effect.fn(
   "repeatableItems.generateRepeatableItemSummary",
-)(function* (ctx: ServiceContext, rawInput: z.input<typeof generateRepeatableItemSummaryInput>) {
+)(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof generateRepeatableItemSummaryInput>,
+  scope: DraftScope,
+) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(generateRepeatableItemSummaryInput, rawInput);
-  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id);
+  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
 
-  const cascade = yield* executeRepeatableItemSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
+  const cascade = yield* executeRepeatableItemSummary(
+    ctx.db,
+    ctx.env.OPEN_ROUTER_API_KEY,
+    id,
+    scope,
+  );
   if (cascade) {
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "blocks",
-        entityId: cascade.blockId,
-        type: "summary",
-        delayMs: 5000,
-      }),
-    );
+    yield* requestBlockSummary(ctx, scope, cascade.projectId, cascade.blockId, 5000);
   }
   // Granular invalidation: refetch the parent block bundle (includes updated summary)
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
-    targets: [queryKeys.blocks.get(access.item.blockId, "draft"), queryKeys.blocks.getUsageCounts],
+    targets: [
+      treeBundleKey(yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item))),
+      queryKeys.blocks.getUsageCounts,
+    ],
   });
-  const updated = yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.id, id)).get(),
-  );
-  return updated;
+  return yield* overlay.get(ctx.db, scope, repeatableItems, id);
 });
 
+/**
+ * Deletes an item. On Live it goes with its nested items; in a draft it's a tombstone, and its
+ * nested items read as gone with it until publishing deletes them (ADR 0005).
+ */
 export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableItem")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteRepeatableItemInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deleteRepeatableItemInput, rawInput);
-  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id);
+  const access = yield* assertRepeatableItemAccess(ctx.db, id, user.id, scope);
 
-  const blockId = access.item.blockId;
-  const schema = (yield* loadBlockSchemas(ctx.db, access.projectId, blockId))?.contentSchema;
+  const tree = yield* treeOfRoot(ctx.db, scope, rootOfItem(access.item));
+  const schema = yield* treeSchema(ctx.db, tree, scope);
   const itemPath = yield* resolveItemFieldNamePath(
     ctx.db,
-    blockId,
+    scope,
+    tree.root,
     access.item.parentItemId,
     access.item.fieldName,
   );
   const repeater = yield* descendRepeaterSchema(schema, itemPath);
-  const siblings = (yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(repeatableItems)
-      .where(
-        and(
-          eq(repeatableItems.blockId, blockId),
-          eq(repeatableItems.fieldName, access.item.fieldName),
-        ),
-      ),
-  )).filter((item) => item.parentItemId === access.item.parentItemId);
-  yield* validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
-  const result = yield* Effect.promise(() =>
-    ctx.db.delete(repeatableItems).where(eq(repeatableItems.id, id)).returning().get(),
+  const siblings = yield* siblingsOf(
+    ctx.db,
+    scope,
+    tree,
+    access.item.fieldName,
+    access.item.parentItemId,
   );
-  yield* syncBlockData(ctx, blockId);
-  yield* bumpContentUpdatedAtForBlock(ctx.db, blockId);
-  // Granular invalidation: refetch the parent block bundle (item removed)
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId: access.projectId,
-    targets: [
-      queryKeys.blocks.get(blockId, "draft"),
-      ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
-        : [queryKeys.pages.getByPathAll]),
-      queryKeys.pages.list,
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
+  yield* validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
+  if (!scope) {
+    // Items hold no foreign keys (ADR 0005): their nested items go with them, and comments
+    // anchored to any of them are kept unanchored.
+    const descendants = descendantIdsOf(yield* itemsOfTree(ctx.db, null, tree.root), id);
+    yield* Effect.promise(() =>
+      ctx.db.batch([
+        ctx.db
+          .delete(repeatableItems)
+          .where(
+            and(inArray(repeatableItems.id, descendants), overlay.storedIn(repeatableItems, null)),
+          ),
+        ctx.db
+          .update(comments)
+          .set({ itemId: null })
+          .where(and(isNull(comments.draftId), inArray(comments.itemId, [id, ...descendants]))),
+      ]),
+    );
+  }
+  const result = yield* overlay.remove(ctx.db, scope, repeatableItems, id);
+  yield* touchTree(ctx, scope, tree, access.projectId);
+  invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
+    queryKeys.blocks.getUsageCounts,
+  ]);
   return result;
 });

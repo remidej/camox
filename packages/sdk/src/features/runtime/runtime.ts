@@ -1,4 +1,4 @@
-import type { ReadSource } from "@camox/api-contract/query-keys";
+import { DEVELOPMENT_DRAFT, DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, UseHeadInput } from "unhead/types";
@@ -22,10 +22,14 @@ import {
   createMarkdownResponse,
   createServerApiClient,
   isNotFoundError,
-  isAuthSessionError,
   seedBlockCaches,
   loadCamoxPageForRequest,
   prefersMarkdown,
+  readDraftOrLive,
+  renderedHref,
+  resolveMemberProject,
+  type DraftRead,
+  type MemberProject,
 } from "../routes/pageRuntime";
 import {
   matchCanvasOnlyPath,
@@ -61,14 +65,16 @@ export interface RuntimeRouteMatch {
 }
 
 export interface LayoutIdentity {
-  blockIds: number[];
-  id: number;
+  blockIds: string[];
   layoutId: string;
   version: string;
 }
 
-export interface PageRenderInput {
-  /** Authenticate before looking up a page that may exist only in draft. */
+/** Which version of collection records a request reads: members read their saved drafts. */
+type RecordSource = "draft" | "live";
+
+export interface PageRenderInput extends DraftRead {
+  /** Authenticate before rendering, to show the Studio around the page. */
   previewHandoff?: boolean;
   previewDocument?: string;
   routeKind?: "studio" | "studio-content" | "studio-nested";
@@ -77,7 +83,7 @@ export interface PageRenderInput {
    * with nothing selected, or with a block of the Block Catalog selected.
    */
   canvasOnly?: { blockId?: string };
-  project?: Awaited<ReturnType<ReturnType<typeof createServerApiClient>["projects"]["getBySlug"]>>;
+  project?: MemberProject;
   presentation?: "public" | "studio";
   derived?: {
     layoutId: string;
@@ -89,7 +95,6 @@ export interface PageRenderInput {
   apiUrl: string;
   authenticationUrl: string;
   dehydratedState: unknown;
-  environmentName?: string;
   head: unknown;
   href: string;
   layoutIdentity: LayoutIdentity | null;
@@ -97,7 +102,6 @@ export interface PageRenderInput {
   pathname: string;
   projectSlug: string;
   runtimeBasePath: string;
-  source: ReadSource;
 }
 
 export interface RuntimeOptions {
@@ -110,7 +114,11 @@ export interface RuntimeOptions {
     /** The built chunks each block module needs, by module path. `null` in dev. */
     chunks: Record<string, string[]> | null;
   };
-  environmentName?: string;
+  /**
+   * Dev mode: every render reads the caller's development draft and ignores the URL's draft
+   * (ADR 0006).
+   */
+  developmentDraft?: boolean;
   pageClientEntryUrl?: string;
   studioClientEntryUrl?: string;
   getCamoxApp?: () => Promise<CamoxApp>;
@@ -145,6 +153,26 @@ export function getRuntimePathname(
   return stripped || "/";
 }
 
+/**
+ * The draft the request's URL names, if any, or in dev mode the development draft. Sitemaps and
+ * Markdown ignore it: they read Live.
+ */
+function getRequestDraftId(request: Request, options: RuntimeOptions): string | undefined {
+  if (options.developmentDraft) return DEVELOPMENT_DRAFT;
+  return new URL(request.url).searchParams.get(DRAFT_SEARCH_PARAM) || undefined;
+}
+
+/**
+ * Whether a response may show what only this visitor sees: a session, or a draft named in the
+ * URL. Shared caches must never keep it.
+ */
+function isPrivateRender(request: Request, options: RuntimeOptions): boolean {
+  return (
+    !!getServerAuthCookieHeader(request.headers) ||
+    getRequestDraftId(request, options) !== undefined
+  );
+}
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -161,20 +189,13 @@ function normalizePagePath(path: string | null): string {
 
 function getLayoutIdentity(
   layout: Awaited<ReturnType<typeof loadCamoxPageForRequest>>["data"]["page"]["layout"],
-  source: Awaited<ReturnType<typeof loadCamoxPageForRequest>>["source"],
 ): LayoutIdentity | null {
   if (!layout) return null;
 
-  const version =
-    source === "live"
-      ? String(layout.livePublishedCheckpointId ?? "none")
-      : String(layout.contentUpdatedAt ?? layout.updatedAt);
-
   return {
     blockIds: [...layout.beforeBlockIds, ...layout.afterBlockIds],
-    id: layout.id,
     layoutId: layout.layoutId,
-    version,
+    version: String(layout.contentUpdatedAt ?? layout.updatedAt),
   };
 }
 
@@ -211,12 +232,9 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
     return Response.json({ message: "Camox sitemap is not configured." }, { status: 500 });
   }
 
-  const api = createServerApiClient(options.apiUrl, options.environmentName);
+  const api = createServerApiClient(options.apiUrl);
   const origin = new URL(request.url).origin;
-  // Draft-only pages have no live version to serve.
-  const pages = (await api.pages.listBySlug({ projectSlug: options.projectSlug })).filter(
-    (page) => page.status !== "draft",
-  );
+  const pages = await api.pages.listBySlug({ projectSlug: options.projectSlug });
   const app = await options.getCamoxApp?.();
   const layouts = app?.getLayouts() ?? [];
   const destinations = getPageDestinations(pages, layouts);
@@ -225,7 +243,7 @@ async function createSitemapResponse(request: Request, options: RuntimeOptions):
     discoveredPaths = await Promise.all(
       layouts
         .filter((layout) => layout._internal.kind === "derived")
-        // Crawlers only ever see live content, even when an editor asks.
+        // Crawlers only ever see published records, even when an editor asks.
         .map(async (layout) => {
           const discovered = await discoverLayoutPages(
             layout,
@@ -269,26 +287,17 @@ ${entries}
   );
 }
 
-/**
- * Draft for a valid editor session, otherwise live. A successful protected project lookup
- * validates both session and project access; an invalid session falls back to live.
- */
-async function resolveSessionSource(
+/** The request's member project, if its session is valid. Without an API, nobody is a member. */
+async function resolveRequestMember(
   request: Request,
   options: RuntimeOptions,
-): Promise<{ source: ReadSource; clearAuthCookie: boolean }> {
-  const authCookieHeader = getServerAuthCookieHeader(request.headers);
-  if (!authCookieHeader || !options.apiUrl || !options.projectSlug)
-    return { source: "live", clearAuthCookie: false };
-  try {
-    await createServerApiClient(options.apiUrl, options.environmentName, {
-      authCookieHeader,
-    }).projects.getBySlug({ slug: options.projectSlug });
-    return { source: "draft", clearAuthCookie: false };
-  } catch (error) {
-    if (!isAuthSessionError(error)) throw error;
-    return { source: "live", clearAuthCookie: true };
-  }
+): Promise<{ project?: MemberProject; clearAuthCookie: boolean }> {
+  if (!options.apiUrl || !options.projectSlug) return { clearAuthCookie: false };
+  return resolveMemberProject({
+    apiUrl: options.apiUrl,
+    authCookieHeader: getServerAuthCookieHeader(request.headers),
+    projectSlug: options.projectSlug,
+  });
 }
 
 /**
@@ -305,7 +314,7 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   const recordId = searchParams.get("recordId");
   const layout = camoxApp.getLayoutById(layoutId);
   if (layout?._internal.kind !== "derived") return new Response("Not found", { status: 404 });
-  const { source, clearAuthCookie } = await resolveSessionSource(request, options);
+  const { project, clearAuthCookie } = await resolveRequestMember(request, options);
   const headers = {
     "Cache-Control": "private, no-store",
     Vary: "Cookie",
@@ -314,7 +323,11 @@ async function createRoutesResponse(request: Request, options: RuntimeOptions): 
   try {
     const pages = await discoverLayoutPages(
       layout,
-      createLayoutRequestContext(options, source, getServerAuthCookieHeader(request.headers)),
+      createLayoutRequestContext(
+        options,
+        project ? "draft" : "live",
+        getServerAuthCookieHeader(request.headers),
+      ),
     );
     const page = recordId ? pages.find((entry) => entry.recordId === recordId) : pages[0];
     return Response.json({ path: page?.path ?? null }, { headers });
@@ -483,19 +496,17 @@ async function createPageHtmlResponse({
     !options.projectSlug ||
     !options.renderPage
   ) {
-    return createPageDataResponse({ options, pathname, request, previewLive: false });
+    return createPageDataResponse({ options, pathname, request });
   }
 
   const requestUrl = new URL(request.url);
   if (requestUrl.searchParams.has("camox-preview") && requestUrl.searchParams.has("ott")) {
-    // No page/project lookup yet: a fresh browser cannot read draft-only paths.
+    // No page/project lookup yet: the browser authenticates first.
     const input: PageRenderInput = {
       previewHandoff: true,
       presentation: "public",
-      source: "live",
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl,
-      environmentName: options.environmentName,
       projectSlug: options.projectSlug,
       href: requestUrl.href,
       pathname,
@@ -528,15 +539,14 @@ async function createPageHtmlResponse({
     const result = await loadCamoxPageForRequest({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
-      environmentName: options.environmentName,
+      draftId: getRequestDraftId(request, options),
       origin: new URL(request.url).origin,
       pathname,
       projectSlug: options.projectSlug,
       queryClient,
     });
     const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", Vary: "Cookie" });
-    if (getServerAuthCookieHeader(request.headers))
-      headers.set("Cache-Control", "private, no-store");
+    if (isPrivateRender(request, options)) headers.set("Cache-Control", "private, no-store");
     if (result.shouldClearAuthCookie) {
       headers.append("Set-Cookie", buildClearServerAuthCookieHeader());
     }
@@ -545,49 +555,40 @@ async function createPageHtmlResponse({
     const document = (await options.getDocument?.()) ?? {};
     const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data) : {};
     const dehydratedState = dehydrate(queryClient);
-    const project =
-      result.source === "draft"
-        ? await createServerApiClient(options.apiUrl, options.environmentName, {
-            authCookieHeader: getServerAuthCookieHeader(request.headers),
-          }).projects.getBySlug({ slug: options.projectSlug })
-        : undefined;
+    const { project } = result;
+    const studio = project !== undefined;
     const pageRenderInput = {
       project,
-      presentation: result.source === "draft" ? "studio" : "public",
+      presentation: studio ? "studio" : "public",
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl,
       dehydratedState,
-      environmentName: options.environmentName,
+      draftId: result.draftId,
+      refusedDraft: result.refusedDraft,
       head,
-      href: new URL(request.url).href,
-      layoutIdentity: getLayoutIdentity(result.data.page.layout, result.source),
+      href: renderedHref(request.url, result),
+      layoutIdentity: getLayoutIdentity(result.data.page.layout),
       loaderData: result.data,
       pathname,
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      source: result.source,
     } satisfies PageRenderInput;
     // Public documents only need site head/attributes for possible client-side
     // studio activation; avoid rendering or serializing their page content twice.
-    await preparePreviewDocument(
-      pageRenderInput,
-      options,
-      document,
-      result.source === "live" ? "" : undefined,
-    );
+    await preparePreviewDocument(pageRenderInput, options, document, studio ? undefined : "");
     const appHtml = await options.renderPage(pageRenderInput);
     const renderedHead = renderHead(
-      result.source === "draft" ? {} : document,
+      studio ? {} : document,
       createPageHeadInput(head),
-      result.source === "draft" ? undefined : options.stylesheetUrl,
-      result.source === "draft" ? options.studioStylesheetUrl : undefined,
+      studio ? undefined : options.stylesheetUrl,
+      studio ? options.studioStylesheetUrl : undefined,
     );
 
     return new Response(
       `<!doctype html>
 <html${renderedHead.htmlAttrs}>
 <head>
-${renderStudioThemeScript(result.source === "draft")}
+${renderStudioThemeScript(studio)}
 ${renderedHead.headTags}
 ${renderBlockPreloads(options, dehydratedState)}
 <script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(pageRenderInput)}</script>
@@ -614,25 +615,27 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
 type DerivedMatch = NonNullable<ReturnType<typeof matchDerivedLayout>>;
 
 /**
- * The context `loader` and `routes` get. Its record lookup reads the request's source; only
- * draft reads carry the editor's session.
+ * The context `loader` and `routes` get. Its record lookup reads each record's current content;
+ * only draft reads carry the editor's session, and `draftId` names the draft they read.
  */
 function createLayoutRequestContext(
   options: RuntimeOptions,
-  source: ReadSource,
+  source: RecordSource,
   authCookieHeader?: string,
+  draftId?: string,
 ): LayoutRequestContext {
-  const { apiUrl, projectSlug, environmentName } = options;
+  const { apiUrl, projectSlug } = options;
   if (!apiUrl || !projectSlug) return createRequestContext({});
-  const api = createServerApiClient(apiUrl, environmentName, {
+  const api = createServerApiClient(apiUrl, {
     authCookieHeader: source === "draft" ? authCookieHeader : undefined,
+    draftId,
   });
   return createRequestContext({
     records: {
       findByField: (input) =>
-        api.collectionDefinitions.findRecordsByField({ ...input, projectSlug, source }),
+        api.collectionDefinitions.findRecordsByField({ ...input, projectSlug }),
       listPageValues: (input) =>
-        api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug, source }),
+        api.collectionDefinitions.listRecordPageValues({ ...input, projectSlug }),
     },
   });
 }
@@ -675,8 +678,8 @@ async function loadLayoutResult(
 }
 
 /**
- * The Markdown of a singleton or derived page: its live before blocks, the layout's
- * toMarkdown output, then its live after blocks. Without toMarkdown, the page is HTML only.
+ * The Markdown of a singleton or derived page: its before blocks, the layout's toMarkdown
+ * output, then its after blocks. Without toMarkdown, the page is HTML only.
  */
 async function createLayoutMarkdownResponse(
   options: RuntimeOptions,
@@ -685,11 +688,11 @@ async function createLayoutMarkdownResponse(
   const { toMarkdown, id } = match.layout._internal;
   const { apiUrl, projectSlug } = options;
   if (!toMarkdown || !apiUrl || !projectSlug) return null;
-  const api = createServerApiClient(apiUrl, options.environmentName);
+  const api = createServerApiClient(apiUrl);
   const app = await options.getCamoxApp?.();
   /** The layout's own Markdown, between its before and after blocks. */
   const layoutMarkdown = async (): Promise<readonly string[]> => {
-    // Markdown is a public output: it reads live content whoever asks.
+    // Markdown is a public output: it reads published records whoever asks.
     const result = await loadLayoutResult(app, match, createLayoutRequestContext(options, "live"));
     const record = asCollectionItem(result);
     const collection = record && app?.getCollectionById(record.collectionId);
@@ -731,15 +734,13 @@ interface DerivedResponseOptions {
   dataOnly?: boolean;
   /** Match singleton layouts only, which take precedence over curated pages. */
   singletonOnly?: boolean;
-  /** An editor previewing live content: the loader reads what visitors see. */
-  previewLive?: boolean;
 }
 
 async function createDerivedResponse(
   options: RuntimeOptions,
   pathname: string,
   request: Request,
-  { dataOnly = false, singletonOnly = false, previewLive = false }: DerivedResponseOptions = {},
+  { dataOnly = false, singletonOnly = false }: DerivedResponseOptions = {},
 ): Promise<Response | null> {
   const app = await options.getCamoxApp?.();
   const match = app && matchDerivedLayout(app.getLayouts(), pathname);
@@ -747,37 +748,31 @@ async function createDerivedResponse(
   if (singletonOnly && match.layout._internal.kind !== "singleton") return null;
   try {
     const queryClient = new QueryClient();
-    const authCookieHeader = getServerAuthCookieHeader(request.headers);
-    const loadLayout = (source: ReadSource) =>
-      createServerApiClient(options.apiUrl!, options.environmentName, {
-        authCookieHeader: source === "draft" ? authCookieHeader : undefined,
-      }).layouts.get({
-        projectSlug: options.projectSlug!,
-        layoutId: match.layout._internal.id,
-        source,
-      });
-    // The draft layout read validates the session, so it runs before the loader needs the source.
-    const draft = authCookieHeader
-      ? await loadLayout("draft").catch((error) => {
-          if (!isAuthSessionError(error)) throw error;
-          return null;
-        })
-      : undefined;
-    const source: ReadSource = draft ? "draft" : "live";
-    const clearAuthCookie = draft === null;
-    const serializedResult = await loadLayoutResult(
-      app,
-      match,
-      createLayoutRequestContext(options, previewLive ? "live" : source, authCookieHeader),
-    );
-    const shared = draft ?? (await loadLayout("live"));
-    seedBlockCaches(queryClient, shared, source);
-    const project =
-      source === "draft"
-        ? await createServerApiClient(options.apiUrl!, options.environmentName, {
-            authCookieHeader,
-          }).projects.getBySlug({ slug: options.projectSlug! })
-        : undefined;
+    const { project, clearAuthCookie } = await resolveRequestMember(request, options);
+    const studio = project !== undefined;
+    // Only a member's session reads record drafts, in the loader and in linked records.
+    const authCookieHeader = studio ? getServerAuthCookieHeader(request.headers) : undefined;
+    const requestedDraft = getRequestDraftId(request, options);
+    const readLayout = () =>
+      readDraftOrLive(requestedDraft, studio, (draftId) =>
+        createServerApiClient(options.apiUrl!, {
+          authCookieHeader,
+          draftId,
+        }).layouts.get({ projectSlug: options.projectSlug!, layoutId: match.layout._internal.id }),
+      );
+    const runLoader = (draftId?: string) =>
+      loadLayoutResult(
+        app,
+        match,
+        createLayoutRequestContext(options, studio ? "draft" : "live", authCookieHeader, draftId),
+      );
+    // In a draft, the layout read settles which draft the page shows, so the loader then reads
+    // records from that draft, or from Live when the draft was refused.
+    const [serializedResult, { value: shared, ...read }] =
+      studio && requestedDraft
+        ? await readLayout().then(async (read) => [await runLoader(read.draftId), read] as const)
+        : await Promise.all([runLoader(), readLayout()]);
+    seedBlockCaches(queryClient, shared, read.draftId ?? null);
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);
@@ -799,19 +794,19 @@ async function createDerivedResponse(
     });
     const input: PageRenderInput = {
       project,
-      presentation: source === "draft" ? "studio" : "public",
+      presentation: studio ? "studio" : "public",
       apiUrl: options.apiUrl!,
       authenticationUrl: options.authenticationUrl!,
       projectSlug: options.projectSlug!,
-      environmentName: options.environmentName,
       dehydratedState: dehydrate(queryClient),
+      draftId: read.draftId,
+      refusedDraft: read.refusedDraft,
       head: pageHead,
-      href: request.url,
-      layoutIdentity: getLayoutIdentity(shared.layout, source),
+      href: renderedHref(request.url, read),
+      layoutIdentity: getLayoutIdentity(shared.layout),
       loaderData: null,
       pathname,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      source,
       derived: {
         layoutId: match.layout._internal.id,
         result: serializedResult,
@@ -819,12 +814,7 @@ async function createDerivedResponse(
       },
     };
     const document = (await options.getDocument?.()) ?? {};
-    await preparePreviewDocument(
-      input,
-      options,
-      document,
-      source === "live" && !dataOnly ? "" : undefined,
-    );
+    await preparePreviewDocument(input, options, document, !studio && !dataOnly ? "" : undefined);
     if (dataOnly)
       return Response.json(input, {
         headers: {
@@ -835,18 +825,18 @@ async function createDerivedResponse(
       });
     const html = await options.renderPage!(input);
     const head = renderHead(
-      source === "draft" ? {} : document,
+      studio ? {} : document,
       createPageHeadInput(pageHead),
-      source === "draft" ? undefined : options.stylesheetUrl,
-      source === "draft" ? options.studioStylesheetUrl : undefined,
+      studio ? undefined : options.stylesheetUrl,
+      studio ? options.studioStylesheetUrl : undefined,
     );
     return new Response(
-      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(source === "draft")}${head.headTags}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
+      `<!doctype html><html${head.htmlAttrs}><head>${renderStudioThemeScript(studio)}${head.headTags}${renderBlockPreloads(options, input.dehydratedState)}<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(input)}</script></head><body${head.bodyAttrs}>${head.bodyTagsOpen}<div id="root">${html}</div>${head.bodyTags}${renderClientEntryScript(options.pageClientEntryUrl)}</body></html>`,
       {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           Vary: "Cookie",
-          ...(authCookieHeader ? { "Cache-Control": "private, no-store" } : {}),
+          ...(isPrivateRender(request, options) ? { "Cache-Control": "private, no-store" } : {}),
           ...(clearAuthCookie ? { "Set-Cookie": buildClearServerAuthCookieHeader() } : {}),
         },
       },
@@ -881,26 +871,10 @@ async function createStudioHtmlResponse({
   }
 
   const queryClient = new QueryClient();
-  // A successful protected project lookup validates both session and project access.
-  // Cookie presence alone is not proof of authentication.
-  const authCookieHeader = getServerAuthCookieHeader(request.headers);
-  let project: PageRenderInput["project"];
-  let presentation: "public" | "studio" = "public";
-  let clearAuthCookie = false;
-  if (authCookieHeader) {
-    try {
-      project = await createServerApiClient(options.apiUrl, options.environmentName, {
-        authCookieHeader,
-      }).projects.getBySlug({ slug: options.projectSlug });
-      presentation = "studio";
-    } catch (error) {
-      if (!isAuthSessionError(error)) throw error;
-      clearAuthCookie = true;
-    }
-  }
+  const { project, clearAuthCookie } = await resolveRequestMember(request, options);
+  const presentation = project ? "studio" : "public";
   const studioRenderInput = {
     project,
-    source: "live",
     head: { meta: [{ title: "Camox Studio" }] },
     layoutIdentity: null,
     loaderData: null,
@@ -908,7 +882,6 @@ async function createStudioHtmlResponse({
     apiUrl: options.apiUrl,
     authenticationUrl: options.authenticationUrl,
     dehydratedState: dehydrate(queryClient),
-    environmentName: options.environmentName,
     href: new URL(request.url).href,
     pathname: match.pathname,
     projectSlug: options.projectSlug,
@@ -999,29 +972,14 @@ async function createCanvasOnlyResponse({
     );
   }
 
-  // As for Studio routes, a successful protected project lookup proves access.
-  const authCookieHeader = getServerAuthCookieHeader(request.headers);
-  let project: PageRenderInput["project"];
-  let clearAuthCookie = false;
-  if (authCookieHeader) {
-    try {
-      project = await createServerApiClient(options.apiUrl, options.environmentName, {
-        authCookieHeader,
-      }).projects.getBySlug({ slug: options.projectSlug });
-    } catch (error) {
-      if (!isAuthSessionError(error)) throw error;
-      clearAuthCookie = true;
-    }
-  }
+  const { project, clearAuthCookie } = await resolveRequestMember(request, options);
   const studio = project !== undefined;
   const title = block?._internal.title ?? "Canvas";
   const input: PageRenderInput = {
     project,
     presentation: studio ? "studio" : "public",
-    source: studio ? "draft" : "live",
     apiUrl: options.apiUrl,
     authenticationUrl: options.authenticationUrl,
-    environmentName: options.environmentName,
     projectSlug: options.projectSlug,
     runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
     href: request.url,
@@ -1058,12 +1016,10 @@ async function createPageDataResponse({
   options,
   pathname,
   request,
-  previewLive,
 }: {
   options: RuntimeOptions;
   pathname: string;
   request: Request;
-  previewLive: boolean;
 }): Promise<Response> {
   if (!options.apiUrl || !options.projectSlug) {
     return Response.json({ message: "Camox page loader is not configured." }, { status: 500 });
@@ -1072,7 +1028,6 @@ async function createPageDataResponse({
   const singleton = await createDerivedResponse(options, pathname, request, {
     dataOnly: true,
     singletonOnly: true,
-    previewLive,
   });
   if (singleton) return singleton;
 
@@ -1081,7 +1036,7 @@ async function createPageDataResponse({
     const result = await loadCamoxPageForRequest({
       apiUrl: options.apiUrl,
       authCookieHeader: getServerAuthCookieHeader(request.headers),
-      environmentName: options.environmentName,
+      draftId: getRequestDraftId(request, options),
       origin: new URL(request.url).origin,
       pathname,
       projectSlug: options.projectSlug,
@@ -1099,24 +1054,18 @@ async function createPageDataResponse({
     const camoxApp = await options.getCamoxApp?.();
     const head = camoxApp ? buildCamoxPageHead(camoxApp, result.data) : null;
     const dehydratedState = dehydrate(queryClient);
-    const project =
-      result.source === "draft"
-        ? await createServerApiClient(options.apiUrl, options.environmentName, {
-            authCookieHeader: getServerAuthCookieHeader(request.headers),
-          }).projects.getBySlug({ slug: options.projectSlug })
-        : undefined;
     const input: PageRenderInput = {
       apiUrl: options.apiUrl,
       authenticationUrl: options.authenticationUrl ?? "",
-      environmentName: options.environmentName,
       projectSlug: options.projectSlug,
       runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
-      href: request.url,
-      presentation: result.source === "draft" ? "studio" : "public",
-      source: result.source,
+      href: renderedHref(request.url, result),
+      draftId: result.draftId,
+      refusedDraft: result.refusedDraft,
+      presentation: result.project ? "studio" : "public",
       pathname,
-      layoutIdentity: getLayoutIdentity(result.data.page.layout, result.source),
-      project,
+      layoutIdentity: getLayoutIdentity(result.data.page.layout),
+      project: result.project,
       loaderData: result.data,
       head,
       dehydratedState,
@@ -1125,10 +1074,7 @@ async function createPageDataResponse({
     return Response.json(input, { headers });
   } catch (error) {
     if (isNotFoundError(error)) {
-      const derived = await createDerivedResponse(options, pathname, request, {
-        dataOnly: true,
-        previewLive,
-      });
+      const derived = await createDerivedResponse(options, pathname, request, { dataOnly: true });
       if (derived) return derived;
       return Response.json(
         { kind: "page", message: "No Camox page on this path", pathname },
@@ -1193,12 +1139,7 @@ export async function handleCamoxRequest(
       return createStudioHtmlResponse({ match: targetMatch, options, request, dataOnly: true });
     }
     if (targetMatch.kind !== "page") return new Response("Not found", { status: 404 });
-    return createPageDataResponse({
-      options,
-      pathname: targetPathname,
-      request,
-      previewLive: url.searchParams.get("source") === "live",
-    });
+    return createPageDataResponse({ options, pathname: targetPathname, request });
   }
 
   if (
@@ -1227,7 +1168,6 @@ export async function handleCamoxRequest(
           ? await createLayoutMarkdownResponse(options, layoutMatch)
           : await createMarkdownResponse({
               apiUrl: options.apiUrl,
-              environmentName: options.environmentName,
               pathname: match.pathname,
               projectSlug: options.projectSlug,
               request,

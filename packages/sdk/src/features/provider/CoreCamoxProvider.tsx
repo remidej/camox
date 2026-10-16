@@ -5,6 +5,7 @@ import type { CamoxApp } from "../../core/createApp";
 import { initApiClient } from "../../lib/api-client";
 import { AuthContext, createCamoxAuthClient, useProcessOtt } from "../../lib/auth";
 import { projectQueries, type Project } from "../../lib/queries";
+import { onDraftStarted, seedStartedDraft } from "../../lib/studio-draft";
 import { CamoxAppProvider } from "./components/CamoxAppContext";
 import { PreviewSignInPage } from "./PreviewSignInPage";
 
@@ -13,7 +14,6 @@ export interface CoreCamoxProviderProps {
   authenticationUrl: string;
   camoxApp: CamoxApp;
   children: React.ReactNode;
-  environmentName?: string;
   projectSlug: string;
   initialAuthenticated?: boolean;
   initialProject?: Project;
@@ -36,7 +36,6 @@ export function CoreCamoxProvider({
   authenticationUrl,
   camoxApp,
   children,
-  environmentName,
   projectSlug,
   initialAuthenticated = false,
   initialProject,
@@ -45,9 +44,21 @@ export function CoreCamoxProvider({
   const authClient = React.useMemo(() => createCamoxAuthClient(apiUrl), [apiUrl]);
   const initializedApiUrl = React.useRef<string | null>(null);
   if (initializedApiUrl.current !== apiUrl) {
-    initApiClient(apiUrl, environmentName);
+    initApiClient(apiUrl);
     initializedApiUrl.current = apiUrl;
   }
+
+  // Once the first block edit moves the studio into a new draft, refetch everything so the
+  // studio shows the draft rather than Live. Its keys start from what Live showed, so nothing
+  // flashes empty meanwhile.
+  React.useEffect(
+    () =>
+      onDraftStarted((draftId) => {
+        seedStartedDraft(queryClient, draftId);
+        void queryClient.invalidateQueries({ queryKey: ["camox"] });
+      }),
+    [queryClient],
+  );
 
   const seededProject = React.useRef<Project | undefined>(undefined);
   if (initialProject && seededProject.current !== initialProject) {
@@ -55,13 +66,9 @@ export function CoreCamoxProvider({
     seededProject.current = initialProject;
   }
 
-  // OTT processing deliberately does not blank the published tree. Successful
+  // OTT processing deliberately does not blank the public tree. Successful
   // exchange still reloads after mirroring the server cookie.
-  const { ready, error } = useProcessOtt(
-    authClient,
-    { projectSlug, environmentName, apiUrl },
-    initialAuthenticated,
-  );
+  const { ready, error } = useProcessOtt(authClient, { projectSlug, apiUrl }, initialAuthenticated);
   const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
   React.useEffect(() => {
     setIsPreviewHandoff(new URL(window.location.href).searchParams.has("camox-preview"));
@@ -82,7 +89,6 @@ export function CoreCamoxProvider({
         authenticationUrl,
         apiUrl,
         projectSlug,
-        environmentName,
         initialAuthenticated,
       }}
     >

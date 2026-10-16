@@ -3,28 +3,28 @@ import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import type { InferValue } from "@optique/core/parser";
 import { command, constant, option } from "@optique/core/primitives";
-import { choice, integer, string } from "@optique/core/valueparser";
+import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch, resolveCommandContext } from "../lib/dispatch";
 import { uploadFile, validateFilename, validateMetadata, validateUpload } from "../lib/file-upload";
 import { asCliError, printError, printResult } from "../lib/output";
 import { cwdFlag } from "../lib/runtime-options";
+import { uuidv7 } from "../lib/uuidv7";
 
 const common = {
   cwd: cwdFlag,
   project: optional(option("--project", string({ metavar: "SLUG" }))),
-  production: option("--production"),
   json: option("--json"),
 };
 const metadata = {
   alt: optional(
     option("--alt", string({ metavar: "TEXT" }), {
-      description: message`Alt text (including an empty string). Disables automatic metadata.`,
+      description: message`Alt text (including an empty string). Alt text and filename are one group: writing either makes both manual, keeping the current value of the other.`,
     }),
   ),
   aiMetadata: optional(
     option("--ai-metadata", choice(["on", "off"] as const), {
-      description: message`Enable or disable automatic metadata. Cannot enable alongside --alt. Enabling schedules generation for raster images.`,
+      description: message`on makes alt text and filename generated again and schedules asynchronous generation for raster images; it cannot be combined with --alt, nor with --filename on a metadata-only update. off keeps the current values as manual.`,
     }),
   ),
 };
@@ -55,14 +55,14 @@ export const parser = command(
         ...common,
       }),
       {
-        description: message`Upload media (maximum 100 MiB). Example: camox files upload --url https://example.com/hero.webp --alt "Product screenshot". Returns the stored file ID and URL. Without metadata options, raster images use automatic metadata.`,
+        description: message`Upload a file (maximum 100 MiB). Example: camox files upload --url https://example.com/hero.webp --alt "Product screenshot". Returns the stored file ID and URL. Without metadata options, raster images use automatic metadata.`,
       },
     ),
     command(
       "update",
       object({
         command: constant("files.update" as const),
-        id: option("--id", integer({ min: 1, metavar: "ID" })),
+        id: option("--id", uuidv7()),
         file: optional(
           option("--file", string({ metavar: "PATH" }), {
             description: message`Replace file content from a local path, keeping its ID and references. Mutually exclusive with --url.`,
@@ -75,24 +75,24 @@ export const parser = command(
         ),
         filename: optional(
           option("--filename", string({ metavar: "NAME" }), {
-            description: message`Set the filename. Metadata-only renames preserve the URL; replacement uses the source filename unless overridden. Disable AI to prevent future automatic renaming.`,
+            description: message`Set the filename. Metadata-only renames preserve the URL and make alt text and filename manual; replacement uses the source filename unless overridden.`,
           }),
         ),
         ...metadata,
         ...common,
       }),
       {
-        description: message`Update metadata or replace file content with --file or --url (maximum 100 MiB). Replacing affects every reference to this file in the selected environment; its ID stays unchanged but its URL changes. Omitted alt text and AI settings are preserved. Example: camox files update --id 123 --file ./hero.jpg --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
+        description: message`Update metadata or replace file content with --file or --url (maximum 100 MiB). Replacing affects every reference to this file in your development draft; its ID stays unchanged but its URL changes. Omitted alt text and AI settings are preserved. Example: camox files update --id <FILE_ID> --file ./hero.jpg --alt "Updated description". Use --alt "" for intentionally empty alt text.`,
       },
     ),
     command(
       "get",
       object({
         command: constant("files.get" as const),
-        id: option("--id", integer({ min: 1, metavar: "ID" })),
+        id: option("--id", uuidv7()),
         ...common,
       }),
-      { description: message`Inspect a file in the selected project and environment.` },
+      { description: message`Inspect a file in the selected project.` },
     ),
     command(
       "list",
@@ -100,11 +100,11 @@ export const parser = command(
         command: constant("files.list" as const),
         ...common,
       }),
-      { description: message`List files in the selected project and environment.` },
+      { description: message`List files in the selected project.` },
     ),
   ),
   {
-    description: message`Upload and manage media. Defaults to your development environment; --production explicitly targets production.`,
+    description: message`Upload and manage files in your development draft.`,
   },
 );
 
@@ -115,7 +115,6 @@ export async function handler(args: Args): Promise<never> {
   const options = {
     cwd: args.cwd,
     projectFlag: args.project,
-    production: args.production,
     outputMode,
   } as const;
   try {
@@ -141,6 +140,13 @@ export async function handler(args: Args): Promise<never> {
     }
     validateMetadata(args);
     validateFilename(args.filename);
+    if (args.filename !== undefined && args.aiMetadata === "on") {
+      printError({
+        code: "INVALID_ARGS",
+        message: "--filename cannot be combined with --ai-metadata on.",
+      });
+      process.exit(2);
+    }
     if (args.alt === undefined && args.aiMetadata === undefined && args.filename === undefined) {
       printError({
         code: "INVALID_ARGS",
@@ -155,7 +161,7 @@ export async function handler(args: Args): Promise<never> {
         id: args.id,
         alt: args.alt,
         filename: args.filename,
-        aiMetadataEnabled: args.aiMetadata === undefined ? undefined : args.aiMetadata === "on",
+        aiMetadata: args.aiMetadata === undefined ? undefined : args.aiMetadata === "on",
       },
     });
   } catch (err) {

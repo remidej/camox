@@ -12,8 +12,8 @@ void test("selection resolves concrete pages before derived layouts and supports
   ] as Layout[];
   const pages = getCanvasPages(
     [
-      { id: 7, nickname: "Home", fullPath: "/" },
-      { id: 8, nickname: "Special article", fullPath: "/articles/special" },
+      { id: "7", nickname: "Home", fullPath: "/" },
+      { id: "8", nickname: "Special article", fullPath: "/articles/special" },
     ],
     layouts,
   );

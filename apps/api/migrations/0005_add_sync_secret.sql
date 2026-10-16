@@ -1,1 +1,0 @@
-ALTER TABLE projects ADD COLUMN sync_secret TEXT NOT NULL DEFAULT '';

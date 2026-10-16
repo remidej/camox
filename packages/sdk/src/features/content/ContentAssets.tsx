@@ -25,7 +25,7 @@ export const ContentAssets = () => {
     enabled: !!project,
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [lightboxFileId, setLightboxFileId] = useState<number | null>(null);
+  const [lightboxFileId, setLightboxFileId] = useState<string | null>(null);
   const { uploads, uploadFiles, clearAll } = useFileUpload({ projectId: project?.id });
   const deleteFiles = useMutation({
     ...fileMutations.deleteMany(),
@@ -104,14 +104,14 @@ export const ContentAssets = () => {
                   <AssetCard
                     key={file.id}
                     file={file}
-                    selected={selectedIds.has(String(file.id))}
+                    selected={selectedIds.has(file.id)}
                     onSelect={() => {
                       setSelectedIds((prev) => {
                         const next = new Set(prev);
-                        if (next.has(String(file.id))) {
-                          next.delete(String(file.id));
+                        if (next.has(file.id)) {
+                          next.delete(file.id);
                         } else {
-                          next.add(String(file.id));
+                          next.add(file.id);
                         }
                         return next;
                       });
@@ -145,7 +145,7 @@ export const ContentAssets = () => {
           <Button
             variant="destructive"
             disabled={deleteFiles.isPending}
-            onClick={() => deleteFiles.mutate({ ids: [...selectedIds].map(Number) })}
+            onClick={() => deleteFiles.mutate({ ids: [...selectedIds] })}
           >
             {deleteFiles.isPending ? "Deleting…" : "Delete"}
           </Button>

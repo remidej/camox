@@ -1,7 +1,8 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 
-import { type ApiClient, getApiUrl, getEnvironmentName, getOrpc } from "./api-client";
+import { type ApiClient, getApiUrl, getOrpc } from "./api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "./auth";
+import { getUploadDraftHeaders, scopedKey } from "./studio-draft";
 
 // --- Inferred API response types ---
 
@@ -23,10 +24,8 @@ export type PageStructure = {
 export type Project = Awaited<ReturnType<ApiClient["projects"]["getBySlug"]>>;
 export type Layout = Awaited<ReturnType<ApiClient["layouts"]["list"]>>[number];
 export type BlockUsageCounts = Awaited<ReturnType<ApiClient["blocks"]["getUsageCounts"]>>;
-type CheckCompatibilityResponse = Awaited<
-  ReturnType<ApiClient["environments"]["checkCompatibility"]>
->;
-export type CompatibilityReason = CheckCompatibilityResponse["reasons"][number];
+export type DraftList = Awaited<ReturnType<ApiClient["drafts"]["list"]>>;
+export type DraftSummary = DraftList["drafts"][number];
 
 // --- Query factories ---
 
@@ -35,41 +34,37 @@ export const collectionQueries = {
     ...getOrpc().collectionDefinitions.list.queryOptions({
       input: { projectSlug },
     }),
-    queryKey: queryKeys.collections.list(projectSlug, getEnvironmentName() ?? "production"),
+    queryKey: scopedKey(queryKeys.collections.list(projectSlug)),
   }),
 
   get: (projectSlug: string, collectionId: string) => ({
     ...getOrpc().collectionDefinitions.get.queryOptions({
       input: { projectSlug, collectionId },
     }),
-    queryKey: queryKeys.collections.get(
-      projectSlug,
-      getEnvironmentName() ?? "production",
-      collectionId,
-    ),
+    queryKey: scopedKey(queryKeys.collections.get(projectSlug, collectionId)),
   }),
 
   record: (projectSlug: string, collectionId: string, id: string) => ({
     ...getOrpc().collectionDefinitions.getRecord.queryOptions({
       input: { projectSlug, collectionId, id },
     }),
-    queryKey: queryKeys.collections.record(
-      projectSlug,
-      getEnvironmentName() ?? "production",
-      collectionId,
-      id,
-    ),
+    queryKey: scopedKey(queryKeys.collections.record(projectSlug, collectionId, id)),
+  }),
+
+  /** How many blocks, repeatable items and records reference a record. */
+  recordUsageCount: (projectSlug: string, collectionId: string, id: string) => ({
+    ...getOrpc().collectionDefinitions.getRecordUsageCount.queryOptions({
+      input: { projectSlug, collectionId, id },
+    }),
+    queryKey: scopedKey(queryKeys.collections.recordUsageCount(projectSlug, collectionId, id)),
+    select: (data: { count: number }) => data.count,
   }),
 
   records: (projectSlug: string, collectionId: string) => ({
     ...getOrpc().collectionDefinitions.listRecords.queryOptions({
       input: { projectSlug, collectionId },
     }),
-    queryKey: queryKeys.collections.records(
-      projectSlug,
-      getEnvironmentName() ?? "production",
-      collectionId,
-    ),
+    queryKey: scopedKey(queryKeys.collections.records(projectSlug, collectionId)),
   }),
 };
 
@@ -77,17 +72,14 @@ export const collectionMutations = {
   create: () => getOrpc().collectionDefinitions.createRecord.mutationOptions(),
   edit: () => getOrpc().collectionDefinitions.editRecord.mutationOptions(),
   delete: () => getOrpc().collectionDefinitions.deleteRecord.mutationOptions(),
-  publish: () => getOrpc().collectionDefinitions.publishRecord.mutationOptions(),
-  unpublish: () => getOrpc().collectionDefinitions.unpublishRecord.mutationOptions(),
-  discard: () => getOrpc().collectionDefinitions.discardRecord.mutationOptions(),
 };
 
 export type CollectionRecord = Awaited<ReturnType<ApiClient["collectionDefinitions"]["getRecord"]>>;
 
 export const commentQueries = {
-  list: (pageId: number) => ({
+  list: (pageId: string) => ({
     ...getOrpc().comments.list.queryOptions({ input: { pageId }, staleTime: 30_000 }),
-    queryKey: [...queryKeys.comments.list(pageId), getEnvironmentName() ?? "production"],
+    queryKey: scopedKey(queryKeys.comments.list(pageId)),
   }),
 };
 
@@ -99,41 +91,41 @@ export const commentMutations = {
 export const pageQueries = {
   list: (projectId: number) => ({
     ...getOrpc().pages.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
-    queryKey: queryKeys.pages.list,
+    queryKey: scopedKey(queryKeys.pages.list),
   }),
 
-  getByPath: (fullPath: string, projectSlug: string, source: ReadSource = "draft") => ({
+  getByPath: (fullPath: string, projectSlug: string) => ({
     ...getOrpc().pages.getByPath.queryOptions({
-      input: { path: fullPath, projectSlug, source },
+      input: { path: fullPath, projectSlug },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.pages.getByPath(fullPath, source),
+    queryKey: scopedKey(queryKeys.pages.getByPath(fullPath)),
   }),
 
-  getById: (id: number) => ({
+  getById: (id: string) => ({
     ...getOrpc().pages.get.queryOptions({
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.pages.getById(id),
+    queryKey: scopedKey(queryKeys.pages.getById(id)),
   }),
 };
 
 export const fileQueries = {
   list: (projectId: number) => ({
     ...getOrpc().files.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
-    queryKey: queryKeys.files.list,
+    queryKey: scopedKey(queryKeys.files.list),
   }),
 
-  get: (id: number) => ({
+  get: (id: string) => ({
     ...getOrpc().files.get.queryOptions({
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.files.get(id),
+    queryKey: scopedKey(queryKeys.files.get(id)),
   }),
 
-  getUsageCount: (id: number) => ({
+  getUsageCount: (id: string) => ({
     ...getOrpc().files.getUsageCount.queryOptions({
       input: { id },
       staleTime: Infinity,
@@ -157,21 +149,17 @@ export const layoutQueries = {
       input: { projectId },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.layouts.all,
+    queryKey: scopedKey(queryKeys.layouts.all),
   }),
 };
 
 export const blockQueries = {
-  // Source is split into draft/live cache slots so toggling the studio source
-  // select is instant once both have been populated. The studio's default is
-  // 'draft' (matches today's edit-loop behavior); SSR seeds 'live' for the
-  // public visitor path.
-  get: (id: number, source: ReadSource = "draft") => ({
+  get: (id: string) => ({
     ...getOrpc().blocks.get.queryOptions({
-      input: { id, source },
+      input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.get(id, source),
+    queryKey: scopedKey(queryKeys.blocks.get(id)),
   }),
 
   getUsageCounts: (projectId: number) => ({
@@ -179,7 +167,7 @@ export const blockQueries = {
       input: { projectId },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getUsageCounts,
+    queryKey: scopedKey(queryKeys.blocks.getUsageCounts),
     select: (data: BlockUsageCounts) => {
       const counts: Record<string, number> = {};
       for (const { type, count } of data) {
@@ -195,7 +183,7 @@ export const blockQueries = {
       input: { projectId, type },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getPagesUsing(type),
+    queryKey: scopedKey(queryKeys.blocks.getPagesUsing(type)),
   }),
 
   // A Synced Block's shared content, or null when it has none yet.
@@ -204,43 +192,52 @@ export const blockQueries = {
       input: { projectId, type },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getSyncedContent(type),
+    queryKey: scopedKey(queryKeys.blocks.getSyncedContent(type)),
   }),
 
-  getPageMarkdown: (pageId: number) => ({
+  getPageMarkdown: (pageId: string) => ({
     ...getOrpc().blocks.getPageMarkdown.queryOptions({
       input: { pageId },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.blocks.getPageMarkdown(pageId),
+    queryKey: scopedKey(queryKeys.blocks.getPageMarkdown(pageId)),
     select: (data: { markdown: string }) => data.markdown,
   }),
 };
 
-export const environmentQueries = {
-  // Param-aware queryKey so push (current → prod) and pull (prod → current) get
-  // distinct cache slots; both still fall under the `environments.checkCompatibility`
-  // namespace so the server-side broadcast invalidates them as a prefix.
-  checkCompatibility: (projectId: number, sourceEnvName: string, targetEnvName: string) => ({
-    ...getOrpc().environments.checkCompatibility.queryOptions({
-      input: { projectId, sourceEnvName, targetEnvName },
-      staleTime: Infinity,
-    }),
-    queryKey: [...queryKeys.environments.checkCompatibility, sourceEnvName, targetEnvName] as const,
+export const draftQueries = {
+  // Open drafts and Live's latest publish. The same whatever draft the viewer is in, so a Live
+  // invalidation refreshes it for everyone.
+  list: (projectId: number) => ({
+    ...getOrpc().drafts.list.queryOptions({ input: { projectId }, staleTime: Infinity }),
+    queryKey: [...queryKeys.drafts.list, projectId] as const,
+  }),
+  // The draft the studio is in: its name, creator and change count.
+  get: (projectId: number, draftId: string) => ({
+    ...getOrpc().drafts.get.queryOptions({ input: { projectId }, staleTime: Infinity }),
+    queryKey: [...queryKeys.drafts.get, draftId] as const,
+  }),
+  // What publishing the draft will do. Always refetched when the review opens, since conflicts
+  // depend on Live at that moment.
+  previewPublish: (projectId: number, draftId: string) => ({
+    ...getOrpc().drafts.previewPublish.queryOptions({ input: { projectId }, staleTime: 0 }),
+    queryKey: [...queryKeys.drafts.previewPublish, draftId] as const,
   }),
 };
 
-export const environmentMutations = {
-  replicate: () => getOrpc().environments.replicate.mutationOptions(),
+export const draftMutations = {
+  rename: () => getOrpc().drafts.rename.mutationOptions(),
+  publish: () => getOrpc().drafts.publish.mutationOptions(),
+  discard: () => getOrpc().drafts.discard.mutationOptions(),
 };
 
 export const repeatableItemQueries = {
-  get: (id: number) => ({
+  get: (id: string) => ({
     ...getOrpc().repeatableItems.get.queryOptions({
       input: { id },
       staleTime: Infinity,
     }),
-    queryKey: queryKeys.repeatableItems.get(id),
+    queryKey: scopedKey(queryKeys.repeatableItems.get(id)),
   }),
 };
 
@@ -263,13 +260,28 @@ export const repeatableItemMutations = {
   updatePosition: () => getOrpc().repeatableItems.updatePosition.mutationOptions(),
 };
 
-function ogImageHeaders(): Record<string, string> {
+/**
+ * Sends a change to a page's custom OG image. Like a file upload it is a content write outside
+ * oRPC: on Live it starts a draft, which the studio enters once the change succeeds.
+ */
+async function sendOgImageChange(pageId: string, init: { method: string; body?: FormData }) {
   const authCookieHeader = getAuthCookieHeader();
-  const headers: Record<string, string> = {};
-  if (authCookieHeader) headers["Better-Auth-Cookie"] = authCookieHeader;
-  const envName = getEnvironmentName();
-  if (envName) headers["x-environment-name"] = envName;
-  return headers;
+  const draft = getUploadDraftHeaders();
+  try {
+    const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
+      ...init,
+      headers: {
+        ...(authCookieHeader ? { "Better-Auth-Cookie": authCookieHeader } : {}),
+        ...draft.headers,
+      },
+      credentials: getAuthRequestCredentials(authCookieHeader),
+    });
+    draft.settle(res.ok);
+    return res;
+  } catch (error) {
+    draft.settle(false);
+    throw error;
+  }
 }
 
 export const pageMutations = {
@@ -277,22 +289,12 @@ export const pageMutations = {
   delete: () => getOrpc().pages.delete.mutationOptions(),
   update: () => getOrpc().pages.update.mutationOptions(),
   setLayout: () => getOrpc().pages.setLayout.mutationOptions(),
-  setAiSeo: () => getOrpc().pages.setAiSeo.mutationOptions(),
-  setMetaTitle: () => getOrpc().pages.setMetaTitle.mutationOptions(),
-  setMetaDescription: () => getOrpc().pages.setMetaDescription.mutationOptions(),
-  publish: () => getOrpc().pages.publish.mutationOptions(),
-  unpublish: () => getOrpc().pages.unpublish.mutationOptions(),
-  discardChanges: () => getOrpc().pages.discardChanges.mutationOptions(),
+  setSeo: () => getOrpc().pages.setSeo.mutationOptions(),
   uploadCustomOgImage: () => ({
-    mutationFn: async ({ pageId, file }: { pageId: number; file: globalThis.File }) => {
+    mutationFn: async ({ pageId, file }: { pageId: string; file: globalThis.File }) => {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
-        method: "POST",
-        body: formData,
-        headers: ogImageHeaders(),
-        credentials: getAuthRequestCredentials(),
-      });
+      const res = await sendOgImageChange(pageId, { method: "POST", body: formData });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? `Upload failed: ${res.status}`);
@@ -301,12 +303,8 @@ export const pageMutations = {
     },
   }),
   deleteCustomOgImage: () => ({
-    mutationFn: async ({ pageId }: { pageId: number }) => {
-      const res = await fetch(`${getApiUrl()}/pages/${pageId}/og-image`, {
-        method: "DELETE",
-        headers: ogImageHeaders(),
-        credentials: getAuthRequestCredentials(),
-      });
+    mutationFn: async ({ pageId }: { pageId: string }) => {
+      const res = await sendOgImageChange(pageId, { method: "DELETE" });
       if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
       return res.json();
     },
@@ -316,7 +314,6 @@ export const pageMutations = {
 export const fileMutations = {
   delete: () => getOrpc().files.delete.mutationOptions(),
   deleteMany: () => getOrpc().files.deleteMany.mutationOptions(),
-  replace: () => getOrpc().files.replace.mutationOptions(),
   setAiMetadata: () => getOrpc().files.setAiMetadata.mutationOptions(),
   setFilename: () => getOrpc().files.setFilename.mutationOptions(),
   setAlt: () => getOrpc().files.setAlt.mutationOptions(),

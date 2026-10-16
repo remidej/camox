@@ -5,7 +5,7 @@ import type { OverlayMessage } from "../overlayMessages";
 
 type DrillRowHover =
   | { variant: "field"; fieldId: string }
-  | { variant: "repeater"; blockId: number; fieldName: string };
+  | { variant: "repeater"; blockId: string; fieldName: string };
 
 interface DrillRowProps {
   label: string;

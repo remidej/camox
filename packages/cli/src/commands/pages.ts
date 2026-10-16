@@ -2,18 +2,15 @@ import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { choice, integer, string } from "@optique/core/valueparser";
+import { choice, string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { type OutputMode, printError } from "../lib/output";
 import { cwdFlag } from "../lib/runtime-options";
+import { uuidv7 } from "../lib/uuidv7";
 
 const projectFlag = optional(option("--project", string({ metavar: "SLUG" })));
 const jsonFlag = option("--json");
-const productionFlag = option("--production");
-// `--live` flips read commands from the draft (default) to the published
-// snapshot. Orthogonal to `--production` (which selects the environment).
-const liveFlag = option("--live");
 
 const list = command(
   "list",
@@ -21,7 +18,6 @@ const list = command(
     command: constant("pages.list" as const),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -30,55 +26,10 @@ const get = command(
   "get",
   object({
     command: constant("pages.get" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
-    path: optional(option("--path", string({ metavar: "PATH" }))),
-    live: liveFlag,
-    cwd: cwdFlag,
-    project: projectFlag,
-    production: productionFlag,
-    json: jsonFlag,
-  }),
-);
-
-const publish = command(
-  "publish",
-  object({
-    command: constant("pages.publish" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
-    path: optional(option("--path", string({ metavar: "PATH" }))),
-    // `--no-layout` opts out of the default layout cascade. The service no-ops
-    // the layout publish when there are no pending changes, so the cascade is
-    // safe to leave on by default.
-    noLayout: option("--no-layout"),
-    cwd: cwdFlag,
-    project: projectFlag,
-    production: productionFlag,
-    json: jsonFlag,
-  }),
-);
-
-const unpublish = command(
-  "unpublish",
-  object({
-    command: constant("pages.unpublish" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
+    id: optional(option("--id", uuidv7())),
     path: optional(option("--path", string({ metavar: "PATH" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
-    json: jsonFlag,
-  }),
-);
-
-const discardChanges = command(
-  "discard-changes",
-  object({
-    command: constant("pages.discard-changes" as const),
-    id: optional(option("--id", integer({ metavar: "ID" }))),
-    path: optional(option("--path", string({ metavar: "PATH" }))),
-    cwd: cwdFlag,
-    project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -89,11 +40,10 @@ const create = command(
     command: constant("pages.create" as const),
     nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
     pathSegment: option("--path-segment", string({ metavar: "SEGMENT" })),
-    layoutId: option("--layout-id", integer({ metavar: "ID" })),
-    parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
+    layoutId: option("--layout-id", string({ metavar: "NAME" })),
+    parentPageId: optional(option("--parent-page-id", uuidv7())),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -102,33 +52,47 @@ const update = command(
   "update",
   object({
     command: constant("pages.update" as const),
-    id: optional(option("--id", integer({ min: 1, metavar: "ID" }))),
+    id: optional(option("--id", uuidv7())),
+    path: optional(option("--path", string({ metavar: "PATH" }))),
+    nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
+    pathSegment: optional(option("--path-segment", string({ metavar: "SEGMENT" }))),
+    parentPageId: optional(option("--parent-page-id", uuidv7())),
+    cwd: cwdFlag,
+    project: projectFlag,
+    json: jsonFlag,
+  }),
+  {
+    description: message`Update a page. Pass exactly one of --id or --path and at least one update field. Omitted fields are preserved. Example: camox pages update --path /about --nickname "About". Edit SEO metadata with pages set-seo.`,
+  },
+);
+
+const setSeo = command(
+  "set-seo",
+  object({
+    command: constant("pages.set-seo" as const),
+    id: optional(option("--id", uuidv7())),
     path: optional(option("--path", string({ metavar: "PATH" }))),
     metaTitle: optional(
       option("--meta-title", string({ metavar: "TEXT" }), {
-        description: message`Set the SEO title. An empty string clears it. Disables automatic SEO for both fields.`,
+        description: message`Set the SEO title. Makes both fields manual.`,
       }),
     ),
     metaDescription: optional(
       option("--meta-description", string({ metavar: "TEXT" }), {
-        description: message`Set the SEO description. An empty string clears it. Disables automatic SEO for both fields.`,
+        description: message`Set the SEO description. An empty string clears it. Makes both fields manual.`,
       }),
     ),
     aiSeo: optional(
       option("--ai-seo", choice(["on", "off"] as const), {
-        description: message`Enable or disable automatic SEO. Enabling schedules asynchronous generation; it cannot be combined with manual metadata. Disabling preserves current metadata.`,
+        description: message`on makes both fields generated again and schedules asynchronous generation; it cannot be combined with --meta-title or --meta-description. off keeps the current values as manual.`,
       }),
     ),
-    nickname: optional(option("--nickname", string({ metavar: "TEXT" }))),
-    pathSegment: optional(option("--path-segment", string({ metavar: "SEGMENT" }))),
-    parentPageId: optional(option("--parent-page-id", integer({ metavar: "ID" }))),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
   {
-    description: message`Update a page draft, including in --production. Pass exactly one of --id or --path and at least one update field. Omitted fields are preserved. Publish separately with pages publish. Example: camox pages update --path /about --meta-title "About us" --meta-description "Meet the team". Read metadata with pages get; add --live for published metadata.`,
+    description: message`Set a page's SEO metadata. The meta title and description are one group: both generated by AI, or both manual. Writing one field makes both fields manual, keeping the current value of the other. Pass exactly one of --id or --path and at least one of --meta-title, --meta-description or --ai-seo. An empty meta title blocks publishing. Example: camox pages set-seo --path /about --meta-title "About us" --meta-description "Meet the team". Read metadata with pages get.`,
   },
 );
 
@@ -136,11 +100,10 @@ const setLayout = command(
   "set-layout",
   object({
     command: constant("pages.set-layout" as const),
-    id: option("--id", integer({ metavar: "ID" })),
-    layoutId: option("--layout-id", integer({ metavar: "ID" })),
+    id: option("--id", uuidv7()),
+    layoutId: option("--layout-id", string({ metavar: "NAME" })),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
@@ -149,61 +112,50 @@ const del = command(
   "delete",
   object({
     command: constant("pages.delete" as const),
-    id: option("--id", integer({ metavar: "ID" })),
+    id: option("--id", uuidv7()),
     cwd: cwdFlag,
     project: projectFlag,
-    production: productionFlag,
     json: jsonFlag,
   }),
 );
 
-export const parser = command(
-  "pages",
-  or(list, get, create, update, setLayout, del, publish, unpublish, discardChanges),
-);
+export const parser = command("pages", or(list, get, create, update, setSeo, setLayout, del));
 
-type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; json: boolean };
 
 type Args =
   | ({ command: "pages.list" } & CommonFlags)
-  | ({ command: "pages.get"; id?: number; path?: string; live: boolean } & CommonFlags)
+  | ({ command: "pages.get"; id?: string; path?: string } & CommonFlags)
   | ({
       command: "pages.create";
       nickname?: string;
       pathSegment: string;
-      layoutId: number;
-      parentPageId?: number;
+      layoutId: string;
+      parentPageId?: string;
     } & CommonFlags)
   | ({
       command: "pages.update";
-      id?: number;
+      id?: string;
+      path?: string;
+      nickname?: string;
+      pathSegment?: string;
+      parentPageId?: string;
+    } & CommonFlags)
+  | ({
+      command: "pages.set-seo";
+      id?: string;
       path?: string;
       metaTitle?: string;
       metaDescription?: string;
       aiSeo?: "on" | "off";
-      nickname?: string;
-      pathSegment?: string;
-      parentPageId?: number;
     } & CommonFlags)
-  | ({ command: "pages.set-layout"; id: number; layoutId: number } & CommonFlags)
-  | ({ command: "pages.delete"; id: number } & CommonFlags)
-  | ({
-      command: "pages.publish";
-      id?: number;
-      path?: string;
-      noLayout: boolean;
-    } & CommonFlags)
-  | ({
-      command: "pages.unpublish" | "pages.discard-changes";
-      id?: number;
-      path?: string;
-    } & CommonFlags);
+  | ({ command: "pages.set-layout"; id: string; layoutId: string } & CommonFlags)
+  | ({ command: "pages.delete"; id: string } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
   const outputMode: OutputMode = args.json ? "json" : "auto";
   const cwd = args.cwd;
   const projectFlag = args.project;
-  const production = args.production;
 
   switch (args.command) {
     case "pages.list":
@@ -212,7 +164,6 @@ export async function handler(args: Args): Promise<never> {
         args: {},
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     case "pages.get": {
@@ -223,16 +174,11 @@ export async function handler(args: Args): Promise<never> {
         });
         process.exit(2);
       }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      // Read draft by default; `--live` flips to the published snapshot. The
-      // tool errors when the page has never been published.
-      const toolArgs = { ...target, source: args.live ? "live" : "draft" };
       return dispatch({
         toolName: "getPage",
-        args: toolArgs,
+        args: args.id != null ? { id: args.id } : { path: args.path },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     }
@@ -247,7 +193,6 @@ export async function handler(args: Args): Promise<never> {
         },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     case "pages.update": {
@@ -255,26 +200,7 @@ export async function handler(args: Args): Promise<never> {
         printError({ code: "INVALID_ARGS", message: "Pass exactly one of --id or --path." });
         process.exit(2);
       }
-      if (
-        args.aiSeo === "on" &&
-        (args.metaTitle !== undefined || args.metaDescription !== undefined)
-      ) {
-        printError({
-          code: "INVALID_ARGS",
-          message: "Cannot enable automatic SEO alongside manual metadata.",
-        });
-        process.exit(2);
-      }
-      if (
-        [
-          args.nickname,
-          args.pathSegment,
-          args.parentPageId,
-          args.metaTitle,
-          args.metaDescription,
-          args.aiSeo,
-        ].every((value) => value === undefined)
-      ) {
+      if ([args.nickname, args.pathSegment, args.parentPageId].every((v) => v === undefined)) {
         printError({ code: "INVALID_ARGS", message: "Pass at least one field to update." });
         process.exit(2);
       }
@@ -282,16 +208,45 @@ export async function handler(args: Args): Promise<never> {
         toolName: "updatePage",
         args: {
           ...(args.id != null ? { id: args.id } : { path: args.path }),
-          metaTitle: args.metaTitle,
-          metaDescription: args.metaDescription,
-          aiSeoEnabled: args.aiSeo === undefined ? undefined : args.aiSeo === "on",
           nickname: args.nickname,
           pathSegment: args.pathSegment,
           parentPageId: args.parentPageId,
         },
         cwd,
         projectFlag,
-        production,
+        outputMode,
+      });
+    }
+    case "pages.set-seo": {
+      if ((args.id == null) === (args.path == null)) {
+        printError({ code: "INVALID_ARGS", message: "Pass exactly one of --id or --path." });
+        process.exit(2);
+      }
+      const writesField = args.metaTitle !== undefined || args.metaDescription !== undefined;
+      if (!writesField && args.aiSeo === undefined) {
+        printError({
+          code: "INVALID_ARGS",
+          message: "Pass at least one of --meta-title, --meta-description or --ai-seo.",
+        });
+        process.exit(2);
+      }
+      if (args.aiSeo === "on" && writesField) {
+        printError({
+          code: "INVALID_ARGS",
+          message: "--ai-seo on cannot be combined with --meta-title or --meta-description.",
+        });
+        process.exit(2);
+      }
+      return dispatch({
+        toolName: "setPageSeo",
+        args: {
+          ...(args.id != null ? { id: args.id } : { path: args.path }),
+          metaTitle: args.metaTitle,
+          metaDescription: args.metaDescription,
+          aiSeo: args.aiSeo === undefined ? undefined : args.aiSeo === "on",
+        },
+        cwd,
+        projectFlag,
         outputMode,
       });
     }
@@ -301,7 +256,6 @@ export async function handler(args: Args): Promise<never> {
         args: { id: args.id, layoutId: args.layoutId },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
     case "pages.delete":
@@ -310,62 +264,7 @@ export async function handler(args: Args): Promise<never> {
         args: { id: args.id },
         cwd,
         projectFlag,
-        production,
         outputMode,
       });
-    case "pages.publish": {
-      if ((args.id == null) === (args.path == null)) {
-        printError({
-          code: "INVALID_ARGS",
-          message: "Pass exactly one of --id or --path.",
-        });
-        process.exit(2);
-      }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      return dispatch({
-        toolName: "publishPage",
-        args: { ...target, alsoPublishLayout: !args.noLayout },
-        cwd,
-        projectFlag,
-        production,
-        outputMode,
-      });
-    }
-    case "pages.unpublish": {
-      if ((args.id == null) === (args.path == null)) {
-        printError({
-          code: "INVALID_ARGS",
-          message: "Pass exactly one of --id or --path.",
-        });
-        process.exit(2);
-      }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      return dispatch({
-        toolName: "unpublishPage",
-        args: target,
-        cwd,
-        projectFlag,
-        production,
-        outputMode,
-      });
-    }
-    case "pages.discard-changes": {
-      if ((args.id == null) === (args.path == null)) {
-        printError({
-          code: "INVALID_ARGS",
-          message: "Pass exactly one of --id or --path.",
-        });
-        process.exit(2);
-      }
-      const target = args.id != null ? { id: args.id } : { path: args.path };
-      return dispatch({
-        toolName: "discardPageChanges",
-        args: target,
-        cwd,
-        projectFlag,
-        production,
-        outputMode,
-      });
-    }
   }
 }

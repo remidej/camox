@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createProjectFixture } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { files } from "../../schema";
-import { executeFileMetadata } from "./service";
+import { executeFileMetadata, getFile } from "./service";
 
 const { chat } = vi.hoisted(() => {
   vi.resetModules();
@@ -20,20 +20,18 @@ const png = Uint8Array.from(
 );
 
 async function fixture() {
-  const { db, project, environment } = await createProjectFixture(crypto.randomUUID());
+  const { db, project } = await createProjectFixture(crypto.randomUUID());
   const file = await db
     .insert(files)
     .values({
       projectId: project.id,
-      environmentId: environment.id,
       url: "http://localhost/files/serve/test.png",
-      alt: "Existing description",
-      filename: "existing.png",
+      alt: null,
+      filename: null,
       mimeType: "image/png",
       size: png.length,
       blobId: crypto.randomUUID(),
       path: "/",
-      aiMetadataEnabled: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })
@@ -102,7 +100,9 @@ describe("metadata image validation", () => {
       const { db, file } = await fixture();
       vi.stubGlobal("fetch", vi.fn().mockImplementation(response));
 
-      await expect(runService(executeFileMetadata(db, "test-api-key", file.id))).rejects.toThrow();
+      await expect(
+        runService(executeFileMetadata(db, "test-api-key", file.id, null)),
+      ).rejects.toThrow();
 
       expect(chat).not.toHaveBeenCalled();
       expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
@@ -122,7 +122,7 @@ describe("metadata image validation", () => {
     const metadata = { filename: "generated", alt: "Generated description" };
     chat.mockResolvedValue(metadata);
 
-    await runService(executeFileMetadata(db, "test-api-key", file.id));
+    await runService(executeFileMetadata(db, "test-api-key", file.id, null));
 
     expect(chat).toHaveBeenCalledOnce();
     expect(chat).toHaveBeenCalledWith(
@@ -143,8 +143,10 @@ describe("metadata image validation", () => {
         ],
       }),
     );
-    expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toMatchObject(
-      metadata,
-    );
+    // Generated beside the file, which stays as it was (ADR 0012).
+    expect(await db.select().from(files).where(eq(files.id, file.id)).get()).toEqual(file);
+    expect(
+      await runService(getFile(createServiceContext(db, null), { id: file.id }, null)),
+    ).toMatchObject({ ...metadata, aiMetadata: true });
   });
 });

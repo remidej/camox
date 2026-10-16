@@ -324,7 +324,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   }
 });
 
-void test("Synced Blocks show the environment's shared content in their Block Catalog frame, and defaults without it", async () => {
+void test("Synced Blocks show the project's shared content in their Block Catalog frame, and defaults without it", async () => {
   const { dom, observers, canvas, restore } = setUpCanvasDom();
   const { createRoot } = await import("react-dom/client");
   const { createBlock } = await import("../../core/createBlock");
@@ -364,7 +364,7 @@ void test("Synced Blocks show the environment's shared content in their Block Ca
     block: {
       id: 41,
       pageId: null,
-      layoutId: 3,
+      layoutId: "default",
       type,
       content: { title },
       settings: { dark: true },
@@ -379,7 +379,7 @@ void test("Synced Blocks show the environment's shared content in their Block Ca
     files: [],
   });
   const client = new QueryClient();
-  // The environment has shared content for the navbar, none yet for the footer.
+  // The project has shared content for the navbar, none yet for the footer.
   client.setQueryData(
     blockQueries.getSyncedContent(projectId, "navbar").queryKey,
     sharedContent("navbar", "Shared navbar title") as never,
@@ -444,12 +444,12 @@ void test("Synced Blocks show the environment's shared content in their Block Ca
     assert.equal(
       shared.querySelector("a")?.textContent,
       "Shared navbar title",
-      "a Synced Block shows the environment's shared content",
+      "a Synced Block shows the project's shared content",
     );
     assert.equal(
       shared.querySelector("nav")?.getAttribute("data-theme"),
       "dark",
-      "a Synced Block shows the environment's shared settings",
+      "a Synced Block shows the project's shared settings",
     );
 
     const unshared = (await showFrame(footer)).document;

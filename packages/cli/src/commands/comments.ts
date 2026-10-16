@@ -2,15 +2,15 @@ import { object, or } from "@optique/core/constructs";
 import { message } from "@optique/core/message";
 import { optional } from "@optique/core/modifiers";
 import { command, constant, option } from "@optique/core/primitives";
-import { integer, string } from "@optique/core/valueparser";
+import { string } from "@optique/core/valueparser";
 
 import { dispatch } from "../lib/dispatch";
 import { cwdFlag } from "../lib/runtime-options";
+import { uuidv7 } from "../lib/uuidv7";
 
 const common = {
   cwd: cwdFlag,
   project: optional(option("--project", string({ metavar: "SLUG" }))),
-  production: option("--production"),
   json: option("--json"),
 };
 
@@ -21,7 +21,7 @@ export const parser = command(
       "list",
       object({
         command: constant("comments.list" as const),
-        pageId: option("--page-id", integer({ min: 1, metavar: "ID" })),
+        pageId: option("--page-id", uuidv7()),
         ...common,
       }),
       { description: message`List all comments (including resolved ones) for a page.` },
@@ -30,8 +30,8 @@ export const parser = command(
       "resolve",
       object({
         command: constant("comments.resolve" as const),
-        pageId: option("--page-id", integer({ min: 1, metavar: "ID" })),
-        id: option("--id", string({ metavar: "UUID" })),
+        pageId: option("--page-id", uuidv7()),
+        id: option("--id", uuidv7()),
         ...common,
       }),
       {
@@ -40,14 +40,14 @@ export const parser = command(
     ),
   ),
   {
-    description: message`Read and resolve page comments in the selected environment. Defaults to development; use --production to target production.`,
+    description: message`Read and resolve page comments in your development draft.`,
   },
 );
 
-type CommonFlags = { cwd?: string; project?: string; production: boolean; json: boolean };
+type CommonFlags = { cwd?: string; project?: string; json: boolean };
 type Args =
-  | ({ command: "comments.list"; pageId: number } & CommonFlags)
-  | ({ command: "comments.resolve"; pageId: number; id: string } & CommonFlags);
+  | ({ command: "comments.list"; pageId: string } & CommonFlags)
+  | ({ command: "comments.resolve"; pageId: string; id: string } & CommonFlags);
 
 export async function handler(args: Args): Promise<never> {
   return dispatch({
@@ -58,7 +58,6 @@ export async function handler(args: Args): Promise<never> {
     },
     cwd: args.cwd,
     projectFlag: args.project,
-    production: args.production,
     outputMode: args.json ? "json" : "auto",
   });
 }

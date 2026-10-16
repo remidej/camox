@@ -15,7 +15,7 @@ function Quote({ children }: { children: ReactNode }) {
   );
 }
 
-function PageQuote({ pageId }: { pageId: number }) {
+function PageQuote({ pageId }: { pageId: string }) {
   const { data: page, isPending } = useQuery(pageQueries.getById(pageId));
   return <Quote>{page?.nickname || (isPending ? "Loading…" : "Page unavailable")}</Quote>;
 }
@@ -60,7 +60,7 @@ function BlockQuote({ target }: { target: Exclude<CommentTarget, { kind: "page" 
   );
 }
 
-export function CommentTargetQuote({ pageId, target }: { pageId: number; target: CommentTarget }) {
+export function CommentTargetQuote({ pageId, target }: { pageId: string; target: CommentTarget }) {
   if (target.kind === "page") return <PageQuote pageId={pageId} />;
   return <BlockQuote target={target} />;
 }

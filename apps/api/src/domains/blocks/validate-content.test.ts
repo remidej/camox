@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import { validateContent } from "./validate-content";
 
+const ITEM_A = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+const ITEM_B = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c";
+
+const FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+const OTHER_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c";
+
 const string = { type: "string", fieldType: "String", minLength: 2, maxLength: 8 };
 const image = {
   type: "object",
@@ -216,21 +222,23 @@ describe("validateContent", () => {
       },
     };
     const options = { allowItemReferences: true };
-    Effect.runSync(validateContent({ items: [{ _itemId: 1 }] }, referenced, options));
-    Effect.runSync(validateContent({ items: [{ _itemId: 1, title: "Hi" }] }, referenced, options));
+    Effect.runSync(validateContent({ items: [{ _itemId: ITEM_A }] }, referenced, options));
+    Effect.runSync(
+      validateContent({ items: [{ _itemId: ITEM_A, title: "Hi" }] }, referenced, options),
+    );
     Effect.runSync(validateContent({ items: [{ title: "Hi" }] }, referenced, options));
     for (const invalid of [
       {},
-      { _itemId: 0 },
-      { _itemId: 1, title: 2 },
-      { _itemId: 1, unknown: true },
+      { _itemId: 1 },
+      { _itemId: ITEM_A, title: 2 },
+      { _itemId: ITEM_A, unknown: true },
     ]) {
       expect(() =>
         Effect.runSync(validateContent({ items: [invalid] }, referenced, options)),
       ).toThrow();
     }
     expect(() =>
-      Effect.runSync(validateContent({ items: [{ _itemId: 1 }] }, referenced)),
+      Effect.runSync(validateContent({ items: [{ _itemId: ITEM_A }] }, referenced)),
     ).toThrow();
   });
 
@@ -248,8 +256,8 @@ describe("validateContent", () => {
 
   it("projects stored and hydrated assets without changing either input", () => {
     const value = {
-      image: { _fileId: "42", url: "invented", alt: "extra" },
-      images: [null, { _fileId: 3 }, { url: "placeholder" }],
+      image: { _fileId: FILE_ID, url: "invented", alt: "extra" },
+      images: [null, { _fileId: OTHER_FILE_ID }, { url: "placeholder" }],
     };
     const assets = {
       properties: {
@@ -270,9 +278,14 @@ describe("validateContent", () => {
     ).toThrow();
   });
 
-  it.each([null, "url", {}, { _fileId: "invalid" }, { url: "placeholder" }])(
+  it.each([null, "url", {}, { url: "placeholder" }])(
     "accepts assets that the normalizer turns into null: %j",
     (image) => Effect.runSync(validateContent({ image }, schema)),
+  );
+
+  it.each([{ _fileId: "invalid" }, { _fileId: 42 }, { _fileId: crypto.randomUUID() }])(
+    "rejects a file reference that isn't a UUIDv7: %j",
+    (image) => expect(() => Effect.runSync(validateContent({ image }, schema))).toThrow(),
   );
 
   it("requires fresh repeatable items, but not asset render placeholders", () => {
@@ -295,17 +308,19 @@ describe("validateContent", () => {
     );
   });
 
-  it("allows positive integer item references only when explicitly enabled", () => {
-    expect(() => Effect.runSync(validateContent({ items: [{ _itemId: 1 }] }, schema))).toThrow();
+  it("allows UUIDv7 item references only when explicitly enabled", () => {
+    expect(() =>
+      Effect.runSync(validateContent({ items: [{ _itemId: ITEM_A }] }, schema)),
+    ).toThrow();
     Effect.runSync(
-      validateContent({ items: [{ _itemId: 1 }] }, schema, { allowItemReferences: true }),
+      validateContent({ items: [{ _itemId: ITEM_A }] }, schema, { allowItemReferences: true }),
     );
     Effect.runSync(
-      validateContent({ items: [{ _itemId: 1, title: "Hi" }] }, schema, {
+      validateContent({ items: [{ _itemId: ITEM_A, title: "Hi" }] }, schema, {
         allowItemReferences: true,
       }),
     );
-    for (const id of [0, -1, 1.2, "1", null]) {
+    for (const id of [1, "1", "2b0f6c2e-4a1d-4c6e-9b8a-3f2e1d0c9b8a", null]) {
       expect(() =>
         Effect.runSync(
           validateContent({ items: [{ _itemId: id }] }, schema, { allowItemReferences: true }),
@@ -314,14 +329,14 @@ describe("validateContent", () => {
     }
     expect(() =>
       Effect.runSync(
-        validateContent({ items: [{ _itemId: 1, title: 3 }] }, schema, {
+        validateContent({ items: [{ _itemId: ITEM_A, title: 3 }] }, schema, {
           allowItemReferences: true,
         }),
       ),
     ).toThrow();
     expect(() =>
       Effect.runSync(
-        validateContent({ items: [{ _itemId: 1, unknown: 3 }] }, schema, {
+        validateContent({ items: [{ _itemId: ITEM_A, unknown: 3 }] }, schema, {
           allowItemReferences: true,
         }),
       ),
@@ -340,11 +355,11 @@ describe("validateContent", () => {
         },
       },
     };
-    const value = { groups: [{ _itemId: 1, children: [{ _itemId: 2 }] }] };
+    const value = { groups: [{ _itemId: ITEM_A, children: [{ _itemId: ITEM_B }] }] };
     Effect.runSync(validateContent(value, nested, { allowItemReferences: true }));
     expect(() => Effect.runSync(validateContent(value, nested))).toThrow();
     const error = errorFor(
-      { groups: [{ _itemId: 1, children: [{ _itemId: 2, title: false }] }] },
+      { groups: [{ _itemId: ITEM_A, children: [{ _itemId: ITEM_B, title: false }] }] },
       nested,
       { allowItemReferences: true },
     );

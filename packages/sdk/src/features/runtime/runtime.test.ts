@@ -4,9 +4,9 @@ import { test } from "node:test";
 import type { CamoxApp } from "../../core/createApp";
 import { handleCamoxRequest, type PageRenderInput, type RuntimeOptions } from "./runtime";
 
-const project = { id: 1, name: "Real project", slug: "test", updatedAt: "2026-01-01" };
+const project = { id: "1", name: "Real project", slug: "test", updatedAt: "2026-01-01" };
 const layout = {
-  id: 2,
+  id: "2",
   layoutId: "pokemon.$name",
   beforeBlockIds: [],
   afterBlockIds: [],
@@ -41,21 +41,20 @@ const app = {
   getLayoutById: () => null,
 } as unknown as CamoxApp;
 
-void test("preview authenticates before loading an unpublished path", async (t) => {
+void test("preview authenticates before loading the page", async (t) => {
   t.mock.method(globalThis, "fetch", async () => {
     throw new Error("No content requests should precede the token exchange");
   });
   const response = await handleCamoxRequest(
-    new Request("http://localhost:3000/draft-only?camox-preview=target&ott=token"),
+    new Request("http://localhost:3000/new-page?camox-preview=target&ott=token"),
     {
       apiUrl: "https://api.test",
       authenticationUrl: "https://auth.test",
-      environmentName: "dev:me@example.test",
       projectSlug: "test",
       pageClientEntryUrl: "/client.js",
       renderPage: async (input) => {
         assert.equal(input.previewHandoff, true);
-        assert.equal(input.pathname, "/draft-only");
+        assert.equal(input.pathname, "/new-page");
         assert.equal(input.loaderData, null);
         return "Signing in to draft preview…";
       },
@@ -90,7 +89,7 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
         );
       return Response.json({
         json: {
-          page: { id: 1, fullPath: body.json.path, pathSegment: "about", status: "draft" },
+          page: { id: "1", fullPath: body.json.path, pathSegment: "about" },
           layout: null,
           project,
           projectName: project.name,
@@ -202,32 +201,25 @@ void test("runtime returns complete route payloads for curated, singleton, deriv
   assert.ok(calls.includes("/rpc/layouts/get"));
 });
 
-void test("new unpublished curated pages load with native session cookies but stay private", async (t) => {
+void test("visitors and members load the same curated page, and only members with native session cookies get the Studio", async (t) => {
+  const pageReads: Array<string | null> = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/getBySlug")) return Response.json({ json: project });
-    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
-    if (path.endsWith("/getByPath")) {
-      const { json: input } = (await request.json()) as { json: { source: string; path: string } };
-      assert.equal(input.path, "/new-curated-page");
-      if (input.source === "live")
-        return Response.json(
-          { json: { defined: false, code: "NOT_FOUND", status: 404, message: "Not published" } },
-          { status: 404 },
-        );
+    if (path.endsWith("/getBySlug")) {
       assert.match(
         request.headers.get("Better-Auth-Cookie") ?? "",
         /^(?:__Secure-)?better-auth.session_token=valid$/,
       );
+      return Response.json({ json: project });
+    }
+    if (path.endsWith("/listBySlug")) return Response.json({ json: [] });
+    if (path.endsWith("/getByPath")) {
+      const { json: input } = (await request.json()) as { json: { path: string } };
+      assert.deepEqual(input, { path: "/new-curated-page", projectSlug: "test" });
+      pageReads.push(request.headers.get("Better-Auth-Cookie"));
       return Response.json({
         json: {
-          page: {
-            id: 3,
-            fullPath: input.path,
-            pathSegment: "new-curated-page",
-            status: "draft",
-            livePublishedCheckpointId: null,
-          },
+          page: { id: "3", fullPath: input.path, pathSegment: "new-curated-page" },
           layout: null,
           project,
           projectName: project.name,
@@ -243,11 +235,18 @@ void test("new unpublished curated pages load with native session cookies but st
     apiUrl: "https://api.test",
     authenticationUrl: "https://auth.test",
     projectSlug: "test",
-    renderPage: async (input) => `<main>${input.source} page</main>`,
+    renderPage: async (input) =>
+      `<main>${input.loaderData ? "Page" : "No"} for ${input.presentation}</main>`,
   };
   for (const path of ["/new-curated-page", "/_camox/data?path=/new-curated-page"]) {
     const anonymous = await handleCamoxRequest(new Request(`https://site.test${path}`), options);
-    assert.equal(anonymous?.status, 404);
+    assert.equal(anonymous?.status, 200);
+    if (path.startsWith("/_camox/")) {
+      assert.equal(((await anonymous!.json()) as PageRenderInput).presentation, "public");
+    } else {
+      assert.equal(anonymous?.headers.get("Cache-Control"), null);
+      assert.match(await anonymous!.text(), /Page for public/);
+    }
     for (const cookie of [
       "better-auth.session_token=valid",
       "__Secure-better-auth.session_token=valid",
@@ -260,33 +259,23 @@ void test("new unpublished curated pages load with native session cookies but st
       assert.equal(response?.headers.get("Cache-Control"), "private, no-store");
       if (path.startsWith("/_camox/")) {
         const input = (await response!.json()) as PageRenderInput;
-        assert.equal(input.source, "draft");
         assert.equal(input.presentation, "studio");
+        assert.equal(input.project?.name, project.name);
       } else {
-        assert.match(await response!.text(), /draft page/);
+        assert.match(await response!.text(), /Page for studio/);
       }
     }
   }
+  // Members read with their session, so linked records resolve their saved drafts.
+  assert.deepEqual(pageReads.map(Boolean), [false, true, true, false, true, true]);
 });
 
-void test("sitemaps include published pages and singleton destinations with the runtime base path and no invented lastmod", async (t) => {
+void test("sitemaps include curated pages and singleton destinations with the runtime base path and no invented lastmod", async (t) => {
   t.mock.method(globalThis, "fetch", async () =>
     Response.json({
       json: [
-        {
-          id: 1,
-          nickname: "About",
-          fullPath: "/about",
-          updatedAt: "2026-01-01",
-          status: "published",
-        },
-        {
-          id: 2,
-          nickname: "Draft",
-          fullPath: "/draft-only",
-          updatedAt: "2026-01-01",
-          status: "draft",
-        },
+        { id: "1", nickname: "About", fullPath: "/about", updatedAt: "2026-01-01" },
+        { id: "2", nickname: "Contact", fullPath: "/contact", updatedAt: "2026-01-02" },
       ],
     }),
   );
@@ -301,9 +290,9 @@ void test("sitemaps include published pages and singleton destinations with the 
   assert.match(xml, /https:\/\/site.test\/site\/pokedex/);
   assert.match(xml, /https:\/\/site.test\/site\/about-camox/);
   assert.match(xml, /https:\/\/site.test\/site\/about</);
-  assert.equal(xml.match(/<lastmod>/g)?.length, 1);
+  assert.match(xml, /https:\/\/site.test\/site\/contact</);
+  assert.equal(xml.match(/<lastmod>/g)?.length, 2);
   assert.doesNotMatch(xml, /pokemon|\$name/);
-  assert.doesNotMatch(xml, /draft-only/);
 });
 
 void test("expired studio auth clears the mirrored cookie without granting chrome", async (t) => {
@@ -432,23 +421,33 @@ void test("Canvas-only routes open the page app on the Canvas or a block, or red
   }
 });
 
-void test("public Markdown responses read the live page", async (t) => {
-  const requested: Array<{ path: string; input: unknown }> = [];
+void test("public Markdown responses read the page without a session", async (t) => {
+  const requested: Array<{ path: string; input: unknown; session: string | null }> = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname;
-    requested.push({ path, input: ((await request.json()) as { json: unknown }).json });
-    if (path.endsWith("/pages/getByPath")) return Response.json({ json: { page: { id: 7 } } });
-    return Response.json({ json: { markdown: "# Live", blocks: [] } });
+    requested.push({
+      path,
+      input: ((await request.json()) as { json: unknown }).json,
+      session: request.headers.get("Better-Auth-Cookie"),
+    });
+    if (path.endsWith("/pages/getByPath")) return Response.json({ json: { page: { id: "7" } } });
+    return Response.json({ json: { markdown: "# About", blocks: [] } });
   });
   const response = await handleCamoxRequest(
-    new Request("https://site.test/about", { headers: { Accept: "text/markdown" } }),
+    new Request("https://site.test/about", {
+      headers: { Accept: "text/markdown", Cookie: "better-auth.session_token=valid" },
+    }),
     { apiUrl: "https://api.test", projectSlug: "test" },
   );
-  assert.equal(await response?.text(), "# Live");
-  assert.deepEqual(
-    requested.map(({ input }) => (input as { source?: string }).source),
-    ["live", "live"],
-  );
+  assert.equal(await response?.text(), "# About");
+  assert.deepEqual(requested, [
+    {
+      path: "/rpc/pages/getByPath",
+      input: { path: "/about", projectSlug: "test" },
+      session: null,
+    },
+    { path: "/rpc/blocks/getPageMarkdown", input: { pageId: "7" }, session: null },
+  ]);
 });
 
 function appWithRoutes(routes: () => unknown) {
@@ -543,7 +542,7 @@ function mockPageWithBlocks(
     if (path.endsWith("/getByPath"))
       return Response.json({
         json: {
-          page: { id: 1, fullPath: "/about", pathSegment: "about", status: "published" },
+          page: { id: "1", fullPath: "/about", pathSegment: "about", status: "published" },
           layout: null,
           project,
           projectName: project.name,

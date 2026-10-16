@@ -1,63 +1,47 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 
-import { assertLayoutAccess, assertSyncAccess, requireUser } from "../../authorization";
+import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { resolveEnvironment } from "../../lib/resolve-environment";
+import { decodeInput, NotFoundError } from "../../lib/errors";
 import {
   blockDefinitions,
   blocks,
-  layoutCheckpoints,
+  comments,
   layouts,
-  pages,
   projects,
   repeatableItems,
 } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
-import { readLayoutSnapshot } from "../_shared/layout-source";
+import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
+import { readOwnerBlocks } from "../_shared/owner-blocks";
+import { layoutSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
-import type { LayoutSnapshot } from "../_shared/snapshot-schemas";
 import { prepareBlockContent } from "../blocks/prepare-content";
-import { syncBlockData } from "../blocks/synced";
-import { publishSyncedData } from "../blocks/synced-live";
-import { publishWithReferences, referenceTargets } from "../collections/reference-publication";
-import { collectionSelection, pageRecordInput } from "../collections/reference-publication-input";
+import { adoptSharedContent } from "../blocks/shared-content";
 import {
   hydrateItemReferences,
   hydrateReferences,
-  referenceChanges,
   validateReferenceValues,
 } from "../collections/references";
-import { buildFileMap, collectFileIds, sortByPosition } from "../pages/ai";
-import { normalizePagePath, singletonPath } from "./route-ownership";
+import * as overlay from "../drafts/overlay";
+import { releasedNew, visibleIn } from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
+import { resolveDraftScope } from "../drafts/service";
+import { buildFileMap, collectFileIds } from "../pages/ai";
+import { blocksOfLayout } from "./identity";
+import type { RecordPages } from "./schema";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
 // Services .parse() them on entry — service is the trust boundary.
 
-export const getLayoutInput = z.object({
-  projectSlug: z.string(),
-  layoutId: z.string(),
-  source: z.enum(["live", "draft"]).default("live"),
-});
+export const getLayoutInput = z.object({ projectSlug: z.string(), layoutId: z.string() });
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
-export const publishLayoutInput = z.object({
-  id: z.number(),
-  collections: collectionSelection,
-  pageRecord: pageRecordInput.optional(),
-  includeLayout: z.boolean().optional(),
-});
-export const unpublishLayoutInput = z.object({ id: z.number() });
-
-// Snapshot shape version written into `layout_checkpoints.schema_version`.
-// One-way ratchet — bump and add a migration when the snapshot shape changes.
-const LAYOUT_SNAPSHOT_SCHEMA_VERSION = 1;
-
 const repeatableItemSeedSchema = z.object({
   tempId: z.string(),
   parentTempId: z.string().nullable(),
@@ -76,6 +60,8 @@ export const syncLayoutsInput = z.object({
       layoutId: z.string(),
       kind: z.enum(["curated", "derived", "singleton"]).default("curated"),
       description: z.string(),
+      /** A derived layout's record pages: the collection they render, found by `field`. */
+      recordPages: z.object({ collectionId: z.string(), field: z.string() }).optional(),
       blocks: z.array(
         z.preprocess(
           // SDKs before 0.45 send the layout slot as `placement`.
@@ -96,206 +82,6 @@ export const syncLayoutsInput = z.object({
   ),
 });
 
-// --- Derived publish status ---
-//
-// Layout status mirrors page status (Phase 2 / Phase 3) but without a cascade:
-// a layout has no parent. `'draft'` when there's no live pointer, `'modified'`
-// when the live row has moved past the published checkpoint, `'published'`
-// otherwise. Computed at read time; nothing stored.
-
-export type LayoutStatus = "draft" | "published" | "modified";
-export type LayoutStatusInfo = {
-  status: LayoutStatus;
-  affectedPagesCount: number;
-};
-
-type LayoutRow = typeof layouts.$inferSelect;
-
-function deriveLayoutStatus(args: {
-  layout: Pick<LayoutRow, "livePublishedCheckpointId" | "contentUpdatedAt">;
-  checkpointCreatedAt: number | null;
-  affectedPagesCount: number;
-  referenceModified?: boolean;
-}): LayoutStatusInfo {
-  const { layout, checkpointCreatedAt, affectedPagesCount } = args;
-  if (layout.livePublishedCheckpointId == null || checkpointCreatedAt == null) {
-    return { status: "draft", affectedPagesCount };
-  }
-  if (args.referenceModified || layout.contentUpdatedAt > checkpointCreatedAt) {
-    return { status: "modified", affectedPagesCount };
-  }
-  return { status: "published", affectedPagesCount };
-}
-
-const fetchLayoutStatuses = Effect.fn("layouts.fetchLayoutStatuses")(function* (
-  ctx: ServiceContext,
-  layoutRows: LayoutRow[],
-  environmentId: number,
-) {
-  const result = new Map<number, LayoutStatusInfo>();
-  if (layoutRows.length === 0) return result;
-  const db = ctx.db;
-
-  const checkpointIds = layoutRows
-    .map((l) => l.livePublishedCheckpointId)
-    .filter((id): id is number => id != null);
-  const checkpointCreatedAt = new Map<number, number>();
-  if (checkpointIds.length > 0) {
-    const rows = yield* Effect.promise(() =>
-      db
-        .select({ id: layoutCheckpoints.id, createdAt: layoutCheckpoints.createdAt })
-        .from(layoutCheckpoints)
-        .where(inArray(layoutCheckpoints.id, checkpointIds)),
-    );
-    for (const row of rows) checkpointCreatedAt.set(row.id, row.createdAt);
-  }
-
-  // One GROUP BY for "how many pages use each layout" — same shape as
-  // fetchPageStatuses uses for the cascade tooltip.
-  const layoutIds = layoutRows.map((l) => l.id);
-  const pageCounts = new Map<number, number>();
-  const rows = yield* Effect.promise(() =>
-    db
-      .select({ layoutId: pages.layoutId, count: sql<number>`count(*)` })
-      .from(pages)
-      .where(and(eq(pages.environmentId, environmentId), inArray(pages.layoutId, layoutIds)))
-      .groupBy(pages.layoutId),
-  );
-  for (const row of rows) {
-    if (row.layoutId != null) pageCounts.set(row.layoutId, Number(row.count));
-  }
-
-  const references = yield* referenceChanges(ctx, environmentId);
-  for (const layout of layoutRows) {
-    const cpAt =
-      layout.livePublishedCheckpointId != null
-        ? (checkpointCreatedAt.get(layout.livePublishedCheckpointId) ?? null)
-        : null;
-    result.set(
-      layout.id,
-      deriveLayoutStatus({
-        layout,
-        checkpointCreatedAt: cpAt,
-        affectedPagesCount: pageCounts.get(layout.id) ?? 0,
-        referenceModified: references.layoutIds.has(layout.id),
-      }),
-    );
-  }
-
-  return result;
-});
-
-// --- Snapshot ---
-
-// Build a canonical layout snapshot from the current live (draft) rows. Mirrors
-// `buildPageSnapshotFromDraft` — same `_itemId` markers convention (stripped
-// on write, re-injected on read), same blocks + repeatableItems shape.
-export const buildLayoutSnapshotFromDraft = Effect.fn("layouts.buildLayoutSnapshotFromDraft")(
-  function* (
-    ctx: ServiceContext,
-    layout: typeof layouts.$inferSelect,
-  ): Effect.fn.Return<LayoutSnapshot> {
-    const layoutBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(eq(blocks.layoutId, layout.id)),
-    );
-    const blockIds = layoutBlocks.map((b) => b.id);
-    const items =
-      blockIds.length > 0
-        ? yield* Effect.promise(() =>
-            ctx.db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
-          )
-        : [];
-
-    return {
-      layout: {
-        id: layout.id,
-        projectId: layout.projectId,
-        environmentId: layout.environmentId,
-        layoutId: layout.layoutId,
-        description: layout.description,
-        createdAt: layout.createdAt,
-        updatedAt: layout.updatedAt,
-      },
-      blocks: layoutBlocks.map((b) => ({
-        id: b.id,
-        pageId: b.pageId,
-        layoutId: b.layoutId,
-        type: b.type,
-        content: b.content,
-        settings: b.settings,
-        slot: b.slot,
-        summary: b.summary,
-        position: b.position,
-        createdAt: b.createdAt,
-        updatedAt: b.updatedAt,
-      })),
-      repeatableItems: items.map((item) => ({
-        id: item.id,
-        blockId: item.blockId,
-        parentItemId: item.parentItemId,
-        fieldName: item.fieldName,
-        content: item.content,
-        settings: item.settings,
-        summary: item.summary,
-        position: item.position,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })),
-    };
-  },
-);
-
-// A layout publish affects every page using that layout — the page list needs
-// to recompute status for all of them, and the per-page `'live'` caches need
-// to refresh. We enumerate the affected pages and their blocks once, then fan
-// out a single broadcast. `pages.getByPath` without a source is a prefix that
-// covers both 'draft' and 'live' sources, which matters: the draft source also
-// re-derives status from the layout pointer.
-const invalidateLayoutPublish = Effect.fn("layouts.invalidateLayoutPublish")(function* (
-  ctx: ServiceContext,
-  args: {
-    projectId: number;
-    environmentId: number;
-    layoutId: number;
-  },
-) {
-  const dependentPages = yield* Effect.promise(() =>
-    ctx.db
-      .select({ id: pages.id, fullPath: pages.fullPath })
-      .from(pages)
-      .where(and(eq(pages.layoutId, args.layoutId), eq(pages.environmentId, args.environmentId))),
-  );
-
-  const pageIds = dependentPages.map((p) => p.id);
-  const pageBlockIds =
-    pageIds.length > 0
-      ? (yield* Effect.promise(() =>
-          ctx.db.select({ id: blocks.id }).from(blocks).where(inArray(blocks.pageId, pageIds)),
-        )).map((b) => b.id)
-      : [];
-
-  const layoutBlockIds = (yield* Effect.promise(() =>
-    ctx.db.select({ id: blocks.id }).from(blocks).where(eq(blocks.layoutId, args.layoutId)),
-  )).map((b) => b.id);
-
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    projectId: args.projectId,
-    targets: [
-      queryKeys.pages.list,
-      queryKeys.layouts.all,
-      // Synced block types may also be used by unrelated layouts or pages.
-      queryKeys.pages.getByPathAll,
-      ["camox", "blocks", "get"],
-      ["camox", "blocks", "getPageMarkdown"],
-      ...dependentPages.map((p) => queryKeys.pages.getByPath(p.fullPath)),
-      ...pageBlockIds.map((id) => queryKeys.blocks.get(id, "live")),
-      ...layoutBlockIds.map((id) => queryKeys.blocks.get(id, "live")),
-    ],
-  });
-});
-
 // --- Reads ---
 
 export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
@@ -303,48 +89,42 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
   rawInput: z.input<typeof listLayoutsInput>,
 ) {
   const { projectId } = yield* decodeInput(listLayoutsInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const rows = yield* Effect.promise(() =>
+  const scope = yield* resolveDraftScope(ctx, projectId);
+  return yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id))),
+      .where(and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope))),
   );
-  const statuses = yield* fetchLayoutStatuses(ctx, rows, environment.id);
-  return rows.map((layout) => ({
-    ...layout,
-    ...(statuses.get(layout.id) ?? { status: "draft" as const, affectedPagesCount: 0 }),
-  }));
 });
 
-// Standalone layout reads use the same persisted blocks and live checkpoints as curated pages.
+// Standalone layout reads use the same current blocks as curated pages.
 export const getLayout = Effect.fn("layouts.getLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutInput>,
+  scope: DraftScope,
 ) {
-  const { projectSlug, layoutId, source } = yield* decodeInput(getLayoutInput, rawInput);
-  const user = source === "draft" ? yield* requireUser(ctx) : null;
+  const { projectSlug, layoutId } = yield* decodeInput(getLayoutInput, rawInput);
   const project = yield* Effect.promise(() =>
     ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );
   if (!project) return yield* new NotFoundError();
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
+      .where(
+        and(
+          eq(layouts.projectId, project.id),
+          eq(layouts.layoutId, layoutId),
+          definitionsIn(layouts, scope),
+        ),
+      )
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
-  if (user) yield* assertLayoutAccess(ctx.db, layout.id, user.id);
 
-  const snapshot =
-    source === "draft"
-      ? yield* buildLayoutSnapshotFromDraft(ctx, layout)
-      : yield* readLayoutSnapshot(ctx, layout);
-  const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);
-  const items = sortByPosition(snapshot?.repeatableItems ?? []);
+  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
   const normalized = layoutBlocks.map((block) =>
     injectRepeatableItemMarkers(
       block,
@@ -353,32 +133,28 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
   );
   const hydrated = yield* hydrateReferences(
     ctx,
-    layout,
+    { ...layout, draft: scope },
     normalized.map(({ block }) => block),
-    source,
   );
   const hydratedItems = yield* hydrateItemReferences(
     ctx,
-    layout,
+    { ...layout, draft: scope },
     layoutBlocks,
     normalized.flatMap(({ items }) => items),
-    source,
   );
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   for (const value of [...layoutBlocks, ...items])
     collectFileIds(value.content as Record<string, unknown>, fileIds);
   for (const value of [...hydrated, ...hydratedItems]) collectFileIds(value.references, fileIds);
-  const fileRows = yield* buildFileMap(ctx.db, fileIds);
+  const fileRows = yield* buildFileMap(ctx.db, fileIds, scope);
   return {
     projectName: project.name,
     // Enough for the SDK to build a cache-busted favicon URL, as for pages.
     project: { id: project.id, updatedAt: project.updatedAt },
     layout: {
-      id: layout.id,
       layoutId: layout.layoutId,
       contentUpdatedAt: layout.contentUpdatedAt,
       updatedAt: layout.updatedAt,
-      livePublishedCheckpointId: layout.livePublishedCheckpointId,
       beforeBlockIds: layoutBlocks
         .filter((block) => block.slot === "before")
         .map((block) => block.id),
@@ -394,46 +170,145 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
 
 // --- Writes ---
 
+type LayoutRow = typeof layouts.$inferSelect;
+
+/** Syncing an unchanged layout writes nothing to it. */
+const updateSyncedLayout = Effect.fn("layouts.updateSyncedLayout")(function* (
+  ctx: ServiceContext,
+  existing: LayoutRow,
+  def: { description: string; kind: LayoutRow["kind"]; recordPages?: RecordPages },
+  now: number,
+) {
+  const recordPages = def.recordPages ?? null;
+  if (
+    existing.description === def.description &&
+    existing.kind === def.kind &&
+    JSON.stringify(existing.recordPages) === JSON.stringify(recordPages)
+  ) {
+    return existing;
+  }
+  const schemaHash = yield* Effect.promise(() => layoutSchemaHash(def));
+  return yield* Effect.promise(() =>
+    ctx.db
+      .update(layouts)
+      .set({
+        description: def.description,
+        kind: def.kind,
+        recordPages,
+        schemaHash,
+        updatedAt: now,
+      })
+      .where(eq(layouts.rowId, existing.rowId))
+      .returning()
+      .get(),
+  );
+});
+
+type DeclaredBlock = Pick<
+  typeof blocks.$inferInsert,
+  "projectId" | "layoutId" | "type" | "content" | "settings" | "slot" | "position"
+>;
+type ItemSeed = {
+  tempId: string;
+  parentTempId: string | null;
+  fieldName: string;
+  content: unknown;
+  settings?: unknown;
+  position: string;
+};
+
+/**
+ * Seeds a block a layout declares, with its repeatable items, in the sync's target: on Live as
+ * released content, in a development draft as draft rows (ADR 0006).
+ */
+const insertDeclaredBlock = Effect.fn("layouts.insertDeclaredBlock")(function* (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  values: DeclaredBlock,
+  seeds: readonly ItemSeed[] | undefined,
+  now: number,
+) {
+  const timestamps = { createdAt: now, updatedAt: now };
+  const block = scope
+    ? (yield* overlay.insert(ctx.db, scope, blocks, { ...values, ...timestamps }))!
+    : yield* Effect.promise(() =>
+        ctx.db
+          .insert(blocks)
+          .values({ ...values, ...releasedNew(now), ...timestamps })
+          .returning()
+          .get(),
+      );
+
+  const tempIdToRealId = new Map<string, string>();
+  for (const seed of seeds ?? []) {
+    const item = {
+      blockId: block.id,
+      parentItemId: seed.parentTempId ? (tempIdToRealId.get(seed.parentTempId) ?? null) : null,
+      fieldName: seed.fieldName,
+      content: seed.content,
+      settings: seed.settings ?? null,
+      position: seed.position,
+      ...timestamps,
+    };
+    const inserted = scope
+      ? (yield* overlay.insert(ctx.db, scope, repeatableItems, item))!
+      : yield* Effect.promise(() =>
+          ctx.db
+            .insert(repeatableItems)
+            .values({ ...item, ...releasedNew(now) })
+            .returning()
+            .get(),
+        );
+    tempIdToRealId.set(seed.tempId, inserted.id);
+  }
+  return block;
+});
+
+/**
+ * Deletes layout-only blocks no layout declares any more, in the sync's target. A release
+ * deletes Live's with their items and Live's comments on them; drafts keep theirs. Dev mode
+ * deletes them in the development draft.
+ */
+const deleteOrphanedBlocks = Effect.fn("layouts.deleteOrphanedBlocks")(function* (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  ids: string[],
+) {
+  if (ids.length === 0) return;
+  if (scope) {
+    for (const id of ids) yield* overlay.remove(ctx.db, scope, blocks, id);
+    return;
+  }
+  // Items and comments hold no foreign key to their block (ADR 0005).
+  yield* Effect.promise(() =>
+    ctx.db.batch([
+      ctx.db.delete(comments).where(and(isNull(comments.draftId), inArray(comments.blockId, ids))),
+      ctx.db
+        .delete(repeatableItems)
+        .where(and(visibleIn(repeatableItems, null), inArray(repeatableItems.blockId, ids))),
+      ctx.db.delete(blocks).where(and(visibleIn(blocks, null), inArray(blocks.id, ids))),
+    ]),
+  );
+});
+
 export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof syncLayoutsInput>,
 ) {
   const input = yield* decodeInput(syncLayoutsInput, rawInput);
   const { projectSlug, layouts: layoutDefs, autoCreate } = input;
-  const project = yield* assertSyncAccess(ctx.db, projectSlug, {
-    user: ctx.user,
-    environmentName: ctx.environmentName,
-    deployToken: input.deployToken,
-  });
+  // A release writes Live; dev mode writes the caller's development draft (ADR 0006).
+  const { project, scope } = yield* assertSyncAccess(
+    ctx.db,
+    projectSlug,
+    { user: ctx.user, draft: ctx.draft, deployToken: input.deployToken },
+    { create: autoCreate },
+  );
   const projectId = project.id;
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName, {
-    autoCreate,
-  });
-  // Validate the complete submission before writing anything. Existing curated
-  // pages must be moved explicitly before code can claim their URLs/layouts.
-  const existingPages = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.environmentId, environment.id)),
-  );
+  const inTarget = and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope));
   const existingLayouts = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.environmentId, environment.id)),
+    ctx.db.select().from(layouts).where(inTarget),
   );
-  for (const def of layoutDefs) {
-    if (def.kind === "curated") continue;
-    const existing = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
-    if (existingPages.some((page) => page.layoutId === existing?.id))
-      return yield* new ConflictError({
-        message: `Layout ${def.layoutId} is still assigned to curated pages`,
-      });
-    if (def.kind !== "singleton") continue;
-    const path = yield* singletonPath(def.layoutId);
-    for (const page of existingPages) {
-      if ((yield* normalizePagePath(page.fullPath)) !== path) continue;
-      return yield* new ConflictError({
-        message: `Singleton URL ${path} conflicts with an existing curated page`,
-      });
-    }
-  }
-
   const now = Date.now();
   const results = [];
 
@@ -442,10 +317,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       .select()
       .from(blockDefinitions)
       .where(
-        and(
-          eq(blockDefinitions.projectId, projectId),
-          eq(blockDefinitions.environmentId, environment.id),
-        ),
+        and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
       ),
   );
   const definitionsByType = new Map(
@@ -474,11 +346,27 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     ),
   );
 
+  // Only declared blocks the target lacks are written, so only they are checked: content already
+  // there, like a link to a page deleted since, never fails a sync.
+  const declaredInTarget = new Set<string>();
+  for (const layout of existingLayouts) {
+    const placed = yield* Effect.promise(() =>
+      ctx.db
+        .select({ type: blocks.type, slot: blocks.slot })
+        .from(blocks)
+        .where(and(visibleIn(blocks, scope), blocksOfLayout(layout))),
+    );
+    for (const block of placed) {
+      declaredInTarget.add(`${layout.layoutId}:${block.type}:${block.slot ?? ""}`);
+    }
+  }
+
   for (const def of preparedLayouts) {
     for (const block of def.blocks) {
+      if (declaredInTarget.has(`${def.layoutId}:${block.type}:${block.slot ?? ""}`)) continue;
       yield* validateReferenceValues(
         ctx,
-        { projectId, environmentId: environment.id },
+        { projectId, draft: scope },
         definitionsByType.get(block.type)?.contentSchema,
         block.bundle,
       );
@@ -486,38 +374,20 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   }
 
   for (const def of preparedLayouts) {
-    const existingLayout = yield* Effect.promise(() =>
-      ctx.db
-        .select()
-        .from(layouts)
-        .where(
-          and(
-            eq(layouts.projectId, projectId),
-            eq(layouts.environmentId, environment.id),
-            eq(layouts.layoutId, def.layoutId),
-          ),
-        )
-        .get(),
-    );
-
+    const existingLayout = existingLayouts.find((layout) => layout.layoutId === def.layoutId);
     const layout = existingLayout
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .update(layouts)
-            .set({ description: def.description, kind: def.kind, updatedAt: now })
-            .where(eq(layouts.id, existingLayout.id))
-            .returning()
-            .get(),
-        )
-      : yield* Effect.promise(() =>
+      ? yield* updateSyncedLayout(ctx, existingLayout, def, now)
+      : yield* Effect.promise(async () =>
           ctx.db
             .insert(layouts)
             .values({
+              draftId: definitionsDraftOf(scope),
+              schemaHash: await layoutSchemaHash(def),
               projectId,
-              environmentId: environment.id,
               layoutId: def.layoutId,
               kind: def.kind,
               description: def.description,
+              recordPages: def.recordPages ?? null,
               contentUpdatedAt: now,
               createdAt: now,
               updatedAt: now,
@@ -541,7 +411,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
           position: blocks.position,
         })
         .from(blocks)
-        .where(eq(blocks.layoutId, layout.id)),
+        .where(and(visibleIn(blocks, scope), blocksOfLayout(layout))),
     );
 
     const existingByKey = new Map<string, string>();
@@ -574,53 +444,23 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
       const blockDef = entry.def;
       createdBlockTypes.push(blockDef.type);
 
-      const block = yield* Effect.promise(() =>
-        ctx.db
-          .insert(blocks)
-          .values({
-            layoutId: layout.id,
-            type: blockDef.type,
-            content: blockDef.content,
-            settings: blockDef.settings ?? null,
-            slot: blockDef.slot ?? null,
-            position: newPos,
-            summary: "",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get(),
+      const block = yield* insertDeclaredBlock(
+        ctx,
+        scope,
+        {
+          projectId: layout.projectId,
+          layoutId: layout.layoutId,
+          type: blockDef.type,
+          content: blockDef.content,
+          settings: blockDef.settings ?? null,
+          slot: blockDef.slot ?? null,
+          position: newPos,
+        },
+        blockDef.repeatableItems,
+        now,
       );
 
-      const itemSeeds = blockDef.repeatableItems;
-      if (itemSeeds && itemSeeds.length > 0) {
-        const tempIdToRealId = new Map<string, number>();
-        for (const seed of itemSeeds) {
-          const parentItemId = seed.parentTempId
-            ? (tempIdToRealId.get(seed.parentTempId) ?? null)
-            : null;
-          const inserted = yield* Effect.promise(() =>
-            ctx.db
-              .insert(repeatableItems)
-              .values({
-                blockId: block.id,
-                parentItemId,
-                fieldName: seed.fieldName,
-                content: seed.content,
-                settings: seed.settings ?? null,
-                summary: "",
-                position: seed.position,
-                createdAt: now,
-                updatedAt: now,
-              })
-              .returning()
-              .get(),
-          );
-          tempIdToRealId.set(seed.tempId, inserted.id);
-        }
-      }
-
-      yield* syncBlockData(ctx, block.id, true);
+      yield* adoptSharedContent(ctx, scope, block);
       entry.position = newPos;
       lastPos = newPos;
     }
@@ -628,7 +468,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     const declaredKeys = new Set(def.blocks.map((bd) => `${bd.type}:${bd.slot ?? ""}`));
     const removedBlockTypes: string[] = [];
     const skippedOrphanTypes: string[] = [];
-    const orphanIdsToDelete: number[] = [];
+    const orphanIdsToDelete: string[] = [];
     for (const existing of existingBlocks) {
       const key = `${existing.type}:${existing.slot ?? ""}`;
       if (declaredKeys.has(key)) continue;
@@ -639,11 +479,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         skippedOrphanTypes.push(existing.type);
       }
     }
-    if (orphanIdsToDelete.length > 0) {
-      yield* Effect.promise(() =>
-        ctx.db.delete(blocks).where(inArray(blocks.id, orphanIdsToDelete)),
-      );
-    }
+    yield* deleteOrphanedBlocks(ctx, scope, orphanIdsToDelete);
 
     results.push({
       layout,
@@ -655,38 +491,26 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   }
 
   const submittedLayoutIds = layoutDefs.map((d) => d.layoutId);
-  const orphanLayoutQuery = ctx.db
-    .select({ id: layouts.id, layoutId: layouts.layoutId })
-    .from(layouts);
+  const orphanLayoutQuery = ctx.db.select({ layoutId: layouts.layoutId }).from(layouts);
   const orphanLayouts = yield* Effect.promise(() =>
     submittedLayoutIds.length > 0
       ? orphanLayoutQuery.where(
           and(
             eq(layouts.projectId, projectId),
-            eq(layouts.environmentId, environment.id),
+            inTarget,
             notInArray(layouts.layoutId, submittedLayoutIds),
           ),
         )
-      : orphanLayoutQuery.where(
-          and(eq(layouts.projectId, projectId), eq(layouts.environmentId, environment.id)),
-        ),
+      : orphanLayoutQuery.where(and(eq(layouts.projectId, projectId), inTarget)),
   );
 
-  const deletedLayoutIds: string[] = [];
-  const blockedLayoutDeletions: Array<{ layoutId: string; pageCount: number }> = [];
-  for (const orphan of orphanLayouts) {
-    const pagesUsing = yield* Effect.promise(() =>
-      ctx.db
-        .select({ id: pages.id })
-        .from(pages)
-        .where(and(eq(pages.layoutId, orphan.id), eq(pages.environmentId, environment.id))),
+  // A removed layout's pages and blocks stay stored under its name and come back with it.
+  // Meanwhile its pages aren't served, and the studio lists them as needing a layout.
+  const removedLayoutIds = orphanLayouts.map((orphan) => orphan.layoutId);
+  for (const layoutId of removedLayoutIds) {
+    yield* Effect.promise(() =>
+      ctx.db.delete(layouts).where(and(inTarget, eq(layouts.layoutId, layoutId))),
     );
-    if (pagesUsing.length > 0) {
-      blockedLayoutDeletions.push({ layoutId: orphan.layoutId, pageCount: pagesUsing.length });
-      continue;
-    }
-    yield* Effect.promise(() => ctx.db.delete(layouts).where(eq(layouts.id, orphan.id)));
-    deletedLayoutIds.push(orphan.layoutId);
   }
 
   // A layoutOnly block definition only makes sense while at least one
@@ -697,8 +521,9 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
     ctx.db
       .selectDistinct({ type: blocks.type })
       .from(blocks)
-      .innerJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .where(eq(layouts.environmentId, environment.id)),
+      .where(
+        and(eq(blocks.projectId, projectId), isNotNull(blocks.layoutId), visibleIn(blocks, scope)),
+      ),
   );
   const usedTypeSet = new Set(usedTypes.map((r) => r.type));
 
@@ -715,7 +540,7 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
         .where(
           and(
             eq(blockDefinitions.projectId, projectId),
-            eq(blockDefinitions.environmentId, environment.id),
+            definitionsIn(blockDefinitions, scope),
             inArray(blockDefinitions.blockId, deletedDefinitionTypes),
           ),
         ),
@@ -725,142 +550,14 @@ export const syncLayouts = Effect.fn("layouts.syncLayouts")(function* (
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId,
     targets: [queryKeys.layouts.all, queryKeys.pages.getByPathAll],
   });
 
   return {
     layouts: results,
-    deletedLayoutIds,
-    blockedLayoutDeletions,
+    removedLayoutIds,
     deletedDefinitionTypes,
   };
-});
-
-// Promote the current layout draft to public: snapshot the live rows, write a
-// new auto-publish checkpoint, point the layout at it. Mirrors `publishPage`.
-// `pages.publish` also reaches for these primitives when `alsoPublishLayout`
-// is set, so the building blocks are exported.
-export const publishLayout = Effect.fn("layouts.publishLayout")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof publishLayoutInput>,
-) {
-  const user = yield* requireUser(ctx);
-  const input = yield* decodeInput(publishLayoutInput, rawInput);
-  const { id } = input;
-  const references = yield* referenceTargets(ctx, input, "layout");
-  if (
-    input.includeLayout === false ||
-    input.collections.length ||
-    references.targets.length ||
-    references.missingRequired.length
-  ) {
-    return (yield* publishWithReferences(ctx, input, "layout")) as typeof layouts.$inferSelect;
-  }
-  const access = yield* assertLayoutAccess(ctx.db, id, user.id);
-
-  const layoutRow = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
-  );
-  if (!layoutRow) return yield* new NotFoundError();
-
-  yield* writeLayoutCheckpointAndPoint(ctx, { layout: layoutRow, userId: user.id });
-
-  yield* invalidateLayoutPublish(ctx, {
-    projectId: access.projectId,
-    environmentId: layoutRow.environmentId,
-    layoutId: id,
-  });
-
-  const updated = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
-  );
-  return updated;
-});
-
-// The insert+pointer-update pair, factored so `pages.publish` can reuse it in
-// the bundled-publish path. D1 + drizzle has no shared-transaction primitive;
-// a partial failure between the two steps leaves a checkpoint nothing points
-// at, which is harmless history that no UI surfaces. Same trade-off as page.
-//
-// `userId` is null for production releases, which authenticate with a deploy
-// token rather than a user session; this also matches the migration backfill.
-export const writeLayoutCheckpointAndPoint = Effect.fn("layouts.writeLayoutCheckpointAndPoint")(
-  function* (
-    ctx: ServiceContext,
-    args: { layout: typeof layouts.$inferSelect; userId: string | null },
-  ) {
-    const snapshot = yield* buildLayoutSnapshotFromDraft(ctx, args.layout);
-    const now = Date.now();
-    const checkpoint = yield* Effect.promise(() =>
-      ctx.db
-        .insert(layoutCheckpoints)
-        .values({
-          layoutId: args.layout.id,
-          kind: "auto-publish",
-          label: null,
-          snapshot: JSON.stringify(snapshot),
-          schemaVersion: LAYOUT_SNAPSHOT_SCHEMA_VERSION,
-          createdAt: now,
-          createdBy: args.userId,
-        })
-        .returning()
-        .get(),
-    );
-
-    yield* Effect.promise(() =>
-      ctx.db
-        .update(layouts)
-        .set({ livePublishedCheckpointId: checkpoint.id, updatedAt: now })
-        .where(eq(layouts.id, args.layout.id)),
-    );
-
-    yield* publishSyncedData(ctx, args.layout.environmentId, snapshot);
-    return { checkpoint, snapshot };
-  },
-);
-
-// Clear the live pointer. Every page using this layout will fall back to
-// rendering without layout blocks on its public reads — see
-// `readLayoutSnapshot` in pages/service.ts: a null pointer returns null,
-// composePageView then passes an empty `layoutBlocks` to the renderer.
-// The draft is untouched; the previous auto-publish checkpoint stays in the
-// DB so a future history-sidebar feature can re-point at it.
-export const unpublishLayout = Effect.fn("layouts.unpublishLayout")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof unpublishLayoutInput>,
-) {
-  const user = yield* requireUser(ctx);
-  const { id } = yield* decodeInput(unpublishLayoutInput, rawInput);
-  const access = yield* assertLayoutAccess(ctx.db, id, user.id);
-
-  const layoutRow = yield* Effect.promise(() =>
-    ctx.db.select().from(layouts).where(eq(layouts.id, id)).get(),
-  );
-  if (!layoutRow) return yield* new NotFoundError();
-
-  // Surface a clear error rather than silently no-op when the user hits
-  // unpublish on a never-published layout — the menu should already be
-  // disabled in that case, but a stale UI shouldn't write garbage.
-  if (layoutRow.livePublishedCheckpointId == null) {
-    return yield* new InvalidInputError({ message: "Layout is not published." });
-  }
-
-  const now = Date.now();
-  const updated = yield* Effect.promise(() =>
-    ctx.db
-      .update(layouts)
-      .set({ livePublishedCheckpointId: null, updatedAt: now })
-      .where(eq(layouts.id, id))
-      .returning()
-      .get(),
-  );
-
-  yield* invalidateLayoutPublish(ctx, {
-    projectId: access.projectId,
-    environmentId: layoutRow.environmentId,
-    layoutId: id,
-  });
-
-  return updated;
 });

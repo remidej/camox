@@ -53,7 +53,7 @@ import { ShikiMarkdown } from "./ShikiMarkdown";
 
 type PageMetadataData = ReturnType<typeof usePageMetadataData>;
 
-const usePageMetadataData = (pageId: number) => {
+const usePageMetadataData = (pageId: string) => {
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
   const { data: page } = useQuery(pageQueries.getById(pageId));
@@ -70,7 +70,7 @@ const usePageMetadataData = (pageId: number) => {
   const layouts = allLayouts?.filter(
     (layout) => camoxApp.getLayoutById(layout.layoutId)?._internal.kind === "curated",
   );
-  const pageLayoutRecord = allLayouts?.find((l) => l.id === page?.layoutId);
+  const pageLayoutRecord = allLayouts?.find((l) => l.layoutId === page?.layoutId);
   const layoutDef = pageLayoutRecord
     ? camoxApp.getLayoutById(pageLayoutRecord.layoutId)
     : undefined;
@@ -93,7 +93,7 @@ const PageInfoSidebar = ({
   scrollable = true,
   aboutOnly = false,
 }: {
-  pageId: number;
+  pageId: string;
   scrollable?: boolean;
   aboutOnly?: boolean;
 }) => {
@@ -168,12 +168,6 @@ const PageInfoSidebar = ({
           <MetadataRow label="Created">{formatRelativeTime(page.createdAt)}</MetadataRow>
           <MetadataRow label="Created by">{page.createdBy ?? "Unknown"}</MetadataRow>
           <MetadataRow label="Updated">{formatRelativeTime(page.updatedAt)}</MetadataRow>
-          <MetadataRow label="Published">
-            {page.publishedAt == null ? "Never" : formatRelativeTime(page.publishedAt)}
-          </MetadataRow>
-          {page.publishedAt != null && (
-            <MetadataRow label="Published by">{page.publishedBy ?? "Unknown"}</MetadataRow>
-          )}
         </Metadata>
         <div className="-mx-2">
           <AttachedComments pageId={pageId} />
@@ -281,10 +275,9 @@ const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
         </Tooltip>
       </div>
       <Select
-        value={page.layoutId ? String(page.layoutId) : ""}
-        onValueChange={(value) => {
-          const layoutId = Number(value);
-          if (layoutId === page.layoutId) return;
+        value={page.layoutId}
+        onValueChange={(layoutId) => {
+          if (layoutId == null || layoutId === page.layoutId) return;
           setLayout.mutate(
             { id: page.id, layoutId },
             {
@@ -295,7 +288,7 @@ const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
           );
         }}
         items={layouts.map((t) => ({
-          value: String(t.id),
+          value: t.layoutId,
           label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
         }))}
       >
@@ -304,7 +297,7 @@ const PageLayoutSidebarSelect = ({ data }: { data: PageMetadataData }) => {
         </SelectTrigger>
         <SelectContent>
           {layouts.map((t) => (
-            <SelectItem key={t.id} value={String(t.id)}>
+            <SelectItem key={t.layoutId} value={t.layoutId}>
               {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
             </SelectItem>
           ))}
@@ -321,23 +314,29 @@ const PageStructureModal = ({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  pageId: number;
+  pageId: string;
 }) => {
   const data = usePageMetadataData(pageId);
   const { page } = data;
+  // A page whose layout was removed or is no longer curated is moved to another one here.
+  const needsLayout = data.pages?.find((item) => item.id === pageId)?.needsLayout ?? false;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Page page</DialogTitle>
-          <DialogDescription>Update the URL path for this page.</DialogDescription>
+          <DialogDescription>
+            {needsLayout
+              ? "This page's layout is gone, so it isn't served. Move it to another layout, or delete it."
+              : "Update the URL path for this page."}
+          </DialogDescription>
         </DialogHeader>
         {page ? (
           <PageStructureEditor
             data={data}
             includeNickname={false}
-            includeLayout={false}
+            includeLayout={needsLayout}
             onSaved={() => onOpenChange(false)}
           />
         ) : (
@@ -371,7 +370,7 @@ const PageStructureEditor = ({
       nickname: page?.nickname ?? "",
       pathSegment: page?.pathSegment ?? "",
       parentPageId: page?.parentPageId ?? undefined,
-      layoutId: page?.layoutId ?? 0,
+      layoutId: page?.layoutId ?? "",
     },
     onSubmit: async (values) => {
       if (!page) return;
@@ -389,7 +388,7 @@ const PageStructureEditor = ({
           parentPageId: values.value.parentPageId,
         });
 
-        if (includeLayout && values.value.layoutId) {
+        if (includeLayout && values.value.layoutId && values.value.layoutId !== page.layoutId) {
           await setLayout.mutateAsync({ id: page.id, layoutId: values.value.layoutId });
         }
 
@@ -410,7 +409,7 @@ const PageStructureEditor = ({
       nickname: page.nickname,
       pathSegment: page.pathSegment,
       parentPageId: page.parentPageId ?? undefined,
-      layoutId: page.layoutId ?? 0,
+      layoutId: page.layoutId ?? "",
     });
   }, [page?.id]);
 
@@ -462,10 +461,12 @@ const PageStructureEditor = ({
             <div className="space-y-2">
               <Label>Layout</Label>
               <Select
-                value={field.state.value ? String(field.state.value) : ""}
-                onValueChange={(value) => field.handleChange(Number(value))}
+                value={field.state.value}
+                onValueChange={(value) => {
+                  if (value != null) field.handleChange(value);
+                }}
                 items={layouts.map((t) => ({
-                  value: String(t.id),
+                  value: t.layoutId,
                   label: camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId,
                 }))}
               >
@@ -474,7 +475,7 @@ const PageStructureEditor = ({
                 </SelectTrigger>
                 <SelectContent>
                   {layouts.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
+                    <SelectItem key={t.layoutId} value={t.layoutId}>
                       {camoxApp.getLayoutById(t.layoutId)?._internal.title ?? t.layoutId}
                     </SelectItem>
                   ))}
@@ -505,7 +506,7 @@ const PageSeoModal = ({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  pageId: number;
+  pageId: string;
 }) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -522,7 +523,7 @@ const PageSeoModal = ({
   );
 };
 
-export const PageSeoContent = ({ pageId }: { pageId: number }) => {
+export const PageSeoContent = ({ pageId }: { pageId: string }) => {
   const { page, metaTitle, pageLayoutRecord, project } = usePageMetadataData(pageId);
   return page ? (
     <PageSeoEditor
@@ -547,7 +548,7 @@ const PageSeoEditor = ({
   page: Pick<
     Page,
     | "id"
-    | "aiSeoEnabled"
+    | "aiSeo"
     | "metaTitle"
     | "metaDescription"
     | "fullPath"
@@ -558,18 +559,17 @@ const PageSeoEditor = ({
   layoutId?: string;
   projectName?: string;
 }) => {
-  const setAiSeo = useMutation(pageMutations.setAiSeo());
-  const setMetaTitle = useMutation(pageMutations.setMetaTitle());
-  const setMetaDescription = useMutation(pageMutations.setMetaDescription());
+  // The title and description are one group: AI-generated, or both written by hand (ADR 0012).
+  const setSeo = useMutation(pageMutations.setSeo());
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Switch
           id="ai-seo"
-          checked={page.aiSeoEnabled !== false}
+          checked={page.aiSeo}
           onCheckedChange={(checked) => {
-            setAiSeo.mutate({ id: page.id, enabled: checked });
+            setSeo.mutate({ id: page.id, aiSeo: checked });
           }}
         />
         <Label htmlFor="ai-seo">AI metadata</Label>
@@ -578,16 +578,16 @@ const PageSeoEditor = ({
         label="Page title"
         placeholder="Page title..."
         initialValue={page.metaTitle ?? ""}
-        disabled={page.aiSeoEnabled !== false}
-        onSave={(value) => setMetaTitle.mutate({ id: page.id, metaTitle: value })}
+        disabled={page.aiSeo}
+        onSave={(value) => setSeo.mutate({ id: page.id, metaTitle: value })}
       />
       <DebouncedFieldEditor
         label="Page description"
         placeholder="Page description..."
         initialValue={page.metaDescription ?? ""}
-        disabled={page.aiSeoEnabled !== false}
+        disabled={page.aiSeo}
         rows={2}
-        onSave={(value) => setMetaDescription.mutate({ id: page.id, metaDescription: value })}
+        onSave={(value) => setSeo.mutate({ id: page.id, metaDescription: value })}
       />
       <SearchEnginePreview
         page={page}
@@ -614,7 +614,7 @@ const PageMarkdownModal = ({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  pageId: number;
+  pageId: string;
   metaTitle: string;
   metaDescription: string;
 }) => (
@@ -633,7 +633,7 @@ const PageMarkdownModal = ({
   </Dialog>
 );
 
-export const PageMarkdownContent = ({ pageId }: { pageId: number }) => {
+export const PageMarkdownContent = ({ pageId }: { pageId: string }) => {
   const { page, metaTitle } = usePageMetadataData(pageId);
   if (!page) return <Spinner className="size-4" />;
   return (
@@ -823,7 +823,7 @@ const PageMarkdownPreview = ({
   metaTitle,
   metaDescription,
 }: {
-  pageId: number;
+  pageId: string;
   metaTitle: string;
   metaDescription: string;
 }) => {

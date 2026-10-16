@@ -46,7 +46,7 @@ registerHooks({
         source = `export function AssetPickerModal({ open, mode, onSelectSingle, onSelectMultiple }) {
           if (!open) return null;
           const file = ${JSON.stringify({
-            id: 5,
+            id: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a05",
             url: "https://cdn.test/logo.png",
             alt: "",
             filename: "logo.png",
@@ -69,12 +69,14 @@ registerHooks({
 });
 
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 
-const pageOwner: EditingOwner = { kind: "page", pageId: 1 };
-const BLOCK_ID = 7;
-const ITEM_ID = 12;
-const FILE_ID = 5;
+const pageOwner: EditingOwner = { kind: "page", pageId: "1" };
+const BLOCK_ID = "7";
+const ITEM_ID = "12";
+const FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a05";
+const OTHER_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a08";
+const THIRD_FILE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a09";
 const logo = { _fileId: FILE_ID };
 const ARTIFACT_SOURCE =
   "<!doctype html><title>Orbiting moons</title><script>const secretSource = 1;</script>";
@@ -87,7 +89,6 @@ const ada = {
   id: ADA,
   collectionId: "people",
   label: "Ada Lovelace",
-  version: 4,
   content: { name: "Ada Lovelace", role: "CTO" },
 };
 const acmeContent = {
@@ -100,7 +101,8 @@ const acmeContent = {
     alt: "",
     filename: "acme.png",
     mimeType: "image/png",
-    _fileId: "9",
+    size: 900,
+    _fileId: THIRD_FILE_ID,
   },
   gallery: [
     {
@@ -108,7 +110,8 @@ const acmeContent = {
       alt: "Team",
       filename: "team.png",
       mimeType: "image/png",
-      _fileId: "8",
+      size: 800,
+      _fileId: OTHER_FILE_ID,
     },
   ],
 };
@@ -116,7 +119,6 @@ const acme = {
   id: ACME,
   collectionId: "customers",
   label: "Acme",
-  version: 3,
   content: acmeContent,
   // Records placed by the block resolve the records they link (the second hop).
   references: { contact: ada },
@@ -127,12 +129,11 @@ const CREATED = "created";
 const INITECH = "initech";
 const listedRecords = [
   acme,
-  { ...acme, id: GLOBEX, label: "Globex", version: 1, content: { ...acmeContent, name: "Globex" } },
+  { ...acme, id: GLOBEX, label: "Globex", content: { ...acmeContent, name: "Globex" } },
   {
     ...acme,
     id: INITECH,
     label: "Initech",
-    version: 2,
     content: { ...acmeContent, name: "Initech" },
   },
 ];
@@ -300,21 +301,21 @@ async function renderSidebar(
     files: [file],
   } as never);
   client.setQueryData(fileQueries.get(FILE_ID).queryKey, file as never);
-  client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: 1 } as never);
+  client.setQueryData(projectQueries.getBySlug("site").queryKey, { id: "1" } as never);
   // By default every file is used elsewhere, so unlinking never offers to delete it.
-  for (const id of [FILE_ID, 8, 9]) {
+  for (const id of [FILE_ID, OTHER_FILE_ID, THIRD_FILE_ID]) {
     client.setQueryData(fileQueries.getUsageCount(id).queryKey, {
       count: options.fileUsage ?? 3,
     } as never);
   }
   let records = [
-    { id: ACME, label: "Acme", status: "published", version: 3 },
-    { id: GLOBEX, label: "Globex", status: "draft", version: 1 },
-    { id: INITECH, label: "Initech", status: "modified", version: 2 },
+    { id: ACME, label: "Acme" },
+    { id: GLOBEX, label: "Globex" },
+    { id: INITECH, label: "Initech" },
   ];
   client.setQueryData(collectionQueries.records("site", "customers").queryKey, records as never);
   client.setQueryData(collectionQueries.records("site", "people").queryKey, [
-    { id: ADA, label: "Ada Lovelace", status: "published", version: 4 },
+    { id: ADA, label: "Ada Lovelace" },
   ] as never);
   client.setQueryData(collectionQueries.get("site", "customers").queryKey, {
     collectionId: "customers",
@@ -336,30 +337,22 @@ async function renderSidebar(
     if (procedure === "collectionDefinitions/getRecord") {
       const record = listedRecords.find(({ id }) => id === (json as { id: string }).id);
       return Response.json({
-        json: record && { id: record.id, version: record.version, draft: record.content },
+        json: record && { id: record.id, content: record.content, createdAt: 1, updatedAt: 1 },
       });
     }
     writes.push({ procedure, input: json });
     if (procedure === "collectionDefinitions/createRecord") {
       const content = (json as { content: Record<string, unknown> }).content;
-      records = [
-        ...records,
-        { id: CREATED, label: String(content.name), status: "draft", version: 1 },
-      ];
-      return Response.json({ json: { id: CREATED, version: 1, draft: content } });
+      records = [...records, { id: CREATED, label: String(content.name) }];
+      return Response.json({ json: { id: CREATED, content, createdAt: 1, updatedAt: 1 } });
     }
     if (procedure === "collectionDefinitions/editRecord") {
-      const { id, expectedVersion, content } = json as {
-        id: string;
-        expectedVersion: number;
-        content: Record<string, unknown>;
-      };
-      return Response.json({ json: { id, version: expectedVersion + 1, draft: content } });
+      const { id, content } = json as { id: string; content: Record<string, unknown> };
+      return Response.json({ json: { id, content, createdAt: 1, updatedAt: 2 } });
     }
     return Response.json({ json: null });
   });
 
-  previewStore.send({ type: "viewDraftSite" });
   previewStore.send({ type: "selectTarget", ...owner, selection });
 
   const host = document.createElement("div");
@@ -404,7 +397,6 @@ async function renderSidebar(
     host.remove();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "viewDraftSite" });
     await window.happyDOM.close();
   });
 
@@ -596,18 +588,6 @@ void test("repeater item asset field edits are saved to the item", async (t) => 
   ]);
 });
 
-void test("field edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, {
-    type: "block-field",
-    blockId: BLOCK_ID,
-    fieldName: "logo",
-    fieldType: "Image",
-  });
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.unlinkAsset();
-  assert.deepEqual(sidebar.writes, []);
-});
-
 /** Whether the sidebar offers any way to type into a field. */
 const hasEditor = (host: HTMLElement) =>
   host.querySelector("textarea, input, [contenteditable]") != null;
@@ -732,7 +712,7 @@ void test("breadcrumbs step up from a record field to the record, the reference 
   assert.deepEqual(sidebar.selection(), { type: "block", blockId: BLOCK_ID });
 });
 
-void test("record text field edits are saved to the record with its expected version", async (t) => {
+void test("record text field edits are saved to the record", async (t) => {
   const sidebar = await renderSidebar(t, recordField("quote", "String"));
   await sidebar.typeText("Superb");
   assert.deepEqual(sidebar.writes, [
@@ -742,7 +722,6 @@ void test("record text field edits are saved to the record with its expected ver
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },
@@ -757,13 +736,6 @@ void test("record boolean field edits are saved to the record", async (t) => {
     sidebar.writes.map((write) => [write.procedure, write.input.content]),
     [["collectionDefinitions/editRecord", { ...acmeContent, featured: true }]],
   );
-});
-
-void test("record field edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, recordField("quote", "String"));
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.typeText("Superb");
-  assert.deepEqual(sidebar.writes, []);
 });
 
 void test("a record selection falls back to the reference field view once the record is unlinked", async (t) => {
@@ -796,16 +768,10 @@ void test("a record selection falls back to the reference field view once the re
   assert.ok(sidebar.host.querySelector("button[aria-haspopup]"), "the picker is shown again");
 });
 
-const pickedLogo = {
-  url: "https://cdn.test/logo.png",
-  alt: "",
-  filename: "logo.png",
-  mimeType: "image/png",
-  size: 1200,
-  _fileId: "5",
-};
+/** A record stores a picked file as a reference to it, like a block. */
+const pickedLogo = { _fileId: FILE_ID };
 
-void test("record image edits are saved to the record as asset snapshots", async (t) => {
+void test("record image edits are saved to the record as file references", async (t) => {
   const sidebar = await renderSidebar(t, recordField("logo", "Image"));
   assert.match(sidebar.text(), /acme\.png/);
   await sidebar.click("Select existing image");
@@ -821,7 +787,7 @@ void test("record image edits are saved to the record as asset snapshots", async
   assert.deepEqual(sidebar.selection(), recordField("logo", "Image"));
 });
 
-void test("record image list edits are saved to the record as asset snapshots", async (t) => {
+void test("record image list edits are saved to the record as file references", async (t) => {
   const sidebar = await renderSidebar(t, recordField("gallery", "ImageList"));
   assert.match(sidebar.text(), /team\.png/);
   await sidebar.click("Select existing images");
@@ -831,17 +797,10 @@ void test("record image list edits are saved to the record as asset snapshots", 
     [
       [
         "collectionDefinitions/editRecord",
-        { ...acmeContent, gallery: [...acmeContent.gallery, pickedLogo] },
+        { ...acmeContent, gallery: [{ _fileId: OTHER_FILE_ID }, pickedLogo] },
       ],
     ],
   );
-});
-
-void test("record asset edits are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, recordField("logo", "Image"));
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  await sidebar.unlinkAsset();
-  assert.deepEqual(sidebar.writes, []);
 });
 
 void test("unlinking a block asset used nowhere else offers to delete the file", async (t) => {
@@ -855,7 +814,7 @@ void test("unlinking a block asset used nowhere else offers to delete the file",
   assert.deepEqual(sidebar.writes, []);
 });
 
-// File usage counts ignore records, so a record's file would always look unused.
+// Unlinking a record's file only changes the record; deleting files stays a block action.
 void test("unlinking a record image never offers to delete the file", async (t) => {
   const sidebar = await renderSidebar(t, recordField("logo", "Image"), { fileUsage: 0 });
   await sidebar.unlinkAsset();
@@ -914,8 +873,8 @@ void test("a reference list shows its records as cards in list order", async (t)
     shown.map((card) => card.label),
     ["Open Globex", "Open Acme"],
   );
-  assert.match(shown[0]!.text, /Globex\s*Draft\s*Customers/);
-  assert.match(shown[1]!.text, /Acme\s*Published\s*Customers/);
+  assert.match(shown[0]!.text, /^Globex\s*Customers$/);
+  assert.match(shown[1]!.text, /^Acme\s*Customers$/);
   assert.ok(
     shown.every((card) => card.dragHandle),
     "every card has a drag handle",
@@ -986,7 +945,6 @@ void test("clicking a listed record card opens its record view, whose field edit
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },
@@ -1121,7 +1079,7 @@ void test("hovering a listed record card or its record field rows highlights tha
 void test("the picker offers only unlinked records and appends the chosen one", async (t) => {
   const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX] });
   await sidebar.openPicker();
-  assert.deepEqual(sidebar.options(), ["AcmePublished", "InitechModified"]);
+  assert.deepEqual(sidebar.options(), ["Acme", "Initech"]);
   await sidebar.pick("Initech");
   assert.deepEqual(sidebar.writes, [
     {
@@ -1247,21 +1205,6 @@ void test("dragging a card writes the new order", async (t) => {
   assert.deepEqual(
     cards(sidebar.host).map((card) => card.label),
     ["Open Acme", "Open Globex", "Open Initech"],
-  );
-});
-
-void test("reference list changes are not sent while viewing the live site", async (t) => {
-  const sidebar = await renderSidebar(t, logosField, { logos: [GLOBEX, ACME] });
-  await act(async () => sidebar.previewStore.send({ type: "viewLiveSite" }));
-  const unlink = sidebar.host.querySelector<HTMLElement>("button[aria-label='Unlink']");
-  assert.ok(unlink);
-  await act(async () => unlink.click());
-  await sidebar.settle();
-  assert.deepEqual(sidebar.writes, []);
-  assert.deepEqual(
-    cards(sidebar.host).map((card) => card.label),
-    ["Open Globex", "Open Acme"],
-    "the list is unchanged",
   );
 });
 
@@ -1521,7 +1464,7 @@ void test("a query-backed list shows its results as read-only cards under a summ
     ["Open Acme", "Open Globex", "Open Initech"],
     "cards follow the query's result order",
   );
-  assert.match(shown[1]!.text, /Globex\s*Draft\s*Customers/);
+  assert.match(shown[1]!.text, /^Globex\s*Customers$/);
   assert.ok(
     shown.every((card) => !card.dragHandle),
     "results cannot be reordered",
@@ -1575,7 +1518,6 @@ void test("clicking a query result card opens its record view, whose field edits
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },
@@ -1609,20 +1551,20 @@ void test("a selection on a record that left the query's results falls back to t
 
 /** The layout of a record page rendering Acme, as its loader returned it. */
 const acmePage = {
-  owner: { kind: "layout", layoutId: 4 },
+  owner: { kind: "layout", layoutId: "articles" },
   result: {
     kind: "collection-item",
     collectionId: "customers",
-    data: { id: ACME, content: acmeContent, references: { contact: ada }, version: 3 },
+    data: { id: ACME, content: acmeContent, references: { contact: ada }, updatedAt: 1 },
   },
 } as const;
 
-void test("a record page's record field opens the record's fields, saved with its version", async (t) => {
+void test("a record page's record field opens the record's fields, saved to the record", async (t) => {
   const sidebar = await renderSidebar(
     t,
     {
       type: "record-field",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: ACME,
       recordFieldName: "quote",
       recordFieldType: "String",
@@ -1639,14 +1581,13 @@ void test("a record page's record field opens the record's fields, saved with it
         projectSlug: "site",
         collectionId: "customers",
         id: ACME,
-        expectedVersion: 3,
         content: { ...acmeContent, quote: "Superb" },
       },
     },
   ]);
 
   await sidebar.click("Acme");
-  assert.deepEqual(sidebar.selection(), { type: "record", layoutId: 4, recordId: ACME });
+  assert.deepEqual(sidebar.selection(), { type: "record", layoutId: "articles", recordId: ACME });
   assert.match(sidebar.text(), /Quote\s*Superb/);
   assert.match(sidebar.text(), /Contact\s*Ada Lovelace/);
 });
@@ -1656,7 +1597,7 @@ void test("a record page's record opens the records it links", async (t) => {
     t,
     {
       type: "record",
-      layoutId: 4,
+      layoutId: "articles",
       recordId: ACME,
       nested: { fieldName: "contact", recordId: ADA },
     },

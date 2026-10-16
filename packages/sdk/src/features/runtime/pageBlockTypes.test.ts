@@ -16,9 +16,9 @@ function seededState(types: string[]) {
       files: [],
       repeatableItems: [],
     } as unknown as Parameters<typeof seedBlockCaches>[1],
-    "live",
+    null,
   );
-  queryClient.setQueryData(queryKeys.pages.getByPath("/", "live"), { page: { id: 1 } });
+  queryClient.setQueryData(queryKeys.pages.getByPath("/"), { page: { id: 1 } });
   return dehydrate(queryClient);
 }
 

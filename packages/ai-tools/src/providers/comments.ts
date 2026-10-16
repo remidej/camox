@@ -14,7 +14,7 @@ import type { ToolDefinition, ToolProvider } from "../types";
 
 const assertProjectPage = Effect.fn("assertProjectPage")(function* (
   ctx: Parameters<ToolProvider>[0],
-  pageId: number,
+  pageId: string,
 ) {
   const page = yield* Effect.promise(() =>
     ctx.db
@@ -31,8 +31,7 @@ const resolveInput = setCommentResolvedInput.omit({ resolved: true });
 export const commentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "listComments",
-    description:
-      "List comments on a page in the selected environment, including resolved comments.",
+    description: "List comments on a page, in the draft or on Live, including resolved comments.",
     inputSchema: listCommentsInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
@@ -44,9 +43,9 @@ export const commentsProvider: ToolProvider = (ctx): ToolDefinition[] => [
   },
   {
     name: "resolveComment",
-    description: "Resolve a comment on a page in the selected environment.",
+    description: "Resolve a comment on a page, in the draft or on Live.",
     inputSchema: resolveInput,
-    meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
+    meta: { kind: "write", allowedOnLive: true, risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = resolveInput.parse(input);
       return runService(

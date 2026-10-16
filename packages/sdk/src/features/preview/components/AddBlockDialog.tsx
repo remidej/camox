@@ -1,3 +1,4 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { Badge } from "@camox/ui/badge";
 import {
@@ -22,7 +23,6 @@ import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import type { Block } from "@/core/createBlock";
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { useLocation } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import { usePageBlocks } from "@/lib/normalized-data";
@@ -34,6 +34,7 @@ import {
   projectQueries,
 } from "@/lib/queries";
 
+import { scopedKey } from "../../../lib/studio-draft";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { usePreviewedPage } from "../CamoxPreview";
 import { previewStore, sameEditingOwner } from "../previewStore";
@@ -56,15 +57,12 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
   const dialog = useSelector(previewStore, (state) => state.context.addBlockDialog);
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
-  const requireDraft = useRequireDraftSource();
 
   const createBlock = useMutation({
     ...blockMutations.create(),
     onMutate: (variables) => {
-      // Optimistic insert lands in the draft cache slot only — edits never
-      // touch the live snapshot. See useUpdateBlockPosition for the same
-      // pattern.
-      const pageQueryKey = queryKeys.pages.getByPath(pathname, "draft");
+      // Optimistic insert, like useUpdateBlockPosition.
+      const pageQueryKey = scopedKey(queryKeys.pages.getByPath(pathname));
       const previousPage = queryClient.getQueryData<PageStructure>(pageQueryKey);
       if (!previousPage) return { pageQueryKey };
 
@@ -72,7 +70,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       const blockIds = previousPage.page.blockIds;
       const pageBlocks = blockIds
         .map(
-          (id) => queryClient.getQueryData<BlockBundle>(queryKeys.blocks.get(id, "draft"))?.block,
+          (id) => queryClient.getQueryData<BlockBundle>(scopedKey(queryKeys.blocks.get(id)))?.block,
         )
         .filter((b) => b != null);
       const { afterPosition } = variables;
@@ -100,7 +98,8 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       }
 
       const now = Date.now();
-      const optimisticId = -now;
+      // The client mints the id, so the optimistic block is the block the server creates.
+      const optimisticId = variables.id ?? generateUuidv7();
       const optimisticBlock = {
         id: optimisticId,
         pageId: variables.pageId,
@@ -116,7 +115,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       };
 
       // Seed the optimistic block's individual cache
-      queryClient.setQueryData(queryKeys.blocks.get(optimisticId, "draft"), {
+      queryClient.setQueryData(scopedKey(queryKeys.blocks.get(optimisticId)), {
         block: optimisticBlock,
         repeatableItems: [],
         files: [],
@@ -145,7 +144,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       }
       if (context?.optimisticId) {
         queryClient.removeQueries({
-          queryKey: queryKeys.blocks.get(context.optimisticId, "draft"),
+          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
         });
       }
     },
@@ -154,6 +153,12 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
       void queryClient.invalidateQueries({
         queryKey: context.pageQueryKey,
       });
+      // The optimistic bundle lacks the block's repeatable items; refetch the created block.
+      if (context.optimisticId) {
+        void queryClient.invalidateQueries({
+          queryKey: scopedKey(queryKeys.blocks.get(context.optimisticId)),
+        });
+      }
     },
   });
 
@@ -208,7 +213,6 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
 
   const handleAddBlock = async (block: Block) => {
     if (!page || !dialog || submitting.current) return;
-    if (!requireDraft()) return;
 
     submitting.current = true;
     setError(null);
@@ -216,6 +220,7 @@ const AddBlockDialog = ({ focusCreatedBlock = true }: { focusCreatedBlock?: bool
     try {
       const bundle = block._internal.getInitialBundle();
       const { id: blockId } = await createBlock.mutateAsync({
+        id: generateUuidv7(),
         pageId: page.page.id,
         type: block._internal.id,
         content: bundle.content,

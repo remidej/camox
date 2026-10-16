@@ -22,7 +22,7 @@ export const parser = command(
     json: option("--json"),
   }),
   {
-    description: message`Create a single-use sign-in URL for local draft verification. Open it in your automation browser within three minutes. The URL is a credential; do not share it.`,
+    description: message`Create a single-use sign-in URL for local verification. Open it in your automation browser within three minutes. The URL is a credential; do not share it.`,
   },
 );
 
@@ -46,7 +46,6 @@ export async function handler(args: Args): Promise<void> {
     }
     const target = {
       projectSlug: runtime.projectSlug,
-      environmentName: `dev:${auth.email}`,
       apiUrl: normalizeUrl(runtime.apiUrl),
     };
     const signInUrl = await createPreviewSignInUrl(url.href, target, auth.token);
@@ -54,7 +53,6 @@ export async function handler(args: Args): Promise<void> {
       {
         url: signInUrl,
         ...target,
-        source: "draft",
         warning:
           "Single-use sign-in credential, valid for three minutes. Open in your verification browser; do not share or commit.",
       },

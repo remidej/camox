@@ -1,4 +1,5 @@
 import { referenceQueryProblem, type SystemOrderKey } from "@camox/api-contract";
+import { uuidv7JsonSchema } from "@camox/api-contract/ids";
 import {
   Type as TypeBoxType,
   type TSchema,
@@ -304,7 +305,7 @@ export type FileValue = {
  * Image / File / ImageList / FileList type builders
  * -----------------------------------------------------------------------------------------------*/
 
-function _imageSingle(options: { title?: string }): TUnsafe<ImageValue> {
+function _imageSingle(options: { title?: string; required?: boolean }): TUnsafe<ImageValue> {
   return TypeBoxType.Unsafe<ImageValue>({
     type: "object",
     properties: {
@@ -314,6 +315,7 @@ function _imageSingle(options: { title?: string }): TUnsafe<ImageValue> {
       mimeType: { type: "string" },
     },
     accept: ["image/*"],
+    required: options.required ?? false,
     default: {
       url: `https://placehold.co/1200x800/f4f4f5/a1a1aa.png?text=${options?.title || "image"}`,
       alt: "",
@@ -340,7 +342,11 @@ function _imageList(options: {
   });
 }
 
-function _fileSingle(options: { accept: string[]; title?: string }): TUnsafe<FileValue> {
+function _fileSingle(options: {
+  accept: string[];
+  title?: string;
+  required?: boolean;
+}): TUnsafe<FileValue> {
   return TypeBoxType.Unsafe<FileValue>({
     type: "object",
     properties: {
@@ -350,6 +356,7 @@ function _fileSingle(options: { accept: string[]; title?: string }): TUnsafe<Fil
       mimeType: { type: "string" },
     },
     accept: options.accept,
+    required: options.required ?? false,
     default: {
       url: "https://placehold.co/file-placeholder",
       alt: "",
@@ -440,7 +447,7 @@ export interface ContentFieldBuilder {
    * @example
    * field.image({ title: "Hero" })
    */
-  image: (options?: { title?: string }) => ImageField;
+  image: (options?: { title?: string; required?: boolean }) => ImageField;
   /**
    * A list of image assets.
    *
@@ -454,7 +461,7 @@ export interface ContentFieldBuilder {
    * @example
    * field.file({ accept: ["application/pdf"], title: "Datasheet" })
    */
-  file: (options: { accept: string[]; title?: string }) => FileField;
+  file: (options: { accept: string[]; title?: string; required?: boolean }) => FileField;
   /**
    * A list of file assets.
    *
@@ -628,8 +635,22 @@ export interface SettingBuilder {
  */
 export interface CollectionFieldBuilder extends Pick<
   ContentFieldBuilder,
-  "image" | "imageList" | "file" | "fileList" | "embed"
+  "imageList" | "fileList" | "embed"
 > {
+  /**
+   * An image asset. Never required: collection fields can't be (the API rejects it).
+   *
+   * @example
+   * field.image({ title: "Cover" })
+   */
+  image: (options?: { title?: string }) => ImageField;
+  /**
+   * A file asset. Never required: collection fields can't be (the API rejects it).
+   *
+   * @example
+   * field.file({ accept: ["application/pdf"], title: "Brochure" })
+   */
+  file: (options: { accept: string[]; title?: string }) => FileField;
   /**
    * An ordered list of distinct records of another collection, e.g. an article's co-authors.
    * Collections hold manual lists only: a query would fan out across a whole collection.
@@ -756,7 +777,8 @@ export const contentFieldBuilder: ContentFieldBuilder = {
         type: { type: "string", enum: ["external", "page"] },
         text: { type: "string" },
         href: { type: "string" },
-        pageId: { type: "string" },
+        // Empty while a link switched to a page has no page picked yet.
+        pageId: { anyOf: [{ const: "" }, uuidv7JsonSchema] },
         newTab: { type: "boolean" },
       },
       default: { ...options.default, type: "external" },
@@ -918,9 +940,9 @@ export const collectionFieldBuilder: CollectionFieldBuilder = {
     }) as StringField,
   enum: enumSetting,
   boolean: booleanSetting,
-  image: contentFieldBuilder.image,
+  image: (options = {}) => contentFieldBuilder.image({ title: options.title }),
   imageList: contentFieldBuilder.imageList,
-  file: contentFieldBuilder.file,
+  file: (options) => contentFieldBuilder.file({ accept: options.accept, title: options.title }),
   fileList: contentFieldBuilder.fileList,
   embed: contentFieldBuilder.embed,
   reference: (collection, options = {}) =>

@@ -1,4 +1,4 @@
-export const PAGE_TEXT_LINK_PREFIX = "camox:page:";
+import { PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 
 export function getPageIdFromTextLinkTarget(target: string): string | null {
   if (!target.startsWith(PAGE_TEXT_LINK_PREFIX)) return null;
@@ -7,7 +7,7 @@ export function getPageIdFromTextLinkTarget(target: string): string | null {
   return pageId;
 }
 
-export function createPageTextLinkTarget(pageId: string | number): string {
+export function createPageTextLinkTarget(pageId: string): string {
   return `${PAGE_TEXT_LINK_PREFIX}${pageId}`;
 }
 
@@ -30,7 +30,7 @@ export function isValidTextLinkTarget(target: string): boolean {
 
 export function resolveTextLinkHref(
   target: string,
-  pages: Array<{ id: number; fullPath: string }> | undefined,
+  pages: Array<{ id: string; fullPath: string }> | undefined,
   fallbackHref: string,
 ): string | null {
   const pageId = getPageIdFromTextLinkTarget(target);
@@ -38,8 +38,9 @@ export function resolveTextLinkHref(
     return isValidTextLinkTarget(target) ? target : null;
   }
 
-  const page = pages?.find((p) => String(p.id) === pageId);
-  return page?.fullPath ?? fallbackHref;
+  // Until pages load, the fallback stands in; a link to a missing page has no href (ADR 0009).
+  if (!pages) return fallbackHref;
+  return pages.find((p) => p.id === pageId)?.fullPath ?? null;
 }
 
 export function shouldOpenTextLinkInNewTab(target: string): boolean {

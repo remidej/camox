@@ -11,14 +11,12 @@ import { drizzle } from "drizzle-orm/libsql";
 
 import {
   account,
-  aiJobs,
+  generatedValues,
   blockDefinitions,
   blocks,
   collectionDefinitions,
   collectionRecords,
-  collectionRevisions,
   comments,
-  environments,
   files,
   invitation,
   layouts,
@@ -64,23 +62,16 @@ function getLocalD1Db(): string {
 // ---------------------------------------------------------------------------
 
 async function clearAll(db: ReturnType<typeof createDrizzle>) {
-  await db.delete(aiJobs).run();
+  await db.delete(generatedValues).run();
   await db.delete(comments).run();
   await db.delete(repeatableItems).run();
   await db.delete(blocks).run();
-  // Cascades to page and layout checkpoints.
   await db.delete(pages).run();
   await db.delete(layouts).run();
   await db.delete(blockDefinitions).run();
-  // With every page, layout and block gone, only records still reference records. Clearing
-  // drafts and publication pointers lets the reference guards and the record ↔ revision
-  // foreign keys allow deletion.
-  await db.update(collectionRecords).set({ draft: {}, publishedRevisionId: null }).run();
-  await db.delete(collectionRevisions).run();
   await db.delete(collectionRecords).run();
   await db.delete(collectionDefinitions).run();
   await db.delete(files).run();
-  await db.delete(environments).run();
   await db.delete(projects).run();
   await db.run(sql`DELETE FROM member`);
   await db.run(sql`DELETE FROM invitation`);
@@ -117,7 +108,6 @@ function createDrizzle(sqlitePath: string) {
       member,
       invitation,
       projects,
-      environments,
       layouts,
       pages,
       blocks,
@@ -125,10 +115,9 @@ function createDrizzle(sqlitePath: string) {
       files,
       repeatableItems,
       comments,
-      aiJobs,
+      generatedValues,
       collectionDefinitions,
       collectionRecords,
-      collectionRevisions,
     },
   });
 }
@@ -184,14 +173,6 @@ async function seed(db: ReturnType<typeof createDrizzle>) {
       })
       .returning()
       .get();
-
-    await db.insert(environments).values({
-      projectId: project.id,
-      name: "production",
-      type: "production",
-      createdAt: now,
-      updatedAt: now,
-    });
 
     return project;
   }

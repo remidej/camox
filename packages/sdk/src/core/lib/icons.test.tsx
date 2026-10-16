@@ -114,7 +114,7 @@ void test("SSR prefetch resolves selected IDs, not the catalog, and survives hyd
       <QueryClientProvider client={hydrated}>
         <block._internal.Component
           mode="site"
-          blockData={{ _id: 1, type: "icons", position: "a0", content: {} as never }}
+          blockData={{ _id: "1", type: "icons", position: "a0", content: {} as never }}
         />
       </QueryClientProvider>,
     );

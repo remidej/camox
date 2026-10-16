@@ -1,23 +1,29 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { DurableObject } from "cloudflare:workers";
-import { eq, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createDb } from "../db";
-import { executeBlockSummary } from "../domains/blocks/service";
-import { executeFileMetadata } from "../domains/files/service";
-import { executePageSeo } from "../domains/pages/ai";
-import { executeRepeatableItemSummary } from "../domains/repeatable-items/service";
+import { requestBlockSummary, runBlockSummaryJob } from "../domains/blocks/service";
+import { storedIn, storedInLiveOrDraft } from "../domains/drafts/overlay";
+import { runFileMetadataJob } from "../domains/files/service";
+import { runPageSeoJob } from "../domains/pages/ai";
+import { requestPageSeo } from "../domains/pages/service";
+import { rootOfItem } from "../domains/repeatable-items/roots";
+import { runRepeatableItemSummaryJob } from "../domains/repeatable-items/service";
 import { broadcastInvalidation } from "../lib/broadcast-invalidation";
 import { retryAiCall } from "../lib/retry-ai-call";
-import { blocks, files, layouts, pages, projects, repeatableItems } from "../schema";
+import { aiJobKey } from "../lib/schedule-ai-job";
+import { blocks, repeatableItems } from "../schema";
 import type { Bindings } from "../types";
 
 type JobParams = {
   entityTable: string;
-  entityId: number;
+  entityId: string;
   type: string;
   delayMs: number;
+  /** The draft the job was scheduled from; absent on jobs stored before drafts and on Live's. */
+  draftId?: string | null;
 };
 
 type StoredJob = JobParams & {
@@ -63,114 +69,92 @@ export class AiJobScheduler extends DurableObject<Bindings> {
   ) {
     const db = createDb(this.env.DB);
     const apiKey = this.env.OPEN_ROUTER_API_KEY;
+    const deps = { db, env: this.env, waitUntil: (p: Promise<unknown>) => this.ctx.waitUntil(p) };
 
     const { entityTable, entityId, type } = job;
-    const label = `${entityTable}:${entityId}:${type}`;
+    const draftId = job.draftId ?? null;
+    const label = aiJobKey(job);
+    const refresh = (projectId: number, targets: QueryKey[]) =>
+      broadcastInvalidation({
+        waitUntil: deps.waitUntil,
+        projectRoomNamespace: this.env.ProjectRoom,
+        draftId,
+        projectId,
+        targets,
+      });
+    const summaryTargets = [
+      queryKeys.pages.getByPathAll,
+      ["camox", "blocks"] as QueryKey,
+      queryKeys.blocks.getUsageCounts,
+    ];
 
     if (entityTable === "blocks" && type === "summary") {
-      const seoStale = yield* retryAiCall(label, (abortController) =>
-        executeBlockSummary(db, apiKey, entityId, abortController),
+      const stale = yield* retryAiCall(label, (abortController) =>
+        runBlockSummaryJob(db, apiKey, { entityId, draftId }, abortController),
       );
-      if (seoStale) {
-        // Cascade: schedule page SEO regeneration
-        const { scheduleAiJob } = yield* Effect.promise(() => import("../lib/schedule-ai-job"));
-        this.ctx.waitUntil(
-          scheduleAiJob(this.env.AI_JOB_SCHEDULER, {
-            entityTable: "pages",
-            entityId: seoStale.pageId,
-            type: "seo",
-            delayMs: 15000,
-          }),
-        );
-      }
-
-      // Broadcast block summary update
+      // A changed summary changes its page's SEO.
+      if (stale) yield* requestPageSeo(deps, stale.scope, stale.page, 15000);
       const projectId = yield* Effect.promise(() => this.getBlockProjectId(db, entityId));
-      if (projectId) {
-        broadcastInvalidation({
-          waitUntil: (p) => this.ctx.waitUntil(p),
-          projectRoomNamespace: this.env.ProjectRoom,
-          projectId,
-          targets: [queryKeys.pages.getByPathAll, queryKeys.blocks.getUsageCounts],
-        });
-      }
+      if (projectId) refresh(projectId, summaryTargets);
     } else if (entityTable === "repeatableItems" && type === "summary") {
       const cascade = yield* retryAiCall(label, (abortController) =>
-        executeRepeatableItemSummary(db, apiKey, entityId, abortController),
+        runRepeatableItemSummaryJob(db, apiKey, { entityId, draftId }, abortController),
       );
+      // A changed item summary changes its block's.
       if (cascade) {
-        // Cascade: schedule parent block summary regeneration
-        const { scheduleAiJob } = yield* Effect.promise(() => import("../lib/schedule-ai-job"));
-        this.ctx.waitUntil(
-          scheduleAiJob(this.env.AI_JOB_SCHEDULER, {
-            entityTable: "blocks",
-            entityId: cascade.blockId,
-            type: "summary",
-            delayMs: 5000,
-          }),
-        );
+        yield* requestBlockSummary(deps, cascade.scope, cascade.projectId, cascade.blockId, 5000);
       }
-
-      // Broadcast repeatable item summary update
       const item = yield* Effect.promise(() =>
-        db.select().from(repeatableItems).where(eq(repeatableItems.id, entityId)).get(),
+        db
+          .select()
+          .from(repeatableItems)
+          .where(
+            and(
+              eq(repeatableItems.id, entityId),
+              draftId
+                ? storedInLiveOrDraft(repeatableItems, draftId)
+                : storedIn(repeatableItems, null),
+            ),
+          )
+          .get(),
       );
       if (item) {
-        const projectId = yield* Effect.promise(() => this.getBlockProjectId(db, item.blockId));
-        if (projectId) {
-          broadcastInvalidation({
-            waitUntil: (p) => this.ctx.waitUntil(p),
-            projectRoomNamespace: this.env.ProjectRoom,
-            projectId,
-            targets: [queryKeys.pages.getByPathAll, queryKeys.blocks.getUsageCounts],
-          });
-        }
+        // A shared content's item names its project instead of a block.
+        const root = rootOfItem(item);
+        const projectId =
+          "blockId" in root
+            ? yield* Effect.promise(() => this.getBlockProjectId(db, root.blockId))
+            : root.sharedContent.projectId;
+        if (projectId) refresh(projectId, summaryTargets);
       }
     } else if (entityTable === "files" && type === "fileMetadata") {
-      yield* retryAiCall(label, (abortController) =>
-        executeFileMetadata(db, apiKey, entityId, abortController),
+      const projectId = yield* retryAiCall(label, (abortController) =>
+        runFileMetadataJob(db, apiKey, { entityId, draftId }, abortController),
       );
-
-      const file = yield* Effect.promise(() =>
-        db.select().from(files).where(eq(files.id, entityId)).get(),
-      );
-      if (file?.projectId) {
-        broadcastInvalidation({
-          waitUntil: (p) => this.ctx.waitUntil(p),
-          projectRoomNamespace: this.env.ProjectRoom,
-          projectId: file.projectId,
-          targets: [queryKeys.files.list, queryKeys.files.get(entityId)],
-        });
-      }
+      if (projectId) refresh(projectId, [queryKeys.files.list, queryKeys.files.get(entityId)]);
     } else if (entityTable === "pages" && type === "seo") {
-      yield* retryAiCall(label, (abortController) =>
-        executePageSeo(db, apiKey, entityId, abortController),
+      const done = yield* retryAiCall(label, (abortController) =>
+        runPageSeoJob(db, apiKey, { entityId, draftId }, abortController),
       );
-
-      const page = yield* Effect.promise(() =>
-        db.select().from(pages).where(eq(pages.id, entityId)).get(),
-      );
-      if (page) {
-        broadcastInvalidation({
-          waitUntil: (p) => this.ctx.waitUntil(p),
-          projectRoomNamespace: this.env.ProjectRoom,
-          projectId: page.projectId,
-          targets: [queryKeys.pages.list, queryKeys.pages.getById(entityId)],
-        });
+      if (done) {
+        refresh(done.projectId, [
+          queryKeys.pages.list,
+          queryKeys.pages.getById(entityId),
+          queryKeys.pages.getByPathAll,
+          // A pending meta title is a publish warning, a missing one a blocker.
+          queryKeys.drafts.all,
+        ]);
       }
     }
   });
 
   private async getBlockProjectId(
     db: ReturnType<typeof createDb>,
-    blockId: number,
+    blockId: string,
   ): Promise<number | null> {
     const result = await db
-      .select({ projectId: projects.id })
+      .select({ projectId: blocks.projectId })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
       .where(eq(blocks.id, blockId))
       .get();
     return result?.projectId ?? null;

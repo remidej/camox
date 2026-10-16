@@ -25,7 +25,7 @@ registerHooks({
 void test("only the active page resolves add requests, including layout boundaries and regular blocks", async () => {
   const dom = new Window();
   const TestPageContext = React.createContext({
-    page: { id: 1 },
+    page: { id: "1" },
     blocks: [{ position: "a0" }, { position: "a1" }],
   });
   const globals = {
@@ -47,7 +47,7 @@ void test("only the active page resolves add requests, including layout boundari
   const root = createRoot(host);
   const frames = [document.createElement("iframe"), document.createElement("iframe")];
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "activatePage", pageId: 2 });
+  previewStore.send({ type: "activatePage", pageId: "2" });
   previewStore.send({ type: "setIframeElement", element: frames[1] });
   try {
     await React.act(async () => {
@@ -56,10 +56,13 @@ void test("only the active page resolves add requests, including layout boundari
           {frames.map((frame, index) => (
             <TestPageContext
               key={index}
-              value={{ page: { id: index + 1 }, blocks: [{ position: "a0" }, { position: "a1" }] }}
+              value={{
+                page: { id: String(index + 1) },
+                blocks: [{ position: "a0" }, { position: "a1" }],
+              }}
             >
               <Overlays
-                owner={{ kind: "page", pageId: index + 1 }}
+                owner={{ kind: "page", pageId: String(index + 1) }}
                 iframeElement={frame}
                 canAddBlocks
               />
@@ -134,16 +137,16 @@ void test("selecting a record text field focuses it in the selected placement", 
   const iframe = {
     contentWindow: { postMessage: (message: unknown) => messages.push(message) },
   } as unknown as HTMLIFrameElement;
-  const owner = { kind: "page", pageId: 1 } as const;
+  const owner = { kind: "page", pageId: "1" } as const;
   previewStore.send({ type: "enterEditMode" });
-  previewStore.send({ type: "activatePage", pageId: 1 });
+  previewStore.send({ type: "activatePage", pageId: "1" });
   try {
     await React.act(async () => root.render(<Overlays owner={owner} iframeElement={iframe} />));
     await React.act(async () =>
       previewStore.send({
         type: "selectRecordField",
         ...owner,
-        blockId: 2,
+        blockId: "2",
         fieldName: "customer",
         recordId: "acme",
         recordFieldName: "quote",

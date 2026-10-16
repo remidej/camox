@@ -14,7 +14,6 @@ interface CamoxProviderProps {
   authenticationUrl: string;
   camoxApp: CamoxApp;
   children: React.ReactNode;
-  environmentName?: string;
   projectSlug: string;
 }
 

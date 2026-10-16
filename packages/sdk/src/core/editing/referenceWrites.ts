@@ -1,17 +1,16 @@
 import type { ReferenceRecord } from "../lib/reference";
 
-type SavedRecord = { id: string; version: number; draft: Record<string, unknown> };
+type SavedRecord = { id: string; content: Record<string, unknown> };
 type Write = (input: {
   id: string;
   collectionId: string;
-  expectedVersion: number;
   content: Record<string, unknown>;
 }) => Promise<SavedRecord>;
 
 /**
- * One queue per source and client. Two placements editing a shared record must
- * not race each other or replace fields from a stale full-content snapshot.
- * Only our own successful save advances the reviewed version while queued.
+ * One queue per record and client. Two placements editing a shared record must
+ * not race each other or replace fields from a stale full-content snapshot:
+ * while saves are queued, each builds on the content the previous one saved.
  */
 export class ReferenceWrites {
   private sources = new Map<
@@ -23,10 +22,9 @@ export class ReferenceWrites {
   >();
 
   save(record: ReferenceRecord, field: string, value: unknown, write: Write): Promise<void> {
-    if (record.version == null) return Promise.reject(new Error("This record is not editable"));
     const key = `${record.collectionId}/${record.id}`;
     let source = this.sources.get(key);
-    if (!source || (!source.pending && record.version > (source.record.version ?? 0))) {
+    if (!source?.pending) {
       source = { record };
       this.sources.set(key, source);
     }
@@ -35,10 +33,9 @@ export class ReferenceWrites {
       const saved = await write({
         id: record.id,
         collectionId: record.collectionId,
-        expectedVersion: state.record.version!,
         content: { ...state.record.content, [field]: value },
       });
-      state.record = { ...state.record, content: saved.draft, version: saved.version };
+      state.record = { ...state.record, content: saved.content };
     });
     state.pending = operation;
     void operation.then(

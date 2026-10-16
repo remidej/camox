@@ -77,7 +77,7 @@ export function editorAssetField(fieldType: unknown, value: unknown) {
   return editorAsset(value);
 }
 
-/** Serializes an asset editor value into the collection record asset snapshot shape. */
+/** Serializes an asset editor value into the `{ _fileId }` reference a record stores. */
 export function serializeAssetField(fieldType: unknown, value: unknown) {
   if (!isAssetFieldType(fieldType)) return value;
   return Array.isArray(value) ? value.map(serializeAsset) : serializeAsset(value);
@@ -85,24 +85,14 @@ export function serializeAssetField(fieldType: unknown, value: unknown) {
 
 function editorAsset(value: unknown) {
   if (!value || typeof value !== "object") return null;
-  const asset = value as Record<string, unknown>;
-  return { ...asset, ...(asset._fileId != null ? { _fileId: Number(asset._fileId) } : {}) };
+  return { ...(value as Record<string, unknown>) };
 }
 
 function serializeAsset(value: unknown) {
-  if (!value || typeof value !== "object") return value;
-  const asset = value as Record<string, unknown>;
-  // Editors include library/upload metadata. Only send the collection asset snapshot shape.
-  return {
-    url: asset.url,
-    alt: asset.alt ?? "",
-    filename: asset.filename,
-    mimeType: asset.mimeType,
-    ...(asset.size != null ? { size: asset.size } : {}),
-    ...(typeof asset._fileId === "number" || typeof asset._fileId === "string"
-      ? { _fileId: String(asset._fileId) }
-      : {}),
-  };
+  if (!value || typeof value !== "object") return null;
+  // Editors include the file's metadata; records store the file reference only, like blocks.
+  const fileId = (value as Record<string, unknown>)._fileId;
+  return typeof fileId === "string" && fileId ? { _fileId: fileId } : null;
 }
 
 export function collectionFormContent(

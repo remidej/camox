@@ -18,8 +18,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "camox-content",
-      "database_id": "acd1b39f-b4fb-45b9-b66d-b8f8f1d8b4dd",
+      "database_name": "camox",
+      "database_id": "3cba2c05-3758-40b9-bb10-fc7c8568c391",
       "migrations_dir": "migrations",
     },
   ],

@@ -5,8 +5,9 @@ import type { ReactNode } from "react";
 import studioCssUrl from "virtual:camox-studio-css";
 
 import { getApiClient } from "../../lib/api-client";
+import { scopedKey } from "../../lib/studio-draft";
 import { PreviewToolbar } from "../preview/components/PreviewToolbar";
-import { previewStore, selectPreviewSource } from "../preview/previewStore";
+import { previewStore } from "../preview/previewStore";
 import type { PageStructure } from "../routes/pageRuntime";
 import { Navbar } from "../studio/components/Navbar";
 import type { PageRenderInput } from "./runtime";
@@ -21,16 +22,14 @@ export function RuntimeChrome({
 }) {
   const preview = !input.routeKind;
   const hidden = useSelector(previewStore, (state) => state.context.isToolbarHidden);
-  const source = useSelector(previewStore, selectPreviewSource);
   const { data: page } = useQuery<PageStructure>({
-    queryKey: queryKeys.pages.getByPath(input.pathname, source),
+    queryKey: scopedKey(queryKeys.pages.getByPath(input.pathname)),
     // A passive observer still needs a real queryFn: Suspense may start fetching
     // this shared query before the preview's observer has committed its options.
     queryFn: () =>
       getApiClient().pages.getStructure({
         path: input.pathname,
         projectSlug: input.projectSlug,
-        source,
       }),
     enabled: false,
   });

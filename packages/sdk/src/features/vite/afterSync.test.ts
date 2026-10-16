@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { setTimeout } from "node:timers/promises";
 
+import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/node";
 import { createLogger, createServer } from "vite-plus";
 
+import { syncDefinitionsToApi } from "./definitionsSync";
 import { type CamoxPluginOptions, camox } from "./vite";
 
 type AfterSync = NonNullable<NonNullable<CamoxPluginOptions["_internal"]>["afterSync"]>;
@@ -20,7 +22,10 @@ const AUTHENTICATION_URL = "http://dashboard.test";
  * A checkout with a minimal Camox app and a dev session, plus a fake API that
  * accepts definition sync unless `failCollectionSync` is set.
  */
-async function devCheckout(t: TestContext, { failCollectionSync = false } = {}) {
+async function devCheckout(
+  t: TestContext,
+  { failCollectionSync = false, draftCreated = false } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "camox-after-sync-"));
   await mkdir(join(root, ".git"));
   await mkdir(join(root, ".camox"));
@@ -45,14 +50,14 @@ async function devCheckout(t: TestContext, { failCollectionSync = false } = {}) 
   const base = os.$context<{ headers: IncomingHttpHeaders }>();
   const router = {
     blockDefinitions: {
-      sync: base.handler(() => ({
-        environmentCreated: false,
-        deletedDefinitionTypes: [],
-        blockedDefinitionDeletions: [],
-      })),
+      sync: base.handler(({ context }) => {
+        requests.push({ path: "blockDefinitions.sync", headers: context.headers });
+        return { results: [], draftCreated, deletedDefinitionTypes: [] };
+      }),
     },
     collectionDefinitions: {
-      sync: base.handler(() => {
+      sync: base.handler(({ context }) => {
+        requests.push({ path: "collectionDefinitions.sync", headers: context.headers });
         if (failCollectionSync) throw new Error("collection sync failed");
         return { count: 0, retired: [] };
       }),
@@ -124,7 +129,7 @@ async function waitFor(condition: () => boolean, logs: string[]): Promise<void> 
   assert.ok(condition(), logs.join("\n"));
 }
 
-void test("the dev server runs afterSync as the dev user once definitions are synced", async (t) => {
+void test("the dev server syncs definitions and runs afterSync in the dev user's development draft", async (t) => {
   const checkout = await devCheckout(t);
   const calls: Parameters<AfterSync>[0][] = [];
   const { logs } = await startDevServer(t, checkout, async (context) => {
@@ -132,13 +137,62 @@ void test("the dev server runs afterSync as the dev user once definitions are sy
     await context.client.collectionDefinitions.list({ projectSlug: context.projectSlug });
   });
 
-  await waitFor(() => checkout.requests.length > 0, logs);
+  const afterSync = () => checkout.requests.find((r) => r.path === "collectionDefinitions.list");
+  await waitFor(() => !!afterSync(), logs);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.projectSlug, "checkout");
-  assert.equal(calls[0]!.environmentName, "dev:dev@camox.dev");
   assert.ok(logs.some((line) => line.includes("Synced 0 collection definitions")));
-  assert.equal(checkout.requests[0]!.headers.authorization, "Bearer dev-session");
-  assert.equal(checkout.requests[0]!.headers["x-environment-name"], "dev:dev@camox.dev");
+  assert.deepEqual(
+    checkout.requests.map(({ path, headers }) => ({
+      path,
+      session: headers.authorization,
+      draft: headers[DRAFT_HEADER],
+    })),
+    ["blockDefinitions.sync", "collectionDefinitions.sync", "collectionDefinitions.list"].map(
+      (path) => ({
+        path,
+        session: "Bearer dev-session",
+        draft: DEVELOPMENT_DRAFT,
+      }),
+    ),
+  );
+  assert.ok(!logs.some((line) => line.includes("Created your development draft")));
+});
+
+void test("the dev server says when its first sync created the development draft", async (t) => {
+  const checkout = await devCheckout(t, { draftCreated: true });
+  const { logs } = await startDevServer(t, checkout, () => {});
+
+  await waitFor(() => logs.some((line) => line.includes("Synced 0 collection definitions")), logs);
+  assert.ok(logs.some((line) => line.includes("Created your development draft")));
+  assert.ok(logs.some((line) => line.includes("Running Camox app (your development draft)")));
+});
+
+void test("a release syncs Live's definitions: its requests name no draft", async (t) => {
+  const checkout = await devCheckout(t);
+  const camoxApp = {
+    getBlocks: () => [],
+    getSerializableLayoutDefinitions: () => [],
+    getSerializableCollectionDefinitions: () => [],
+    getInitialPageBundles: async () => null,
+  } as unknown as Parameters<typeof syncDefinitionsToApi>[0]["camoxApp"];
+
+  await syncDefinitionsToApi({
+    camoxApp,
+    projectSlug: "checkout",
+    apiUrl: checkout.apiUrl,
+    autoCreate: false,
+    deployToken: "deploy-token",
+    logger: createLogger("silent"),
+  });
+
+  assert.deepEqual(
+    checkout.requests.map(({ path, headers }) => ({ path, draft: headers[DRAFT_HEADER] })),
+    [
+      { path: "blockDefinitions.sync", draft: undefined },
+      { path: "collectionDefinitions.sync", draft: undefined },
+    ],
+  );
 });
 
 void test("the dev server skips afterSync when definition sync fails", async (t) => {

@@ -11,7 +11,9 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const binary = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
-const commentId = "78cf8b0c-630e-4d56-8a5f-931f15048784";
+const commentId = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+const pageId = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7a";
+const missingPageId = "019a2b3c-4d5e-7f60-8a1b-000000000999";
 const calls = [];
 let home;
 let server;
@@ -31,7 +33,7 @@ before(async () => {
       res.end(JSON.stringify({ json: { id: 7 } }));
       return;
     }
-    if (input.arguments.pageId === 999) {
+    if (input.arguments.pageId === missingPageId) {
       res.end(
         JSON.stringify({
           json: { ok: false, error: { code: "NOT_FOUND", message: "Page not found" } },
@@ -81,28 +83,27 @@ async function cli(...args) {
   }
 }
 
-void test("lists page comments in development and resolves a comment in production", async () => {
-  const listed = await cli("list", "--page-id", "42", "--json");
+void test("lists page comments and resolves a comment in the development draft", async () => {
+  const listed = await cli("list", "--page-id", pageId, "--json");
   assert.equal(listed.code, 0, listed.stderr);
-  assert.deepEqual(JSON.parse(listed.stdout), { pageId: 42 });
+  assert.deepEqual(JSON.parse(listed.stdout), { pageId });
   assert.equal(calls.at(-1).input.name, "listComments");
   assert.equal(calls.at(-1).input.projectId, 7);
-  assert.equal(calls.at(-1).headers["x-environment-name"], "dev:tester@example.com");
+  assert.equal(calls.at(-1).headers["x-camox-draft"], "development");
 
   const resolved = await cli(
     "resolve",
     "--page-id",
-    "42",
+    pageId,
     "--id",
     commentId,
-    "--production",
     "--project",
     "other",
   );
   assert.equal(resolved.code, 0, resolved.stderr);
-  assert.deepEqual(JSON.parse(resolved.stdout), { pageId: 42, id: commentId });
+  assert.deepEqual(JSON.parse(resolved.stdout), { pageId, id: commentId });
   assert.equal(calls.at(-1).input.name, "resolveComment");
-  assert.equal(calls.at(-1).headers["x-environment-name"], "production");
+  assert.equal(calls.at(-1).headers["x-camox-draft"], "development");
   assert.equal(calls.at(-2).input.slug, "other");
 });
 
@@ -110,8 +111,14 @@ void test("rejects missing and invalid identifiers before a request", async () =
   for (const args of [
     ["list"],
     ["list", "--page-id", "0"],
-    ["resolve", "--page-id", "42"],
+    // Page ids are UUIDv7s too.
+    ["list", "--page-id", "42"],
+    ["resolve", "--page-id", "42", "--id", commentId],
+    ["resolve", "--page-id", pageId],
     ["resolve", "--id", commentId],
+    ["resolve", "--page-id", pageId, "--id", "1"],
+    // A UUIDv4 isn't a comment id.
+    ["resolve", "--page-id", pageId, "--id", "78cf8b0c-630e-4d56-8a5f-931f15048784"],
   ]) {
     const count = calls.length;
     const result = await cli(...args);
@@ -121,7 +128,7 @@ void test("rejects missing and invalid identifiers before a request", async () =
 });
 
 void test("prints structured server errors", async () => {
-  const failed = await cli("resolve", "--page-id", "999", "--id", commentId);
+  const failed = await cli("resolve", "--page-id", missingPageId, "--id", commentId);
   assert.equal(failed.code, 1);
   assert.equal(JSON.parse(failed.stderr).code, "NOT_FOUND");
   assert.equal(failed.stdout, "");

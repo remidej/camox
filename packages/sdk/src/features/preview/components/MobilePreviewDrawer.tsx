@@ -1,4 +1,3 @@
-import { Button } from "@camox/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { ArrowLeft, FileText, Info, Layers, Search, Settings } from "lucide-react";
@@ -214,18 +213,7 @@ export function MobilePreviewDrawer({
           <div key={screen} className="min-h-0 flex-1 overflow-auto">
             {screen === "root" && (
               <div ref={rootContentRef} className="pb-[env(safe-area-inset-bottom)]">
-                <PageNavigatorHeader page={page} />
-                <div className="px-3 pt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full"
-                    disabled={page.status === "published" || page.livePublishedCheckpointId == null}
-                    onClick={() => previewStore.send({ type: "viewLiveSite" })}
-                  >
-                    View live site
-                  </Button>
-                </div>
+                <PageNavigatorHeader />
                 <div className="grid grid-cols-2 gap-2 p-3">
                   <DrawerTile
                     title="Page content"

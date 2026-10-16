@@ -7,6 +7,8 @@ import {
 import type { LinkProps as TanStackLinkProps } from "@tanstack/react-router";
 import * as React from "react";
 
+import { withDraftParam } from "./draftParam";
+
 export type NavigationSource = "canvas";
 
 interface LocationState {
@@ -21,6 +23,11 @@ export interface NavigateOptions {
   replace?: boolean;
   to: string;
   source?: NavigationSource;
+  /**
+   * Switch to this draft, or to Live with `null` (ADR 0011). Left out, the navigation keeps the
+   * draft the URL names.
+   */
+  draft?: string | null;
 }
 
 interface NavigationContextValue {
@@ -50,10 +57,10 @@ function toHref(to: string): string {
   return to;
 }
 
-async function browserNavigate({ replace, to, source }: NavigateOptions): Promise<void> {
+async function browserNavigate({ replace, to, source, draft }: NavigateOptions): Promise<void> {
   if (typeof window === "undefined") return;
 
-  const href = toHref(to);
+  const href = withDraftParam(toHref(to), window.location.href, draft);
   if (replace) {
     window.history.replaceState(null, "", href);
   } else {
@@ -124,7 +131,10 @@ const Link: React.ForwardRefExoticComponent<LinkProps & React.RefAttributes<HTML
     if (!context) return <TanStackLink {...props} ref={ref} />;
 
     const { activeProps, children, onClick, target, to, ...rest } = props;
-    const href = toHref(String(to));
+    // The href names the current draft too, so opening the link in a new tab keeps it.
+    const href = context.location.href
+      ? withDraftParam(toHref(String(to)), context.location.href)
+      : toHref(String(to));
     const isActive = context.location.pathname === new URL(href, "http://camox.local").pathname;
     const activeAnchorProps = (isActive ? activeProps : undefined) as
       | React.AnchorHTMLAttributes<HTMLAnchorElement>

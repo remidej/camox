@@ -37,10 +37,11 @@ const layoutOptions = {
   buildMetaTitle: ({ pageMetaTitle }: { pageMetaTitle: string }) => pageMetaTitle,
 };
 
-const PUBLISHED_ID = "00000000-0000-4000-8000-000000000001";
-const DRAFT_ONLY_ID = "00000000-0000-4000-8000-000000000002";
+const FIRST_ID = "00000000-0000-4000-8000-000000000001";
+const SECOND_ID = "00000000-0000-4000-8000-000000000002";
 const RICH_ID = "00000000-0000-4000-8000-000000000005";
 const LINKED_ID = "00000000-0000-4000-8000-000000000006";
+const UNKNOWN_ID = "00000000-0000-4000-8000-000000000008";
 const AUTHOR = {
   id: "00000000-0000-4000-8000-000000000007",
   collectionId: "authors",
@@ -49,41 +50,40 @@ const AUTHOR = {
 };
 const TWIN_IDS = ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004"];
 
-type RecordsBySource = Record<
-  "draft" | "live",
-  Array<{ id: string; content: Record<string, unknown>; references?: unknown; version?: number }>
->;
-
-/** Records by source, as the API's field lookup returns them for `slug`. */
-const records: RecordsBySource = {
-  draft: [
-    { id: PUBLISHED_ID, content: { title: "Draft title", slug: "new-slug" } },
-    { id: DRAFT_ONLY_ID, content: { title: "Draft only", slug: "draft-only" } },
-    ...TWIN_IDS.map((id) => ({ id, content: { title: "Twin", slug: "twin" } })),
-  ],
-  live: [{ id: PUBLISHED_ID, content: { title: "Published title", slug: "old-slug" } }],
+type MockRecord = {
+  id: string;
+  content: Record<string, unknown>;
+  references?: unknown;
+  updatedAt?: number;
 };
 
-/** Published records whose fields and links layout.Item, Markdown and meta read. */
-const withRenderedRecords: RecordsBySource = {
-  draft: records.draft,
-  live: [
-    ...records.live,
-    { id: RICH_ID, content: { title: plainTextToLexicalState("Rich title"), slug: "rich" } },
-    {
-      id: LINKED_ID,
-      content: { title: "Linked", slug: "linked", author: AUTHOR.id },
-      references: { author: AUTHOR },
-    },
-  ],
-};
+const first: MockRecord = { id: FIRST_ID, content: { title: "First title", slug: "first" } };
+const second: MockRecord = { id: SECOND_ID, content: { title: "Second title", slug: "second" } };
+const twins: MockRecord[] = TWIN_IDS.map((id) => ({
+  id,
+  content: { title: "Twin", slug: "twin" },
+}));
 
-/** An API where only the valid session can read drafts, and only of this project. */
-function mockApi(
-  t: { mock: { method: typeof test.mock.method } },
-  recordsBySource: RecordsBySource = records,
-) {
-  const lookups: Array<{ source: string; session: string | null }> = [];
+/** Records with their current content, as the API's field lookup returns them for `slug`. */
+const records: MockRecord[] = [first, second, ...twins];
+
+/** Records whose fields and links layout.Item, Markdown and meta read. */
+const withRenderedRecords: MockRecord[] = [
+  ...records,
+  { id: RICH_ID, content: { title: plainTextToLexicalState("Rich title"), slug: "rich" } },
+  {
+    id: LINKED_ID,
+    content: { title: "Linked", slug: "linked", author: AUTHOR.id },
+    references: { author: AUTHOR },
+  },
+];
+
+/** The records route discovery can list, without the twins. */
+const discoverable: MockRecord[] = [first, second];
+
+/** An API where only the valid session is signed in; records are readable by anyone. */
+function mockApi(t: { mock: { method: typeof test.mock.method } }, apiRecords = records) {
+  const lookups: Array<Record<string, unknown>> = [];
   const markdownRequests: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const url = new URL(request.url);
@@ -106,8 +106,8 @@ function mockApi(
     if (url.pathname.endsWith("/collectionDefinitions/recordMarkdown")) {
       const { json: input } = (await request.json()) as { json: { id: string } };
       markdownRequests.push(input);
-      // The API fills the builder's tokens with the live record, as its own tests show.
-      return Response.json({ json: input.id === PUBLISHED_ID ? "# Published title" : "" });
+      // The API fills the builder's tokens with the record's content, as its own tests show.
+      return Response.json({ json: input.id === FIRST_ID ? "# First title" : "" });
     }
     if (url.pathname.endsWith("/layouts/get"))
       return Response.json({
@@ -122,55 +122,35 @@ function mockApi(
       });
     if (url.pathname.endsWith("/collectionDefinitions/findRecordsByField")) {
       const { json: input } = (await request.json()) as {
-        json: {
-          projectSlug: string;
-          collectionId: string;
-          field: "slug";
-          value: string;
-          source: "draft" | "live";
-        };
+        json: { projectSlug: string; collectionId: string; field: "slug"; value: string };
       };
-      lookups.push({ source: input.source, session });
-      if (input.source === "draft" && !session)
-        return Response.json(
-          { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Sign in" } },
-          { status: 401 },
-        );
+      lookups.push(input);
       assert.equal(input.projectSlug, "test");
       assert.equal(input.collectionId, "articles");
       return Response.json({
-        json: recordsBySource[input.source].filter(
-          (record) => record.content[input.field] === input.value,
-        ),
+        json: apiRecords.filter((record) => record.content[input.field] === input.value),
       });
     }
     if (url.pathname.endsWith("/collectionDefinitions/listRecordPageValues")) {
       const { json: input } = (await request.json()) as {
-        json: {
-          projectSlug: string;
-          collectionId: string;
-          field: "slug";
-          source: "draft" | "live";
-        };
+        json: { projectSlug: string; collectionId: string; field: "slug" };
       };
-      lookups.push({ source: input.source, session });
-      if (input.source === "draft" && !session)
-        return Response.json(
-          { json: { defined: false, code: "UNAUTHORIZED", status: 401, message: "Sign in" } },
-          { status: 401 },
-        );
+      lookups.push(input);
       assert.equal(input.projectSlug, "test");
       assert.equal(input.collectionId, "articles");
       return Response.json({
-        json: recordsBySource[input.source].map((record) => ({
-          id: record.id,
-          value: record.content[input.field],
-        })),
+        json: apiRecords.map((record) => ({ id: record.id, value: record.content[input.field] })),
       });
     }
     throw new Error(`Unexpected request: ${url}`);
   });
   return Object.assign(lookups, { markdownRequests });
+}
+
+/** Asserts how many record lookups went out, and that none named a source. */
+function assertLookupsWithoutSource(lookups: Array<Record<string, unknown>>, count: number) {
+  assert.equal(lookups.length, count);
+  for (const lookup of lookups) assert.ok(!("source" in lookup), JSON.stringify(lookup));
 }
 
 function request(
@@ -206,68 +186,24 @@ async function loadedRecord(path: string, cookie?: string) {
   return ((await response!.json()) as PageRenderInput).derived!.result;
 }
 
-void test("editors read the record matching its draft value, visitors its published value", async (t) => {
+void test("editors and visitors read the record's current content, without naming a source", async (t) => {
   const lookups = mockApi(t);
-  assert.deepEqual(await loadedRecord("/articles/new-slug", VALID_SESSION), {
+  const expected = {
     kind: "collection-item",
     collectionId: "articles",
-    data: { id: PUBLISHED_ID, content: { title: "Draft title", slug: "new-slug" } },
-  });
-  assert.deepEqual(await loadedRecord("/articles/draft-only", VALID_SESSION), {
-    kind: "collection-item",
-    collectionId: "articles",
-    data: { id: DRAFT_ONLY_ID, content: { title: "Draft only", slug: "draft-only" } },
-  });
-  assert.deepEqual(await loadedRecord("/articles/old-slug"), {
-    kind: "collection-item",
-    collectionId: "articles",
-    data: { id: PUBLISHED_ID, content: { title: "Published title", slug: "old-slug" } },
-  });
-  const html = await request("/articles/old-slug");
-  assert.match(await html!.text(), /<main>[^<]*Published title/);
-  // Only draft reads carry the editor's session.
-  assert.deepEqual(
-    lookups.map(({ source, session }) => [source, session]),
-    [
-      ["draft", "valid"],
-      ["draft", "valid"],
-      ["live", null],
-      ["live", null],
-    ],
-  );
-});
-
-void test("an editor previewing live content reads the record visitors see", async (t) => {
-  const lookups = mockApi(t);
+    data: { id: FIRST_ID, content: { title: "First title", slug: "first" } },
+  };
+  assert.deepEqual(await loadedRecord("/articles/first", VALID_SESSION), expected);
+  assert.deepEqual(await loadedRecord("/articles/first"), expected);
   const live = await request(
-    "/_camox/data?path=/articles/old-slug&source=live",
+    "/_camox/data?path=/articles/first&source=live",
     undefined,
     VALID_SESSION,
   );
-  assert.equal(live!.status, 200);
-  assert.deepEqual(((await live!.json()) as PageRenderInput).derived!.result, {
-    kind: "collection-item",
-    collectionId: "articles",
-    data: { id: PUBLISHED_ID, content: { title: "Published title", slug: "old-slug" } },
-  });
-  // The draft slug has no live record.
-  const draftSlug = await request(
-    "/_camox/data?path=/articles/new-slug&source=live",
-    undefined,
-    VALID_SESSION,
-  );
-  assert.equal(draftSlug!.status, 404);
-  // Asking for drafts never grants them to a visitor.
-  const visitor = await request("/_camox/data?path=/articles/new-slug&source=draft");
-  assert.equal(visitor!.status, 404);
-  assert.deepEqual(
-    lookups.map(({ source, session }) => [source, session]),
-    [
-      ["live", null],
-      ["live", null],
-      ["live", null],
-    ],
-  );
+  assert.deepEqual(((await live!.json()) as PageRenderInput).derived!.result, expected);
+  const html = await request("/articles/first");
+  assert.match(await html!.text(), /<main>[^<]*First title/);
+  assertLookupsWithoutSource(lookups, 4);
 });
 
 void test("the record's resolved references travel in the envelope, for layout.Item", async (t) => {
@@ -283,29 +219,21 @@ void test("the record's resolved references travel in the envelope, for layout.I
   });
 });
 
-void test("an editor's record carries its draft version, which edits send as expected", async (t) => {
-  mockApi(t, {
-    draft: [{ id: PUBLISHED_ID, content: { title: "Draft", slug: "versioned" }, version: 7 }],
-    live: [],
-  });
-  const loaded = (await loadedRecord("/articles/versioned", VALID_SESSION)) as {
-    data: { version?: number };
+void test("the record's last content change travels in the envelope", async (t) => {
+  mockApi(t, [{ id: FIRST_ID, content: { title: "Dated", slug: "dated" }, updatedAt: 1700 }]);
+  const loaded = (await loadedRecord("/articles/dated", VALID_SESSION)) as {
+    data: { updatedAt?: number };
   };
-  assert.equal(loaded.data.version, 7);
+  assert.equal(loaded.data.updatedAt, 1700);
 });
 
-void test("a slug no record has in the request's source is a 404", async (t) => {
+void test("a slug no record has is a 404", async (t) => {
   mockApi(t);
-  for (const [path, cookie] of [
-    ["/articles/missing", VALID_SESSION],
-    ["/articles/old-slug", VALID_SESSION],
-    ["/articles/new-slug", undefined],
-    ["/articles/draft-only", undefined],
-  ] as const) {
-    const html = await request(path, undefined, cookie);
-    assert.equal(html!.status, 404, `${path} ${cookie}`);
-    const data = await request(`/_camox/data?path=${path}`, undefined, cookie);
-    assert.equal(data!.status, 404, `${path} ${cookie}`);
+  for (const cookie of [VALID_SESSION, undefined]) {
+    const html = await request("/articles/missing", undefined, cookie);
+    assert.equal(html!.status, 404, `${cookie}`);
+    const data = await request("/_camox/data?path=/articles/missing", undefined, cookie);
+    assert.equal(data!.status, 404, `${cookie}`);
   }
 });
 
@@ -332,19 +260,19 @@ void test("a wrapper that passes the context through and returns the envelope wo
       return result;
     },
   });
-  const response = await request("/_camox/data?path=/articles/old-slug", [wrapped]);
+  const response = await request("/_camox/data?path=/articles/first", [wrapped]);
   const input = (await response!.json()) as PageRenderInput;
   assert.deepEqual(input.derived!.result, {
     kind: "collection-item",
     collectionId: "articles",
-    data: { id: PUBLISHED_ID, content: { title: "Published title", slug: "old-slug" } },
+    data: { id: FIRST_ID, content: { title: "First title", slug: "first" } },
   });
 });
 
 void test("the runtime rejects envelopes naming an unregistered collection or a malformed id", async (t) => {
   mockApi(t);
   for (const [collectionId, id] of [
-    ["unknown", PUBLISHED_ID],
+    ["unknown", FIRST_ID],
     ["articles", "not-a-record-id"],
   ]) {
     const layout = createLayout("articles.$slug")({
@@ -353,18 +281,12 @@ void test("the runtime rejects envelopes naming an unregistered collection or a 
       loader: () => ({ kind: "collection-item", collectionId, data: { id, content: {} } }),
     });
     await assert.rejects(
-      async () => request("/articles/old-slug", [layout]),
+      async () => request("/articles/first", [layout]),
       /collection-item/,
       `${collectionId} ${id}`,
     );
   }
 });
-
-/** The records editors and visitors can reach, without the draft twins. */
-const discoverable: RecordsBySource = {
-  draft: records.draft.filter((record) => !TWIN_IDS.includes(record.id)),
-  live: records.live,
-};
 
 async function sitemapPaths(cookie?: string) {
   const response = await request("/sitemap.xml", undefined, cookie);
@@ -379,39 +301,31 @@ async function firstDiscoveredPath(cookie?: string) {
   return ((await response!.json()) as { path: string | null }).path;
 }
 
-void test("the sitemap lists published record pages only, even for an editor", async (t) => {
+void test("the sitemap lists every record page, for visitors and editors alike", async (t) => {
   const lookups = mockApi(t, discoverable);
-  assert.deepEqual(await sitemapPaths(), ["/articles/old-slug"]);
-  assert.deepEqual(await sitemapPaths(VALID_SESSION), ["/articles/old-slug"]);
-  assert.deepEqual(
-    lookups.map(({ source, session }) => [source, session]),
-    [
-      ["live", null],
-      ["live", null],
-    ],
-  );
+  assert.deepEqual(await sitemapPaths(), ["/articles/first", "/articles/second"]);
+  assert.deepEqual(await sitemapPaths(VALID_SESSION), ["/articles/first", "/articles/second"]);
+  assertLookupsWithoutSource(lookups, 2);
 });
 
-void test("the Canvas opens an editor on a draft-only record, and a visitor on nothing", async (t) => {
-  mockApi(t, { draft: [records.draft[1]!], live: [] });
-  assert.equal(await firstDiscoveredPath(VALID_SESSION), "/articles/draft-only");
-  assert.equal(await firstDiscoveredPath(), null);
+void test("the Canvas opens editors and visitors on the first record page", async (t) => {
+  mockApi(t, discoverable);
+  assert.equal(await firstDiscoveredPath(VALID_SESSION), "/articles/first");
+  assert.equal(await firstDiscoveredPath(), "/articles/first");
 });
 
 void test("an empty collection discovers no pages", async (t) => {
-  mockApi(t, { draft: [], live: [] });
+  mockApi(t, []);
   assert.deepEqual(await sitemapPaths(), []);
   assert.equal(await firstDiscoveredPath(VALID_SESSION), null);
 });
 
-void test("every discovered page loads its record in the same source", async (t) => {
+void test("every discovered page loads its record", async (t) => {
   mockApi(t, discoverable);
+  const loadedIds = [];
   for (const path of await sitemapPaths())
-    assert.equal(((await loadedRecord(path)) as LayoutCollectionItemResult).data.id, PUBLISHED_ID);
-  const draftPath = await firstDiscoveredPath(VALID_SESSION);
-  assert.equal(draftPath, "/articles/new-slug");
-  const loaded = (await loadedRecord(draftPath!, VALID_SESSION)) as LayoutCollectionItemResult;
-  assert.equal(loaded.data.id, PUBLISHED_ID);
+    loadedIds.push(((await loadedRecord(path)) as LayoutCollectionItemResult).data.id);
+  assert.deepEqual(loadedIds, [FIRST_ID, SECOND_ID]);
 });
 
 void test("discovered entries name their record", async (t) => {
@@ -431,19 +345,19 @@ void test("discovered entries name their record", async (t) => {
   assert.deepEqual(discovered, {
     data: [
       {
-        params: { slug: "new-slug" },
-        target: { kind: "collection-item", collectionId: "articles", id: PUBLISHED_ID },
+        params: { slug: "first" },
+        target: { kind: "collection-item", collectionId: "articles", id: FIRST_ID },
       },
       {
-        params: { slug: "draft-only" },
-        target: { kind: "collection-item", collectionId: "articles", id: DRAFT_ONLY_ID },
+        params: { slug: "second" },
+        target: { kind: "collection-item", collectionId: "articles", id: SECOND_ID },
       },
     ],
   });
 });
 
-void test("the routes endpoint finds the page of a record, in the editor's source", async (t) => {
-  mockApi(t, discoverable);
+void test("the routes endpoint finds the page of a record", async (t) => {
+  const lookups = mockApi(t, discoverable);
   const pathOf = async (recordId: string, cookie?: string) => {
     const response = await request(
       `/_camox/routes?layoutId=articles.$slug&recordId=${recordId}`,
@@ -453,14 +367,14 @@ void test("the routes endpoint finds the page of a record, in the editor's sourc
     assert.equal(response!.status, 200);
     return ((await response!.json()) as { path: string | null }).path;
   };
-  assert.equal(await pathOf(DRAFT_ONLY_ID, VALID_SESSION), "/articles/draft-only");
-  assert.equal(await pathOf(PUBLISHED_ID, VALID_SESSION), "/articles/new-slug");
-  assert.equal(await pathOf(PUBLISHED_ID), "/articles/old-slug");
-  assert.equal(await pathOf(DRAFT_ONLY_ID), null);
+  assert.equal(await pathOf(SECOND_ID, VALID_SESSION), "/articles/second");
+  assert.equal(await pathOf(SECOND_ID), "/articles/second");
+  assert.equal(await pathOf(UNKNOWN_ID, VALID_SESSION), null);
+  assertLookupsWithoutSource(lookups, 3);
 });
 
 void test("records sharing a value fail discovery, naming the layout and the records", async (t) => {
-  mockApi(t, { draft: records.draft, live: [...records.live, ...records.draft.slice(2)] });
+  mockApi(t);
   t.mock.method(console, "error", () => {});
   for (const cookie of [undefined, VALID_SESSION]) {
     const sitemap = await request("/sitemap.xml", undefined, cookie);
@@ -481,20 +395,17 @@ void test("toMarkdown fills the record's fields between the live layout blocks, 
     ...articles.pages({ by: "slug", param: "slug" }),
     toMarkdown: ({ item, data }) => [`# ${item.title}`, `By ${item.author.name}`, data.id],
   });
-  const response = await request("/articles/old-slug", [layout], VALID_SESSION, "text/markdown");
-  assert.equal(await response!.text(), "Navbar\n\n# Published title\n\nFooter");
+  const response = await request("/articles/first", [layout], VALID_SESSION, "text/markdown");
+  assert.equal(await response!.text(), "Navbar\n\n# First title\n\nFooter");
   assert.deepEqual(lookups.markdownRequests, [
     {
       projectSlug: "test",
       collectionId: "articles",
-      id: PUBLISHED_ID,
-      toMarkdown: ["# {{title}}", "By {{author.name}}", PUBLISHED_ID],
+      id: FIRST_ID,
+      toMarkdown: ["# {{title}}", "By {{author.name}}", FIRST_ID],
     },
   ]);
-  assert.deepEqual(
-    lookups.map(({ source, session }) => [source, session]),
-    [["live", null]],
-  );
+  assertLookupsWithoutSource(lookups, 1);
 });
 
 void test("meta callbacks get the record's fields as plain text", async (t) => {
@@ -514,4 +425,21 @@ void test("meta callbacks get the record's fields as plain text", async (t) => {
     { title: "Rich title | Real project" },
     { name: "description", content: "About rich" },
   ]);
+});
+
+void test("a record page layout syncs the collection and field its pages are found by", () => {
+  const recordLayout = createLayout("articles.$slug")({
+    ...layoutOptions,
+    kind: "derived",
+    ...articles.pages({ by: "slug", param: "slug" }),
+  });
+  const plain = createLayout("about")({ ...layoutOptions, kind: "singleton" });
+  const app = createApp({ blocks: [], layouts: [recordLayout, plain], collections: [articles] });
+
+  const synced = app.getSerializableLayoutDefinitions();
+  assert.deepEqual(synced.find((layout) => layout.layoutId === "articles.$slug")?.recordPages, {
+    collectionId: "articles",
+    field: "slug",
+  });
+  assert.equal(synced.find((layout) => layout.layoutId === "about")?.recordPages, undefined);
 });

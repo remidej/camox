@@ -59,8 +59,8 @@ const layouts = [
 function select(url: string) {
   const pages = getCanvasPages(
     [
-      { id: 7, nickname: "Home", fullPath: "/" },
-      { id: 83, nickname: "Special article", fullPath: "/articles/special" },
+      { id: "7", nickname: "Home", fullPath: "/" },
+      { id: "83", nickname: "Special article", fullPath: "/articles/special" },
     ],
     layouts,
   );
@@ -78,10 +78,10 @@ async function setup() {
     IS_REACT_ACT_ENVIRONMENT: true,
     canvasBlockPages: {
       hero: [
-        { id: 7, nickname: "Home", fullPath: "/" },
-        { id: 83, nickname: "Special article", fullPath: "/articles/special" },
+        { id: "7", nickname: "Home", fullPath: "/" },
+        { id: "83", nickname: "Special article", fullPath: "/articles/special" },
       ],
-    } as Record<string, { id: number; nickname: string; fullPath: string }[]>,
+    } as Record<string, { id: string; nickname: string; fullPath: string }[]>,
   };
   const previous = new Map(
     Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -112,7 +112,7 @@ async function setup() {
                   navigations.push(options);
                 }}
               >
-                <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
+                <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
                   {block ? (
                     <CanvasRightSidebar page={undefined} catalog={{ block, projectId: 1 }} />
                   ) : (
@@ -148,7 +148,7 @@ void test("canvas URL selection targets page or layout info without inheriting s
   const dom = await setup();
   const { store } = dom;
   store.send({ type: "enterEditMode" });
-  store.send({ type: "setFocusedBlock", kind: "page", pageId: 7, blockId: 42 });
+  store.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
   const snapshot = store.getSnapshot();
   const observed: unknown[] = [];
   const subscription = store.subscribe((state) => observed.push(state));
@@ -210,13 +210,13 @@ void test("canvas uses the active frame owner to edit selected page and layout b
   dom.store.send({ type: "enterEditMode" });
   try {
     for (const [url, owner] of [
-      ["/", { kind: "page", pageId: 7 }],
-      ["/about", { kind: "layout", layoutId: 21 }],
+      ["/", { kind: "page", pageId: "7" }],
+      ["/about", { kind: "layout", layoutId: "docs" }],
     ] as const) {
-      dom.store.send({ type: "setFocusedBlock", ...owner, blockId: 42 });
+      dom.store.send({ type: "setFocusedBlock", ...owner, blockId: "42" });
       await dom.render(url, owner);
       assert.ok(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'));
-      await dom.render(url, { kind: "page", pageId: 83 });
+      await dom.render(url, { kind: "page", pageId: "83" });
       assert.equal(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'), null);
     }
   } finally {
@@ -227,12 +227,12 @@ void test("canvas uses the active frame owner to edit selected page and layout b
 void test("a record page's selected record opens the editor, with no block selected", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
-  const owner = { kind: "layout", layoutId: 21 } as const;
+  const owner = { kind: "layout", layoutId: "docs" } as const;
   try {
     dom.store.send({
       type: "selectTarget",
       ...owner,
-      selection: { type: "record", layoutId: 21, recordId: "article" },
+      selection: { type: "record", layoutId: "docs", recordId: "article" },
     });
     await dom.render("/articles/example", owner);
     assert.ok(dom.mount.querySelector('[data-editor="PageEditorSidebar"]'));

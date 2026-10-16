@@ -22,7 +22,7 @@ import { collectionQueries } from "@/lib/queries";
 import { referencePickerFocus } from "../referencePickerFocus";
 
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
-initApiClient("http://localhost:8788", "development");
+initApiClient("http://localhost:8788");
 
 const customers = createCollection({
   id: "customers",
@@ -41,18 +41,17 @@ const ADA = "a6479288-341f-4008-b118-dea6d8dd9158";
 const GRACE = "4f0b4a8f-1df4-4b44-9c1a-2b67b10e1e4b";
 const CREATED = "8b2f3b1e-6c9f-4f0e-9a43-0b9b6e3f6b7d";
 
-type RecordSummary = { id: string; label: string; status: string; version: number };
+type RecordSummary = { id: string; label: string };
 
 const defaultRecords: RecordSummary[] = [
-  { id: ADA, label: "Ada", status: "published", version: 2 },
-  { id: GRACE, label: "Grace", status: "draft", version: 1 },
+  { id: ADA, label: "Ada" },
+  { id: GRACE, label: "Grace" },
 ];
 
 const adaRecord: NormalizedCollectionRecord = {
   id: ADA,
   collectionId: "customers",
   label: "Ada",
-  version: 2,
   content: {
     name: "Ada",
     company: "Analytical Engines",
@@ -61,7 +60,8 @@ const adaRecord: NormalizedCollectionRecord = {
       alt: "Ada logo",
       filename: "ada-logo.png",
       mimeType: "image/png",
-      _fileId: "5",
+      size: 2048,
+      _fileId: 5,
     },
   },
 };
@@ -237,14 +237,12 @@ async function renderReference(
   };
 }
 
-void test("a linked record shows a card with its label, publication badge and collection", async () => {
+void test("a linked record shows a card with its label and collection", async () => {
   const view = await renderReference({ value: ADA, record: adaRecord });
   try {
     const card = view.host.querySelector<HTMLElement>("[data-record-card]");
     assert.ok(card, "linked records render a record card");
-    assert.match(card.textContent ?? "", /Ada/);
-    assert.match(card.textContent ?? "", /Published/);
-    assert.match(card.textContent ?? "", /Customers/);
+    assert.equal(card.textContent, "AdaCustomers");
     assert.ok(!card.querySelector("img"), "cards never show the record's image");
     assert.ok(!view.host.querySelector('[role="combobox"]'), "no picker while linked");
     await view.click("Open Ada");
@@ -269,19 +267,19 @@ void test("unlinking clears the reference immediately and restores the picker", 
   }
 });
 
-void test("the picker searches records by label, shows their publication, and links the choice", async () => {
+void test("the picker searches records by label and links the choice", async () => {
   const view = await renderReference();
   try {
     assert.ok(!view.find("Create item"), "creating lives only in the picker");
     await view.click("Select item");
-    assert.deepEqual(view.options(), ["AdaPublished", "GraceDraft"]);
+    assert.deepEqual(view.options(), ["Ada", "Grace"]);
     await view.search("gra");
-    assert.deepEqual(view.options(), ["GraceDraft"]);
+    assert.deepEqual(view.options(), ["Grace"]);
     await view.search("nobody");
     assert.deepEqual(view.options(), []);
     assert.match(document.body.textContent ?? "", /No items found/);
     await view.search("Ada");
-    await view.click("AdaPublished");
+    await view.click("Ada");
     assert.deepEqual(view.changes, [ADA]);
     assert.ok(view.host.querySelector("[data-record-card]"));
     assert.ok(!view.host.querySelector('[role="combobox"]'));
@@ -310,8 +308,10 @@ void test("Create item prefills the label from the search, links the saved recor
     const body = (await request.json()) as { json: Record<string, unknown> };
     if (path.endsWith("/createRecord")) {
       created.push(body.json);
-      records = [{ id: CREATED, label: "Acme", status: "draft", version: 1 }, ...defaultRecords];
-      return Response.json({ json: { id: CREATED, version: 1, draft: body.json.content } });
+      records = [{ id: CREATED, label: "Acme" }, ...defaultRecords];
+      return Response.json({
+        json: { id: CREATED, content: body.json.content, createdAt: 1, updatedAt: 1 },
+      });
     }
     if (path.endsWith("/listRecords")) return Response.json({ json: records });
     return Response.json({ json: null });
@@ -361,7 +361,7 @@ void test("Create item prefills the label from the search, links the saved recor
   }
 });
 
-void test("hints flag a missing required reference and a never-published required record", async () => {
+void test("a hint flags only an unlinked required reference", async () => {
   const cases: {
     name: string;
     value: string | null;
@@ -370,20 +370,8 @@ void test("hints flag a missing required reference and a never-published require
   }[] = [
     { name: "unset optional", value: null, required: false, expected: null },
     { name: "unset required", value: null, required: true, expected: "Required" },
-    { name: "published optional", value: ADA, required: false, expected: null },
-    { name: "published required", value: ADA, required: true, expected: null },
-    {
-      name: "draft optional",
-      value: GRACE,
-      required: false,
-      expected: null,
-    },
-    {
-      name: "draft required",
-      value: GRACE,
-      required: true,
-      expected: "Blocks publishing until this record is included",
-    },
+    { name: "linked optional", value: ADA, required: false, expected: null },
+    { name: "linked required", value: ADA, required: true, expected: null },
   ];
   for (const { name, value, required, expected } of cases) {
     const view = await renderReference({ value, required });
@@ -438,7 +426,7 @@ void test("selecting an unset reference from the preview placeholder focuses its
       "the request is consumed",
     );
     await view.search("gra");
-    assert.deepEqual(view.options(), ["GraceDraft"]);
+    assert.deepEqual(view.options(), ["Grace"]);
   } finally {
     await view.cleanup();
   }
@@ -475,7 +463,7 @@ void test("a query-backed list shows its results as cards that open, with no lis
   try {
     const card = view.host.querySelector<HTMLElement>("[data-record-card]");
     assert.ok(card);
-    assert.match(card.textContent ?? "", /Ada\s*Published\s*Customers/);
+    assert.equal(card.textContent, "AdaCustomers");
     for (const control of ["Unlink", "Reorder", "Select item", "Create item"]) {
       assert.ok(!view.find(control), `no ${control} control`);
     }

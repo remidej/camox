@@ -1,6 +1,7 @@
 import { queryKeys } from "@camox/api-contract/query-keys";
 
 import { getPageDestinations } from "../../core/pageDestinations";
+import { scopedKey } from "../../lib/studio-draft";
 import { fetchRuntimeJson } from "../runtime/navigationTarget";
 import type { PageRenderInput } from "../runtime/runtime";
 
@@ -12,14 +13,14 @@ export interface CanvasPage {
   pathname: string | null;
   derivedLayoutId?: string;
   pattern?: string;
-  pageId?: number;
+  pageId?: string;
   layoutId?: string;
 }
 
 /**
  * A Canvas frame's page data. The sidebar reads the same query for the selected page. A
- * code-owned page's data is its loader's draft result, which reloads with record edits and
- * publication, like other draft layout reads.
+ * code-owned page's data is its loader's result, which reloads with record edits and
+ * publication, like other layout reads.
  */
 export function canvasPageQuery(
   projectSlug: string,
@@ -29,16 +30,15 @@ export function canvasPageQuery(
 ) {
   return {
     queryKey: derivedLayoutId
-      ? [
+      ? scopedKey([
           ...queryKeys.layouts.all,
           "canvas",
           projectSlug,
           runtimeBasePath,
           pathname,
           derivedLayoutId,
-          "draft",
-        ]
-      : ["camox", "canvas", projectSlug, runtimeBasePath, pathname, null],
+        ])
+      : scopedKey(["camox", "canvas", projectSlug, runtimeBasePath, pathname]),
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const response = await fetchRuntimeJson(
         "/_camox/data",

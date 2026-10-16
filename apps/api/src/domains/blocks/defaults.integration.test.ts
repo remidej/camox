@@ -5,7 +5,6 @@ import { createProjectFixture, createServiceContext } from "../../../test/fixtur
 import { runService } from "../../lib/run-service";
 import { blocks, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
-import { publishLayout } from "../layouts/service";
 import {
   createBlock,
   getBlock,
@@ -45,8 +44,7 @@ async function fixture(suffix: string) {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "",
       fullPath: "/",
       nickname: "Home",
@@ -63,9 +61,9 @@ describe("createBlock defaults", () => {
   it("stores defaults and exposes them in reads and Markdown", async () => {
     const { ctx, page } = await fixture("create-defaults");
     const created = await runService(
-      createBlock(ctx, { pageId: page.id, type: "hero", content: {} }),
+      createBlock(ctx, { pageId: page.id, type: "hero", content: {} }, null),
     );
-    const result = await runService(getBlock(ctx, { id: created.id, source: "draft" }));
+    const result = await runService(getBlock(ctx, { id: created.id }, null));
     expect(result.block.content).toMatchObject({
       title: "Welcome",
       cta: { text: "Learn more", href: "/about" },
@@ -73,39 +71,30 @@ describe("createBlock defaults", () => {
     expect(result.block.settings).toEqual({ visible: true });
     expect(result.repeatableItems).toHaveLength(1);
     expect(result.repeatableItems[0].content).toEqual({ title: "Item" });
-    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }));
+    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }, null));
     expect(markdown).toContain("# Welcome");
     expect(markdown).toContain("[Learn more](/about)");
   });
 
-  it("keeps draft Markdown private", async () => {
-    const { ctx, db, page } = await fixture("draft-markdown-private");
-    await runService(createBlock(ctx, { pageId: page.id, type: "hero", content: {} }));
-    const publicCtx = createServiceContext(db, null);
-    await expect(runService(getPageMarkdown(publicCtx, { pageId: page.id }))).rejects.toThrow();
-    await expect(
-      runService(getPageMarkdown(publicCtx, { pageId: page.id, source: "draft" })),
-    ).rejects.toThrow();
-  });
-
-  it("reads a layout's live slot Markdown publicly, never its draft", async () => {
+  it("reads a layout's current slot Markdown publicly", async () => {
     const { ctx, db, layout, page, project } = await fixture("layout-markdown");
     const created = await runService(
-      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "Published" } }),
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "First" } }, null),
     );
     await db
       .update(blocks)
-      .set({ pageId: null, layoutId: layout.id, slot: "before" })
+      .set({ pageId: null, layoutId: layout.layoutId, slot: "before" })
       .where(eq(blocks.id, created.id));
-    await runService(publishLayout(ctx, { id: layout.id }));
-    await runService(updateBlockContent(ctx, { id: created.id, content: { title: "Draft" } }));
+    await runService(
+      updateBlockContent(ctx, { id: created.id, content: { title: "Edited" } }, null),
+    );
 
     const publicCtx = createServiceContext(db, null);
     const markdown = await runService(
-      getLayoutMarkdown(publicCtx, { projectSlug: project.slug, layoutId: layout.layoutId }),
+      getLayoutMarkdown(publicCtx, { projectSlug: project.slug, layoutId: layout.layoutId }, null),
     );
-    expect(markdown.before).toContain("# Published");
-    expect(markdown.before).not.toContain("Draft");
+    expect(markdown.before).toContain("# Edited");
+    expect(markdown.before).not.toContain("First");
     expect(markdown.after).toBe("");
   });
 
@@ -113,22 +102,30 @@ describe("createBlock defaults", () => {
     const { ctx, page } = await fixture("create-explicit");
     await expect(
       runService(
-        createBlock(ctx, {
-          pageId: page.id,
-          type: "hero",
-          content: { items: [] },
-        }),
+        createBlock(
+          ctx,
+          {
+            pageId: page.id,
+            type: "hero",
+            content: { items: [] },
+          },
+          null,
+        ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     const created = await runService(
-      createBlock(ctx, {
-        pageId: page.id,
-        type: "hero",
-        content: { title: "", items: [{ title: "Explicit" }] },
-        settings: { visible: false },
-      }),
+      createBlock(
+        ctx,
+        {
+          pageId: page.id,
+          type: "hero",
+          content: { title: "", items: [{ title: "Explicit" }] },
+          settings: { visible: false },
+        },
+        null,
+      ),
     );
-    const result = await runService(getBlock(ctx, { id: created.id, source: "draft" }));
+    const result = await runService(getBlock(ctx, { id: created.id }, null));
     expect(result.block.content).toMatchObject({ title: "", cta: { text: "Learn more" } });
     expect(result.block.settings).toEqual({ visible: false });
     expect(result.repeatableItems.map((item) => item.content)).toEqual([{ title: "Explicit" }]);
@@ -151,25 +148,33 @@ describe("createBlock defaults", () => {
       if (repeatableItems.length === 0) {
         await expect(
           runService(
-            createBlock(ctx, {
-              pageId: page.id,
-              type: "hero",
-              content: {},
-              repeatableItems,
-            }),
+            createBlock(
+              ctx,
+              {
+                pageId: page.id,
+                type: "hero",
+                content: {},
+                repeatableItems,
+              },
+              null,
+            ),
           ),
         ).rejects.toMatchObject({ code: "BAD_REQUEST" });
         continue;
       }
       const created = await runService(
-        createBlock(ctx, {
-          pageId: page.id,
-          type: "hero",
-          content: {},
-          repeatableItems,
-        }),
+        createBlock(
+          ctx,
+          {
+            pageId: page.id,
+            type: "hero",
+            content: {},
+            repeatableItems,
+          },
+          null,
+        ),
       );
-      const result = await runService(getBlock(ctx, { id: created.id, source: "draft" }));
+      const result = await runService(getBlock(ctx, { id: created.id }, null));
       expect(result.repeatableItems.map((item) => item.content)).toEqual(
         repeatableItems.map((item) => item.content),
       );

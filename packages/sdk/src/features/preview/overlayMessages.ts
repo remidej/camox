@@ -50,9 +50,9 @@ export type OverlayMessage =
  * Record field IDs carry the record ID so that each record of a reference list is its own target.
  */
 export function overlayFieldId(
-  blockId: number | string,
+  blockId: string,
   fieldName: string,
-  scope: { itemId?: number | null; placement?: RecordPlacement } = {},
+  scope: { itemId?: string | null; placement?: RecordPlacement } = {},
 ): string {
   if (scope.placement) return recordFieldId(scope.placement, fieldName);
   if (scope.itemId != null) return `${blockId}__${scope.itemId}__${fieldName}`;
@@ -79,7 +79,7 @@ export function recordPlacementId(placement: RecordPlacement): string {
   return `${id}__${placement.nested.fieldName}__${placement.nested.recordId}`;
 }
 
-function blockPlacementOwnerId(placement: { blockId: number; itemId?: number }): string {
+function blockPlacementOwnerId(placement: { blockId: string; itemId?: string }): string {
   if (placement.itemId == null) return String(placement.blockId);
   return `${placement.blockId}__${placement.itemId}`;
 }

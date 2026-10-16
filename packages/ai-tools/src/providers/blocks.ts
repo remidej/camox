@@ -1,7 +1,7 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { pageSourceSchema } from "../../../../apps/api/src/domains/_shared/page-source";
 import {
   createBlock,
   createBlockInput,
@@ -13,8 +13,9 @@ import {
   updateBlockPosition,
   updateBlockPositionInput,
 } from "../../../../apps/api/src/domains/blocks/service";
+import { resolveDraftScope } from "../../../../apps/api/src/domains/drafts/service";
 import { runService } from "../../../../apps/api/src/lib/run-service";
-import type { ToolDefinition, ToolProvider } from "../types";
+import type { ToolContext, ToolDefinition, ToolProvider } from "../types";
 
 const positionAliasSchema = z.enum(["first", "last"]).optional();
 
@@ -22,65 +23,60 @@ const REFERENCE_VALUES =
   "Reference fields store one collection record id (or null). Reference list fields store an ordered array of distinct record ids from the field's collection, at most its maxItems; the array replaces the whole list. Reference lists with a query are resolved from code and store nothing: never write them. Repeatable items hold reference fields the same way. Find ids with listCollectionRecords.";
 
 const createBlockToolInput = createBlockInput.omit({ repeatableItems: true }).extend({
-  afterId: z.number().optional(),
-  beforeId: z.number().optional(),
+  afterId: uuidv7Schema.optional(),
+  beforeId: uuidv7Schema.optional(),
   position: positionAliasSchema,
 });
 
 const moveBlockToolInput = updateBlockPositionInput.extend({
-  afterId: z.number().optional(),
-  beforeId: z.number().optional(),
+  afterId: uuidv7Schema.optional(),
+  beforeId: uuidv7Schema.optional(),
   position: positionAliasSchema,
 });
 
 const editBlockToolInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   content: z.unknown().optional(),
   settings: z.unknown().optional(),
 });
 
-// Tool-layer schema for getBlock: source defaults to "draft" (agent / CLI edit
-// the working copy). The service's `getBlockInput` defaults to "live" because
-// it backs the public SDK loader too — we override here explicitly.
-const getBlockToolInput = z.object({
-  id: z.number(),
-  source: pageSourceSchema.optional(),
-});
+const getBlockToolInput = z.object({ id: uuidv7Schema });
 
-const getBlocksToolInput = z.object({
-  ids: z.array(z.number()).min(1),
-  source: pageSourceSchema.optional(),
-});
+const getBlocksToolInput = z.object({ ids: z.array(uuidv7Schema).min(1) });
+
+/** Tools read and write blocks in the draft the session names, if any. */
+const draftScope = (ctx: ToolContext) => resolveDraftScope(ctx, ctx.projectId);
 
 export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
     name: "getBlock",
     description:
       "Fetch a single block by id. Returns the block (with `_itemId` markers injected for each repeatable field), the full list of `repeatableItems` (each with its own `id`), and any referenced `files`. " +
-      "Use this before editing a single field inside a repeatable item — pass each item's `id` back as `_itemId` on the `editBlock` items array. Any existing item not referenced by `_itemId` in the patch is deleted, so the round-trip is the only safe way to update one item without losing the others (and their file references, settings, and positions). " +
-      "Defaults to reading the draft; pass `source: 'live'` to read the published snapshot.",
+      "Use this before editing a single field inside a repeatable item — pass each item's `id` back as `_itemId` on the `editBlock` items array. Any existing item not referenced by `_itemId` in the patch is deleted, so the round-trip is the only safe way to update one item without losing the others (and their file references, settings, and positions).",
     inputSchema: getBlockToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = getBlockToolInput.parse(input);
-      return runService(getBlock(ctx, { id: parsed.id, source: parsed.source ?? "draft" }));
+      return runService(
+        Effect.flatMap(draftScope(ctx), (scope) => getBlock(ctx, { id: parsed.id }, scope)),
+      );
     },
   },
   {
     name: "getBlocks",
     description:
       "Fetch multiple blocks by id in one call. Returns an array of getBlock bundle results in the same order as the requested ids. " +
-      "Use this before editing repeatable fields across several blocks so each block's `_itemId` markers can be preserved. " +
-      "Defaults to reading the draft; pass `source: 'live'` to read the published snapshot.",
+      "Use this before editing repeatable fields across several blocks so each block's `_itemId` markers can be preserved.",
     inputSchema: getBlocksToolInput,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = getBlocksToolInput.parse(input);
-      const source = parsed.source ?? "draft";
       return runService(
-        Effect.forEach(parsed.ids, (id) => getBlock(ctx, { id, source }), {
-          concurrency: "unbounded",
-        }),
+        Effect.flatMap(draftScope(ctx), (scope) =>
+          Effect.forEach(parsed.ids, (id) => getBlock(ctx, { id }, scope), {
+            concurrency: "unbounded",
+          }),
+        ),
       );
     },
   },
@@ -98,6 +94,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const parsed = createBlockToolInput.parse(input);
       return runService(
         Effect.gen(function* () {
+          const scope = yield* draftScope(ctx);
           const resolved = yield* resolveBlockPosition(
             ctx,
             {
@@ -109,15 +106,21 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
               position: parsed.position,
             },
             { mode: "create" },
+            scope,
           );
-          return yield* createBlock(ctx, {
-            pageId: parsed.pageId,
-            type: parsed.type,
-            content: parsed.content,
-            settings: parsed.settings,
-            afterPosition: resolved.afterPosition,
-            beforePosition: resolved.beforePosition,
-          });
+          return yield* createBlock(
+            ctx,
+            {
+              id: parsed.id,
+              pageId: parsed.pageId,
+              type: parsed.type,
+              content: parsed.content,
+              settings: parsed.settings,
+              afterPosition: resolved.afterPosition,
+              beforePosition: resolved.beforePosition,
+            },
+            scope,
+          );
         }),
       );
     },
@@ -126,12 +129,15 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "editBlock",
     description:
       "Update a block's `content` and/or `settings`. Provide at least one. Both are merged into the existing values, so partial patches are fine. " +
-      "Submitted fields are validated against the owning environment's JSON Schemas before writes; errors include field paths. " +
+      "Submitted fields are validated against the draft's block definitions' JSON Schemas before writes; errors include field paths. " +
       "Repeater arrays replace the field and must satisfy its minItems/maxItems; preserve existing items with _itemId. " +
       REFERENCE_VALUES,
     inputSchema: editBlockToolInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: async (input) => runService(editBlock(ctx, editBlockToolInput.parse(input))),
+    handler: async (input) => {
+      const parsed = editBlockToolInput.parse(input);
+      return runService(Effect.flatMap(draftScope(ctx), (scope) => editBlock(ctx, parsed, scope)));
+    },
   },
   {
     name: "moveBlock",
@@ -143,6 +149,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const parsed = moveBlockToolInput.parse(input);
       return runService(
         Effect.gen(function* () {
+          const scope = yield* draftScope(ctx);
           const resolved = yield* resolveBlockPosition(
             ctx,
             {
@@ -154,12 +161,17 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
               position: parsed.position,
             },
             { mode: "move" },
+            scope,
           );
-          return yield* updateBlockPosition(ctx, {
-            id: parsed.id,
-            afterPosition: resolved.afterPosition,
-            beforePosition: resolved.beforePosition,
-          });
+          return yield* updateBlockPosition(
+            ctx,
+            {
+              id: parsed.id,
+              afterPosition: resolved.afterPosition,
+              beforePosition: resolved.beforePosition,
+            },
+            scope,
+          );
         }),
       );
     },
@@ -169,6 +181,11 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     description: "Delete a block by id.",
     inputSchema: deleteBlockInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
-    handler: async (input) => runService(deleteBlock(ctx, deleteBlockInput.parse(input))),
+    handler: async (input) => {
+      const parsed = deleteBlockInput.parse(input);
+      return runService(
+        Effect.flatMap(draftScope(ctx), (scope) => deleteBlock(ctx, parsed, scope)),
+      );
+    },
   },
 ];

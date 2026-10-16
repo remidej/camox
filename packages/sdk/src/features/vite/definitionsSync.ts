@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
 import { type Logger, type ViteDevServer, createServer, isRunnableDevEnvironment } from "vite-plus";
 
 import type { CamoxApp } from "@/core/createApp";
@@ -12,10 +13,19 @@ const SYNC_DEBOUNCE_DELAY_MS = 100;
 interface SyncDefinitionsOptions {
   projectSlug: string;
   apiUrl: string;
-  environmentName: string;
   autoCreate: boolean;
   authToken?: string;
   deployToken?: string;
+}
+
+/**
+ * The client definitions sync with. A release (deploy token) syncs Live's definitions; dev mode
+ * sends the developer's session and syncs their development draft, which its first sync
+ * creates (ADR 0006).
+ */
+function createSyncClient(options: { apiUrl: string; authToken?: string; deployToken?: string }) {
+  const draftId = options.deployToken ? undefined : DEVELOPMENT_DRAFT;
+  return createServerApiClient(options.apiUrl, options.authToken, draftId);
 }
 
 /**
@@ -40,10 +50,19 @@ function isNotFoundError(error: unknown): boolean {
   );
 }
 
-function throwUnknownEnvironmentError(environmentName: string): never {
+/**
+ * A sync that may not create the development draft finds nothing to write to: a release names a
+ * project that doesn't exist, or dev mode has no development draft yet (ADR 0006).
+ */
+function throwSyncTargetNotFoundError(projectSlug: string, deployToken?: string): never {
+  if (deployToken) {
+    throw new Error(
+      `[camox] Project "${projectSlug}" does not exist. Check the camox() projectSlug.`,
+    );
+  }
   throw new Error(
-    `[camox] Environment "${environmentName}" does not exist. ` +
-      `Run the dev server while authenticated to create your personal environment first.`,
+    `[camox] You have no development draft in project "${projectSlug}" yet. ` +
+      `Run the dev server while authenticated to create it first.`,
   );
 }
 
@@ -51,23 +70,13 @@ export async function syncDefinitionsToApi(options: {
   camoxApp: CamoxApp;
   projectSlug: string;
   apiUrl: string;
-  environmentName: string;
   autoCreate: boolean;
   authToken?: string;
   deployToken?: string;
   logger: Logger;
 }): Promise<void> {
-  const {
-    camoxApp,
-    projectSlug,
-    apiUrl,
-    environmentName,
-    autoCreate,
-    authToken,
-    deployToken,
-    logger,
-  } = options;
-  const client = createServerApiClient(apiUrl, environmentName, authToken);
+  const { camoxApp, projectSlug, autoCreate, deployToken, logger } = options;
+  const client = createSyncClient(options);
 
   const blocks = camoxApp.getBlocks();
   const layoutDefinitions = camoxApp.getSerializableLayoutDefinitions();
@@ -98,9 +107,8 @@ export async function syncDefinitionsToApi(options: {
       synced: block._internal.synced,
     }));
 
-  let environmentCreated = false;
+  let draftCreated = false;
   let deletedDefinitionTypes: string[] = [];
-  let blockedDefinitionDeletions: Array<{ blockId: string; blockCount: number }> = [];
   try {
     const result = await client.blockDefinitions.sync({
       projectSlug,
@@ -108,17 +116,17 @@ export async function syncDefinitionsToApi(options: {
       autoCreate,
       definitions,
     });
-    environmentCreated = result.environmentCreated;
+    draftCreated = result.draftCreated;
     deletedDefinitionTypes = result.deletedDefinitionTypes;
-    blockedDefinitionDeletions = result.blockedDefinitionDeletions;
   } catch (error) {
     throwIfSyncAuthError(error);
-    if (!autoCreate && isNotFoundError(error)) throwUnknownEnvironmentError(environmentName);
+    if (!autoCreate && isNotFoundError(error))
+      throwSyncTargetNotFoundError(projectSlug, deployToken);
     throw error;
   }
 
-  if (environmentCreated) {
-    logger.info(`[camox] Created empty environment "${environmentName}"`, { timestamp: true });
+  if (draftCreated) {
+    logger.info("[camox] Created your development draft", { timestamp: true });
   }
 
   logger.info(
@@ -129,13 +137,7 @@ export async function syncDefinitionsToApi(options: {
   if (deletedDefinitionTypes.length > 0) {
     const blockList = deletedDefinitionTypes.map((t) => `"${t}"`).join(", ");
     logger.info(
-      `[camox] Removed ${deletedDefinitionTypes.length} orphaned block definition${deletedDefinitionTypes.length === 1 ? "" : "s"} (no longer in code): ${blockList}`,
-      { timestamp: true },
-    );
-  }
-  for (const blocked of blockedDefinitionDeletions) {
-    logger.warn(
-      `[camox] Cannot delete block definition "${blocked.blockId}": still used by ${blocked.blockCount} block${blocked.blockCount === 1 ? "" : "s"}. Delete those blocks first.`,
+      `[camox] Removed ${deletedDefinitionTypes.length} block definition${deletedDefinitionTypes.length === 1 ? "" : "s"} no longer in code: ${blockList}. Their blocks are kept and render nothing until the definition comes back.`,
       { timestamp: true },
     );
   }
@@ -150,7 +152,7 @@ export async function syncDefinitionsToApi(options: {
     timestamp: true,
   });
   for (const id of collectionResult.retired) {
-    logger.warn(`[camox] Retired collection "${id}"; records and history are preserved`, {
+    logger.warn(`[camox] Removed collection "${id}"; its records are kept and hidden`, {
       timestamp: true,
     });
   }
@@ -167,7 +169,8 @@ export async function syncDefinitionsToApi(options: {
       });
     } catch (error) {
       throwIfSyncAuthError(error);
-      if (!autoCreate && isNotFoundError(error)) throwUnknownEnvironmentError(environmentName);
+      if (!autoCreate && isNotFoundError(error))
+        throwSyncTargetNotFoundError(projectSlug, deployToken);
       throw error;
     }
     logger.info(
@@ -197,12 +200,9 @@ export async function syncDefinitionsToApi(options: {
         );
       }
     }
-    for (const layoutId of layoutSyncResults.deletedLayoutIds) {
-      logger.info(`[camox] Deleted layout "${layoutId}"`, { timestamp: true });
-    }
-    for (const blocked of layoutSyncResults.blockedLayoutDeletions) {
-      logger.warn(
-        `[camox] Cannot delete layout "${blocked.layoutId}": still used by ${blocked.pageCount} page${blocked.pageCount === 1 ? "" : "s"}. Reassign or delete those pages first.`,
+    for (const layoutId of layoutSyncResults.removedLayoutIds) {
+      logger.info(
+        `[camox] Removed layout "${layoutId}"; its pages are kept and listed as needing a layout`,
         { timestamp: true },
       );
     }
@@ -215,7 +215,7 @@ export async function syncDefinitionsToApi(options: {
     }
   }
 
-  // Initialize content for fresh environments (no-ops if pages already exist)
+  // Initialize content for a fresh project or draft (no-ops if pages already exist)
   const initialPage = await camoxApp.getInitialPageBundles();
   if (initialPage) {
     try {
@@ -291,7 +291,8 @@ export async function syncDefinitions(
   server: ViteDevServer,
   options: SyncDefinitionsOptions,
 ): Promise<boolean> {
-  const { projectSlug, apiUrl, environmentName, autoCreate, authToken, deployToken } = options;
+  const { projectSlug, apiUrl, autoCreate, authToken, deployToken } = options;
+  const client = createSyncClient(options);
   const blocksDirs = [
     path.resolve(server.config.root, "src/blocks"),
     path.resolve(server.config.root, "src/camox/blocks"),
@@ -300,7 +301,6 @@ export async function syncDefinitions(
     path.resolve(server.config.root, "src/layouts"),
     path.resolve(server.config.root, "src/camox/layouts"),
   ];
-  const client = createServerApiClient(apiUrl, environmentName, authToken);
 
   async function performInitialSync(): Promise<boolean> {
     // The SSR runner caches the resolved `camoxApp`. Without invalidation,
@@ -330,7 +330,6 @@ export async function syncDefinitions(
       camoxApp: camoxModule.camoxApp,
       projectSlug,
       apiUrl,
-      environmentName,
       autoCreate,
       authToken,
       deployToken,

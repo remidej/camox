@@ -18,7 +18,6 @@ import { useState } from "react";
 
 import { SingleAssetFieldEditor } from "@/features/preview/components/AssetFieldEditor";
 import { MultipleAssetFieldEditor } from "@/features/preview/components/MultipleAssetFieldEditor";
-import { PageStatusBadge } from "@/features/preview/components/PageStatusBadge";
 import { ReferenceFieldEditor } from "@/features/preview/components/ReferenceFieldEditor";
 import { ReferenceListFieldEditor } from "@/features/preview/components/ReferenceListFieldEditor";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
@@ -37,7 +36,6 @@ import {
 } from "./collection-form";
 import { useCollectionItemModal } from "./CollectionItemModalContext";
 import { DeleteCollectionItemButton } from "./components/DeleteCollectionItemButton";
-import { PublishCollectionItemButton } from "./components/PublishCollectionItemButton";
 
 export const ContentCollection = ({
   projectSlug,
@@ -114,18 +112,19 @@ export const ContentCollection = ({
                   className="focus-visible:bg-accent flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-sm"
                 >
                   <span className="truncate">{record.label || "Untitled item"}</span>
-                  <PageStatusBadge size="sm" status={record.status} />
+                  {record.duplicatePageValue && (
+                    <span
+                      className="text-destructive shrink-0 text-xs"
+                      title="Another item's page has the same URL. Change one of them before publishing."
+                    >
+                      Duplicate URL
+                    </span>
+                  )}
                 </button>
-                <PublishCollectionItemButton
-                  projectSlug={projectSlug}
-                  collectionId={collection.collectionId}
-                  record={record}
-                />
                 <DeleteCollectionItemButton
                   projectSlug={projectSlug}
                   collectionId={collection.collectionId}
                   id={record.id}
-                  version={record.version}
                   label={record.label}
                   compact
                 />
@@ -170,7 +169,7 @@ function CollectionItemForm({
   onSaved: (record: CollectionRecord) => void | Promise<void>;
 }) {
   const fields = collectionFormFields(contentSchema, label);
-  // Background refetches must not replace edits or advance the expected version.
+  // Background refetches must not replace edits.
   const [savedRecord, setSavedRecord] = useState(record);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -179,7 +178,7 @@ function CollectionItemForm({
   const [submitting, setSubmitting] = useState(false);
   const saving = submitting || create.isPending || edit.isPending;
   const [defaultValues] = useState(() =>
-    collectionFormDefaults(fields, savedRecord?.draft ?? initialContent),
+    collectionFormDefaults(fields, savedRecord?.content ?? initialContent),
   );
   const form = useForm({
     defaultValues,
@@ -188,14 +187,10 @@ function CollectionItemForm({
       setSubmitting(true);
       setError(null);
       try {
-        const content = collectionFormContent(fields, value, savedRecord?.draft);
+        const content = collectionFormContent(fields, value, savedRecord?.content);
         const scope = { projectSlug, collectionId, content };
         const saved = savedRecord
-          ? await edit.mutateAsync({
-              ...scope,
-              id: savedRecord.id,
-              expectedVersion: savedRecord.version,
-            })
+          ? await edit.mutateAsync({ ...scope, id: savedRecord.id })
           : await create.mutateAsync(scope);
         // Advance only after our own successful save, never from a refetch.
         setSavedRecord(saved);
@@ -424,6 +419,13 @@ export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: strin
           <DialogTitle>{target?.itemId ? "Edit item" : "New item"}</DialogTitle>
           <DialogDescription>
             {target?.itemId ? "Update this collection item." : "Create a new collection item."}
+            {target?.itemId && (
+              <RecordUsage
+                projectSlug={projectSlug}
+                collectionId={target.collectionId}
+                id={target.itemId}
+              />
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="-mx-1 min-h-0 overflow-y-auto px-1">
@@ -442,3 +444,25 @@ export const ContentCollectionItemModal = ({ projectSlug }: { projectSlug: strin
     </Dialog>
   );
 };
+
+/** Where a record is used: how many blocks, repeatable items and records reference it. */
+function RecordUsage({
+  projectSlug,
+  collectionId,
+  id,
+}: {
+  projectSlug: string;
+  collectionId: string;
+  id: string;
+}) {
+  const { data: count } = useQuery(
+    collectionQueries.recordUsageCount(projectSlug, collectionId, id),
+  );
+  if (count === undefined) return null;
+  return (
+    <>
+      {" "}
+      {count === 0 ? "Not used anywhere." : `Used in ${count} ${count === 1 ? "place" : "places"}.`}
+    </>
+  );
+}

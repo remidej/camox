@@ -12,6 +12,10 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const binary = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
 const calls = [];
+// UUIDv7s, as the API mints them.
+const PAGE_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7a";
+const BLOCK_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7c";
+const OTHER_BLOCK_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7d";
 const source = `<!doctype html>
 <title>Orbit "demo"</title>
 <script type="module">
@@ -35,7 +39,7 @@ before(async () => {
     const input = body ? JSON.parse(body).json : undefined;
     calls.push({ url: req.url, input });
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ json: { ok: true, result: { id: 1 } } }));
+    res.end(JSON.stringify({ json: { ok: true, result: { id: BLOCK_ID } } }));
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -78,17 +82,17 @@ async function cli(...args) {
 }
 
 void test("edit sets a field to a file's raw contents", async () => {
-  const result = await cli("edit", "--id", "5", "--field-file", "source=orbit.html");
+  const result = await cli("edit", "--id", BLOCK_ID, "--field-file", "source=orbit.html");
   assert.equal(result.code, 0, result.stderr);
   assert.equal(calls.at(-1).input.name, "editBlock");
-  assert.deepEqual(calls.at(-1).input.arguments, { id: 5, content: { source } });
+  assert.deepEqual(calls.at(-1).input.arguments, { id: BLOCK_ID, content: { source } });
 });
 
 void test("create sets several fields from repeated --field-file flags", async () => {
   const result = await cli(
     "create",
     "--page-id",
-    "3",
+    PAGE_ID,
     "--type",
     "hero",
     "--field-file",
@@ -106,8 +110,8 @@ void test("create sets several fields from repeated --field-file flags", async (
 
 void test("--field-file merges with --content and wins on conflicts", async () => {
   for (const command of [
-    ["create", "--page-id", "3", "--type", "hero"],
-    ["edit", "--id", "5"],
+    ["create", "--page-id", PAGE_ID, "--type", "hero"],
+    ["edit", "--id", BLOCK_ID],
   ]) {
     const result = await cli(
       ...command,
@@ -126,8 +130,8 @@ void test("--field-file merges with --content and wins on conflicts", async () =
 
 void test("a missing file fails with a clear error before anything is written", async () => {
   for (const command of [
-    ["create", "--page-id", "3", "--type", "hero"],
-    ["edit", "--id", "5"],
+    ["create", "--page-id", PAGE_ID, "--type", "hero"],
+    ["edit", "--id", BLOCK_ID],
   ]) {
     const count = calls.length;
     const result = await cli(
@@ -153,5 +157,64 @@ void test("create and edit help document --field-file", async () => {
     assert.equal(help.code, 0);
     assert.match(help.stdout, /--field-file/);
     assert.match(help.stdout, /raw contents/);
+  }
+});
+
+void test("takes and prints block and page ids as UUIDv7s", async () => {
+  for (const { args, name, expected } of [
+    { args: ["get", "--id", BLOCK_ID], name: "getBlock", expected: { id: BLOCK_ID } },
+    {
+      args: ["get-many", "--id", BLOCK_ID, "--id", OTHER_BLOCK_ID],
+      name: "getBlocks",
+      expected: { ids: [BLOCK_ID, OTHER_BLOCK_ID] },
+    },
+    {
+      args: [
+        "create",
+        "--page-id",
+        PAGE_ID,
+        "--type",
+        "hero",
+        "--content",
+        "{}",
+        "--after-id",
+        OTHER_BLOCK_ID,
+      ],
+      name: "createBlock",
+      expected: { pageId: PAGE_ID, type: "hero", content: {}, afterId: OTHER_BLOCK_ID },
+    },
+    {
+      args: ["move", "--id", BLOCK_ID, "--before-id", OTHER_BLOCK_ID],
+      name: "moveBlock",
+      expected: { id: BLOCK_ID, beforeId: OTHER_BLOCK_ID },
+    },
+    { args: ["delete", "--id", BLOCK_ID], name: "deleteBlock", expected: { id: BLOCK_ID } },
+  ]) {
+    const result = await cli(...args, "--json");
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(calls.at(-1).input.name, name);
+    assert.deepEqual(calls.at(-1).input.arguments, expected);
+    assert.deepEqual(JSON.parse(result.stdout), { id: BLOCK_ID });
+  }
+});
+
+void test("rejects a block or page id that isn't a UUIDv7 before making requests", async () => {
+  for (const id of ["5", "abc", "2b0f6c2e-4a1d-4c6e-9b8a-3f2e1d0c9b8a"]) {
+    for (const args of [
+      ["get", "--id", id],
+      ["get-many", "--id", BLOCK_ID, "--id", id],
+      ["create", "--page-id", id, "--type", "hero"],
+      ["create", "--page-id", PAGE_ID, "--type", "hero", "--before-id", id],
+      ["edit", "--id", id, "--content", "{}"],
+      ["move", "--id", id, "--position", "first"],
+      ["move", "--id", BLOCK_ID, "--after-id", id],
+      ["delete", "--id", id],
+    ]) {
+      const count = calls.length;
+      const result = await cli(...args);
+      assert.notEqual(result.code, 0, args.join(" "));
+      assert.match(result.stderr, /UUIDv7/, args.join(" "));
+      assert.equal(calls.length, count, args.join(" "));
+    }
   }
 });

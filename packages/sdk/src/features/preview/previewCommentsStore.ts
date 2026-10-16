@@ -1,4 +1,5 @@
 import type { Comment, CommentTarget } from "@camox/api-contract";
+import { generateUuidv7 } from "@camox/api-contract/ids";
 import { createStore } from "@xstate/store-react";
 
 import type { CamoxApp } from "@/core/createApp";
@@ -9,9 +10,9 @@ import { previewStore } from "./previewStore";
 
 export type { CommentTarget } from "@camox/api-contract";
 export type CommentAuthor = Comment["author"];
-export type CommentDraft = { id: string; pageId: number; target: CommentTarget; message: string };
+export type CommentDraft = { id: string; pageId: string; target: CommentTarget; message: string };
 /** Ephemeral UI anchor identifies the clicked copy; geometry stays in the overlay cache. */
-export type CommentPopover = { pageId: number; target: CommentTarget; anchor?: Element };
+export type CommentPopover = { pageId: string; target: CommentTarget; anchor?: Element };
 
 type FieldSchema = {
   properties?: Record<string, FieldSchema>;
@@ -32,8 +33,8 @@ export function getCommentTargetFieldType(
     | undefined;
   if (target.kind === "item-field") {
     const path: string[] = [];
-    const visited = new Set<number>();
-    let itemId: number | null = target.itemId;
+    const visited = new Set<string>();
+    let itemId: string | null = target.itemId;
     while (itemId != null) {
       if (visited.has(itemId)) return;
       visited.add(itemId);
@@ -49,7 +50,7 @@ export function getCommentTargetFieldType(
 }
 
 /** Field types belong to the current app, never to persisted comment targets. */
-export function revealCommentTarget(pageId: number, target: CommentTarget, fieldType?: FieldType) {
+export function revealCommentTarget(pageId: string, target: CommentTarget, fieldType?: FieldType) {
   previewStore.send({ type: "setCommentMode", enabled: false });
   previewStore.send({ type: "closeAddBlockDialog" });
   if (target.kind === "page") {
@@ -110,7 +111,7 @@ export const previewCommentsStore = createStore({
     startComment: (
       context,
       event: {
-        pageId: number;
+        pageId: string;
         target: CommentTarget;
         focusComposer?: boolean;
         popover?: boolean;
@@ -118,7 +119,7 @@ export const previewCommentsStore = createStore({
       },
     ) => ({
       ...context,
-      draft: { id: crypto.randomUUID(), pageId: event.pageId, target: event.target, message: "" },
+      draft: { id: generateUuidv7(), pageId: event.pageId, target: event.target, message: "" },
       activeId: null,
       focusTarget: event.focusComposer ? event.target : null,
       popover: event.popover
@@ -130,7 +131,7 @@ export const previewCommentsStore = createStore({
       if (!context.draft || context.draft.message === event.message) return context;
       return {
         ...context,
-        draft: { ...context.draft, id: crypto.randomUUID(), message: event.message },
+        draft: { ...context.draft, id: generateUuidv7(), message: event.message },
       };
     },
     postSucceeded: (context, event: { draft: CommentDraft; focusComment?: boolean }) => {

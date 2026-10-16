@@ -24,7 +24,7 @@ export interface OgImageParams {
 }
 
 export interface LayoutBlockData {
-  _id: number;
+  _id: string;
   type: string;
   content: Record<string, unknown>;
   settings?: Record<string, unknown>;
@@ -212,6 +212,9 @@ type LayoutToMarkdown<Data, Params, F = never> = (
   context: { data: Data; params: Params } & MarkdownItem<F>,
 ) => readonly string[];
 
+/** The collection a layout's record pages render, and the field each record is found by. */
+export type RecordPages = { collectionId: string; field: string };
+
 interface CreateLayoutOptions<
   TBefore extends readonly LayoutBlock[],
   TAfter extends readonly LayoutBlock[],
@@ -223,6 +226,8 @@ interface CreateLayoutOptions<
   loader?: (context: LayoutLoaderContext) => Result;
   /** Lists the pages of a derived layout, for the sitemap and the Canvas. */
   routes?: (context: LayoutRoutesContext) => RoutesReturn<Record<string, string>>;
+  /** A derived layout's record pages, set by spreading `collection.pages(...)`. */
+  recordPages?: RecordPages;
   title: string;
   description: string;
   blocks: {
@@ -460,6 +465,7 @@ function createLayoutDefinition<
       kind: options.kind ?? "curated",
       loader: options.loader,
       routes: options.routes,
+      recordPages: options.recordPages,
       title: options.title,
       description: options.description,
       buildMetaTitle: options.buildMetaTitle as BuildMetaTitle<unknown, unknown>,
@@ -513,6 +519,7 @@ type FileOptions<
   | "kind"
   | "loader"
   | "routes"
+  | "recordPages"
   | "component"
   | "buildMetaTitle"
   | "buildMetaDescription"
@@ -524,6 +531,7 @@ type FileOptions<
         component: React.ComponentType<{ children: React.ReactNode }>;
         loader?: never;
         routes?: never;
+        recordPages?: never;
         toMarkdown?: never;
         buildMetaTitle: BuildMetaTitle<undefined, Record<string, never>>;
         buildMetaDescription?: BuildMetaDescription<undefined, Record<string, never>>;
@@ -537,6 +545,7 @@ type FileOptions<
         };
         loader?: (context: LayoutLoaderContext<Record<string, never>>) => Result;
         routes?: never;
+        recordPages?: never;
         toMarkdown?: LayoutToMarkdown<
           LoaderData<Result>,
           Record<string, never>,
@@ -563,6 +572,7 @@ type FileOptions<
         };
         loader: (context: LayoutLoaderContext<RouteParams<Id>>) => Result;
         routes?: (context: LayoutRoutesContext) => RoutesReturn<RouteParams<Id>>;
+        recordPages?: RecordPages;
         toMarkdown?: LayoutToMarkdown<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>;
         component: React.ComponentType<{ children?: never }>;
         buildMetaTitle: BuildMetaTitle<LoaderData<Result>, RouteParams<Id>, RecordFields<Result>>;

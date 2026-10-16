@@ -1,7 +1,8 @@
+import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
@@ -15,29 +16,29 @@ import {
   bumpContentUpdatedAtForBlocks,
 } from "../../lib/bump-content-updated-at";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
-import { decodeInput, InvalidInputError, NotFoundError, type ServiceError } from "../../lib/errors";
-import { resolveEnvironment } from "../../lib/resolve-environment";
-import { scheduleAiJob } from "../../lib/schedule-ai-job";
+import {
+  ConflictError,
+  decodeInput,
+  InvalidInputError,
+  NotFoundError,
+  type ServiceError,
+} from "../../lib/errors";
 import {
   blockDefinitions,
   blocks,
-  files,
-  layoutCheckpoints,
+  comments,
   layouts,
   member,
-  pageCheckpoints,
   pages,
   projects,
   repeatableItems,
+  sharedContents,
 } from "../../schema";
-import { pageSourceSchema, type PageSource } from "../_shared/page-source";
+import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
+import { definitionsIn } from "../_shared/definitions";
+import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
-import {
-  layoutSnapshotSchema,
-  pageSnapshotSchema,
-  type SnapshotBlock,
-  type SnapshotRepeatableItem,
-} from "../_shared/snapshot-schemas";
+import type { ContentScope } from "../collections/identity";
 import {
   blockScope,
   hydrateItemReferences,
@@ -45,15 +46,40 @@ import {
   type ResolvedReferences,
   validateReferenceValues,
 } from "../collections/references";
-import { buildFileMap, collectFileIds } from "../pages/ai";
-import { readLayoutSnapshot, readPageSnapshot } from "../pages/service";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
+import { draftScopeOfJob } from "../drafts/service";
+import {
+  copyValue,
+  type GenerationDeps,
+  homeOf,
+  readValue,
+  requestGeneration,
+  saveValue,
+  settleRequest,
+} from "../generated-values/service";
+import { blocksOfOwner, layoutNamed } from "../layouts/identity";
+import { servesPages } from "../layouts/route-ownership";
+import { buildFileMap, collectFileIds, sortItemsByPosition } from "../pages/ai";
+import { seoGenerated } from "../pages/generated-seo";
+import { requestPageSeo } from "../pages/service";
+import { descendantIdsOf, itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
 import { type FieldSchema } from "./normalize-content";
 import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
-import { sharedPlacementId, syncBlockData } from "./synced";
-import { resolveSyncedLiveData } from "./synced-live";
+import {
+  adoptSharedContent,
+  broadcastSharedContentChange,
+  bumpPlacementOwners,
+  contentOwnerOf,
+  definitionOf,
+  sharedPlacementId,
+  shownBlock,
+  withSharedContent,
+  type SharedContentRow,
+} from "./shared-content";
 import { validateContent } from "./validate-content";
 
 // --- Input Schemas ---
@@ -69,23 +95,19 @@ const repeatableItemSeedSchema = z.object({
   position: z.string(),
 });
 
-export const getBlockInput = z.object({
-  id: z.number(),
-  source: pageSourceSchema.optional().default("live"),
-});
-export const getPageMarkdownInput = z.object({
-  pageId: z.number(),
-  source: pageSourceSchema.optional().default("draft"),
-});
+export const getBlockInput = z.object({ id: uuidv7Schema });
+export const getPageMarkdownInput = z.object({ pageId: uuidv7Schema });
 export const getLayoutMarkdownInput = z.object({
   projectSlug: z.string(),
   layoutId: z.string(),
 });
 export const getBlocksUsageCountsInput = z.object({ projectId: z.number() });
-// A Block Definition within a project's current environment.
+// A Block Definition within a project.
 export const blockTypeInput = z.object({ projectId: z.number(), type: z.string() });
+/** The server mints the id; a client may mint one for an optimistic insert. */
 export const createBlockInput = z.object({
-  pageId: z.number(),
+  id: uuidv7Schema.optional(),
+  pageId: uuidv7Schema,
   type: z.string(),
   content: z.unknown(),
   settings: z.unknown().optional(),
@@ -93,38 +115,60 @@ export const createBlockInput = z.object({
   beforePosition: z.string().nullable().optional(),
   repeatableItems: z.array(repeatableItemSeedSchema).optional(),
 });
-export const updateBlockContentInput = z.object({ id: z.number(), content: z.unknown() });
-export const updateBlockSettingsInput = z.object({ id: z.number(), settings: z.unknown() });
+export const updateBlockContentInput = z.object({ id: uuidv7Schema, content: z.unknown() });
+export const updateBlockSettingsInput = z.object({ id: uuidv7Schema, settings: z.unknown() });
 export const updateBlockPositionInput = z.object({
-  id: z.number(),
+  id: uuidv7Schema,
   afterPosition: z.string().nullable().optional(),
   beforePosition: z.string().nullable().optional(),
 });
-export const deleteBlockInput = z.object({ id: z.number() });
+export const deleteBlockInput = z.object({ id: uuidv7Schema });
 export const resolveBlockPositionInput = z.object({
-  pageId: z.number().optional(),
-  blockId: z.number().optional(),
+  pageId: uuidv7Schema.optional(),
+  blockId: uuidv7Schema.optional(),
   afterPosition: z.string().nullable().optional(),
   beforePosition: z.string().nullable().optional(),
-  afterId: z.number().optional(),
-  beforeId: z.number().optional(),
+  afterId: uuidv7Schema.optional(),
+  beforeId: uuidv7Schema.optional(),
   position: z.enum(["first", "last"]).optional(),
 });
-export const deleteBlocksInput = z.object({ blockIds: z.array(z.number()) });
-export const generateBlockSummaryInput = z.object({ id: z.number() });
-export const duplicateBlockInput = z.object({ id: z.number() });
+export const deleteBlocksInput = z.object({ blockIds: z.array(uuidv7Schema) });
+export const generateBlockSummaryInput = z.object({ id: uuidv7Schema });
+export const duplicateBlockInput = z.object({ id: uuidv7Schema });
 
 // --- Internal helpers ---
 
-function comparePositions(a: string, b: string): number {
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
-}
+const { sortByPosition } = overlay;
 
-function sortByPosition<T extends { position: string }>(items: T[]): T[] {
-  return items.sort((a, b) => comparePositions(a.position, b.position));
-}
+/**
+ * Bumps the Live page or layout owning a block. Skipped for draft writes, which must leave
+ * Live pages and layouts untouched until pages move into drafts (#238).
+ */
+const bumpLiveOwner = (ctx: ServiceContext, scope: DraftScope, parent: BlockParent) =>
+  scope ? Effect.void : bumpContentUpdatedAt(ctx.db, parent);
+
+type BlockParent = Parameters<typeof bumpContentUpdatedAt>[1];
+
+/**
+ * Once no scope holds a deleted block any more, deletes the repeatable items it owns and
+ * unanchors its comments, which hold no foreign key to it and live in Live (ADR 0005). A block
+ * deleted on Live keeps them while a draft's copy still shows it; a block a draft created takes
+ * them along when the draft deletes it.
+ */
+const deleteBlockDependents = Effect.fn("blocks.deleteBlockDependents")(function* (
+  ctx: ServiceContext,
+  blockIds: string[],
+) {
+  const held = yield* overlay.idsHeldAnywhere(ctx.db, blocks, blockIds);
+  const gone = blockIds.filter((id) => !held.has(id));
+  if (gone.length === 0) return;
+  yield* Effect.promise(() =>
+    ctx.db.batch([
+      ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, gone)),
+      ctx.db.update(comments).set({ blockId: null }).where(inArray(comments.blockId, gone)),
+    ]),
+  );
+});
 
 /**
  * Reduce high-level positioning helpers (`afterId`, `beforeId`, `position`) to
@@ -140,6 +184,7 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
   ctx: ServiceContext,
   rawInput: z.input<typeof resolveBlockPositionInput>,
   opts: { mode: "create" | "move" },
+  scope: DraftScope,
 ): Effect.fn.Return<
   { afterPosition?: string | null; beforePosition?: string | null },
   ServiceError
@@ -162,14 +207,8 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
     return { afterPosition: input.afterPosition, beforePosition: input.beforePosition };
   }
 
-  const lookupSibling = Effect.fn("lookupSibling")(function* (id: number) {
-    const sibling = yield* Effect.promise(() =>
-      ctx.db
-        .select({ position: blocks.position, pageId: blocks.pageId })
-        .from(blocks)
-        .where(eq(blocks.id, id))
-        .get(),
-    );
+  const lookupSibling = Effect.fn("lookupSibling")(function* (id: string) {
+    const sibling = yield* overlay.get(ctx.db, scope, blocks, id);
     if (!sibling) return yield* new NotFoundError({ message: `No block with id ${id}.` });
     if (input.pageId != null && sibling.pageId !== input.pageId) {
       return yield* new InvalidInputError({
@@ -194,19 +233,12 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
     let pageId = input.pageId;
     const blockId = input.blockId;
     if (pageId == null && blockId != null) {
-      const target = yield* Effect.promise(() =>
-        ctx.db.select({ pageId: blocks.pageId }).from(blocks).where(eq(blocks.id, blockId)).get(),
-      );
+      const target = yield* overlay.get(ctx.db, scope, blocks, blockId);
       pageId = target?.pageId ?? undefined;
     }
     if (pageId == null) return {};
-    const first = yield* Effect.promise(() =>
-      ctx.db
-        .select({ position: blocks.position })
-        .from(blocks)
-        .where(eq(blocks.pageId, pageId))
-        .orderBy(blocks.position)
-        .get(),
+    const [first] = sortByPosition(
+      yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, pageId)),
     );
     return { beforePosition: first?.position ?? null };
   }
@@ -226,9 +258,9 @@ function findLastIndexLe<T extends { position: string }>(items: T[], target: str
 
 /** Recursively nest child items into their parent item's content. */
 function nestChildItems(
-  allItems: { id: number; parentItemId: number | null; fieldName: string; content: unknown }[],
+  allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
 ) {
-  const childrenByParent = new Map<number, Map<string, typeof allItems>>();
+  const childrenByParent = new Map<string, Map<string, typeof allItems>>();
   for (const item of allItems) {
     if (item.parentItemId === null) continue;
     let fieldMap = childrenByParent.get(item.parentItemId);
@@ -322,49 +354,30 @@ const generateObjectSummary = Effect.fn("generateObjectSummary")(function* (
 
 const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   db: Database,
-  blockId: number,
+  blockId: string,
+  scope: DraftScope,
 ) {
-  const block = yield* Effect.promise(() =>
-    db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
-  );
-  if (!block) return null;
+  const stored = yield* overlay.get(db, scope, blocks, blockId);
+  if (!stored) return null;
 
-  // Get block definition for content schema and field order. Scope by
-  // environmentId — the same blockId can exist with different shapes across
-  // environments (e.g. mid-migration).
-  let projectId: number | null = null;
-  let environmentId: number | null = null;
-  const { pageId, layoutId } = block;
-  if (pageId) {
-    const page = yield* Effect.promise(() =>
-      db.select().from(pages).where(eq(pages.id, pageId)).get(),
-    );
-    projectId = page?.projectId ?? null;
-    environmentId = page?.environmentId ?? null;
-  } else if (layoutId) {
-    const layout = yield* Effect.promise(() =>
-      db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
-    );
-    projectId = layout?.projectId ?? null;
-    environmentId = layout?.environmentId ?? null;
-  }
+  // Get block definition for content schema and field order, in the block's project.
+  const projectId = stored.projectId;
 
-  const def =
-    projectId && environmentId
-      ? yield* Effect.promise(() =>
-          db
-            .select()
-            .from(blockDefinitions)
-            .where(
-              and(
-                eq(blockDefinitions.projectId, projectId),
-                eq(blockDefinitions.environmentId, environmentId),
-                eq(blockDefinitions.blockId, block.type),
-              ),
-            )
-            .get(),
-        )
-      : null;
+  const def = projectId
+    ? yield* Effect.promise(() =>
+        db
+          .select()
+          .from(blockDefinitions)
+          .where(
+            and(
+              eq(blockDefinitions.projectId, projectId),
+              definitionsIn(blockDefinitions, scope),
+              eq(blockDefinitions.blockId, stored.type),
+            ),
+          )
+          .get(),
+      )
+    : null;
 
   const contentSchema = (def?.contentSchema as Record<string, any>) ?? null;
   const fieldOrder = contentSchema?.properties
@@ -372,11 +385,19 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
     : undefined;
 
   // Merge repeatable items into content
-  const items = sortByPosition(
-    yield* Effect.promise(() =>
-      db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
-    ),
+  const shown = yield* withSharedContent(
+    db,
+    scope,
+    [stored],
+    yield* overlay.select(db, scope, repeatableItems, eq(repeatableItems.blockId, blockId)),
   );
+  const conformed = conformBlocks(
+    new Map(def ? [[def.blockId, def]] : []),
+    shown.blocks,
+    sortItemsByPosition(shown.items),
+  );
+  const block = conformed.blocks[0];
+  const items = conformed.items;
 
   nestChildItems(items);
 
@@ -397,26 +418,39 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
     for (const key of Object.keys(content)) {
       if (!(key in ordered)) ordered[key] = content[key];
     }
-    return { block, content: ordered, contentSchema };
+    return { block, content: ordered, contentSchema, projectId };
   }
 
-  return { block, content, contentSchema };
+  return { block, content, contentSchema, projectId };
 });
 
+/** Where a block's summary lives: its shared content's for a synced placement, or its own. */
+const summaryKeyOf = (blockId: string, shared: SharedContentRow | null) =>
+  shared
+    ? ({ entity: "sharedContent", entityId: shared.id, type: "summary" } as const)
+    : ({ entity: "block", entityId: blockId, type: "summary" } as const);
+
 /**
- * Generates and stores a summary for a block.
- * Returns `{ pageId }` if the parent page has AI SEO enabled (caller should cascade).
+ * Generates a block's summary as a scope reads it, into the scope's generated values: never into
+ * the block, so it never copies one into a draft (ADR 0012). Returns the block's page when the
+ * summary changed and the page's SEO is generated, so the caller requests it again.
  */
 export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(function* (
   db: Database,
   apiKey: string,
-  blockId: number,
+  blockId: string,
+  scope: DraftScope,
   abortController?: AbortController,
-): Effect.fn.Return<{ pageId: number } | null> {
-  const assembled = yield* assembleBlockContent(db, blockId);
-  if (!assembled) return null;
+): Effect.fn.Return<{ page: typeof pages.$inferSelect } | null> {
+  const startedAt = Date.now();
+  const assembled = yield* assembleBlockContent(db, blockId, scope);
+  if (!assembled?.projectId) return null;
 
-  const { block, content, contentSchema } = assembled;
+  const { block, content, contentSchema, projectId } = assembled;
+  // A synced placement's summary is its shared content's.
+  const owner = yield* contentOwnerOf(db, scope, block);
+  const key = summaryKeyOf(blockId, owner.shared);
+  const previous = (yield* readValue(db, scope, key)).value?.summary ?? "";
 
   const markdown =
     contentSchema?.toMarkdown && contentSchema?.properties
@@ -427,27 +461,46 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
 
   const summary = yield* generateObjectSummary(
     apiKey,
-    { type: block.type, markdown, previousSummary: block.summary },
+    { type: block.type, markdown, previousSummary: previous },
     abortController,
   );
 
-  yield* Effect.promise(() =>
-    db.update(blocks).set({ summary, updatedAt: Date.now() }).where(eq(blocks.id, blockId)),
-  );
+  const home = homeOf(scope, projectId);
+  yield* saveValue(db, home, key, { summary }, startedAt);
+  // The job ran through the placement: settle its request too.
+  if (owner.shared) yield* settleRequest(db, home, summaryKeyOf(blockId, null), startedAt);
 
-  // Check if we should cascade to page SEO
   const pageId = block.pageId;
-  if (summary !== block.summary && pageId) {
-    const page = yield* Effect.promise(() =>
-      db.select().from(pages).where(eq(pages.id, pageId)).get(),
-    );
-    if (page?.aiSeoEnabled !== false) {
-      return { pageId };
-    }
-  }
-
-  return null;
+  if (summary === previous || !pageId) return null;
+  const page = yield* overlay.get(db, scope, pages, pageId);
+  return page && seoGenerated(page) ? { page } : null;
 });
+
+/**
+ * Runs a block summary job in the draft it was scheduled from, or in Live. A job whose draft
+ * has ended does nothing.
+ */
+export const runBlockSummaryJob = Effect.fn("blocks.runBlockSummaryJob")(function* (
+  db: Database,
+  apiKey: string,
+  job: { entityId: string; draftId: string | null },
+  abortController?: AbortController,
+) {
+  const scope = yield* draftScopeOfJob(db, job.draftId);
+  if (scope === undefined) return null;
+  const stale = yield* executeBlockSummary(db, apiKey, job.entityId, scope, abortController);
+  return stale ? { ...stale, scope } : null;
+});
+
+/** Requests a block's summary in the scope it was written in (ADR 0012). */
+export const requestBlockSummary = (
+  ctx: GenerationDeps,
+  scope: DraftScope,
+  projectId: number,
+  blockId: string,
+  delayMs: number,
+) =>
+  requestGeneration(ctx, homeOf(scope, projectId), { entity: "block", entityId: blockId, delayMs });
 
 /**
  * Apply a partial content patch to a block, with replace-within-field semantics
@@ -456,8 +509,8 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
  *   - `{ _itemId: N, ...overrides }` updates item N's content; nested repeatable
  *     overrides recurse via this same diff logic.
  *   - Plain inline objects insert new items (with nested children if present).
- *   - Existing items at the same scope not referenced in the new array are deleted
- *     (cascades to nested children via the parentItemId FK).
+ *   - Existing items at the same scope not referenced in the new array are deleted, and
+ *     their nested children read as gone with them.
  *
  * Repeater fields not present in the patch are untouched.
  *
@@ -466,7 +519,8 @@ export const executeBlockSummary = Effect.fn("blocks.executeBlockSummary")(funct
  */
 const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   ctx: ServiceContext,
-  block: { id: number; content: unknown },
+  scope: DraftScope,
+  block: { root: ItemRoot; content: unknown },
   patch: Record<string, unknown>,
   contentSchema: unknown,
   now: number,
@@ -492,9 +546,9 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
       merged[key] = normalizeFieldValue(value, fieldSchema?.fieldType);
       continue;
     }
-    if (allItems === null) allItems = yield* fetchBlockItems(ctx, block.id);
-    yield* applyRepeatableFieldPatch(ctx, {
-      blockId: block.id,
+    if (allItems === null) allItems = yield* fetchBlockItems(ctx, scope, block.root);
+    yield* applyRepeatableFieldPatch(ctx, scope, {
+      root: block.root,
       parentItemId: null,
       fieldName: key,
       newArray: value,
@@ -511,18 +565,18 @@ const applyContentPatch = Effect.fn("applyContentPatch")(function* (
 
 const fetchBlockItems = Effect.fn("fetchBlockItems")(function* (
   ctx: ServiceContext,
-  blockId: number,
+  scope: DraftScope,
+  root: ItemRoot,
 ) {
-  return yield* Effect.promise(() =>
-    ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, blockId)),
-  );
+  return yield* overlay.select(ctx.db, scope, repeatableItems, itemsUnder(root));
 });
 
 const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(function* (
   ctx: ServiceContext,
+  scope: DraftScope,
   args: {
-    blockId: number;
-    parentItemId: number | null;
+    root: ItemRoot;
+    parentItemId: string | null;
     fieldName: string;
     newArray: unknown;
     allItems: Effect.Success<ReturnType<typeof fetchBlockItems>>;
@@ -533,7 +587,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
   },
 ): Effect.fn.Return<void, ServiceError> {
   const {
-    blockId,
+    root,
     parentItemId,
     fieldName,
     newArray,
@@ -556,7 +610,7 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     (i) => i.parentItemId === parentItemId && i.fieldName === fieldName,
   );
   const existingById = new Map(scopeItems.map((i) => [i.id, i]));
-  const referenced = new Set<number>();
+  const referenced = new Set<string>();
 
   let prevPos: string | null = null;
   for (const element of newArray) {
@@ -568,7 +622,8 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     }
     const elementObj = element as Record<string, unknown>;
     const rawItemId = elementObj._itemId;
-    const itemId = typeof rawItemId === "number" ? rawItemId : null;
+    const parsedItemId = uuidv7Schema.safeParse(rawItemId);
+    const itemId = parsedItemId.success ? parsedItemId.data : null;
     const position = generateKeyBetween(prevPos, null);
     prevPos = position;
 
@@ -602,8 +657,8 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
         if (k === "_itemId") continue;
         const subSchema = itemSchemaProps?.[k];
         if (subSchema?.fieldType === "Repeater") {
-          yield* applyRepeatableFieldPatch(ctx, {
-            blockId,
+          yield* applyRepeatableFieldPatch(ctx, scope, {
+            root,
             parentItemId: itemId,
             fieldName: k,
             newArray: v,
@@ -631,12 +686,11 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
       }
 
       writes.push(
-        Effect.promise(() =>
-          ctx.db
-            .update(repeatableItems)
-            .set({ content: newContent, position, updatedAt: now })
-            .where(eq(repeatableItems.id, itemId)),
-        ),
+        overlay.update(ctx.db, scope, repeatableItems, itemId, {
+          content: newContent,
+          position,
+          updatedAt: now,
+        }),
       );
       continue;
     }
@@ -657,48 +711,34 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     );
     writes.push(
       Effect.gen(function* () {
-        const inserted = yield* Effect.promise(() =>
-          ctx.db
-            .insert(repeatableItems)
-            .values({
-              blockId,
-              parentItemId,
-              fieldName,
-              content: itemContent,
-              settings: itemSettings,
-              summary: "",
-              position,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning()
-            .get(),
-        );
+        const inserted = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
+          ...rootColumns(root),
+          parentItemId,
+          fieldName,
+          content: itemContent,
+          settings: itemSettings,
+          position,
+          createdAt: now,
+          updatedAt: now,
+        }))!;
 
         if (childSeeds.length > 0) {
-          const tempIdToRealId = new Map<string, number>();
+          const tempIdToRealId = new Map<string, string>();
           for (const seed of childSeeds) {
             // parentTempId === null → child of the just-inserted item; otherwise resolve.
             const seedParent = seed.parentTempId
               ? (tempIdToRealId.get(seed.parentTempId) ?? inserted.id)
               : inserted.id;
-            const sub = yield* Effect.promise(() =>
-              ctx.db
-                .insert(repeatableItems)
-                .values({
-                  blockId,
-                  parentItemId: seedParent,
-                  fieldName: seed.fieldName,
-                  content: seed.content,
-                  settings: seed.settings,
-                  summary: "",
-                  position: seed.position,
-                  createdAt: now,
-                  updatedAt: now,
-                })
-                .returning()
-                .get(),
-            );
+            const sub = (yield* overlay.insert(ctx.db, scope, repeatableItems, {
+              ...rootColumns(root),
+              parentItemId: seedParent,
+              fieldName: seed.fieldName,
+              content: seed.content,
+              settings: seed.settings,
+              position: seed.position,
+              createdAt: now,
+              updatedAt: now,
+            }))!;
             tempIdToRealId.set(seed.tempId, sub.id);
           }
         }
@@ -706,110 +746,52 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     );
   }
 
-  // Delete unreferenced existing items (cascades to nested children via FK).
+  // Delete unreferenced existing items. On Live their nested children go with them; a draft's
+  // tombstone hides them.
   for (const item of scopeItems) {
     if (referenced.has(item.id)) continue;
     writes.push(
-      Effect.promise(() => ctx.db.delete(repeatableItems).where(eq(repeatableItems.id, item.id))),
+      Effect.gen(function* () {
+        if (!scope) {
+          const nested = descendantIdsOf(allItems, item.id);
+          if (nested.length > 0) {
+            yield* Effect.promise(() =>
+              ctx.db
+                .delete(repeatableItems)
+                .where(
+                  and(inArray(repeatableItems.id, nested), overlay.storedIn(repeatableItems, null)),
+                ),
+            );
+          }
+        }
+        yield* overlay.remove(ctx.db, scope, repeatableItems, item.id);
+      }),
     );
   }
 });
 
 // --- Reads ---
 
-const loadBlockBundle = Effect.fn("loadBlockBundle")(function* (
-  ctx: ServiceContext,
-  blockId: number,
-  source: PageSource,
-): Effect.fn.Return<{ block: SnapshotBlock | null; items: SnapshotRepeatableItem[] }> {
-  if (source === "draft") {
-    const block =
-      (yield* Effect.promise(() =>
-        ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
-      )) ?? null;
-    if (!block) return { block: null, items: [] };
-    const items = yield* Effect.promise(() =>
-      ctx.db.select().from(repeatableItems).where(eq(repeatableItems.blockId, block.id)),
-    );
-    // The drizzle row shape is structurally compatible with SnapshotBlock /
-    // SnapshotRepeatableItem (same columns, same nullability), so casting
-    // through the union return type is safe here.
-    return { block, items };
-  }
-
-  // Non-draft: find the parent (page or layout) by the live block row's
-  // parent ids, then pull the block + its items out of the parent's snapshot.
-  const liveBlock = yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.id, blockId)).get(),
-  );
-  if (!liveBlock) return { block: null, items: [] };
-
-  const { pageId, layoutId } = liveBlock;
-  if (pageId != null) {
-    const parentPage = yield* Effect.promise(() =>
-      ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
-    );
-    if (!parentPage) return { block: null, items: [] };
-    const checkpointId =
-      source === "live" ? parentPage.livePublishedCheckpointId : source.checkpointId;
-    if (checkpointId == null) return { block: null, items: [] };
-    const checkpoint = yield* Effect.promise(() =>
-      ctx.db.select().from(pageCheckpoints).where(eq(pageCheckpoints.id, checkpointId)).get(),
-    );
-    if (!checkpoint) return { block: null, items: [] };
-    if (typeof source === "object" && checkpoint.pageId !== parentPage.id) {
-      return { block: null, items: [] };
-    }
-    const stored = pageSnapshotSchema.parse(JSON.parse(checkpoint.snapshot));
-    const snapshot =
-      source === "live"
-        ? yield* resolveSyncedLiveData(ctx, parentPage.environmentId, stored)
-        : stored;
-    const block = snapshot.blocks.find((b) => b.id === blockId) ?? null;
-    if (!block) return { block: null, items: [] };
-    return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
-  }
-  if (layoutId != null) {
-    const parentLayout = yield* Effect.promise(() =>
-      ctx.db.select().from(layouts).where(eq(layouts.id, layoutId)).get(),
-    );
-    if (!parentLayout) return { block: null, items: [] };
-    // See readLayoutSnapshot in pages/service.ts: in phase 1 the layout side
-    // always follows its own live pointer regardless of source.
-    const checkpointId = parentLayout.livePublishedCheckpointId;
-    if (checkpointId == null) return { block: null, items: [] };
-    const checkpoint = yield* Effect.promise(() =>
-      ctx.db.select().from(layoutCheckpoints).where(eq(layoutCheckpoints.id, checkpointId)).get(),
-    );
-    if (!checkpoint) return { block: null, items: [] };
-    const snapshot = yield* resolveSyncedLiveData(
-      ctx,
-      parentLayout.environmentId,
-      layoutSnapshotSchema.parse(JSON.parse(checkpoint.snapshot)),
-    );
-    const block = snapshot.blocks.find((b) => b.id === blockId) ?? null;
-    if (!block) return { block: null, items: [] };
-    return { block, items: snapshot.repeatableItems.filter((i) => i.blockId === blockId) };
-  }
-  return { block: null, items: [] };
-});
-
 export const getBlock = Effect.fn("blocks.getBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlockInput>,
+  scope: DraftScope,
 ) {
-  const { id, source } = yield* decodeInput(getBlockInput, rawInput);
-  // For non-draft reads, locate the block + its items inside the parent
-  // page/layout's snapshot rather than the live tables. Mildly wasteful — we
-  // parse the whole snapshot to pull one block — but blocks.get against
-  // 'live' / { checkpointId } is never the hot path. The edit loop stays on
-  // 'draft'.
-  const { block, items: sourcedItems } = yield* loadBlockBundle(ctx, id, source);
-  if (!block) return yield* new NotFoundError();
-  const sorted = sourcedItems.sort((a, b) => comparePositions(a.position, b.position));
+  const { id } = yield* decodeInput(getBlockInput, rawInput);
+  const stored = yield* overlay.get(ctx.db, scope, blocks, id);
+  if (!stored) return yield* new NotFoundError();
+  const shown = yield* withSharedContent(
+    ctx.db,
+    scope,
+    [stored],
+    yield* overlay.select(ctx.db, scope, repeatableItems, eq(repeatableItems.blockId, stored.id)),
+  );
+  const conformed = yield* conformBlocksIn(ctx, stored, scope, shown.blocks, shown.items);
+  const block = conformed.blocks[0];
+  const sorted = sortItemsByPosition(conformed.items);
 
   // Build a map of parentItemId → grouped children by fieldName
-  const childrenByParent = new Map<number | null, Map<string, typeof sorted>>();
+  const childrenByParent = new Map<string | null, Map<string, typeof sorted>>();
   for (const item of sorted) {
     let fieldMap = childrenByParent.get(item.parentItemId);
     if (!fieldMap) {
@@ -850,18 +832,12 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     (item as any).content = itemContent;
   }
 
-  const scope = yield* blockScope(ctx, block);
-  const referenceSource = source === "draft" ? "draft" : "live";
-  const hydratedBlock = (yield* hydrateReferences(
-    ctx,
-    scope,
-    [{ ...block, content }],
-    referenceSource,
-  ))[0];
-  const hydratedItems = yield* hydrateItemReferences(ctx, scope, [block], sorted, referenceSource);
+  const referenceScope = blockScope(block, scope);
+  const hydratedBlock = (yield* hydrateReferences(ctx, referenceScope, [{ ...block, content }]))[0];
+  const hydratedItems = yield* hydrateItemReferences(ctx, referenceScope, [block], sorted);
 
   // Resolve sources before collecting assets: UUID selections themselves contain no file IDs.
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   collectFileIds(content, fileIds);
   collectFileIds(hydratedBlock.references, fileIds);
   for (const item of hydratedItems) {
@@ -869,15 +845,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
     collectFileIds(item.references, fileIds);
   }
 
-  const fileRows =
-    fileIds.size > 0
-      ? yield* Effect.promise(() =>
-          ctx.db
-            .select()
-            .from(files)
-            .where(inArray(files.id, [...fileIds])),
-        )
-      : [];
+  const fileRows = [...(yield* buildFileMap(ctx.db, fileIds, scope)).values()];
 
   return {
     block: hydratedBlock,
@@ -886,8 +854,11 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   };
 });
 
-type RenderableBlock = SnapshotBlock;
-type RenderableItem = SnapshotRepeatableItem & { references?: ResolvedReferences };
+type RenderableBlock = typeof blocks.$inferSelect;
+type RenderableItem = typeof repeatableItems.$inferSelect & {
+  blockId: string;
+  references?: ResolvedReferences;
+};
 
 /**
  * Renders each block's Markdown Representation, resolving its references and files.
@@ -896,14 +867,11 @@ type RenderableItem = SnapshotRepeatableItem & { references?: ResolvedReferences
  */
 const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* (
   ctx: ServiceContext,
-  scope: { projectId: number; environmentId: number },
+  scope: ContentScope,
   blockRows: RenderableBlock[],
   itemRows: RenderableItem[],
-  referenceSource: "draft" | "live",
 ) {
-  // Get block definitions for content schemas and Markdown representations. Scope
-  // by environmentId — the same blockId can exist with different shapes across
-  // environments (e.g. mid-migration).
+  // Get the project's block definitions for content schemas and Markdown representations.
   const defs = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -911,7 +879,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
       .where(
         and(
           eq(blockDefinitions.projectId, scope.projectId),
-          eq(blockDefinitions.environmentId, scope.environmentId),
+          definitionsIn(blockDefinitions, scope.draft),
         ),
       ),
   );
@@ -930,15 +898,9 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     }
   }
 
-  const items: RenderableItem[] = yield* hydrateItemReferences(
-    ctx,
-    scope,
-    blockRows,
-    itemRows,
-    referenceSource,
-  );
+  const items: RenderableItem[] = yield* hydrateItemReferences(ctx, scope, blockRows, itemRows);
   nestChildItems(items);
-  const itemsByBlock = new Map<number, RenderableItem[]>();
+  const itemsByBlock = new Map<string, RenderableItem[]>();
   for (const item of items) {
     if (item.parentItemId !== null) continue;
     const list = itemsByBlock.get(item.blockId) ?? [];
@@ -946,9 +908,9 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     itemsByBlock.set(item.blockId, list);
   }
 
-  const hydrated = yield* hydrateReferences(ctx, scope, blockRows, referenceSource);
+  const hydrated = yield* hydrateReferences(ctx, scope, blockRows);
   // Collect every referenced file so {{image}} / {{file}} placeholders resolve to real URLs
-  const fileIds = new Set<number>();
+  const fileIds = new Set<string>();
   for (const block of hydrated) {
     collectFileIds(block.content as Record<string, unknown>, fileIds);
     collectFileIds(block.references, fileIds);
@@ -957,7 +919,7 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
     collectFileIds(item.content as Record<string, unknown>, fileIds);
     collectFileIds(item.references ?? {}, fileIds);
   }
-  const fileMap = yield* buildFileMap(ctx.db, fileIds);
+  const fileMap = yield* buildFileMap(ctx.db, fileIds, scope.draft);
 
   const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
   const json = (block: RenderableBlock) =>
@@ -986,7 +948,10 @@ const renderBlocksMarkdown = Effect.fn("blocks.renderBlocksMarkdown")(function* 
       },
     )}`;
   };
-  return { markdown, json };
+  /** A block whose definition is gone renders nothing, not even its JSON. */
+  const rendersNothing = (block: RenderableBlock) =>
+    !defs.some((def) => def.blockId === block.type);
+  return { markdown, json, rendersNothing };
 });
 
 /** Joins the Markdown of a layout's before and after slots, skipping blocks without Markdown. */
@@ -1008,145 +973,90 @@ function layoutSlotsMarkdown(
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageMarkdownInput>,
+  scope: DraftScope,
 ) {
-  const { pageId, source } = yield* decodeInput(getPageMarkdownInput, rawInput);
-  if (source === "draft") yield* requireUser(ctx);
+  const { pageId } = yield* decodeInput(getPageMarkdownInput, rawInput);
 
   const page = yield* Effect.promise(() =>
     ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
   );
   if (!page) return yield* new NotFoundError();
+  const pageLayout = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(layoutNamed(page.projectId, page.layoutId), definitionsIn(layouts, scope)))
+      .get(),
+  );
+  if (!servesPages(pageLayout)) return yield* new NotFoundError();
 
-  // Page blocks + their items, sourced from either the live tables (draft) or
-  // the published checkpoint (live / pinned). SnapshotBlock and the drizzle
-  // row shape are structurally compatible — same columns, same nullability —
-  // so the renderer below works against either.
-  let sorted: RenderableBlock[];
-  let allItems: RenderableItem[];
-  let sortedLayout: RenderableBlock[] = [];
-  let layoutAllItems: RenderableItem[] = [];
-
-  if (source === "draft") {
-    const pageBlocks = yield* Effect.promise(() =>
-      ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId)),
-    );
-    sorted = pageBlocks.sort((a, b) => comparePositions(a.position, b.position));
-    const blockIds = sorted.map((b) => b.id);
-    allItems =
-      blockIds.length > 0
-        ? sortByPosition(
-            yield* Effect.promise(() =>
-              ctx.db
-                .select()
-                .from(repeatableItems)
-                .where(inArray(repeatableItems.blockId, blockIds)),
-            ),
-          )
-        : [];
-    if (page.layoutId) {
-      const layoutBlocks = yield* Effect.promise(() =>
-        ctx.db.select().from(blocks).where(eq(blocks.layoutId, page.layoutId)),
-      );
-      sortedLayout = layoutBlocks.sort((a, b) => comparePositions(a.position, b.position));
-      const layoutBlockIds = sortedLayout.map((b) => b.id);
-      layoutAllItems =
-        layoutBlockIds.length > 0
-          ? sortByPosition(
-              yield* Effect.promise(() =>
-                ctx.db
-                  .select()
-                  .from(repeatableItems)
-                  .where(inArray(repeatableItems.blockId, layoutBlockIds)),
-              ),
-            )
-          : [];
-    }
-  } else {
-    const pageSnapshot = yield* readPageSnapshot(ctx, page, source);
-    if (!pageSnapshot) {
-      return yield* new InvalidInputError({
-        message:
-          "Page has not been published. Run `camox pages publish` first, or omit --live to read the draft.",
-      });
-    }
-    sorted = sortByPosition(pageSnapshot.blocks);
-    allItems = sortByPosition(pageSnapshot.repeatableItems);
-    // Phase 1 contract: the layout side always follows its own live pointer
-    // when reading a non-draft page (see readLayoutSnapshot). If the layout
-    // is unpublished, treat it as empty rather than failing the page read.
-    if (page.layoutId) {
-      const layout = yield* Effect.promise(() =>
-        ctx.db.select().from(layouts).where(eq(layouts.id, page.layoutId)).get(),
-      );
-      if (layout) {
-        const layoutSnapshot = yield* readLayoutSnapshot(ctx, layout);
-        sortedLayout = layoutSnapshot ? sortByPosition(layoutSnapshot.blocks) : [];
-        layoutAllItems = layoutSnapshot ? sortByPosition(layoutSnapshot.repeatableItems) : [];
-      }
-    }
-  }
+  const { blocks: sorted, items: allItems } = yield* readOwnerBlocks(ctx, { pageId }, scope);
+  const { blocks: sortedLayout, items: layoutAllItems } = yield* readOwnerBlocks(
+    ctx,
+    { projectId: page.projectId, layoutId: page.layoutId },
+    scope,
+  );
 
   const render = yield* renderBlocksMarkdown(
     ctx,
-    page,
+    { ...page, draft: scope },
     [...sorted, ...sortedLayout],
     [...allItems, ...layoutAllItems],
-    source === "draft" ? "draft" : "live",
   );
   const { before, after } = layoutSlotsMarkdown(sortedLayout, render.markdown);
 
   // Convert page blocks to markdown
-  const blockMarkdowns = sorted.map((block) => ({
-    id: block.id,
-    position: block.position,
-    markdown: render.markdown(block) ?? render.json(block),
-  }));
+  const blockMarkdowns = sorted
+    .filter((block) => !render.rendersNothing(block))
+    .map((block) => ({
+      id: block.id,
+      position: block.position,
+      markdown: render.markdown(block) ?? render.json(block),
+    }));
 
   const parts = [before, ...blockMarkdowns.map((b) => b.markdown), after].filter(Boolean);
   return { markdown: parts.join("\n\n"), blocks: blockMarkdowns };
 });
 
 /**
- * The live Markdown of a code-owned layout's before and after slots, for pages
- * without a page row (singleton and derived layouts). Public, so never the draft.
+ * The Markdown of a code-owned layout's before and after slots, for pages
+ * without a page row (singleton and derived layouts).
  */
 export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutMarkdownInput>,
+  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutMarkdownInput, rawInput);
   const project = yield* Effect.promise(() =>
     ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );
   if (!project) return yield* new NotFoundError();
-  const environment = yield* resolveEnvironment(ctx.db, project.id, ctx.environmentName);
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environment.id), eq(layouts.layoutId, layoutId)))
+      .where(
+        and(
+          eq(layouts.projectId, project.id),
+          eq(layouts.layoutId, layoutId),
+          definitionsIn(layouts, scope),
+        ),
+      )
       .get(),
   );
   if (!layout) return yield* new NotFoundError();
-  // An unpublished layout has no live blocks, like a curated page's layout side.
-  const snapshot = yield* readLayoutSnapshot(ctx, layout);
-  const layoutBlocks = sortByPosition(snapshot?.blocks ?? []);
-  const render = yield* renderBlocksMarkdown(
-    ctx,
-    layout,
-    layoutBlocks,
-    sortByPosition(snapshot?.repeatableItems ?? []),
-    "live",
-  );
+  const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
+  const render = yield* renderBlocksMarkdown(ctx, { ...layout, draft: scope }, layoutBlocks, items);
   return layoutSlotsMarkdown(layoutBlocks, render.markdown);
 });
 
 export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlocksUsageCountsInput>,
+  scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(getBlocksUsageCountsInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
       .select({
@@ -1154,57 +1064,94 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
         count: sql<number>`count(*)`,
       })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .where(or(eq(pages.environmentId, environment.id), eq(layouts.environmentId, environment.id)))
+      .where(and(overlay.visibleIn(blocks, scope), eq(blocks.projectId, projectId)))
       .groupBy(blocks.type),
   );
 });
 
 /**
- * The distinct Pages of the current environment that place a Block Definition.
+ * The distinct Pages of the project that place a Block Definition.
  * Unlike usage counts, several placements on one Page count once, and layout
  * placements don't count, since they aren't on a Page.
  */
 export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof blockTypeInput>,
+  scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
   return yield* Effect.promise(() =>
     ctx.db
       .selectDistinct({ id: pages.id, nickname: pages.nickname, fullPath: pages.fullPath })
       .from(blocks)
       .innerJoin(pages, eq(blocks.pageId, pages.id))
-      .where(and(eq(blocks.type, type), eq(pages.environmentId, environment.id)))
+      .where(
+        and(
+          overlay.visibleIn(blocks, scope),
+          eq(blocks.type, type),
+          eq(pages.projectId, projectId),
+        ),
+      )
       .orderBy(pages.fullPath),
   );
 });
 
 /**
- * A Synced Block's shared draft content in the current environment, as a
+ * A Synced Block's shared content in the project, as a
  * block bundle. Null when the block isn't synced or has no placement yet.
  */
 export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof blockTypeInput>,
+  scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
-  const environment = yield* resolveEnvironment(ctx.db, projectId, ctx.environmentName);
-  const id = yield* sharedPlacementId(ctx, environment.id, type);
+  const id = yield* sharedPlacementId(ctx.db, scope, { projectId: projectId, type });
   if (id === null) return null;
-  return yield* getBlock(ctx, { id, source: "draft" });
+  return yield* getBlock(ctx, { id }, scope);
 });
 
 // --- Writes ---
 
+/**
+ * Writes a block's content or settings where they live: the block itself, or its synced
+ * definition's shared content, which every placement shows. Returns the block as readers see it.
+ */
+const writeBlockData = Effect.fn("writeBlockData")(function* (
+  ctx: ServiceContext,
+  access: { block: typeof blocks.$inferSelect; projectId: number },
+  shared: SharedContentRow | null,
+  values: { content?: unknown; settings?: unknown; updatedAt: number },
+  scope: DraftScope,
+) {
+  const { block, projectId } = access;
+  if (!shared) {
+    const result = yield* overlay.update(ctx.db, scope, blocks, block.id, values);
+    if (!result) return yield* new NotFoundError();
+    yield* bumpLiveOwner(ctx, scope, block);
+    return result;
+  }
+  // In a draft, the first write copies the shared content, which every placement in the draft
+  // then shows.
+  const updated = yield* overlay.update(ctx.db, scope, sharedContents, shared.id, values);
+  if (!updated) return yield* new NotFoundError();
+  if (!scope) yield* bumpPlacementOwners(ctx.db, definitionOf(shared));
+  broadcastSharedContentChange(ctx, scope, projectId, shared.type);
+  return {
+    ...block,
+    content: updated.content,
+    settings: updated.settings,
+  };
+});
+
 export const createBlock = Effect.fn("blocks.createBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createBlockInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const {
+    id,
     pageId,
     type,
     content,
@@ -1213,14 +1160,14 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     beforePosition,
     repeatableItems: itemSeeds,
   } = yield* decodeInput(createBlockInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, pageId, user.id);
+  const access = yield* assertPageAccess(ctx.db, pageId, user.id, scope);
+  // A draft holds content of its own project only.
+  if (scope && scope.projectId !== access.page.projectId) return yield* new NotFoundError();
 
   const now = Date.now();
 
   // Look up the block definition's content schema and normalize inline repeatable
   // arrays into seeds, so the agent (and any caller) can produce a flat shape.
-  // Scope by environmentId — the same blockId can exist with different shapes
-  // across environments (e.g. mid-migration).
   const def = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -1228,7 +1175,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       .where(
         and(
           eq(blockDefinitions.projectId, access.page.projectId),
-          eq(blockDefinitions.environmentId, access.page.environmentId),
+          definitionsIn(blockDefinitions, scope),
           eq(blockDefinitions.blockId, type),
         ),
       )
@@ -1242,11 +1189,16 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     def?.settingsSchema,
   );
   const allSeeds = prepared.seeds;
-  yield* validateReferenceValues(ctx, access.page, def?.contentSchema, prepared.bundle);
+  yield* validateReferenceValues(
+    ctx,
+    { ...access.page, draft: scope },
+    def?.contentSchema,
+    prepared.bundle,
+  );
 
   // Get all blocks for this page to determine correct position
   const pageBlocks = sortByPosition(
-    yield* Effect.promise(() => ctx.db.select().from(blocks).where(eq(blocks.pageId, pageId))),
+    yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, pageId)),
   );
 
   if (afterPosition != null && beforePosition != null) {
@@ -1280,26 +1232,23 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       nextBlock?.position ?? null,
     );
   }
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .insert(blocks)
-      .values({
-        pageId,
-        type,
-        content: prepared.content,
-        settings: prepared.settings,
-        position,
-        summary: "",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get(),
-  );
+  const result = yield* overlay.insert(ctx.db, scope, blocks, {
+    id,
+    projectId: access.page.projectId,
+    pageId,
+    type,
+    content: prepared.content,
+    settings: prepared.settings,
+    position,
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!result) return yield* new ConflictError({ message: `Block ${id} already exists` });
 
-  // Insert repeatable item seeds in topological order (parents before children)
+  // Insert repeatable item seeds in topological order (parents before children). Items are
+  // stored in Live even for a block created in a draft, until they move into drafts (#238).
   if (allSeeds.length > 0) {
-    const tempIdToRealId = new Map<string, number>();
+    const tempIdToRealId = new Map<string, string>();
 
     for (const seed of allSeeds) {
       const parentItemId = seed.parentTempId
@@ -1314,7 +1263,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
             fieldName: seed.fieldName,
             content: seed.content,
             settings: seed.settings,
-            summary: "",
             position: seed.position,
             createdAt: now,
             updatedAt: now,
@@ -1326,59 +1274,51 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     }
   }
 
-  yield* syncBlockData(ctx, result.id, true);
-  yield* bumpContentUpdatedAt(ctx.db, { pageId });
+  yield* adoptSharedContent(ctx, scope, result);
+  yield* bumpLiveOwner(ctx, scope, { pageId });
 
-  ctx.waitUntil(
-    scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-      entityTable: "blocks",
-      entityId: result.id,
-      type: "summary",
-      delayMs: 0,
-    }),
-  );
+  yield* requestBlockSummary(ctx, scope, access.page.projectId, result.id, 0);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.page.projectId,
     targets: [
       // Block create/delete/duplicate restructures the page — refetch the
-      // draft page view. The live snapshot is untouched, so its cache stays.
-      queryKeys.pages.getByPath(access.page.fullPath, "draft"),
-      // Page list refetches so the derived publish-status badge picks up the
-      // new `content_updated_at`.
+      // page view and the page list, whose rows carry `content_updated_at`.
+      queryKeys.pages.getByPath(access.page.fullPath),
       queryKeys.pages.list,
       queryKeys.blocks.getPageMarkdown(pageId),
       queryKeys.blocks.getUsageCounts,
     ],
   });
 
-  const created = (yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.id, result.id)).get(),
-  ))!;
+  const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
+  const created = yield* shownBlock(ctx.db, scope, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
 });
 
 /** CLI/AI edits may submit both fields; reject either invalid patch before writing either. */
 export const editBlock = Effect.fn("blocks.editBlock")(function* (
   ctx: ServiceContext,
-  input: { id: number; content?: unknown; settings?: unknown },
+  input: { id: string; content?: unknown; settings?: unknown },
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
-  const access = yield* assertBlockAccess(ctx.db, input.id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, input.id, user.id, scope);
   if (input.content === undefined && input.settings === undefined) {
     return yield* new InvalidInputError({ message: "Provide content or settings" });
   }
-  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id);
+  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id, scope);
   if (input.settings !== undefined) {
     yield* validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
   }
   let result: object = {};
   if (input.content !== undefined) {
-    result = yield* updateBlockContent(ctx, { id: input.id, content: input.content });
+    result = yield* updateBlockContent(ctx, { id: input.id, content: input.content }, scope);
   }
   if (input.settings !== undefined) {
-    result = yield* updateBlockSettings(ctx, { id: input.id, settings: input.settings });
+    result = yield* updateBlockSettings(ctx, { id: input.id, settings: input.settings }, scope);
   }
   return withWarnings(result, artifactWarnings(schemas?.contentSchema, input.content));
 });
@@ -1386,50 +1326,49 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
 export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockContentInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, content } = yield* decodeInput(updateBlockContentInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
   const now = Date.now();
 
-  const contentSchema = yield* loadBlockContentSchema(ctx.db, access.projectId, id);
+  const contentSchema = yield* loadBlockContentSchema(ctx.db, access.projectId, id, scope);
 
   const patch = yield* prepareContentPatch(content, contentSchema);
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
-  yield* validateReferenceValues(ctx, yield* blockScope(ctx, access.block), contentSchema, patch);
-  const merged = yield* applyContentPatch(ctx, access.block, patch, contentSchema, now);
-
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(blocks)
-      .set({ content: merged, updatedAt: now })
-      .where(eq(blocks.id, id))
-      .returning()
-      .get(),
+  yield* validateReferenceValues(ctx, blockScope(access.block, scope), contentSchema, patch);
+  const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
+  // Repeater patches write the Live repeatable items, even from a draft, until items move into
+  // drafts (#238).
+  const merged = yield* applyContentPatch(
+    ctx,
+    scope,
+    { root: owner.root, content: (owner.shared ?? access.block).content },
+    patch,
+    contentSchema,
+    now,
+  );
+  const result = yield* writeBlockData(
+    ctx,
+    access,
+    owner.shared,
+    { content: merged, updatedAt: now },
+    scope,
   );
 
-  yield* syncBlockData(ctx, id);
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
-
-  ctx.waitUntil(
-    scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-      entityTable: "blocks",
-      entityId: id,
-      type: "summary",
-      delayMs: 5000,
-    }),
-  );
+  yield* requestBlockSummary(ctx, scope, access.projectId, id, 5000);
   // Granular invalidation: only refetch this block, not the entire page.
-  // Draft source only — the live snapshot doesn't change on edits.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(id, "draft"),
+      queryKeys.blocks.get(id),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
@@ -1442,37 +1381,36 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockSettingsInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, settings } = yield* decodeInput(updateBlockSettingsInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
-  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id);
+  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id, scope);
   yield* validateContent(settings, schemas?.settingsSchema, { path: "settings" });
+  const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
   const merged = {
-    ...(access.block.settings as Record<string, unknown> | null),
+    ...((owner.shared ?? access.block).settings as Record<string, unknown> | null),
     ...(settings as Record<string, unknown>),
   };
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(blocks)
-      .set({ settings: merged, updatedAt: Date.now() })
-      .where(eq(blocks.id, id))
-      .returning()
-      .get(),
+  const result = yield* writeBlockData(
+    ctx,
+    access,
+    owner.shared,
+    { settings: merged, updatedAt: Date.now() },
+    scope,
   );
-  yield* syncBlockData(ctx, id);
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
   // Granular invalidation: only refetch this block, not the entire page.
-  // Draft source only — the live snapshot doesn't change on edits.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(id, "draft"),
+      queryKeys.blocks.get(id),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
@@ -1484,23 +1422,21 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
 export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockPositionInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id, afterPosition, beforePosition } = yield* decodeInput(
     updateBlockPositionInput,
     rawInput,
   );
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
   // Query siblings (excluding the block being moved) to compute a correct position
   const block = access.block;
-  const parentColumn = block.pageId ? blocks.pageId : blocks.layoutId;
-  const parentId = block.pageId ?? block.layoutId;
-  const siblings = parentId
+  const owner = blocksOfOwner(block);
+  const siblings = owner
     ? sortByPosition(
-        (yield* Effect.promise(() =>
-          ctx.db.select().from(blocks).where(eq(parentColumn, parentId)),
-        )).filter((b) => b.id !== id),
+        (yield* overlay.select(ctx.db, scope, blocks, owner)).filter((b) => b.id !== id),
       )
     : [];
 
@@ -1520,46 +1456,47 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
     position = generateKeyBetween(siblings[afterIdx]?.position ?? null, nextPos);
   }
 
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .update(blocks)
-      .set({ position, updatedAt: Date.now() })
-      .where(eq(blocks.id, id))
-      .returning()
-      .get(),
-  );
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
+  // In a draft, the first write copies the whole block: a move carries its content (ADR 0005).
+  const result = yield* overlay.update(ctx.db, scope, blocks, id, {
+    position,
+    updatedAt: Date.now(),
+  });
+  if (!result) return yield* new NotFoundError();
+  yield* bumpLiveOwner(ctx, scope, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return result;
+  return yield* shownBlock(ctx.db, scope, result);
 });
 
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlockInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deleteBlockInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
-  const result = yield* Effect.promise(() =>
-    ctx.db.delete(blocks).where(eq(blocks.id, id)).returning().get(),
-  );
-  yield* bumpContentUpdatedAt(ctx.db, access.block);
+  // In a draft, a tombstone hides the block from the draft only.
+  const result = yield* overlay.remove(ctx.db, scope, blocks, id);
+  yield* deleteBlockDependents(ctx, [id]);
+  yield* bumpLiveOwner(ctx, scope, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       // Deleting a block restructures the page. Invalidate all active page path
@@ -1577,38 +1514,45 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
 export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlocksInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { blockIds } = yield* decodeInput(deleteBlocksInput, rawInput);
   if (blockIds.length === 0) return [];
 
-  // Verify all blocks belong to an org the user is a member of
+  // Verify all blocks, as the scope reads them, belong to an org the user is a member of
   const authorizedBlocks = yield* Effect.promise(() =>
     ctx.db
       .select({ id: blocks.id, projectId: projects.id })
       .from(blocks)
-      .leftJoin(pages, eq(blocks.pageId, pages.id))
-      .leftJoin(layouts, eq(blocks.layoutId, layouts.id))
-      .innerJoin(projects, or(eq(projects.id, pages.projectId), eq(projects.id, layouts.projectId)))
+      .innerJoin(projects, eq(projects.id, blocks.projectId))
       .innerJoin(
         member,
         and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
       )
-      .where(inArray(blocks.id, blockIds)),
+      .where(and(overlay.visibleIn(blocks, scope), inArray(blocks.id, blockIds))),
   );
   if (authorizedBlocks.length !== blockIds.length) {
     return yield* new NotFoundError();
   }
+  // A draft holds content of its own project only.
+  if (scope && authorizedBlocks.some((block) => block.projectId !== scope.projectId)) {
+    return yield* new NotFoundError();
+  }
   // Bump first — once the rows are gone, we can't recover their parents.
-  yield* bumpContentUpdatedAtForBlocks(ctx.db, blockIds);
-  const result = yield* Effect.promise(() =>
-    ctx.db.delete(blocks).where(inArray(blocks.id, blockIds)).returning(),
-  );
+  if (!scope) yield* bumpContentUpdatedAtForBlocks(ctx.db, blockIds);
+  const result: (typeof blocks.$inferSelect)[] = [];
+  for (const id of blockIds) {
+    const removed = yield* overlay.remove(ctx.db, scope, blocks, id);
+    if (removed) result.push(removed);
+  }
+  yield* deleteBlockDependents(ctx, blockIds);
   const projectId = authorizedBlocks[0]?.projectId;
   if (projectId) {
     broadcastInvalidation({
       waitUntil: ctx.waitUntil,
       projectRoomNamespace: ctx.env.ProjectRoom,
+      draftId: scope?.id ?? null,
       projectId,
       targets: [
         queryKeys.pages.getByPathAll,
@@ -1623,96 +1567,85 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
 export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateBlockSummaryInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
 
-  const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id);
-  if (seoStale) {
-    ctx.waitUntil(
-      scheduleAiJob(ctx.env.AI_JOB_SCHEDULER, {
-        entityTable: "pages",
-        entityId: seoStale.pageId,
-        type: "seo",
-        delayMs: 15000,
-      }),
-    );
-  }
+  const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
+  if (seoStale) yield* requestPageSeo(ctx, scope, seoStale.page, 15000);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
-      queryKeys.blocks.get(id, "draft"),
+      queryKeys.blocks.get(id),
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       ...(access.block.pageId ? [queryKeys.blocks.getPageMarkdown(access.block.pageId)] : []),
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  const updated = yield* Effect.promise(() =>
-    ctx.db.select().from(blocks).where(eq(blocks.id, id)).get(),
-  );
-  return updated;
+  return yield* overlay.get(ctx.db, scope, blocks, id);
 });
 
 export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof duplicateBlockInput>,
+  scope: DraftScope,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(duplicateBlockInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id);
+  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
   const original = access.block;
 
   const now = Date.now();
 
   // Find the next block after the original to insert between them
-  const parentId = original.pageId ?? original.layoutId;
-  const parentColumn = original.pageId ? blocks.pageId : blocks.layoutId;
-  const siblings = parentId
-    ? sortByPosition(
-        yield* Effect.promise(() => ctx.db.select().from(blocks).where(eq(parentColumn, parentId))),
-      )
-    : [];
-  const originalIndex = siblings.findIndex((b) => b.id === id);
-  const nextBlock = originalIndex >= 0 ? siblings[originalIndex + 1] : undefined;
+  const owner = blocksOfOwner(original);
+  const siblings = owner ? sortByPosition(yield* overlay.select(ctx.db, scope, blocks, owner)) : [];
+  // Skip siblings sharing the original's position (ADR 0005): no key fits between them.
+  const nextBlock = siblings.find((b) => b.position > original.position);
   const position = generateKeyBetween(original.position, nextBlock?.position ?? null);
 
-  const result = yield* Effect.promise(() =>
-    ctx.db
-      .insert(blocks)
-      .values({
-        pageId: original.pageId,
-        layoutId: original.layoutId,
-        type: original.type,
-        content: original.content,
-        settings: original.settings,
-        slot: original.slot,
-        summary: original.summary,
-        position,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get(),
+  const result = yield* overlay.insert(ctx.db, scope, blocks, {
+    projectId: original.projectId,
+    pageId: original.pageId,
+    layoutId: original.layoutId,
+    type: original.type,
+    content: original.content,
+    settings: original.settings,
+    slot: original.slot,
+    position,
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!result) return yield* new ConflictError({ message: "The duplicate's id is taken." });
+  yield* adoptSharedContent(ctx, scope, result);
+  yield* copyValue(
+    ctx.db,
+    scope,
+    homeOf(scope, access.projectId),
+    summaryKeyOf(original.id, null),
+    result.id,
   );
-  yield* syncBlockData(ctx, result.id, true);
-  yield* bumpContentUpdatedAt(ctx.db, original);
+  yield* bumpLiveOwner(ctx, scope, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope?.id ?? null,
     projectId: access.projectId,
     targets: [
       ...(access.pagePath
-        ? [queryKeys.pages.getByPath(access.pagePath, "draft")]
+        ? [queryKeys.pages.getByPath(access.pagePath)]
         : [queryKeys.pages.getByPathAll]),
       queryKeys.pages.list,
       ...(original.pageId ? [queryKeys.blocks.getPageMarkdown(original.pageId)] : []),
       queryKeys.blocks.getUsageCounts,
     ],
   });
-  return result;
+  return yield* shownBlock(ctx.db, scope, result);
 });

@@ -1,19 +1,14 @@
 import type { CommentTarget } from "@camox/api-contract";
+import { generateUuidv7 } from "@camox/api-contract/ids";
+import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import {
-  blockDefinitions,
-  blocks,
-  comments,
-  environments,
-  layouts,
-  pages,
-  repeatableItems,
-} from "../../schema";
-import { replicateEnvironment } from "../environments/service";
+import { blockDefinitions, blocks, comments, pages, repeatableItems } from "../../schema";
+import { callTool } from "../agent/service";
+import { commentProcedures } from "./routes";
 import { createComment, listComments, setCommentResolved } from "./service";
 
 const { broadcastInvalidation } = vi.hoisted(() => {
@@ -29,8 +24,7 @@ async function fixture() {
     .insert(pages)
     .values({
       projectId: base.project.id,
-      environmentId: base.environment.id,
-      layoutId: base.layout.id,
+      layoutId: base.layout.layoutId,
       pathSegment: "about",
       fullPath: "/about",
       nickname: "About",
@@ -42,7 +36,6 @@ async function fixture() {
     .get();
   await base.db.insert(blockDefinitions).values({
     projectId: base.project.id,
-    environmentId: base.environment.id,
     blockId: "hero",
     title: "Hero",
     description: "",
@@ -66,6 +59,7 @@ async function fixture() {
   const block = await base.db
     .insert(blocks)
     .values({
+      projectId: base.project.id,
       pageId: page.id,
       type: "hero",
       content: {},
@@ -102,7 +96,7 @@ async function fixture() {
     .get();
   const ctx = createServiceContext(base.db, base.memberUser);
   const create = (target: CommentTarget, message = "Feedback") =>
-    runService(createComment(ctx, { id: crypto.randomUUID(), pageId: page.id, message, target }));
+    runService(createComment(ctx, { id: generateUuidv7(), pageId: page.id, message, target }));
   return { ...base, ctx, page, block, item, nested, create };
 }
 
@@ -148,13 +142,18 @@ describe("comments", () => {
     for (const [ctx, code] of [
       [{ ...f.ctx, user: null }, "UNAUTHORIZED"],
       [{ ...f.ctx, user: f.outsiderUser }, "FORBIDDEN"],
-      [{ ...f.ctx, environmentName: "other" }, "NOT_FOUND"],
     ] as const) {
       await expect(runService(setCommentResolved(ctx, input))).rejects.toMatchObject({ code });
     }
     const sibling = await f.db
       .insert(pages)
-      .values({ ...f.page, id: undefined, pathSegment: "sibling", fullPath: "/sibling" })
+      .values({
+        ...f.page,
+        rowId: undefined,
+        id: undefined,
+        pathSegment: "sibling",
+        fullPath: "/sibling",
+      })
       .returning()
       .get();
     await expect(
@@ -163,7 +162,7 @@ describe("comments", () => {
       code: "NOT_FOUND",
     });
     await expect(
-      runService(setCommentResolved(f.ctx, { ...input, id: crypto.randomUUID() })),
+      runService(setCommentResolved(f.ctx, { ...input, id: generateUuidv7() })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     for (const invalid of [
       { ...input, id: "invalid" },
@@ -182,7 +181,13 @@ describe("comments", () => {
     const f = await fixture();
     const layoutBlock = await f.db
       .insert(blocks)
-      .values({ ...f.block, id: undefined, pageId: null, layoutId: f.layout.id })
+      .values({
+        ...f.block,
+        rowId: undefined,
+        id: undefined,
+        pageId: null,
+        layoutId: f.layout.layoutId,
+      })
       .returning()
       .get();
     const targets: CommentTarget[] = [
@@ -199,9 +204,9 @@ describe("comments", () => {
       for (let index = 0; index < 63; index++) {
         const target = targets[index % targets.length]!;
         await f.db.insert(comments).values({
-          id: crypto.randomUUID(),
+          id: generateUuidv7(),
           pageId: f.page.id,
-          environmentId: f.environment.id,
+          projectId: f.project.id,
           authorId: f.memberUser.id,
           message: "Repeated feedback",
           target,
@@ -226,6 +231,7 @@ describe("comments", () => {
       .insert(pages)
       .values({
         ...f.page,
+        rowId: undefined,
         id: undefined,
         pathSegment: "sibling",
         fullPath: "/sibling",
@@ -236,14 +242,15 @@ describe("comments", () => {
       .insert(blocks)
       .values({
         ...f.block,
+        rowId: undefined,
         id: undefined,
         pageId: null,
-        layoutId: f.layout.id,
+        layoutId: f.layout.layoutId,
       })
       .returning()
       .get();
     const input = {
-      id: crypto.randomUUID(),
+      id: generateUuidv7(),
       pageId: f.page.id,
       message: "Shared header",
       target: { kind: "block" as const, blockId: layoutBlock.id },
@@ -265,7 +272,7 @@ describe("comments", () => {
       runService(
         createComment(f.ctx, {
           ...input,
-          id: crypto.randomUUID(),
+          id: generateUuidv7(),
           pageId: sibling.id,
           target: { kind: "block", blockId: f.block.id },
         }),
@@ -289,14 +296,14 @@ describe("comments", () => {
       { kind: "item-field", blockId: f.block.id, itemId: f.nested.id, fieldName: "text" },
     ];
     for (const target of targets) {
-      const input = { id: crypto.randomUUID(), pageId: f.page.id, message: " Feedback ", target };
+      const input = { id: generateUuidv7(), pageId: f.page.id, message: " Feedback ", target };
       const first = await runService(createComment(f.ctx, input));
       expect(first).toMatchObject({
         message: "Feedback",
         resolved: false,
         target,
         author: { name: "Member", image: null },
-        environmentId: f.environment.id,
+        projectId: f.project.id,
         createdAt: expect.any(Number),
       });
       expect(await runService(createComment(f.ctx, input))).toEqual(first);
@@ -311,11 +318,11 @@ describe("comments", () => {
     );
   });
 
-  it("rejects anonymous/nonmember/wrong-environment access and malformed/foreign targets", async () => {
+  it("rejects anonymous/nonmember access and malformed/foreign targets", async () => {
     const f = await fixture();
     const other = await fixture();
     const input = {
-      id: crypto.randomUUID(),
+      id: generateUuidv7(),
       pageId: f.page.id,
       message: "Feedback",
       target: { kind: "page" as const },
@@ -323,7 +330,6 @@ describe("comments", () => {
     for (const [ctx, code] of [
       [{ ...f.ctx, user: null }, "UNAUTHORIZED"],
       [{ ...f.ctx, user: f.outsiderUser }, "FORBIDDEN"],
-      [{ ...f.ctx, environmentName: "other" }, "NOT_FOUND"],
     ] as const) {
       await expect(runService(createComment(ctx, input))).rejects.toMatchObject({ code });
       await expect(runService(listComments(ctx, { pageId: f.page.id }))).rejects.toMatchObject({
@@ -352,8 +358,10 @@ describe("comments", () => {
   it("retains deleted targets as unavailable and cannot reattach a reused ID", async () => {
     const f = await fixture();
     await f.create({ kind: "item", blockId: f.block.id, itemId: f.item.id });
+    // Deleting an item unanchors its comments, as the services do: items hold no foreign keys.
     await f.db.delete(repeatableItems).where(eq(repeatableItems.id, f.item.id));
-    await f.db.insert(repeatableItems).values({ ...f.item });
+    await f.db.update(comments).set({ itemId: null }).where(eq(comments.itemId, f.item.id));
+    await f.db.insert(repeatableItems).values({ ...f.item, rowId: undefined });
     expect(await runService(listComments(f.ctx, { pageId: f.page.id }))).toMatchObject([
       { target: null },
     ]);
@@ -361,114 +369,79 @@ describe("comments", () => {
     await f.db
       .update(blockDefinitions)
       .set({ contentSchema: { properties: {} } })
-      .where(eq(blockDefinitions.environmentId, f.environment.id));
+      .where(eq(blockDefinitions.projectId, f.project.id));
     expect(
       (await runService(listComments(f.ctx, { pageId: f.page.id }))).every(
         (c) => c.target === null,
       ),
     ).toBe(true);
   });
+});
 
-  it("replaces destination comments, remaps nested targets, preserves provenance and unavailable feedback", async () => {
-    const f = await fixture();
-    const now = Date.now();
-    const destination = await f.db
-      .insert(environments)
-      .values({
-        projectId: f.project.id,
-        name: "dev:test",
-        type: "development",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    const layout = await f.db
-      .insert(layouts)
-      .values({
-        ...f.layout,
-        id: undefined,
-        environmentId: destination.id,
-      })
-      .returning()
-      .get();
-    const definition = await f.db
-      .select()
-      .from(blockDefinitions)
-      .where(eq(blockDefinitions.environmentId, f.environment.id))
-      .get();
-    await f.db
-      .insert(blockDefinitions)
-      .values({ ...definition!, id: undefined, environmentId: destination.id });
-    const page = await f.db
-      .insert(pages)
-      .values({
-        ...f.page,
-        id: undefined,
-        environmentId: destination.id,
-        layoutId: layout.id,
-      })
-      .returning()
-      .get();
-    const old = await runService(
-      createComment(
-        { ...f.ctx, environmentName: destination.name },
-        {
-          id: crypto.randomUUID(),
-          pageId: page.id,
-          message: "Old destination",
-          target: { kind: "page" },
+// Independent of the shared schema: version nibble 7, RFC 4122 variant.
+const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CLIENT_COMMENT_ID = "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b";
+
+describe("stable comment identity", () => {
+  function procedureContext(f: Awaited<ReturnType<typeof fixture>>) {
+    return {
+      context: {
+        ...f.ctx,
+        headers: new Headers(),
+        session: {
+          id: "session",
+          token: "test",
+          userId: f.memberUser.id,
+          expiresAt: new Date(Date.now() + 60_000),
+          createdAt: new Date(),
+          updatedAt: new Date(),
         },
-      ),
+      },
+    };
+  }
+
+  it("creating a comment returns a UUIDv7, or keeps a client-minted UUIDv7", async () => {
+    const f = await fixture();
+    const options = procedureContext(f);
+    const input = { pageId: f.page.id, message: "Feedback", target: { kind: "page" as const } };
+    const minted = await call(commentProcedures.create, input, options);
+    expect(minted.id).toMatch(UUIDV7);
+    const optimistic = await call(
+      commentProcedures.create,
+      { ...input, id: CLIENT_COMMENT_ID },
+      options,
     );
-    const original = await f.create({
-      kind: "item-field",
-      blockId: f.block.id,
-      itemId: f.nested.id,
-      fieldName: "text",
-    });
-    const unavailable = await f.create({ kind: "block", blockId: f.block.id });
-    await runService(
-      setCommentResolved(f.ctx, { pageId: f.page.id, id: original.id, resolved: true }),
-    );
-    // Delete a separate target without removing the nested target.
-    const deleted = await f.db
-      .insert(blocks)
-      .values({ ...f.block, id: undefined })
-      .returning()
-      .get();
-    await f.create({ kind: "block", blockId: deleted.id });
-    await f.db.delete(blocks).where(eq(blocks.id, deleted.id));
-    const result = await runService(
-      replicateEnvironment(f.ctx, {
-        projectId: f.project.id,
-        sourceEnvName: "production",
-        targetEnvName: destination.name,
-      }),
-    );
-    expect(result.copied.comments).toBe(3);
-    expect(await f.db.select().from(comments).where(eq(comments.id, old.id))).toEqual([]);
-    const copied = await f.db
-      .select()
-      .from(comments)
-      .where(eq(comments.environmentId, destination.id));
-    expect(copied).toHaveLength(3);
-    const nested = copied.find((c) => c.target?.kind === "item-field")!;
-    expect(nested.id).not.toBe(original.id);
-    expect(nested.pageId).not.toBe(f.page.id);
-    expect(nested.blockId).not.toBe(f.block.id);
-    expect(nested.itemId).not.toBe(f.nested.id);
-    expect(nested.createdAt).toBe(original.createdAt);
-    expect(nested.authorId).toBe(f.memberUser.id);
-    expect(nested.resolved).toBe(true);
-    expect(nested.target).toMatchObject({
-      blockId: nested.blockId,
-      itemId: nested.itemId,
-      fieldName: "text",
-    });
-    expect(copied.filter((c) => c.target === null)).toHaveLength(1);
-    expect(await f.db.select().from(comments).where(eq(comments.id, unavailable.id))).toHaveLength(
-      1,
-    );
+    expect(optimistic.id).toBe(CLIENT_COMMENT_ID);
+    expect(
+      (await call(commentProcedures.list, { pageId: f.page.id }, options)).map(({ id }) => id),
+    ).toEqual(expect.arrayContaining([minted.id, CLIENT_COMMENT_ID]));
+  });
+
+  it("procedures and AI tools reject a comment id that isn't a UUIDv7", async () => {
+    const f = await fixture();
+    const options = procedureContext(f);
+    const input = { pageId: f.page.id, message: "Feedback", target: { kind: "page" as const } };
+    for (const id of [1, "1", crypto.randomUUID()]) {
+      await expect(
+        call(commentProcedures.create, { ...input, id } as never, options),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(
+        call(
+          commentProcedures.setResolved,
+          { pageId: f.page.id, id, resolved: true } as never,
+          options,
+        ),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(
+        await runService(
+          callTool(f.ctx, {
+            projectId: f.project.id,
+            name: "resolveComment",
+            arguments: { pageId: f.page.id, id },
+          }),
+        ),
+      ).toMatchObject({ ok: false });
+    }
+    expect(await call(commentProcedures.list, { pageId: f.page.id }, options)).toEqual([]);
   });
 });

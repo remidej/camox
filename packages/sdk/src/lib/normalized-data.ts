@@ -1,9 +1,10 @@
-import { queryKeys, type ReadSource } from "@camox/api-contract/query-keys";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQueries } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { BlockBundle, PageStructure, PageWithBlocks } from "./queries";
+import { scopedKey } from "./studio-draft";
 import { viewBlockQueries } from "./view-queries";
 
 /* -------------------------------------------------------------------------------------------------
@@ -11,7 +12,17 @@ import { viewBlockQueries } from "./view-queries";
  * -----------------------------------------------------------------------------------------------*/
 
 export type NormalizedFile = PageWithBlocks["files"][number];
-export type NormalizedItem = PageWithBlocks["repeatableItems"][number];
+/** The draft overlay's bookkeeping on stored rows (ADR 0005), which the studio never reads. */
+type RowBookkeeping =
+  | "rowId"
+  | "draftId"
+  | "version"
+  | "baseVersion"
+  | "deleted"
+  | "firstPublishedAt"
+  | "publishedAt"
+  | "publishedBy";
+export type NormalizedItem = Omit<PageWithBlocks["repeatableItems"][number], RowBookkeeping>;
 export type NormalizedBlock = PageWithBlocks["blocks"][number];
 
 export interface NormalizedCollectionRecord {
@@ -33,7 +44,7 @@ export type NormalizedReferences = Record<
 
 /** A block or repeatable item, with the records its reference fields link. */
 type ReferenceBlock = {
-  id?: number;
+  id?: string;
   references?: NormalizedReferences;
 };
 const EMPTY_REFERENCE_BLOCKS: ReferenceBlock[] = [];
@@ -76,11 +87,11 @@ export function placedRecords(references: NormalizedReferences | undefined, fiel
  * -----------------------------------------------------------------------------------------------*/
 
 interface NormalizedDataContextValue {
-  filesMap: Map<number, NormalizedFile>;
-  itemsMap: Map<number, NormalizedItem>;
+  filesMap: Map<string, NormalizedFile>;
+  itemsMap: Map<string, NormalizedItem>;
   recordsMap: Map<string, NormalizedCollectionRecord>;
   /** Each block's resolved references, by block id. */
-  blockReferences: Map<number, NormalizedReferences>;
+  blockReferences: Map<string, NormalizedReferences>;
 }
 
 const NormalizedDataContext = React.createContext<NormalizedDataContextValue>({
@@ -96,7 +107,7 @@ const NormalizedDataContext = React.createContext<NormalizedDataContextValue>({
  */
 export function queryResultIds(
   data: NormalizedDataContextValue,
-  owner: { blockId: number; itemId?: number },
+  owner: { blockId: string; itemId?: string },
   fieldName: string,
 ) {
   const references =
@@ -175,7 +186,7 @@ export const LinkedRecordsProvider = ({
  * Uses useQueries to subscribe to each block's cache entry.
  * -----------------------------------------------------------------------------------------------*/
 
-const EMPTY_IDS: number[] = [];
+const EMPTY_IDS: string[] = [];
 
 /**
  * Returns the previously-returned array when `next` is element-wise identical to
@@ -194,10 +205,10 @@ function useStableArray<T>(next: T[]): T[] {
   return ref.current;
 }
 
-export function usePageBlocks(
-  pageStructure: { page: Pick<PageStructure["page"], "blockIds">; layout: PageStructure["layout"] },
-  source: ReadSource = "draft",
-) {
+export function usePageBlocks(pageStructure: {
+  page: Pick<PageStructure["page"], "blockIds">;
+  layout: PageStructure["layout"];
+}) {
   const blockIds = pageStructure.page.blockIds;
   const beforeIds = pageStructure.layout?.beforeBlockIds ?? EMPTY_IDS;
   const afterIds = pageStructure.layout?.afterBlockIds ?? EMPTY_IDS;
@@ -208,11 +219,11 @@ export function usePageBlocks(
   );
 
   const results = useQueries({
-    queries: allIds.map((id) => viewBlockQueries.get(id, source)),
+    queries: allIds.map((id) => viewBlockQueries.get(id)),
   });
 
   const bundleMap = React.useMemo(() => {
-    const map = new Map<number, BlockBundle>();
+    const map = new Map<string, BlockBundle>();
     for (let i = 0; i < allIds.length; i++) {
       const data = results[i]?.data;
       if (data) map.set(allIds[i], data);
@@ -222,7 +233,7 @@ export function usePageBlocks(
 
   const layoutIds = React.useMemo(() => [...beforeIds, ...afterIds], [beforeIds, afterIds]);
 
-  const resolveBlocks = (ids: readonly number[]) =>
+  const resolveBlocks = (ids: readonly string[]) =>
     ids.map((id) => bundleMap.get(id)?.block).filter((b): b is NormalizedBlock => b != null);
 
   const pageBlocks = useStableArray(resolveBlocks(blockIds));
@@ -245,7 +256,7 @@ export function usePageBlocks(
  * -----------------------------------------------------------------------------------------------*/
 
 /** Check if a value is a { _fileId } marker */
-export function isFileMarker(value: unknown): value is { _fileId: number } {
+export function isFileMarker(value: unknown): value is { _fileId: string } {
   return (
     value != null &&
     typeof value === "object" &&
@@ -255,7 +266,7 @@ export function isFileMarker(value: unknown): value is { _fileId: number } {
 }
 
 /** Check if a value is a { _itemId } marker */
-export function isItemMarker(value: unknown): value is { _itemId: number } {
+export function isItemMarker(value: unknown): value is { _itemId: string } {
   return (
     value != null &&
     typeof value === "object" &&
@@ -270,10 +281,10 @@ export function isItemMarker(value: unknown): value is { _itemId: number } {
  * This enables granular invalidation — content edits refetch only the affected block.
  * -----------------------------------------------------------------------------------------------*/
 
-function visitForFileIds(value: unknown, ids: Set<number>) {
+function visitForFileIds(value: unknown, ids: Set<string>) {
   if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "number") {
-    ids.add((value as { _fileId: number })._fileId);
+  if ("_fileId" in value && typeof (value as { _fileId: unknown })._fileId === "string") {
+    ids.add((value as { _fileId: string })._fileId);
     return;
   }
   if (Array.isArray(value)) {
@@ -285,7 +296,7 @@ function visitForFileIds(value: unknown, ids: Set<number>) {
   }
 }
 
-function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<number>) {
+function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<string>) {
   for (const value of Object.values(content)) {
     visitForFileIds(value, ids);
   }
@@ -294,7 +305,6 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<nu
 export function seedBlockCaches(
   queryClient: QueryClient,
   pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
-  source: ReadSource = "draft",
 ) {
   const filesById = new Map(pageData.files.map((f) => [f.id, f]));
 
@@ -302,7 +312,7 @@ export function seedBlockCaches(
     const blockItems = pageData.repeatableItems.filter((i) => i.blockId === block.id);
 
     // Collect file IDs referenced by this block and its items
-    const fileIds = new Set<number>();
+    const fileIds = new Set<string>();
     collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
     for (const record of linkedRecords((block as ReferenceBlock).references)) {
       collectFileIdsFromContent(record.content, fileIds);
@@ -315,14 +325,14 @@ export function seedBlockCaches(
     }
     const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
 
-    queryClient.setQueryData(queryKeys.blocks.get(block.id, source), {
+    queryClient.setQueryData(scopedKey(queryKeys.blocks.get(block.id)), {
       block,
       repeatableItems: blockItems,
       files: blockFiles,
     });
 
     for (const file of blockFiles) {
-      queryClient.setQueryData(queryKeys.files.get(file.id), file);
+      queryClient.setQueryData(scopedKey(queryKeys.files.get(file.id)), file);
     }
   }
 }
@@ -331,7 +341,7 @@ export function seedBlockCaches(
  * values consult the mutable file map, so a published source cannot change when
  * the file's current metadata changes.
  */
-export function resolveAssetValue(value: unknown, filesMap: Map<number, NormalizedFile>): unknown {
+export function resolveAssetValue(value: unknown, filesMap: Map<string, NormalizedFile>): unknown {
   if (value && typeof value === "object" && "url" in value && typeof value.url === "string") {
     return value;
   }
@@ -340,17 +350,17 @@ export function resolveAssetValue(value: unknown, filesMap: Map<number, Normaliz
 
 /** Resolve a file marker to a full file object */
 export function resolveFileMarker(
-  marker: { _fileId: number },
-  filesMap: Map<number, NormalizedFile>,
+  marker: { _fileId: string },
+  filesMap: Map<string, NormalizedFile>,
 ): {
   url: string;
   alt: string;
   filename: string;
   mimeType: string;
   size: number;
-  _fileId: number;
+  _fileId: string;
 } {
-  const file = filesMap.get(Number(marker._fileId));
+  const file = filesMap.get(marker._fileId);
   if (file) {
     return {
       url: file.url,

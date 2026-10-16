@@ -13,7 +13,7 @@ import { getHighlightStyle, getTextAppearance, type InlineTextStyles } from "./t
 export type { InlineStyle, InlineTextStyles, TextStyleData, TextLinkStyleData } from "./textStyles";
 
 export interface MarkdownToReactNodesOptions extends InlineTextStyles {
-  pages?: Array<{ id: number; fullPath: string }>;
+  pages?: Array<{ id: string; fullPath: string }>;
   fallbackHref?: string;
 }
 

@@ -1,6 +1,6 @@
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
@@ -8,6 +8,15 @@ import { z } from "zod";
 import type { Database } from "../../db";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import { blockDefinitions, blocks, files, pages, repeatableItems } from "../../schema";
+import { conformBlocks } from "../_shared/conform-content";
+import { definitionsIn } from "../_shared/definitions";
+import { withSharedContent } from "../blocks/shared-content";
+import * as overlay from "../drafts/overlay";
+import type { DraftScope } from "../drafts/scope";
+import { draftScopeOfJob } from "../drafts/service";
+import { type FileView, withFileMetadata } from "../files/generated-metadata";
+import { homeOf, readValue, saveValue, settleRequest } from "../generated-values/service";
+import { seoGenerated, seoKey } from "./generated-seo";
 
 // --- AI Executors ---
 
@@ -103,25 +112,39 @@ const generatePageSeoFromAi = Effect.fn("generatePageSeoFromAi")(function* (
   );
 });
 
+/**
+ * Generates a page's SEO as the scope reads it, into the scope's generated values: never into
+ * the page, so it never copies one into a draft (ADR 0012). Pages with manual SEO are skipped.
+ */
 export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   db: Database,
   apiKey: string,
-  pageId: number,
+  pageId: string,
+  scope: DraftScope,
   abortController?: AbortController,
 ) {
-  const page = yield* Effect.promise(() =>
-    db.select().from(pages).where(eq(pages.id, pageId)).get(),
-  );
-  if (!page || page.aiSeoEnabled === false) return;
+  const startedAt = Date.now();
+  const page = yield* overlay.get(db, scope, pages, pageId);
+  if (!page) return;
+  const home = homeOf(scope, page.projectId);
+  if (!seoGenerated(page)) {
+    yield* settleRequest(db, home, seoKey(pageId), startedAt);
+    return;
+  }
 
-  const pageBlocks = yield* Effect.promise(() =>
-    db.select().from(blocks).where(eq(blocks.pageId, pageId)),
-  );
-  const sorted = pageBlocks.sort((a, b) => comparePositions(a.position, b.position));
+  const pageBlocks = yield* overlay.select(db, scope, blocks, eq(blocks.pageId, pageId));
 
   const defs = yield* Effect.promise(() =>
-    db.select().from(blockDefinitions).where(eq(blockDefinitions.projectId, page.projectId)),
+    db
+      .select()
+      .from(blockDefinitions)
+      .where(
+        and(eq(blockDefinitions.projectId, page.projectId), definitionsIn(blockDefinitions, scope)),
+      ),
   );
+  const definitions = new Map(defs.map((def) => [def.blockId, def]));
+  // Blocks of a removed definition render nothing, so they say nothing about the page either.
+  const sorted = overlay.sortByPosition(pageBlocks.filter((block) => definitions.has(block.type)));
   const contentSchemaByType = new Map<string, any>();
   const fieldOrderByType = new Map<string, string[]>();
   for (const def of defs) {
@@ -133,18 +156,25 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
   }
 
   const blockIds = sorted.map((b) => b.id);
-  const allItems =
+  const shown = yield* withSharedContent(
+    db,
+    scope,
+    sorted,
     blockIds.length > 0
-      ? sortByPosition(
-          yield* Effect.promise(() =>
-            db.select().from(repeatableItems).where(inArray(repeatableItems.blockId, blockIds)),
-          ),
+      ? yield* overlay.select(
+          db,
+          scope,
+          repeatableItems,
+          inArray(repeatableItems.blockId, blockIds),
         )
-      : [];
+      : [],
+  );
+  const conformed = conformBlocks(definitions, shown.blocks, sortItemsByPosition(shown.items));
+  const allItems = conformed.items;
 
   nestChildItems(allItems);
 
-  const itemsByBlock = new Map<number, typeof allItems>();
+  const itemsByBlock = new Map<string, typeof allItems>();
   for (const item of allItems) {
     if (item.parentItemId !== null) continue;
     const list = itemsByBlock.get(item.blockId) ?? [];
@@ -152,7 +182,7 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
     itemsByBlock.set(item.blockId, list);
   }
 
-  const markdownBlocks = sorted.map((block) => {
+  const markdownBlocks = conformed.blocks.map((block) => {
     const content = { ...(block.content as Record<string, unknown>) };
     const items = itemsByBlock.get(block.id) ?? [];
     const fieldNames = new Set(items.map((i) => i.fieldName));
@@ -174,56 +204,57 @@ export const executePageSeo = Effect.fn("pages.executePageSeo")(function* (
     };
   });
 
+  const previous = (yield* readValue(db, scope, seoKey(pageId))).value;
   const seo = yield* generatePageSeoFromAi(
     apiKey,
     {
       fullPath: page.fullPath,
       blocks: markdownBlocks,
-      previousMetaTitle: page.metaTitle,
-      previousMetaDescription: page.metaDescription,
+      previousMetaTitle: previous?.metaTitle,
+      previousMetaDescription: previous?.metaDescription,
     },
     abortController,
   );
-
-  yield* Effect.promise(() =>
-    db
-      .update(pages)
-      .set({
-        metaTitle: seo.metaTitle,
-        metaDescription: seo.metaDescription,
-        updatedAt: Date.now(),
-      })
-      // Generation can outlive a manual edit or a content change. NULL means
-      // automatic SEO is enabled by default, just as in the initial check.
-      .where(
-        and(
-          eq(pages.id, pageId),
-          sql`${pages.aiSeoEnabled} is not false`,
-          eq(pages.updatedAt, page.updatedAt),
-          eq(pages.contentUpdatedAt, page.contentUpdatedAt),
-          sql`${pages.metaTitle} is ${page.metaTitle}`,
-          sql`${pages.metaDescription} is ${page.metaDescription}`,
-        ),
-      ),
+  yield* saveValue(
+    db,
+    home,
+    seoKey(pageId),
+    { metaTitle: seo.metaTitle, metaDescription: seo.metaDescription },
+    startedAt,
   );
+  return { projectId: page.projectId };
+});
+
+/**
+ * Runs a page SEO job in the scope it was scheduled from. Returns the page's project to
+ * refresh, or undefined when the draft has ended or the page is gone.
+ */
+export const runPageSeoJob = Effect.fn("pages.runPageSeoJob")(function* (
+  db: Database,
+  apiKey: string,
+  job: { entityId: string; draftId: string | null },
+  abortController?: AbortController,
+) {
+  const scope = yield* draftScopeOfJob(db, job.draftId);
+  if (scope === undefined) return undefined;
+  return yield* executePageSeo(db, apiKey, job.entityId, scope, abortController);
 });
 
 // --- Content Assembly Helpers ---
 
-export function comparePositions(a: string, b: string): number {
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
+/**
+ * Sorts repeatable items by position, then by id: positions picked in different drafts can
+ * collide (ADR 0005).
+ */
+export function sortItemsByPosition<T extends { position: string; id: string }>(items: T[]): T[] {
+  return overlay.sortByPosition(items);
 }
 
-export function sortByPosition<T extends { position: string }>(items: T[]): T[] {
-  return items.sort((a, b) => comparePositions(a.position, b.position));
-}
-
-function visitForFileIds(value: unknown, fileIds: Set<number>) {
+function visitForFileIds(value: unknown, fileIds: Set<string>) {
   if (value == null || typeof value !== "object") return;
-  if ("_fileId" in value && (value as { _fileId: unknown })._fileId != null) {
-    fileIds.add(Number((value as { _fileId: unknown })._fileId));
+  if ("_fileId" in value) {
+    const fileId = (value as { _fileId: unknown })._fileId;
+    if (typeof fileId === "string") fileIds.add(fileId);
     return;
   }
   if (Array.isArray(value)) {
@@ -240,7 +271,7 @@ function visitForFileIds(value: unknown, fileIds: Set<number>) {
   for (const child of Object.values(obj)) visitForFileIds(child, fileIds);
 }
 
-export function collectFileIds(content: Record<string, unknown>, fileIds: Set<number>) {
+export function collectFileIds(content: Record<string, unknown>, fileIds: Set<string>) {
   for (const value of Object.values(content)) {
     visitForFileIds(value, fileIds);
   }
@@ -248,9 +279,9 @@ export function collectFileIds(content: Record<string, unknown>, fileIds: Set<nu
 
 /** Recursively nest child items into their parent item's content. */
 export function nestChildItems(
-  allItems: { id: number; parentItemId: number | null; fieldName: string; content: unknown }[],
+  allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
 ) {
-  const childrenByParent = new Map<number, Map<string, typeof allItems>>();
+  const childrenByParent = new Map<string, Map<string, typeof allItems>>();
   for (const item of allItems) {
     if (item.parentItemId === null) continue;
     let fieldMap = childrenByParent.get(item.parentItemId);
@@ -272,16 +303,13 @@ export function nestChildItems(
   }
 }
 
+/** The files content uses, by id, as the scope reads them: a draft shows its replaced bytes. */
 export const buildFileMap = Effect.fn("pages.buildFileMap")(function* (
   db: Database,
-  fileIds: Set<number>,
+  fileIds: Set<string>,
+  scope: DraftScope,
 ) {
-  if (fileIds.size === 0) return new Map<number, typeof files.$inferSelect>();
-  const rows = yield* Effect.promise(() =>
-    db
-      .select()
-      .from(files)
-      .where(inArray(files.id, [...fileIds])),
-  );
-  return new Map(rows.map((f) => [f.id, f]));
+  if (fileIds.size === 0) return new Map<string, FileView>();
+  const rows = yield* overlay.select(db, scope, files, inArray(files.id, [...fileIds]));
+  return new Map((yield* withFileMetadata(db, scope, rows)).map((f) => [f.id, f]));
 });

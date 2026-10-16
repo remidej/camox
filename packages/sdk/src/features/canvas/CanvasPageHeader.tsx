@@ -18,7 +18,6 @@ export function CanvasPageHeader({
   onHoverChange,
   onChange,
   onRename,
-  status,
   comments,
 }: {
   page: CanvasPage;
@@ -28,7 +27,6 @@ export function CanvasPageHeader({
   onHoverChange?: (hovered: boolean) => void;
   onChange: (pathname: string) => void;
   onRename?: (nickname: string) => Promise<void>;
-  status?: React.ReactNode;
   comments?: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -120,7 +118,6 @@ export function CanvasPageHeader({
     <span className="flex w-full min-w-0 items-center gap-3">
       <span className={`flex min-w-0 items-center gap-1.5 ${draft !== null ? "flex-1" : ""}`}>
         {name}
-        {status}
       </span>
       {comments}
     </span>

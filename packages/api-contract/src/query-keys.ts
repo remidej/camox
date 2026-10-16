@@ -1,3 +1,5 @@
+import type { EndedDraft } from "./drafts";
+
 /**
  * Use TypeScript to enforce 'camox' as the first query key to ensure they're all namespaced.
  * This is because the Tanstack Query client on the frontend may be shared with the user's routes,
@@ -6,95 +8,109 @@
 export type QueryKey = [first: "camox", ...rest: Array<string | number>];
 type QueryKeyGroup = Record<string, QueryKey | ((...args: any[]) => QueryKey)>;
 
-/**
- * Source axis on read query keys. `'live'` reads the page's live published
- * checkpoint snapshot; `'draft'` reads the live editor rows. The two render
- * through the same component — only the cache slot differs, so toggling the
- * source select is instant once both have been seeded.
- *
- * Block / page-read query keys include the source as the trailing key segment.
- * Omitting it on `invalidateQueries` is a prefix invalidation that hits every
- * source — used for navigation events and other source-agnostic invalidations.
- * Edit-time invalidations (which only touch draft data) pass `'draft'`
- * explicitly so the `'live'` cache stays untouched.
- */
-export type ReadSource = "draft" | "live";
-
 export const queryKeys = {
   collections: {
-    list: (projectSlug: string, environmentName: string) => [
-      "camox",
-      "collections",
-      "list",
-      projectSlug,
-      environmentName,
-    ],
-    get: (projectSlug: string, environmentName: string, collectionId: string) => [
+    list: (projectSlug: string) => ["camox", "collections", "list", projectSlug],
+    get: (projectSlug: string, collectionId: string) => [
       "camox",
       "collections",
       "get",
       projectSlug,
-      environmentName,
       collectionId,
     ],
-    record: (projectSlug: string, environmentName: string, collectionId: string, id: string) => [
+    record: (projectSlug: string, collectionId: string, id: string) => [
       "camox",
       "collections",
       "record",
       projectSlug,
-      environmentName,
       collectionId,
       id,
     ],
-    records: (projectSlug: string, environmentName: string, collectionId: string) => [
+    recordUsageCount: (projectSlug: string, collectionId: string, id: string) => [
+      "camox",
+      "collections",
+      "recordUsageCount",
+      projectSlug,
+      collectionId,
+      id,
+    ],
+    records: (projectSlug: string, collectionId: string) => [
       "camox",
       "collections",
       "records",
       projectSlug,
-      environmentName,
       collectionId,
     ],
   },
   comments: {
     all: ["camox", "comments"],
-    list: (pageId: number) => ["camox", "comments", "list", pageId],
+    list: (pageId: string) => ["camox", "comments", "list", pageId],
   },
   pages: {
     list: ["camox", "pages", "list"],
-    getByPath: (path: string, source?: ReadSource) =>
-      source
-        ? ["camox", "pages", "getByPath", path, source]
-        : ["camox", "pages", "getByPath", path],
+    getByPath: (path: string) => ["camox", "pages", "getByPath", path],
     getByPathAll: ["camox", "pages", "getByPath"],
-    getById: (id: number) => ["camox", "pages", "getById", id],
+    getById: (id: string) => ["camox", "pages", "getById", id],
   },
   files: {
     list: ["camox", "files", "list"],
-    get: (id: number) => ["camox", "files", "get", id],
+    get: (id: string) => ["camox", "files", "get", id],
   },
   blocks: {
-    get: (id: number, source?: ReadSource) =>
-      source ? ["camox", "blocks", "get", id, source] : ["camox", "blocks", "get", id],
+    get: (id: string) => ["camox", "blocks", "get", id],
     getUsageCounts: ["camox", "blocks", "getUsageCounts"],
     // Under the usage counts prefix, so every usage invalidation refreshes it too.
     getPagesUsing: (type: string) => ["camox", "blocks", "getUsageCounts", "pages", type],
     // Also under that prefix, so placing or removing the block refreshes it.
     getSyncedContent: (type: string) => ["camox", "blocks", "getUsageCounts", "synced", type],
-    getPageMarkdown: (pageId: number) => ["camox", "blocks", "getPageMarkdown", pageId],
+    getPageMarkdown: (pageId: string) => ["camox", "blocks", "getPageMarkdown", pageId],
   },
   repeatableItems: {
-    get: (id: number) => ["camox", "repeatableItems", "get", id],
+    get: (id: string) => ["camox", "repeatableItems", "get", id],
   },
   layouts: {
     all: ["camox", "layouts"],
   },
-  environments: {
-    all: ["camox", "environments"],
-    checkCompatibility: ["camox", "environments", "checkCompatibility"],
+  drafts: {
+    all: ["camox", "drafts"],
+    // Open drafts and Live's latest publish: the same for every viewer, whatever they're in.
+    list: ["camox", "drafts", "list"],
+    // The draft a viewer is in, scoped to it like content.
+    get: ["camox", "drafts", "get"],
+    previewPublish: ["camox", "drafts", "previewPublish"],
   },
 } satisfies Record<string, QueryKeyGroup>;
 
+/** The last segment of a query key: what the query reads, Live or a draft (ADR 0011). */
+export const LIVE_KEY_SCOPE = "live";
+
+/**
+ * A query key read from Live (`draftId` null) or from a draft. The keys above are prefixes naming
+ * what a query reads; the cache holds them with the scope appended, so each draft's queries are
+ * kept and invalidated apart.
+ */
+export function inScope(key: QueryKey, draftId: string | null): QueryKey {
+  return [...key, draftId ?? LIVE_KEY_SCOPE];
+}
+
+/** The scope a scoped query key ends in: `"live"` or a draft's id. */
+export function scopeOfKey(key: readonly unknown[]): unknown {
+  return key[key.length - 1];
+}
+
+/**
+ * Refetch the queries under these prefixes. `draftId` names the draft the change came from, so
+ * only that draft's queries refetch; a Live change (`null`) refetches every draft's too, since
+ * drafts read Live wherever they change nothing.
+ */
 export type InvalidationMessage = {
   type: "invalidate";
+  draftId: string | null;
   targets: QueryKey[];
 };
+
+/** A draft was published or discarded: its viewers go back to Live. */
+export type DraftEndedMessage = { type: "draftEnded" } & EndedDraft;
+
+/** Everything the project room broadcasts. */
+export type ProjectRoomMessage = InvalidationMessage | DraftEndedMessage;

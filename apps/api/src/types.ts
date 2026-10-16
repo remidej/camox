@@ -24,7 +24,6 @@ export type AppEnv = {
     db: Database;
     user: Auth["$Infer"]["Session"]["user"] | null;
     session: Auth["$Infer"]["Session"]["session"] | null;
-    environmentName: string;
     client: string;
     telemetryDisabled: boolean;
   };

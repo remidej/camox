@@ -28,7 +28,7 @@ for (const variant of ["repeater", "field"] as const) {
       const postToIframe = (message: OverlayMessage) => messages.push(message);
       const hover =
         variant === "repeater"
-          ? { variant, blockId: 13, fieldName: "statistics" }
+          ? { variant, blockId: "13", fieldName: "statistics" }
           : { variant, fieldId: "13__image" };
       const type = variant === "repeater" ? "CAMOX_HOVER_REPEATER" : "CAMOX_HOVER_FIELD";
       const target =

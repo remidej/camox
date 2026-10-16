@@ -16,8 +16,8 @@ export type RepeatableItemState = {
 
 export type RepeatableItemTarget = RepeatableItemState & {
   fragment: FragmentInstance;
-  blockId: number;
-  itemId: number;
+  blockId: string;
+  itemId: string;
   /** 0 for a block's repeater, +1 per enclosing item. */
   nesting: number;
 };

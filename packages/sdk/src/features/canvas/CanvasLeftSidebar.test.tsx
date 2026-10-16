@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { queryKeys } from "@camox/api-contract/query-keys";
+import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
@@ -80,7 +80,7 @@ registerHooks({
   },
 });
 
-const home: CanvasPage = { key: "page:7", pageId: 7, title: "Home", pathname: "/" };
+const home: CanvasPage = { key: "page:7", pageId: "7", title: "Home", pathname: "/" };
 const singleton: CanvasPage = {
   key: "layout:about",
   layoutId: "about",
@@ -97,7 +97,7 @@ const derivedPage: CanvasPage = {
 
 function pageStructure(path: string) {
   return {
-    page: { id: 7, fullPath: path, metaTitle: path, blockIds: [42] },
+    page: { id: "7", fullPath: path, metaTitle: path, blockIds: ["42"] },
     layout: null,
   };
 }
@@ -107,17 +107,17 @@ async function setup() {
   const calls: unknown[] = [];
   const api = {
     pages: {
-      getStructure: async (input: { path: string; source: string; projectSlug: string }) => {
+      getStructure: async (input: { path: string; projectSlug: string }) => {
         calls.push(input);
         return pageStructure(input.path);
       },
     },
     layouts: {
-      get: async (input: { layoutId: string; source: string; projectSlug: string }) => {
+      get: async (input: { layoutId: string; projectSlug: string }) => {
         calls.push(input);
         return {
-          layout: { id: 12, layoutId: input.layoutId, beforeBlockIds: [42], afterBlockIds: [] },
-          blocks: [{ id: 42, content: { text: input.source } }],
+          layout: { id: "12", layoutId: input.layoutId, beforeBlockIds: ["42"], afterBlockIds: [] },
+          blocks: [{ id: "42", content: { text: "layout" } }],
           files: [],
           repeatableItems: [],
         };
@@ -174,7 +174,7 @@ async function setup() {
                 navigations.push(options);
               }}
             >
-              <PreviewEditingOwnerContext value={{ kind: "page", pageId: 7 }}>
+              <PreviewEditingOwnerContext value={{ kind: "page", pageId: "7" }}>
                 <CanvasLeftSidebar
                   page={page}
                   navigator={{ shelves: [], onShowItem: () => {}, ...navigator }}
@@ -208,7 +208,7 @@ async function setup() {
 void test("curated sidebar shares the selected path cache and forwards picker/dialog site navigation", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
-  dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: 7, blockId: 42 });
+  dom.store.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
   const snapshot = dom.store.getSnapshot();
   try {
     await dom.render("/", home);
@@ -218,7 +218,7 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
     assert.equal(picker.getAttribute("data-owner"), "null");
     assert.equal(picker.getAttribute("data-id"), "7");
     assert.equal(dom.mount.querySelectorAll("aside").length, 1, "uses actual LeftSidebar");
-    assert.deepEqual(dom.calls, [{ path: "/", projectSlug: "test-project", source: "draft" }]);
+    assert.deepEqual(dom.calls, [{ path: "/", projectSlug: "test-project" }]);
     assert.deepEqual(clientPage(dom.client, "/"), pageStructure("/"));
     assert.equal(dom.mount.querySelector("[data-add-block]")?.getAttribute("data-add-block"), "/");
     assert.equal(
@@ -238,7 +238,7 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
       ...home,
       key: "page:8",
       pathname: "/other",
-      pageId: 8,
+      pageId: "8",
     });
     await dom.settle();
     assert.equal(dom.mount.querySelector("[data-sidebar]")?.getAttribute("data-path"), "/other");
@@ -254,10 +254,10 @@ void test("curated sidebar shares the selected path cache and forwards picker/di
 });
 
 function clientPage(client: QueryClient, path: string) {
-  return client.getQueryData(queryKeys.pages.getByPath(path, "draft"));
+  return client.getQueryData(inScope(queryKeys.pages.getByPath(path), null));
 }
 
-void test("singleton and derived layout sidebars load shared layouts, seed source-specific blocks, and use full URL pages", async () => {
+void test("singleton and derived layout sidebars load shared layouts, seed their blocks, and use full URL pages", async () => {
   const dom = await setup();
   dom.store.send({ type: "enterEditMode" });
   try {
@@ -277,22 +277,14 @@ void test("singleton and derived layout sidebars load shared layouts, seed sourc
       assert.ok(dom.mount.querySelector("[data-create-page]"));
     }
     assert.deepEqual(dom.calls, [
-      { layoutId: "about", projectSlug: "test-project", source: "draft" },
-      { layoutId: "articles.$slug", projectSlug: "test-project", source: "draft" },
+      { layoutId: "about", projectSlug: "test-project" },
+      { layoutId: "articles.$slug", projectSlug: "test-project" },
     ]);
-    assert.deepEqual(dom.client.getQueryData(queryKeys.blocks.get(42, "draft")), {
-      block: { id: 42, content: { text: "draft" } },
+    assert.deepEqual(dom.client.getQueryData(inScope(queryKeys.blocks.get("42"), null)), {
+      block: { id: "42", content: { text: "layout" } },
       files: [],
       repeatableItems: [],
     });
-    await React.act(async () => dom.store.send({ type: "viewLiveSite" }));
-    await dom.settle();
-    assert.deepEqual(dom.calls.at(-1), {
-      layoutId: "articles.$slug",
-      projectSlug: "test-project",
-      source: "live",
-    });
-    assert.ok(dom.client.getQueryData(queryKeys.blocks.get(42, "live")));
     await dom.render("/missing", undefined);
     assert.ok(
       dom.mount.querySelector("[data-canvas-navigator-sidebar]"),

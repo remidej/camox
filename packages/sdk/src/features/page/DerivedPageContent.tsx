@@ -3,21 +3,19 @@ import { usePageBlocks } from "../../lib/normalized-data";
 import type { PageRenderInput } from "../runtime/runtime";
 import { SharedLayoutContent } from "./SharedLayoutContent";
 
-const EMPTY_PAGE = { blockIds: [] as number[] };
+const EMPTY_PAGE = { blockIds: [] as string[] };
 
 export function DerivedPageContent({
   camoxApp,
   derived,
-  source,
 }: {
   camoxApp: CamoxApp;
   derived: NonNullable<PageRenderInput["derived"]>;
-  source: PageRenderInput["source"];
 }) {
-  const { beforeBlocks, afterBlocks, layoutFiles, layoutItems } = usePageBlocks(
-    { page: EMPTY_PAGE, layout: derived.layout },
-    source,
-  );
+  const { beforeBlocks, afterBlocks, layoutFiles, layoutItems } = usePageBlocks({
+    page: EMPTY_PAGE,
+    layout: derived.layout,
+  });
   const layout = camoxApp.getLayoutById(derived.layoutId);
   if (!layout) throw new Error(`Unknown derived layout: ${derived.layoutId}`);
   return (

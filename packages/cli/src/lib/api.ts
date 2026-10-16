@@ -1,4 +1,5 @@
 import type { Router } from "@camox/api-contract";
+import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
@@ -15,19 +16,29 @@ function authHeaders(token: string) {
   };
 }
 
-function createRpcClient(
-  token: string,
-  apiUrl: string = CAMOX_API_URL,
-  environmentName?: string,
-  disableTelemetry?: boolean,
-) {
-  installLocalhostDns(new URL(apiUrl).hostname);
+/**
+ * Headers of every request a command sends about a project: the CLI works only in the
+ * caller's development draft (ADR 0010).
+ */
+export function developmentDraftHeaders(token: string, disableTelemetry?: boolean) {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "x-camox-client": "cli",
+    [DRAFT_HEADER]: DEVELOPMENT_DRAFT,
   };
-  if (environmentName) headers["x-environment-name"] = environmentName;
   if (disableTelemetry) headers["x-camox-telemetry-disabled"] = "1";
+  return headers;
+}
+
+function createRpcClient(
+  token: string,
+  apiUrl: string = CAMOX_API_URL,
+  options: { developmentDraft?: boolean; disableTelemetry?: boolean } = {},
+) {
+  installLocalhostDns(new URL(apiUrl).hostname);
+  const headers = options.developmentDraft
+    ? developmentDraftHeaders(token, options.disableTelemetry)
+    : { Authorization: `Bearer ${token}`, "x-camox-client": "cli" };
   const link = new RPCLink({ url: `${apiUrl}/rpc`, headers });
   return createORPCClient<RouterClient<Router>>(link);
 }
@@ -113,8 +124,27 @@ export async function createProject(
 }
 
 export async function getProjectBySlug(token: string, slug: string, apiUrl?: string) {
-  const client = createRpcClient(token, apiUrl);
+  const client = createRpcClient(token, apiUrl, { developmentDraft: true });
   return client.projects.getBySlug({ slug });
+}
+
+// --- Drafts ---
+
+/**
+ * The caller's development draft in a project, summarized: it fails with
+ * `NO_DEVELOPMENT_DRAFT` until dev mode created it.
+ */
+export async function getDevelopmentDraft(params: {
+  token: string;
+  apiUrl: string;
+  projectId: number;
+  disableTelemetry?: boolean;
+}) {
+  const client = createRpcClient(params.token, params.apiUrl, {
+    developmentDraft: true,
+    disableTelemetry: params.disableTelemetry,
+  });
+  return client.drafts.get({ projectId: params.projectId });
 }
 
 // --- Agentic tools ---
@@ -126,7 +156,6 @@ export type CallToolResponse =
 export type CallToolParams = {
   token: string;
   apiUrl: string;
-  environmentName: string;
   projectId: number;
   name: string;
   args: unknown;
@@ -134,12 +163,10 @@ export type CallToolParams = {
 };
 
 export async function callTool(params: CallToolParams): Promise<CallToolResponse> {
-  const client = createRpcClient(
-    params.token,
-    params.apiUrl,
-    params.environmentName,
-    params.disableTelemetry,
-  );
+  const client = createRpcClient(params.token, params.apiUrl, {
+    developmentDraft: true,
+    disableTelemetry: params.disableTelemetry,
+  });
   return (await client.agent.callTool({
     projectId: params.projectId,
     name: params.name,

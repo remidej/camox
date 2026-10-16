@@ -33,7 +33,6 @@ import { collectionQueries } from "@/lib/queries";
 import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
-import type { PublicationStatus } from "./PageStatusBadge";
 import { RecordCard } from "./RecordCard";
 import { RecordCombobox } from "./RecordCombobox";
 
@@ -101,7 +100,6 @@ function SortableRecordCard({
   id,
   label,
   collectionTitle,
-  status,
   onOpen,
   onUnlink,
   hover,
@@ -109,7 +107,6 @@ function SortableRecordCard({
   id: string;
   label: string;
   collectionTitle: string;
-  status?: PublicationStatus;
   onOpen?: () => void;
   onUnlink: () => void;
   hover?: EntryHover;
@@ -133,7 +130,6 @@ function SortableRecordCard({
       <RecordCard
         label={label}
         collectionTitle={collectionTitle}
-        status={status}
         onOpen={onOpen}
         leading={
           <Button
@@ -288,7 +284,6 @@ export function ReferenceListFieldEditor({
                 key={record.id}
                 label={record.label}
                 collectionTitle={collectionTitle}
-                status={records.data?.find((option) => option.id === record.id)?.status}
                 onOpen={onOpenRecord ? () => onOpenRecord(record.id) : undefined}
                 hover={entryHover(recordHover, record.id)}
               />
@@ -350,7 +345,6 @@ export function ReferenceListFieldEditor({
                     id={id}
                     label={summary?.label ?? hydrated?.label ?? "Unavailable item"}
                     collectionTitle={collectionTitle}
-                    status={summary?.status}
                     onOpen={onOpenRecord ? () => onOpenRecord(id) : undefined}
                     onUnlink={() => change(ids.filter((linked) => linked !== id))}
                     hover={entryHover(recordHover, id)}

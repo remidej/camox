@@ -1,7 +1,7 @@
 import { SYSTEM_ORDER_KEYS, type SystemOrderKey } from "@camox/api-contract";
 import { Type as TypeBox, type Static, type TObject, type TSchema } from "@sinclair/typebox";
 
-import type { LayoutCollectionItemResult, LayoutRoutesResult } from "./createLayout";
+import type { LayoutCollectionItemResult, LayoutRoutesResult, RecordPages } from "./createLayout";
 import {
   collectionFieldBuilder,
   type CollectionFieldBuilder,
@@ -93,7 +93,7 @@ export function createCollection<
               id: record.id,
               content: record.content as Static<TObject<T>>,
               ...(record.references && { references: record.references }),
-              ...(record.version != null && { version: record.version }),
+              ...(record.updatedAt != null && { updatedAt: record.updatedAt }),
             },
           };
         },
@@ -114,6 +114,7 @@ export function createCollection<
             })),
           };
         },
+        recordPages: { collectionId: id, field: by },
       };
     },
     _internal: {
@@ -135,6 +136,8 @@ export interface CollectionPages<T extends Record<string, TSchema>, Param extend
   routes: (input: {
     context: LayoutRequestContext;
   }) => Promise<LayoutRoutesResult<{ [K in Param]: string }>>;
+  /** Synced to the API, which checks no two records share the value pages are found by. */
+  recordPages: RecordPages;
 }
 
 /** The default erases the schema for heterogeneous app registries. */

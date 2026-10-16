@@ -1,7 +1,6 @@
+import type { EndedDraft } from "@camox/api-contract/drafts";
 import { Data, Effect } from "effect";
 import type { z } from "zod";
-
-import type { CompatibilityReason } from "../domains/environments/service";
 
 // --- Expected service errors ---
 //
@@ -28,8 +27,13 @@ export class ForbiddenError extends Data.TaggedError("ForbiddenError")<OptionalM
   }
 }
 
-export class NotFoundError extends Data.TaggedError("NotFoundError")<OptionalMessage> {
-  constructor(args: OptionalMessage = {}) {
+type NotFoundArgs = OptionalMessage & {
+  /** What the caller needs to tell this apart from other missing things, such as `draftId`. */
+  readonly data?: Record<string, unknown>;
+};
+
+export class NotFoundError extends Data.TaggedError("NotFoundError")<NotFoundArgs> {
+  constructor(args: NotFoundArgs = {}) {
     super(args);
   }
 }
@@ -45,11 +49,38 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly message: string;
 }> {}
 
-/** Push/pull was refused because the two environments' schemas diverge. */
-export class IncompatibleEnvironmentsError extends Data.TaggedError(
-  "IncompatibleEnvironmentsError",
-)<{
-  readonly reasons: CompatibilityReason[];
+/** The request names a draft that was published or discarded (ADR 0009). */
+export class DraftEndedError extends Data.TaggedError("DraftEndedError")<{
+  readonly ended: EndedDraft;
+}> {}
+
+/** A content write names no draft: Live is read-only (ADR 0003). */
+export class LiveReadOnlyError extends Data.TaggedError("LiveReadOnlyError")<OptionalMessage> {
+  constructor(args: OptionalMessage = {}) {
+    super(args);
+  }
+}
+
+/**
+ * The request names the caller's development draft, which doesn't exist yet: dev mode's first
+ * sync after login creates it (ADR 0006).
+ */
+export class NoDevelopmentDraftError extends Data.TaggedError(
+  "NoDevelopmentDraftError",
+)<OptionalMessage> {
+  constructor(args: OptionalMessage = {}) {
+    super(args);
+  }
+}
+
+/** Live changed since the publish preview the caller confirmed, so nothing was published. */
+export class ConflictsChangedError extends Data.TaggedError("ConflictsChangedError")<{
+  readonly message: string;
+}> {}
+
+/** The draft still has blockers, so it can't be published. */
+export class PublishBlockedError extends Data.TaggedError("PublishBlockedError")<{
+  readonly message: string;
 }> {}
 
 export type ServiceError =
@@ -58,7 +89,11 @@ export type ServiceError =
   | NotFoundError
   | InvalidInputError
   | ConflictError
-  | IncompatibleEnvironmentsError;
+  | DraftEndedError
+  | LiveReadOnlyError
+  | NoDevelopmentDraftError
+  | ConflictsChangedError
+  | PublishBlockedError;
 
 // --- Helpers ---
 

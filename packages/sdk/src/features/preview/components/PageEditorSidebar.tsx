@@ -9,7 +9,6 @@ import { useSelector } from "@xstate/store-react";
 import { CirclePlus, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import { useRequireDraftSource } from "@/core/hooks/useRequireDraftSource";
 import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
 import { editorAssetField } from "@/features/content/collection-form";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
@@ -39,7 +38,6 @@ import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
 import { MultipleAssetFieldEditor } from "./MultipleAssetFieldEditor";
-import { PageStatusBadge } from "./PageStatusBadge";
 import { SidebarSection, SidebarSectionHeader, SidebarSectionContent } from "./SidebarSection";
 import { type FieldWriteTarget, useFieldWriter } from "./useFieldWriter";
 import { type RecordPlacer, useRecordView, type SelectionCrumb } from "./useRecordView";
@@ -75,8 +73,8 @@ const getSettingsFields = (schema: unknown): SchemaField[] => {
  */
 const getSchemaForItem = (
   contentSchema: unknown,
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): unknown => {
   // Build path from root to this item
   const path: string[] = [];
@@ -102,8 +100,8 @@ const getSchemaForItem = (
  */
 const getArraySchemaForItem = (
   contentSchema: unknown,
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): unknown => {
   const path: string[] = [];
   let current = itemsMap.get(itemId);
@@ -127,8 +125,8 @@ const getArraySchemaForItem = (
  * Returns items in order from root-most ancestor to the item itself.
  */
 const buildAncestorChain = (
-  itemId: number,
-  itemsMap: Map<number, NormalizedItem>,
+  itemId: string,
+  itemsMap: Map<string, NormalizedItem>,
 ): NormalizedItem[] => {
   const chain: NormalizedItem[] = [];
   let current = itemsMap.get(itemId);
@@ -154,7 +152,6 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const camoxApp = useCamoxApp();
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
-  const requireDraft = useRequireDraftSource();
 
   // Get state from store
   const selection = useSelector(previewStore, (state) => selectionForOwner(state.context, owner));
@@ -287,7 +284,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     canRemove: canRemoveCurrent,
     removeItem: removeCurrent,
   } = useRepeatableItemActions({
-    blockId: block?.id ?? -1,
+    blockId: block?.id ?? "",
     fieldName: currentItem?.fieldName ?? "",
     parentItemId: currentItem?.parentItemId ?? null,
     arraySchema: itemArraySchema as RepeatableArraySchema | null,
@@ -310,7 +307,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
         ]),
       );
     }
-    const resolveFile = (marker: { _fileId: number }) => {
+    const resolveFile = (marker: { _fileId: string }) => {
       const file = filesMap.get(marker._fileId);
       return file
         ? {
@@ -592,7 +589,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                         size="sm"
                         disabled={!canAddSibling}
                         onClick={() => {
-                          if (!canAddSibling || !requireDraft()) return;
+                          if (!canAddSibling) return;
                           addSibling({ afterPosition: currentItem.position });
                         }}
                       >
@@ -605,7 +602,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                         size="sm"
                         disabled={!canRemoveCurrent}
                         onClick={() => {
-                          if (!canRemoveCurrent || !requireDraft()) return;
+                          if (!canRemoveCurrent) return;
                           removeCurrent(currentItemId, {
                             onSuccess: () => {
                               const selected = selectionForOwner(
@@ -628,14 +625,9 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
               {recordView && !fieldHasOwnView && recordInList && (
                 <SidebarSection divider="bottom" aria-label="Shared record">
                   <div data-shared-record className="space-y-1 px-2 py-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="min-w-0 truncate text-sm font-medium">
-                        Shared · {recordView.collection._internal.title}
-                      </p>
-                      {recordView.status && (
-                        <PageStatusBadge status={recordView.status} size="sm" />
-                      )}
-                    </div>
+                    <p className="min-w-0 truncate text-sm font-medium">
+                      Shared · {recordView.collection._internal.title}
+                    </p>
                     <p className="text-muted-foreground text-xs">
                       Edits apply everywhere this record is used.
                     </p>
@@ -668,7 +660,6 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                               <Select
                                 value={value}
                                 onValueChange={(newValue) => {
-                                  if (!requireDraft()) return;
                                   updateSettings.mutate({
                                     id: block.id,
                                     settings: { [field.name]: newValue },
@@ -704,7 +695,6 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                                 id={`setting-${field.name}`}
                                 checked={checked}
                                 onCheckedChange={(newValue) => {
-                                  if (!requireDraft()) return;
                                   updateSettings.mutate({
                                     id: block.id,
                                     settings: { [field.name]: newValue },
@@ -750,7 +740,6 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                               <Select
                                 value={value}
                                 onValueChange={(newValue) => {
-                                  if (!requireDraft()) return;
                                   updateRepeatableSettings.mutate({
                                     id: currentItemId,
                                     settings: { [field.name]: newValue },
@@ -787,7 +776,6 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
                                 id={`item-setting-${field.name}`}
                                 checked={checked}
                                 onCheckedChange={(newValue) => {
-                                  if (!requireDraft()) return;
                                   updateRepeatableSettings.mutate({
                                     id: currentItemId,
                                     settings: { [field.name]: newValue },

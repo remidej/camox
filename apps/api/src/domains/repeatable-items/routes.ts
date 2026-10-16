@@ -1,48 +1,76 @@
-import { runService } from "../../lib/run-service";
-import { authed, pub } from "../../orpc";
+import { authed, contentWrite, pub } from "../../orpc";
+import { inScope, projectOfBlock, projectOfItem } from "../drafts/request-scope";
 import * as service from "./service";
+
+// Every procedure reads and writes items in the draft the request names (ADR 0011).
 
 // Public procedures
 
 const get = pub
   .input(service.getRepeatableItemInput)
-  .handler(({ context, input }) => runService(service.getRepeatableItem(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfItem(context, input.id), (scope) =>
+      service.getRepeatableItem(context, input, scope),
+    ),
+  );
 
 // Protected procedures
 
-const create = authed
+const create = contentWrite
   .input(service.createRepeatableItemInput)
-  .handler(({ context, input }) => runService(service.createRepeatableItem(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfBlock(context, input.blockId), (scope) =>
+      service.createRepeatableItem(context, input, scope),
+    ),
+  );
 
-const updateContent = authed
+const updateContent = contentWrite
   .input(service.updateRepeatableItemContentInput)
-  .handler(({ context, input }) => runService(service.updateRepeatableItemContent(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfItem(context, input.id), (scope) =>
+      service.updateRepeatableItemContent(context, input, scope),
+    ),
+  );
 
-const updateSettings = authed
+const updateSettings = contentWrite
   .input(service.updateRepeatableItemSettingsInput)
   .handler(({ context, input }) =>
-    runService(service.updateRepeatableItemSettings(context, input)),
+    inScope(context, projectOfItem(context, input.id), (scope) =>
+      service.updateRepeatableItemSettings(context, input, scope),
+    ),
   );
 
-const updatePosition = authed
+const updatePosition = contentWrite
   .input(service.updateRepeatableItemPositionInput)
   .handler(({ context, input }) =>
-    runService(service.updateRepeatableItemPosition(context, input)),
+    inScope(context, projectOfItem(context, input.id), (scope) =>
+      service.updateRepeatableItemPosition(context, input, scope),
+    ),
   );
 
-const duplicate = authed
+const duplicate = contentWrite
   .input(service.duplicateRepeatableItemInput)
-  .handler(({ context, input }) => runService(service.duplicateRepeatableItem(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfItem(context, input.id), (scope) =>
+      service.duplicateRepeatableItem(context, input, scope),
+    ),
+  );
 
 const generateSummary = authed
   .input(service.generateRepeatableItemSummaryInput)
   .handler(({ context, input }) =>
-    runService(service.generateRepeatableItemSummary(context, input)),
+    inScope(context, projectOfItem(context, input.id), (scope) =>
+      service.generateRepeatableItemSummary(context, input, scope),
+    ),
   );
 
-const deleteFn = authed
+const deleteFn = contentWrite
   .input(service.deleteRepeatableItemInput)
-  .handler(({ context, input }) => runService(service.deleteRepeatableItem(context, input)));
+  .handler(({ context, input }) =>
+    inScope(context, projectOfItem(context, input.id), (scope) =>
+      service.deleteRepeatableItem(context, input, scope),
+    ),
+  );
 
 export const repeatableItemProcedures = {
   get,

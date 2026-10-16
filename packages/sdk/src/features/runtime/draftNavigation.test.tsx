@@ -1,0 +1,227 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import type { EndedDraft } from "@camox/api-contract/drafts";
+import { QueryClient, dehydrate } from "@tanstack/react-query";
+import { Window } from "happy-dom";
+import * as React from "react";
+
+import { createApp } from "../../core/createApp";
+import { getCurrentDraftId, getDraftRequestHeaders, onDraftNotice } from "../../lib/studio-draft";
+import { Link, useNavigate } from "../navigation/navigation";
+import type { DraftNotice } from "../routes/pageRuntime";
+import { PageNavigationProvider } from "./pageNavigation";
+import type { PageRenderInput } from "./runtime";
+
+const ENDED_DRAFT = "ended";
+const ended: EndedDraft = {
+  draftId: ENDED_DRAFT,
+  outcome: "discarded",
+  endedBy: { id: "user-2", name: "Ada" },
+  endedAt: 1,
+};
+
+/**
+ * A page runtime whose `/_camox/data` endpoint reads the draft the request names, like the real
+ * runtime for a member: an ended draft is refused and Live is read instead.
+ */
+async function openPage(t: test.TestContext, url: string, initial: Partial<PageRenderInput> = {}) {
+  const window = new Window({ url });
+  Object.assign(globalThis, {
+    React,
+    window,
+    document: window.document,
+    location: window.location,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  t.mock.method(window, "scrollTo", () => {});
+  document.body.innerHTML = '<div id="root"></div>';
+  const queryClient = new QueryClient();
+  const input: PageRenderInput = {
+    presentation: "studio",
+    apiUrl: "https://api.test",
+    authenticationUrl: "https://auth.test",
+    projectSlug: "test",
+    href: window.location.href,
+    pathname: new URL(url).pathname,
+    runtimeBasePath: "",
+    head: {},
+    layoutIdentity: null,
+    loaderData: null,
+    dehydratedState: dehydrate(new QueryClient()),
+    ...initial,
+  };
+  const dataRequests: URL[] = [];
+  t.mock.method(globalThis, "fetch", async (request: URL | RequestInfo) => {
+    const requested = new URL(request instanceof Request ? request.url : request);
+    dataRequests.push(requested);
+    const draft = requested.searchParams.get("camox-draft");
+    const refused = draft === ENDED_DRAFT;
+    const href = new URL(requested.searchParams.get("path")!, window.location.origin);
+    if (draft && !refused) href.searchParams.set("camox-draft", draft);
+    const next: PageRenderInput = {
+      ...input,
+      pathname: href.pathname,
+      href: href.href,
+      draftId: draft && !refused ? draft : undefined,
+      refusedDraft: refused ? { notice: { reason: "ended", ...ended } } : undefined,
+    };
+    return Response.json(next);
+  });
+  const notices: DraftNotice[] = [];
+  t.after(onDraftNotice((notice) => notices.push(notice)));
+
+  let navigate!: ReturnType<typeof useNavigate>;
+  let mounts = 0;
+  function Workspace() {
+    navigate = useNavigate();
+    React.useEffect(() => {
+      mounts++;
+    }, []);
+    return (
+      <>
+        <a id="contact" href="/contact">
+          Contact
+        </a>
+        <Link id="sdk-link" to="/pricing">
+          Pricing
+        </Link>
+      </>
+    );
+  }
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root")!);
+  await React.act(async () => {
+    root.render(
+      <PageNavigationProvider
+        camoxApp={createApp({ blocks: [] })}
+        initialInput={input}
+        queryClient={queryClient}
+      >
+        {() => <Workspace />}
+      </PageNavigationProvider>,
+    );
+  });
+  t.after(async () => {
+    await React.act(async () => root.unmount());
+    queryClient.clear();
+    await window.happyDOM.close();
+  });
+
+  return {
+    window,
+    dataRequests,
+    notices,
+    mounts: () => mounts,
+    navigate: (options: Parameters<typeof navigate>[0]) =>
+      React.act(async () => {
+        await navigate(options);
+      }),
+    draftInUrl: () => new URL(window.location.href).searchParams.get("camox-draft"),
+    back: async (href: string) => {
+      // Happy DOM doesn't traverse history: reproduce the browser's URL update and popstate.
+      window.history.replaceState(null, "", href);
+      await React.act(async () => {
+        window.dispatchEvent(new window.PopStateEvent("popstate"));
+      });
+    },
+  };
+}
+
+void test("plain links in the page keep the draft, and the page they open is read from it", async (t) => {
+  const page = await openPage(t, "https://site.test/about?camox-draft=d1", { draftId: "d1" });
+
+  await React.act(async () => {
+    (document.getElementById("contact") as HTMLElement).click();
+  });
+
+  assert.equal(page.window.location.pathname, "/contact");
+  assert.equal(page.draftInUrl(), "d1");
+  assert.equal(page.dataRequests.at(-1)!.searchParams.get("camox-draft"), "d1");
+  assert.equal(getCurrentDraftId(), "d1");
+});
+
+void test("SDK links name the draft, including one the first edit just started", async (t) => {
+  const page = await openPage(t, "https://site.test/about");
+  const sdkLink = () => document.getElementById("sdk-link")!.getAttribute("href");
+  assert.equal(sdkLink(), "/pricing");
+
+  await React.act(async () => {
+    getDraftRequestHeaders(["blocks", "updateContent"]).settle(true);
+  });
+
+  const started = page.draftInUrl();
+  assert.ok(started);
+  assert.equal(sdkLink(), `/pricing?camox-draft=${started}`);
+  assert.equal(page.mounts(), 1, "starting a draft keeps the page mounted");
+});
+
+void test("a link from the preview keeps the draft", async (t) => {
+  const page = await openPage(t, "https://site.test/about?camox-draft=d1", { draftId: "d1" });
+
+  // The preview iframe hands the studio the link's absolute URL, which names no draft.
+  await page.navigate({ to: "https://site.test/contact" });
+
+  assert.equal(page.draftInUrl(), "d1");
+  assert.equal(page.dataRequests.at(-1)!.searchParams.get("camox-draft"), "d1");
+});
+
+void test("switching drafts reads the page from the new draft, and Back returns to the previous one", async (t) => {
+  const page = await openPage(t, "https://site.test/about");
+  const entries = page.window.history.length;
+
+  await page.navigate({ to: page.window.location.href, draft: "d2" });
+
+  assert.equal(page.draftInUrl(), "d2");
+  assert.equal(page.window.history.length, entries + 1);
+  assert.equal(page.dataRequests.length, 1, "the same page is read again from the draft");
+  assert.equal(page.dataRequests[0]!.searchParams.get("camox-draft"), "d2");
+  assert.equal(getCurrentDraftId(), "d2");
+  assert.equal(page.mounts(), 2, "the page is shown afresh in the draft");
+
+  await page.back("/about");
+
+  assert.equal(page.dataRequests.length, 2);
+  assert.equal(page.dataRequests[1]!.searchParams.get("camox-draft"), null);
+  assert.equal(getCurrentDraftId(), null, "Back returns to Live");
+  assert.equal(page.mounts(), 3);
+});
+
+void test("navigating within a draft keeps the page mounted", async (t) => {
+  const page = await openPage(t, "https://site.test/about?camox-draft=d1", { draftId: "d1" });
+
+  await page.navigate({ to: "/contact" });
+
+  assert.equal(page.mounts(), 1);
+});
+
+void test("a draft the page can't show is removed from the URL without a history entry", async (t) => {
+  const page = await openPage(t, "https://site.test/about?camox-draft=ended", {
+    href: "https://site.test/about",
+    refusedDraft: { notice: { reason: "ended", ...ended } },
+  });
+
+  assert.equal(page.draftInUrl(), null, "the param goes as the page opens");
+  assert.equal(getCurrentDraftId(), null);
+  assert.deepEqual(page.notices, [{ reason: "ended", ...ended }]);
+
+  const entries = page.window.history.length;
+  await page.back("/contact?camox-draft=ended");
+
+  assert.equal(page.draftInUrl(), null, "and when history reaches an ended draft");
+  assert.equal(page.window.history.length, entries);
+  assert.equal(page.notices.length, 2);
+});
+
+void test("a visitor's draft param goes without a notice", async (t) => {
+  const page = await openPage(t, "https://site.test/about?camox-draft=d1", {
+    href: "https://site.test/about",
+    refusedDraft: { notice: null },
+  });
+
+  assert.equal(page.draftInUrl(), null);
+  assert.deepEqual(page.notices, []);
+});

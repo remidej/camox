@@ -1,1 +1,0 @@
-ALTER TABLE `layouts` ADD `kind` text DEFAULT 'curated' NOT NULL;

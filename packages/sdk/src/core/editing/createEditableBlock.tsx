@@ -37,7 +37,6 @@ import {
   NO_BLOCK_ID,
   previewStore,
   selectIsCommentMode,
-  selectPreviewSource,
   selectionBlockId,
   type RecordPlacement,
   type Selection as PreviewTarget,
@@ -131,11 +130,11 @@ const normalizeLinkValue = (value: Record<string, unknown>): LinkValue => {
  */
 const resolveLinkHref = (
   link: LinkValue,
-  pages: Array<{ id: number; fullPath: string }> | undefined,
+  pages: Array<{ id: string; fullPath: string }> | undefined,
   currentPathname: string,
 ): string => {
   if (link.type === "page") {
-    const page = pages?.find((p) => String(p.id) === link.pageId);
+    const page = pages?.find((p) => p.id === link.pageId);
     return page?.fullPath ?? currentPathname;
   }
   if (!link.href || link.href.startsWith("#")) {
@@ -223,7 +222,7 @@ interface CreateBlockOptions<
 }
 
 interface BlockData<TContent> {
-  _id: number;
+  _id: string;
   type: string;
   content: TContent;
   settings?: Record<string, unknown>;
@@ -244,9 +243,9 @@ export interface BlockComponentProps<TContent> {
  * -----------------------------------------------------------------------------------------------*/
 
 export interface PeekItem {
-  id: number;
-  blockId: number;
-  parentItemId: number | null;
+  id: string;
+  blockId: string;
+  parentItemId: string | null;
   fieldName: string;
   content: unknown;
   settings: Record<string, unknown> | null;
@@ -254,6 +253,8 @@ export interface PeekItem {
   position: string;
   createdAt: number;
   updatedAt: number;
+  projectId: number | null;
+  sharedContentType: string | null;
   /** Peek items link no records. */
   references: Record<string, never>;
 }
@@ -339,8 +340,8 @@ function buildInitialSeeds(
  */
 function buildPeekItems(
   properties: Record<string, any>,
-  blockId: number,
-  parentItemId: number | null,
+  blockId: string,
+  parentItemId: string | null,
   content: Record<string, unknown>,
   allItems: PeekItem[],
   counter: { value: number },
@@ -368,11 +369,11 @@ function buildPeekItems(
       | Record<string, unknown>
       | undefined;
 
-    const markers: { _itemId: number }[] = [];
+    const markers: { _itemId: string }[] = [];
     let prevPosition: string | null = null;
 
     for (let i = 0; i < defaultCount; i++) {
-      const itemId = --counter.value;
+      const itemId = `peek_${++counter.value}`;
       const position = generateKeyBetween(prevPosition, null);
       prevPosition = position;
 
@@ -387,6 +388,8 @@ function buildPeekItems(
         position,
         createdAt: 0,
         updatedAt: 0,
+        projectId: null,
+        sharedContentType: null,
         references: {},
       });
 
@@ -499,7 +502,7 @@ export function createEditableBlock<
       : Static<ReturnType<typeof TypeBoxType.Object<TSettingsShape>>>;
 
   type BlockContextValue = {
-    blockId: number;
+    blockId: string;
     content: TContent;
     sourceSchema?: Record<string, any>;
     settings: TSettings;
@@ -512,13 +515,13 @@ export function createEditableBlock<
     itemIndex: number;
     itemContent: any;
     itemSettings: Record<string, unknown>;
-    itemId?: number;
+    itemId?: string;
     /**
      * Nearest ancestor item with a normalized (DB-backed) id. Used so clicks
      * inside inline arrays (e.g. multi-asset galleries) can attribute the
      * selection to the enclosing DB item rather than to the block.
      */
-    containerItemId?: number;
+    containerItemId?: string;
     /** The item's field schemas, at any repeater depth. */
     itemSchema?: Record<string, any>;
     /** Repeatable items enclosing this one. */
@@ -546,9 +549,9 @@ export function createEditableBlock<
    * the field is a record field of that placement.
    */
   const getOverlayFieldId = (
-    blockId: number,
+    blockId: string,
     fieldName: string,
-    scope: { itemId?: number | null; reference?: ReferenceContextValue | null } = {},
+    scope: { itemId?: string | null; reference?: ReferenceContextValue | null } = {},
   ): string =>
     scope.reference
       ? overlayFieldId(blockId, fieldName, { placement: scope.reference.placement })
@@ -814,7 +817,7 @@ export function createEditableBlock<
   type EmbedRenderData = { url: string };
 
   type DetachedRenderProps = {
-    "data-camox-block-id"?: number;
+    "data-camox-block-id"?: string;
     "data-camox-hovered"?: boolean;
     "data-camox-focused"?: boolean;
     "data-camox-overlay-mode"?: "synced";
@@ -1759,8 +1762,8 @@ export function createEditableBlock<
     mode,
     children,
   }: {
-    itemId: number | undefined;
-    blockId: number;
+    itemId: string | undefined;
+    blockId: string;
     nesting: number;
     mode: "site" | "peek" | "layout";
     children: React.ReactNode;
@@ -1854,7 +1857,7 @@ export function createEditableBlock<
     fieldName,
     children,
   }: {
-    blockId: number;
+    blockId: string;
     fieldName: string;
     children: React.ReactNode;
   }) => {
@@ -2139,7 +2142,7 @@ export function createEditableBlock<
             ...settingsDefaultsForField,
             ...(isDbItem ? (item.settings as Record<string, unknown> | null) : null),
           };
-          const itemId: number | undefined = isDbItem ? item.id : undefined;
+          const itemId: string | undefined = isDbItem ? item.id : undefined;
           const useItemSetting = (settingName: string) => itemSettings[settingName];
 
           const itemApi = {
@@ -2401,9 +2404,9 @@ export function createEditableBlock<
    * A record page's layout (`layoutId`) places its record through no reference field.
    */
   type ReferenceFieldOwner = {
-    itemId: number | undefined;
+    itemId: string | undefined;
     outer: RecordPlacement | null;
-    layoutId?: number;
+    layoutId?: string;
   };
 
   /** The placement of `recordId` through the owner's reference field. */
@@ -2750,7 +2753,7 @@ export function createEditableBlock<
     properties,
     children,
   }: {
-    layoutId: number;
+    layoutId: string;
     record: ReferenceRecord;
     properties: Record<string, unknown>;
     children: (scope: any) => React.ReactNode;
@@ -2794,9 +2797,9 @@ export function createEditableBlock<
   };
 
   /**
-   * `layout.Item` in the Studio. A layout editing its draft renders the record editable, with
+   * `layout.Item` in the Studio. A layout being edited renders the record editable, with
    * its content from the shared record cache once an edit through any placement is newer than
-   * what the loader returned. Elsewhere, and for live content, it renders read-only.
+   * what the loader returned. Elsewhere, it renders read-only.
    */
   const LayoutItem = ({
     collectionId,
@@ -2807,9 +2810,8 @@ export function createEditableBlock<
     fallback,
   }: LayoutItemProps) => {
     const editingOwner = React.use(PreviewEditingOwnerContext);
-    const source = useSelector(previewStore, selectPreviewSource);
     const latest = useLatestRecord({ collectionId, labelField, loaded: record });
-    if (editingOwner?.kind !== "layout" || source !== "draft" || !latest) return fallback;
+    if (editingOwner?.kind !== "layout" || !latest) return fallback;
     return (
       <LayoutRecord layoutId={editingOwner.layoutId} properties={properties} record={latest}>
         {children}
@@ -3034,7 +3036,7 @@ export function createEditableBlock<
         return { ...settingsDefaults };
       },
       getPeekBundle: () => {
-        const PEEK_BLOCK_ID = -1;
+        const PEEK_BLOCK_ID = "peek";
         const counter = { value: 0 };
         const allItems: PeekItem[] = [];
 

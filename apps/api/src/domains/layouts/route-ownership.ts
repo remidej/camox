@@ -3,7 +3,9 @@ import { Effect } from "effect";
 
 import { ConflictError, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { layouts } from "../../schema";
+import { definitionsIn } from "../_shared/definitions";
 import type { ServiceContext } from "../_shared/service-context";
+import type { DraftScope } from "../drafts/scope";
 
 export function singletonPath(layoutId: string) {
   if (!/^[\w-]+(?:\.[\w-]+)*$/.test(layoutId))
@@ -25,17 +27,24 @@ export function normalizePagePath(path: string) {
 
 export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(function* (
   ctx: ServiceContext,
-  environmentId: number,
-  layoutId: number,
+  projectId: number,
+  layoutId: string,
+  scope: DraftScope,
 ) {
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.id, layoutId), eq(layouts.environmentId, environmentId)))
+      .where(
+        and(
+          eq(layouts.layoutId, layoutId),
+          eq(layouts.projectId, projectId),
+          definitionsIn(layouts, scope),
+        ),
+      )
       .get(),
   );
-  if (!layout) return yield* new NotFoundError({ message: "Layout not found in this environment" });
+  if (!layout) return yield* new NotFoundError({ message: "Layout not found in this project" });
   if (layout.kind !== "curated")
     return yield* new InvalidInputError({
       message: "Only curated layouts can be assigned to pages",
@@ -44,14 +53,21 @@ export const assertCuratedLayout = Effect.fn("layouts.assertCuratedLayout")(func
 
 export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPagePaths")(function* (
   ctx: ServiceContext,
-  environmentId: number,
+  projectId: number,
   paths: string[],
+  scope: DraftScope,
 ) {
   const singletons = yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
-      .where(and(eq(layouts.environmentId, environmentId), eq(layouts.kind, "singleton"))),
+      .where(
+        and(
+          eq(layouts.projectId, projectId),
+          definitionsIn(layouts, scope),
+          eq(layouts.kind, "singleton"),
+        ),
+      ),
   );
   const reserved = new Set<string>();
   for (const layout of singletons) reserved.add(yield* singletonPath(layout.layoutId));
@@ -59,4 +75,42 @@ export const assertUnreservedPagePaths = Effect.fn("layouts.assertUnreservedPage
     if (reserved.has(yield* normalizePagePath(path)))
       return yield* new ConflictError({ message: `URL ${path} is owned by a singleton page` });
   }
+});
+
+/**
+ * Pages are served only through a curated layout. A page whose layout was removed (no layout
+ * of that name) or is no longer curated needs a layout.
+ */
+export function servesPages(layout: { kind: string } | null | undefined) {
+  return layout?.kind === "curated";
+}
+
+/**
+ * For each curated page, whether it can't be served: its layout was removed or is no longer
+ * curated (it needs a layout), or a singleton serves its URL instead (it's shadowed).
+ */
+export const pageServingProblems = Effect.fn("layouts.pageServingProblems")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  scope: DraftScope,
+) {
+  const rows = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope))),
+  );
+  const byName = new Map(rows.map((layout) => [layout.layoutId, layout]));
+  const pathOf = (path: Effect.Effect<string, InvalidInputError>) =>
+    Effect.runSync(Effect.orElseSucceed(path, () => null));
+  const singletonPaths = new Set<string | null>(
+    rows
+      .filter((layout) => layout.kind === "singleton")
+      .map((layout) => pathOf(singletonPath(layout.layoutId))),
+  );
+  singletonPaths.delete(null);
+  return (page: { layoutId: string; fullPath: string }) => ({
+    needsLayout: !servesPages(byName.get(page.layoutId)),
+    shadowed: singletonPaths.has(pathOf(normalizePagePath(page.fullPath))),
+  });
 });
