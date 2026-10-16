@@ -155,7 +155,14 @@ export function CanvasLeftSidebar({
       </CanvasItemSidebar>
     );
   }
-  if (!page) return <CanvasNavigatorSidebar {...navigator} />;
+  if (!page) {
+    return (
+      <>
+        <CanvasNavigatorSidebar {...navigator} />
+        <CreatePageModal />
+      </>
+    );
+  }
 
   return (
     <CanvasItemSidebar title={page.title} onBack={onShowCanvas}>
