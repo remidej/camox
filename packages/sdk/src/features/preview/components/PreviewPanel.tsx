@@ -8,7 +8,7 @@ import { ArtifactStudioContext } from "../../../core/hooks/useArtifactHost";
 import { EditableSurfaceContext } from "../../../core/hooks/useIsEditable";
 import { adoptCanvasDocument, pauseCanvasDocument } from "../../canvas/canvasFrameDocument";
 import { CanvasWorkspaceContext } from "../../canvas/canvasZoom";
-import { useCanvasFrameInput } from "../../canvas/useCanvasFrameInput";
+import { forwardCanvasWheel, useCanvasFrameInput } from "../../canvas/useCanvasFrameInput";
 import { NavigationDisabled } from "../../navigation/navigation";
 import { actionsStore } from "../../provider/actionsStore";
 import {
@@ -395,7 +395,8 @@ const PreviewPanel = ({
 
 /**
  * Fills the Preview, or clips the frame to the Canvas viewport above the Canvas
- * row, where the camera moves it. Space + drag pans through it.
+ * row, where the camera moves it. Space + drag pans through it, and wheel input
+ * over its overlays moves the camera like over the rest of the Canvas.
  */
 function PreviewPageClip({
   slot,
@@ -443,6 +444,12 @@ function PreviewPageClip({
     if (!clip || !mirrorCamera) return;
     return mirrorCamera(clip);
   }, [mirrorCamera]);
+  // The frame forwards its own wheel input; this covers the overlays drawn over it.
+  React.useEffect(() => {
+    const clip = ref.current;
+    if (!clip || !viewport) return;
+    return forwardCanvasWheel(clip, viewport);
+  }, [viewport]);
   return (
     <div
       ref={ref}
