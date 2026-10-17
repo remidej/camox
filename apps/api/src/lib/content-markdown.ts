@@ -1,5 +1,6 @@
 import { artifactTitle } from "@camox/api-contract";
 
+import { pointersOf, readField } from "../domains/_shared/fields";
 import type { ResolvedReferences } from "../domains/collections/references";
 import { transformImageUrl } from "./image-transform";
 import { lexicalStateToPlainText } from "./lexical-state";
@@ -225,8 +226,8 @@ function resolveField(schema: any, value: unknown, ctx: SettingsContext): string
   if (fieldType === "Link") {
     const link = value as Record<string, unknown>;
     const text = asString(link.text);
-    const pageId = asString(link.pageId);
-    const href = pageId ? `camox:page:${pageId}` : asString(link.href);
+    const [page] = pointersOf(readField(schema)!, value);
+    const href = page ? `camox:page:${page.id}` : asString(link.href);
     if (!text && !href) return undefined;
     return `[${text}](${href})`;
   }
