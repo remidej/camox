@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext, seedLiveThrough } from "../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+  inScope,
+} from "../../test/fixtures";
 import { runService } from "../lib/run-service";
 import { listBlockDefinitions, syncBlockDefinitions } from "./block-definitions/service";
 import {
@@ -80,24 +85,28 @@ describe("definitions are identified by their names", () => {
     await sync({ blocks: [], layouts: ["default", "landing"], collections: [] });
 
     const { page } = await seedLiveThrough(ctx, project.id, (draft) =>
-      createPage(ctx, { projectId: project.id, pathSegment: "about", layoutId: "default" }, draft),
+      createPage(inScope(ctx, draft), {
+        projectId: project.id,
+        pathSegment: "about",
+        layoutId: "default",
+      }),
     );
     expect(page.layoutId).toBe("default");
 
     const moved = await seedLiveThrough(ctx, project.id, (draft) =>
-      setPageLayout(ctx, { id: page.id, layoutId: "landing" }, draft),
+      setPageLayout(inScope(ctx, draft), { id: page.id, layoutId: "landing" }),
     );
     expect(moved.layoutId).toBe("landing");
-    expect(await runService(getPage(ctx, { id: page.id }, null))).toMatchObject({
+    expect(await runService(getPage(inScope(ctx, null), { id: page.id }))).toMatchObject({
       layoutId: "landing",
     });
-    expect(await runService(listPages(ctx, { projectId: project.id }, null))).toMatchObject([
-      { id: page.id, layoutId: "landing" },
-    ]);
+    expect(
+      await runService(listPages(inScope(ctx, null), { projectId: project.id })),
+    ).toMatchObject([{ id: page.id, layoutId: "landing" }]);
 
     await expect(
       seedLiveThrough(ctx, project.id, (draft) =>
-        setPageLayout(ctx, { id: page.id, layoutId: "missing" }, draft),
+        setPageLayout(inScope(ctx, draft), { id: page.id, layoutId: "missing" }),
       ),
     ).rejects.toMatchObject({ status: 404 });
   });

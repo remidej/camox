@@ -2,13 +2,12 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Effect } from "effect";
 import { Hono, type Handler } from "hono";
 
-import { getAuthorizedProject } from "../../authorization";
 import { isRasterImage } from "../../lib/image-transform";
+import { runService } from "../../lib/run-service";
 import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import { authed, contentWrite, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
-import { inScope, projectOfFile, inWriteDraft } from "../drafts/request-scope";
-import { inDraft } from "../drafts/service";
+import { accessTo } from "../drafts/access";
 import * as service from "./service";
 import { optimizeVideo } from "./video-optimization";
 
@@ -19,75 +18,41 @@ import { optimizeVideo } from "./video-optimization";
 
 const list = pub
   .input(service.listFilesInput)
-  .handler(({ context, input }) =>
-    inScope(context, input.projectId, (scope) => service.listFiles(context, input, scope)),
-  );
+  .handler(({ context, input }) => runService(service.listFiles(context, input)));
 
 const get = pub
   .input(service.getFileInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfFile(context, input.id), (scope) =>
-      service.getFile(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getFile(context, input)));
 
 const getUsageCount = pub
   .input(service.getFileUsageCountInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfFile(context, input.id), (scope) =>
-      service.getFileUsageCount(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getFileUsageCount(context, input)));
 
 // Protected procedures
 
 const setAlt = contentWrite
   .input(service.setFileAltInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
-      service.setFileAlt(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.setFileAlt(context, input)));
 
 const setFilename = contentWrite
   .input(service.setFileFilenameInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
-      service.setFileFilename(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.setFileFilename(context, input)));
 
 const deleteFn = contentWrite
   .input(service.deleteFileInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
-      service.deleteFile(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.deleteFile(context, input)));
 
-const deleteMany = contentWrite.input(service.deleteFilesInput).handler(({ context, input }) => {
-  const [first] = input.ids;
-  const project = first === undefined ? undefined : projectOfFile(context, first);
-  return inWriteDraft(context, project ?? Effect.succeed(undefined), (scope) =>
-    service.deleteFiles(context, input, scope),
-  );
-});
+const deleteMany = contentWrite
+  .input(service.deleteFilesInput)
+  .handler(({ context, input }) => runService(service.deleteFiles(context, input)));
 
 const setAiMetadata = contentWrite
   .input(service.setFileAiMetadataInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
-      service.setFileAiMetadata(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.setFileAiMetadata(context, input)));
 
 const generateMetadata = authed
   .input(service.generateFileMetadataInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfFile(context, input.id), (scope) =>
-      service.generateFileMetadata(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.generateFileMetadata(context, input)));
 
 export const fileProcedures = {
   list,
@@ -205,50 +170,48 @@ const uploadContent: Handler<AppEnv> = async (c) => {
   const apiOrigin = new URL(c.req.url).origin;
   const filename = file.name.split(/[\\/]/).pop() || "upload";
 
-  const upload = Effect.gen(function* () {
-    yield* getAuthorizedProject(ctx.db, projectId, c.var.user!.id);
-    return yield* inDraft(ctx, projectId, (scope) =>
-      Effect.gen(function* () {
-        // Reject a missing target before storing any blob.
-        if (id !== undefined) yield* service.getProjectFile(ctx, { projectId, id }, scope);
+  const upload = Effect.scoped(
+    Effect.gen(function* () {
+      // Reject a missing target before storing any blob.
+      const bound = { ...ctx, projectId };
+      const target = id === undefined ? undefined : yield* accessTo(bound, { file: id }, "write");
+      const { scope } = target ?? (yield* accessTo(bound, { project: projectId }, "write"));
 
-        // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
-        const key = `${projectId}/${crypto.randomUUID()}`;
-        yield* Effect.promise(() =>
-          c.env.FILES_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } }),
-        );
-        const optimized = yield* optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
-        const asset = {
-          blobId: key,
-          path: key,
-          url: `${apiOrigin}/files/serve/${optimized?.key ?? key}`,
-          filename,
-          mimeType: file.type,
-          size: file.size,
-          optimizedSize: optimized?.size ?? null,
-        };
+      // Keep storage URLs independent of filenames (spaces, Unicode, URL delimiters).
+      const key = `${projectId}/${crypto.randomUUID()}`;
+      yield* Effect.promise(() =>
+        c.env.FILES_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } }),
+      );
+      const optimized = yield* optimizeVideo(file, key, c.env.FILES_BUCKET, c.env.MEDIA);
+      const asset = {
+        blobId: key,
+        path: key,
+        url: `${apiOrigin}/files/serve/${optimized?.key ?? key}`,
+        filename,
+        mimeType: file.type,
+        size: file.size,
+        optimizedSize: optimized?.size ?? null,
+      };
 
-        const now = Date.now();
-        const write =
-          id !== undefined
-            ? service.replaceFileContent(ctx, { projectId, id }, asset, metadata.data, scope)
-            : service.createFile(
-                ctx,
-                {
-                  ...(typeof newId === "string" ? { id: newId } : {}),
-                  ...asset,
-                  projectId,
-                  createdAt: now,
-                  updatedAt: now,
-                },
-                metadata.data,
-                scope,
-              );
-        // A failed write must not leave an orphaned blob.
-        return yield* write.pipe(Effect.onError(() => service.deleteUnreferencedBlobs(ctx, [key])));
-      }),
-    );
-  });
+      const now = Date.now();
+      const write = target
+        ? service.replaceFileContent(ctx, target, asset, metadata.data)
+        : service.createFile(
+            ctx,
+            {
+              ...(typeof newId === "string" ? { id: newId } : {}),
+              ...asset,
+              projectId,
+              createdAt: now,
+              updatedAt: now,
+            },
+            metadata.data,
+            scope,
+          );
+      // A failed write must not leave an orphaned blob.
+      return yield* write.pipe(Effect.onError(() => service.deleteUnreferencedBlobs(ctx, [key])));
+    }),
+  );
 
   return respondToUpload(c, upload, id !== undefined ? 200 : 201);
 };

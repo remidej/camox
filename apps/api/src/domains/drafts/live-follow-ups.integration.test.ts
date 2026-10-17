@@ -7,6 +7,7 @@ import {
   createServiceContext,
   seedLive,
   seedLiveThrough,
+  inScope,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages } from "../../schema";
@@ -89,7 +90,7 @@ describe("Live follow-ups of publishing", () => {
     await f.age();
 
     await f.publishing((draft) =>
-      updateBlockContent(f.ctx, { id: block.id, content: { title: "Published" } }, draft),
+      updateBlockContent(inScope(f.ctx, draft), { id: block.id, content: { title: "Published" } }),
     );
 
     expect(await f.contentTimeOfLayout()).toBeGreaterThan(longAgo);
@@ -99,12 +100,16 @@ describe("Live follow-ups of publishing", () => {
     const f = await fixture("follow-up-page");
     const page = await f.addPage("/");
     const block = await f.publishing((draft) =>
-      createBlock(f.ctx, { pageId: page.id, type: "hero", content: { title: "Live" } }, draft),
+      createBlock(inScope(f.ctx, draft), {
+        pageId: page.id,
+        type: "hero",
+        content: { title: "Live" },
+      }),
     );
     await f.age();
 
     await f.publishing((draft) =>
-      updateBlockContent(f.ctx, { id: block.id, content: { title: "Published" } }, draft),
+      updateBlockContent(inScope(f.ctx, draft), { id: block.id, content: { title: "Published" } }),
     );
 
     expect(await f.contentTimeOfPage(page.id)).toBeGreaterThan(longAgo);
@@ -114,15 +119,19 @@ describe("Live follow-ups of publishing", () => {
     const f = await fixture("follow-up-delete");
     const page = await f.addPage("/");
     const block = await f.publishing((draft) =>
-      createBlock(f.ctx, { pageId: page.id, type: "hero", content: { title: "Live" } }, draft),
+      createBlock(inScope(f.ctx, draft), {
+        pageId: page.id,
+        type: "hero",
+        content: { title: "Live" },
+      }),
     );
     await f.age();
 
     // The draft's copy of the page holds the content time it copied, which publishing keeps off
     // Live.
     await f.publishing((draft) =>
-      Effect.andThen(updatePage(f.ctx, { id: page.id, nickname: "Home" }, draft), () =>
-        deleteBlock(f.ctx, { id: block.id }, draft),
+      Effect.andThen(updatePage(inScope(f.ctx, draft), { id: page.id, nickname: "Home" }), () =>
+        deleteBlock(inScope(f.ctx, draft), { id: block.id }),
       ),
     );
 
@@ -134,15 +143,19 @@ describe("Live follow-ups of publishing", () => {
     const first = await f.addPage("/first");
     const second = await f.addPage("/second");
     const placement = await f.publishing((draft) =>
-      createBlock(f.ctx, { pageId: first.id, type: "hero", content: { title: "Shared" } }, draft),
+      createBlock(inScope(f.ctx, draft), {
+        pageId: first.id,
+        type: "hero",
+        content: { title: "Shared" },
+      }),
     );
     await f.publishing((draft) =>
-      createBlock(f.ctx, { pageId: second.id, type: "hero", content: {} }, draft),
+      createBlock(inScope(f.ctx, draft), { pageId: second.id, type: "hero", content: {} }),
     );
     await f.age();
 
     await f.publishing((draft) =>
-      updateBlockContent(f.ctx, { id: placement.id, content: { title: "Edited" } }, draft),
+      updateBlockContent(inScope(f.ctx, draft), { id: placement.id, content: { title: "Edited" } }),
     );
 
     expect(await f.contentTimeOfPage(first.id)).toBeGreaterThan(longAgo);

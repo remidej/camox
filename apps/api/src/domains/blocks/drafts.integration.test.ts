@@ -6,6 +6,7 @@ import {
   createProjectFixture,
   createServiceContext,
   seedLiveThrough,
+  inScope,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { drafts, pages, repeatableItems } from "../../schema";
@@ -74,19 +75,19 @@ async function fixture(suffix: string) {
   /** Creates a block in a draft, or on Live through a published draft. */
   const create = (title: string, scope: DraftScope = null) => {
     const write = (draft: Draft) =>
-      createBlock(ctx, { pageId: page.id, type: "hero", content: { title } }, draft);
+      createBlock(inScope(ctx, draft), { pageId: page.id, type: "hero", content: { title } });
     return scope ? runService(write(scope)) : seedLiveThrough(ctx, base.project.id, write);
   };
   const titleIn = async (id: string, scope: DraftScope) =>
-    (await runService(getBlock(ctx, { id }, scope))).block.content.title;
+    (await runService(getBlock(inScope(ctx, scope), { id }))).block.content.title;
   const pageTitles = async (scope: DraftScope) =>
-    (await runService(getPageMarkdown(ctx, { pageId: page.id }, scope))).blocks.map(
+    (await runService(getPageMarkdown(inScope(ctx, scope), { pageId: page.id }))).blocks.map(
       (block) => block.markdown,
     );
   /** Changes a block's title on Live, through a published draft. */
   const editOnLive = (id: string, title: string) =>
     seedLiveThrough(ctx, base.project.id, (draft) =>
-      updateBlockContent(ctx, { id, content: { title } }, draft),
+      updateBlockContent(inScope(ctx, draft), { id, content: { title } }),
     );
   return { ...base, ctx, page, openDraft, create, editOnLive, titleIn, pageTitles };
 }
@@ -98,7 +99,9 @@ describe("blocks in a draft", () => {
     const draft = await openDraft();
     const other = await openDraft();
 
-    await runService(updateBlockContent(ctx, { id: block.id, content: { title: "Draft" } }, draft));
+    await runService(
+      updateBlockContent(inScope(ctx, draft), { id: block.id, content: { title: "Draft" } }),
+    );
 
     expect(await titleIn(block.id, draft)).toBe("Draft");
     expect(await titleIn(block.id, null)).toBe("Live");
@@ -120,10 +123,12 @@ describe("blocks in a draft", () => {
     const block = await create("Live");
     const draft = await openDraft();
 
-    await runService(updateBlockSettings(ctx, { id: block.id, settings: { dark: true } }, draft));
+    await runService(
+      updateBlockSettings(inScope(ctx, draft), { id: block.id, settings: { dark: true } }),
+    );
 
     const settingsIn = async (scope: DraftScope) =>
-      (await runService(getBlock(ctx, { id: block.id }, scope))).block.settings;
+      (await runService(getBlock(inScope(ctx, scope), { id: block.id }))).block.settings;
     expect(await settingsIn(draft)).toEqual({ dark: true });
     expect(await settingsIn(null)).toEqual({ dark: false });
   });
@@ -134,13 +139,15 @@ describe("blocks in a draft", () => {
     await create("Second");
     const draft = await openDraft();
 
-    await runService(deleteBlock(ctx, { id: first.id }, draft));
+    await runService(deleteBlock(inScope(ctx, draft), { id: first.id }));
 
     expect(await pageTitles(draft)).toEqual(["<!-- Hero -->\n# Second"]);
     expect(await pageTitles(null)).toEqual(["<!-- Hero -->\n# First", "<!-- Hero -->\n# Second"]);
-    await expect(runService(getBlock(ctx, { id: first.id }, draft))).rejects.toMatchObject({
-      code: "NOT_FOUND",
-    });
+    await expect(runService(getBlock(inScope(ctx, draft), { id: first.id }))).rejects.toMatchObject(
+      {
+        code: "NOT_FOUND",
+      },
+    );
   });
 
   it("deletes several blocks in a draft only", async () => {
@@ -149,7 +156,7 @@ describe("blocks in a draft", () => {
     const second = await create("Second");
     const draft = await openDraft();
 
-    await runService(deleteBlocks(ctx, { blockIds: [first.id, second.id] }, draft));
+    await runService(deleteBlocks(inScope(ctx, draft), { blockIds: [first.id, second.id] }));
 
     expect(await pageTitles(draft)).toEqual([]);
     expect(await pageTitles(null)).toHaveLength(2);
@@ -173,7 +180,12 @@ describe("blocks in a draft", () => {
 
     await expect(
       runService(
-        createBlock(ctx, { id: block.id, pageId: page.id, type: "hero", content: {} }, draft),
+        createBlock(inScope(ctx, draft), {
+          id: block.id,
+          pageId: page.id,
+          type: "hero",
+          content: {},
+        }),
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
@@ -185,7 +197,7 @@ describe("blocks in a draft", () => {
     const draft = await openDraft();
 
     await runService(
-      updateBlockPosition(ctx, { id: first.id, afterPosition: second.position }, draft),
+      updateBlockPosition(inScope(ctx, draft), { id: first.id, afterPosition: second.position }),
     );
     await editOnLive(first.id, "Live");
 
@@ -198,7 +210,7 @@ describe("blocks in a draft", () => {
     const block = await create("Live");
     const draft = await openDraft();
 
-    await runService(duplicateBlock(ctx, { id: block.id }, draft));
+    await runService(duplicateBlock(inScope(ctx, draft), { id: block.id }));
 
     expect(await pageTitles(draft)).toEqual(["<!-- Hero -->\n# Live", "<!-- Hero -->\n# Live"]);
     expect(await pageTitles(null)).toHaveLength(1);
@@ -208,11 +220,15 @@ describe("blocks in a draft", () => {
     const { ctx, project, openDraft, create } = await fixture("draft-page");
     const block = await create("Live");
     const draft = await openDraft();
-    await runService(updateBlockContent(ctx, { id: block.id, content: { title: "Draft" } }, draft));
+    await runService(
+      updateBlockContent(inScope(ctx, draft), { id: block.id, content: { title: "Draft" } }),
+    );
 
     const titlesOnPage = async (scope: DraftScope) =>
       (
-        await runService(getPageByPath(ctx, { projectSlug: project.slug, path: "/" }, scope))
+        await runService(
+          getPageByPath(inScope(ctx, scope), { projectSlug: project.slug, path: "/" }),
+        )
       ).blocks.map((shown) => (shown.content as { title: string }).title);
     expect(await titlesOnPage(draft)).toEqual(["Draft"]);
     expect(await titlesOnPage(null)).toEqual(["Live"]);
@@ -224,9 +240,11 @@ describe("blocks in a draft", () => {
     const before = await db.select().from(pages).where(eq(pages.id, page.id)).get();
     const draft = await openDraft();
 
-    await runService(updateBlockContent(ctx, { id: block.id, content: { title: "Draft" } }, draft));
+    await runService(
+      updateBlockContent(inScope(ctx, draft), { id: block.id, content: { title: "Draft" } }),
+    );
     await create("Draft", draft);
-    await runService(deleteBlock(ctx, { id: block.id }, draft));
+    await runService(deleteBlock(inScope(ctx, draft), { id: block.id }));
 
     const after = await db.select().from(pages).where(eq(pages.id, page.id)).get();
     expect(after?.contentUpdatedAt).toBe(before?.contentUpdatedAt);
@@ -256,7 +274,7 @@ describe("blocks in a draft", () => {
     const draft = await openDraft();
 
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "list", content: {} }, draft),
+      createBlock(inScope(ctx, draft), { pageId: page.id, type: "list", content: {} }),
     );
 
     const itemsOf = (scope: DraftScope) =>
@@ -292,11 +310,13 @@ describe("blocks in a draft", () => {
     const other = await openDraft();
     const block = await create("Draft", draft);
 
-    await expect(runService(getBlock(ctx, { id: block.id }, other))).rejects.toMatchObject({
-      code: "NOT_FOUND",
-    });
+    await expect(runService(getBlock(inScope(ctx, other), { id: block.id }))).rejects.toMatchObject(
+      {
+        code: "NOT_FOUND",
+      },
+    );
     await expect(
-      runService(updateBlockContent(ctx, { id: generateUuidv7(), content: {} }, draft)),
+      runService(updateBlockContent(inScope(ctx, draft), { id: generateUuidv7(), content: {} })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

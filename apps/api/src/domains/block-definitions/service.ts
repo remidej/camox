@@ -11,8 +11,8 @@ import { blockSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import { applyNewDefinitionSyncedFlag, applySyncedFlagChange } from "../blocks/shared-content";
 import { validateReferenceSchema } from "../collections/references";
+import { accessTo } from "../drafts/access";
 import { RELEASE, type DraftScope } from "../drafts/scope";
-import { resolveDraftScope } from "../drafts/service";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -100,7 +100,7 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
   rawInput: z.input<typeof listBlockDefinitionsInput>,
 ) {
   const { projectId } = yield* decodeInput(listBlockDefinitionsInput, rawInput);
-  const scope = yield* resolveDraftScope(ctx, projectId);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   return yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -109,7 +109,7 @@ export const listBlockDefinitions = Effect.fn("blockDefinitions.listBlockDefinit
         and(eq(blockDefinitions.projectId, projectId), definitionsIn(blockDefinitions, scope)),
       ),
   );
-});
+}, Effect.scoped);
 
 // --- Writes ---
 

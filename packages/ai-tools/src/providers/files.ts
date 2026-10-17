@@ -1,11 +1,6 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { Effect } from "effect";
 import { z } from "zod";
 
-import {
-  resolveDraftScope,
-  resolveWriteDraft,
-} from "../../../../apps/api/src/domains/drafts/service";
 import {
   updateFileMetadataInput,
   getProjectFile,
@@ -13,14 +8,10 @@ import {
   updateFile,
 } from "../../../../apps/api/src/domains/files/service";
 import { runService } from "../../../../apps/api/src/lib/run-service";
-import type { ToolContext, ToolProvider } from "../types";
+import type { ToolProvider } from "../types";
 
 const target = z.object({ id: uuidv7Schema });
 const updateInput = target.and(updateFileMetadataInput);
-
-/** Tools read and write files in the draft the session names, if any. */
-const draftScope = (ctx: ToolContext) => resolveDraftScope(ctx, ctx.projectId);
-const writeDraft = (ctx: ToolContext) => resolveWriteDraft(ctx, ctx.projectId);
 
 export const filesProvider: ToolProvider = (ctx) => [
   {
@@ -28,12 +19,7 @@ export const filesProvider: ToolProvider = (ctx) => [
     description: "List files in the current project, as the draft sees them.",
     inputSchema: z.object({}),
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
-    handler: async () =>
-      runService(
-        Effect.flatMap(draftScope(ctx), (scope) =>
-          listFiles(ctx, { projectId: ctx.projectId }, scope),
-        ),
-      ),
+    handler: async () => runService(listFiles(ctx, { projectId: ctx.projectId })),
   },
   {
     name: "getFile",
@@ -41,11 +27,7 @@ export const filesProvider: ToolProvider = (ctx) => [
     inputSchema: target,
     meta: { kind: "read", risk: "safe", surfaces: ["cli"] },
     handler: async (input) =>
-      runService(
-        Effect.flatMap(draftScope(ctx), (scope) =>
-          getProjectFile(ctx, { ...target.parse(input), projectId: ctx.projectId }, scope),
-        ),
-      ),
+      runService(getProjectFile(ctx, { ...target.parse(input), projectId: ctx.projectId })),
   },
   {
     name: "updateFile",
@@ -54,10 +36,6 @@ export const filesProvider: ToolProvider = (ctx) => [
     inputSchema: updateInput,
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) =>
-      runService(
-        Effect.flatMap(writeDraft(ctx), (scope) =>
-          updateFile(ctx, { ...updateInput.parse(input), projectId: ctx.projectId }, scope),
-        ),
-      ),
+      runService(updateFile(ctx, { ...updateInput.parse(input), projectId: ctx.projectId })),
   },
 ];

@@ -44,7 +44,7 @@ function draftRequestOf(headers: Headers): DraftRequest | null {
 
 /**
  * Public procedure — available to anyone, no auth required. Every procedure gets the draft
- * its request names as `context.draft`; services check it with `requireDraftScope`.
+ * its request names as `context.draft`; services check it through content access (`accessTo`).
  */
 export const pub = os
   .$context<BaseContext>()

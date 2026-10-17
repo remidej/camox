@@ -2,12 +2,11 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
 
-import { getAuthorizedProject, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
@@ -15,6 +14,7 @@ import { isRasterImage, transformImageUrl } from "../../lib/image-transform";
 import { files } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
+import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
@@ -302,49 +302,32 @@ export const blobsOfDraft = Effect.fn("files.blobsOfDraft")(function* (
 
 // --- Reads ---
 
-/** The file as the scope reads it, for a member of its project. */
-const authorizedFile = Effect.fn("files.authorizedFile")(function* (
-  ctx: ServiceContext,
-  id: string,
-  scope: DraftScope,
-) {
-  const user = yield* requireUser(ctx);
-  const file = yield* overlay.get(ctx.db, scope, files, id);
-  if (!file?.projectId) return yield* new NotFoundError();
-  yield* getAuthorizedProject(ctx.db, file.projectId, user.id);
-  return file as FileRow & { projectId: number };
-});
-
 export const listFiles = Effect.fn("files.listFiles")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listFilesInput>,
-  scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(listFilesInput, rawInput);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   const rows = yield* overlay.select(ctx.db, scope, files, eq(files.projectId, projectId));
   return yield* withFileMetadata(ctx.db, scope, rows);
-});
+}, Effect.scoped);
 
 export const getFile = Effect.fn("files.getFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getFileInput>,
-  scope: DraftScope,
 ) {
   const { id } = yield* decodeInput(getFileInput, rawInput);
-  const result = yield* overlay.get(ctx.db, scope, files, id);
-  if (!result) return yield* new NotFoundError();
-  return yield* fileView(ctx.db, scope, result);
-});
+  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "public");
+  return yield* fileView(ctx.db, scope, file);
+}, Effect.scoped);
 
 /** How many pieces of content use the file, as the scope sees them. */
 export const getFileUsageCount = Effect.fn("files.getFileUsageCount")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getFileUsageCountInput>,
-  scope: DraftScope,
 ) {
   const { id } = yield* decodeInput(getFileUsageCountInput, rawInput);
-  const file = yield* overlay.get(ctx.db, scope, files, id);
-  if (!file) return yield* new NotFoundError();
+  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "public");
 
   const uses = yield* referencesTo(
     ctx.db,
@@ -352,23 +335,17 @@ export const getFileUsageCount = Effect.fn("files.getFileUsageCount")(function* 
     { kind: "file", id: file.id },
   );
   return { count: uses.length };
-});
+}, Effect.scoped);
 
 // Authenticated, project-scoped access for agent tools.
 export const getProjectFile = Effect.fn("files.getProjectFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof projectFileInput>,
-  scope: DraftScope,
 ) {
-  const user = yield* requireUser(ctx);
   const { projectId, id } = yield* decodeInput(projectFileInput, rawInput);
-  yield* getAuthorizedProject(ctx.db, projectId, user.id);
-  const file = yield* overlay.get(ctx.db, scope, files, id);
-  if (!file || file.projectId !== projectId) {
-    return yield* new NotFoundError();
-  }
+  const { scope, entity: file } = yield* accessTo({ ...ctx, projectId }, { file: id }, "member");
   return yield* fileView(ctx.db, scope, file);
-});
+}, Effect.scoped);
 
 // --- Writes ---
 
@@ -417,34 +394,30 @@ const writeMetadata = Effect.fn("files.writeMetadata")(function* (
 export const updateFile = Effect.fn("files.updateFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateFileInput>,
-  scope: Draft,
 ) {
   const input = yield* decodeInput(updateFileInput, rawInput);
-  const file = yield* getProjectFile(ctx, input, scope);
-  const stored = yield* overlay.get(ctx.db, scope, files, file.id);
-  if (!stored) return yield* new NotFoundError();
-  return yield* writeMetadata(ctx, scope, stored, input);
-});
+  const bound = { ...ctx, projectId: input.projectId };
+  const { scope, entity: file } = yield* accessTo(bound, { file: input.id }, "write");
+  return yield* writeMetadata(ctx, scope, file, input);
+}, Effect.scoped);
 
 export const setFileAlt = Effect.fn("files.setFileAlt")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileAltInput>,
-  scope: Draft,
 ) {
   const { id, alt } = yield* decodeInput(setFileAltInput, rawInput);
-  const file = yield* authorizedFile(ctx, id, scope);
+  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "write");
   return yield* writeMetadata(ctx, scope, file, { alt });
-});
+}, Effect.scoped);
 
 export const setFileFilename = Effect.fn("files.setFileFilename")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileFilenameInput>,
-  scope: Draft,
 ) {
   const { id, filename } = yield* decodeInput(setFileFilenameInput, rawInput);
-  const file = yield* authorizedFile(ctx, id, scope);
+  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "write");
   return yield* writeMetadata(ctx, scope, file, { filename });
-});
+}, Effect.scoped);
 
 /**
  * Deletes files as the scope reads them. Content that uses them is left alone: publishing a
@@ -471,26 +444,32 @@ const removeFiles = Effect.fn("files.removeFiles")(function* (
 export const deleteFile = Effect.fn("files.deleteFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteFileInput>,
-  scope: Draft,
 ) {
   const { id } = yield* decodeInput(deleteFileInput, rawInput);
-  const file = yield* authorizedFile(ctx, id, scope);
+  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "write");
   yield* removeFiles(ctx, scope, [file]);
   return file;
-});
+}, Effect.scoped);
 
 export const deleteFiles = Effect.fn("files.deleteFiles")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteFilesInput>,
-  scope: Draft,
 ) {
   const { ids } = yield* decodeInput(deleteFilesInput, rawInput);
-  if (ids.length === 0) return [];
-  const shown: FileRow[] = [];
-  for (const id of new Set(ids)) shown.push(yield* authorizedFile(ctx, id, scope));
+  const [first] = ids;
+  if (first === undefined) return [];
+  // Access to the first file names the project and draft; every file must be in them.
+  const { scope, project } = yield* accessTo(ctx, { file: first }, "write");
+  const shown = yield* overlay.select(
+    ctx.db,
+    scope,
+    files,
+    and(inArray(files.id, ids), eq(files.projectId, project.id)),
+  );
+  if (shown.length !== new Set(ids).size) return yield* new NotFoundError();
   yield* removeFiles(ctx, scope, shown);
   return ids;
-});
+}, Effect.scoped);
 
 type FileAsset = Pick<
   FileRow,
@@ -509,13 +488,13 @@ type FileAsset = Pick<
  */
 export const replaceFileContent = Effect.fn("files.replaceFileContent")(function* (
   ctx: ServiceContext,
-  target: z.input<typeof projectFileInput>,
+  { scope, entity: file }: ContentAccess<{ file: string }, "write">,
   asset: FileAsset,
   rawMetadata: z.input<typeof fileMetadataInput>,
-  scope: Draft,
 ) {
   const metadata = yield* decodeInput(fileMetadataInput, rawMetadata);
-  const oldFile = yield* getProjectFile(ctx, target, scope);
+  const oldFile = yield* fileView(ctx.db, scope, file);
+  const target = { projectId: file.projectId };
   const raster = isRasterImage(asset.mimeType);
   if (metadata.aiMetadata && !raster) {
     return yield* new InvalidInputError({ message: "Automatic metadata requires a raster image." });
@@ -612,24 +591,22 @@ export const createFile = Effect.fn("files.createFile")(function* (
 export const setFileAiMetadata = Effect.fn("files.setFileAiMetadata")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileAiMetadataInput>,
-  scope: Draft,
 ) {
   const { id, enabled } = yield* decodeInput(setFileAiMetadataInput, rawInput);
-  const file = yield* authorizedFile(ctx, id, scope);
+  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "write");
   return yield* writeMetadata(ctx, scope, file, { aiMetadata: enabled });
-});
+}, Effect.scoped);
 
 /** Generates a file's metadata now, into the scope's generated values. */
 export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateFileMetadataInput>,
-  scope: DraftScope,
 ) {
   const { id } = yield* decodeInput(generateFileMetadataInput, rawInput);
-  const file = yield* authorizedFile(ctx, id, scope);
+  const { scope, entity: file } = yield* accessTo(ctx, { file: id }, "member");
 
   yield* executeFileMetadata(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
   invalidateFile(ctx, file.projectId, scope, [queryKeys.files.list, queryKeys.files.get(id)]);
   const shown = yield* overlay.get(ctx.db, scope, files, id);
   return shown ? yield* fileView(ctx.db, scope, shown) : undefined;
-});
+}, Effect.scoped);

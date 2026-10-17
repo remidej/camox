@@ -10,9 +10,10 @@ import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, InvalidInputError } from "../../lib/errors";
 import type { ServiceContext } from "../_shared/service-context";
 import { user as users } from "../auth/schema";
+import { accessTo } from "./access";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
-import { resolveDraftScope, startDraft } from "./service";
+import { startDraft } from "./service";
 
 // The drafts the studio's control lists and switches between (ADR 0011). An unnamed draft is
 // labelled on the client from its creator and creation date; that label is never stored.
@@ -158,7 +159,7 @@ const requireDraft = Effect.fn("drafts.requireNamedDraft")(function* (
   ctx: ServiceContext,
   projectId: number,
 ) {
-  const scope = yield* resolveDraftScope(ctx, projectId);
+  const { scope } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "member"));
   if (!scope) return yield* new InvalidInputError({ message: "Live isn't a draft: name one" });
   return yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.id, scope.id)).get(),

@@ -3,12 +3,11 @@ import { queryKeys } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, type Scope } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
 import { z } from "zod";
 
-import { assertBlockAccess, assertPageAccess, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
@@ -23,9 +22,7 @@ import {
   blockDefinitions,
   blocks,
   layouts,
-  member,
   pages,
-  projects,
   repeatableItems,
   sharedContents,
 } from "../../schema";
@@ -41,6 +38,7 @@ import {
   type ResolvedReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { accessTo, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
@@ -170,12 +168,14 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
   ctx: ServiceContext,
   rawInput: z.input<typeof resolveBlockPositionInput>,
   opts: { mode: "create" | "move" },
-  scope: DraftScope,
 ): Effect.fn.Return<
   { afterPosition?: string | null; beforePosition?: string | null },
-  ServiceError
+  ServiceError,
+  Scope.Scope
 > {
   const input = yield* decodeInput(resolveBlockPositionInput, rawInput);
+  const ref = input.blockId ? { block: input.blockId } : { page: input.pageId ?? "" };
+  const { scope } = yield* accessTo(ctx, ref, "write");
   const passed = [
     input.afterPosition !== undefined ? "afterPosition" : null,
     input.beforePosition !== undefined ? "beforePosition" : null,
@@ -230,7 +230,7 @@ export const resolveBlockPosition = Effect.fn("blocks.resolveBlockPosition")(fun
   }
 
   return {};
-});
+}, Effect.scoped);
 
 /** Find the last index where item.position <= target in a sorted array. */
 function findLastIndexLe<T extends { position: string }>(items: T[], target: string): number {
@@ -744,11 +744,18 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
 export const getBlock = Effect.fn("blocks.getBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlockInput>,
-  scope: DraftScope,
 ) {
   const { id } = yield* decodeInput(getBlockInput, rawInput);
-  const stored = yield* overlay.get(ctx.db, scope, blocks, id);
-  if (!stored) return yield* new NotFoundError();
+  const { scope, entity } = yield* accessTo(ctx, { block: id }, "public");
+  return yield* blockView(ctx, scope, entity.block);
+}, Effect.scoped);
+
+/** A block as a scope's readers see it, with its items and the files and records they use. */
+const blockView = Effect.fn("blocks.blockView")(function* (
+  ctx: ServiceContext,
+  scope: DraftScope,
+  stored: typeof blocks.$inferSelect,
+) {
   const shown = yield* withSharedContent(
     ctx.db,
     scope,
@@ -942,14 +949,9 @@ function layoutSlotsMarkdown(
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageMarkdownInput>,
-  scope: DraftScope,
 ) {
   const { pageId } = yield* decodeInput(getPageMarkdownInput, rawInput);
-
-  const page = yield* Effect.promise(() =>
-    ctx.db.select().from(pages).where(eq(pages.id, pageId)).get(),
-  );
-  if (!page) return yield* new NotFoundError();
+  const { scope, entity: page } = yield* accessTo(ctx, { page: pageId }, "public");
   const pageLayout = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -985,7 +987,7 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
 
   const parts = [before, ...blockMarkdowns.map((b) => b.markdown), after].filter(Boolean);
   return { markdown: parts.join("\n\n"), blocks: blockMarkdowns };
-});
+}, Effect.scoped);
 
 /**
  * The Markdown of a code-owned layout's before and after slots, for pages
@@ -994,13 +996,9 @@ export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
 export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutMarkdownInput>,
-  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutMarkdownInput, rawInput);
-  const project = yield* Effect.promise(() =>
-    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
-  );
-  if (!project) return yield* new NotFoundError();
+  const { scope, project } = yield* accessTo(ctx, { projectSlug }, "public");
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -1018,14 +1016,14 @@ export const getLayoutMarkdown = Effect.fn("blocks.getLayoutMarkdown")(function*
   const { blocks: layoutBlocks, items } = yield* readOwnerBlocks(ctx, layout, scope);
   const render = yield* renderBlocksMarkdown(ctx, { ...layout, draft: scope }, layoutBlocks, items);
   return layoutSlotsMarkdown(layoutBlocks, render.markdown);
-});
+}, Effect.scoped);
 
 export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getBlocksUsageCountsInput>,
-  scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(getBlocksUsageCountsInput, rawInput);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   return yield* Effect.promise(() =>
     ctx.db
       .select({
@@ -1036,7 +1034,7 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
       .where(and(overlay.visibleIn(blocks, scope), eq(blocks.projectId, projectId)))
       .groupBy(blocks.type),
   );
-});
+}, Effect.scoped);
 
 /**
  * The distinct Pages of the project that place a Block Definition.
@@ -1046,9 +1044,9 @@ export const getBlocksUsageCounts = Effect.fn("blocks.getBlocksUsageCounts")(fun
 export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof blockTypeInput>,
-  scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   return yield* Effect.promise(() =>
     ctx.db
       .selectDistinct({ id: pages.id, nickname: pages.nickname, fullPath: pages.fullPath })
@@ -1063,7 +1061,7 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
       )
       .orderBy(pages.fullPath),
   );
-});
+}, Effect.scoped);
 
 /**
  * A Synced Block's shared content in the project, as a
@@ -1072,15 +1070,20 @@ export const getPagesUsingBlock = Effect.fn("blocks.getPagesUsingBlock")(functio
 export const getSyncedBlockContent = Effect.fn("blocks.getSyncedBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof blockTypeInput>,
-  scope: DraftScope,
 ) {
   const { projectId, type } = yield* decodeInput(blockTypeInput, rawInput);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   const id = yield* sharedPlacementId(ctx.db, scope, { projectId: projectId, type });
   if (id === null) return null;
-  return yield* getBlock(ctx, { id }, scope);
-});
+  const stored = yield* overlay.get(ctx.db, scope, blocks, id);
+  if (!stored) return null;
+  return yield* blockView(ctx, scope, stored);
+}, Effect.scoped);
 
 // --- Writes ---
+
+/** A request's access to write a block. */
+type BlockWrite = ContentAccess<{ block: string }, "write">;
 
 /**
  * Writes a block's content or settings where they live: the block itself, or its synced
@@ -1114,9 +1117,7 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
 export const createBlock = Effect.fn("blocks.createBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createBlockInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const {
     id,
     pageId,
@@ -1127,9 +1128,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
     beforePosition,
     repeatableItems: itemSeeds,
   } = yield* decodeInput(createBlockInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, pageId, user.id, scope);
-  // A draft holds content of its own project only.
-  if (scope && scope.projectId !== access.page.projectId) return yield* new NotFoundError();
+  const { scope, entity: page } = yield* accessTo(ctx, { page: pageId }, "write");
 
   const now = Date.now();
 
@@ -1141,7 +1140,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
       .from(blockDefinitions)
       .where(
         and(
-          eq(blockDefinitions.projectId, access.page.projectId),
+          eq(blockDefinitions.projectId, page.projectId),
           definitionsIn(blockDefinitions, scope),
           eq(blockDefinitions.blockId, type),
         ),
@@ -1158,7 +1157,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   const allSeeds = prepared.seeds;
   yield* validateReferenceValues(
     ctx,
-    { ...access.page, draft: scope },
+    { ...page, draft: scope },
     def?.contentSchema,
     prepared.bundle,
   );
@@ -1201,7 +1200,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   }
   const result = yield* overlay.insert(ctx.db, scope, blocks, {
     id,
-    projectId: access.page.projectId,
+    projectId: page.projectId,
     pageId,
     type,
     content: prepared.content,
@@ -1237,16 +1236,16 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 
   yield* adoptSharedContent(ctx, scope, result);
 
-  yield* requestBlockSummary(ctx, scope, access.page.projectId, result.id, 0);
+  yield* requestBlockSummary(ctx, scope, page.projectId, result.id, 0);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: access.page.projectId,
+    draftId: scope.id,
+    projectId: page.projectId,
     targets: [
       // Block create/delete/duplicate restructures the page — refetch the
       // page view and the page list, whose rows carry `content_updated_at`.
-      queryKeys.pages.getByPath(access.page.fullPath),
+      queryKeys.pages.getByPath(page.fullPath),
       queryKeys.pages.list,
       queryKeys.blocks.getPageMarkdown(pageId),
       queryKeys.blocks.getUsageCounts,
@@ -1256,45 +1255,50 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   const stored = (yield* overlay.get(ctx.db, scope, blocks, result.id))!;
   const created = yield* shownBlock(ctx.db, scope, stored);
   return withWarnings(created, artifactWarnings(def?.contentSchema as FieldSchema, content));
-});
+}, Effect.scoped);
 
 /** CLI/AI edits may submit both fields; reject either invalid patch before writing either. */
 export const editBlock = Effect.fn("blocks.editBlock")(function* (
   ctx: ServiceContext,
   input: { id: string; content?: unknown; settings?: unknown },
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
-  const access = yield* assertBlockAccess(ctx.db, input.id, user.id, scope);
+  const granted = yield* accessTo(ctx, { block: input.id }, "write");
   if (input.content === undefined && input.settings === undefined) {
     return yield* new InvalidInputError({ message: "Provide content or settings" });
   }
-  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, input.id, scope);
+  const schemas = yield* loadBlockSchemas(ctx.db, granted.project.id, input.id, granted.scope);
   if (input.settings !== undefined) {
     yield* validateContent(input.settings, schemas?.settingsSchema, { path: "settings" });
   }
   let result: object = {};
   if (input.content !== undefined) {
-    result = yield* updateBlockContent(ctx, { id: input.id, content: input.content }, scope);
+    result = yield* writeBlockContent(ctx, granted, input.content);
   }
   if (input.settings !== undefined) {
-    result = yield* updateBlockSettings(ctx, { id: input.id, settings: input.settings }, scope);
+    result = yield* writeBlockSettings(ctx, granted, input.settings);
   }
   return withWarnings(result, artifactWarnings(schemas?.contentSchema, input.content));
-});
+}, Effect.scoped);
 
 export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockContentInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id, content } = yield* decodeInput(updateBlockContentInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
+  return yield* writeBlockContent(ctx, yield* accessTo(ctx, { block: id }, "write"), content);
+}, Effect.scoped);
+
+/** Writes a block's content, once the request's access to it is known. */
+const writeBlockContent = Effect.fn("blocks.writeBlockContent")(function* (
+  ctx: ServiceContext,
+  { scope, project, entity: access }: BlockWrite,
+  content: unknown,
+) {
+  const id = access.block.id;
 
   const now = Date.now();
 
-  const contentSchema = yield* loadBlockContentSchema(ctx.db, access.projectId, id, scope);
+  const contentSchema = yield* loadBlockContentSchema(ctx.db, project.id, id, scope);
 
   const patch = yield* prepareContentPatch(content, contentSchema);
   yield* validateContent(patch, contentSchema, { allowItemReferences: true });
@@ -1310,19 +1314,19 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
   );
   const result = yield* writeBlockData(
     ctx,
-    access,
+    { block: access.block, projectId: project.id },
     owner.shared,
     { content: merged, updatedAt: now },
     scope,
   );
 
-  yield* requestBlockSummary(ctx, scope, access.projectId, id, 5000);
+  yield* requestBlockSummary(ctx, scope, project.id, id, 5000);
   // Granular invalidation: only refetch this block, not the entire page.
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: access.projectId,
+    draftId: scope.id,
+    projectId: project.id,
     targets: [
       queryKeys.blocks.get(id),
       ...(access.pagePath
@@ -1339,13 +1343,20 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockSettingsInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id, settings } = yield* decodeInput(updateBlockSettingsInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
+  return yield* writeBlockSettings(ctx, yield* accessTo(ctx, { block: id }, "write"), settings);
+}, Effect.scoped);
 
-  const schemas = yield* loadBlockSchemas(ctx.db, access.projectId, id, scope);
+/** Writes a block's settings, once the request's access to it is known. */
+const writeBlockSettings = Effect.fn("blocks.writeBlockSettings")(function* (
+  ctx: ServiceContext,
+  { scope, project, entity: access }: BlockWrite,
+  settings: unknown,
+) {
+  const id = access.block.id;
+
+  const schemas = yield* loadBlockSchemas(ctx.db, project.id, id, scope);
   yield* validateContent(settings, schemas?.settingsSchema, { path: "settings" });
   const owner = yield* contentOwnerOf(ctx.db, scope, access.block);
   const merged = {
@@ -1354,7 +1365,7 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
   };
   const result = yield* writeBlockData(
     ctx,
-    access,
+    { block: access.block, projectId: project.id },
     owner.shared,
     { settings: merged, updatedAt: Date.now() },
     scope,
@@ -1363,8 +1374,8 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: access.projectId,
+    draftId: scope.id,
+    projectId: project.id,
     targets: [
       queryKeys.blocks.get(id),
       ...(access.pagePath
@@ -1380,14 +1391,12 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
 export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockPositionInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id, afterPosition, beforePosition } = yield* decodeInput(
     updateBlockPositionInput,
     rawInput,
   );
-  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
+  const { scope, project, entity: access } = yield* accessTo(ctx, { block: id }, "write");
 
   // Query siblings (excluding the block being moved) to compute a correct position
   const block = access.block;
@@ -1423,8 +1432,8 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: access.projectId,
+    draftId: scope.id,
+    projectId: project.id,
     targets: [
       ...(access.pagePath
         ? [queryKeys.pages.getByPath(access.pagePath)]
@@ -1435,16 +1444,14 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
     ],
   });
   return yield* shownBlock(ctx.db, scope, result);
-});
+}, Effect.scoped);
 
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlockInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deleteBlockInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
+  const { scope, project, entity: access } = yield* accessTo(ctx, { block: id }, "write");
 
   // In a draft, a tombstone hides the block from the draft only.
   const result = yield* overlay.remove(ctx.db, scope, blocks, id);
@@ -1452,8 +1459,8 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: access.projectId,
+    draftId: scope.id,
+    projectId: project.id,
     targets: [
       // Deleting a block restructures the page. Invalidate all active page path
       // reads so Studio preview updates even when the browser path and stored
@@ -1465,67 +1472,46 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
     ],
   });
   return result;
-});
+}, Effect.scoped);
 
 export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlocksInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { blockIds } = yield* decodeInput(deleteBlocksInput, rawInput);
-  if (blockIds.length === 0) return [];
-
-  // Verify all blocks, as the scope reads them, belong to an org the user is a member of
-  const authorizedBlocks = yield* Effect.promise(() =>
-    ctx.db
-      .select({ id: blocks.id, projectId: projects.id })
-      .from(blocks)
-      .innerJoin(projects, eq(projects.id, blocks.projectId))
-      .innerJoin(
-        member,
-        and(eq(member.organizationId, projects.organizationId), eq(member.userId, user.id)),
-      )
-      .where(and(overlay.visibleIn(blocks, scope), inArray(blocks.id, blockIds))),
+  const [first] = blockIds;
+  if (!first) return [];
+  // Access to the first block names the project and draft; every block must be in them.
+  const { scope, project } = yield* accessTo(ctx, { block: first }, "write");
+  const shown = yield* overlay.select(
+    ctx.db,
+    scope,
+    blocks,
+    and(inArray(blocks.id, blockIds), eq(blocks.projectId, project.id)),
   );
-  if (authorizedBlocks.length !== blockIds.length) {
-    return yield* new NotFoundError();
-  }
-  // A draft holds content of its own project only.
-  if (authorizedBlocks.some((block) => block.projectId !== scope.projectId)) {
-    return yield* new NotFoundError();
-  }
+  if (shown.length !== new Set(blockIds).size) return yield* new NotFoundError();
   const result: (typeof blocks.$inferSelect)[] = [];
   for (const id of blockIds) {
     const removed = yield* overlay.remove(ctx.db, scope, blocks, id);
     if (removed) result.push(removed);
   }
   yield* deleteBlockDependents(ctx, scope, result);
-  const projectId = authorizedBlocks[0]?.projectId;
-  if (projectId) {
-    broadcastInvalidation({
-      waitUntil: ctx.waitUntil,
-      projectRoomNamespace: ctx.env.ProjectRoom,
-      draftId: scope?.id ?? null,
-      projectId,
-      targets: [
-        queryKeys.pages.getByPathAll,
-        queryKeys.pages.list,
-        queryKeys.blocks.getUsageCounts,
-      ],
-    });
-  }
+  broadcastInvalidation({
+    waitUntil: ctx.waitUntil,
+    projectRoomNamespace: ctx.env.ProjectRoom,
+    draftId: scope.id,
+    projectId: project.id,
+    targets: [queryKeys.pages.getByPathAll, queryKeys.pages.list, queryKeys.blocks.getUsageCounts],
+  });
   return result;
-});
+}, Effect.scoped);
 
 export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generateBlockSummaryInput>,
-  scope: DraftScope,
 ) {
-  const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
+  const { scope, project, entity: access } = yield* accessTo(ctx, { block: id }, "member");
 
   const seoStale = yield* executeBlockSummary(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
   if (seoStale) yield* requestPageSeo(ctx, scope, seoStale.page, 15000);
@@ -1533,7 +1519,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
     draftId: scope?.id ?? null,
-    projectId: access.projectId,
+    projectId: project.id,
     targets: [
       queryKeys.blocks.get(id),
       ...(access.pagePath
@@ -1544,16 +1530,14 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
     ],
   });
   return yield* overlay.get(ctx.db, scope, blocks, id);
-});
+}, Effect.scoped);
 
 export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof duplicateBlockInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(duplicateBlockInput, rawInput);
-  const access = yield* assertBlockAccess(ctx.db, id, user.id, scope);
+  const { scope, project, entity: access } = yield* accessTo(ctx, { block: id }, "write");
   const original = access.block;
 
   const now = Date.now();
@@ -1582,15 +1566,15 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   yield* copyValue(
     ctx.db,
     scope,
-    homeOf(scope, access.projectId),
+    homeOf(scope, project.id),
     summaryKeyOf(original.id, null),
     result.id,
   );
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId: access.projectId,
+    draftId: scope.id,
+    projectId: project.id,
     targets: [
       ...(access.pagePath
         ? [queryKeys.pages.getByPath(access.pagePath)]
@@ -1601,4 +1585,4 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     ],
   });
   return yield* shownBlock(ctx.db, scope, result);
-});
+}, Effect.scoped);

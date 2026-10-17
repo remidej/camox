@@ -7,7 +7,7 @@ import { z } from "zod";
 import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { decodeInput, NotFoundError } from "../../lib/errors";
-import { blockDefinitions, blocks, layouts, projects, repeatableItems } from "../../schema";
+import { blockDefinitions, blocks, layouts, repeatableItems } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
@@ -20,10 +20,10 @@ import {
   hydrateReferences,
   validateReferenceValues,
 } from "../collections/references";
+import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
-import { RELEASE, type DraftScope, type WriteTarget } from "../drafts/scope";
-import { resolveDraftScope } from "../drafts/service";
+import { RELEASE, type WriteTarget } from "../drafts/scope";
 import { buildFileMap, collectFileIds } from "../pages/ai";
 import { blocksOfLayout } from "./identity";
 import type { RecordPages } from "./schema";
@@ -82,26 +82,22 @@ export const listLayouts = Effect.fn("layouts.listLayouts")(function* (
   rawInput: z.input<typeof listLayoutsInput>,
 ) {
   const { projectId } = yield* decodeInput(listLayoutsInput, rawInput);
-  const scope = yield* resolveDraftScope(ctx, projectId);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   return yield* Effect.promise(() =>
     ctx.db
       .select()
       .from(layouts)
       .where(and(eq(layouts.projectId, projectId), definitionsIn(layouts, scope))),
   );
-});
+}, Effect.scoped);
 
 // Standalone layout reads use the same current blocks as curated pages.
 export const getLayout = Effect.fn("layouts.getLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getLayoutInput>,
-  scope: DraftScope,
 ) {
   const { projectSlug, layoutId } = yield* decodeInput(getLayoutInput, rawInput);
-  const project = yield* Effect.promise(() =>
-    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
-  );
-  if (!project) return yield* new NotFoundError();
+  const { scope, project } = yield* accessTo(ctx, { projectSlug }, "public");
   const layout = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -159,7 +155,7 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     repeatableItems: hydratedItems,
     files: [...fileRows.values()],
   };
-});
+}, Effect.scoped);
 
 // --- Writes ---
 

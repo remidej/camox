@@ -6,7 +6,7 @@ import {
   ARTIFACT_MAX_LENGTH,
   contentFieldBuilder as field,
 } from "../../../../../packages/sdk/src/core/lib/contentType";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { drafts, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -83,23 +83,32 @@ describe("artifact content validation", () => {
     const { ctx, page, draft } = await fixture("block");
     await expect(
       runService(
-        createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: tooLarge } }, draft),
+        createBlock(inScope(ctx, draft), {
+          pageId: page.id,
+          type: "visual",
+          content: { visual: tooLarge },
+        }),
       ),
     ).rejects.toMatchObject({ ...tooLargeError, data: { field: "content.visual" } });
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: fits } }, draft),
+      createBlock(inScope(ctx, draft), {
+        pageId: page.id,
+        type: "visual",
+        content: { visual: fits },
+      }),
     );
     expect(block.content).toMatchObject({ visual: fits });
     await expect(
-      runService(updateBlockContent(ctx, { id: block.id, content: { visual: tooLarge } }, draft)),
+      runService(
+        updateBlockContent(inScope(ctx, draft), { id: block.id, content: { visual: tooLarge } }),
+      ),
     ).rejects.toMatchObject(tooLargeError);
     await expect(
       runService(
-        updateBlockContent(
-          ctx,
-          { id: block.id, content: { scenes: [{ scene: tooLarge }] } },
-          draft,
-        ),
+        updateBlockContent(inScope(ctx, draft), {
+          id: block.id,
+          content: { scenes: [{ scene: tooLarge }] },
+        }),
       ),
     ).rejects.toMatchObject(tooLargeError);
   });
@@ -107,35 +116,30 @@ describe("artifact content validation", () => {
   it("applies the same limit to artifacts in repeatable items", async () => {
     const { ctx, page, draft } = await fixture("item");
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "visual", content: {} }, draft),
+      createBlock(inScope(ctx, draft), { pageId: page.id, type: "visual", content: {} }),
     );
     await expect(
       runService(
-        createRepeatableItem(
-          ctx,
-          {
-            blockId: block.id,
-            fieldName: "scenes",
-            content: { scene: tooLarge },
-          },
-          draft,
-        ),
+        createRepeatableItem(inScope(ctx, draft), {
+          blockId: block.id,
+          fieldName: "scenes",
+          content: { scene: tooLarge },
+        }),
       ),
     ).rejects.toMatchObject(tooLargeError);
     const item = await runService(
-      createRepeatableItem(
-        ctx,
-        {
-          blockId: block.id,
-          fieldName: "scenes",
-          content: { scene: fits },
-        },
-        draft,
-      ),
+      createRepeatableItem(inScope(ctx, draft), {
+        blockId: block.id,
+        fieldName: "scenes",
+        content: { scene: fits },
+      }),
     );
     await expect(
       runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } }, draft),
+        updateRepeatableItemContent(inScope(ctx, draft), {
+          id: item.id,
+          content: { scene: tooLarge },
+        }),
       ),
     ).rejects.toMatchObject(tooLargeError);
   });
@@ -145,15 +149,11 @@ describe("artifact content validation", () => {
     const untitled = "<p>No title</p>";
     const blank = "<title>  </title><p>Blank title</p>";
     const block = await runService(
-      createBlock(
-        ctx,
-        {
-          pageId: page.id,
-          type: "visual",
-          content: { visual: untitled, scenes: [{ scene: "<title>Ok</title>" }, { scene: blank }] },
-        },
-        draft,
-      ),
+      createBlock(inScope(ctx, draft), {
+        pageId: page.id,
+        type: "visual",
+        content: { visual: untitled, scenes: [{ scene: "<title>Ok</title>" }, { scene: blank }] },
+      }),
     );
     expect(block.content).toMatchObject({ visual: untitled });
     expect(block.warnings).toEqual([
@@ -162,15 +162,20 @@ describe("artifact content validation", () => {
     ]);
 
     const edited = await runService(
-      editBlock(ctx, { id: block.id, content: { visual: "<title>Titled</title>" } }, draft),
+      editBlock(inScope(ctx, draft), {
+        id: block.id,
+        content: { visual: "<title>Titled</title>" },
+      }),
     );
     expect(edited).not.toHaveProperty("warnings");
     const emptied = await runService(
-      editBlock(ctx, { id: block.id, content: { visual: "" } }, draft),
+      editBlock(inScope(ctx, draft), { id: block.id, content: { visual: "" } }),
     );
     expect(emptied).not.toHaveProperty("warnings");
     expect(
-      await runService(editBlock(ctx, { id: block.id, content: { visual: untitled } }, draft)),
+      await runService(
+        editBlock(inScope(ctx, draft), { id: block.id, content: { visual: untitled } }),
+      ),
     ).toMatchObject({ warnings: [expect.stringMatching(/content\.visual/)] });
   });
 

@@ -5,6 +5,7 @@ import {
   createProjectFixture,
   createServiceContext,
   seedLiveThrough,
+  inScope,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, pages } from "../../schema";
@@ -65,9 +66,9 @@ describe("createBlock defaults", () => {
   it("stores defaults and exposes them in reads and Markdown", async () => {
     const { ctx, page, project } = await fixture("create-defaults");
     const created = await seedLiveThrough(ctx, project.id, (draft) =>
-      createBlock(ctx, { pageId: page.id, type: "hero", content: {} }, draft),
+      createBlock(inScope(ctx, draft), { pageId: page.id, type: "hero", content: {} }),
     );
-    const result = await runService(getBlock(ctx, { id: created.id }, null));
+    const result = await runService(getBlock(inScope(ctx, null), { id: created.id }));
     expect(result.block.content).toMatchObject({
       title: "Welcome",
       cta: { text: "Learn more", href: "/about" },
@@ -75,7 +76,7 @@ describe("createBlock defaults", () => {
     expect(result.block.settings).toEqual({ visible: true });
     expect(result.repeatableItems).toHaveLength(1);
     expect(result.repeatableItems[0].content).toEqual({ title: "Item" });
-    const { markdown } = await runService(getPageMarkdown(ctx, { pageId: page.id }, null));
+    const { markdown } = await runService(getPageMarkdown(inScope(ctx, null), { pageId: page.id }));
     expect(markdown).toContain("# Welcome");
     expect(markdown).toContain("[Learn more](/about)");
   });
@@ -83,19 +84,26 @@ describe("createBlock defaults", () => {
   it("reads a layout's current slot Markdown publicly", async () => {
     const { ctx, db, layout, page, project } = await fixture("layout-markdown");
     const created = await seedLiveThrough(ctx, project.id, (draft) =>
-      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "First" } }, draft),
+      createBlock(inScope(ctx, draft), {
+        pageId: page.id,
+        type: "hero",
+        content: { title: "First" },
+      }),
     );
     await db
       .update(blocks)
       .set({ pageId: null, layoutId: layout.layoutId, slot: "before" })
       .where(eq(blocks.id, created.id));
     await seedLiveThrough(ctx, project.id, (draft) =>
-      updateBlockContent(ctx, { id: created.id, content: { title: "Edited" } }, draft),
+      updateBlockContent(inScope(ctx, draft), { id: created.id, content: { title: "Edited" } }),
     );
 
     const publicCtx = createServiceContext(db, null);
     const markdown = await runService(
-      getLayoutMarkdown(publicCtx, { projectSlug: project.slug, layoutId: layout.layoutId }, null),
+      getLayoutMarkdown(inScope(publicCtx, null), {
+        projectSlug: project.slug,
+        layoutId: layout.layoutId,
+      }),
     );
     expect(markdown.before).toContain("# Edited");
     expect(markdown.before).not.toContain("First");
@@ -106,30 +114,22 @@ describe("createBlock defaults", () => {
     const { ctx, page, project } = await fixture("create-explicit");
     await expect(
       seedLiveThrough(ctx, project.id, (draft) =>
-        createBlock(
-          ctx,
-          {
-            pageId: page.id,
-            type: "hero",
-            content: { items: [] },
-          },
-          draft,
-        ),
+        createBlock(inScope(ctx, draft), {
+          pageId: page.id,
+          type: "hero",
+          content: { items: [] },
+        }),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     const created = await seedLiveThrough(ctx, project.id, (draft) =>
-      createBlock(
-        ctx,
-        {
-          pageId: page.id,
-          type: "hero",
-          content: { title: "", items: [{ title: "Explicit" }] },
-          settings: { visible: false },
-        },
-        draft,
-      ),
+      createBlock(inScope(ctx, draft), {
+        pageId: page.id,
+        type: "hero",
+        content: { title: "", items: [{ title: "Explicit" }] },
+        settings: { visible: false },
+      }),
     );
-    const result = await runService(getBlock(ctx, { id: created.id }, null));
+    const result = await runService(getBlock(inScope(ctx, null), { id: created.id }));
     expect(result.block.content).toMatchObject({ title: "", cta: { text: "Learn more" } });
     expect(result.block.settings).toEqual({ visible: false });
     expect(result.repeatableItems.map((item) => item.content)).toEqual([{ title: "Explicit" }]);
@@ -152,33 +152,25 @@ describe("createBlock defaults", () => {
       if (repeatableItems.length === 0) {
         await expect(
           seedLiveThrough(ctx, project.id, (draft) =>
-            createBlock(
-              ctx,
-              {
-                pageId: page.id,
-                type: "hero",
-                content: {},
-                repeatableItems,
-              },
-              draft,
-            ),
+            createBlock(inScope(ctx, draft), {
+              pageId: page.id,
+              type: "hero",
+              content: {},
+              repeatableItems,
+            }),
           ),
         ).rejects.toMatchObject({ code: "BAD_REQUEST" });
         continue;
       }
       const created = await seedLiveThrough(ctx, project.id, (draft) =>
-        createBlock(
-          ctx,
-          {
-            pageId: page.id,
-            type: "hero",
-            content: {},
-            repeatableItems,
-          },
-          draft,
-        ),
+        createBlock(inScope(ctx, draft), {
+          pageId: page.id,
+          type: "hero",
+          content: {},
+          repeatableItems,
+        }),
       );
-      const result = await runService(getBlock(ctx, { id: created.id }, null));
+      const result = await runService(getBlock(inScope(ctx, null), { id: created.id }));
       expect(result.repeatableItems.map((item) => item.content)).toEqual(
         repeatableItems.map((item) => item.content),
       );

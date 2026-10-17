@@ -9,7 +9,7 @@ import { createDb } from "../src/db";
 import type { ServiceContext } from "../src/domains/_shared/service-context";
 import * as overlay from "../src/domains/drafts/overlay";
 import type { ContentTable } from "../src/domains/drafts/overlay";
-import { RELEASE, type Draft } from "../src/domains/drafts/scope";
+import { RELEASE, type Draft, type DraftScope } from "../src/domains/drafts/scope";
 import type { ServiceError } from "../src/lib/errors";
 import { runService } from "../src/lib/run-service";
 import type { BaseContext } from "../src/orpc";
@@ -147,6 +147,14 @@ export function createRpcContext(
       updatedAt: new Date(),
     },
   };
+}
+
+/**
+ * A context naming `scope` the way a request does (`x-camox-draft`): services resolve it through
+ * content access, with its checks. `null` names Live.
+ */
+export function inScope<C extends ServiceContext>(ctx: C, scope: DraftScope): C {
+  return { ...ctx, draft: scope ? { id: scope.id, create: false } : null };
 }
 
 /**

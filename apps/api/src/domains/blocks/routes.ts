@@ -1,128 +1,67 @@
+import { runService } from "../../lib/run-service";
 import { authed, contentWrite, pub } from "../../orpc";
-import {
-  inScope,
-  projectOfBlock,
-  projectOfPage,
-  projectOfSlug,
-  inWriteDraft,
-} from "../drafts/request-scope";
 import * as service from "./service";
 
 // Public procedures
 
 const get = pub
   .input(service.getBlockInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfBlock(context, input.id), (scope) =>
-      service.getBlock(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getBlock(context, input)));
 
 const getPageMarkdown = pub
   .input(service.getPageMarkdownInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.pageId), (scope) =>
-      service.getPageMarkdown(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getPageMarkdown(context, input)));
 
 const getLayoutMarkdown = pub
   .input(service.getLayoutMarkdownInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
-      service.getLayoutMarkdown(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getLayoutMarkdown(context, input)));
 
 const getUsageCounts = pub
   .input(service.getBlocksUsageCountsInput)
-  .handler(({ context, input }) =>
-    inScope(context, input.projectId, (scope) =>
-      service.getBlocksUsageCounts(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getBlocksUsageCounts(context, input)));
 
 const getPagesUsing = pub
   .input(service.blockTypeInput)
-  .handler(({ context, input }) =>
-    inScope(context, input.projectId, (scope) => service.getPagesUsingBlock(context, input, scope)),
-  );
+  .handler(({ context, input }) => runService(service.getPagesUsingBlock(context, input)));
 
 const getSyncedContent = pub
   .input(service.blockTypeInput)
-  .handler(({ context, input }) =>
-    inScope(context, input.projectId, (scope) =>
-      service.getSyncedBlockContent(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getSyncedBlockContent(context, input)));
 
 // Protected procedures
 
 const create = contentWrite
   .input(service.createBlockInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfPage(context, input.pageId), (scope) =>
-      service.createBlock(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.createBlock(context, input)));
 
 const updateContent = contentWrite
   .input(service.updateBlockContentInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfBlock(context, input.id), (scope) =>
-      service.updateBlockContent(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.updateBlockContent(context, input)));
 
 const updateSettings = contentWrite
   .input(service.updateBlockSettingsInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfBlock(context, input.id), (scope) =>
-      service.updateBlockSettings(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.updateBlockSettings(context, input)));
 
 const updatePosition = contentWrite
   .input(service.updateBlockPositionInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfBlock(context, input.id), (scope) =>
-      service.updateBlockPosition(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.updateBlockPosition(context, input)));
 
 // fn suffix because delete is a reserved keyword
 const deleteFn = contentWrite
   .input(service.deleteBlockInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfBlock(context, input.id), (scope) =>
-      service.deleteBlock(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.deleteBlock(context, input)));
 
-// The draft is resolved on the first block's project; the service rejects blocks of another.
-const deleteManyFn = contentWrite.input(service.deleteBlocksInput).handler(({ context, input }) => {
-  const [first] = input.blockIds;
-  if (!first) return [];
-  return inWriteDraft(context, projectOfBlock(context, first), (scope) =>
-    service.deleteBlocks(context, input, scope),
-  );
-});
+const deleteManyFn = contentWrite
+  .input(service.deleteBlocksInput)
+  .handler(({ context, input }) => runService(service.deleteBlocks(context, input)));
 
 const generateSummary = authed
   .input(service.generateBlockSummaryInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfBlock(context, input.id), (scope) =>
-      service.generateBlockSummary(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.generateBlockSummary(context, input)));
 
 const duplicate = contentWrite
   .input(service.duplicateBlockInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfBlock(context, input.id), (scope) =>
-      service.duplicateBlock(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.duplicateBlock(context, input)));
 
 export const blockProcedures = {
   get,

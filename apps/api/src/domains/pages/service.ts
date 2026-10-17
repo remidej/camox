@@ -4,7 +4,6 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertPageAccess, getAuthorizedProject, requireUser } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, layouts, pages, projects, repeatableItems, user } from "../../schema";
@@ -17,6 +16,7 @@ import {
   hydrateReferences,
   type ResolvedReferences,
 } from "../collections/references";
+import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
 import type { FileView } from "../files/generated-metadata";
@@ -144,14 +144,10 @@ type FileRow = FileView;
 /** The page at a path in the project, with its project and layout. */
 const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
   ctx: ServiceContext,
-  projectSlug: string,
+  project: typeof projects.$inferSelect,
   fullPath: string,
   scope: DraftScope,
 ) {
-  const project = yield* Effect.promise(() =>
-    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
-  );
-  if (!project) return yield* new NotFoundError();
   const [page] = yield* overlay.select(
     ctx.db,
     scope,
@@ -224,10 +220,11 @@ function composePageView(args: {
 export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageByPathInput>,
-  scope: DraftScope,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageByPathInput, rawInput);
-  const { project, page: stored, layout } = yield* findPageByPath(ctx, projectSlug, path, scope);
+  const access = yield* accessTo(ctx, { projectSlug }, "public");
+  const { scope } = access;
+  const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
   const page = yield* pageView(ctx.db, scope, stored);
 
   const pageContent = yield* readOwnerBlocks(ctx, { pageId: page.id }, scope);
@@ -265,15 +262,16 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
       references: referencesByBlock.get(block.id) ?? {},
     })),
   };
-});
+}, Effect.scoped);
 
 export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageStructureInput>,
-  scope: DraftScope,
 ) {
   const { path, projectSlug } = yield* decodeInput(getPageStructureInput, rawInput);
-  const { project, page: stored, layout } = yield* findPageByPath(ctx, projectSlug, path, scope);
+  const access = yield* accessTo(ctx, { projectSlug }, "public");
+  const { scope } = access;
+  const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
   const page = yield* pageView(ctx.db, scope, stored);
 
   const pageBlockOrder = sortByPosition(
@@ -289,7 +287,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
     project: { id: project.id, updatedAt: project.updatedAt },
     layout: layoutView(layout, layoutBlockOrder),
   };
-});
+}, Effect.scoped);
 
 /**
  * Pages with what keeps them from being served or published: no layout, a singleton serving
@@ -313,38 +311,34 @@ const withPageProblems = Effect.fn("pages.withPageProblems")(function* (
 export const listPages = Effect.fn("pages.listPages")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listPagesInput>,
-  scope: DraftScope,
 ) {
   const { projectId } = yield* decodeInput(listPagesInput, rawInput);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "public");
   const rows = (yield* pagesIn(ctx, scope, projectId)).filter(
     (page) => page.projectId === projectId,
   );
   return yield* withPageProblems(ctx, projectId, scope, yield* withSeo(ctx.db, scope, rows));
-});
+}, Effect.scoped);
 
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof listPagesBySlugInput>,
-  scope: DraftScope,
 ) {
   const { projectSlug } = yield* decodeInput(listPagesBySlugInput, rawInput);
-  const project = yield* Effect.promise(() =>
-    ctx.db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
-  );
-  if (!project) return yield* new NotFoundError();
+  const { scope, project } = yield* accessTo(ctx, { projectSlug }, "public");
   const rows = (yield* pagesIn(ctx, scope, project.id)).filter(
     (page) => page.projectId === project.id,
   );
   return yield* withPageProblems(ctx, project.id, scope, yield* withSeo(ctx.db, scope, rows));
-});
+}, Effect.scoped);
 
 export const getPage = Effect.fn("pages.getPage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPageInput>,
-  scope: DraftScope,
 ) {
   const parsed = yield* decodeInput(getPageInput, rawInput);
-  yield* requireUser(ctx);
+  const ref = "id" in parsed ? { page: parsed.id } : { project: parsed.projectId };
+  const { scope } = yield* accessTo(ctx, ref, "member");
   let row: typeof pages.$inferSelect | undefined;
   if ("id" in parsed) {
     row = yield* overlay.get(ctx.db, scope, pages, parsed.id);
@@ -371,7 +365,7 @@ export const getPage = Effect.fn("pages.getPage")(function* (
     createdBy: creator?.name ?? null,
     duplicatePath: duplicates.has(row.id),
   };
-});
+}, Effect.scoped);
 
 // --- Writes ---
 //
@@ -381,14 +375,12 @@ export const getPage = Effect.fn("pages.getPage")(function* (
 export const createPage = Effect.fn("pages.createPage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createPageInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id, projectId, nickname, pathSegment, parentPageId, layoutId } = yield* decodeInput(
     createPageInput,
     rawInput,
   );
-  yield* getAuthorizedProject(ctx.db, projectId, user.id);
+  const { scope, user } = yield* accessTo(ctx, { project: projectId }, "write");
 
   yield* assertCuratedLayout(ctx, projectId, layoutId, scope);
   let fullPath = `/${pathSegment}`;
@@ -420,7 +412,7 @@ export const createPage = Effect.fn("pages.createPage")(function* (
   invalidatePage(ctx, scope, projectId, page.id);
 
   return { page: yield* pageView(ctx.db, scope, page), fullPath: page.fullPath };
-});
+}, Effect.scoped);
 
 /**
  * Updates a page. Renaming or moving it rewrites the full path of every descendant page, which
@@ -429,16 +421,14 @@ export const createPage = Effect.fn("pages.createPage")(function* (
 export const updatePage = Effect.fn("pages.updatePage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updatePageInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id, ...body } = yield* decodeInput(updatePageInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
+  const { scope, entity: page } = yield* accessTo(ctx, { page: id }, "write");
 
   const pathChanges = new Map<string, string>();
   if (body.pathSegment !== undefined || body.parentPageId !== undefined) {
-    const projectPages = yield* pagesIn(ctx, scope, access.page.projectId);
-    const parentId = body.parentPageId === undefined ? access.page.parentPageId : body.parentPageId;
+    const projectPages = yield* pagesIn(ctx, scope, page.projectId);
+    const parentId = body.parentPageId === undefined ? page.parentPageId : body.parentPageId;
     const parent = projectPages.find((page) => page.id === parentId);
     if (parentId != null && !parent) return yield* new NotFoundError();
     // Reject cycles before calculating paths for this page and its descendants.
@@ -448,24 +438,24 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
         return yield* new InvalidInputError({ message: "A page cannot be its own ancestor" });
       ancestor = projectPages.find((page) => page.id === ancestor!.parentPageId);
     }
-    const fullPath = `${parent?.fullPath.replace(/\/$/, "") ?? ""}/${body.pathSegment ?? access.page.pathSegment}`;
+    const fullPath = `${parent?.fullPath.replace(/\/$/, "") ?? ""}/${body.pathSegment ?? page.pathSegment}`;
     const visit = (pageId: string, path: string) => {
       pathChanges.set(pageId, path);
       for (const child of projectPages.filter((page) => page.parentPageId === pageId))
         visit(child.id, `${path.replace(/\/$/, "")}/${child.pathSegment}`);
     };
     visit(id, fullPath);
-    yield* assertUnreservedPagePaths(ctx, access.page.projectId, [...pathChanges.values()], scope);
+    yield* assertUnreservedPagePaths(ctx, page.projectId, [...pathChanges.values()], scope);
     // Only descendants whose full path changes are rewritten.
     for (const page of projectPages) {
       if (page.id !== id && pathChanges.get(page.id) === page.fullPath) pathChanges.delete(page.id);
     }
   }
 
-  const now = Math.max(Date.now(), access.page.updatedAt + 1);
+  const now = Math.max(Date.now(), page.updatedAt + 1);
   const result = yield* overlay.update(ctx.db, scope, pages, id, {
     ...body,
-    fullPath: pathChanges.get(id) ?? access.page.fullPath,
+    fullPath: pathChanges.get(id) ?? page.fullPath,
     updatedAt: now,
   });
   if (!result) return yield* new NotFoundError();
@@ -473,9 +463,9 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
     if (pageId === id) continue;
     yield* overlay.update(ctx.db, scope, pages, pageId, { fullPath, updatedAt: now });
   }
-  invalidatePage(ctx, scope, access.page.projectId, id);
+  invalidatePage(ctx, scope, page.projectId, id);
   return yield* pageView(ctx.db, scope, result);
-});
+}, Effect.scoped);
 
 /**
  * Deletes a page in a draft: a tombstone. Publishing deletes the page from Live with its
@@ -484,32 +474,28 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
 export const deletePage = Effect.fn("pages.deletePage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deletePageInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deletePageInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
+  const { scope, entity: page } = yield* accessTo(ctx, { page: id }, "write");
   const result = yield* overlay.remove(ctx.db, scope, pages, id);
-  invalidatePage(ctx, scope, access.page.projectId, id);
+  invalidatePage(ctx, scope, page.projectId, id);
   return result;
-});
+}, Effect.scoped);
 
-/** Changes a page's fields as the scope reads it, copying it into a draft on the first write. */
+/** Changes a page's fields in the draft, copying it into the draft on the first write. */
 const writePage = Effect.fn("pages.writePage")(function* (
   ctx: ServiceContext,
   scope: Draft,
-  id: string,
+  page: typeof pages.$inferSelect,
   values: Partial<typeof pages.$inferInsert>,
 ) {
-  const user = yield* requireUser(ctx);
-  const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
-  const result = yield* overlay.update(ctx.db, scope, pages, id, {
+  const result = yield* overlay.update(ctx.db, scope, pages, page.id, {
     ...values,
-    updatedAt: Math.max(Date.now(), access.page.updatedAt + 1),
+    updatedAt: Math.max(Date.now(), page.updatedAt + 1),
   });
   if (!result) return yield* new NotFoundError();
-  invalidatePage(ctx, scope, access.page.projectId, id);
-  return { access, result };
+  invalidatePage(ctx, scope, page.projectId, page.id);
+  return result;
 });
 
 /**
@@ -520,12 +506,10 @@ const writePage = Effect.fn("pages.writePage")(function* (
 export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageSeoInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id, metaTitle, metaDescription, aiSeo } = yield* decodeInput(setPageSeoInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
-  const shown = yield* pageView(ctx.db, scope, access.page);
+  const { scope, entity: page } = yield* accessTo(ctx, { page: id }, "write");
+  const shown = yield* pageView(ctx.db, scope, page);
   const columns =
     aiSeo === true
       ? { metaTitle: null, metaDescription: null }
@@ -533,38 +517,34 @@ export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
           metaTitle: metaTitle ?? shown.metaTitle ?? "",
           metaDescription: metaDescription ?? shown.metaDescription ?? "",
         };
-  const { result } = yield* writePage(ctx, scope, id, columns);
+  const result = yield* writePage(ctx, scope, page, columns);
   if (aiSeo === true) yield* requestPageSeo(ctx, scope, result, 0);
   return yield* pageView(ctx.db, scope, result);
-});
+}, Effect.scoped);
 
 export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageLayoutInput>,
-  scope: Draft,
 ) {
-  const user = yield* requireUser(ctx);
   const { id, layoutId } = yield* decodeInput(setPageLayoutInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
-  yield* assertCuratedLayout(ctx, access.page.projectId, layoutId, scope);
-  return yield* pageView(ctx.db, scope, (yield* writePage(ctx, scope, id, { layoutId })).result);
-});
+  const { scope, entity: page } = yield* accessTo(ctx, { page: id }, "write");
+  yield* assertCuratedLayout(ctx, page.projectId, layoutId, scope);
+  return yield* pageView(ctx.db, scope, yield* writePage(ctx, scope, page, { layoutId }));
+}, Effect.scoped);
 
 /** Generates a page's SEO now, into the scope's generated values. */
 export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof generatePageSeoInput>,
-  scope: DraftScope,
 ) {
-  const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
-  const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
+  const { scope, project } = yield* accessTo(ctx, { page: id }, "member");
 
   yield* executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
-  invalidatePage(ctx, scope, access.page.projectId, id);
+  invalidatePage(ctx, scope, project.id, id);
   const page = yield* overlay.get(ctx.db, scope, pages, id);
   return page ? yield* pageView(ctx.db, scope, page) : undefined;
-});
+}, Effect.scoped);
 
 /** Requests a page's SEO in the scope, unless it's manual (ADR 0012). */
 export const requestPageSeo = Effect.fn("pages.requestPageSeo")(function* (

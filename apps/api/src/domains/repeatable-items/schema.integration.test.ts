@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, drafts, layouts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -128,60 +128,44 @@ describe("direct repeatable item schema enforcement", () => {
     for (const content of [null, [], 2, {}, { count: -1 }, { title: "x", count: 1 }]) {
       await unchanged(db, () =>
         runService(
-          createRepeatableItem(
-            ctx,
-            {
-              blockId: block.id,
-              fieldName: "entries",
-              content,
-            },
-            draft,
-          ),
+          createRepeatableItem(inScope(ctx, draft), {
+            blockId: block.id,
+            fieldName: "entries",
+            content,
+          }),
         ),
       );
     }
     for (const settings of [[], false, { enabled: "yes" }]) {
       await unchanged(db, () =>
         runService(
-          createRepeatableItem(
-            ctx,
-            {
-              blockId: block.id,
-              fieldName: "entries",
-              content: { count: 1 },
-              settings,
-            },
-            draft,
-          ),
+          createRepeatableItem(inScope(ctx, draft), {
+            blockId: block.id,
+            fieldName: "entries",
+            content: { count: 1 },
+            settings,
+          }),
         ),
       );
     }
     const item = await runService(
-      createRepeatableItem(
-        ctx,
-        {
-          blockId: block.id,
-          fieldName: "entries",
-          content: { count: 1 },
-          settings: {},
-        },
-        draft,
-      ),
+      createRepeatableItem(inScope(ctx, draft), {
+        blockId: block.id,
+        fieldName: "entries",
+        content: { count: 1 },
+        settings: {},
+      }),
     );
     expect(item.content).toEqual({ title: "Entry", count: 1 });
     expect(item.settings).toEqual({ enabled: true });
     expect(await db.select().from(repeatableItems)).toHaveLength(1);
     const withoutSettings = await runService(
-      createRepeatableItem(
-        ctx,
-        {
-          blockId: block.id,
-          fieldName: "entries",
-          content: { count: 1 },
-          settings: null,
-        },
-        draft,
-      ),
+      createRepeatableItem(inScope(ctx, draft), {
+        blockId: block.id,
+        fieldName: "entries",
+        content: { count: 1 },
+        settings: null,
+      }),
     );
     expect(withoutSettings.settings).toEqual({ enabled: true });
   });
@@ -190,38 +174,7 @@ describe("direct repeatable item schema enforcement", () => {
     const { db, ctx, block, draft } = await fixture("seeds");
     await unchanged(db, () =>
       runService(
-        createRepeatableItem(
-          ctx,
-          {
-            blockId: block.id,
-            fieldName: "entries",
-            content: { count: 1 },
-            nestedItems: [
-              {
-                tempId: "first",
-                parentTempId: null,
-                fieldName: "children",
-                content: {},
-                position: "a0",
-              },
-              {
-                tempId: "second",
-                parentTempId: null,
-                fieldName: "children",
-                content: { name: "Valid" },
-                settings: { enabled: "no" },
-                position: "a1",
-              },
-            ],
-          },
-          draft,
-        ),
-      ),
-    );
-    const root = await runService(
-      createRepeatableItem(
-        ctx,
-        {
+        createRepeatableItem(inScope(ctx, draft), {
           blockId: block.id,
           fieldName: "entries",
           content: { count: 1 },
@@ -231,13 +184,36 @@ describe("direct repeatable item schema enforcement", () => {
               parentTempId: null,
               fieldName: "children",
               content: {},
-              settings: {},
               position: "a0",
             },
+            {
+              tempId: "second",
+              parentTempId: null,
+              fieldName: "children",
+              content: { name: "Valid" },
+              settings: { enabled: "no" },
+              position: "a1",
+            },
           ],
-        },
-        draft,
+        }),
       ),
+    );
+    const root = await runService(
+      createRepeatableItem(inScope(ctx, draft), {
+        blockId: block.id,
+        fieldName: "entries",
+        content: { count: 1 },
+        nestedItems: [
+          {
+            tempId: "first",
+            parentTempId: null,
+            fieldName: "children",
+            content: {},
+            settings: {},
+            position: "a0",
+          },
+        ],
+      }),
     );
     const childRow = (await db.select().from(repeatableItems)).find(
       (row) => row.parentItemId === root.id,
@@ -249,15 +225,11 @@ describe("direct repeatable item schema enforcement", () => {
   it("validates only submitted update fields and keeps historical invalid fields", async () => {
     const { db, ctx, block, draft } = await fixture("patch");
     const item = await runService(
-      createRepeatableItem(
-        ctx,
-        {
-          blockId: block.id,
-          fieldName: "entries",
-          content: { count: 1 },
-        },
-        draft,
-      ),
+      createRepeatableItem(inScope(ctx, draft), {
+        blockId: block.id,
+        fieldName: "entries",
+        content: { count: 1 },
+      }),
     );
     await db
       .update(repeatableItems)
@@ -268,23 +240,28 @@ describe("direct repeatable item schema enforcement", () => {
       .where(eq(repeatableItems.id, item.id));
     await unchanged(db, () =>
       runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { count: "bad" } }, draft),
+        updateRepeatableItemContent(inScope(ctx, draft), {
+          id: item.id,
+          content: { count: "bad" },
+        }),
       ),
     );
     await unchanged(db, () =>
       runService(
-        updateRepeatableItemSettings(ctx, { id: item.id, settings: { enabled: 1 } }, draft),
+        updateRepeatableItemSettings(inScope(ctx, draft), {
+          id: item.id,
+          settings: { enabled: 1 },
+        }),
       ),
     );
     await runService(
-      updateRepeatableItemContent(ctx, { id: item.id, content: { count: 2 } }, draft),
+      updateRepeatableItemContent(inScope(ctx, draft), { id: item.id, content: { count: 2 } }),
     );
     await runService(
-      updateRepeatableItemSettings(
-        ctx,
-        { id: item.id, settings: { historical: "updated" } },
-        draft,
-      ),
+      updateRepeatableItemSettings(inScope(ctx, draft), {
+        id: item.id,
+        settings: { historical: "updated" },
+      }),
     );
     const updated = await db
       .select()
@@ -299,45 +276,37 @@ describe("direct repeatable item schema enforcement", () => {
     const { db, ctx, block, draft } = await fixture("counts");
     await unchanged(db, () =>
       runService(
-        createRepeatableItem(
-          ctx,
-          {
-            blockId: block.id,
-            parentItemId: "999999",
-            fieldName: "entries",
-            content: { count: 1 },
-          },
-          draft,
-        ),
+        createRepeatableItem(inScope(ctx, draft), {
+          blockId: block.id,
+          parentItemId: "999999",
+          fieldName: "entries",
+          content: { count: 1 },
+        }),
       ),
     );
     const first = await runService(
-      createRepeatableItem(
-        ctx,
-        {
+      createRepeatableItem(inScope(ctx, draft), {
+        blockId: block.id,
+        fieldName: "entries",
+        content: { count: 1 },
+      }),
+    );
+    await unchanged(db, () =>
+      runService(deleteRepeatableItem(inScope(ctx, draft), { id: first.id })),
+    );
+    const second = await runService(duplicateRepeatableItem(inScope(ctx, draft), { id: first.id }));
+    await unchanged(db, () =>
+      runService(duplicateRepeatableItem(inScope(ctx, draft), { id: first.id })),
+    );
+    await unchanged(db, () =>
+      runService(
+        createRepeatableItem(inScope(ctx, draft), {
           blockId: block.id,
           fieldName: "entries",
           content: { count: 1 },
-        },
-        draft,
+        }),
       ),
     );
-    await unchanged(db, () => runService(deleteRepeatableItem(ctx, { id: first.id }, draft)));
-    const second = await runService(duplicateRepeatableItem(ctx, { id: first.id }, draft));
-    await unchanged(db, () => runService(duplicateRepeatableItem(ctx, { id: first.id }, draft)));
-    await unchanged(db, () =>
-      runService(
-        createRepeatableItem(
-          ctx,
-          {
-            blockId: block.id,
-            fieldName: "entries",
-            content: { count: 1 },
-          },
-          draft,
-        ),
-      ),
-    );
-    await runService(deleteRepeatableItem(ctx, { id: second.id }, draft));
+    await runService(deleteRepeatableItem(inScope(ctx, draft), { id: second.id }));
   });
 });

@@ -1,0 +1,344 @@
+import { generateUuidv7 } from "@camox/api-contract/ids";
+import { eq } from "drizzle-orm";
+import { Effect, Exit } from "effect";
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  createProjectFixture,
+  createServiceContext,
+  openDevelopmentDraft,
+  seedLive,
+} from "../../../test/fixtures";
+import { runService } from "../../lib/run-service";
+import {
+  blocks,
+  drafts,
+  endedDrafts,
+  files,
+  member,
+  pages,
+  repeatableItems,
+  user,
+} from "../../schema";
+import type { ServiceContext } from "../_shared/service-context";
+import { accessTo, type AccessMode, type ContentRef } from "./access";
+import * as overlay from "./overlay";
+import type { DraftRequest } from "./scope";
+
+// The access matrix, once for every kind of reference: who may read and write what, in which
+// draft, and how each refusal fails.
+
+const now = 1_700_000_000_000;
+
+async function fixture(suffix: string) {
+  const base = await createProjectFixture(suffix);
+  const { db, project, layout, memberUser, outsiderUser } = base;
+
+  // A second member, whose development draft the first may not use.
+  const [colleague] = await db
+    .insert(user)
+    .values({
+      id: `colleague-${suffix}`,
+      name: "Colleague",
+      email: `colleague-${suffix}@example.com`,
+      emailVerified: true,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    })
+    .returning();
+  await db.insert(member).values({
+    id: `membership-colleague-${suffix}`,
+    organizationId: project.organizationId,
+    userId: colleague.id,
+    role: "member",
+    createdAt: new Date(now),
+  });
+  const colleaguesDevelopmentDraft = await openDevelopmentDraft(db, project.id, colleague.id);
+
+  const openDraft = async (projectId: number) =>
+    (
+      await db
+        .insert(drafts)
+        .values({ projectId, kind: "regular", createdBy: memberUser.id, createdAt: now })
+        .returning()
+        .get()
+    ).id;
+  const draft = await openDraft(project.id);
+  const other = await createProjectFixture(`${suffix}-other`);
+  const otherProjectsDraft = await openDraft(other.project.id);
+  const endedDraft = generateUuidv7();
+  await db.insert(endedDrafts).values({
+    id: endedDraft,
+    projectId: project.id,
+    outcome: "discarded",
+    endedBy: memberUser.id,
+    endedAt: now,
+  });
+
+  const page = await seedLive(db, pages, {
+    projectId: project.id,
+    layoutId: layout.layoutId,
+    pathSegment: "",
+    fullPath: "/",
+    nickname: "Home",
+    contentUpdatedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const block = await seedLive(db, blocks, {
+    projectId: project.id,
+    pageId: page.id,
+    type: "hero",
+    content: {},
+    position: "a0",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const item = await seedLive(db, repeatableItems, {
+    blockId: block.id,
+    fieldName: "links",
+    content: {},
+    position: "a0",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const file = await seedLive(db, files, {
+    projectId: project.id,
+    url: "https://example.com/a.png",
+    mimeType: "image/png",
+    size: 1,
+    blobId: "blob",
+    path: "blob",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const refs: Record<string, ContentRef> = {
+    project: { project: project.id },
+    projectSlug: { projectSlug: project.slug },
+    page: { page: page.id },
+    block: { block: block.id },
+    item: { item: item.id },
+    file: { file: file.id },
+  };
+
+  /** How `access` turns out: "ok" with the scope's draft id, or the error's tag. */
+  const outcome = async (
+    as: ServiceContext["user"],
+    ref: ContentRef,
+    mode: AccessMode,
+    requested: DraftRequest | null = null,
+  ) => {
+    const ctx = { ...createServiceContext(db, as), draft: requested };
+    const exit = await Effect.runPromiseExit(Effect.scoped(accessTo(ctx, ref, mode)));
+    if (Exit.isSuccess(exit)) return `ok:${exit.value.scope?.id ?? "live"}`;
+    const failure = exit.cause.toString();
+    return failure.match(/(\w+Error)/)?.[1] ?? failure;
+  };
+
+  return {
+    ...base,
+    colleague,
+    colleaguesDevelopmentDraft,
+    draft,
+    otherProjectsDraft,
+    endedDraft,
+    page,
+    block,
+    item,
+    file,
+    refs,
+    outcome,
+    outsiderUser,
+    memberUser,
+  };
+}
+
+const kinds = ["project", "projectSlug", "page", "block", "item", "file"] as const;
+
+describe("content access", () => {
+  for (const kind of kinds) {
+    describe(`to a ${kind}`, () => {
+      it("lets anyone read Live, and members read a draft", async () => {
+        const f = await fixture(`access-read-${kind}`);
+        const ref = f.refs[kind];
+
+        expect(await f.outcome(null, ref, "public")).toBe("ok:live");
+        expect(await f.outcome(f.outsiderUser, ref, "public")).toBe("ok:live");
+        expect(await f.outcome(f.memberUser, ref, "public", { id: f.draft, create: false })).toBe(
+          `ok:${f.draft}`,
+        );
+      });
+
+      it("refuses an anonymous caller naming a draft or needing a member, with 401", async () => {
+        const f = await fixture(`access-anonymous-${kind}`);
+        const ref = f.refs[kind];
+
+        expect(await f.outcome(null, ref, "public", { id: f.draft, create: false })).toBe(
+          "UnauthenticatedError",
+        );
+        expect(await f.outcome(null, ref, "member")).toBe("UnauthenticatedError");
+        expect(await f.outcome(null, ref, "write", { id: f.draft, create: false })).toBe(
+          "UnauthenticatedError",
+        );
+      });
+
+      it("refuses an outsider naming a draft or needing a member, with 403", async () => {
+        const f = await fixture(`access-outsider-${kind}`);
+        const ref = f.refs[kind];
+
+        expect(await f.outcome(f.outsiderUser, ref, "public", { id: f.draft, create: false })).toBe(
+          "ForbiddenError",
+        );
+        expect(await f.outcome(f.outsiderUser, ref, "member")).toBe("ForbiddenError");
+        expect(await f.outcome(f.outsiderUser, ref, "write", { id: f.draft, create: true })).toBe(
+          "ForbiddenError",
+        );
+      });
+
+      it("refuses another project's draft with 404, and an ended draft with its outcome", async () => {
+        const f = await fixture(`access-other-draft-${kind}`);
+        const ref = f.refs[kind];
+
+        for (const create of [false, true]) {
+          expect(
+            await f.outcome(f.memberUser, ref, "write", { id: f.otherProjectsDraft, create }),
+          ).toBe("NotFoundError");
+          expect(await f.outcome(f.memberUser, ref, "write", { id: f.endedDraft, create })).toBe(
+            "DraftEndedError",
+          );
+        }
+      });
+
+      it("refuses someone else's development draft with 403, and a missing own one", async () => {
+        const f = await fixture(`access-development-${kind}`);
+        const ref = f.refs[kind];
+
+        expect(
+          await f.outcome(f.memberUser, ref, "write", {
+            id: f.colleaguesDevelopmentDraft,
+            create: false,
+          }),
+        ).toBe("ForbiddenError");
+        expect(await f.outcome(f.memberUser, ref, "write", { development: true })).toBe(
+          "NoDevelopmentDraftError",
+        );
+        expect(await f.outcome(f.colleague, ref, "write", { development: true })).toBe(
+          `ok:${f.colleaguesDevelopmentDraft}`,
+        );
+      });
+
+      it("reads another project's content as missing for a request bound to a project", async () => {
+        const f = await fixture(`access-bound-${kind}`);
+        const ctx = (projectId: number) => ({
+          ...createServiceContext(f.db, f.outsiderUser),
+          draft: null,
+          projectId,
+        });
+        const outcomeIn = async (projectId: number) => {
+          const exit = await Effect.runPromiseExit(
+            Effect.scoped(accessTo(ctx(projectId), f.refs[kind], "member")),
+          );
+          return Exit.isSuccess(exit)
+            ? "ok"
+            : (exit.cause.toString().match(/(\w+Error)/)?.[1] ?? "");
+        };
+
+        expect(await outcomeIn(f.project.id + 100_000)).toBe("NotFoundError");
+        // Bound to its own project, the outsider is refused for not being a member.
+        expect(await outcomeIn(f.project.id)).toBe("ForbiddenError");
+      });
+
+      it("keeps Live read-only: a write naming no draft fails", async () => {
+        const f = await fixture(`access-live-${kind}`);
+
+        expect(await f.outcome(f.memberUser, f.refs[kind], "write")).toBe("LiveReadOnlyError");
+      });
+    });
+  }
+
+  for (const kind of ["page", "block", "item", "file"] as const) {
+    it(`finds no ${kind} that doesn't exist, without falling back to Live`, async () => {
+      const f = await fixture(`access-missing-${kind}`);
+      const missing = { [kind]: generateUuidv7() } as ContentRef;
+
+      expect(await f.outcome(null, missing, "public")).toBe("NotFoundError");
+      expect(await f.outcome(f.memberUser, missing, "write", { id: f.draft, create: false })).toBe(
+        "NotFoundError",
+      );
+    });
+  }
+
+  it("finds an entity the draft created in that draft only, and none the draft deleted", async () => {
+    const f = await fixture("access-draft-only");
+    const scope = { id: f.draft, kind: "regular" as const, projectId: f.project.id };
+    const created = (await runService(
+      overlay.insert(f.db, scope, blocks, {
+        projectId: f.project.id,
+        pageId: f.page.id,
+        type: "hero",
+        content: {},
+        position: "a1",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ))!;
+    await runService(overlay.remove(f.db, scope, blocks, f.block.id));
+    const inDraft = { id: f.draft, create: false };
+
+    expect(await f.outcome(f.memberUser, { block: created.id }, "write", inDraft)).toBe(
+      `ok:${f.draft}`,
+    );
+    expect(await f.outcome(null, { block: created.id }, "public")).toBe("NotFoundError");
+    expect(await f.outcome(f.memberUser, { block: f.block.id }, "write", inDraft)).toBe(
+      "NotFoundError",
+    );
+    // The item of the deleted block has nothing left to belong to in the draft.
+    expect(await f.outcome(f.memberUser, { item: f.item.id }, "write", inDraft)).toBe(
+      "NotFoundError",
+    );
+    expect(await f.outcome(null, { block: f.block.id }, "public")).toBe("ok:live");
+  });
+
+  it("starts a draft with the create header, and drops it again when the service fails", async () => {
+    const f = await fixture("access-start");
+    const ctx = (id: string) => ({
+      ...createServiceContext(f.db, f.memberUser),
+      draft: { id, create: true },
+    });
+    const kept = generateUuidv7();
+    const dropped = generateUuidv7();
+
+    await Effect.runPromise(Effect.scoped(accessTo(ctx(kept), { page: f.page.id }, "write")));
+    const failed = await Effect.runPromiseExit(
+      Effect.scoped(
+        Effect.andThen(accessTo(ctx(dropped), { page: f.page.id }, "write"), Effect.fail("boom")),
+      ),
+    );
+
+    expect(Exit.isFailure(failed)).toBe(true);
+    const exists = async (id: string) =>
+      (await f.db.select().from(drafts).where(eq(drafts.id, id)).get()) !== undefined;
+    expect(await exists(kept)).toBe(true);
+    expect(await exists(dropped)).toBe(false);
+  });
+
+  it("returns the entity as the scope sees it, with its page's path", async () => {
+    const f = await fixture("access-entity");
+    const scope = { id: f.draft, kind: "regular" as const, projectId: f.project.id };
+    await runService(overlay.update(f.db, scope, pages, f.page.id, { fullPath: "/home" }));
+    const ctx = {
+      ...createServiceContext(f.db, f.memberUser),
+      draft: { id: f.draft, create: false },
+    };
+
+    const result = await Effect.runPromise(
+      Effect.scoped(accessTo(ctx, { item: f.item.id }, "write")),
+    );
+
+    expect(result.entity.item.id).toBe(f.item.id);
+    expect(result.entity.pagePath).toBe("/home");
+    expect(result.project.id).toBe(f.project.id);
+    expect(result.user.id).toBe(f.memberUser.id);
+  });
+});

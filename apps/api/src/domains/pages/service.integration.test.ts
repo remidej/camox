@@ -4,6 +4,7 @@ import {
   createProjectFixture,
   createServiceContext,
   seedLiveThrough,
+  inScope,
 } from "../../../test/fixtures";
 import { assertSyncAccess, getAuthorizedProject } from "../../authorization";
 import { runService } from "../../lib/run-service";
@@ -88,13 +89,15 @@ describe("page persistence", () => {
       .returning()
       .get();
     const read = (ctx: typeof memberCtx) =>
-      runService(getPageByPath(ctx, { projectSlug: project.slug, path: page.fullPath }, null));
+      runService(
+        getPageByPath(inScope(ctx, null), { projectSlug: project.slug, path: page.fullPath }),
+      );
 
     expect((await read(visitorCtx)).blocks[0].content).toEqual({ title: "First title" });
 
     // A published edit is visible right away, whoever reads.
     await seedLiveThrough(memberCtx, project.id, (draft) =>
-      updateBlockContent(memberCtx, { id: block.id, content: { title: "Edited" } }, draft),
+      updateBlockContent(inScope(memberCtx, draft), { id: block.id, content: { title: "Edited" } }),
     );
 
     for (const ctx of [visitorCtx, memberCtx]) {

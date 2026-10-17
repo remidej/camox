@@ -35,6 +35,7 @@ import { homeOf, requestGeneration } from "../generated-values/service";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
 import { requestPageSeo } from "../pages/service";
 import { rootOfItem } from "../repeatable-items/roots";
+import { accessTo } from "./access";
 import {
   checkContentProblems,
   type ContentFinding,
@@ -42,7 +43,7 @@ import {
 } from "./content-checks";
 import * as overlay from "./overlay";
 import type { DraftScope } from "./scope";
-import { findEndedDraft, resolveDraftScope } from "./service";
+import { findEndedDraft } from "./service";
 import { describeSubjects, type RecordRow, type Subject } from "./subjects";
 
 export type { Owner, Subject, SubjectKind } from "./subjects";
@@ -366,7 +367,7 @@ const requireDraft = Effect.fn("drafts.requireDraft")(function* (
   ctx: ServiceContext,
   projectId: number,
 ) {
-  const scope = yield* resolveDraftScope(ctx, projectId);
+  const { scope } = yield* Effect.scoped(accessTo(ctx, { project: projectId }, "member"));
   if (!scope) {
     return yield* new InvalidInputError({ message: "Live isn't a draft: name one to publish" });
   }

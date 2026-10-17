@@ -6,12 +6,14 @@ import {
   createProjectFixture,
   createServiceContext,
   seedLiveThrough,
+  inScope,
 } from "../../../test/fixtures";
 import type { ServiceError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, drafts, files, pages } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { createBlock, getBlock } from "../blocks/service";
+import type { DraftScope } from "../drafts/scope";
 import { deleteFile, getFileUsageCount, updateFile } from "../files/service";
 import { createRepeatableItem } from "../repeatable-items/service";
 import type { ResolvedReference } from "./references";
@@ -164,24 +166,20 @@ async function fixture() {
     live((c) => createRecord(c, { ...articles, content: { title, author } }));
   const byline = async (author: string | null) => {
     const block = await seedLiveThrough(ctx, base.project.id, (draft) =>
-      createBlock(ctx, { pageId: page.id, type: "byline", content: { author } }, draft),
+      createBlock(inScope(ctx, draft), { pageId: page.id, type: "byline", content: { author } }),
     );
     const addCoauthor = (coauthor: string) =>
       seedLiveThrough(ctx, base.project.id, (draft) =>
-        createRepeatableItem(
-          ctx,
-          {
-            blockId: block.id,
-            fieldName: "coauthors",
-            content: { author: coauthor },
-          },
-          draft,
-        ),
+        createRepeatableItem(inScope(ctx, draft), {
+          blockId: block.id,
+          fieldName: "coauthors",
+          content: { author: coauthor },
+        }),
       );
     /** The byline's author as Live, or a draft, reads it. */
     return Object.assign(
-      async (scope: Parameters<typeof getBlock>[2] = null) =>
-        (await runService(getBlock(ctx, { id: block.id }, scope))).block.references
+      async (scope: DraftScope = null) =>
+        (await runService(getBlock(inScope(ctx, scope), { id: block.id }))).block.references
           .author as ResolvedReference | null,
       { addCoauthor },
     );
@@ -238,22 +236,18 @@ describe("used in counts", () => {
       createdAt: 1,
       updatedAt: 1,
     });
-    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }, null))).toEqual({
+    expect(await runService(getFileUsageCount(inScope(f.ctx, null), { id: short.id }))).toEqual({
       count: 0,
     });
 
     await seedLiveThrough(f.ctx, f.project.id, (draft) =>
-      createBlock(
-        f.ctx,
-        {
-          pageId: f.page.id,
-          type: "picture",
-          content: { image: { _fileId: short.id } },
-        },
-        draft,
-      ),
+      createBlock(inScope(f.ctx, draft), {
+        pageId: f.page.id,
+        type: "picture",
+        content: { image: { _fileId: short.id } },
+      }),
     );
-    expect(await runService(getFileUsageCount(f.ctx, { id: short.id }, null))).toEqual({
+    expect(await runService(getFileUsageCount(inScope(f.ctx, null), { id: short.id }))).toEqual({
       count: 1,
     });
   });
@@ -392,7 +386,11 @@ describe("files in records", () => {
     });
 
     await seedLiveThrough(f.ctx, f.project.id, (draft) =>
-      updateFile(f.ctx, { projectId: f.project.id, id: file.id, alt: "Ada at her desk" }, draft),
+      updateFile(inScope(f.ctx, draft), {
+        projectId: f.project.id,
+        id: file.id,
+        alt: "Ada at her desk",
+      }),
     );
 
     const read = await runService(getCollectionRecord(f.ctx, { ...f.authors, id: ada.id }));
@@ -417,11 +415,13 @@ describe("files in records", () => {
     const f = await fixture();
     const file = await f.insertFile(freshFileId());
     const ada = await f.createAuthor("Ada", { _fileId: file.id });
-    expect(await runService(getFileUsageCount(f.ctx, { id: file.id }, null))).toEqual({ count: 1 });
+    expect(await runService(getFileUsageCount(inScope(f.ctx, null), { id: file.id }))).toEqual({
+      count: 1,
+    });
 
     // Publishing refuses to delete a file Live uses (ADR 0009), so the deletion stays in a draft.
     const draft = await f.openDraft();
-    await runService(deleteFile(f.ctx, { id: file.id }, draft.scope));
+    await runService(deleteFile(inScope(f.ctx, draft.scope), { id: file.id }));
 
     const read = await runService(getCollectionRecord(draft.ctx, { ...f.authors, id: ada.id }));
     expect(read.content.portrait).toBeNull();

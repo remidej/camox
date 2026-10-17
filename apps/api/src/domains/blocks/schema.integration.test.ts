@@ -2,7 +2,7 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import { createProjectFixture, createServiceContext, inScope } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, drafts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -112,17 +112,13 @@ describe("block JSON Schema writes", () => {
   it("fills defaults, validates ordinary schemas, and canonicalizes asset lists", async () => {
     const { db, ctx, page, draft } = await fixture("defaults");
     const block = await runService(
-      createBlock(
-        ctx,
-        {
-          pageId: page.id,
-          type: "schema",
-          content: {
-            gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b", url: "invented" }],
-          },
+      createBlock(inScope(ctx, draft), {
+        pageId: page.id,
+        type: "schema",
+        content: {
+          gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b", url: "invented" }],
         },
-        draft,
-      ),
+      }),
     );
     expect(block.content).toEqual({
       title: "Default",
@@ -136,10 +132,10 @@ describe("block JSON Schema writes", () => {
     expect(items[0].content).toEqual({ title: "Default" });
     expect(items[0].settings).toEqual({ visible: true });
     await runService(
-      updateBlockContent(ctx, { id: block.id, content: { title: "Changed" } }, draft),
+      updateBlockContent(inScope(ctx, draft), { id: block.id, content: { title: "Changed" } }),
     );
     await runService(
-      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, draft),
+      updateBlockSettings(inScope(ctx, draft), { id: block.id, settings: { align: "right" } }),
     );
     for (const content of [
       null,
@@ -156,7 +152,7 @@ describe("block JSON Schema writes", () => {
     ]) {
       const before = await snapshot(db);
       await expect(
-        runService(updateBlockContent(ctx, { id: block.id, content }, draft)),
+        runService(updateBlockContent(inScope(ctx, draft), { id: block.id, content })),
       ).rejects.toMatchObject({
         code: "BAD_REQUEST",
         data: { field: expect.any(String) },
@@ -170,43 +166,35 @@ describe("block JSON Schema writes", () => {
     const beforeCreate = await snapshot(db);
     await expect(
       runService(
-        createBlock(
-          ctx,
-          {
-            pageId: page.id,
-            type: "schema",
-            content: {},
-            repeatableItems: [
-              {
-                tempId: "one",
-                parentTempId: null,
-                fieldName: "items",
-                position: "a0",
-                content: {},
-                settings: { visible: "yes" },
-              },
-            ],
-          },
-          draft,
-        ),
+        createBlock(inScope(ctx, draft), {
+          pageId: page.id,
+          type: "schema",
+          content: {},
+          repeatableItems: [
+            {
+              tempId: "one",
+              parentTempId: null,
+              fieldName: "items",
+              position: "a0",
+              content: {},
+              settings: { visible: "yes" },
+            },
+          ],
+        }),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await snapshot(db)).toEqual(beforeCreate);
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, draft),
+      createBlock(inScope(ctx, draft), { pageId: page.id, type: "schema", content: {} }),
     );
     const beforeEdit = await snapshot(db);
     await expect(
       runService(
-        editBlock(
-          ctx,
-          {
-            id: block.id,
-            content: { title: "Changed" },
-            settings: { align: "center" },
-          },
-          draft,
-        ),
+        editBlock(inScope(ctx, draft), {
+          id: block.id,
+          content: { title: "Changed" },
+          settings: { align: "center" },
+        }),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await snapshot(db)).toEqual(beforeEdit);
@@ -215,7 +203,7 @@ describe("block JSON Schema writes", () => {
   it("plans reference edits before mutation and does not revalidate omitted historical fields", async () => {
     const { db, ctx, page, draft } = await fixture("references");
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, draft),
+      createBlock(inScope(ctx, draft), { pageId: page.id, type: "schema", content: {} }),
     );
     const item = (await db
       .select()
@@ -226,14 +214,10 @@ describe("block JSON Schema writes", () => {
       const before = await snapshot(db);
       await expect(
         runService(
-          updateBlockContent(
-            ctx,
-            {
-              id: block.id,
-              content: { items: [{ _itemId: item.id, title: "Changed" }, second] },
-            },
-            draft,
-          ),
+          updateBlockContent(inScope(ctx, draft), {
+            id: block.id,
+            content: { items: [{ _itemId: item.id, title: "Changed" }, second] },
+          }),
         ),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
       expect(await snapshot(db)).toEqual(before);
@@ -247,17 +231,13 @@ describe("block JSON Schema writes", () => {
       .set({ content: { title: 42 } })
       .where(eq(repeatableItems.id, item.id));
     await runService(
-      updateBlockContent(
-        ctx,
-        {
-          id: block.id,
-          content: { count: 3, items: [{ _itemId: item.id }] },
-        },
-        draft,
-      ),
+      updateBlockContent(inScope(ctx, draft), {
+        id: block.id,
+        content: { count: 3, items: [{ _itemId: item.id }] },
+      }),
     );
     await runService(
-      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, draft),
+      updateBlockSettings(inScope(ctx, draft), { id: block.id, settings: { align: "right" } }),
     );
     expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
       title: 42,

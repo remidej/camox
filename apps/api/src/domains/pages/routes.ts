@@ -1,5 +1,5 @@
+import { runService } from "../../lib/run-service";
 import { authed, contentWrite, pub } from "../../orpc";
-import { inScope, projectOfPage, projectOfSlug, inWriteDraft } from "../drafts/request-scope";
 import * as service from "./service";
 
 // Every procedure reads and writes pages in the draft the request names (ADR 0011).
@@ -8,89 +8,49 @@ import * as service from "./service";
 
 const getByPath = pub
   .input(service.getPageByPathInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
-      service.getPageByPath(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getPageByPath(context, input)));
 
 const getStructure = pub
   .input(service.getPageStructureInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
-      service.getPageStructure(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getPageStructure(context, input)));
 
 const list = pub
   .input(service.listPagesInput)
-  .handler(({ context, input }) =>
-    inScope(context, input.projectId, (scope) => service.listPages(context, input, scope)),
-  );
+  .handler(({ context, input }) => runService(service.listPages(context, input)));
 
 const listBySlug = pub
   .input(service.listPagesBySlugInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfSlug(context, input.projectSlug), (scope) =>
-      service.listPagesBySlug(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.listPagesBySlug(context, input)));
 
 const get = pub
   .input(service.getPageInput)
-  .handler(({ context, input }) =>
-    inScope(context, "id" in input ? projectOfPage(context, input.id) : input.projectId, (scope) =>
-      service.getPage(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.getPage(context, input)));
 
 // Protected procedures
 
 const create = contentWrite
   .input(service.createPageInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, input.projectId, (scope) => service.createPage(context, input, scope)),
-  );
+  .handler(({ context, input }) => runService(service.createPage(context, input)));
 
 const update = contentWrite
   .input(service.updatePageInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
-      service.updatePage(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.updatePage(context, input)));
 
 const deleteFn = contentWrite
   .input(service.deletePageInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
-      service.deletePage(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.deletePage(context, input)));
 
 const setSeo = contentWrite
   .input(service.setPageSeoInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
-      service.setPageSeo(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.setPageSeo(context, input)));
 
 const setLayout = contentWrite
   .input(service.setPageLayoutInput)
-  .handler(({ context, input }) =>
-    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
-      service.setPageLayout(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.setPageLayout(context, input)));
 
 const generateSeo = authed
   .input(service.generatePageSeoInput)
-  .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.id), (scope) =>
-      service.generatePageSeo(context, input, scope),
-    ),
-  );
+  .handler(({ context, input }) => runService(service.generatePageSeo(context, input)));
 
 export const pageProcedures = {
   getByPath,

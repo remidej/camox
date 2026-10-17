@@ -4,7 +4,7 @@ import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { assertSyncAccess, getAuthorizedProjectBySlug, requireUser } from "../../authorization";
+import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { contentToMarkdown } from "../../lib/content-markdown";
 import {
@@ -16,15 +16,14 @@ import {
 } from "../../lib/errors";
 import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { stableStringify } from "../../lib/stable-stringify";
-import { projects } from "../../schema";
 import { conformRecordContent } from "../_shared/conform-content";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { referencesTo } from "../_shared/references-to";
 import { collectionSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
+import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
-import { inDraft, inDraftScope, resolveDraftScope } from "../drafts/service";
 import { recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
@@ -244,9 +243,7 @@ export const getRecordUsageCount = Effect.fn("collections.getRecordUsageCount")(
 export const listCollectionDefinitions = Effect.fn("collections.listCollectionDefinitions")(
   function* (ctx: ServiceContext, rawInput: z.input<typeof listCollectionDefinitionsInput>) {
     const input = yield* decodeInput(listCollectionDefinitionsInput, rawInput);
-    const user = yield* requireUser(ctx);
-    const project = yield* getAuthorizedProjectBySlug(ctx.db, input.projectSlug, user.id);
-    const scope = yield* resolveDraftScope(ctx, project.id);
+    const { project, scope } = yield* accessTo(ctx, { projectSlug: input.projectSlug }, "member");
     return yield* Effect.promise(() =>
       ctx.db
         .select({
@@ -266,6 +263,7 @@ export const listCollectionDefinitions = Effect.fn("collections.listCollectionDe
         .orderBy(desc(collectionDefinitions.rowId)),
     );
   },
+  Effect.scoped,
 );
 
 export const getCollectionDefinition = Effect.fn("collections.getCollectionDefinition")(function* (
@@ -273,12 +271,11 @@ export const getCollectionDefinition = Effect.fn("collections.getCollectionDefin
   rawInput: z.input<typeof getCollectionDefinitionInput>,
 ) {
   const input = yield* decodeInput(getCollectionDefinitionInput, rawInput);
-  const project = yield* projectFor(ctx, input, true);
-  const scope = yield* resolveDraftScope(ctx, project.id);
+  const { project, scope } = yield* accessTo(ctx, { projectSlug: input.projectSlug }, "member");
   const definition = yield* definitionFor(ctx, project.id, input.collectionId, scope);
   const { collectionId, title, description, label, contentSchema } = definition;
   return { collectionId, title, description, label, contentSchema };
-});
+}, Effect.scoped);
 
 /**
  * The studio's record list: each record's id and plain text label, newest first, and whether
@@ -340,21 +337,6 @@ const duplicatePageValueIds = Effect.fn("collections.duplicatePageValueIds")(fun
   );
 });
 
-const projectFor = Effect.fn("collections.projectFor")(function* (
-  ctx: ServiceContext,
-  input: z.infer<typeof scopeInput>,
-  authorized: boolean,
-) {
-  const user = authorized ? yield* requireUser(ctx) : null;
-  const project = user
-    ? yield* getAuthorizedProjectBySlug(ctx.db, input.projectSlug, user.id)
-    : yield* Effect.promise(() =>
-        ctx.db.select().from(projects).where(eq(projects.slug, input.projectSlug)).get(),
-      );
-  if (!project) return yield* new NotFoundError();
-  return project;
-});
-
 /** A collection's definition, as a draft scope reads definitions (ADR 0006). */
 const definitionFor = Effect.fn("collections.definitionFor")(function* (
   ctx: ServiceContext,
@@ -380,8 +362,8 @@ const definitionFor = Effect.fn("collections.definitionFor")(function* (
 });
 
 /**
- * Runs `run` on a collection, read in the draft the request names or in Live. A write that
- * starts the draft and fails leaves no draft behind.
+ * Runs `run` on a collection, read in the draft the request names or in Live: for members only
+ * when `authorized`. A write that starts the draft and fails leaves no draft behind.
  */
 const inCollection = <A>(
   ctx: ServiceContext,
@@ -389,11 +371,13 @@ const inCollection = <A>(
   authorized: boolean,
   run: (definition: ScopedDefinition) => Effect.Effect<A, ServiceError>,
 ) =>
-  Effect.flatMap(projectFor(ctx, input, authorized), (project) =>
-    inDraftScope(ctx, project.id, (draft) =>
-      Effect.flatMap(definitionFor(ctx, project.id, input.collectionId, draft), (definition) =>
-        run({ ...definition, draft }),
-      ),
+  Effect.scoped(
+    Effect.flatMap(
+      accessTo(ctx, { projectSlug: input.projectSlug }, authorized ? "member" : "public"),
+      ({ project, scope }) =>
+        Effect.flatMap(definitionFor(ctx, project.id, input.collectionId, scope), (definition) =>
+          run({ ...definition, draft: scope }),
+        ),
     ),
   );
 
@@ -406,11 +390,13 @@ const inCollectionDraft = <A>(
   input: z.infer<typeof scopeInput>,
   run: (definition: Definition & { draft: Draft }) => Effect.Effect<A, ServiceError>,
 ) =>
-  Effect.flatMap(projectFor(ctx, input, true), (project) =>
-    inDraft(ctx, project.id, (draft) =>
-      Effect.flatMap(definitionFor(ctx, project.id, input.collectionId, draft), (definition) =>
-        run({ ...definition, draft }),
-      ),
+  Effect.scoped(
+    Effect.flatMap(
+      accessTo(ctx, { projectSlug: input.projectSlug }, "write"),
+      ({ project, scope }) =>
+        Effect.flatMap(definitionFor(ctx, project.id, input.collectionId, scope), (definition) =>
+          run({ ...definition, draft: scope }),
+        ),
     ),
   );
 

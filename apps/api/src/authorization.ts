@@ -1,10 +1,9 @@
 import { DEVELOPMENT_DRAFT, DRAFT_HEADER } from "@camox/api-contract/drafts";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "./db";
 import { ensureDevelopmentDraft, findDevelopmentDraft } from "./domains/drafts/development";
-import { visibleIn } from "./domains/drafts/overlay";
 import type { DraftRequest, DraftScope } from "./domains/drafts/scope";
 import {
   ForbiddenError,
@@ -13,7 +12,7 @@ import {
   type ServiceError,
   UnauthenticatedError,
 } from "./lib/errors";
-import { member, blocks, pages, projects, repeatableItems } from "./schema";
+import { member, projects } from "./schema";
 
 // --- Definition Sync ---
 
@@ -152,90 +151,4 @@ export const getAuthorizedProject = Effect.fn("getAuthorizedProject")(function* 
   if (!project) return yield* new NotFoundError();
   yield* assertProjectMembership(db, projectId, userId);
   return project;
-});
-
-export const getAuthorizedProjectBySlug = Effect.fn("getAuthorizedProjectBySlug")(function* (
-  db: Database,
-  slug: string,
-  userId: string,
-) {
-  const project = yield* Effect.promise(() =>
-    db.select().from(projects).where(eq(projects.slug, slug)).get(),
-  );
-  if (!project) return yield* new NotFoundError();
-  yield* assertProjectMembership(db, project.id, userId);
-  return project;
-});
-
-/** The page as a scope reads it (Live when `null`), if the user is a member of its project. */
-export const assertPageAccess = Effect.fn("assertPageAccess")(function* (
-  db: Database,
-  pageId: string,
-  userId: string,
-  scope: DraftScope,
-) {
-  const result = yield* Effect.promise(() =>
-    db
-      .select({ page: pages, projectId: projects.id })
-      .from(pages)
-      .innerJoin(projects, eq(projects.id, pages.projectId))
-      .where(and(visibleIn(pages, scope), eq(pages.id, pageId)))
-      .get(),
-  );
-  if (!result) return yield* new NotFoundError();
-  // A draft holds content of its own project only.
-  if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
-  yield* assertProjectMembership(db, result.projectId, userId);
-  return result;
-});
-
-/** The block as a scope reads it (Live when `null`), if the user is a member of its project. */
-export const assertBlockAccess = Effect.fn("assertBlockAccess")(function* (
-  db: Database,
-  blockId: string,
-  userId: string,
-  scope: DraftScope,
-) {
-  const result = yield* Effect.promise(() =>
-    db
-      .select({ block: blocks, projectId: blocks.projectId, pagePath: pages.fullPath })
-      .from(blocks)
-      .leftJoin(pages, and(eq(blocks.pageId, pages.id), visibleIn(pages, scope)))
-      .where(and(visibleIn(blocks, scope), eq(blocks.id, blockId)))
-      .get(),
-  );
-  if (!result) return yield* new NotFoundError();
-  // A draft holds content of its own project only.
-  if (scope && scope.projectId !== result.projectId) return yield* new NotFoundError();
-  yield* assertProjectMembership(db, result.projectId, userId);
-  return result;
-});
-
-/** The item as a scope reads it (Live when `null`), if the user is a member of its project. */
-export const assertRepeatableItemAccess = Effect.fn("assertRepeatableItemAccess")(function* (
-  db: Database,
-  itemId: string,
-  userId: string,
-  scope: DraftScope,
-) {
-  const result = yield* Effect.promise(() =>
-    db
-      .select({
-        item: repeatableItems,
-        projectId: sql<number | null>`coalesce(${blocks.projectId}, ${repeatableItems.projectId})`,
-        pagePath: pages.fullPath,
-      })
-      .from(repeatableItems)
-      // An item's tree is rooted in a block or in a synced definition's shared content.
-      .leftJoin(blocks, and(eq(repeatableItems.blockId, blocks.id), visibleIn(blocks, scope)))
-      .leftJoin(pages, and(eq(blocks.pageId, pages.id), visibleIn(pages, scope)))
-      .where(and(visibleIn(repeatableItems, scope), eq(repeatableItems.id, itemId)))
-      .get(),
-  );
-  // An item whose block is gone has no project to belong to.
-  if (!result || result.projectId === null) return yield* new NotFoundError();
-  const { projectId } = result;
-  if (scope && scope.projectId !== projectId) return yield* new NotFoundError();
-  yield* assertProjectMembership(db, projectId, userId);
-  return { ...result, projectId };
 });
