@@ -1,8 +1,7 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
-import babelPlugin from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 
 import { checkoutHostname } from "../../scripts/dev-hostname";
@@ -22,8 +21,7 @@ const config = defineConfig({
     cloudflare({ viteEnvironment: { name: "ssr" } }),
     tailwindcss(),
     tanstackStart(),
-    react(),
-    babelPlugin({ presets: [reactCompilerPreset()] }),
+    react({ compiler: true }),
   ],
   optimizeDeps: {
     include: ["@daveyplate/better-auth-ui"],
