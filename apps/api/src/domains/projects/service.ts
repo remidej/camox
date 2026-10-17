@@ -25,12 +25,12 @@ import {
   sharedContents,
 } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
-import { fieldsOf } from "../_shared/fields";
+import { type Field, fieldsOf, pointersOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import { prepareBlockContent } from "../blocks/prepare-content";
 import { requestBlockSummary } from "../blocks/service";
 import { adoptSharedContent } from "../blocks/shared-content";
-import { resolveReferences, validateReferenceValues } from "../collections/references";
+import { validateReferenceValues } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import { visibleIn } from "../drafts/overlay";
 import type { WriteTarget } from "../drafts/scope";
@@ -421,9 +421,11 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
   for (const block of preparedBlocks) {
     const scope = { projectId: project.id, draft };
     const schema = definitionsByType.get(block.type)?.contentSchema;
+    // Validation finds every record a reference names in scope; a required one must name one.
     yield* validateReferenceValues(ctx, scope, schema, block.bundle);
-    const resolved = yield* resolveReferences(ctx, scope, schema, block.content);
-    if (fieldsOf(schema).some((f) => f.kind === "Reference" && f.required && !resolved[f.name])) {
+    const content = block.content as Record<string, unknown>;
+    const empty = (field: Field) => pointersOf(field, content[field.name]).length === 0;
+    if (fieldsOf(schema).some((f) => f.kind === "Reference" && f.required && empty(f))) {
       return yield* new InvalidInputError({
         message: "Bootstrap requires its required references to link existing records",
       });

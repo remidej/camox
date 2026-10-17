@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Database } from "../../db";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import { blockDefinitions, blocks, pages, repeatableItems } from "../../schema";
+import { nestChildItems } from "../_shared/block-markers";
 import { conformBlocks } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
 import { withSharedContent } from "../blocks/shared-content";
@@ -238,31 +239,3 @@ export const runPageSeoJob = Effect.fn("pages.runPageSeoJob")(function* (
   if (scope === undefined) return undefined;
   return yield* executePageSeo(db, apiKey, job.entityId, scope, abortController);
 });
-
-// --- Content Assembly Helpers ---
-
-/** Recursively nest child items into their parent item's content. */
-export function nestChildItems(
-  allItems: { id: string; parentItemId: string | null; fieldName: string; content: unknown }[],
-) {
-  const childrenByParent = new Map<string, Map<string, typeof allItems>>();
-  for (const item of allItems) {
-    if (item.parentItemId === null) continue;
-    let fieldMap = childrenByParent.get(item.parentItemId);
-    if (!fieldMap) {
-      fieldMap = new Map();
-      childrenByParent.set(item.parentItemId, fieldMap);
-    }
-    const list = fieldMap.get(item.fieldName) ?? [];
-    list.push(item);
-    fieldMap.set(item.fieldName, list);
-  }
-  for (const item of allItems) {
-    const childFields = childrenByParent.get(item.id);
-    if (!childFields) continue;
-    const content = item.content as Record<string, unknown>;
-    for (const [fieldName, children] of childFields) {
-      content[fieldName] = children;
-    }
-  }
-}

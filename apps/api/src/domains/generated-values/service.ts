@@ -49,33 +49,60 @@ export const readValues = Effect.fn("generatedValues.read")(function* <T extends
   type: T,
   ids: readonly string[],
 ) {
-  const shown = new Map<string, ShownValue<T>>();
-  const unique = [...new Set(ids)];
-  for (let start = 0; start < unique.length; start += CHUNK) {
+  const shown = yield* readValuesOf(db, scope, type, { [entity]: ids });
+  return shown.get(entity) ?? new Map<string, ShownValue<T>>();
+});
+
+/**
+ * The values of entities of several kinds as a scope reads them, by kind then entity id, in one
+ * query per chunk of ids. Missing ids have no value.
+ */
+export const readValuesOf = Effect.fn("generatedValues.readOf")(function* <T extends GeneratedType>(
+  db: Database,
+  scope: DraftScope,
+  type: T,
+  idsByEntity: Partial<Record<GeneratedEntity, readonly string[]>>,
+) {
+  const shown = new Map<GeneratedEntity, Map<string, ShownValue<T>>>();
+  const wanted = (Object.entries(idsByEntity) as [GeneratedEntity, readonly string[]][]).flatMap(
+    ([entity, ids]) => [...new Set(ids)].map((id) => ({ entity, id })),
+  );
+  const keyOf = (entity: string, id: string) => `${entity}\u0000${id}`;
+  const asked = new Set(wanted.map(({ entity, id }) => keyOf(entity, id)));
+  for (let start = 0; start < wanted.length; start += CHUNK) {
+    const chunk = wanted.slice(start, start + CHUNK);
     const rows = yield* Effect.promise(() =>
       db
         .select()
         .from(generatedValues)
         .where(
           and(
-            eq(generatedValues.entity, entity),
+            inArray(generatedValues.entity, [...new Set(chunk.map(({ entity }) => entity))]),
             eq(generatedValues.type, type),
-            inArray(generatedValues.entityId, unique.slice(start, start + CHUNK)),
+            inArray(generatedValues.entityId, [...new Set(chunk.map(({ id }) => id))]),
             scope
               ? or(isNull(generatedValues.draftId), eq(generatedValues.draftId, scope.id))
               : isNull(generatedValues.draftId),
           ),
         ),
     );
-    const live = new Map(rows.filter((r) => r.draftId === null).map((r) => [r.entityId, r]));
-    const own = new Map(rows.filter((r) => r.draftId !== null).map((r) => [r.entityId, r]));
-    for (const id of new Set(rows.map((r) => r.entityId))) {
-      const draftRow = own.get(id);
-      const liveRow = live.get(id);
+    const relevant = rows.filter((row) => asked.has(keyOf(row.entity, row.entityId)));
+    const live = new Map(
+      relevant.filter((r) => r.draftId === null).map((r) => [keyOf(r.entity, r.entityId), r]),
+    );
+    const own = new Map(
+      relevant.filter((r) => r.draftId !== null).map((r) => [keyOf(r.entity, r.entityId), r]),
+    );
+    for (const row of relevant) {
+      const key = keyOf(row.entity, row.entityId);
+      const draftRow = own.get(key);
+      const liveRow = live.get(key);
       // A draft that hasn't generated its own value yet still shows Live's meanwhile.
       const value = (draftRow?.value ?? liveRow?.value ?? null) as GeneratedValues[T] | null;
       const pending = (draftRow ?? liveRow)?.requestedAt != null;
-      shown.set(id, { value, pending });
+      const byId = shown.get(row.entity) ?? new Map<string, ShownValue<T>>();
+      byId.set(row.entityId, { value, pending });
+      shown.set(row.entity, byId);
     }
   }
   return shown;

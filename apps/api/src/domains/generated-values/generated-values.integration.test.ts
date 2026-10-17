@@ -180,6 +180,44 @@ describe("summaries in drafts", () => {
     expect((await preview(draft)).conflicts).toEqual([]);
   });
 
+  it("come with the block a write or a generation responds with", async () => {
+    const { createBlock, editTitle, summarize, member } = await fixture();
+    const block = await createBlock("Live");
+    await summarize(block.id, null, "Live summary");
+
+    expect((await editTitle(block.id, "Edited")).summary).toBe("Live summary");
+    chat.mockResolvedValueOnce("Fresh summary");
+    const generated = await call(router.blocks.generateSummary, { id: block.id }, member());
+    expect(generated).toMatchObject({ summary: "Fresh summary", content: { title: "Edited" } });
+  });
+
+  it("come with a synced placement's shared content when generated through it", async () => {
+    const { db, project, page, member } = await fixture();
+    await runService(
+      upsertBlockDefinition(createServiceContext(db, null), {
+        projectSlug: project.slug,
+        deployToken: project.deployToken,
+        blockId: "banner",
+        title: "Banner",
+        description: "Banner",
+        synced: true,
+        contentSchema: {
+          type: "object",
+          properties: { title: { fieldType: "String", type: "string" } },
+        },
+      }),
+    );
+    const placement = await callSeedingLive(
+      router.blocks.create,
+      { pageId: page.id, type: "banner", content: { title: "Shared" } },
+      member(),
+    );
+
+    chat.mockResolvedValueOnce("Banner summary");
+    const generated = await call(router.blocks.generateSummary, { id: placement.id }, member());
+    expect(generated).toMatchObject({ summary: "Banner summary", content: { title: "Shared" } });
+  });
+
   it("fall back to Live's where the draft generated none", async () => {
     const { createBlock, editTitle, summaryIn, summarize } = await fixture();
     const block = await createBlock("Live");

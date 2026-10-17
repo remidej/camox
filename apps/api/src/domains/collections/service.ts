@@ -6,7 +6,6 @@ import { z } from "zod";
 
 import { assertSyncAccess } from "../../authorization";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import { contentToMarkdown } from "../../lib/content-markdown";
 import {
   ConflictError,
   decodeInput,
@@ -14,20 +13,18 @@ import {
   NotFoundError,
   type ServiceError,
 } from "../../lib/errors";
-import { lexicalStateToPlainText } from "../../lib/lexical-state";
 import { stableStringify } from "../../lib/stable-stringify";
-import { conformRecordContent } from "../_shared/conform-content";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
+import { fieldOf } from "../_shared/fields";
 import { referencesTo } from "../_shared/references-to";
 import { collectionSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
+import { contentReader, type ContentReader } from "../content/reader";
 import { accessTo, type AccessMode, type ContentAccess } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { recordsOf } from "./identity";
-import { resolveRecordFiles } from "./record-files";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
-import { resolveReferences } from "./references";
 import { collectionDefinitions, collectionRecords } from "./schema";
 import { collectionDefinitionInput, validateContent } from "./validation";
 
@@ -165,23 +162,20 @@ type Definition = typeof collectionDefinitions.$inferSelect;
 type ScopedDefinition = Definition & { draft: DraftScope };
 type RecordRow = typeof collectionRecords.$inferSelect;
 
+/** A collection as one request reads it: its definition, and the reader of its scope. */
+type Collection = { definition: ScopedDefinition; read: ContentReader };
+
 /**
  * A record as reads return it: its current content conformed to its collection's definition
- * (ADR 0007), with its files resolved.
+ * (ADR 0007), with its files resolved and the records it links.
  */
 const recordView = Effect.fn("collections.recordView")(function* (
-  ctx: ServiceContext,
-  definition: ScopedDefinition,
+  { read, definition }: Collection,
   record: RecordRow,
 ) {
-  const { id, collectionId, createdAt, updatedAt } = record;
-  const content = yield* resolveRecordFiles(
-    ctx,
-    definition,
-    definition.contentSchema,
-    conformRecordContent(definition.contentSchema, record.content),
-  );
-  return { id, collectionId, content, createdAt, updatedAt };
+  const [view] = yield* read.records(definition.collectionId, [record]);
+  const { id, collectionId, content, createdAt, updatedAt, references } = view!;
+  return { id, collectionId, content, createdAt, updatedAt, references };
 });
 
 export const getCollectionRecord = Effect.fn("collections.getCollectionRecord")(function* (
@@ -189,11 +183,11 @@ export const getCollectionRecord = Effect.fn("collections.getCollectionRecord")(
   rawInput: z.input<typeof getCollectionRecordInput>,
 ) {
   const input = yield* decodeInput(getCollectionRecordInput, rawInput);
-  return yield* inCollection(ctx, input, "member", (definition) =>
+  return yield* inCollection(ctx, input, "member", (collection) =>
     Effect.gen(function* () {
-      const record = yield* recordIn(ctx, definition, input.id);
+      const record = yield* recordIn(ctx, collection.definition, input.id);
       if (!record) return yield* new NotFoundError();
-      return yield* recordRead(ctx, definition, record);
+      return yield* recordRead(ctx, collection, record);
     }),
   );
 });
@@ -204,18 +198,16 @@ export const getCollectionRecord = Effect.fn("collections.getCollectionRecord")(
  */
 const recordRead = Effect.fn("collections.recordRead")(function* (
   ctx: ServiceContext,
-  definition: ScopedDefinition,
+  collection: Collection,
   record: RecordRow,
 ) {
+  const { definition } = collection;
   const records = yield* Effect.promise(() =>
-    ctx.db
-      .select({ id: collectionRecords.id, content: collectionRecords.content })
-      .from(collectionRecords)
-      .where(recordsOf(definition, definition.draft)),
+    ctx.db.select().from(collectionRecords).where(recordsOf(definition, definition.draft)),
   );
-  const duplicates = yield* duplicatePageValueIds(ctx, definition, records);
+  const duplicates = yield* duplicatePageValueIds(ctx, collection, records);
   return {
-    ...(yield* recordView(ctx, definition, record)),
+    ...(yield* recordView(collection, record)),
     duplicatePageValue: duplicates.has(record.id),
   };
 });
@@ -230,7 +222,7 @@ export const getRecordUsageCount = Effect.fn("collections.getRecordUsageCount")(
   rawInput: z.input<typeof getRecordUsageCountInput>,
 ) {
   const input = yield* decodeInput(getRecordUsageCountInput, rawInput);
-  return yield* inCollection(ctx, input, "member", (definition) =>
+  return yield* inCollection(ctx, input, "member", ({ definition }) =>
     Effect.gen(function* () {
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();
@@ -272,7 +264,9 @@ export const getCollectionDefinition = Effect.fn("collections.getCollectionDefin
 ) {
   const input = yield* decodeInput(getCollectionDefinitionInput, rawInput);
   const { project, scope } = yield* accessTo(ctx, { projectSlug: input.projectSlug }, "member");
-  const definition = yield* definitionFor(ctx, project.id, input.collectionId, scope);
+  const read = contentReader(ctx, { projectId: project.id, draft: scope });
+  const definition = yield* read.collection(input.collectionId);
+  if (!definition) return yield* new NotFoundError();
   const { collectionId, title, description, label, contentSchema } = definition;
   return { collectionId, title, description, label, contentSchema };
 }, Effect.scoped);
@@ -286,23 +280,21 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
   rawInput: z.input<typeof listCollectionRecordsInput>,
 ) {
   const input = yield* decodeInput(listCollectionRecordsInput, rawInput);
-  return yield* inCollection(ctx, input, "member", (definition) =>
+  return yield* inCollection(ctx, input, "member", (collection) =>
     Effect.gen(function* () {
+      const { definition, read } = collection;
       const records = yield* Effect.promise(() =>
         ctx.db
-          .select({ id: collectionRecords.id, content: collectionRecords.content })
+          .select()
           .from(collectionRecords)
           .where(recordsOf(definition, definition.draft))
           .orderBy(desc(collectionRecords.createdAt), desc(collectionRecords.id)),
       );
-      const duplicates = yield* duplicatePageValueIds(ctx, definition, records);
-      return records.map((record) => ({
+      const duplicates = yield* duplicatePageValueIds(ctx, collection, records);
+      const shown = yield* read.shown.records(definition.collectionId, records);
+      return shown.map((record) => ({
         id: record.id,
-        label: lexicalStateToPlainText(
-          conformRecordContent(definition.contentSchema, record.content)[definition.label] as
-            | string
-            | Record<string, unknown>,
-        ),
+        label: record.label,
         duplicatePageValue: duplicates.has(record.id),
       }));
     }),
@@ -315,71 +307,45 @@ export const listCollectionRecords = Effect.fn("collections.listCollectionRecord
  */
 const duplicatePageValueIds = Effect.fn("collections.duplicatePageValueIds")(function* (
   ctx: ServiceContext,
-  definition: ScopedDefinition,
-  records: readonly Pick<RecordRow, "id" | "content">[],
+  { definition, read }: Collection,
+  records: readonly RecordRow[],
 ) {
   const recordPages = (yield* recordPageLayouts(ctx.db, definition)).filter(
     (layout) => layout.collectionId === definition.collectionId,
   );
   if (recordPages.length === 0) return new Set<string>();
-  const contents = new Map(
-    records.map((record) => [
-      record.id,
-      conformRecordContent(definition.contentSchema, record.content),
-    ]),
-  );
+  const shown = yield* read.shown.records(definition.collectionId, records);
   return new Set(
     recordPages.flatMap(({ field }) =>
-      recordsSharingPageValues(records, (record) =>
-        pageValue(contents.get(record.id)!, field),
-      ).flatMap((group) => group.map((record) => record.id)),
+      recordsSharingPageValues(shown, (record) => pageValue(record.content, field)).flatMap(
+        (group) => group.map((record) => record.id),
+      ),
     ),
   );
 });
 
-/** A collection's definition, as a draft scope reads definitions (ADR 0006). */
-const definitionFor = Effect.fn("collections.definitionFor")(function* (
-  ctx: ServiceContext,
-  projectId: number,
-  collectionId: string,
-  draft: DraftScope,
-) {
-  const definition = yield* Effect.promise(() =>
-    ctx.db
-      .select()
-      .from(collectionDefinitions)
-      .where(
-        and(
-          eq(collectionDefinitions.projectId, projectId),
-          definitionsIn(collectionDefinitions, draft),
-          eq(collectionDefinitions.collectionId, collectionId),
-        ),
-      )
-      .get(),
-  );
-  if (!definition) return yield* new NotFoundError();
-  return definition;
-});
-
 /**
  * Runs `run` on a collection, read in the draft the request names or in Live, with the request's
- * access to the collection's project in `mode`. A write that starts the draft and fails leaves no
- * draft behind.
+ * access to the collection's project in `mode`, and the content reader of that scope. A write
+ * that starts the draft and fails leaves no draft behind.
  */
 const inCollection = <A, M extends AccessMode>(
   ctx: ServiceContext,
   input: z.infer<typeof scopeInput>,
   mode: M,
-  run: (
-    definition: Definition & { draft: ContentAccess<{ projectSlug: string }, M>["scope"] },
-  ) => Effect.Effect<A, ServiceError>,
+  run: (collection: {
+    definition: Definition & { draft: ContentAccess<{ projectSlug: string }, M>["scope"] };
+    read: ContentReader;
+  }) => Effect.Effect<A, ServiceError>,
 ) =>
   Effect.scoped(
-    Effect.flatMap(accessTo(ctx, { projectSlug: input.projectSlug }, mode), ({ project, scope }) =>
-      Effect.flatMap(definitionFor(ctx, project.id, input.collectionId, scope), (definition) =>
-        run({ ...definition, draft: scope }),
-      ),
-    ),
+    Effect.gen(function* () {
+      const { project, scope } = yield* accessTo(ctx, { projectSlug: input.projectSlug }, mode);
+      const read = contentReader(ctx, { projectId: project.id, draft: scope });
+      const definition = yield* read.collection(input.collectionId);
+      if (!definition) return yield* new NotFoundError();
+      return yield* run({ definition: { ...definition, draft: scope }, read });
+    }),
   );
 
 /** A record of the collection, as the collection's scope reads it. */
@@ -397,8 +363,9 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
   rawInput: z.input<typeof createRecordInput>,
 ) {
   const input = yield* decodeInput(createRecordInput, rawInput);
-  return yield* inCollection(ctx, input, "write", (definition) =>
+  return yield* inCollection(ctx, input, "write", (collection) =>
     Effect.gen(function* () {
+      const { definition } = collection;
       const content = yield* validateContent(ctx, definition, input.content);
       const now = Date.now();
       // Reads conform the record to whatever schema a later sync brings.
@@ -412,7 +379,7 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
       });
       if (!record) return yield* new ConflictError({ message: "This record id is already taken" });
       invalidateRecord(ctx, definition, input, record.id);
-      return yield* recordRead(ctx, definition, record);
+      return yield* recordRead(ctx, collection, record);
     }),
   );
 });
@@ -448,23 +415,18 @@ export const findRecordsByFieldInput = listRecordPageValuesInput.extend({ value:
 const recordsWithPageValues = Effect.fn("collections.recordsWithPageValues")(function* (
   ctx: ServiceContext,
   input: z.infer<typeof listRecordPageValuesInput>,
-  definition: ScopedDefinition,
+  { definition, read }: Collection,
 ) {
-  const field = (definition.contentSchema.properties as Record<string, { fieldType?: string }>)[
-    input.field
-  ];
-  if (field?.fieldType !== "String")
+  if (fieldOf(definition.contentSchema, input.field)?.kind !== "String")
     return yield* new InvalidInputError({
       message: `${input.collectionId}.${input.field} is not a String field`,
     });
   const rows = yield* Effect.promise(() =>
     ctx.db.select().from(collectionRecords).where(recordsOf(definition, definition.draft)),
   );
-  return rows.flatMap((row) => {
-    const value = pageValue(
-      conformRecordContent(definition.contentSchema, row.content),
-      input.field,
-    );
+  const shown = yield* read.shown.records(definition.collectionId, rows);
+  return rows.flatMap((row, index) => {
+    const value = pageValue(shown[index]!.content, input.field);
     return value === null ? [] : [{ row, value }];
   });
 });
@@ -478,25 +440,20 @@ export const findRecordsByField = Effect.fn("collections.findRecordsByField")(fu
   rawInput: z.input<typeof findRecordsByFieldInput>,
 ) {
   const input = yield* decodeInput(findRecordsByFieldInput, rawInput);
-  return yield* inCollection(ctx, input, "public", (definition) =>
+  return yield* inCollection(ctx, input, "public", (collection) =>
     Effect.gen(function* () {
-      const records = yield* recordsWithPageValues(ctx, input, definition);
+      const records = yield* recordsWithPageValues(ctx, input, collection);
       // The page's record is the first hop: it resolves the records it links, which link nothing.
-      return yield* Effect.forEach(
-        records.filter((record) => record.value === input.value),
-        ({ row }) =>
-          Effect.gen(function* () {
-            const { id, content, updatedAt } = yield* recordView(ctx, definition, row);
-            const references = yield* resolveReferences(
-              ctx,
-              definition,
-              definition.contentSchema,
-              conformRecordContent(definition.contentSchema, row.content),
-              2,
-            );
-            return { id, content, updatedAt, references };
-          }),
+      const views = yield* collection.read.records(
+        collection.definition.collectionId,
+        records.filter((record) => record.value === input.value).map(({ row }) => row),
       );
+      return views.map(({ id, content, updatedAt, references }) => ({
+        id,
+        content,
+        updatedAt,
+        references,
+      }));
     }),
   );
 });
@@ -510,8 +467,8 @@ export const listRecordPageValues = Effect.fn("collections.listRecordPageValues"
   rawInput: z.input<typeof listRecordPageValuesInput>,
 ) {
   const input = yield* decodeInput(listRecordPageValuesInput, rawInput);
-  return yield* inCollection(ctx, input, "public", (definition) =>
-    Effect.map(recordsWithPageValues(ctx, input, definition), (records) =>
+  return yield* inCollection(ctx, input, "public", (collection) =>
+    Effect.map(recordsWithPageValues(ctx, input, collection), (records) =>
       records.map(({ row, value }) => ({ id: row.id, value })),
     ),
   );
@@ -530,25 +487,16 @@ export const recordMarkdown = Effect.fn("collections.recordMarkdown")(function* 
   rawInput: z.input<typeof recordMarkdownInput>,
 ) {
   const input = yield* decodeInput(recordMarkdownInput, rawInput);
-  return yield* inCollection(ctx, input, "public", (definition) =>
+  return yield* inCollection(ctx, input, "public", ({ definition, read }) =>
     Effect.gen(function* () {
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();
-      const { content } = yield* recordView(ctx, definition, record);
-      const contentSchema = definition.contentSchema as { properties?: object };
-      const references = yield* resolveReferences(
-        ctx,
-        definition,
-        contentSchema,
-        conformRecordContent(contentSchema, record.content),
-        2,
-      );
-      return contentToMarkdown(
+      const markdown = yield* read.recordMarkdown(
+        definition.collectionId,
+        record,
         input.toMarkdown,
-        (contentSchema.properties ?? {}) as Record<string, unknown>,
-        content,
-        { references },
       );
+      return markdown!;
     }),
   );
 });
@@ -559,8 +507,9 @@ export const editRecord = Effect.fn("collections.editRecord")(function* (
   rawInput: z.input<typeof editRecordInput>,
 ) {
   const input = yield* decodeInput(editRecordInput, rawInput);
-  return yield* inCollection(ctx, input, "write", (definition) =>
+  return yield* inCollection(ctx, input, "write", (collection) =>
     Effect.gen(function* () {
+      const { definition } = collection;
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();
       // Keys of removed fields stay stored, unread, for when their field comes back.
@@ -580,7 +529,7 @@ export const editRecord = Effect.fn("collections.editRecord")(function* (
       );
       if (!updated) return yield* new NotFoundError();
       invalidateRecord(ctx, definition, input, record.id);
-      return yield* recordRead(ctx, definition, updated);
+      return yield* recordRead(ctx, collection, updated);
     }),
   );
 });
@@ -594,7 +543,7 @@ export const deleteRecord = Effect.fn("collections.deleteRecord")(function* (
   rawInput: z.input<typeof deleteRecordInput>,
 ) {
   const input = yield* decodeInput(deleteRecordInput, rawInput);
-  return yield* inCollection(ctx, input, "write", (definition) =>
+  return yield* inCollection(ctx, input, "write", ({ definition }) =>
     Effect.gen(function* () {
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();

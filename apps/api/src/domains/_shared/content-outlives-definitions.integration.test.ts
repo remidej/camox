@@ -268,6 +268,108 @@ describe("content outlives its definitions", () => {
   });
 });
 
+describe("write responses", () => {
+  const withoutSubtitle: Definition = {
+    ...hero,
+    contentSchema: { type: "object", properties: { title: string("Welcome") } },
+    settingsSchema: {
+      type: "object",
+      properties: { theme: { type: "string", enum: ["light", "blue"], default: "light" } },
+    },
+  };
+  /** A hero storing a subtitle and a dark theme, under a definition that has neither any more. */
+  async function staleHero() {
+    const f = await fixture();
+    const block = await callSeedingLive(
+      router.blocks.create,
+      {
+        pageId: f.page.id,
+        type: "hero",
+        content: { title: "Kept", subtitle: "Stored" },
+        settings: { theme: "dark" },
+      },
+      f.options,
+    );
+    await f.release.blocks([withoutSubtitle, cards({ cards: cardsRepeater })]);
+    return { f, block };
+  }
+
+  it("conform a block's content and settings after its definition changed", async () => {
+    const { f, block } = await staleHero();
+    const conformed = { content: { title: "Kept" }, settings: { theme: "light" } };
+
+    const moved = await callSeedingLive(router.blocks.updatePosition, { id: block.id }, f.options);
+    expect(moved).toMatchObject(conformed);
+    const duplicate = await callSeedingLive(router.blocks.duplicate, { id: block.id }, f.options);
+    expect(duplicate).toMatchObject(conformed);
+    const edited = await callSeedingLive(
+      router.blocks.updateContent,
+      { id: block.id, content: { title: "Edited" } },
+      f.options,
+    );
+    expect(edited).toMatchObject({ ...conformed, content: { title: "Edited" } });
+    const restyled = await callSeedingLive(
+      router.blocks.updateSettings,
+      { id: block.id, settings: { theme: "blue" } },
+      f.options,
+    );
+    expect(restyled).toMatchObject({ content: { title: "Edited" }, settings: { theme: "blue" } });
+  });
+
+  it("fill a new block's fields its content left out with their defaults", async () => {
+    const f = await fixture();
+    const created = await callSeedingLive(
+      router.blocks.create,
+      { pageId: f.page.id, type: "hero", content: { title: "Only" } },
+      f.options,
+    );
+    const read = await call(router.blocks.get, { id: created.id }, f.options);
+    expect(created.content).toEqual(read.block.content);
+    expect(created.settings).toEqual(read.block.settings);
+  });
+
+  it("conform a repeatable item's content after its repeater changed", async () => {
+    const f = await fixture();
+    const block = await callSeedingLive(
+      router.blocks.create,
+      { pageId: f.page.id, type: "cards", content: { heading: "Team", cards: [{ label: "Ada" }] } },
+      f.options,
+    );
+    const [item] = (await call(router.blocks.get, { id: block.id }, f.options)).repeatableItems;
+    const renamed = {
+      ...cardsRepeater,
+      items: { type: "object", properties: { name: string("Someone") } },
+    };
+    await f.release.blocks([hero, cards({ cards: renamed })]);
+    const conformed = { content: { name: "Someone" } };
+
+    const moved = await callSeedingLive(
+      router.repeatableItems.updatePosition,
+      { id: item.id },
+      f.options,
+    );
+    expect(moved).toMatchObject(conformed);
+    const duplicate = await callSeedingLive(
+      router.repeatableItems.duplicate,
+      { id: item.id },
+      f.options,
+    );
+    expect(duplicate).toMatchObject(conformed);
+    const edited = await callSeedingLive(
+      router.repeatableItems.updateContent,
+      { id: item.id, content: { name: "Grace" } },
+      f.options,
+    );
+    expect(edited).toMatchObject({ content: { name: "Grace" } });
+    const created = await callSeedingLive(
+      router.repeatableItems.create,
+      { blockId: block.id, fieldName: "cards", content: {} },
+      f.options,
+    );
+    expect(created).toMatchObject(conformed);
+  });
+});
+
 describe("pages whose layout is gone", () => {
   const read = (f: Awaited<ReturnType<typeof fixture>>, path = f.page.fullPath) =>
     call(router.pages.getByPath, { projectSlug: f.project.slug, path }, f.options);

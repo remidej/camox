@@ -6,22 +6,13 @@ import { z } from "zod";
 
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
-import { blocks, layouts, pages, projects, repeatableItems, user } from "../../schema";
-import { injectRepeatableItemMarkers } from "../_shared/block-markers";
+import { blocks, layouts, pages, projects, user } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
-import { collectFileIds } from "../_shared/fields";
-import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
-import {
-  hydrateItemReferences,
-  hydrateReferences,
-  type ResolvedReferences,
-} from "../collections/references";
+import { type BlockBundle, contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
 import * as overlay from "../drafts/overlay";
 import type { Draft, DraftScope } from "../drafts/scope";
-import { buildFileMap } from "../files/file-map";
-import type { FileView } from "../files/generated-metadata";
 import { type GenerationDeps, homeOf, requestGeneration } from "../generated-values/service";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
 import {
@@ -32,7 +23,7 @@ import {
 } from "../layouts/route-ownership";
 import { executePageSeo } from "./ai";
 import { duplicatePathIds } from "./duplicate-paths";
-import { type PageView, pageView, seoGenerated, withSeo } from "./generated-seo";
+import { type PageView, seoGenerated } from "./generated-seo";
 
 const { sortByPosition } = overlay;
 
@@ -135,13 +126,16 @@ function invalidatePage(ctx: ServiceContext, scope: DraftScope, projectId: numbe
 const pagesIn = (ctx: ServiceContext, scope: DraftScope, projectId: number) =>
   overlay.select(ctx.db, scope, pages, eq(pages.projectId, projectId));
 
-/** A block as a page reads it, with its summary (ADR 0012). */
-type BlockRow = typeof blocks.$inferSelect & { summary: string };
-/** An item as a page reads it, named under the block showing it. */
-type ItemRow = typeof repeatableItems.$inferSelect & { blockId: string; summary: string };
-/** An item as the page view serves it, with its resolved references. */
-type ViewItem = ItemRow & { references: ResolvedReferences };
-type FileRow = FileView;
+/** A page as readers see it, with the SEO in effect (ADR 0012). */
+const shownPage = Effect.fn("pages.shownPage")(function* <P extends typeof pages.$inferSelect>(
+  ctx: ServiceContext,
+  scope: DraftScope,
+  row: P,
+) {
+  return (yield* contentReader(ctx, { projectId: row.projectId, draft: scope }).shown.pages([
+    row,
+  ]))[0]!;
+});
 
 /** The page at a path in the project, with its project and layout. */
 const findPageByPath = Effect.fn("pages.findPageByPath")(function* (
@@ -184,28 +178,18 @@ function layoutView(
   };
 }
 
+/** A page's view: its blocks, then its layout's, each followed by their items in order. */
 function composePageView(args: {
   page: PageView;
   project: typeof projects.$inferSelect;
   layout: typeof layouts.$inferSelect | null;
-  pageBlocks: BlockRow[];
-  layoutBlocks: BlockRow[];
-  allItems: ViewItem[];
-  fileRows: Map<string, FileRow>;
+  content: BlockBundle;
 }) {
-  const { page, project, layout, pageBlocks, layoutBlocks, allItems, fileRows } = args;
-
-  const itemsByBlock = new Map<string, ViewItem[]>();
-  for (const item of allItems) {
-    const list = itemsByBlock.get(item.blockId) ?? [];
-    list.push(item);
-    itemsByBlock.set(item.blockId, list);
-  }
-
-  const normalizedBlocks = [...pageBlocks, ...layoutBlocks].map((block) =>
-    injectRepeatableItemMarkers(block, itemsByBlock.get(block.id) ?? []),
-  );
-
+  const { page, project, layout, content } = args;
+  const pageBlocks = content.blocks.filter((block) => block.pageId === page.id);
+  const layoutBlocks = content.blocks.filter((block) => block.pageId !== page.id);
+  const itemsByBlock = Map.groupBy(content.repeatableItems, (item) => item.blockId);
+  const blocks = [...pageBlocks, ...layoutBlocks];
   return {
     page: { ...page, blockIds: pageBlocks.map((b) => b.id) },
     projectName: project.name,
@@ -213,9 +197,9 @@ function composePageView(args: {
     // favicon URL (`/favicons/${id}?v=${updatedAt}`) in the page <head>.
     project: { id: project.id, updatedAt: project.updatedAt },
     layout: layoutView(layout, layoutBlocks),
-    blocks: normalizedBlocks.map(({ block }) => block),
-    repeatableItems: normalizedBlocks.flatMap(({ items }) => items),
-    files: [...fileRows.values()],
+    blocks,
+    repeatableItems: blocks.flatMap((block) => itemsByBlock.get(block.id) ?? []),
+    files: content.files,
   };
 }
 
@@ -227,43 +211,13 @@ export const getPageByPath = Effect.fn("pages.getPageByPath")(function* (
   const access = yield* accessTo(ctx, { projectSlug }, "public");
   const { scope } = access;
   const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
-  const page = yield* pageView(ctx.db, scope, stored);
-
-  const pageContent = yield* readOwnerBlocks(ctx, { pageId: page.id }, scope);
-  const layoutContent = layout
-    ? yield* readOwnerBlocks(ctx, layout, scope)
-    : { blocks: [], items: [] };
-  const allBlocks = [...pageContent.blocks, ...layoutContent.blocks];
-
-  const hydrated = yield* hydrateReferences(ctx, { ...page, draft: scope }, allBlocks);
-  const hydratedItems = yield* hydrateItemReferences(ctx, { ...page, draft: scope }, allBlocks, [
-    ...pageContent.items,
-    ...layoutContent.items,
+  const reader = contentReader(ctx, { projectId: project.id, draft: scope });
+  const [page] = yield* reader.shown.pages([stored]);
+  const content = yield* reader.blocks([
+    { pageId: page!.id },
+    ...(layout ? [{ layoutId: layout.layoutId }] : []),
   ]);
-  const referencesByBlock = new Map(hydrated.map((block) => [block.id, block.references]));
-  const fileIds = new Set<string>();
-  for (const value of [...hydrated, ...hydratedItems]) {
-    collectFileIds(value.content as Record<string, unknown>, fileIds);
-    collectFileIds(value.references, fileIds);
-  }
-  const fileRows = yield* buildFileMap(ctx.db, fileIds, scope);
-
-  const view = composePageView({
-    page,
-    project,
-    layout,
-    pageBlocks: pageContent.blocks,
-    layoutBlocks: layoutContent.blocks,
-    allItems: hydratedItems,
-    fileRows,
-  });
-  return {
-    ...view,
-    blocks: view.blocks.map((block) => ({
-      ...block,
-      references: referencesByBlock.get(block.id) ?? {},
-    })),
-  };
+  return composePageView({ page: page!, project, layout, content });
 }, Effect.scoped);
 
 export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
@@ -274,7 +228,7 @@ export const getPageStructure = Effect.fn("pages.getPageStructure")(function* (
   const access = yield* accessTo(ctx, { projectSlug }, "public");
   const { scope } = access;
   const { project, page: stored, layout } = yield* findPageByPath(ctx, access.project, path, scope);
-  const page = yield* pageView(ctx.db, scope, stored);
+  const page = yield* shownPage(ctx, scope, stored);
 
   const pageBlockOrder = sortByPosition(
     yield* overlay.select(ctx.db, scope, blocks, eq(blocks.pageId, page.id)),
@@ -319,7 +273,12 @@ export const listPages = Effect.fn("pages.listPages")(function* (
   const rows = (yield* pagesIn(ctx, scope, projectId)).filter(
     (page) => page.projectId === projectId,
   );
-  return yield* withPageProblems(ctx, projectId, scope, yield* withSeo(ctx.db, scope, rows));
+  return yield* withPageProblems(
+    ctx,
+    projectId,
+    scope,
+    yield* contentReader(ctx, { projectId, draft: scope }).shown.pages(rows),
+  );
 }, Effect.scoped);
 
 export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
@@ -331,7 +290,12 @@ export const listPagesBySlug = Effect.fn("pages.listPagesBySlug")(function* (
   const rows = (yield* pagesIn(ctx, scope, project.id)).filter(
     (page) => page.projectId === project.id,
   );
-  return yield* withPageProblems(ctx, project.id, scope, yield* withSeo(ctx.db, scope, rows));
+  return yield* withPageProblems(
+    ctx,
+    project.id,
+    scope,
+    yield* contentReader(ctx, { projectId: project.id, draft: scope }).shown.pages(rows),
+  );
 }, Effect.scoped);
 
 export const getPage = Effect.fn("pages.getPage")(function* (
@@ -363,7 +327,7 @@ export const getPage = Effect.fn("pages.getPage")(function* (
     : undefined;
   const duplicates = duplicatePathIds(yield* pagesIn(ctx, scope, row.projectId));
   return {
-    ...(yield* pageView(ctx.db, scope, row)),
+    ...(yield* shownPage(ctx, scope, row)),
     createdBy: creator?.name ?? null,
     duplicatePath: duplicates.has(row.id),
   };
@@ -413,7 +377,7 @@ export const createPage = Effect.fn("pages.createPage")(function* (
   yield* requestPageSeo(ctx, scope, page, 0);
   invalidatePage(ctx, scope, projectId, page.id);
 
-  return { page: yield* pageView(ctx.db, scope, page), fullPath: page.fullPath };
+  return { page: yield* shownPage(ctx, scope, page), fullPath: page.fullPath };
 }, Effect.scoped);
 
 /**
@@ -466,7 +430,7 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
     yield* overlay.update(ctx.db, scope, pages, pageId, { fullPath, updatedAt: now });
   }
   invalidatePage(ctx, scope, page.projectId, id);
-  return yield* pageView(ctx.db, scope, result);
+  return yield* shownPage(ctx, scope, result);
 }, Effect.scoped);
 
 /**
@@ -511,7 +475,7 @@ export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
 ) {
   const { id, metaTitle, metaDescription, aiSeo } = yield* decodeInput(setPageSeoInput, rawInput);
   const { scope, entity: page } = yield* accessTo(ctx, { page: id }, "write");
-  const shown = yield* pageView(ctx.db, scope, page);
+  const shown = yield* shownPage(ctx, scope, page);
   const columns =
     aiSeo === true
       ? { metaTitle: null, metaDescription: null }
@@ -521,7 +485,7 @@ export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
         };
   const result = yield* writePage(ctx, scope, page, columns);
   if (aiSeo === true) yield* requestPageSeo(ctx, scope, result, 0);
-  return yield* pageView(ctx.db, scope, result);
+  return yield* shownPage(ctx, scope, result);
 }, Effect.scoped);
 
 export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
@@ -531,7 +495,7 @@ export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
   const { id, layoutId } = yield* decodeInput(setPageLayoutInput, rawInput);
   const { scope, entity: page } = yield* accessTo(ctx, { page: id }, "write");
   yield* assertCuratedLayout(ctx, page.projectId, layoutId, scope);
-  return yield* pageView(ctx.db, scope, yield* writePage(ctx, scope, page, { layoutId }));
+  return yield* shownPage(ctx, scope, yield* writePage(ctx, scope, page, { layoutId }));
 }, Effect.scoped);
 
 /** Generates a page's SEO now, into the scope's generated values. */
@@ -545,7 +509,7 @@ export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   yield* executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
   invalidatePage(ctx, scope, project.id, id);
   const page = yield* overlay.get(ctx.db, scope, pages, id);
-  return page ? yield* pageView(ctx.db, scope, page) : undefined;
+  return page ? yield* shownPage(ctx, scope, page) : undefined;
 }, Effect.scoped);
 
 /** Requests a page's SEO in the scope, unless it's manual (ADR 0012). */

@@ -12,6 +12,7 @@ import type { Database } from "../../db";
 import { runService } from "../../lib/run-service";
 import { blockDefinitions, blocks, files, pages } from "../../schema";
 import { createBlock, getBlock, getPageMarkdown, updateBlockContent } from "../blocks/service";
+import type { ResolvedReference, ResolvedReferences } from "../content/reader";
 import * as overlay from "../drafts/overlay";
 import { RELEASE } from "../drafts/scope";
 import { getLayout } from "../layouts/service";
@@ -21,11 +22,7 @@ import {
   updateRepeatableItemContent,
   updateRepeatableItemSettings,
 } from "../repeatable-items/service";
-import {
-  validateReferenceSchema,
-  type ResolvedReference,
-  type ResolvedReferences,
-} from "./references";
+import { validateReferenceSchema } from "./references";
 import { collectionRecords } from "./schema";
 import {
   createRecord,
