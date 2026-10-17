@@ -254,9 +254,9 @@ function getBlockIdFromFilePath(filePath: string): string {
 const CAMOX_APP_PATH = "./src/camox/app.ts";
 
 /**
- * Load a module using SSR. Uses the server's SSR environment runner if available,
- * otherwise falls back to a temporary Vite server (needed when Nitro or other
- * frameworks configure the SSR environment as non-runnable).
+ * Load a module in Node. Uses the server's SSR environment runner if available,
+ * otherwise falls back to a temporary Vite server: the Cloudflare plugin runs the
+ * server environment in workerd, where the dev server can't import modules.
  */
 async function ssrLoadModule(
   server: ViteDevServer,

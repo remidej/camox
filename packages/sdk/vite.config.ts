@@ -24,12 +24,10 @@ export default defineConfig({
       "features/runtime/pageClient": "src/features/runtime/pageClient.tsx",
       "features/runtime/studioClient": "src/features/runtime/studioClient.tsx",
       "features/runtime/studioServer": "src/features/runtime/studioServer.tsx",
-      // Runtime-conditional OG `ImageResponse` wrappers — package.json dispatches
-      // between these via the `workerd` / `worker` / `deno` exports conditions.
-      // Both files must be explicit pack entries; tsdown can't traverse the
-      // dynamic `await import("camox/_internal/imageResponse")` in createLayout.
-      "features/og/imageResponse.node": "src/features/og/imageResponse.node.ts",
-      "features/og/imageResponse.workerd": "src/features/og/imageResponse.workerd.ts",
+      "features/runtime/worker": "src/features/runtime/worker.ts",
+      // An explicit entry: tsdown can't traverse the dynamic
+      // `await import("camox/_internal/imageResponse")` in createLayout.
+      "features/og/imageResponse": "src/features/og/imageResponse.ts",
     },
     format: "esm",
     outDir: "dist",
@@ -43,9 +41,9 @@ export default defineConfig({
       external: [
         "virtual:camox-studio-css",
         "virtual:camox-overlay-css",
-        // Self-import in `createLayout.tsx` — must stay as the bare specifier
-        // `camox/_internal/imageResponse` so the consuming app's bundler picks the
-        // workerd or node variant via this package's exports conditions.
+        "virtual:camox/server",
+        // Self-import in `createLayout.tsx`: the app's bundler, not this pack, must load
+        // the renderer's WASM, so it stays the bare specifier.
         "camox/_internal/imageResponse",
         // Inferred API types reach into the unpublished api app through
         // @camox/api-contract. Declaration emit can't follow them there, and

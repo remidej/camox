@@ -1,0 +1,7 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "camox-template-default", // camox-cli:replace-slug
+  "compatibility_date": "2026-04-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "camox/worker",
+}

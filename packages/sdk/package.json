@@ -103,26 +103,14 @@
       "import": "./dist/features/runtime/runtime.js"
     },
     "./_internal/imageResponse": {
-      "workerd": {
-        "source": "./src/features/og/imageResponse.workerd.ts",
-        "types": "./dist/features/og/imageResponse.workerd.d.ts",
-        "import": "./dist/features/og/imageResponse.workerd.js"
-      },
-      "worker": {
-        "source": "./src/features/og/imageResponse.workerd.ts",
-        "types": "./dist/features/og/imageResponse.workerd.d.ts",
-        "import": "./dist/features/og/imageResponse.workerd.js"
-      },
-      "deno": {
-        "source": "./src/features/og/imageResponse.workerd.ts",
-        "types": "./dist/features/og/imageResponse.workerd.d.ts",
-        "import": "./dist/features/og/imageResponse.workerd.js"
-      },
-      "default": {
-        "source": "./src/features/og/imageResponse.node.ts",
-        "types": "./dist/features/og/imageResponse.node.d.ts",
-        "import": "./dist/features/og/imageResponse.node.js"
-      }
+      "source": "./src/features/og/imageResponse.ts",
+      "types": "./dist/features/og/imageResponse.d.ts",
+      "import": "./dist/features/og/imageResponse.js"
+    },
+    "./worker": {
+      "source": "./src/features/runtime/worker.ts",
+      "types": "./dist/features/runtime/worker.d.ts",
+      "import": "./dist/features/runtime/worker.js"
     },
     "./studio.css": "./dist/studio.css"
   },
@@ -201,22 +189,12 @@
         "import": "./dist/features/runtime/runtime.js"
       },
       "./_internal/imageResponse": {
-        "workerd": {
-          "types": "./dist/features/og/imageResponse.workerd.d.ts",
-          "import": "./dist/features/og/imageResponse.workerd.js"
-        },
-        "worker": {
-          "types": "./dist/features/og/imageResponse.workerd.d.ts",
-          "import": "./dist/features/og/imageResponse.workerd.js"
-        },
-        "deno": {
-          "types": "./dist/features/og/imageResponse.workerd.d.ts",
-          "import": "./dist/features/og/imageResponse.workerd.js"
-        },
-        "default": {
-          "types": "./dist/features/og/imageResponse.node.d.ts",
-          "import": "./dist/features/og/imageResponse.node.js"
-        }
+        "types": "./dist/features/og/imageResponse.d.ts",
+        "import": "./dist/features/og/imageResponse.js"
+      },
+      "./worker": {
+        "types": "./dist/features/runtime/worker.d.ts",
+        "import": "./dist/features/runtime/worker.js"
       },
       "./studio.css": "./dist/studio.css"
     }
@@ -288,6 +266,7 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@cloudflare/vite-plugin": "^1.64.0",
     "@tanstack/react-query": "^5.95.0",
     "@tanstack/react-router": "^1.166.2",
     "@tanstack/react-router-ssr-query": "^1.166.2",

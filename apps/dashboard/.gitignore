@@ -5,10 +5,7 @@ dist-ssr
 .env.*
 count.txt
 .env
-.nitro
 .tanstack
-.output
-.vinxi
 .wrangler
 src/camox/app.ts
 src/routes/(camox)/

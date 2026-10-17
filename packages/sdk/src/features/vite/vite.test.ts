@@ -3,54 +3,29 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import type { BundlerOnLog } from "./bundlerLogs";
 import { CAMOX_OPTIMIZED_DEPS, camox } from "./vite";
 
-type Nitro = Parameters<NonNullable<ReturnType<typeof camox>["nitro"]>["setup"]>[0];
+type ConfigEnvironmentHook = Extract<
+  NonNullable<ReturnType<typeof camox>["configEnvironment"]>,
+  (...args: never[]) => unknown
+>;
+type ConfigResolvedHook = Extract<
+  NonNullable<ReturnType<typeof camox>["configResolved"]>,
+  (...args: never[]) => unknown
+>;
 
-const externalOptions: Nitro["options"]["noExternals"][] = [
-  undefined,
-  false,
-  true,
-  ["app-dependency", /^custom-/],
-];
-
-for (const noExternals of externalOptions) {
-  void test(`Camox bundles runtime dependencies while preserving noExternals=${String(noExternals)}`, () => {
-    const nitro: Nitro = {
-      hooks: { hook: () => {} },
-      options: {
-        noExternals: Array.isArray(noExternals) ? [...noExternals] : noExternals,
-        output: { publicDir: "/public", serverDir: "/server" },
-        routes: {},
-        virtual: {},
-      },
-    };
-    camox({ projectSlug: "smoke" }).nitro!.setup(nitro);
-    if (noExternals === true) {
-      assert.equal(nitro.options.noExternals, true);
-      return;
-    }
-    assert.deepEqual(nitro.options.noExternals, [
-      ...(Array.isArray(noExternals) ? noExternals : []),
-      "camox",
-      "tslib",
-    ]);
-  });
-}
-
-void test("Camox filters the warnings every Camox app produces from the server bundle", () => {
-  const nitro: Nitro = {
-    hooks: { hook: () => {} },
-    options: {
-      output: { publicDir: "/public", serverDir: "/server" },
-      routes: {},
-      virtual: {},
-    },
-  };
-  camox({ projectSlug: "smoke" }).nitro!.setup(nitro);
+void test("Camox filters the warnings every Camox app produces from the Worker bundle", () => {
+  const plugin = camox({ projectSlug: "smoke" });
+  const configEnvironment = plugin.configEnvironment as ConfigEnvironmentHook;
+  const result = configEnvironment.call(undefined as never, "ssr", {}, {
+    command: "build",
+    mode: "production",
+    isSsrBuild: true,
+  } as never) as { build: { rollupOptions: { onLog: BundlerOnLog } } };
   const logged: unknown[] = [];
 
-  nitro.options.rolldownConfig!.onLog!(
+  result.build.rollupOptions.onLog(
     "warn",
     {
       code: "MODULE_LEVEL_DIRECTIVE",
@@ -60,6 +35,14 @@ void test("Camox filters the warnings every Camox app produces from the server b
   );
 
   assert.deepEqual(logged, []);
+});
+
+void test("Camox refuses to run without the Cloudflare plugin", () => {
+  const configResolved = camox({ projectSlug: "smoke" }).configResolved as ConfigResolvedHook;
+  assert.throws(
+    () => configResolved.call(undefined as never, { plugins: [], root: "/app" } as never),
+    /cloudflare\(\)/,
+  );
 });
 
 void test("Camox pre-bundles every Base UI component the Studio imports", () => {

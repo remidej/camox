@@ -181,18 +181,6 @@ export function installDevAuthenticationMiddleware(
     }
     redirect(res, authorizationUrl.toString());
   });
-
-  // Nitro's early document middleware otherwise handles page requests before
-  // regular Vite middleware. Keep the Camox gate directly in front of it so
-  // authenticated requests can still continue through Nitro's normal path.
-  const authenticationLayer = server.middlewares.stack.at(-1);
-  const nitroMiddlewareIndex = server.middlewares.stack.findIndex(
-    (layer) => typeof layer.handle === "function" && layer.handle.name === "nitroDevMiddlewarePre",
-  );
-  if (authenticationLayer && nitroMiddlewareIndex >= 0) {
-    server.middlewares.stack.pop();
-    server.middlewares.stack.splice(nitroMiddlewareIndex, 0, authenticationLayer);
-  }
 }
 
 async function handleAuthenticationCallback(
