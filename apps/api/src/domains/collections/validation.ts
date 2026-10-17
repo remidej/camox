@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { InvalidInputError } from "../../lib/errors";
 import { files } from "../../schema";
+import { accepts, type Field, fieldOf } from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
@@ -152,7 +153,7 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
   ctx: ServiceContext,
   projectId: number,
   draft: DraftScope,
-  field: z.infer<typeof property>,
+  field: Field,
   value: unknown,
   previous: ReadonlySet<string>,
 ) {
@@ -178,18 +179,10 @@ const validateAsset = Effect.fn("collections.validateAsset")(function* (
       message: "Asset is outside this project or missing",
     });
   const { filename } = yield* fileView(ctx.db, draft, file);
-  if (field.fieldType.startsWith("Image") && !file.mimeType.startsWith("image/")) {
+  if (field.kind.startsWith("Image") && !file.mimeType.startsWith("image/")) {
     return yield* new InvalidInputError({ message: "Image requires an image asset" });
   }
-  if (
-    field.accept?.length &&
-    !field.accept.some((type) => {
-      if (type === "*/*") return true;
-      if (type.startsWith(".")) return filename.toLowerCase().endsWith(type.toLowerCase());
-      if (type.endsWith("/*")) return file.mimeType.startsWith(type.slice(0, -1));
-      return file.mimeType === type;
-    })
-  ) {
+  if (!accepts(field, { mimeType: file.mimeType, filename })) {
     return yield* new InvalidInputError({ message: "Asset MIME type is not accepted" });
   }
   return asset;
@@ -275,11 +268,11 @@ export const validateContent = Effect.fn("collections.validateContent")(function
           .max(field.maxItems ?? 100),
         value,
       );
-      const item = yield* decodeContent(property, field.items);
+      const list = fieldOf(schema, key)!;
       result[key] = yield* Effect.forEach(
         values,
         (value) =>
-          validateAsset(ctx, definition.projectId, definition.draft, item, value, held.files),
+          validateAsset(ctx, definition.projectId, definition.draft, list, value, held.files),
         { concurrency: "unbounded" },
       );
       continue;
@@ -292,7 +285,7 @@ export const validateContent = Effect.fn("collections.validateContent")(function
             ctx,
             definition.projectId,
             definition.draft,
-            field,
+            fieldOf(schema, key)!,
             value,
             held.files,
           );

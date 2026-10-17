@@ -413,6 +413,39 @@ describe("collection record lifecycle", () => {
     }
   });
 
+  it("accepts the files publishing accepts, whatever the case or wildcard of `accept`", async () => {
+    const f = await fixture("accept-rules");
+    const fileField = (accept: string[]) => ({
+      type: "array",
+      fieldType: "FileList" as const,
+      items: { type: "object", fieldType: "File", accept },
+    });
+    const fields = {
+      ...definition.contentSchema.properties,
+      anything: fileField(["*"]),
+      unrestricted: fileField([]),
+      padded: fileField([" Application/PDF "]),
+    };
+    await f.sync([
+      {
+        ...definition,
+        contentSchema: {
+          ...definition.contentSchema,
+          properties: fields,
+          required: Object.keys(fields),
+        },
+      },
+    ]);
+    const pdf = [{ _fileId: (await f.insertFile("doc.pdf", "application/pdf")).id }];
+    const content = { ...article, anything: pdf, unrestricted: pdf, padded: pdf };
+    const record = await runService(createRecord(f.ctx, { ...f.scope, content }));
+    expect(record.content).toMatchObject({
+      anything: [{ filename: "doc.pdf" }],
+      unrestricted: [{ filename: "doc.pdf" }],
+      padded: [{ filename: "doc.pdf" }],
+    });
+  });
+
   it("preserves existing authored String text and rejects malformed editor states", async () => {
     const f = await fixture("authored-text");
     const content = {
