@@ -44,7 +44,7 @@ import { RELEASE, type Draft, type DraftScope, type WriteTarget } from "./scope"
 // - A delete in a draft writes a tombstone for the entity only.
 //
 // Writes target a draft, or Live for a release. Publishing a draft and releases are Live's only
-// writers (ADR 0006, ADR 0009); a release's writes run each table's Live follow-ups.
+// writers (ADR 0006, ADR 0009), and both run each table's Live follow-ups.
 
 /** The columns every content table has for living beside Live. */
 type ContentColumns = {
@@ -112,6 +112,11 @@ export type ContentTableRegistration = {
    */
   parents: ParentRelation[];
   /**
+   * Columns only Live's writers maintain, which publishing keeps on a Live entity rather than
+   * overwriting with the draft's copy.
+   */
+  liveColumns?: AnySQLiteColumn[];
+  /**
    * Statements keeping Live in step after Live's writers change some of the table's entities.
    * `changed` selects rows describing them, as they were or as they are; the statements run
    * both before and after the change, so they must be idempotent.
@@ -141,6 +146,8 @@ export function registrationOf(table: ContentTable): ContentTableRegistration {
 registerContentTable(pages, {
   entity: "page",
   parents: [{ column: pages.parentPageId, key: pages.id }],
+  // Bumped by Live's writers whenever the page's blocks change on Live.
+  liveColumns: [pages.contentUpdatedAt],
   inProject: (projectId) => eq(pages.projectId, projectId),
 });
 
@@ -899,6 +906,23 @@ function copiedColumns(table: ContentTable) {
     .map(([, column]) => column as AnySQLiteColumn);
 }
 
+/**
+ * Statements running every table's Live follow-ups for what a draft changes: the draft's rows,
+ * and the Live rows they replace or delete.
+ */
+function followUpStatements(draftId: string, now: number): BatchItem[] {
+  return tables().flatMap((table) => {
+    const { afterLiveChange } = registrationOf(table);
+    if (!afterLiveChange) return [];
+    const t = sql.identifier(getTableName(table));
+    const changed = sql`select * from ${t} where ${ident(table.draftId)} = ${draftId}
+      union all
+      select * from ${t} where ${ident(table.draftId)} is null and ${ident(table.id)} in (
+        select ${ident(table.id)} from ${t} where ${ident(table.draftId)} = ${draftId})`;
+    return afterLiveChange(changed, now);
+  });
+}
+
 /** Statements applying one table's rows from a draft onto Live. */
 function applyStatements(
   table: ContentTable,
@@ -908,6 +932,8 @@ function applyStatements(
 ): BatchItem[] {
   const t = sql.identifier(getTableName(table));
   const columns = copiedColumns(table);
+  const kept = new Set(registrationOf(table).liveColumns ?? []);
+  const overwritten = columns.filter((column) => !kept.has(column));
   const d = (column: AnySQLiteColumn) => at("d", column);
   const live = (column: AnySQLiteColumn) => sql`${t}.${ident(column)}`;
   const applied = () =>
@@ -919,7 +945,7 @@ function applyStatements(
     // Copies the draft's version over the Live entities it changed.
     sql`update ${t} set
         ${sql.join(
-          columns.map((column) => sql`${ident(column)} = ${d(column)}`),
+          overwritten.map((column) => sql`${ident(column)} = ${d(column)}`),
           sql`, `,
         )},
         ${ident(table.version)} = ${live(table.version)} + 1,
@@ -1010,7 +1036,9 @@ function endStatements(
 /**
  * Publishes a draft in one batch: a guard that aborts unless the conflicts are still `shown`,
  * then each table's draft rows applied to Live (bumping versions and setting who published and
- * when), deletions with their Live descendants, lost changes dropped, and the draft ended.
+ * when), deletions with their Live descendants, lost changes dropped, and the draft ended. The
+ * tables' Live follow-ups run before the draft is applied, for what it replaces, and after, for
+ * what it adds.
  * Fails when the batch aborted, having applied nothing.
  */
 export const publish = (
@@ -1034,8 +1062,10 @@ export const publish = (
 ) => {
   const statements = [
     guardStatement(scope.id, shown),
+    ...followUpStatements(scope.id, now),
     ...tables().flatMap((table) => applyStatements(table, scope.id, publishedBy, now)),
     ...tables().flatMap((table) => descendantsStatement(table) ?? []),
+    ...followUpStatements(scope.id, now),
     ...after,
     ...endStatements(db, scope, "published", publishedBy, now),
   ];
