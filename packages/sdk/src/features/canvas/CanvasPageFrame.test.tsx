@@ -74,6 +74,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
   Object.assign(globalThis, globals);
   const { createRoot } = await import("react-dom/client");
   const { CanvasPageFrame } = await import("./CanvasPageFrame");
+  const { editingFrameHarness } = await import("../preview/editingFrame.fixtures");
   const { usePreviewSelection } = await import("../preview/previewSelection");
   const { previewStore } = await import("../preview/previewStore");
   const client = new QueryClient();
@@ -87,6 +88,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
   dom.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
   const activated: unknown[] = [];
+  const studio = await editingFrameHarness(dom.document as unknown as Document);
   const input = {
     pathname: "/about",
     href: "http://localhost/about",
@@ -161,7 +163,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
       pageId: "7",
       selection: { type: "block", blockId: "42" },
     });
-    assert.equal(previewStore.getSnapshot().context.iframeElement, iframe);
+    assert.ok(studio.document === iframe.contentDocument, "the frame is the editing frame");
     let forwarded: unknown;
     host.addEventListener("wheel", (event) => {
       const wheel = event as unknown as WheelEvent;
@@ -181,12 +183,9 @@ void test("canvas frames share the studio cache, activate their own owner, and f
 
     // Keyboard/assistive clicks have no preceding pointerdown. Activation must
     // still precede the semantic target handler, even with another page active.
-    await React.act(async () => {
-      previewStore.send({ type: "activatePage", pageId: "99" });
-      previewStore.send({ type: "setIframeElement", element: null });
-    });
+    await studio.claimElsewhere({ kind: "page", pageId: "99" });
     await React.act(async () => button.click());
-    assert.equal(previewStore.getSnapshot().context.iframeElement, iframe);
+    assert.ok(studio.document === iframe.contentDocument, "the click claims the frame back");
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
       pageId: "7",
@@ -194,11 +193,11 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     });
   } finally {
     await React.act(async () => root.unmount());
-    assert.equal(previewStore.getSnapshot().context.iframeElement, null);
+    assert.ok(studio.document === null, "an unmounted frame releases the editing frame");
+    await studio.close();
     await frame.happyDOM.close();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "setIframeElement", element: null });
     previewStore.send({ type: "exitEditMode" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {
@@ -248,6 +247,7 @@ void test("selected ready frames own editing without a click and follow URL sele
   const { createRoot } = await import("react-dom/client");
   const { CanvasPageFrame } = await import("./CanvasPageFrame");
   const { previewStore } = await import("../preview/previewStore");
+  const { editingFrameHarness } = await import("../preview/editingFrame.fixtures");
   const { PreviewPreparationContext } = await import("../preview/previewPreparation");
   const { useLocation } = await import("../navigation/navigation");
   const client = new QueryClient();
@@ -310,6 +310,7 @@ void test("selected ready frames own editing without a click and follow URL sele
       </PreviewPreparationContext>
     );
   }
+  const studio = await editingFrameHarness(dom.document as unknown as Document);
   previewStore.send({ type: "enterEditMode" });
   try {
     await React.act(async () => root.render(<Workspace pathname="/about" />));
@@ -331,7 +332,7 @@ void test("selected ready frames own editing without a click and follow URL sele
     assert.equal(readyCount, 1, "unselected content commit must not signal readiness");
     assert.ok(iframes[0]!.contentDocument!.querySelector("button"), "selected document is ready");
     assert.deepEqual(activations, [{ owner: { kind: "page", pageId: "1" }, source: "selection" }]);
-    assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[0]);
+    assert.ok(studio.document === iframes[0]!.contentDocument);
     assert.deepEqual(previewStore.getSnapshot().context.editingContext, {
       kind: "page",
       pageId: "1",
@@ -341,20 +342,20 @@ void test("selected ready frames own editing without a click and follow URL sele
     // Clicking B owns editing immediately, while its navigation is still
     // pending and the URL continues selecting A.
     await React.act(async () => iframes[1]!.contentDocument!.querySelector("button")!.click());
-    assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[1]);
+    assert.ok(studio.document === iframes[1]!.contentDocument);
     assert.deepEqual(activations[1], {
       owner: { kind: "page", pageId: "2" },
       source: "interaction",
     });
     await React.act(async () => root.render(<Workspace pathname="/about" />));
     assert.equal(activations.length, 2, "old URL selection must not reclaim ownership");
-    assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[1]);
+    assert.ok(studio.document === iframes[1]!.contentDocument);
 
     await React.act(async () => root.render(<Workspace pathname="/contact" />));
     assert.deepEqual(activations[2], { owner: { kind: "page", pageId: "2" }, source: "selection" });
     await React.act(async () => root.render(<Workspace pathname="/about" />));
     assert.deepEqual(activations[3], { owner: { kind: "page", pageId: "1" }, source: "selection" });
-    assert.equal(previewStore.getSnapshot().context.iframeElement, iframes[0]);
+    assert.ok(studio.document === iframes[0]!.contentDocument);
     assert.equal(activations.length, 4);
 
     const contentOf = (iframe: (typeof iframes)[number]) =>
@@ -378,9 +379,9 @@ void test("selected ready frames own editing without a click and follow URL sele
     assert.equal(isPaused(iframes[1]!), false, "and resumes once live");
   } finally {
     await React.act(async () => root.unmount());
+    await studio.close();
     client.clear();
     previewStore.send({ type: "activatePage", pageId: null });
-    previewStore.send({ type: "setIframeElement", element: null });
     previewStore.send({ type: "exitEditMode" });
     await dom.happyDOM.close();
     for (const [key, descriptor] of previous) {

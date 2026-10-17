@@ -101,6 +101,8 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
   const dom = await setup();
   const { PreviewPanel } = await import("./PreviewPanel");
   const { previewStore: store } = await import("../previewStore");
+  const { editingFrameHarness, fakeEditingFrame } = await import("../editingFrame.fixtures");
+  const studio = await editingFrameHarness(document);
   const render = (active: boolean, pageId?: string, layoutId?: string) =>
     dom.render(
       <PreviewPanel
@@ -111,36 +113,36 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
         <p>Preview</p>
       </PreviewPanel>,
     );
-  const outgoingFrame = document.createElement("iframe");
-  const canvasFrame = document.createElement("iframe");
+  const outgoingDocument = document.implementation.createHTMLDocument();
+  const outgoingFrame = fakeEditingFrame(outgoingDocument).frame as HTMLIFrameElement;
   try {
     await render(true, "3");
     const ready = frameCallbacks.at(-1)!;
-    ready(outgoingFrame);
-    assert.equal(store.getSnapshot().context.iframeElement, outgoingFrame);
+    await React.act(async () => ready(outgoingFrame));
+    assert.ok(studio.document === outgoingDocument);
     await render(false, "3");
-    store.send({ type: "activatePage", pageId: "10" });
-    store.send({ type: "setIframeElement", element: canvasFrame });
+    const canvasFrame = await studio.claimElsewhere({ kind: "page", pageId: "10" });
     const canvasOwner = store.getSnapshot().context.editingContext;
     await render(false, "4");
     await render(false, undefined, "news");
-    ready(outgoingFrame);
-    frameCallbacks.at(-1)!(outgoingFrame);
+    await React.act(async () => {
+      ready(outgoingFrame);
+      frameCallbacks.at(-1)!(outgoingFrame);
+    });
     assert.equal(store.getSnapshot().context.editingContext, canvasOwner);
-    assert.equal(store.getSnapshot().context.iframeElement, canvasFrame);
+    assert.ok(studio.document === canvasFrame.document);
     await dom.render(null);
-    ready(outgoingFrame);
-    assert.equal(store.getSnapshot().context.iframeElement, canvasFrame);
+    await React.act(async () => ready(outgoingFrame));
+    assert.ok(studio.document === canvasFrame.document);
     await render(false, "6");
-    frameCallbacks.at(-1)!(outgoingFrame);
+    await React.act(async () => frameCallbacks.at(-1)!(outgoingFrame));
     assert.equal(store.getSnapshot().context.editingContext, canvasOwner);
-    assert.equal(store.getSnapshot().context.iframeElement, canvasFrame);
+    assert.ok(studio.document === canvasFrame.document);
     const retainedContent = dom.host.querySelector("p");
     await render(true, "6");
     assert.equal(dom.host.querySelector("p"), retainedContent);
-    assert.equal(
-      store.getSnapshot().context.iframeElement,
-      outgoingFrame,
+    assert.ok(
+      studio.document === outgoingDocument,
       "cancelling preparation restores the already-loaded retained iframe",
     );
     assert.deepEqual(store.getSnapshot().context.editingContext, {
@@ -150,8 +152,8 @@ void test("inactive preview cannot activate owners or register a delayed iframe 
     });
   } finally {
     await dom.close();
+    await studio.close();
     store.send({ type: "activatePage", pageId: null });
-    store.send({ type: "setIframeElement", element: null });
   }
 });
 

@@ -85,6 +85,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   const { PreviewDocumentContext } = await import("../runtime/PreviewDocumentContext");
   const { previewStore } = await import("../preview/previewStore");
   const { CanvasBlockFrame } = await import("./CanvasBlockFrame");
+  const { editingFrameHarness } = await import("../preview/editingFrame.fixtures");
 
   let liveEffects = 0;
   const block = createBlock({
@@ -128,6 +129,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
   const host = dom.document.createElement("div");
   canvas.append(host);
   const root = createRoot(host as unknown as HTMLElement);
+  const studio = await editingFrameHarness(dom.document as unknown as Document);
   const render = (previewDocument: string, selected = false) =>
     React.act(async () => {
       root.render(
@@ -204,7 +206,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     assert.equal(click.defaultPrevented, true, "links do not navigate");
 
     const { context } = previewStore.getSnapshot();
-    assert.equal(context.iframeElement, null, "block frames never become the preview iframe");
+    assert.ok(studio.document === null, "block frames never become the editing frame");
     assert.equal(context.editingContext, null, "interacting activates no editing owner");
     const editingAffordances = [
       "[data-canvas-overlays]",
@@ -315,6 +317,7 @@ void test("Block Catalog frames mount near the viewport and render a live, non-e
     }
   } finally {
     await React.act(async () => root.unmount());
+    await studio.close();
     client.clear();
     previewStore.send({ type: "exitEditMode" });
     await frame.happyDOM.close();

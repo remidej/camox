@@ -45,6 +45,8 @@ void test("outlines and interactive controls live above the frame, not in the pa
   const { createRoot } = await import("react-dom/client");
   const { CanvasOverlays, CanvasOverlaysShownContext } = await import("./CanvasOverlays");
   const { previewStore } = await import("../preview/previewStore");
+  const { editingFrameHarness } = await import("../preview/editingFrame.fixtures");
+  const studio = await editingFrameHarness(host.document as unknown as Document);
   const target = page.document.createElement("div");
   target.setAttribute("data-camox-block-id", "42");
   target.setAttribute("data-camox-focused", "");
@@ -175,14 +177,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
     assert.equal(host.document.querySelector("button"), null);
 
     // The selected frame owns its text toolbar, in the same unscaled overlay layer.
-    const iframe = host.document.querySelector("iframe")!;
-    Object.defineProperty(iframe, "contentDocument", { value: page.document });
-    await React.act(async () => {
-      previewStore.send({
-        type: "setIframeElement",
-        element: iframe as unknown as HTMLIFrameElement,
-      });
-    });
+    await studio.claimElsewhere(null, page.document as unknown as Document);
     assert.equal(layer.querySelector("[data-canvas-page-outline]"), null);
     await React.act(async () => {
       previewStore.send({ type: "setFocusedBlock", kind: "page", pageId: "7", blockId: "42" });
@@ -225,12 +220,6 @@ void test("outlines and interactive controls live above the frame, not in the pa
       linkTarget: null,
       selectedText: "Selected text",
     };
-    await React.act(async () => {
-      previewStore.send({
-        type: "setIframeElement",
-        element: iframe as unknown as HTMLIFrameElement,
-      });
-    });
     await React.act(async () => {
       host.dispatchEvent(new host.MessageEvent("message", { data: selectionMessage }));
     });
@@ -275,9 +264,13 @@ void test("outlines and interactive controls live above the frame, not in the pa
       host.document.querySelector("[role=toolbar]"),
       "the toolbar stays anchored while the link popover owns focus",
     );
+
+    // Zooming out of the Canvas lets the frame go, and its toolbar with it.
+    await studio.releaseElsewhere();
+    assert.equal(host.document.querySelector("[role=toolbar]"), null);
   } finally {
     await React.act(async () => root.unmount());
-    previewStore.send({ type: "setIframeElement", element: null });
+    await studio.close();
     previewStore.send({ type: "exitEditMode" });
     await page.happyDOM.close();
     await host.happyDOM.close();
