@@ -43,8 +43,10 @@ export function CoreCamoxProvider({
   const queryClient = useQueryClient();
   const authClient = React.useMemo(() => createCamoxAuthClient(apiUrl), [apiUrl]);
   const initializedApiUrl = React.useRef<string | null>(null);
+  // oxlint-disable-next-line react/refs -- one-time client init must happen before children render
   if (initializedApiUrl.current !== apiUrl) {
     initApiClient(apiUrl);
+    // oxlint-disable-next-line react/refs -- see above
     initializedApiUrl.current = apiUrl;
   }
 
@@ -61,8 +63,10 @@ export function CoreCamoxProvider({
   );
 
   const seededProject = React.useRef<Project | undefined>(undefined);
+  // oxlint-disable-next-line react/refs -- the cache must be seeded before children query it
   if (initialProject && seededProject.current !== initialProject) {
     queryClient.setQueryData(projectQueries.getBySlug(projectSlug).queryKey, initialProject);
+    // oxlint-disable-next-line react/refs -- see above
     seededProject.current = initialProject;
   }
 
@@ -71,6 +75,7 @@ export function CoreCamoxProvider({
   const { ready, error } = useProcessOtt(authClient, { projectSlug, apiUrl }, initialAuthenticated);
   const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
   React.useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- reads window.location after hydration
     setIsPreviewHandoff(new URL(window.location.href).searchParams.has("camox-preview"));
   }, []);
 

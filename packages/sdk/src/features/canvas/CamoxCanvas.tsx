@@ -362,6 +362,7 @@ function CanvasWorkspace({
     if (previousPath.current === selectedPath) return;
     // Selecting a hidden Page from outside the Canvas reveals it; the flight follows.
     if (location.source !== "canvas" && hiddenSelectedShelf) {
+      // oxlint-disable-next-line react/set-state-in-effect -- reacts to a route change that also drives the camera
       toggleShelf(hiddenSelectedShelf);
       return;
     }
@@ -373,11 +374,13 @@ function CanvasWorkspace({
   }, [selectedPath, location.source, selectedKey, hiddenSelectedShelf, flyTo]);
   // An item to fly to once its shelf is expanded and it has a place in the row.
   const [pendingFlight, setPendingFlight] = React.useState<string | null>(null);
+  const pendingFlightPlaced = !!pendingFlight && positions.has(pendingFlight);
   React.useEffect(() => {
-    if (!pendingFlight || !positions.has(pendingFlight)) return;
+    if (!pendingFlight || !pendingFlightPlaced) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- the flight waits for the item's place in the row
     setPendingFlight(null);
     flyTo(pendingFlight);
-  });
+  }, [pendingFlight, pendingFlightPlaced, flyTo]);
   React.useImperativeHandle(ref, () => ({
     showItem(key) {
       const shelf = shelves.find((candidate) => candidate.items.some((item) => item.key === key));
@@ -630,6 +633,7 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     if (!activeFrame || activeFrame.pathname === selectedPath) return;
     previewStore.send({ type: "clearSelection" });
     previewStore.send({ type: "setIframeElement", element: null });
+    // oxlint-disable-next-line react/set-state-in-effect -- released together with the store's selection and iframe
     setActiveFrame(null);
   }, [activeFrame, selectedPath]);
   React.useEffect(() => {

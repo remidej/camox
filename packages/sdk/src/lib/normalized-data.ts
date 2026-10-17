@@ -197,12 +197,12 @@ const EMPTY_IDS: string[] = [];
  * React Compiler, since its memoization keys on input identity.
  */
 function useStableArray<T>(next: T[]): T[] {
-  const ref = React.useRef<T[]>(next);
-  const prev = ref.current;
+  const [prev, setPrev] = React.useState(next);
   if (prev !== next && (prev.length !== next.length || prev.some((v, i) => v !== next[i]))) {
-    ref.current = next;
+    setPrev(next);
+    return next;
   }
-  return ref.current;
+  return prev;
 }
 
 export function usePageBlocks(pageStructure: {

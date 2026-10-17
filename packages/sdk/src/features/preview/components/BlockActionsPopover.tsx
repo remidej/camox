@@ -342,11 +342,12 @@ function useBlockActionsShortcuts() {
     selectionForPage(state.context, page.page.id),
   );
 
-  const deleteBlockMutation = useMutation(blockMutations.delete());
-  const duplicateBlockMutation = useMutation(blockMutations.duplicate());
-  const updatePositionMutation = useUpdateBlockPosition();
-  const deleteRepeatableItem = useMutation(repeatableItemMutations.delete());
-  const duplicateRepeatableItem = useMutation(repeatableItemMutations.duplicate());
+  // mutateAsync is stable, so mutation status changes don't re-register the actions.
+  const { mutateAsync: deleteBlock } = useMutation(blockMutations.delete());
+  const { mutateAsync: duplicateBlock } = useMutation(blockMutations.duplicate());
+  const { mutateAsync: updatePosition } = useUpdateBlockPosition();
+  const { mutateAsync: deleteRepeatableItem } = useMutation(repeatableItemMutations.delete());
+  const { mutateAsync: duplicateRepeatableItem } = useMutation(repeatableItemMutations.duplicate());
 
   React.useEffect(() => {
     const actions = [
@@ -385,7 +386,7 @@ function useBlockActionsShortcuts() {
 
           const itemId = selectionItemId(sel);
           if (itemId != null) {
-            deleteRepeatableItem.mutateAsync({ id: itemId }).then(
+            deleteRepeatableItem({ id: itemId }).then(
               () => toast.success("Deleted item"),
               () => toast.error("Could not delete item"),
             );
@@ -394,7 +395,7 @@ function useBlockActionsShortcuts() {
           }
 
           const block = pageBlocks.find((b) => b.id === sel.blockId);
-          deleteBlockMutation.mutateAsync({ id: sel.blockId }).then(
+          deleteBlock({ id: sel.blockId }).then(
             () => toast.success(`Deleted "${block?.summary || block?.type}" block`),
             () => toast.error("Could not delete block"),
           );
@@ -420,7 +421,7 @@ function useBlockActionsShortcuts() {
 
           const itemId = selectionItemId(sel);
           if (itemId != null) {
-            duplicateRepeatableItem.mutateAsync({ id: itemId }).then(
+            duplicateRepeatableItem({ id: itemId }).then(
               () => toast.success("Duplicated item"),
               () => toast.error("Could not duplicate item"),
             );
@@ -428,7 +429,7 @@ function useBlockActionsShortcuts() {
           }
 
           const block = pageBlocks.find((b) => b.id === sel.blockId);
-          duplicateBlockMutation.mutateAsync({ id: sel.blockId }).then(
+          duplicateBlock({ id: sel.blockId }).then(
             () => toast.success(`Duplicated "${block?.summary}" block`),
             () => toast.error("Could not duplicate block"),
           );
@@ -457,12 +458,10 @@ function useBlockActionsShortcuts() {
           const afterPosition = index > 1 ? pageBlocks[index - 2].position : undefined;
           const beforePosition = pageBlocks[index - 1].position;
 
-          updatePositionMutation
-            .mutateAsync({ id: sel.blockId, afterPosition, beforePosition })
-            .then(
-              () => {},
-              () => toast.error("Could not move block"),
-            );
+          updatePosition({ id: sel.blockId, afterPosition, beforePosition }).then(
+            () => {},
+            () => toast.error("Could not move block"),
+          );
         },
       },
       {
@@ -489,12 +488,10 @@ function useBlockActionsShortcuts() {
           const beforePosition =
             index + 2 < pageBlocks.length ? pageBlocks[index + 2].position : undefined;
 
-          updatePositionMutation
-            .mutateAsync({ id: sel.blockId, afterPosition, beforePosition })
-            .then(
-              () => {},
-              () => toast.error("Could not move block"),
-            );
+          updatePosition({ id: sel.blockId, afterPosition, beforePosition }).then(
+            () => {},
+            () => toast.error("Could not move block"),
+          );
         },
       },
       {
@@ -553,7 +550,17 @@ function useBlockActionsShortcuts() {
         ids: actions.map((a) => a.id),
       });
     };
-  }, [selection, page, pageBlocks, camoxApp]);
+  }, [
+    selection,
+    page,
+    pageBlocks,
+    camoxApp,
+    deleteBlock,
+    duplicateBlock,
+    updatePosition,
+    deleteRepeatableItem,
+    duplicateRepeatableItem,
+  ]);
 }
 
 export { BlockActionsPopover, useBlockActionsShortcuts };

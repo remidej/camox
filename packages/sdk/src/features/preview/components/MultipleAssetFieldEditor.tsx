@@ -174,8 +174,11 @@ const MultipleAssetFieldEditor = ({
   // Keep local form assets resolved; persisted sidebar values use bare references.
   const toStorageFormat = (assets: ResolvedAsset[]) =>
     resolveLocally ? assets : assets.map((a) => ({ _fileId: a._fileId }));
+  // Uploads that finish before the next render add to the latest list.
   const itemsRef = React.useRef(items);
-  itemsRef.current = items;
+  React.useLayoutEffect(() => {
+    itemsRef.current = items;
+  });
 
   const addAssets = (assets: ResolvedAsset[]) => {
     const next = [...itemsRef.current];

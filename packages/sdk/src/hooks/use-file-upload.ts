@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import { getApiUrl } from "@/lib/api-client";
 import { getAuthCookieHeader } from "@/lib/auth";
@@ -27,9 +27,11 @@ export function useFileUpload(options?: UseFileUploadOptions) {
   const apiUrl = getApiUrl();
   const nextId = useRef(0);
   const projectIdRef = useRef(options?.projectId);
-  projectIdRef.current = options?.projectId;
   const onFileCommittedRef = useRef(options?.onFileCommitted);
-  onFileCommittedRef.current = options?.onFileCommitted;
+  useLayoutEffect(() => {
+    projectIdRef.current = options?.projectId;
+    onFileCommittedRef.current = options?.onFileCommitted;
+  });
 
   const uploadSingleFile = useCallback(
     async (file: File, itemId: string) => {

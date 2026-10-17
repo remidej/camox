@@ -76,9 +76,11 @@ export function MobilePreviewDrawer({
     [getExpandedHeight],
   );
 
-  React.useEffect(() => {
+  const [previousPageId, setPreviousPageId] = React.useState(page.id);
+  if (page.id !== previousPageId) {
+    setPreviousPageId(page.id);
     setScreen("root");
-  }, [page.id]);
+  }
 
   React.useEffect(() => {
     const handleResize = () => {

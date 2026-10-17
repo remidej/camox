@@ -58,11 +58,12 @@ const ThumbnailFrame = ({ block, width }: { block: Block; width: number }) => {
       }
     `;
     doc.head.appendChild(reset);
-    doc.body.inert = true;
+    doc.body.setAttribute("inert", "");
     setRoot(mount);
   }, [frame, sourceFrame]);
 
   React.useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- the iframe may already have loaded before its source frame changed
     initialize();
   }, [initialize]);
 

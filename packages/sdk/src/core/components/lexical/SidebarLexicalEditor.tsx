@@ -391,7 +391,9 @@ export function SidebarLexicalEditor({
 }: SidebarLexicalEditorProps) {
   const timerRef = React.useRef<number | null>(null);
   const onChangeRef = React.useRef(onChange);
-  onChangeRef.current = onChange;
+  React.useLayoutEffect(() => {
+    onChangeRef.current = onChange;
+  });
   const isSyncingRef = React.useRef(false);
   const pendingMarkdownRef = React.useRef<string | null>(null);
   const flushChange = React.useCallback(() => {
@@ -402,7 +404,8 @@ export function SidebarLexicalEditor({
     if (markdown !== null) onChangeRef.current(markdown);
   }, []);
 
-  const config = React.useMemo(() => createEditorConfig(value), []);
+  // Lexical only reads the initial config; later values go through ExternalStateSync.
+  const [config] = React.useState(() => createEditorConfig(value));
 
   const handleChange = React.useCallback(
     (editorState: EditorState) => {

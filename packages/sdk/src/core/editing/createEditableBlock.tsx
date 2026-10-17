@@ -911,9 +911,11 @@ export function createEditableBlock<
       { fieldId },
     );
 
-    React.useEffect(() => {
+    const [prevSidebarHover, setPrevSidebarHover] = React.useState(isHoveredFromSidebar);
+    if (prevSidebarHover !== isHoveredFromSidebar) {
+      setPrevSidebarHover(isHoveredFromSidebar);
       setIsHovered(isHoveredFromSidebar);
-    }, [isHoveredFromSidebar]);
+    }
 
     const updateBlockContent = useMutation(blockMutations.updateContent());
     const updateRepeatableContent = useMutation(repeatableItemMutations.updateContent());
@@ -1157,9 +1159,11 @@ export function createEditableBlock<
       { fieldId },
     );
 
-    React.useEffect(() => {
+    const [prevSidebarHover, setPrevSidebarHover] = React.useState(isHoveredFromSidebar);
+    if (prevSidebarHover !== isHoveredFromSidebar) {
+      setPrevSidebarHover(isHoveredFromSidebar);
       setIsHovered(isHoveredFromSidebar);
-    }, [isHoveredFromSidebar]);
+    }
 
     return (
       <div
@@ -1338,11 +1342,11 @@ export function createEditableBlock<
     const isFocused = isEditorFocused || isSelectedFromSelection;
     const overlayState = useOverlayState(isHovered, isFocused);
 
-    React.useEffect(() => {
-      if (!isEditing) {
-        setDisplayText(fieldValue.text);
-      }
-    }, [fieldValue.text, isEditing]);
+    const [syncedText, setSyncedText] = React.useState({ text: fieldValue.text, isEditing });
+    if (syncedText.text !== fieldValue.text || syncedText.isEditing !== isEditing) {
+      setSyncedText({ text: fieldValue.text, isEditing });
+      if (!isEditing) setDisplayText(fieldValue.text);
+    }
 
     // Keep sidebar hover via postMessage (transient state)
     const isHoveredFromSidebar = useOverlayMessage(
@@ -1353,9 +1357,11 @@ export function createEditableBlock<
       { fieldId },
     );
 
-    React.useEffect(() => {
+    const [prevSidebarHover, setPrevSidebarHover] = React.useState(isHoveredFromSidebar);
+    if (prevSidebarHover !== isHoveredFromSidebar) {
+      setPrevSidebarHover(isHoveredFromSidebar);
       setIsHovered(isHoveredFromSidebar);
-    }, [isHoveredFromSidebar]);
+    }
 
     const saveLinkValue = (newLinkValue: Record<string, unknown>) => {
       if (repeaterContext?.itemId != null) {
@@ -1523,9 +1529,11 @@ export function createEditableBlock<
       { fieldId },
     );
 
-    React.useEffect(() => {
+    const [prevSidebarHover, setPrevSidebarHover] = React.useState(isHoveredFromSidebar);
+    if (prevSidebarHover !== isHoveredFromSidebar) {
+      setPrevSidebarHover(isHoveredFromSidebar);
       setIsHovered(isHoveredFromSidebar);
-    }, [isHoveredFromSidebar]);
+    }
 
     const handleClick = () => {
       if (!isContentEditable) return;
@@ -1619,9 +1627,11 @@ export function createEditableBlock<
       { fieldId },
     );
 
-    React.useEffect(() => {
+    const [prevSidebarHover, setPrevSidebarHover] = React.useState(isHoveredFromSidebar);
+    if (prevSidebarHover !== isHoveredFromSidebar) {
+      setPrevSidebarHover(isHoveredFromSidebar);
       setIsHovered(isHoveredFromSidebar);
-    }, [isHoveredFromSidebar]);
+    }
 
     const linkProps: FileRenderProps = { href: fieldValue.url, download: fieldValue.filename };
     // The selectable file is the site's own link: no wrapper element changes its layout.
@@ -2203,6 +2213,7 @@ export function createEditableBlock<
     const [isFirstRender, setIsFirstRender] = React.useState(true);
     React.useEffect(() => {
       if (isFirstRender) {
+        // oxlint-disable-next-line react/set-state-in-effect -- flips after the first commit so the initial scroll is instant
         setIsFirstRender(false);
       }
     }, [isFirstRender]);
@@ -2226,9 +2237,11 @@ export function createEditableBlock<
       { blockId: String(blockData._id) },
     );
 
-    React.useEffect(() => {
+    const [prevSidebarHover, setPrevSidebarHover] = React.useState(isHoveredFromSidebar);
+    if (prevSidebarHover !== isHoveredFromSidebar) {
+      setPrevSidebarHover(isHoveredFromSidebar);
       setIsHovered(isHoveredFromSidebar);
-    }, [isHoveredFromSidebar]);
+    }
 
     // Normalize content: keep full item objects for internal use, but prepare content-only version for display
     // We need to keep blockData.content as-is because Repeater needs the full objects with _id

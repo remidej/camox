@@ -80,7 +80,7 @@ function PageFrame({
     if (pageId != null) return { kind: "page", pageId };
     return null;
   }, [layoutId, pageId]);
-  const { iframeRef, mount, iframeProps } = useCanvasFrame({
+  const { iframeRef, iframe, mount, iframeProps } = useCanvasFrame({
     previewDocument: input.previewDocument,
     href,
     width,
@@ -90,14 +90,13 @@ function PageFrame({
     mode,
   });
   React.useEffect(() => {
-    const iframe = iframeRef.current;
     if (!iframe || !mount) return;
     return () => {
       if (previewStore.getSnapshot().context.iframeElement !== iframe) return;
       previewStore.send({ type: "clearSelection" });
       previewStore.send({ type: "setIframeElement", element: null });
     };
-  }, [mount]);
+  }, [iframe, mount]);
   const activateOwner = (source: "selection" | "interaction") => {
     if (!owner) return;
     if (owner.kind === "page") previewStore.send({ type: "activatePage", pageId: owner.pageId });
@@ -117,12 +116,7 @@ function PageFrame({
   return (
     <PreviewEditingOwnerContext value={owner}>
       <HydrationBoundary state={input.dehydratedState as DehydratedState}>
-        <CanvasFrameProviders
-          pathname={input.pathname}
-          href={href}
-          mount={mount}
-          iframe={iframeRef.current}
-        >
+        <CanvasFrameProviders pathname={input.pathname} href={href} mount={mount} iframe={iframe}>
           <PreviewDocumentContext.Provider value={input.previewDocument}>
             <CanvasOverlays
               document={mount?.ownerDocument ?? null}
@@ -157,7 +151,7 @@ function PageFrame({
                         )}
                         <PreviewFrameEffects />
                         <Overlays
-                          iframeElement={iframeRef.current}
+                          iframeElement={iframe}
                           owner={owner}
                           canAddBlocks={owner?.kind === "page"}
                         />

@@ -472,7 +472,8 @@ const PageStructureEditor = ({
     },
   });
 
-  React.useEffect(() => {
+  // Only switching pages resets the form, not updates to the current page.
+  const resetForm = React.useEffectEvent(() => {
     if (!page) return;
     form.reset({
       nickname: page.nickname,
@@ -480,7 +481,11 @@ const PageStructureEditor = ({
       parentPageId: page.parentPageId ?? undefined,
       layoutId: page.layoutId ?? "",
     });
-  }, [page?.id]);
+  });
+  const pageId = page?.id;
+  React.useEffect(() => {
+    resetForm();
+  }, [pageId]);
 
   if (!page || !project) return null;
 

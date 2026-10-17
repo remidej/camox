@@ -87,6 +87,7 @@ export function ReferenceFieldEditor({
   React.useEffect(() => {
     if (!focusRequested || !fieldId || !pickerReady) return;
     referencePickerFocus.send({ type: "consume", fieldId });
+    // oxlint-disable-next-line react/set-state-in-effect -- consumes a one-shot focus request from an external store
     setPickerOpen(true);
   }, [focusRequested, fieldId, pickerReady]);
 

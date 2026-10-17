@@ -44,12 +44,15 @@ const AssetPickerModal = ({
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [lightboxFile, setLightboxFile] = React.useState<File | null>(null);
 
-  React.useEffect(() => {
-    if (open) return;
-
-    setSelectedIds(new Set());
-    setLightboxFile(null);
-  }, [open]);
+  // Closing the modal clears its selection.
+  const [previousOpen, setPreviousOpen] = React.useState(open);
+  if (open !== previousOpen) {
+    setPreviousOpen(open);
+    if (!open) {
+      setSelectedIds(new Set());
+      setLightboxFile(null);
+    }
+  }
 
   const isImage = assetType === "Image";
   const files = React.useMemo(() => {

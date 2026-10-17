@@ -187,6 +187,7 @@ export function CanvasPreview({
   );
   // React.lazy remembers a rejected import. A retry needs a fresh lazy instance
   // as well as a fresh error boundary, not a reload of the outgoing page.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- each attempt needs its own lazy instance
   const Canvas = React.useMemo(() => React.lazy(loadCanvas), [attempt]);
   const onFatalError = React.useCallback(
     (_error: Error) => {
@@ -239,6 +240,7 @@ export function CanvasPreview({
                 <CanvasBoundary onError={onFatalError}>
                   <PreviewPreparationContext value={signals}>
                     <React.Suspense fallback={null}>
+                      {/* oxlint-disable-next-line react/static-components -- recreated only per attempt, see above */}
                       <Canvas runtimeBasePath={runtimeBasePath} />
                     </React.Suspense>
                   </PreviewPreparationContext>

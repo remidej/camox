@@ -43,6 +43,7 @@ function IconPicker({
   }, [ids, search]);
   const activeIndex = Math.max(0, filteredIds.indexOf(activeId));
   const activeRow = Math.floor(activeIndex / COLUMNS);
+  // oxlint-disable-next-line react/incompatible-library -- TanStack Virtual cannot be memoized, so the compiler skips this component
   const virtualizer = useVirtualizer({
     count: Math.ceil(filteredIds.length / COLUMNS),
     getScrollElement: () => scrollRef.current,

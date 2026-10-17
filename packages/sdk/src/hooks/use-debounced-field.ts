@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Local state for a field that autosaves to a server value, debouncing the
@@ -19,15 +19,19 @@ export function useDebouncedField<T>(serverValue: T, onSave: (value: T) => void,
   // Keep onSave in a ref so callers don't need to memoise it (lets
   // LinkFieldEditor compose `{ ...linkValueRef.current, text: v }` inline).
   const saveRef = useRef(onSave);
-  saveRef.current = onSave;
+  useLayoutEffect(() => {
+    saveRef.current = onSave;
+  });
 
   const timerRef = useRef<number | null>(null);
   const pendingRef = useRef<{ value: T } | null>(null);
 
   // Sync from server only when the user isn't actively editing.
-  useEffect(() => {
+  const [synced, setSynced] = useState({ serverValue, isFocused });
+  if (!Object.is(synced.serverValue, serverValue) || synced.isFocused !== isFocused) {
+    setSynced({ serverValue, isFocused });
     if (!isFocused) setLocal(serverValue);
-  }, [serverValue, isFocused]);
+  }
 
   const flush = useCallback(() => {
     if (timerRef.current) {
