@@ -2,7 +2,10 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { resolveDraftScope } from "../../../../apps/api/src/domains/drafts/service";
+import {
+  resolveDraftScope,
+  resolveWriteDraft,
+} from "../../../../apps/api/src/domains/drafts/service";
 import {
   updateFileMetadataInput,
   getProjectFile,
@@ -17,6 +20,7 @@ const updateInput = target.and(updateFileMetadataInput);
 
 /** Tools read and write files in the draft the session names, if any. */
 const draftScope = (ctx: ToolContext) => resolveDraftScope(ctx, ctx.projectId);
+const writeDraft = (ctx: ToolContext) => resolveWriteDraft(ctx, ctx.projectId);
 
 export const filesProvider: ToolProvider = (ctx) => [
   {
@@ -51,7 +55,7 @@ export const filesProvider: ToolProvider = (ctx) => [
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) =>
       runService(
-        Effect.flatMap(draftScope(ctx), (scope) =>
+        Effect.flatMap(writeDraft(ctx), (scope) =>
           updateFile(ctx, { ...updateInput.parse(input), projectId: ctx.projectId }, scope),
         ),
       ),

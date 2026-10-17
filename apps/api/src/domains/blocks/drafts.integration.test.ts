@@ -2,12 +2,16 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import { and, eq, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { drafts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { discardDraft } from "../drafts/publish";
-import type { DraftScope } from "../drafts/scope";
+import type { Draft, DraftScope } from "../drafts/scope";
 import { getPageByPath } from "../pages/service";
 import {
   createBlock,
@@ -54,7 +58,7 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  const openDraft = async (): Promise<DraftScope> => {
+  const openDraft = async (): Promise<Draft> => {
     const draft = await base.db
       .insert(drafts)
       .values({
@@ -67,15 +71,24 @@ async function fixture(suffix: string) {
       .get();
     return { id: draft.id, kind: draft.kind, projectId: draft.projectId };
   };
-  const create = (title: string, scope: DraftScope = null) =>
-    runService(createBlock(ctx, { pageId: page.id, type: "hero", content: { title } }, scope));
+  /** Creates a block in a draft, or on Live through a published draft. */
+  const create = (title: string, scope: DraftScope = null) => {
+    const write = (draft: Draft) =>
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title } }, draft);
+    return scope ? runService(write(scope)) : seedLiveThrough(ctx, base.project.id, write);
+  };
   const titleIn = async (id: string, scope: DraftScope) =>
     (await runService(getBlock(ctx, { id }, scope))).block.content.title;
   const pageTitles = async (scope: DraftScope) =>
     (await runService(getPageMarkdown(ctx, { pageId: page.id }, scope))).blocks.map(
       (block) => block.markdown,
     );
-  return { ...base, ctx, page, openDraft, create, titleIn, pageTitles };
+  /** Changes a block's title on Live, through a published draft. */
+  const editOnLive = (id: string, title: string) =>
+    seedLiveThrough(ctx, base.project.id, (draft) =>
+      updateBlockContent(ctx, { id, content: { title } }, draft),
+    );
+  return { ...base, ctx, page, openDraft, create, editOnLive, titleIn, pageTitles };
 }
 
 describe("blocks in a draft", () => {
@@ -93,11 +106,11 @@ describe("blocks in a draft", () => {
   });
 
   it("shows Live's latest content for a block the draft doesn't change", async () => {
-    const { ctx, openDraft, create, titleIn } = await fixture("draft-untouched");
+    const { openDraft, create, editOnLive, titleIn } = await fixture("draft-untouched");
     const block = await create("Live");
     const draft = await openDraft();
 
-    await runService(updateBlockContent(ctx, { id: block.id, content: { title: "Later" } }, null));
+    await editOnLive(block.id, "Later");
 
     expect(await titleIn(block.id, draft)).toBe("Later");
   });
@@ -166,7 +179,7 @@ describe("blocks in a draft", () => {
   });
 
   it("moves a block in a draft only, carrying the content it had when moved", async () => {
-    const { ctx, openDraft, create, pageTitles } = await fixture("draft-move");
+    const { ctx, openDraft, create, editOnLive, pageTitles } = await fixture("draft-move");
     const first = await create("First");
     const second = await create("Second");
     const draft = await openDraft();
@@ -174,7 +187,7 @@ describe("blocks in a draft", () => {
     await runService(
       updateBlockPosition(ctx, { id: first.id, afterPosition: second.position }, draft),
     );
-    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Live" } }, null));
+    await editOnLive(first.id, "Live");
 
     expect(await pageTitles(draft)).toEqual(["<!-- Hero -->\n# Second", "<!-- Hero -->\n# First"]);
     expect(await pageTitles(null)).toEqual(["<!-- Hero -->\n# Live", "<!-- Hero -->\n# Second"]);
@@ -261,7 +274,7 @@ describe("blocks in a draft", () => {
 
     await runService(
       discardDraft(
-        { ...ctx, draft: { id: draft!.id, create: false } },
+        { ...ctx, draft: { id: draft.id, create: false } },
         {
           projectId: project.id,
         },

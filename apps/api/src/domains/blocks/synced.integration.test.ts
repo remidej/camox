@@ -1,9 +1,14 @@
 import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { eq, inArray, sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { blocksProvider } from "../../../../../packages/ai-tools/src/providers/blocks";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages, repeatableItems } from "../../schema";
 import { syncBlockDefinitions, upsertBlockDefinition } from "../block-definitions/service";
@@ -31,7 +36,10 @@ const { broadcastInvalidation } = vi.hoisted(() => {
   vi.resetModules();
   return { broadcastInvalidation: vi.fn<(options: { targets: QueryKey[] }) => void>() };
 });
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation }));
+vi.mock("../../lib/broadcast-invalidation", () => ({
+  broadcastInvalidation,
+  broadcastDraftEnded: () => {},
+}));
 
 async function fixture(suffix: string, synced?: boolean) {
   const base = await createProjectFixture(suffix);
@@ -133,19 +141,21 @@ async function fixture(suffix: string, synced?: boolean) {
 
 describe("a synced block's shared content", () => {
   it("shows an edit made through one placement in every placement, each keeping its position and slot", async () => {
-    const { ctx, first, second } = await fixture("shared-edit", true);
+    const { ctx, first, second, project } = await fixture("shared-edit", true);
     const parent = (await runService(getBlock(ctx, { id: first.id }, null))).repeatableItems.find(
       (item) => item.parentItemId === null,
     )!;
 
-    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }, null));
-    await runService(
-      updateBlockSettings(ctx, { id: second.id, settings: { sticky: false } }, null),
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }, draft),
     );
-    await runService(
-      updateRepeatableItemContent(ctx, { id: parent.id, content: { label: "Start" } }, null),
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockSettings(ctx, { id: second.id, settings: { sticky: false } }, draft),
     );
-    const added = await runService(
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateRepeatableItemContent(ctx, { id: parent.id, content: { label: "Start" } }, draft),
+    );
+    const added = await seedLiveThrough(ctx, project.id, (draft) =>
       createRepeatableItem(
         ctx,
         {
@@ -153,11 +163,11 @@ describe("a synced block's shared content", () => {
           fieldName: "links",
           content: { label: "New" },
         },
-        null,
+        draft,
       ),
     );
-    await runService(
-      updateRepeatableItemPosition(ctx, { id: added.id, beforePosition: "a0" }, null),
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateRepeatableItemPosition(ctx, { id: added.id, beforePosition: "a0" }, draft),
     );
 
     for (const placement of [first, second]) {
@@ -181,7 +191,9 @@ describe("a synced block's shared content", () => {
       });
     }
 
-    await runService(deleteRepeatableItem(ctx, { id: added.id }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      deleteRepeatableItem(ctx, { id: added.id }, draft),
+    );
     expect(
       (await runService(getBlock(ctx, { id: first.id }, null))).repeatableItems.map(
         (item) => item.id,
@@ -190,27 +202,37 @@ describe("a synced block's shared content", () => {
   });
 
   it("returns the shared content from placement writes that don't touch it", async () => {
-    const { ctx, page, first } = await fixture("shared-write-results", true);
-    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }, null));
-    const placed = await runService(
-      createBlock(ctx, { pageId: page.id, type: "navbar", content: {} }, null),
+    const { ctx, page, first, project } = await fixture("shared-write-results", true);
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }, draft),
+    );
+    const placed = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "navbar", content: {} }, draft),
     );
     const expected = { content: { title: "Shared" }, settings: { sticky: true } };
 
-    expect(await runService(duplicateBlock(ctx, { id: placed.id }, null))).toMatchObject(expected);
     expect(
-      await runService(updateBlockPosition(ctx, { id: placed.id, beforePosition: null }, null)),
+      await seedLiveThrough(ctx, project.id, (draft) =>
+        duplicateBlock(ctx, { id: placed.id }, draft),
+      ),
+    ).toMatchObject(expected);
+    expect(
+      await seedLiveThrough(ctx, project.id, (draft) =>
+        updateBlockPosition(ctx, { id: placed.id, beforePosition: null }, draft),
+      ),
     ).toMatchObject(expected);
   });
 
   it("stores nothing but identity, position and slot in placements, and no sync key", async () => {
-    const { db, ctx, page, first, second } = await fixture("shared-storage", true);
-    const onPage = await runService(
-      createBlock(ctx, { pageId: page.id, type: "navbar", content: { title: "Own" } }, null),
+    const { db, ctx, page, first, second, project } = await fixture("shared-storage", true);
+    const onPage = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "navbar", content: { title: "Own" } }, draft),
     );
-    const duplicate = await runService(duplicateBlock(ctx, { id: onPage.id }, null));
-    await runService(
-      updateBlockContent(ctx, { id: duplicate.id, content: { title: "Shared" } }, null),
+    const duplicate = await seedLiveThrough(ctx, project.id, (draft) =>
+      duplicateBlock(ctx, { id: onPage.id }, draft),
+    );
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: duplicate.id, content: { title: "Shared" } }, draft),
     );
 
     const ids = [first.id, second.id, onPage.id, duplicate.id];
@@ -237,13 +259,16 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 describe("a definition sync making a block synced", () => {
   it("builds the shared content from the most recently updated placement and clears every placement", async () => {
-    const { db, ctx, syncCtx, definition, first, second } = await fixture("become-synced");
-    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "Older" } }, null));
+    const { db, ctx, syncCtx, definition, first, second, project } = await fixture("become-synced");
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: second.id, content: { title: "Older" } }, draft),
+    );
     await tick();
     const firstItems = (await runService(getBlock(ctx, { id: first.id }, null))).repeatableItems;
     const firstChild = firstItems.find((item) => item.parentItemId !== null)!;
-    await runService(
-      updateRepeatableItemContent(ctx, { id: firstChild.id, content: { label: "Latest" } }, null),
+    // Publishing an item of the first placement makes it the most recently published one.
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateRepeatableItemContent(ctx, { id: firstChild.id, content: { label: "Latest" } }, draft),
     );
 
     await runService(upsertBlockDefinition(syncCtx, { ...definition, synced: true }));
@@ -271,7 +296,7 @@ describe("a definition sync making a block synced", () => {
   });
 
   it("leaves a new synced definition's shared content to its first placement", async () => {
-    const { ctx, syncCtx, definition, page } = await fixture("created-synced");
+    const { ctx, syncCtx, definition, page, project } = await fixture("created-synced");
     const hero = {
       ...definition,
       blockId: "hero",
@@ -281,11 +306,15 @@ describe("a definition sync making a block synced", () => {
     };
     await runService(upsertBlockDefinition(syncCtx, hero));
 
-    const first = await runService(
-      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "First title" } }, null),
+    const first = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "First title" } }, draft),
     );
-    const second = await runService(
-      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "Second title" } }, null),
+    const second = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(
+        ctx,
+        { pageId: page.id, type: "hero", content: { title: "Second title" } },
+        draft,
+      ),
     );
 
     for (const placed of [first, second]) {
@@ -298,7 +327,7 @@ describe("a definition sync making a block synced", () => {
   });
 
   it("builds the shared content from the definition's defaults when nothing places it", async () => {
-    const { ctx, syncCtx, definition, page } = await fixture("become-synced-defaults");
+    const { ctx, syncCtx, definition, page, project } = await fixture("become-synced-defaults");
     const hero = {
       ...definition,
       blockId: "hero",
@@ -309,8 +338,8 @@ describe("a definition sync making a block synced", () => {
     await runService(upsertBlockDefinition(syncCtx, hero));
 
     await runService(upsertBlockDefinition(syncCtx, { ...hero, synced: true }));
-    const placed = await runService(
-      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "Own title" } }, null),
+    const placed = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "Own title" } }, draft),
     );
 
     expect((await runService(getBlock(ctx, { id: placed.id }, null))).block).toMatchObject({
@@ -326,7 +355,9 @@ describe("a definition sync making a block no longer synced", () => {
       "stop-synced",
       true,
     );
-    await runService(updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: first.id, content: { title: "Shared" } }, draft),
+    );
     const sharedIds = (await runService(getBlock(ctx, { id: first.id }, null))).repeatableItems.map(
       (item) => item.id,
     );
@@ -350,7 +381,9 @@ describe("a definition sync making a block no longer synced", () => {
     );
     expect(new Set([...copiedIds, ...sharedIds]).size).toBe(copiedIds.length + sharedIds.length);
 
-    await runService(updateBlockContent(ctx, { id: second.id, content: { title: "Own" } }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: second.id, content: { title: "Own" } }, draft),
+    );
     expect((await runService(getBlock(ctx, { id: first.id }, null))).block.content).toMatchObject({
       title: "Shared",
     });
@@ -366,14 +399,26 @@ describe("a definition sync making a block no longer synced", () => {
 describe("reading a synced placement", () => {
   it("shows the shared content in the Block Catalog, Markdown and AI tools", async () => {
     const { ctx, project, page, second } = await fixture("shared-readers", true);
-    const onPage = await runService(
-      createBlock(ctx, { pageId: page.id, type: "navbar", content: {} }, null),
+    const onPage = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "navbar", content: {} }, draft),
     );
     const context = { ...ctx, projectId: project.id };
     const tools = await blocksProvider(context);
     const tool = (name: string) => tools.find((entry) => entry.name === name)!;
 
-    await tool("editBlock").handler({ id: second.id, content: { title: "Shared title" } }, context);
+    // Agents write in a draft, which publishing applies to Live.
+    await seedLiveThrough(ctx, project.id, (_draft, inDraft) =>
+      Effect.promise(async () => {
+        const draftContext = { ...inDraft, projectId: project.id };
+        const editBlock = (await blocksProvider(draftContext)).find(
+          (entry) => entry.name === "editBlock",
+        )!;
+        await editBlock.handler(
+          { id: second.id, content: { title: "Shared title" } },
+          draftContext,
+        );
+      }),
+    );
 
     const catalog = await runService(
       getSyncedBlockContent(ctx, { projectId: project.id, type: "navbar" }, null),
@@ -401,8 +446,8 @@ describe("reading a synced placement", () => {
 describe("getSyncedBlockContent", () => {
   it("returns a Synced Block's shared draft content", async () => {
     const { ctx, project, second } = await fixture("synced-content", true);
-    await runService(
-      updateBlockContent(ctx, { id: second.id, content: { title: "Shared title" } }, null),
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: second.id, content: { title: "Shared title" } }, draft),
     );
 
     const shared = await runService(

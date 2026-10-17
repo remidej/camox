@@ -4,7 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blocks, pages, repeatableItems } from "../../schema";
+import { blocks, drafts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { createBlock, editBlock, updateBlockContent, updateBlockSettings } from "./service";
 
@@ -85,7 +85,19 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  return { ...base, ctx, page };
+  // Content is written in drafts (ADR 0003): these writes only need one.
+  const openedDraft = await base.db
+    .insert(drafts)
+    .values({
+      projectId: base.project.id,
+      kind: "regular",
+      createdBy: base.memberUser.id,
+      createdAt: Date.now(),
+    })
+    .returning()
+    .get();
+  const draft = { id: openedDraft.id, kind: openedDraft.kind, projectId: openedDraft.projectId };
+  return { ...base, ctx, page, draft };
 }
 
 async function snapshot(db: Awaited<ReturnType<typeof fixture>>["db"]) {
@@ -98,7 +110,7 @@ async function snapshot(db: Awaited<ReturnType<typeof fixture>>["db"]) {
 
 describe("block JSON Schema writes", () => {
   it("fills defaults, validates ordinary schemas, and canonicalizes asset lists", async () => {
-    const { db, ctx, page } = await fixture("defaults");
+    const { db, ctx, page, draft } = await fixture("defaults");
     const block = await runService(
       createBlock(
         ctx,
@@ -109,7 +121,7 @@ describe("block JSON Schema writes", () => {
             gallery: [{ _fileId: "019a2b3c-4d5e-7f60-8a1b-2c3d4e5f6a7b", url: "invented" }],
           },
         },
-        null,
+        draft,
       ),
     );
     expect(block.content).toEqual({
@@ -124,10 +136,10 @@ describe("block JSON Schema writes", () => {
     expect(items[0].content).toEqual({ title: "Default" });
     expect(items[0].settings).toEqual({ visible: true });
     await runService(
-      updateBlockContent(ctx, { id: block.id, content: { title: "Changed" } }, null),
+      updateBlockContent(ctx, { id: block.id, content: { title: "Changed" } }, draft),
     );
     await runService(
-      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, null),
+      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, draft),
     );
     for (const content of [
       null,
@@ -144,7 +156,7 @@ describe("block JSON Schema writes", () => {
     ]) {
       const before = await snapshot(db);
       await expect(
-        runService(updateBlockContent(ctx, { id: block.id, content }, null)),
+        runService(updateBlockContent(ctx, { id: block.id, content }, draft)),
       ).rejects.toMatchObject({
         code: "BAD_REQUEST",
         data: { field: expect.any(String) },
@@ -154,7 +166,7 @@ describe("block JSON Schema writes", () => {
   });
 
   it("preflights settings and explicit seed settings before any content writes", async () => {
-    const { db, ctx, page } = await fixture("settings");
+    const { db, ctx, page, draft } = await fixture("settings");
     const beforeCreate = await snapshot(db);
     await expect(
       runService(
@@ -175,13 +187,13 @@ describe("block JSON Schema writes", () => {
               },
             ],
           },
-          null,
+          draft,
         ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await snapshot(db)).toEqual(beforeCreate);
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, null),
+      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, draft),
     );
     const beforeEdit = await snapshot(db);
     await expect(
@@ -193,7 +205,7 @@ describe("block JSON Schema writes", () => {
             content: { title: "Changed" },
             settings: { align: "center" },
           },
-          null,
+          draft,
         ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -201,9 +213,9 @@ describe("block JSON Schema writes", () => {
   });
 
   it("plans reference edits before mutation and does not revalidate omitted historical fields", async () => {
-    const { db, ctx, page } = await fixture("references");
+    const { db, ctx, page, draft } = await fixture("references");
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, null),
+      createBlock(ctx, { pageId: page.id, type: "schema", content: {} }, draft),
     );
     const item = (await db
       .select()
@@ -220,7 +232,7 @@ describe("block JSON Schema writes", () => {
               id: block.id,
               content: { items: [{ _itemId: item.id, title: "Changed" }, second] },
             },
-            null,
+            draft,
           ),
         ),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -241,11 +253,11 @@ describe("block JSON Schema writes", () => {
           id: block.id,
           content: { count: 3, items: [{ _itemId: item.id }] },
         },
-        null,
+        draft,
       ),
     );
     await runService(
-      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, null),
+      updateBlockSettings(ctx, { id: block.id, settings: { align: "right" } }, draft),
     );
     expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
       title: 42,

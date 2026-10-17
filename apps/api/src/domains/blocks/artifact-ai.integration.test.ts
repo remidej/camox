@@ -2,7 +2,11 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -77,7 +81,7 @@ async function fixture(type: "templated" | "raw") {
     })
     .returning()
     .get();
-  const block = await runService(
+  const block = await seedLiveThrough(ctx, base.project.id, (draft) =>
     createBlock(
       ctx,
       {
@@ -89,7 +93,7 @@ async function fixture(type: "templated" | "raw") {
           scenes: [{ caption: "Moon", scene: untitled }],
         },
       },
-      null,
+      draft,
     ),
   );
   const [item] = await base.db

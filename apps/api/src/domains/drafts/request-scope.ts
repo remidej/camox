@@ -1,12 +1,12 @@
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
-import type { ServiceError } from "../../lib/errors";
+import { NotFoundError, type ServiceError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
 import { blocks, files, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
-import type { DraftScope } from "./scope";
-import { inDraftScope, storedForRequest } from "./service";
+import type { Draft, DraftScope } from "./scope";
+import { inDraft, inDraftScope, storedForRequest } from "./service";
 
 // A request naming a draft (`x-camox-draft`) reads and writes content in it once the project is
 // known. These find the project from what a procedure is given; `inScope` then checks the draft
@@ -88,6 +88,23 @@ export function inScope<A>(
   return runService(
     Effect.flatMap(lookup, (projectId) =>
       projectId === undefined ? run(null) : inDraftScope(ctx, projectId, run),
+    ),
+  );
+}
+
+/**
+ * Runs a content write, at a procedure's Promise boundary, in the draft the request names on the
+ * project `project` finds. Fails closed: 404 when it finds no project, and Live is read-only.
+ */
+export function inWriteDraft<A>(
+  ctx: ScopeContext,
+  project: ProjectLookup | number,
+  run: (draft: Draft) => Effect.Effect<A, ServiceError>,
+) {
+  const lookup = typeof project === "number" ? Effect.succeed(project) : project;
+  return runService(
+    Effect.flatMap(lookup, (projectId) =>
+      projectId === undefined ? Effect.fail(new NotFoundError()) : inDraft(ctx, projectId, run),
     ),
   );
 }

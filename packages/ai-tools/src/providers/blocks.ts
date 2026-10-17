@@ -13,7 +13,10 @@ import {
   updateBlockPosition,
   updateBlockPositionInput,
 } from "../../../../apps/api/src/domains/blocks/service";
-import { resolveDraftScope } from "../../../../apps/api/src/domains/drafts/service";
+import {
+  resolveDraftScope,
+  resolveWriteDraft,
+} from "../../../../apps/api/src/domains/drafts/service";
 import { runService } from "../../../../apps/api/src/lib/run-service";
 import type { ToolContext, ToolDefinition, ToolProvider } from "../types";
 
@@ -46,6 +49,7 @@ const getBlocksToolInput = z.object({ ids: z.array(uuidv7Schema).min(1) });
 
 /** Tools read and write blocks in the draft the session names, if any. */
 const draftScope = (ctx: ToolContext) => resolveDraftScope(ctx, ctx.projectId);
+const writeDraft = (ctx: ToolContext) => resolveWriteDraft(ctx, ctx.projectId);
 
 export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -94,7 +98,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const parsed = createBlockToolInput.parse(input);
       return runService(
         Effect.gen(function* () {
-          const scope = yield* draftScope(ctx);
+          const scope = yield* writeDraft(ctx);
           const resolved = yield* resolveBlockPosition(
             ctx,
             {
@@ -136,7 +140,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) => {
       const parsed = editBlockToolInput.parse(input);
-      return runService(Effect.flatMap(draftScope(ctx), (scope) => editBlock(ctx, parsed, scope)));
+      return runService(Effect.flatMap(writeDraft(ctx), (scope) => editBlock(ctx, parsed, scope)));
     },
   },
   {
@@ -149,7 +153,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
       const parsed = moveBlockToolInput.parse(input);
       return runService(
         Effect.gen(function* () {
-          const scope = yield* draftScope(ctx);
+          const scope = yield* writeDraft(ctx);
           const resolved = yield* resolveBlockPosition(
             ctx,
             {
@@ -184,7 +188,7 @@ export const blocksProvider: ToolProvider = (ctx): ToolDefinition[] => [
     handler: async (input) => {
       const parsed = deleteBlockInput.parse(input);
       return runService(
-        Effect.flatMap(draftScope(ctx), (scope) => deleteBlock(ctx, parsed, scope)),
+        Effect.flatMap(writeDraft(ctx), (scope) => deleteBlock(ctx, parsed, scope)),
       );
     },
   },

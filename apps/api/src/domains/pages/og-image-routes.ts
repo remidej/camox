@@ -11,7 +11,7 @@ import type { AppEnv } from "../../types";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
 import { projectOfPage } from "../drafts/request-scope";
-import { inDraftScope } from "../drafts/service";
+import { inDraft } from "../drafts/service";
 import { deleteUnreferencedOgImageBlobs } from "./og-image-blobs";
 import { pages } from "./schema";
 
@@ -51,7 +51,7 @@ const writeOgImage = (
     const user = yield* requireUser(ctx);
     const projectId = yield* projectOfPage(ctx, pageId);
     if (projectId === undefined) return yield* new NotFoundError();
-    return yield* inDraftScope(ctx, projectId, (scope) =>
+    return yield* inDraft(ctx, projectId, (scope) =>
       Effect.gen(function* () {
         const access = yield* assertPageAccess(ctx.db, pageId, user.id, scope);
         const prevBlobId = access.page.customOgImageBlobId;
@@ -79,7 +79,7 @@ const writeOgImage = (
         broadcastInvalidation({
           waitUntil: ctx.waitUntil,
           projectRoomNamespace: ctx.env.ProjectRoom,
-          draftId: scope?.id ?? null,
+          draftId: scope.id,
           projectId: access.page.projectId,
           targets: [
             queryKeys.pages.list,

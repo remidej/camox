@@ -23,8 +23,8 @@ import { referencesTo } from "../_shared/references-to";
 import { collectionSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
-import { inDraftScope, resolveDraftScope } from "../drafts/service";
+import type { Draft, DraftScope } from "../drafts/scope";
+import { inDraft, inDraftScope, resolveDraftScope } from "../drafts/service";
 import { recordsOf } from "./identity";
 import { resolveRecordFiles } from "./record-files";
 import { pageValue, recordPageLayouts, recordsSharingPageValues } from "./record-pages";
@@ -397,6 +397,23 @@ const inCollection = <A>(
     ),
   );
 
+/**
+ * Runs a record write on a collection, read in the draft the request names. Live is read-only:
+ * a request naming no draft fails.
+ */
+const inCollectionDraft = <A>(
+  ctx: ServiceContext,
+  input: z.infer<typeof scopeInput>,
+  run: (definition: Definition & { draft: Draft }) => Effect.Effect<A, ServiceError>,
+) =>
+  Effect.flatMap(projectFor(ctx, input, true), (project) =>
+    inDraft(ctx, project.id, (draft) =>
+      Effect.flatMap(definitionFor(ctx, project.id, input.collectionId, draft), (definition) =>
+        run({ ...definition, draft }),
+      ),
+    ),
+  );
+
 /** A record of the collection, as the collection's scope reads it. */
 const recordIn = (ctx: ServiceContext, definition: ScopedDefinition, id: string) =>
   Effect.promise(() =>
@@ -412,7 +429,7 @@ export const createRecord = Effect.fn("collections.createRecord")(function* (
   rawInput: z.input<typeof createRecordInput>,
 ) {
   const input = yield* decodeInput(createRecordInput, rawInput);
-  return yield* inCollection(ctx, input, true, (definition) =>
+  return yield* inCollectionDraft(ctx, input, (definition) =>
     Effect.gen(function* () {
       const content = yield* validateContent(ctx, definition, input.content);
       const now = Date.now();
@@ -574,7 +591,7 @@ export const editRecord = Effect.fn("collections.editRecord")(function* (
   rawInput: z.input<typeof editRecordInput>,
 ) {
   const input = yield* decodeInput(editRecordInput, rawInput);
-  return yield* inCollection(ctx, input, true, (definition) =>
+  return yield* inCollectionDraft(ctx, input, (definition) =>
     Effect.gen(function* () {
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();
@@ -609,7 +626,7 @@ export const deleteRecord = Effect.fn("collections.deleteRecord")(function* (
   rawInput: z.input<typeof deleteRecordInput>,
 ) {
   const input = yield* decodeInput(deleteRecordInput, rawInput);
-  return yield* inCollection(ctx, input, true, (definition) =>
+  return yield* inCollectionDraft(ctx, input, (definition) =>
     Effect.gen(function* () {
       const record = yield* recordIn(ctx, definition, input.id);
       if (!record) return yield* new NotFoundError();

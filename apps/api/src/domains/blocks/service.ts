@@ -11,10 +11,6 @@ import { z } from "zod";
 import { assertBlockAccess, assertPageAccess, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import {
-  bumpContentUpdatedAt,
-  bumpContentUpdatedAtForBlocks,
-} from "../../lib/bump-content-updated-at";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import {
   ConflictError,
@@ -46,7 +42,7 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import {
   copyValue,
@@ -62,7 +58,7 @@ import { servesPages } from "../layouts/route-ownership";
 import { buildFileMap, collectFileIds, sortItemsByPosition } from "../pages/ai";
 import { seoGenerated } from "../pages/generated-seo";
 import { requestPageSeo } from "../pages/service";
-import { descendantIdsOf, itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
+import { itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
 import { artifactWarnings, withWarnings } from "./artifact-warnings";
 import { normalizeFieldValue } from "./asset-value";
 import { loadBlockContentSchema, loadBlockSchemas } from "./content-schema";
@@ -71,9 +67,7 @@ import { prepareBlockContent, prepareContentPatch } from "./prepare-content";
 import {
   adoptSharedContent,
   broadcastSharedContentChange,
-  bumpPlacementOwners,
   contentOwnerOf,
-  definitionOf,
   sharedPlacementId,
   shownBlock,
   withSharedContent,
@@ -140,29 +134,26 @@ export const duplicateBlockInput = z.object({ id: uuidv7Schema });
 const { sortByPosition } = overlay;
 
 /**
- * Bumps the Live page or layout owning a block. Skipped for draft writes, which must leave
- * Live pages and layouts untouched until pages move into drafts (#238).
- */
-const bumpLiveOwner = (ctx: ServiceContext, scope: DraftScope, parent: BlockParent) =>
-  scope ? Effect.void : bumpContentUpdatedAt(ctx.db, parent);
-
-type BlockParent = Parameters<typeof bumpContentUpdatedAt>[1];
-
-/**
- * Once no scope holds a deleted block any more, deletes the repeatable items it owns, which hold
- * no foreign key to it (ADR 0005). A block deleted on Live keeps them while a draft's copy still shows it; a block a draft created takes
- * them along when the draft deletes it.
+ * Deletes the repeatable items of blocks a draft created and then deleted, which hold no foreign
+ * key to them (ADR 0005). A Live block the draft deleted keeps its items: publishing deletes them
+ * with it.
  */
 const deleteBlockDependents = Effect.fn("blocks.deleteBlockDependents")(function* (
   ctx: ServiceContext,
-  blockIds: string[],
+  scope: Draft,
+  removed: (typeof blocks.$inferSelect)[],
 ) {
-  const held = yield* overlay.idsHeldAnywhere(ctx.db, blocks, blockIds);
-  const gone = blockIds.filter((id) => !held.has(id));
-  if (gone.length === 0) return;
-  yield* Effect.promise(() =>
-    ctx.db.delete(repeatableItems).where(inArray(repeatableItems.blockId, gone)),
+  const created = removed
+    .filter((block) => block.draftId === scope.id && block.baseVersion == null)
+    .map((block) => block.id);
+  if (created.length === 0) return;
+  const items = yield* overlay.select(
+    ctx.db,
+    scope,
+    repeatableItems,
+    inArray(repeatableItems.blockId, created),
   );
+  for (const item of items) yield* overlay.remove(ctx.db, scope, repeatableItems, item.id);
 });
 
 /**
@@ -514,7 +505,7 @@ export const requestBlockSummary = (
  */
 const applyContentPatch = Effect.fn("applyContentPatch")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: Draft,
   block: { root: ItemRoot; content: unknown },
   patch: Record<string, unknown>,
   contentSchema: unknown,
@@ -568,7 +559,7 @@ const fetchBlockItems = Effect.fn("fetchBlockItems")(function* (
 
 const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: Draft,
   args: {
     root: ItemRoot;
     parentItemId: string | null;
@@ -741,27 +732,10 @@ const applyRepeatableFieldPatch = Effect.fn("applyRepeatableFieldPatch")(functio
     );
   }
 
-  // Delete unreferenced existing items. On Live their nested children go with them; a draft's
-  // tombstone hides them.
+  // Delete unreferenced existing items: the draft's tombstone hides their nested children too.
   for (const item of scopeItems) {
     if (referenced.has(item.id)) continue;
-    writes.push(
-      Effect.gen(function* () {
-        if (!scope) {
-          const nested = descendantIdsOf(allItems, item.id);
-          if (nested.length > 0) {
-            yield* Effect.promise(() =>
-              ctx.db
-                .delete(repeatableItems)
-                .where(
-                  and(inArray(repeatableItems.id, nested), overlay.storedIn(repeatableItems, null)),
-                ),
-            );
-          }
-        }
-        yield* overlay.remove(ctx.db, scope, repeatableItems, item.id);
-      }),
-    );
+    writes.push(overlay.remove(ctx.db, scope, repeatableItems, item.id));
   }
 });
 
@@ -1117,20 +1091,18 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
   access: { block: typeof blocks.$inferSelect; projectId: number },
   shared: SharedContentRow | null,
   values: { content?: unknown; settings?: unknown; updatedAt: number },
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const { block, projectId } = access;
   if (!shared) {
     const result = yield* overlay.update(ctx.db, scope, blocks, block.id, values);
     if (!result) return yield* new NotFoundError();
-    yield* bumpLiveOwner(ctx, scope, block);
     return result;
   }
   // In a draft, the first write copies the shared content, which every placement in the draft
   // then shows.
   const updated = yield* overlay.update(ctx.db, scope, sharedContents, shared.id, values);
   if (!updated) return yield* new NotFoundError();
-  if (!scope) yield* bumpPlacementOwners(ctx.db, definitionOf(shared));
   broadcastSharedContentChange(ctx, scope, projectId, shared.type);
   return {
     ...block,
@@ -1142,7 +1114,7 @@ const writeBlockData = Effect.fn("writeBlockData")(function* (
 export const createBlock = Effect.fn("blocks.createBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createBlockInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const {
@@ -1264,7 +1236,6 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
   }
 
   yield* adoptSharedContent(ctx, scope, result);
-  yield* bumpLiveOwner(ctx, scope, { pageId });
 
   yield* requestBlockSummary(ctx, scope, access.page.projectId, result.id, 0);
   broadcastInvalidation({
@@ -1291,7 +1262,7 @@ export const createBlock = Effect.fn("blocks.createBlock")(function* (
 export const editBlock = Effect.fn("blocks.editBlock")(function* (
   ctx: ServiceContext,
   input: { id: string; content?: unknown; settings?: unknown },
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const access = yield* assertBlockAccess(ctx.db, input.id, user.id, scope);
@@ -1315,7 +1286,7 @@ export const editBlock = Effect.fn("blocks.editBlock")(function* (
 export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockContentInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, content } = yield* decodeInput(updateBlockContentInput, rawInput);
@@ -1368,7 +1339,7 @@ export const updateBlockContent = Effect.fn("blocks.updateBlockContent")(functio
 export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockSettingsInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, settings } = yield* decodeInput(updateBlockSettingsInput, rawInput);
@@ -1409,7 +1380,7 @@ export const updateBlockSettings = Effect.fn("blocks.updateBlockSettings")(funct
 export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateBlockPositionInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, afterPosition, beforePosition } = yield* decodeInput(
@@ -1449,7 +1420,6 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
     updatedAt: Date.now(),
   });
   if (!result) return yield* new NotFoundError();
-  yield* bumpLiveOwner(ctx, scope, access.block);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1470,7 +1440,7 @@ export const updateBlockPosition = Effect.fn("blocks.updateBlockPosition")(funct
 export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlockInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deleteBlockInput, rawInput);
@@ -1478,8 +1448,7 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
 
   // In a draft, a tombstone hides the block from the draft only.
   const result = yield* overlay.remove(ctx.db, scope, blocks, id);
-  yield* deleteBlockDependents(ctx, [id]);
-  yield* bumpLiveOwner(ctx, scope, access.block);
+  if (result) yield* deleteBlockDependents(ctx, scope, [result]);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,
@@ -1501,7 +1470,7 @@ export const deleteBlock = Effect.fn("blocks.deleteBlock")(function* (
 export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteBlocksInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { blockIds } = yield* decodeInput(deleteBlocksInput, rawInput);
@@ -1523,17 +1492,15 @@ export const deleteBlocks = Effect.fn("blocks.deleteBlocks")(function* (
     return yield* new NotFoundError();
   }
   // A draft holds content of its own project only.
-  if (scope && authorizedBlocks.some((block) => block.projectId !== scope.projectId)) {
+  if (authorizedBlocks.some((block) => block.projectId !== scope.projectId)) {
     return yield* new NotFoundError();
   }
-  // Bump first — once the rows are gone, we can't recover their parents.
-  if (!scope) yield* bumpContentUpdatedAtForBlocks(ctx.db, blockIds);
   const result: (typeof blocks.$inferSelect)[] = [];
   for (const id of blockIds) {
     const removed = yield* overlay.remove(ctx.db, scope, blocks, id);
     if (removed) result.push(removed);
   }
-  yield* deleteBlockDependents(ctx, blockIds);
+  yield* deleteBlockDependents(ctx, scope, result);
   const projectId = authorizedBlocks[0]?.projectId;
   if (projectId) {
     broadcastInvalidation({
@@ -1582,7 +1549,7 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
 export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof duplicateBlockInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(duplicateBlockInput, rawInput);
@@ -1619,7 +1586,6 @@ export const duplicateBlock = Effect.fn("blocks.duplicateBlock")(function* (
     summaryKeyOf(original.id, null),
     result.id,
   );
-  yield* bumpLiveOwner(ctx, scope, original);
   broadcastInvalidation({
     waitUntil: ctx.waitUntil,
     projectRoomNamespace: ctx.env.ProjectRoom,

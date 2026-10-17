@@ -1,5 +1,4 @@
 import { and, eq, inArray } from "drizzle-orm";
-import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -36,8 +35,8 @@ import {
   validateReferenceValues,
 } from "../collections/references";
 import * as overlay from "../drafts/overlay";
-import { releasedNew, visibleIn } from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import { visibleIn } from "../drafts/overlay";
+import { RELEASE, type DraftScope } from "../drafts/scope";
 import { optimizedVideoKey } from "../files/video-optimization";
 import { homeOf, requestGeneration } from "../generated-values/service";
 import { requestPageSeo } from "../pages/service";
@@ -339,16 +338,9 @@ const seed = Effect.fn("projects.seed")(function* <T extends overlay.ContentTabl
   table: T,
   values: Omit<T["$inferInsert"], "id" | "draftId">,
 ) {
-  if (draft) {
-    return (yield* overlay.insert(ctx.db, draft, table, values as never))! as T["$inferSelect"];
-  }
-  return (yield* Effect.promise(() =>
-    ctx.db
-      .insert(table as SQLiteTable)
-      .values({ ...values, ...releasedNew(Date.now()) } as never)
-      .returning()
-      .get(),
-  )) as T["$inferSelect"];
+  // A fresh id, so the target can't already hold the entity.
+  const inserted = yield* overlay.insert(ctx.db, draft ?? RELEASE, table, values as never);
+  return inserted! as T["$inferSelect"];
 });
 
 export const initializeProjectContent = Effect.fn("projects.initializeProjectContent")(function* (
@@ -499,7 +491,7 @@ export const initializeProjectContent = Effect.fn("projects.initializeProjectCon
       }
     }
 
-    yield* adoptSharedContent(ctx, draft, block);
+    yield* adoptSharedContent(ctx, draft ?? RELEASE, block);
     blockCount++;
   }
 

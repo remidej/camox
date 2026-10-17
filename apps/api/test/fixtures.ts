@@ -1,12 +1,19 @@
-import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { call, Procedure, type AnyProcedure } from "@orpc/server";
+import { call } from "@orpc/server";
 import { env } from "cloudflare:workers";
 import { and, eq, isNull } from "drizzle-orm";
+import type { Effect } from "effect";
 
 import { createDb } from "../src/db";
 import type { ServiceContext } from "../src/domains/_shared/service-context";
-import { requireDraft, type BaseContext } from "../src/orpc";
+import * as overlay from "../src/domains/drafts/overlay";
+import type { ContentTable } from "../src/domains/drafts/overlay";
+import { RELEASE, type Draft } from "../src/domains/drafts/scope";
+import type { ServiceError } from "../src/lib/errors";
+import { runService } from "../src/lib/run-service";
+import type { BaseContext } from "../src/orpc";
+import { router } from "../src/router";
 import {
   blockDefinitions,
   collectionDefinitions,
@@ -143,30 +150,75 @@ export function createRpcContext(
 }
 
 /**
- * `procedure` without the "Live is read-only" check, so a test can seed Live content through a
- * content write naming no draft, the way a release writes Live. Everything else (auth, input
- * validation, the handler) runs as usual. Prefer publishing a draft where publish checks allow.
+ * Publishes a draft through the publish procedure, as its creator: the way content reaches Live.
+ * Fails on blockers, like a real publish.
  */
-export function seedingLive<T extends AnyProcedure>(procedure: T): T {
-  const definition = procedure["~orpc"];
-  const at = definition.middlewares.indexOf(requireDraft as never);
-  if (at === -1) return procedure;
-  const shift = (index: number) => (index > at ? index - 1 : index);
-  return new Procedure({
-    ...definition,
-    middlewares: definition.middlewares.filter((_, index) => index !== at),
-    inputValidationIndex: shift(definition.inputValidationIndex),
-    outputValidationIndex: shift(definition.outputValidationIndex),
-  }) as T;
+async function publishThrowaway(db: ReturnType<typeof createDb>, draftId: string) {
+  const draft = await db.select().from(drafts).where(eq(drafts.id, draftId)).get();
+  // Nothing was written, so nothing was started.
+  if (!draft) return;
+  const creator = await db.select().from(user).where(eq(user.id, draft.createdBy)).get();
+  const context = createRpcContext(db, creator!, { [DRAFT_HEADER]: draftId });
+  const input = { projectId: draft.projectId };
+  const { token } = await call(router.drafts.previewPublish, input, { context });
+  await call(router.drafts.publish, { ...input, token }, { context });
 }
 
-/** `call`, except that a content write naming no draft seeds Live (see `seedingLive`). */
-export const callSeedingLive: typeof call = (procedure, input, ...rest) => {
+/**
+ * `call`, except that a content write naming no draft seeds Live: it runs in a throwaway draft,
+ * which is then published (ADR 0009). Where publish refuses the Live state a test needs, such as
+ * an empty required reference, use `seedLive` instead.
+ */
+export const callSeedingLive: typeof call = async (procedure, input, ...rest) => {
   const [options] = rest;
-  const context = (options as { context?: { headers?: Headers } } | undefined)?.context;
-  const namesDraft = context?.headers?.has(DRAFT_HEADER) ?? false;
-  return call(namesDraft ? procedure : seedingLive(procedure as AnyProcedure), input, ...rest);
+  const context = (options as { context?: BaseContext } | undefined)?.context;
+  if (!context || context.headers.has(DRAFT_HEADER)) return call(procedure, input, ...rest);
+  const draftId = generateUuidv7();
+  const headers = new Headers(context.headers);
+  headers.set(DRAFT_HEADER, draftId);
+  headers.set(DRAFT_CREATE_HEADER, "1");
+  // The options are the caller's, with the context naming the throwaway draft.
+  const inDraft = { ...options, context: { ...context, headers } };
+  const result = await call(procedure, input, ...([inDraft] as unknown as typeof rest));
+  await publishThrowaway(context.db, draftId);
+  return result;
 };
+
+/**
+ * Runs content writes in a throwaway draft of `projectId`, created by the context's user, and
+ * publishes it: seeds Live the way content reaches it (ADR 0009). `run` gets the draft, and the
+ * context naming it for services that read the request's draft.
+ */
+export async function seedLiveThrough<A>(
+  ctx: ServiceContext,
+  projectId: number,
+  run: (draft: Draft, inDraft: ServiceContext) => Effect.Effect<A, ServiceError>,
+): Promise<A> {
+  const draft = await ctx.db
+    .insert(drafts)
+    .values({ projectId, kind: "regular", createdBy: ctx.user!.id, createdAt: Date.now() })
+    .returning()
+    .get();
+  const scope = { id: draft.id, kind: draft.kind, projectId };
+  const result = await runService(run(scope, { ...ctx, draft: { id: draft.id, create: false } }));
+  await publishThrowaway(ctx.db, draft.id);
+  return result;
+}
+
+/**
+ * Writes Live content as a release does, through the drafts overlay: for Live states publish
+ * refuses, such as an empty required reference, or Live changing under a draft to set up a
+ * conflict.
+ */
+export async function seedLive<T extends ContentTable>(
+  db: ReturnType<typeof createDb>,
+  table: T,
+  values: Parameters<typeof overlay.insert<T>>[3],
+): Promise<T["$inferSelect"]> {
+  const row = await runService(overlay.insert(db, RELEASE, table, values));
+  if (!row) throw new Error("seedLive: Live already holds this entity");
+  return row;
+}
 
 /**
  * A member's development draft holding a copy of Live's definitions, as if dev mode had synced

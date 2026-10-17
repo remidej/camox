@@ -2,7 +2,7 @@ import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys, type QueryKey } from "@camox/api-contract/query-keys";
 import { chat } from "@tanstack/ai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import { outdent } from "outdent";
@@ -11,7 +11,6 @@ import { z } from "zod";
 import { assertBlockAccess, assertRepeatableItemAccess, requireUser } from "../../authorization";
 import type { Database } from "../../db";
 import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
-import { bumpContentUpdatedAtForBlock } from "../../lib/bump-content-updated-at";
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
@@ -28,7 +27,6 @@ import { contentWithSeeds } from "../blocks/prepare-content";
 import { requestBlockSummary } from "../blocks/service";
 import {
   broadcastSharedContentChange,
-  bumpPlacementOwners,
   contentOwnerOf,
   definitionOf,
   sharedPlacementId,
@@ -36,7 +34,7 @@ import {
 import { validateContent } from "../blocks/validate-content";
 import { blockScope, validateReferenceValues } from "../collections/references";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import {
   copyValue,
@@ -46,14 +44,7 @@ import {
   saveValue,
 } from "../generated-values/service";
 import { buildFileMap, collectFileIds } from "../pages/ai";
-import {
-  descendantIdsOf,
-  itemsUnder,
-  rootColumns,
-  rootOfItem,
-  type DefinitionKey,
-  type ItemRoot,
-} from "./roots";
+import { itemsUnder, rootColumns, rootOfItem, type DefinitionKey, type ItemRoot } from "./roots";
 
 // --- Input Schemas ---
 // Exported so adapters (oRPC, MCP, CLI) share the same canonical contract.
@@ -241,23 +232,16 @@ function treeBundleKey({ root, definition }: ItemTree) {
     : queryKeys.blocks.getSyncedContent(definition.type);
 }
 
-/**
- * Records that a tree's content changed, for every page and layout showing it. A draft's change
- * leaves Live pages and layouts as they were.
- */
-const touchTree = Effect.fn("touchTree")(function* (
+/** Refreshes every read showing a shared content whose items changed in a draft. */
+const touchTree = (
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: Draft,
   { root, definition }: ItemTree,
   projectId: number,
-) {
-  if ("blockId" in root) {
-    if (!scope) yield* bumpContentUpdatedAtForBlock(ctx.db, root.blockId);
-    return;
-  }
-  if (!scope) yield* bumpPlacementOwners(ctx.db, definition);
+) => {
+  if ("blockId" in root) return;
   broadcastSharedContentChange(ctx, scope, projectId, definition.type);
-});
+};
 
 /** Refreshes the reads showing a tree, in the scope it changed in. */
 function invalidateTree(
@@ -527,7 +511,7 @@ export const getRepeatableItem = Effect.fn("repeatableItems.getRepeatableItem")(
 export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableItem")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createRepeatableItemInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, blockId, parentItemId, fieldName, content, settings, afterPosition, nestedItems } =
@@ -652,7 +636,7 @@ export const createRepeatableItem = Effect.fn("repeatableItems.createRepeatableI
     }
   }
 
-  yield* touchTree(ctx, scope, tree, access.projectId);
+  touchTree(ctx, scope, tree, access.projectId);
   yield* requestSummary(ctx, scope, access.projectId, result.id, 0);
   invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
     queryKeys.blocks.getUsageCounts,
@@ -665,7 +649,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
   function* (
     ctx: ServiceContext,
     rawInput: z.input<typeof updateRepeatableItemContentInput>,
-    scope: DraftScope,
+    scope: Draft,
   ) {
     const user = yield* requireUser(ctx);
     const { id, content } = yield* decodeInput(updateRepeatableItemContentInput, rawInput);
@@ -705,7 +689,7 @@ export const updateRepeatableItemContent = Effect.fn("repeatableItems.updateRepe
       updatedAt: Date.now(),
     });
 
-    yield* touchTree(ctx, scope, tree, access.projectId);
+    touchTree(ctx, scope, tree, access.projectId);
     yield* requestSummary(ctx, scope, access.projectId, id, 5000);
     invalidateTree(ctx, scope, access.projectId, tree, access.pagePath);
 
@@ -718,7 +702,7 @@ export const updateRepeatableItemSettings = Effect.fn(
 )(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateRepeatableItemSettingsInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, settings } = yield* decodeInput(updateRepeatableItemSettingsInput, rawInput);
@@ -749,7 +733,7 @@ export const updateRepeatableItemSettings = Effect.fn(
     updatedAt: Date.now(),
   });
 
-  yield* touchTree(ctx, scope, tree, access.projectId);
+  touchTree(ctx, scope, tree, access.projectId);
   invalidateTree(ctx, scope, access.projectId, tree, access.pagePath);
 
   return result;
@@ -760,7 +744,7 @@ export const updateRepeatableItemPosition = Effect.fn(
 )(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateRepeatableItemPositionInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, afterPosition, beforePosition } = yield* decodeInput(
@@ -800,7 +784,7 @@ export const updateRepeatableItemPosition = Effect.fn(
     position,
     updatedAt: Date.now(),
   });
-  yield* touchTree(ctx, scope, tree, access.projectId);
+  touchTree(ctx, scope, tree, access.projectId);
   invalidateTree(ctx, scope, access.projectId, tree, access.pagePath);
   return result;
 });
@@ -809,7 +793,7 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
   function* (
     ctx: ServiceContext,
     rawInput: z.input<typeof duplicateRepeatableItemInput>,
-    scope: DraftScope,
+    scope: Draft,
   ) {
     const user = yield* requireUser(ctx);
     const { id } = yield* decodeInput(duplicateRepeatableItemInput, rawInput);
@@ -859,7 +843,7 @@ export const duplicateRepeatableItem = Effect.fn("repeatableItems.duplicateRepea
       itemSummaryKey(original.id),
       result.id,
     );
-    yield* touchTree(ctx, scope, tree, access.projectId);
+    touchTree(ctx, scope, tree, access.projectId);
     invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
       queryKeys.blocks.getUsageCounts,
     ]);
@@ -902,13 +886,13 @@ export const generateRepeatableItemSummary = Effect.fn(
 });
 
 /**
- * Deletes an item. On Live it goes with its nested items; in a draft it's a tombstone, and its
- * nested items read as gone with it until publishing deletes them (ADR 0005).
+ * Deletes an item in a draft: a tombstone, and its nested items read as gone with it until
+ * publishing deletes them (ADR 0005).
  */
 export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableItem")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteRepeatableItemInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deleteRepeatableItemInput, rawInput);
@@ -932,19 +916,8 @@ export const deleteRepeatableItem = Effect.fn("repeatableItems.deleteRepeatableI
     access.item.parentItemId,
   );
   yield* validateRepeaterCount(repeater, siblings.length - 1, itemPath.join("."));
-  if (!scope) {
-    // Items hold no foreign keys (ADR 0005): their nested items go with them.
-    const descendants = descendantIdsOf(yield* itemsOfTree(ctx.db, null, tree.root), id);
-    yield* Effect.promise(() =>
-      ctx.db
-        .delete(repeatableItems)
-        .where(
-          and(inArray(repeatableItems.id, descendants), overlay.storedIn(repeatableItems, null)),
-        ),
-    );
-  }
   const result = yield* overlay.remove(ctx.db, scope, repeatableItems, id);
-  yield* touchTree(ctx, scope, tree, access.projectId);
+  touchTree(ctx, scope, tree, access.projectId);
   invalidateTree(ctx, scope, access.projectId, tree, access.pagePath, [
     queryKeys.blocks.getUsageCounts,
   ]);

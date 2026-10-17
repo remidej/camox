@@ -6,13 +6,13 @@ import { describe, expect, it } from "vite-plus/test";
 import { createProjectFixture } from "../../../test/fixtures";
 import { blocks, drafts } from "../../schema";
 import * as overlay from "./overlay";
-import type { DraftScope } from "./scope";
+import { RELEASE, type Draft } from "./scope";
 
 const run = <A>(effect: Effect.Effect<A>) => Effect.runPromise(effect);
 
 async function fixture(suffix: string) {
   const base = await createProjectFixture(suffix);
-  const openDraft = async (): Promise<DraftScope> => {
+  const openDraft = async (): Promise<Draft> => {
     const draft = await base.db
       .insert(drafts)
       .values({
@@ -36,7 +36,7 @@ async function fixture(suffix: string) {
     createdAt: 1,
     updatedAt: 1,
   });
-  const live = (await run(overlay.insert(base.db, null, blocks, newBlock({ position: "a0" }))))!;
+  const live = (await run(overlay.insert(base.db, RELEASE, blocks, newBlock({ position: "a0" }))))!;
   return { ...base, openDraft, pageId, newBlock, live };
 }
 
@@ -56,23 +56,23 @@ describe("the draft overlay", () => {
     expect(titleOf(await run(overlay.get(db, other, blocks, live.id)))).toBe("Live");
   });
 
-  it("shows Live's latest content for a block the draft doesn't change", async () => {
+  it("shows Live's latest content, as a release changed it, for a block the draft doesn't change", async () => {
     const { db, openDraft, live } = await fixture("overlay-fallback");
     const draft = await openDraft();
 
-    await run(overlay.update(db, null, blocks, live.id, { content: { title: "Live again" } }));
+    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Live again" } }));
 
     expect(titleOf(await run(overlay.get(db, draft, blocks, live.id)))).toBe("Live again");
   });
 
-  it("records the Live version the first write in a draft copied", async () => {
+  it("records the Live version the first write in a draft copied, counting a release's changes", async () => {
     const { db, openDraft, live } = await fixture("overlay-base-version");
     const draft = await openDraft();
-    await run(overlay.update(db, null, blocks, live.id, { content: { title: "Second" } }));
-    await run(overlay.update(db, null, blocks, live.id, { content: { title: "Third" } }));
+    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Second" } }));
+    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Third" } }));
 
     await run(overlay.update(db, draft, blocks, live.id, { content: { title: "Draft" } }));
-    await run(overlay.update(db, null, blocks, live.id, { content: { title: "Fourth" } }));
+    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Fourth" } }));
     const copy = await run(
       overlay.update(db, draft, blocks, live.id, { content: { title: "Draft 2" } }),
     );
@@ -81,6 +81,8 @@ describe("the draft overlay", () => {
     expect(await run(overlay.get(db, null, blocks, live.id))).toMatchObject({
       version: 4,
       baseVersion: null,
+      publishedAt: expect.any(Number),
+      publishedBy: null,
     });
   });
 
@@ -89,7 +91,7 @@ describe("the draft overlay", () => {
     const draft = await openDraft();
 
     await run(overlay.update(db, draft, blocks, live.id, { position: "a5" }));
-    await run(overlay.update(db, null, blocks, live.id, { content: { title: "Live later" } }));
+    await run(overlay.update(db, RELEASE, blocks, live.id, { content: { title: "Live later" } }));
 
     expect(await run(overlay.get(db, draft, blocks, live.id))).toMatchObject({
       position: "a5",
@@ -124,7 +126,7 @@ describe("the draft overlay", () => {
     expect(await run(overlay.select(db, draft, blocks, eq(blocks.pageId, pageId)))).toHaveLength(1);
   });
 
-  it("refuses an id the scope already reads", async () => {
+  it("refuses an id the target already reads", async () => {
     const { db, openDraft, newBlock, live } = await fixture("overlay-conflict");
     const draft = await openDraft();
 
@@ -132,7 +134,7 @@ describe("the draft overlay", () => {
       overlay.insert(db, draft, blocks, newBlock({ id: live.id, position: "a1" })),
     );
     const inLive = await run(
-      overlay.insert(db, null, blocks, newBlock({ id: live.id, position: "a1" })),
+      overlay.insert(db, RELEASE, blocks, newBlock({ id: live.id, position: "a1" })),
     );
 
     expect(inDraft).toBeUndefined();

@@ -6,6 +6,7 @@ import { getAuthorizedProject, requireUser } from "../../authorization";
 import {
   DraftEndedError,
   ForbiddenError,
+  LiveReadOnlyError,
   NoDevelopmentDraftError,
   NotFoundError,
   type ServiceError,
@@ -16,7 +17,7 @@ import { user as users } from "../auth/schema";
 import { findDevelopmentDraft } from "./development";
 import * as overlay from "./overlay";
 import { drafts, endedDrafts } from "./schema";
-import type { DraftScope } from "./scope";
+import type { Draft, DraftScope } from "./scope";
 
 type DraftScopeContext = Pick<ServiceContext, "db" | "user" | "draft">;
 
@@ -143,6 +144,15 @@ export const resolveDraftScope = (ctx: DraftScopeContext, projectId: number) =>
   Effect.map(resolveRequestedDraft(ctx, projectId), ({ scope }) => scope);
 
 /**
+ * The draft a request names on a project, for a content write. Live is read-only (ADR 0003): a
+ * request naming no draft fails.
+ */
+export const resolveWriteDraft = (ctx: DraftScopeContext, projectId: number) =>
+  Effect.flatMap(resolveDraftScope(ctx, projectId), (scope) =>
+    scope ? Effect.succeed(scope) : Effect.fail(new LiveReadOnlyError()),
+  );
+
+/**
  * Runs a service in the draft scope a request names on a project. When this request started the
  * draft and the service fails, the draft is dropped again unless a concurrent write already
  * stored content in it, so a failed first edit leaves no empty draft behind.
@@ -157,8 +167,21 @@ export const inDraftScope = <A>(
     return Effect.onError(run(scope), () => dropIfEmpty(ctx.db, scope));
   });
 
+/**
+ * Runs a content write in the draft a request names on a project, like `inDraftScope`. Live is
+ * read-only (ADR 0003): a request naming no draft fails.
+ */
+export const inDraft = <A>(
+  ctx: DraftScopeContext,
+  projectId: number,
+  run: (draft: Draft) => Effect.Effect<A, ServiceError>,
+) =>
+  inDraftScope(ctx, projectId, (scope) =>
+    scope ? run(scope) : Effect.fail(new LiveReadOnlyError()),
+  );
+
 /** Deletes a draft in one statement, only while it stores nothing. */
-const dropIfEmpty = (db: ServiceContext["db"], scope: NonNullable<DraftScope>) =>
+const dropIfEmpty = (db: ServiceContext["db"], scope: Draft) =>
   Effect.promise(() =>
     db.delete(drafts).where(and(eq(drafts.id, scope.id), not(overlay.storesAnything(scope)))),
   );

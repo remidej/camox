@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blocks, layouts, pages, repeatableItems } from "../../schema";
+import { blocks, drafts, layouts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { createRepeatableItem, updateRepeatableItemContent } from "../repeatable-items/service";
 import { createBlock, updateBlockContent } from "./service";
@@ -72,7 +72,23 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  return { ...base, ctx, page };
+  // Content is written in drafts (ADR 0003): these writes only need one.
+  const draft = await base.db
+    .insert(drafts)
+    .values({
+      projectId: base.project.id,
+      kind: "regular",
+      createdBy: base.memberUser.id,
+      createdAt: now,
+    })
+    .returning()
+    .get();
+  return {
+    ...base,
+    ctx,
+    page,
+    draft: { id: draft.id, kind: draft.kind, projectId: draft.projectId },
+  };
 }
 
 // Include timestamps and parent markers, not just content: rejected writes must
@@ -100,7 +116,7 @@ async function expectRejectedWithoutWrites(
 
 describe("embed content validation", () => {
   it("preflights existing item overrides before repositioning or updating earlier items", async () => {
-    const { db, ctx, page } = await fixture("existing-overrides");
+    const { db, ctx, page, draft } = await fixture("existing-overrides");
     const block = await runService(
       createBlock(
         ctx,
@@ -111,7 +127,7 @@ describe("embed content validation", () => {
             videos: [{ embed: validEmbed }, { embed: validEmbed, clips: [{ embed: validEmbed }] }],
           },
         },
-        null,
+        draft,
       ),
     );
     const items = await db
@@ -134,7 +150,7 @@ describe("embed content validation", () => {
               ],
             },
           },
-          null,
+          draft,
         ),
       ),
     );
@@ -151,7 +167,7 @@ describe("embed content validation", () => {
               ],
             },
           },
-          null,
+          draft,
         ),
       ),
     );
@@ -168,7 +184,7 @@ describe("embed content validation", () => {
             ],
           },
         },
-        null,
+        draft,
       ),
     );
     expect(
@@ -178,9 +194,9 @@ describe("embed content validation", () => {
   });
 
   it("rejects ambiguous explicit seed graphs before creating any rows", async () => {
-    const { db, ctx, page } = await fixture("seed-graphs");
+    const { db, ctx, page, draft } = await fixture("seed-graphs");
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "video", content: {} }, null),
+      createBlock(ctx, { pageId: page.id, type: "video", content: {} }, draft),
     );
     const parent = {
       tempId: "parent",
@@ -201,7 +217,7 @@ describe("embed content validation", () => {
               content: { embed: validEmbed },
               nestedItems: seeds,
             },
-            null,
+            draft,
           ),
         ),
       );
@@ -215,7 +231,7 @@ describe("embed content validation", () => {
               content: {},
               repeatableItems: seeds,
             },
-            null,
+            draft,
           ),
         ),
       );
@@ -223,10 +239,10 @@ describe("embed content validation", () => {
   });
 
   it.each(invalidEmbeds)("rejects $name on block create and update", async ({ name, value }) => {
-    const { db, ctx, page } = await fixture(`block-${name}`);
+    const { db, ctx, page, draft } = await fixture(`block-${name}`);
     await expectRejectedWithoutWrites(db, () =>
       runService(
-        createBlock(ctx, { pageId: page.id, type: "video", content: { embed: value } }, null),
+        createBlock(ctx, { pageId: page.id, type: "video", content: { embed: value } }, draft),
       ),
     );
     const block = await runService(
@@ -237,7 +253,7 @@ describe("embed content validation", () => {
           type: "video",
           content: { embed: validEmbed, title: "Original" },
         },
-        null,
+        draft,
       ),
     );
     await expectRejectedWithoutWrites(db, () =>
@@ -245,7 +261,7 @@ describe("embed content validation", () => {
         updateBlockContent(
           ctx,
           { id: block.id, content: { title: "Changed", embed: value } },
-          null,
+          draft,
         ),
       ),
     );
@@ -254,7 +270,7 @@ describe("embed content validation", () => {
   it.each(invalidEmbeds)(
     "rejects $name in nested inline arrays before writing any sibling",
     async ({ name, value }) => {
-      const { db, ctx, page } = await fixture(`inline-${name}`);
+      const { db, ctx, page, draft } = await fixture(`inline-${name}`);
       const content = {
         title: "Changed",
         videos: [
@@ -263,7 +279,7 @@ describe("embed content validation", () => {
         ],
       };
       await expectRejectedWithoutWrites(db, () =>
-        runService(createBlock(ctx, { pageId: page.id, type: "video", content }, null)),
+        runService(createBlock(ctx, { pageId: page.id, type: "video", content }, draft)),
       );
       const block = await runService(
         createBlock(
@@ -273,11 +289,11 @@ describe("embed content validation", () => {
             type: "video",
             content: { title: "Original", videos: [{ embed: validEmbed }] },
           },
-          null,
+          draft,
         ),
       );
       await expectRejectedWithoutWrites(db, () =>
-        runService(updateBlockContent(ctx, { id: block.id, content }, null)),
+        runService(updateBlockContent(ctx, { id: block.id, content }, draft)),
       );
     },
   );
@@ -285,7 +301,7 @@ describe("embed content validation", () => {
   it.each(invalidEmbeds)(
     "rejects $name in explicit block seeds before inserting the block or earlier seeds",
     async ({ name, value }) => {
-      const { db, ctx, page } = await fixture(`block-seeds-${name}`);
+      const { db, ctx, page, draft } = await fixture(`block-seeds-${name}`);
       await expectRejectedWithoutWrites(db, () =>
         runService(
           createBlock(
@@ -318,7 +334,7 @@ describe("embed content validation", () => {
                 },
               ],
             },
-            null,
+            draft,
           ),
         ),
       );
@@ -328,7 +344,7 @@ describe("embed content validation", () => {
   it.each(invalidEmbeds)(
     "rejects $name on direct repeater create and update at both depths",
     async ({ name, value }) => {
-      const { db, ctx, page } = await fixture(`item-${name}`);
+      const { db, ctx, page, draft } = await fixture(`item-${name}`);
       const block = await runService(
         createBlock(
           ctx,
@@ -337,7 +353,7 @@ describe("embed content validation", () => {
             type: "video",
             content: {},
           },
-          null,
+          draft,
         ),
       );
       const video = await runService(
@@ -348,7 +364,7 @@ describe("embed content validation", () => {
             fieldName: "videos",
             content: { embed: validEmbed },
           },
-          null,
+          draft,
         ),
       );
       for (const location of [
@@ -364,7 +380,7 @@ describe("embed content validation", () => {
                 ...location,
                 content: { embed: value },
               },
-              null,
+              draft,
             ),
           ),
         );
@@ -376,7 +392,7 @@ describe("embed content validation", () => {
               ...location,
               content: { embed: validEmbed, label: "Original" },
             },
-            null,
+            draft,
           ),
         );
         await expectRejectedWithoutWrites(db, () =>
@@ -387,7 +403,7 @@ describe("embed content validation", () => {
                 id: item.id,
                 content: { label: "Changed", embed: value },
               },
-              null,
+              draft,
             ),
           ),
         );
@@ -398,7 +414,7 @@ describe("embed content validation", () => {
   it.each(invalidEmbeds)(
     "rejects $name in inline arrays on direct repeater writes even when arrays are stripped",
     async ({ name, value }) => {
-      const { db, ctx, page } = await fixture(`item-inline-${name}`);
+      const { db, ctx, page, draft } = await fixture(`item-inline-${name}`);
       const block = await runService(
         createBlock(
           ctx,
@@ -407,7 +423,7 @@ describe("embed content validation", () => {
             type: "video",
             content: {},
           },
-          null,
+          draft,
         ),
       );
       const content = {
@@ -416,7 +432,7 @@ describe("embed content validation", () => {
       };
       await expectRejectedWithoutWrites(db, () =>
         runService(
-          createRepeatableItem(ctx, { blockId: block.id, fieldName: "videos", content }, null),
+          createRepeatableItem(ctx, { blockId: block.id, fieldName: "videos", content }, draft),
         ),
       );
       const item = await runService(
@@ -427,11 +443,11 @@ describe("embed content validation", () => {
             fieldName: "videos",
             content: { embed: validEmbed },
           },
-          null,
+          draft,
         ),
       );
       await expectRejectedWithoutWrites(db, () =>
-        runService(updateRepeatableItemContent(ctx, { id: item.id, content }, null)),
+        runService(updateRepeatableItemContent(ctx, { id: item.id, content }, draft)),
       );
     },
   );
@@ -439,7 +455,7 @@ describe("embed content validation", () => {
   it.each(invalidEmbeds)(
     "rejects $name in nested repeater seeds before inserting the parent or earlier siblings",
     async ({ name, value }) => {
-      const { db, ctx, page } = await fixture(`item-seeds-${name}`);
+      const { db, ctx, page, draft } = await fixture(`item-seeds-${name}`);
       const block = await runService(
         createBlock(
           ctx,
@@ -448,7 +464,7 @@ describe("embed content validation", () => {
             type: "video",
             content: {},
           },
-          null,
+          draft,
         ),
       );
       await expectRejectedWithoutWrites(db, () =>
@@ -476,7 +492,7 @@ describe("embed content validation", () => {
                 },
               ],
             },
-            null,
+            draft,
           ),
         ),
       );
@@ -484,7 +500,7 @@ describe("embed content validation", () => {
   );
 
   it("accepts matching strings and strings on embeds without a pattern", async () => {
-    const { db, ctx, page } = await fixture("valid");
+    const { db, ctx, page, draft } = await fixture("valid");
     const block = await runService(
       createBlock(
         ctx,
@@ -497,7 +513,7 @@ describe("embed content validation", () => {
             videos: [{ embed: validEmbed, clips: [{ embed: validEmbed }] }],
           },
         },
-        null,
+        draft,
       ),
     );
     expect(block.content).toMatchObject({ embed: validEmbed, unrestricted: "<iframe></iframe>" });
@@ -506,7 +522,7 @@ describe("embed content validation", () => {
       updateBlockContent(
         ctx,
         { id: block.id, content: { embed: changed, unrestricted: "" } },
-        null,
+        draft,
       ),
     );
     expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
@@ -521,7 +537,7 @@ describe("embed content validation", () => {
     for (const item of items) {
       expect(item.content).toEqual({ embed: validEmbed });
       await runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { embed: changed } }, null),
+        updateRepeatableItemContent(ctx, { id: item.id, content: { embed: changed } }, draft),
       );
       expect(
         (await db.select().from(repeatableItems).where(eq(repeatableItems.id, item.id)).get())
@@ -531,7 +547,7 @@ describe("embed content validation", () => {
   });
 
   it("does not revalidate historical invalid embeds on unrelated partial updates", async () => {
-    const { db, ctx, page } = await fixture("historical");
+    const { db, ctx, page, draft } = await fixture("historical");
     const block = await runService(
       createBlock(
         ctx,
@@ -540,7 +556,7 @@ describe("embed content validation", () => {
           type: "video",
           content: { videos: [{ embed: validEmbed, clips: [{ embed: validEmbed }] }] },
         },
-        null,
+        draft,
       ),
     );
     // Simulate rows persisted before embed validation was introduced.
@@ -559,7 +575,7 @@ describe("embed content validation", () => {
         .where(eq(repeatableItems.id, item.id));
     }
     await runService(
-      updateBlockContent(ctx, { id: block.id, content: { title: "Updated title" } }, null),
+      updateBlockContent(ctx, { id: block.id, content: { title: "Updated title" } }, draft),
     );
     expect((await db.select().from(blocks).where(eq(blocks.id, block.id)).get())?.content).toEqual({
       embed: 123,
@@ -570,7 +586,7 @@ describe("embed content validation", () => {
         updateRepeatableItemContent(
           ctx,
           { id: item.id, content: { label: "Updated label" } },
-          null,
+          draft,
         ),
       );
       expect(

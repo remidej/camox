@@ -11,6 +11,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
+  seedLiveThrough,
 } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -205,7 +206,8 @@ describe("media persistence", () => {
       String(rendition.length),
     );
     expect((await ctx.env.FILES_BUCKET.head(file.blobId))?.size).toBe(original.length);
-    await runService(deleteFile(ctx, { id: file.id }, null));
+    // Publishing the deletion deletes the blobs no row names any more.
+    await seedLiveThrough(ctx, project.id, (draft) => deleteFile(ctx, { id: file.id }, draft));
     expect((await ctx.env.FILES_BUCKET.list({ prefix: `${project.id}/` })).objects).toEqual([]);
   });
 
@@ -237,14 +239,22 @@ describe("media persistence", () => {
     const { upload, ctx, db, project, outsiderUser, scheduleAiJob } = await fixture();
     const record = await (await upload()).json<typeof files.$inferSelect>();
     const target = { projectId: project.id, id: record.id };
-    expect(await runService(updateFile(ctx, { ...target, alt: "Manual" }, null))).toMatchObject({
+    expect(
+      await seedLiveThrough(ctx, project.id, (draft) =>
+        updateFile(ctx, { ...target, alt: "Manual" }, draft),
+      ),
+    ).toMatchObject({
       alt: "Manual",
       aiMetadata: false,
     });
     await expect(
-      runService(updateFile(ctx, { ...target, alt: "Conflict", aiMetadata: true }, null)),
+      seedLiveThrough(ctx, project.id, (draft) =>
+        updateFile(ctx, { ...target, alt: "Conflict", aiMetadata: true }, draft),
+      ),
     ).rejects.toThrow();
-    await expect(runService(updateFile(ctx, target, null))).rejects.toThrow();
+    await expect(
+      seedLiveThrough(ctx, project.id, (draft) => updateFile(ctx, target, draft)),
+    ).rejects.toThrow();
     expect(await runService(getProjectFile(ctx, target, null))).toMatchObject({
       alt: "Manual",
       aiMetadata: false,
@@ -259,13 +269,21 @@ describe("media persistence", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     scheduleAiJob.mockClear();
     // Generated again, it shows what was generated: the upload's starting value so far.
-    expect(await runService(updateFile(ctx, { ...target, aiMetadata: true }, null))).toMatchObject({
+    expect(
+      await seedLiveThrough(ctx, project.id, (draft) =>
+        updateFile(ctx, { ...target, aiMetadata: true }, draft),
+      ),
+    ).toMatchObject({
       aiMetadata: true,
       alt: "",
       filename: "hero.png",
     });
     expect(scheduleAiJob).toHaveBeenCalledOnce();
-    expect(await runService(updateFile(ctx, { ...target, alt: "" }, null))).toMatchObject({
+    expect(
+      await seedLiveThrough(ctx, project.id, (draft) =>
+        updateFile(ctx, { ...target, alt: "" }, draft),
+      ),
+    ).toMatchObject({
       alt: "",
       aiMetadata: false,
     });
@@ -397,7 +415,9 @@ describe("media persistence", () => {
     const { upload, ctx, project, scheduleAiJob } = await fixture();
     const original = await (await upload({ alt: "Keep this" })).json<typeof files.$inferSelect>();
     const target = { id: original.id, projectId: project.id };
-    await runService(updateFile(ctx, { ...target, aiMetadata: true }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateFile(ctx, { ...target, aiMetadata: true }, draft),
+    );
     scheduleAiJob.mockClear();
     const replacement = await (
       await upload({}, "image/webp", "new.webp", original.id)
@@ -504,7 +524,9 @@ describe("media persistence", () => {
           Date.now(),
         ),
       );
-    await runService(updateFile(ctx, { ...target, alt: "Keep this" }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateFile(ctx, { ...target, alt: "Keep this" }, draft),
+    );
 
     await generate({ filename: "ai-name", alt: "AI description" });
     expect(await runService(getProjectFile(ctx, target, null))).toMatchObject({
@@ -513,7 +535,9 @@ describe("media persistence", () => {
       aiMetadata: false,
     });
 
-    await runService(updateFile(ctx, { ...target, aiMetadata: true }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateFile(ctx, { ...target, aiMetadata: true }, draft),
+    );
     expect(await runService(getProjectFile(ctx, target, null))).toMatchObject({
       alt: "AI description",
       filename: "ai-name",
@@ -535,7 +559,9 @@ describe("media persistence", () => {
       ),
     );
 
-    await runService(updateFile(ctx, { ...target, filename: "mine.png" }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateFile(ctx, { ...target, filename: "mine.png" }, draft),
+    );
 
     expect(await runService(getProjectFile(ctx, target, null))).toMatchObject({
       alt: "AI description",
@@ -610,7 +636,7 @@ describe("stable file identity", () => {
   });
 
   it("deleting a file leaves the content using it alone, and changes no block", async () => {
-    const { upload, ctx, db, layout } = await fixture();
+    const { upload, ctx, db, layout, memberUser } = await fixture();
     const deleted = await (await upload()).json<typeof files.$inferSelect>();
     const kept = await (await upload()).json<typeof files.$inferSelect>();
     const now = Date.now();
@@ -632,9 +658,12 @@ describe("stable file identity", () => {
       .returning()
       .get();
 
-    await runService(deleteFile(ctx, { id: deleted.id }, null));
+    const draftId = await openDraft(db, layout.projectId, memberUser.id);
+    const draft = { id: draftId, kind: "regular" as const, projectId: layout.projectId };
+    await runService(deleteFile(ctx, { id: deleted.id }, draft));
 
     // Publishing catches what now points at nothing, where it can be fixed (ADR 0009).
     expect(await db.select().from(blocks).where(eq(blocks.id, block.id)).get()).toEqual(block);
+    expect(await db.select().from(blocks).where(eq(blocks.draftId, draftId))).toEqual([]);
   });
 });

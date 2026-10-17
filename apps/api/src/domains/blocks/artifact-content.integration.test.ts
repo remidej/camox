@@ -8,7 +8,7 @@ import {
 } from "../../../../../packages/sdk/src/core/lib/contentType";
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { pages } from "../../schema";
+import { drafts, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import { createRepeatableItem, updateRepeatableItemContent } from "../repeatable-items/service";
 import { createBlock, editBlock, updateBlockContent } from "./service";
@@ -58,7 +58,19 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  return { ctx, page, projectId: base.project.id };
+  // Content is written in drafts (ADR 0003): these writes only need one.
+  const openedDraft = await base.db
+    .insert(drafts)
+    .values({
+      projectId: base.project.id,
+      kind: "regular",
+      createdBy: base.memberUser.id,
+      createdAt: Date.now(),
+    })
+    .returning()
+    .get();
+  const draft = { id: openedDraft.id, kind: openedDraft.kind, projectId: openedDraft.projectId };
+  return { ctx, page, projectId: base.project.id, draft };
 }
 
 const tooLargeError = {
@@ -68,30 +80,34 @@ const tooLargeError = {
 
 describe("artifact content validation", () => {
   it("accepts sources up to the artifact limit and rejects larger ones, pointing to esm.sh", async () => {
-    const { ctx, page } = await fixture("block");
+    const { ctx, page, draft } = await fixture("block");
     await expect(
       runService(
-        createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: tooLarge } }, null),
+        createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: tooLarge } }, draft),
       ),
     ).rejects.toMatchObject({ ...tooLargeError, data: { field: "content.visual" } });
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: fits } }, null),
+      createBlock(ctx, { pageId: page.id, type: "visual", content: { visual: fits } }, draft),
     );
     expect(block.content).toMatchObject({ visual: fits });
     await expect(
-      runService(updateBlockContent(ctx, { id: block.id, content: { visual: tooLarge } }, null)),
+      runService(updateBlockContent(ctx, { id: block.id, content: { visual: tooLarge } }, draft)),
     ).rejects.toMatchObject(tooLargeError);
     await expect(
       runService(
-        updateBlockContent(ctx, { id: block.id, content: { scenes: [{ scene: tooLarge }] } }, null),
+        updateBlockContent(
+          ctx,
+          { id: block.id, content: { scenes: [{ scene: tooLarge }] } },
+          draft,
+        ),
       ),
     ).rejects.toMatchObject(tooLargeError);
   });
 
   it("applies the same limit to artifacts in repeatable items", async () => {
-    const { ctx, page } = await fixture("item");
+    const { ctx, page, draft } = await fixture("item");
     const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "visual", content: {} }, null),
+      createBlock(ctx, { pageId: page.id, type: "visual", content: {} }, draft),
     );
     await expect(
       runService(
@@ -102,7 +118,7 @@ describe("artifact content validation", () => {
             fieldName: "scenes",
             content: { scene: tooLarge },
           },
-          null,
+          draft,
         ),
       ),
     ).rejects.toMatchObject(tooLargeError);
@@ -114,18 +130,18 @@ describe("artifact content validation", () => {
           fieldName: "scenes",
           content: { scene: fits },
         },
-        null,
+        draft,
       ),
     );
     await expect(
       runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } }, null),
+        updateRepeatableItemContent(ctx, { id: item.id, content: { scene: tooLarge } }, draft),
       ),
     ).rejects.toMatchObject(tooLargeError);
   });
 
   it("accepts sources without a <title>, with a warning naming each untitled artifact", async () => {
-    const { ctx, page } = await fixture("warning");
+    const { ctx, page, draft } = await fixture("warning");
     const untitled = "<p>No title</p>";
     const blank = "<title>  </title><p>Blank title</p>";
     const block = await runService(
@@ -136,7 +152,7 @@ describe("artifact content validation", () => {
           type: "visual",
           content: { visual: untitled, scenes: [{ scene: "<title>Ok</title>" }, { scene: blank }] },
         },
-        null,
+        draft,
       ),
     );
     expect(block.content).toMatchObject({ visual: untitled });
@@ -146,21 +162,21 @@ describe("artifact content validation", () => {
     ]);
 
     const edited = await runService(
-      editBlock(ctx, { id: block.id, content: { visual: "<title>Titled</title>" } }, null),
+      editBlock(ctx, { id: block.id, content: { visual: "<title>Titled</title>" } }, draft),
     );
     expect(edited).not.toHaveProperty("warnings");
     const emptied = await runService(
-      editBlock(ctx, { id: block.id, content: { visual: "" } }, null),
+      editBlock(ctx, { id: block.id, content: { visual: "" } }, draft),
     );
     expect(emptied).not.toHaveProperty("warnings");
     expect(
-      await runService(editBlock(ctx, { id: block.id, content: { visual: untitled } }, null)),
+      await runService(editBlock(ctx, { id: block.id, content: { visual: untitled } }, draft)),
     ).toMatchObject({ warnings: [expect.stringMatching(/content\.visual/)] });
   });
 
   it("surfaces the missing-title warning in the AI tools' responses", async () => {
-    const { ctx, page, projectId } = await fixture("warning-tools");
-    const context = { ...ctx, projectId };
+    const { ctx, page, projectId, draft } = await fixture("warning-tools");
+    const context = { ...ctx, projectId, draft: { id: draft.id, create: false } };
     const tools = await blocksProvider(context);
     const tool = (name: string) => tools.find((entry) => entry.name === name)!;
     const created = (await tool("createBlock").handler(

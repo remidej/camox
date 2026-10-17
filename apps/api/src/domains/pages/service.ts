@@ -1,6 +1,6 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -18,7 +18,7 @@ import {
   type ResolvedReferences,
 } from "../collections/references";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { Draft, DraftScope } from "../drafts/scope";
 import type { FileView } from "../files/generated-metadata";
 import { type GenerationDeps, homeOf, requestGeneration } from "../generated-values/service";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
@@ -381,7 +381,7 @@ export const getPage = Effect.fn("pages.getPage")(function* (
 export const createPage = Effect.fn("pages.createPage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createPageInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, projectId, nickname, pathSegment, parentPageId, layoutId } = yield* decodeInput(
@@ -429,7 +429,7 @@ export const createPage = Effect.fn("pages.createPage")(function* (
 export const updatePage = Effect.fn("pages.updatePage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updatePageInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, ...body } = yield* decodeInput(updatePageInput, rawInput);
@@ -478,47 +478,18 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
 });
 
 /**
- * Deletes a page. In a draft it's a tombstone: publishing deletes the page from Live with its
- * descendants, blocks and repeatable items (ADR 0009). On Live, the page goes with its Live
- * blocks and their items; drafts keep their own rows, which publishing lists as
- * lost.
+ * Deletes a page in a draft: a tombstone. Publishing deletes the page from Live with its
+ * descendants, blocks and repeatable items (ADR 0009).
  */
 export const deletePage = Effect.fn("pages.deletePage")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deletePageInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id } = yield* decodeInput(deletePageInput, rawInput);
   const access = yield* assertPageAccess(ctx.db, id, user.id, scope);
-
-  if (scope) {
-    const result = yield* overlay.remove(ctx.db, scope, pages, id);
-    invalidatePage(ctx, scope, access.page.projectId, id);
-    return result;
-  }
-
-  const pageBlockIds = ctx.db
-    .select({ id: blocks.id })
-    .from(blocks)
-    .where(and(eq(blocks.pageId, id), overlay.storedIn(blocks, null)));
-  const [, , [result]] = yield* Effect.promise(() =>
-    ctx.db.batch([
-      ctx.db
-        .delete(repeatableItems)
-        .where(
-          and(
-            inArray(repeatableItems.blockId, pageBlockIds),
-            overlay.storedIn(repeatableItems, null),
-          ),
-        ),
-      ctx.db.delete(blocks).where(and(eq(blocks.pageId, id), overlay.storedIn(blocks, null))),
-      ctx.db
-        .delete(pages)
-        .where(and(eq(pages.id, id), overlay.storedIn(pages, null)))
-        .returning(),
-    ]),
-  );
+  const result = yield* overlay.remove(ctx.db, scope, pages, id);
   invalidatePage(ctx, scope, access.page.projectId, id);
   return result;
 });
@@ -526,7 +497,7 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
 /** Changes a page's fields as the scope reads it, copying it into a draft on the first write. */
 const writePage = Effect.fn("pages.writePage")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: Draft,
   id: string,
   values: Partial<typeof pages.$inferInsert>,
 ) {
@@ -549,7 +520,7 @@ const writePage = Effect.fn("pages.writePage")(function* (
 export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageSeoInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, metaTitle, metaDescription, aiSeo } = yield* decodeInput(setPageSeoInput, rawInput);
@@ -570,7 +541,7 @@ export const setPageSeo = Effect.fn("pages.setPageSeo")(function* (
 export const setPageLayout = Effect.fn("pages.setPageLayout")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setPageLayoutInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const user = yield* requireUser(ctx);
   const { id, layoutId } = yield* decodeInput(setPageLayoutInput, rawInput);

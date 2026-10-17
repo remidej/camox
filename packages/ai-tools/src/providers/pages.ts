@@ -3,7 +3,10 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { getPageMarkdown } from "../../../../apps/api/src/domains/blocks/service";
-import { resolveDraftScope } from "../../../../apps/api/src/domains/drafts/service";
+import {
+  resolveDraftScope,
+  resolveWriteDraft,
+} from "../../../../apps/api/src/domains/drafts/service";
 import {
   createPage,
   createPageInput,
@@ -62,7 +65,7 @@ const resolveOwnPage = Effect.fn("resolveOwnPage")(function* (
   target: z.infer<typeof pageMutationTargetInput>,
 ) {
   const id = yield* resolvePageTargetId(ctx, target);
-  const scope = yield* draftScope(ctx);
+  const scope = yield* writeDraft(ctx);
   const page = yield* getPage(ctx, { id }, scope);
   if (page.projectId !== ctx.projectId) return yield* new NotFoundError();
   return { id, scope };
@@ -86,6 +89,7 @@ const resolvePageTargetId = Effect.fn("resolvePageTargetId")(function* (
 
 /** Tools read and write pages in the draft the session names, if any. */
 const draftScope = (ctx: Parameters<ToolProvider>[0]) => resolveDraftScope(ctx, ctx.projectId);
+const writeDraft = (ctx: Parameters<ToolProvider>[0]) => resolveWriteDraft(ctx, ctx.projectId);
 
 export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
   {
@@ -132,7 +136,7 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     handler: async (input) => {
       const data = createPageToolInput.parse(input);
       return runService(
-        Effect.flatMap(draftScope(ctx), (scope) =>
+        Effect.flatMap(writeDraft(ctx), (scope) =>
           createPage(ctx, { ...data, projectId: ctx.projectId }, scope),
         ),
       );
@@ -162,7 +166,7 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "safe", surfaces: ["cli"] },
     handler: async (input) =>
       runService(
-        Effect.flatMap(draftScope(ctx), (scope) =>
+        Effect.flatMap(writeDraft(ctx), (scope) =>
           setPageLayout(ctx, setPageLayoutInput.parse(input), scope),
         ),
       ),
@@ -191,7 +195,7 @@ export const pagesProvider: ToolProvider = (ctx): ToolDefinition[] => [
     meta: { kind: "write", risk: "requiresApproval", surfaces: ["cli"] },
     handler: async (input) =>
       runService(
-        Effect.flatMap(draftScope(ctx), (scope) =>
+        Effect.flatMap(writeDraft(ctx), (scope) =>
           deletePage(ctx, deletePageInput.parse(input), scope),
         ),
       ),

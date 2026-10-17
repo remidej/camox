@@ -20,7 +20,10 @@ const { broadcastInvalidation } = vi.hoisted(() => {
   vi.resetModules();
   return { broadcastInvalidation: vi.fn() };
 });
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation }));
+vi.mock("../../lib/broadcast-invalidation", () => ({
+  broadcastInvalidation,
+  broadcastDraftEnded: () => {},
+}));
 
 type Caller = "member" | "outsider" | "anonymous";
 
@@ -282,8 +285,8 @@ describe("block procedures in the draft a request names", () => {
     expect(left).toEqual([]);
   });
 
-  it("names the draft an edit came from in its invalidation, and Live for an edit on Live", async () => {
-    const { createBlock, editTitle } = await fixture();
+  it("names the draft an edit came from in its invalidation, and Live once the draft is published", async () => {
+    const { createBlock, editTitle, member, project } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     const broadcastDrafts = () =>
@@ -293,8 +296,11 @@ describe("block procedures in the draft a request names", () => {
     await editTitle(block.id, "Draft", startingDraft(draft));
     expect(broadcastDrafts()).toEqual([draft]);
 
+    // Live changes only by publishing (ADR 0009).
     vi.mocked(broadcastInvalidation).mockClear();
-    await editTitle(block.id, "Live again");
+    const input = { projectId: project.id };
+    const { token } = await call(router.drafts.previewPublish, input, member(inDraft(draft)));
+    await call(router.drafts.publish, { ...input, token }, member(inDraft(draft)));
     expect(broadcastDrafts()).toEqual([null]);
   });
 });

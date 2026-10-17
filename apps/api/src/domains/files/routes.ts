@@ -7,8 +7,8 @@ import { isRasterImage } from "../../lib/image-transform";
 import { respondToUpload, uploadContextOf } from "../../lib/upload-request";
 import { authed, contentWrite, pub } from "../../orpc";
 import type { AppEnv } from "../../types";
-import { inScope, projectOfFile } from "../drafts/request-scope";
-import { inDraftScope } from "../drafts/service";
+import { inScope, projectOfFile, inWriteDraft } from "../drafts/request-scope";
+import { inDraft } from "../drafts/service";
 import * as service from "./service";
 import { optimizeVideo } from "./video-optimization";
 
@@ -44,7 +44,7 @@ const getUsageCount = pub
 const setAlt = contentWrite
   .input(service.setFileAltInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfFile(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
       service.setFileAlt(context, input, scope),
     ),
   );
@@ -52,7 +52,7 @@ const setAlt = contentWrite
 const setFilename = contentWrite
   .input(service.setFileFilenameInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfFile(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
       service.setFileFilename(context, input, scope),
     ),
   );
@@ -60,7 +60,7 @@ const setFilename = contentWrite
 const deleteFn = contentWrite
   .input(service.deleteFileInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfFile(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
       service.deleteFile(context, input, scope),
     ),
   );
@@ -68,7 +68,7 @@ const deleteFn = contentWrite
 const deleteMany = contentWrite.input(service.deleteFilesInput).handler(({ context, input }) => {
   const [first] = input.ids;
   const project = first === undefined ? undefined : projectOfFile(context, first);
-  return inScope(context, project ?? Effect.succeed(undefined), (scope) =>
+  return inWriteDraft(context, project ?? Effect.succeed(undefined), (scope) =>
     service.deleteFiles(context, input, scope),
   );
 });
@@ -76,7 +76,7 @@ const deleteMany = contentWrite.input(service.deleteFilesInput).handler(({ conte
 const setAiMetadata = contentWrite
   .input(service.setFileAiMetadataInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfFile(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfFile(context, input.id), (scope) =>
       service.setFileAiMetadata(context, input, scope),
     ),
   );
@@ -207,7 +207,7 @@ const uploadContent: Handler<AppEnv> = async (c) => {
 
   const upload = Effect.gen(function* () {
     yield* getAuthorizedProject(ctx.db, projectId, c.var.user!.id);
-    return yield* inDraftScope(ctx, projectId, (scope) =>
+    return yield* inDraft(ctx, projectId, (scope) =>
       Effect.gen(function* () {
         // Reject a missing target before storing any blob.
         if (id !== undefined) yield* service.getProjectFile(ctx, { projectId, id }, scope);

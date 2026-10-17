@@ -20,7 +20,10 @@ const { broadcastInvalidation } = vi.hoisted(() => {
   vi.resetModules();
   return { broadcastInvalidation: vi.fn() };
 });
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation }));
+vi.mock("../../lib/broadcast-invalidation", () => ({
+  broadcastInvalidation,
+  broadcastDraftEnded: () => {},
+}));
 
 // Independent of the shared schema: version nibble 7, RFC 4122 variant.
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

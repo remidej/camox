@@ -19,6 +19,11 @@ import {
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import {
+  bumpsForBlocks,
+  bumpsForRepeatableItems,
+  bumpsForSharedContents,
+} from "../../lib/bump-content-updated-at";
 import { blocks, sharedContents } from "../blocks/schema";
 import { collectionRecords } from "../collections/schema";
 import { files } from "../files/schema";
@@ -26,7 +31,7 @@ import { layouts } from "../layouts/schema";
 import { pages } from "../pages/schema";
 import { repeatableItems } from "../repeatable-items/schema";
 import { drafts, endedDrafts } from "./schema";
-import type { DraftScope } from "./scope";
+import { RELEASE, type Draft, type DraftScope, type WriteTarget } from "./scope";
 
 // The draft overlay (ADR 0005) owns every draft-aware data operation on content tables, so
 // domain services never filter on `draft_id` themselves. Live rows have no draft; a draft row
@@ -37,7 +42,9 @@ import type { DraftScope } from "./scope";
 // - The first write in a draft copies the whole Live entity and records its version as
 //   `base_version`. Later writes patch the copy; the last write wins.
 // - A delete in a draft writes a tombstone for the entity only.
-// - A write to Live counts a change on the row's `version`.
+//
+// Writes target a draft, or Live for a release. Publishing a draft and releases are Live's only
+// writers (ADR 0006, ADR 0009); a release's writes run each table's Live follow-ups.
 
 /** The columns every content table has for living beside Live. */
 type ContentColumns = {
@@ -104,8 +111,12 @@ export type ContentTableRegistration = {
    * the draft deleted.
    */
   parents: ParentRelation[];
-  /** The columns a change on another entity can rewrite, copying this one into the draft. */
-  rewritable: AnySQLiteColumn[];
+  /**
+   * Statements keeping Live in step after Live's writers change some of the table's entities.
+   * `changed` selects rows describing them, as they were or as they are; the statements run
+   * both before and after the change, so they must be idempotent.
+   */
+  afterLiveChange?: (changed: SQL, now: number) => SQL[];
   /** The table's rows in a project, Live's and every draft's, as a condition on the table. */
   inProject: (projectId: number) => SQL;
 };
@@ -130,8 +141,6 @@ export function registrationOf(table: ContentTable): ContentTableRegistration {
 registerContentTable(pages, {
   entity: "page",
   parents: [{ column: pages.parentPageId, key: pages.id }],
-  // Renaming or moving a page rewrites the full path of every descendant page.
-  rewritable: [pages.fullPath],
   inProject: (projectId) => eq(pages.projectId, projectId),
 });
 
@@ -145,14 +154,14 @@ registerContentTable(blocks, {
       within: [[blocks.projectId, layouts.projectId]],
     },
   ],
-  rewritable: [],
+  afterLiveChange: bumpsForBlocks,
   inProject: (projectId) => eq(blocks.projectId, projectId),
 });
 
 registerContentTable(sharedContents, {
   entity: "sharedContent",
   parents: [],
-  rewritable: [],
+  afterLiveChange: bumpsForSharedContents,
   inProject: (projectId) => eq(sharedContents.projectId, projectId),
 });
 
@@ -167,7 +176,7 @@ registerContentTable(repeatableItems, {
       within: [[repeatableItems.projectId, sharedContents.projectId]],
     },
   ],
-  rewritable: [],
+  afterLiveChange: bumpsForRepeatableItems,
   // An item's tree is rooted in a shared content of the project, or in a block.
   inProject: (projectId) =>
     sql`(${repeatableItems.projectId} = ${projectId} or ${repeatableItems.blockId} in (select "owner"."id" from ${blocks} as "owner" where "owner"."project_id" = ${projectId}))`,
@@ -177,7 +186,6 @@ registerContentTable(repeatableItems, {
 registerContentTable(files, {
   entity: "file",
   parents: [],
-  rewritable: [],
   inProject: (projectId) => eq(files.projectId, projectId),
 });
 
@@ -186,7 +194,6 @@ registerContentTable(files, {
 registerContentTable(collectionRecords, {
   entity: "record",
   parents: [],
-  rewritable: [],
   inProject: (projectId) => eq(collectionRecords.projectId, projectId),
 });
 
@@ -206,7 +213,7 @@ export function storedInLiveOrDraft(table: ContentTable, draftId: string): SQL {
 }
 
 /** Whether a draft stores any row, copy or tombstone, in any content table. */
-export function storesAnything(scope: NonNullable<DraftScope>): SQL {
+export function storesAnything(scope: Draft): SQL {
   const stored = [...registrations.keys()].map(
     (table) => sql`exists (select 1 from ${table} where ${table.draftId} = ${scope.id})`,
   );
@@ -278,33 +285,61 @@ export const getStored = <T extends ContentTable>(
   );
 
 /**
- * Creates an entity in the scope. Undefined when the scope already reads an entity with this
- * id, or a draft deleted it.
+ * Runs a table's Live follow-ups for one Live entity, as it is now: before a release changes it,
+ * and again after.
+ */
+const followLiveChange = Effect.fn("overlay.followLiveChange")(function* (
+  db: Database,
+  table: ContentTable,
+  id: string,
+) {
+  const { afterLiveChange } = registrationOf(table);
+  if (!afterLiveChange) return;
+  const changed = sql`select * from ${table} where ${table.draftId} is null and ${table.id} = ${id}`;
+  for (const statement of afterLiveChange(changed, Date.now())) {
+    yield* Effect.promise(() => db.run(statement));
+  }
+});
+
+/**
+ * Creates an entity in the target. Undefined when the target already reads an entity with this
+ * id, or a draft deleted it. A release's entity is published by no member, now.
  */
 export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTable>(
   db: Database,
-  scope: DraftScope,
+  target: WriteTarget,
   table: T,
   values: Patch<T> & { id?: string },
 ) {
-  if (scope && values.id !== undefined) {
+  if (target === RELEASE) {
+    const now = Date.now();
+    const row = (yield* Effect.promise(() =>
+      db
+        .insert(table as SQLiteTable)
+        .values({
+          ...values,
+          draftId: null,
+          baseVersion: null,
+          deleted: false,
+          firstPublishedAt: now,
+          publishedAt: now,
+          publishedBy: null,
+        } as Values<T>)
+        .onConflictDoNothing()
+        .returning()
+        .get(),
+    )) as Row<T> | undefined;
+    if (row) yield* followLiveChange(db, table, row.id);
+    return row;
+  }
+  if (values.id !== undefined) {
     const taken = yield* getStored(db, null, table, values.id);
     if (taken) return undefined;
   }
-  // An entity created straight on Live is on Live from then on: lists sorted by when entities
-  // were first published place it there. Nobody published it, so it records no publish.
-  const firstPublished = scope ? {} : { firstPublishedAt: Date.now() };
-  const row = {
-    ...values,
-    ...firstPublished,
-    draftId: scope?.id ?? null,
-    baseVersion: null,
-    deleted: false,
-  };
   return (yield* Effect.promise(() =>
     db
       .insert(table as SQLiteTable)
-      .values(row as Values<T>)
+      .values({ ...values, draftId: target.id, baseVersion: null, deleted: false } as Values<T>)
       .onConflictDoNothing()
       .returning()
       .get(),
@@ -312,38 +347,47 @@ export const insert = Effect.fn("overlay.insert")(function* <T extends ContentTa
 });
 
 /**
- * Changes an entity as the scope reads it. On Live, counts a change. In a draft, the first
- * write copies the whole Live entity, recording the version it copied. Undefined when the scope
- * reads no entity with this id.
+ * Changes an entity as the target reads it. A release counts a change on Live's `version`, so
+ * drafts that copied the entity see a conflict. In a draft, the first write copies the whole Live
+ * entity, recording the version it copied. Undefined when the target reads no entity with this
+ * id.
  */
 export const update = Effect.fn("overlay.update")(function* <T extends ContentTable>(
   db: Database,
-  scope: DraftScope,
+  target: WriteTarget,
   table: T,
   id: string,
   patch: Patch<T>,
 ) {
-  if (!scope) {
-    return (yield* Effect.promise(() =>
+  if (target === RELEASE) {
+    yield* followLiveChange(db, table, id);
+    const row = (yield* Effect.promise(() =>
       db
         .update(table as SQLiteTable)
-        .set({ ...patch, version: sql`${table.version} + 1` } as Partial<Values<T>>)
+        .set({
+          ...patch,
+          version: sql`${table.version} + 1`,
+          publishedAt: Date.now(),
+          publishedBy: null,
+        } as Partial<Values<T>>)
         .where(and(storedIn(table, null), eq(table.id, id)))
         .returning()
         .get(),
     )) as Row<T> | undefined;
+    if (row) yield* followLiveChange(db, table, id);
+    return row;
   }
-  const stored = yield* getStored(db, scope, table, id);
+  const stored = yield* getStored(db, target, table, id);
   if (stored?.deleted) return undefined;
   if (!stored) {
-    const copy = yield* copyIntoDraft(db, scope, table, id, patch);
+    const copy = yield* copyIntoDraft(db, target, table, id, patch);
     if (!copy.taken) return copy.row as Row<T> | undefined;
   }
   return (yield* Effect.promise(() =>
     db
       .update(table as SQLiteTable)
       .set(patch as Partial<Values<T>>)
-      .where(and(storedIn(table, scope), eq(table.id, id), eq(table.deleted, false)))
+      .where(and(storedIn(table, target), eq(table.id, id), eq(table.deleted, false)))
       .returning()
       .get(),
   )) as Row<T> | undefined;
@@ -355,7 +399,7 @@ export const update = Effect.fn("overlay.update")(function* <T extends ContentTa
  */
 const copyIntoDraft = Effect.fn("overlay.copyIntoDraft")(function* (
   db: Database,
-  scope: NonNullable<DraftScope>,
+  draft: Draft,
   table: ContentTable,
   id: string,
   changes: Record<string, unknown>,
@@ -369,7 +413,7 @@ const copyIntoDraft = Effect.fn("overlay.copyIntoDraft")(function* (
       .values({
         ...entity,
         ...changes,
-        draftId: scope.id,
+        draftId: draft.id,
         baseVersion: live.version,
       } as Values<ContentTable>)
       .onConflictDoNothing()
@@ -381,32 +425,41 @@ const copyIntoDraft = Effect.fn("overlay.copyIntoDraft")(function* (
 });
 
 /**
- * Deletes an entity as the scope reads it, returning the row the scope read. On Live the row is
- * deleted. In a draft, an entity the draft created is deleted and any other gets a tombstone.
+ * Deletes an entity as the target reads it, returning the row the target read. A release deletes
+ * Live's row. In a draft, an entity the draft created is deleted and any other gets a tombstone.
+ * Only the entity goes: callers remove its descendants.
  */
 export const remove = Effect.fn("overlay.remove")(function* <T extends ContentTable>(
   db: Database,
-  scope: DraftScope,
+  target: WriteTarget,
   table: T,
   id: string,
 ) {
-  const shown = yield* get(db, scope, table, id);
-  if (!shown) return undefined;
-  const createdByDraft = scope != null && shown.draftId === scope.id && shown.baseVersion == null;
-  if (!scope || createdByDraft) {
+  if (target === RELEASE) {
+    const shown = yield* get(db, null, table, id);
+    if (!shown) return undefined;
+    yield* followLiveChange(db, table, id);
     yield* Effect.promise(() =>
-      db.delete(table as SQLiteTable).where(and(storedIn(table, scope), eq(table.id, id))),
+      db.delete(table as SQLiteTable).where(and(storedIn(table, null), eq(table.id, id))),
     );
     return shown;
   }
-  if (shown.draftId !== scope.id) yield* copyIntoDraft(db, scope, table, id, { deleted: true });
+  const shown = yield* get(db, target, table, id);
+  if (!shown) return undefined;
+  if (shown.draftId === target.id && shown.baseVersion == null) {
+    yield* Effect.promise(() =>
+      db.delete(table as SQLiteTable).where(and(storedIn(table, target), eq(table.id, id))),
+    );
+    return shown;
+  }
+  if (shown.draftId !== target.id) yield* copyIntoDraft(db, target, table, id, { deleted: true });
   // Marks the draft's copy, also when a concurrent write copied it first. The time tells Live
   // descendants written since, which publishing loses, from older ones.
   yield* Effect.promise(() =>
     db
       .update(table as SQLiteTable)
       .set({ deleted: true, updatedAt: Date.now() } as Partial<Values<T>>)
-      .where(and(storedIn(table, scope), eq(table.id, id))),
+      .where(and(storedIn(table, target), eq(table.id, id))),
   );
   return shown;
 });
@@ -417,45 +470,6 @@ export function liveIds(): { entity: EntityKind; ids: SQL }[] {
     entity: registrationOf(table).entity,
     ids: sql`select ${at("l", table.id)} from ${sql.identifier(getTableName(table))} as "l" where ${at("l", table.draftId)} is null`,
   }));
-}
-
-/**
- * The ids among `ids` that Live or any draft still holds as an entity, tombstones aside: what
- * points at these entities still has a reader, so it must stay.
- */
-export const idsHeldAnywhere = Effect.fn("overlay.idsHeldAnywhere")(function* (
-  db: Database,
-  table: ContentTable,
-  ids: string[],
-) {
-  registrationOf(table);
-  if (ids.length === 0) return new Set<string>();
-  const rows = yield* Effect.promise(
-    () =>
-      db
-        .selectDistinct({ id: table.id })
-        .from(table as SQLiteTable)
-        .where(and(inArray(table.id, ids), eq(table.deleted, false))) as Promise<{ id: string }[]>,
-  );
-  return new Set(rows.map((row) => row.id));
-});
-
-// --- Releases (ADR 0006, ADR 0007) ---
-//
-// Besides publishing, a release is the only writer of Live. What it writes is published by no
-// member, which the studio shows as "a release".
-
-/** The bookkeeping of an entity a release adds to Live. */
-export function releasedNew(now: number) {
-  return { firstPublishedAt: now, publishedAt: now, publishedBy: null };
-}
-
-/**
- * The bookkeeping of a Live entity a release changes: a counted change, so drafts that copied
- * it see a conflict.
- */
-export function releasedChange(table: ContentTable, now: number) {
-  return { version: sql`${table.version} + 1`, publishedAt: now, publishedBy: null };
 }
 
 /**
@@ -675,10 +689,7 @@ export type StoredChange = {
 };
 
 /** Every entity a draft stores, as created, changed or deleted. */
-export const changesOf = Effect.fn("overlay.changesOf")(function* (
-  db: Database,
-  scope: NonNullable<DraftScope>,
-) {
+export const changesOf = Effect.fn("overlay.changesOf")(function* (db: Database, scope: Draft) {
   const changes: StoredChange[] = [];
   for (const table of tables()) {
     const rows = yield* Effect.promise(
@@ -777,10 +788,7 @@ export type StoredConflict = {
 };
 
 /** The draft's conflicts, with who published Live's version and when. */
-export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (
-  db: Database,
-  scope: NonNullable<DraftScope>,
-) {
+export const conflictsOf = Effect.fn("overlay.conflictsOf")(function* (db: Database, scope: Draft) {
   const conflicts: StoredConflict[] = [];
   for (const table of tables()) {
     const rows = yield* Effect.promise(() =>
@@ -819,10 +827,7 @@ export type StoredLoss =
  * nor in the draft, and Live descendants written or published after the draft deleted an
  * entity above them (`parent`), which are conflicts too.
  */
-export const lostOf = Effect.fn("overlay.lostOf")(function* (
-  db: Database,
-  scope: NonNullable<DraftScope>,
-) {
+export const lostOf = Effect.fn("overlay.lostOf")(function* (db: Database, scope: Draft) {
   const lost: StoredLoss[] = [];
   for (const table of tables()) {
     const { entity } = registrationOf(table);
@@ -983,7 +988,7 @@ function emptyStatements(db: Database, draftId: string): BatchItem[] {
  */
 function endStatements(
   db: Database,
-  scope: NonNullable<DraftScope>,
+  scope: Draft,
   outcome: DraftOutcome,
   endedBy: string,
   now: number,
@@ -1005,13 +1010,12 @@ function endStatements(
 /**
  * Publishes a draft in one batch: a guard that aborts unless the conflicts are still `shown`,
  * then each table's draft rows applied to Live (bumping versions and setting who published and
- * when), deletions with their Live descendants, lost changes dropped, and the
- * draft ended.
+ * when), deletions with their Live descendants, lost changes dropped, and the draft ended.
  * Fails when the batch aborted, having applied nothing.
  */
 export const publish = (
   db: Database,
-  scope: NonNullable<DraftScope>,
+  scope: Draft,
   {
     shown,
     publishedBy,
@@ -1041,7 +1045,7 @@ export const publish = (
 /** Discards a draft in one batch: one cascading delete, or emptying a development draft. */
 export const discard = (
   db: Database,
-  scope: NonNullable<DraftScope>,
+  scope: Draft,
   {
     discardedBy,
     now,

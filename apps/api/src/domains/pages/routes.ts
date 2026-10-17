@@ -1,5 +1,5 @@
 import { authed, contentWrite, pub } from "../../orpc";
-import { inScope, projectOfPage, projectOfSlug } from "../drafts/request-scope";
+import { inScope, projectOfPage, projectOfSlug, inWriteDraft } from "../drafts/request-scope";
 import * as service from "./service";
 
 // Every procedure reads and writes pages in the draft the request names (ADR 0011).
@@ -49,13 +49,13 @@ const get = pub
 const create = contentWrite
   .input(service.createPageInput)
   .handler(({ context, input }) =>
-    inScope(context, input.projectId, (scope) => service.createPage(context, input, scope)),
+    inWriteDraft(context, input.projectId, (scope) => service.createPage(context, input, scope)),
   );
 
 const update = contentWrite
   .input(service.updatePageInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
       service.updatePage(context, input, scope),
     ),
   );
@@ -63,7 +63,7 @@ const update = contentWrite
 const deleteFn = contentWrite
   .input(service.deletePageInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
       service.deletePage(context, input, scope),
     ),
   );
@@ -71,7 +71,7 @@ const deleteFn = contentWrite
 const setSeo = contentWrite
   .input(service.setPageSeoInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
       service.setPageSeo(context, input, scope),
     ),
   );
@@ -79,7 +79,7 @@ const setSeo = contentWrite
 const setLayout = contentWrite
   .input(service.setPageLayoutInput)
   .handler(({ context, input }) =>
-    inScope(context, projectOfPage(context, input.id), (scope) =>
+    inWriteDraft(context, projectOfPage(context, input.id), (scope) =>
       service.setPageLayout(context, input, scope),
     ),
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../test/fixtures";
+import { createProjectFixture, createServiceContext, seedLiveThrough } from "../../test/fixtures";
 import { runService } from "../lib/run-service";
 import { listBlockDefinitions, syncBlockDefinitions } from "./block-definitions/service";
 import {
@@ -79,12 +79,14 @@ describe("definitions are identified by their names", () => {
     const { ctx, project, sync } = await setup("page-layout");
     await sync({ blocks: [], layouts: ["default", "landing"], collections: [] });
 
-    const { page } = await runService(
-      createPage(ctx, { projectId: project.id, pathSegment: "about", layoutId: "default" }, null),
+    const { page } = await seedLiveThrough(ctx, project.id, (draft) =>
+      createPage(ctx, { projectId: project.id, pathSegment: "about", layoutId: "default" }, draft),
     );
     expect(page.layoutId).toBe("default");
 
-    const moved = await runService(setPageLayout(ctx, { id: page.id, layoutId: "landing" }, null));
+    const moved = await seedLiveThrough(ctx, project.id, (draft) =>
+      setPageLayout(ctx, { id: page.id, layoutId: "landing" }, draft),
+    );
     expect(moved.layoutId).toBe("landing");
     expect(await runService(getPage(ctx, { id: page.id }, null))).toMatchObject({
       layoutId: "landing",
@@ -94,7 +96,9 @@ describe("definitions are identified by their names", () => {
     ]);
 
     await expect(
-      runService(setPageLayout(ctx, { id: page.id, layoutId: "missing" }, null)),
+      seedLiveThrough(ctx, project.id, (draft) =>
+        setPageLayout(ctx, { id: page.id, layoutId: "missing" }, draft),
+      ),
     ).rejects.toMatchObject({ status: 404 });
   });
 
@@ -103,7 +107,9 @@ describe("definitions are identified by their names", () => {
     await sync({ blocks: [], layouts: ["default"], collections: ["authors"] });
     const scope = { projectSlug: project.slug, collectionId: "authors" };
 
-    const created = await runService(createRecord(ctx, { ...scope, content: { name: "Ada" } }));
+    const created = await seedLiveThrough(ctx, project.id, (_draft, inDraft) =>
+      createRecord(inDraft, { ...scope, content: { name: "Ada" } }),
+    );
     expect(created).toMatchObject({ collectionId: "authors" });
     expect(created).not.toHaveProperty("definitionId");
     expect(await runService(getCollectionRecord(ctx, { ...scope, id: created.id }))).toMatchObject({

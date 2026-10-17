@@ -11,7 +11,7 @@ import { blockSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import { applyNewDefinitionSyncedFlag, applySyncedFlagChange } from "../blocks/shared-content";
 import { validateReferenceSchema } from "../collections/references";
-import type { DraftScope } from "../drafts/scope";
+import { RELEASE, type DraftScope } from "../drafts/scope";
 import { resolveDraftScope } from "../drafts/service";
 
 // --- Input Schemas ---
@@ -147,7 +147,12 @@ const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* 
         .get(),
     );
     if (updated.synced !== existing.synced) {
-      yield* applySyncedFlagChange(ctx, { scope, projectId, key, synced: updated.synced });
+      yield* applySyncedFlagChange(ctx, {
+        target: scope ?? RELEASE,
+        projectId,
+        key,
+        synced: updated.synced,
+      });
     }
     return { row: updated, action: "updated" as const };
   }
@@ -167,7 +172,12 @@ const writeDefinition = Effect.fn("blockDefinitions.writeDefinition")(function* 
       .get(),
   );
   // A definition that comes back finds its stored shared content, synced or not.
-  yield* applyNewDefinitionSyncedFlag(ctx, { scope, projectId, key, synced: created.synced });
+  yield* applyNewDefinitionSyncedFlag(ctx, {
+    target: scope ?? RELEASE,
+    projectId,
+    key,
+    synced: created.synced,
+  });
   return { row: created, action: "created" as const };
 });
 

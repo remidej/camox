@@ -12,7 +12,7 @@ import { runService } from "../../lib/run-service";
 import { pub } from "../../orpc";
 import { blocks, drafts, member } from "../../schema";
 import * as overlay from "./overlay";
-import { inDraftScope, requireDraftScope } from "./service";
+import { inDraft, requireDraftScope } from "./service";
 
 // A procedure that only resolves the request's draft scope, so the tests run the real
 // middleware the way block procedures will.
@@ -25,7 +25,7 @@ const storeThenFailProbe = pub
   .input(z.object({ projectId: z.number() }))
   .handler(({ context, input }) =>
     runService(
-      inDraftScope(context, input.projectId, (scope) =>
+      inDraft(context, input.projectId, (scope) =>
         overlay
           .insert(context.db, scope, blocks, {
             projectId: input.projectId,

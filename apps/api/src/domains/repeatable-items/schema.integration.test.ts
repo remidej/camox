@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
-import { blocks, layouts, pages, repeatableItems } from "../../schema";
+import { blocks, drafts, layouts, pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
 import {
   createRepeatableItem,
@@ -92,7 +92,19 @@ async function fixture(suffix: string) {
     })
     .returning()
     .get();
-  return { ...base, ctx, block };
+  // Items are written in a draft: Live is read-only.
+  const created = await base.db
+    .insert(drafts)
+    .values({
+      projectId: base.project.id,
+      kind: "regular",
+      createdBy: base.memberUser.id,
+      createdAt: now,
+    })
+    .returning()
+    .get();
+  const draft = { id: created.id, kind: created.kind, projectId: created.projectId };
+  return { ...base, ctx, block, draft };
 }
 
 async function unchanged(
@@ -112,7 +124,7 @@ async function unchanged(
 
 describe("direct repeatable item schema enforcement", () => {
   it("initializes scalar defaults and enforces full item constraints without hiding malformed roots", async () => {
-    const { db, ctx, block } = await fixture("create");
+    const { db, ctx, block, draft } = await fixture("create");
     for (const content of [null, [], 2, {}, { count: -1 }, { title: "x", count: 1 }]) {
       await unchanged(db, () =>
         runService(
@@ -123,7 +135,7 @@ describe("direct repeatable item schema enforcement", () => {
               fieldName: "entries",
               content,
             },
-            null,
+            draft,
           ),
         ),
       );
@@ -139,7 +151,7 @@ describe("direct repeatable item schema enforcement", () => {
               content: { count: 1 },
               settings,
             },
-            null,
+            draft,
           ),
         ),
       );
@@ -153,7 +165,7 @@ describe("direct repeatable item schema enforcement", () => {
           content: { count: 1 },
           settings: {},
         },
-        null,
+        draft,
       ),
     );
     expect(item.content).toEqual({ title: "Entry", count: 1 });
@@ -168,14 +180,14 @@ describe("direct repeatable item schema enforcement", () => {
           content: { count: 1 },
           settings: null,
         },
-        null,
+        draft,
       ),
     );
     expect(withoutSettings.settings).toEqual({ enabled: true });
   });
 
   it("validates all nested seed settings before creating any rows", async () => {
-    const { db, ctx, block } = await fixture("seeds");
+    const { db, ctx, block, draft } = await fixture("seeds");
     await unchanged(db, () =>
       runService(
         createRepeatableItem(
@@ -202,7 +214,7 @@ describe("direct repeatable item schema enforcement", () => {
               },
             ],
           },
-          null,
+          draft,
         ),
       ),
     );
@@ -224,7 +236,7 @@ describe("direct repeatable item schema enforcement", () => {
             },
           ],
         },
-        null,
+        draft,
       ),
     );
     const childRow = (await db.select().from(repeatableItems)).find(
@@ -235,7 +247,7 @@ describe("direct repeatable item schema enforcement", () => {
   });
 
   it("validates only submitted update fields and keeps historical invalid fields", async () => {
-    const { db, ctx, block } = await fixture("patch");
+    const { db, ctx, block, draft } = await fixture("patch");
     const item = await runService(
       createRepeatableItem(
         ctx,
@@ -244,7 +256,7 @@ describe("direct repeatable item schema enforcement", () => {
           fieldName: "entries",
           content: { count: 1 },
         },
-        null,
+        draft,
       ),
     );
     await db
@@ -256,19 +268,23 @@ describe("direct repeatable item schema enforcement", () => {
       .where(eq(repeatableItems.id, item.id));
     await unchanged(db, () =>
       runService(
-        updateRepeatableItemContent(ctx, { id: item.id, content: { count: "bad" } }, null),
+        updateRepeatableItemContent(ctx, { id: item.id, content: { count: "bad" } }, draft),
       ),
     );
     await unchanged(db, () =>
       runService(
-        updateRepeatableItemSettings(ctx, { id: item.id, settings: { enabled: 1 } }, null),
+        updateRepeatableItemSettings(ctx, { id: item.id, settings: { enabled: 1 } }, draft),
       ),
     );
     await runService(
-      updateRepeatableItemContent(ctx, { id: item.id, content: { count: 2 } }, null),
+      updateRepeatableItemContent(ctx, { id: item.id, content: { count: 2 } }, draft),
     );
     await runService(
-      updateRepeatableItemSettings(ctx, { id: item.id, settings: { historical: "updated" } }, null),
+      updateRepeatableItemSettings(
+        ctx,
+        { id: item.id, settings: { historical: "updated" } },
+        draft,
+      ),
     );
     const updated = await db
       .select()
@@ -280,7 +296,7 @@ describe("direct repeatable item schema enforcement", () => {
   });
 
   it("enforces counts and rejects a nonexistent parent without mutating rows", async () => {
-    const { db, ctx, block } = await fixture("counts");
+    const { db, ctx, block, draft } = await fixture("counts");
     await unchanged(db, () =>
       runService(
         createRepeatableItem(
@@ -291,7 +307,7 @@ describe("direct repeatable item schema enforcement", () => {
             fieldName: "entries",
             content: { count: 1 },
           },
-          null,
+          draft,
         ),
       ),
     );
@@ -303,12 +319,12 @@ describe("direct repeatable item schema enforcement", () => {
           fieldName: "entries",
           content: { count: 1 },
         },
-        null,
+        draft,
       ),
     );
-    await unchanged(db, () => runService(deleteRepeatableItem(ctx, { id: first.id }, null)));
-    const second = await runService(duplicateRepeatableItem(ctx, { id: first.id }, null));
-    await unchanged(db, () => runService(duplicateRepeatableItem(ctx, { id: first.id }, null)));
+    await unchanged(db, () => runService(deleteRepeatableItem(ctx, { id: first.id }, draft)));
+    const second = await runService(duplicateRepeatableItem(ctx, { id: first.id }, draft));
+    await unchanged(db, () => runService(duplicateRepeatableItem(ctx, { id: first.id }, draft)));
     await unchanged(db, () =>
       runService(
         createRepeatableItem(
@@ -318,10 +334,10 @@ describe("direct repeatable item schema enforcement", () => {
             fieldName: "entries",
             content: { count: 1 },
           },
-          null,
+          draft,
         ),
       ),
     );
-    await runService(deleteRepeatableItem(ctx, { id: second.id }, null));
+    await runService(deleteRepeatableItem(ctx, { id: second.id }, draft));
   });
 });

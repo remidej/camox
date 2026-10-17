@@ -22,7 +22,10 @@ const { broadcastInvalidation } = vi.hoisted(() => {
   vi.resetModules();
   return { broadcastInvalidation: vi.fn() };
 });
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation }));
+vi.mock("../../lib/broadcast-invalidation", () => ({
+  broadcastInvalidation,
+  broadcastDraftEnded: () => {},
+}));
 
 async function fixture() {
   const base = await createProjectFixture(`live-read-only-${crypto.randomUUID()}`);

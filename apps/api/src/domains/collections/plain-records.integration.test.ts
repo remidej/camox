@@ -1,9 +1,16 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import type { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
+import type { ServiceError } from "../../lib/errors";
 import { runService } from "../../lib/run-service";
-import { blockDefinitions, blocks, files, pages } from "../../schema";
+import { blockDefinitions, blocks, drafts, files, pages } from "../../schema";
+import type { ServiceContext } from "../_shared/service-context";
 import { createBlock, getBlock } from "../blocks/service";
 import { deleteFile, getFileUsageCount, updateFile } from "../files/service";
 import { createRepeatableItem } from "../repeatable-items/service";
@@ -131,18 +138,36 @@ async function fixture() {
       definitions: collections,
     }),
   );
+  // Writes reach Live by publishing a throwaway draft (ADR 0009).
+  const live = <A>(run: (inDraft: ServiceContext) => Effect.Effect<A, ServiceError>) =>
+    seedLiveThrough(ctx, base.project.id, (_draft, inDraft) => run(inDraft));
+  /** A context naming a new draft, for changes publishing would refuse while Live uses them. */
+  const openDraft = async () => {
+    const draft = await base.db
+      .insert(drafts)
+      .values({
+        projectId: base.project.id,
+        kind: "regular",
+        createdBy: base.memberUser.id,
+        createdAt: Date.now(),
+      })
+      .returning()
+      .get();
+    const scope = { id: draft.id, kind: draft.kind, projectId: draft.projectId };
+    return { scope, ctx: { ...ctx, draft: { id: draft.id, create: false } } };
+  };
   const authors = { projectSlug: base.project.slug, collectionId: "authors" };
   const articles = { projectSlug: base.project.slug, collectionId: "articles" };
   const createAuthor = (name: string, portrait: unknown = null) =>
-    runService(createRecord(ctx, { ...authors, content: { name, portrait } }));
+    live((c) => createRecord(c, { ...authors, content: { name, portrait } }));
   const createArticle = (title: string, author: string | null) =>
-    runService(createRecord(ctx, { ...articles, content: { title, author } }));
+    live((c) => createRecord(c, { ...articles, content: { title, author } }));
   const byline = async (author: string | null) => {
-    const block = await runService(
-      createBlock(ctx, { pageId: page.id, type: "byline", content: { author } }, null),
+    const block = await seedLiveThrough(ctx, base.project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "byline", content: { author } }, draft),
     );
     const addCoauthor = (coauthor: string) =>
-      runService(
+      seedLiveThrough(ctx, base.project.id, (draft) =>
         createRepeatableItem(
           ctx,
           {
@@ -150,12 +175,13 @@ async function fixture() {
             fieldName: "coauthors",
             content: { author: coauthor },
           },
-          null,
+          draft,
         ),
       );
+    /** The byline's author as Live, or a draft, reads it. */
     return Object.assign(
-      async () =>
-        (await runService(getBlock(ctx, { id: block.id }, null))).block.references
+      async (scope: Parameters<typeof getBlock>[2] = null) =>
+        (await runService(getBlock(ctx, { id: block.id }, scope))).block.references
           .author as ResolvedReference | null,
       { addCoauthor },
     );
@@ -183,6 +209,8 @@ async function fixture() {
     ...base,
     ctx,
     page,
+    live,
+    openDraft,
     insertFile,
     authors,
     articles,
@@ -214,7 +242,7 @@ describe("used in counts", () => {
       count: 0,
     });
 
-    await runService(
+    await seedLiveThrough(f.ctx, f.project.id, (draft) =>
       createBlock(
         f.ctx,
         {
@@ -222,7 +250,7 @@ describe("used in counts", () => {
           type: "picture",
           content: { image: { _fileId: short.id } },
         },
-        null,
+        draft,
       ),
     );
     expect(await runService(getFileUsageCount(f.ctx, { id: short.id }, null))).toEqual({
@@ -257,12 +285,15 @@ describe("deleting a referenced record", () => {
     const byline = await f.byline(ada.id);
     expect((await byline())?.content.name).toBe("Ada");
 
-    await runService(deleteRecord(f.ctx, { ...f.authors, id: ada.id }));
+    // Publishing refuses to leave Live's references dangling (ADR 0009), so the deletion stays
+    // in a draft.
+    const draft = await f.openDraft();
+    await runService(deleteRecord(draft.ctx, { ...f.authors, id: ada.id }));
 
-    expect(await byline()).toBeNull();
+    expect(await byline(draft.scope)).toBeNull();
     // The article still links the deleted author, and edits that leave the link alone save.
     const edited = await runService(
-      editRecord(f.ctx, {
+      editRecord(draft.ctx, {
         ...f.articles,
         id: article.id,
         content: { title: "Hello again", author: ada.id },
@@ -270,7 +301,7 @@ describe("deleting a referenced record", () => {
     );
     expect(edited.content).toEqual({ title: "Hello again", author: ada.id });
     expect(
-      await runService(getCollectionRecord(f.ctx, { ...f.articles, id: article.id })),
+      await runService(getCollectionRecord(draft.ctx, { ...f.articles, id: article.id })),
     ).toMatchObject({
       content: { title: "Hello again", author: ada.id },
     });
@@ -280,11 +311,11 @@ describe("deleting a referenced record", () => {
     const f = await fixture();
     const ada = await f.createAuthor("Ada");
     const article = await f.createArticle("Hello", null);
-    await runService(deleteRecord(f.ctx, { ...f.authors, id: ada.id }));
+    await f.live((c) => deleteRecord(c, { ...f.authors, id: ada.id }));
 
     await expect(
-      runService(
-        editRecord(f.ctx, {
+      f.live((c) =>
+        editRecord(c, {
           ...f.articles,
           id: article.id,
           content: { title: "Hello", author: ada.id },
@@ -360,8 +391,8 @@ describe("files in records", () => {
       size: file.size,
     });
 
-    await runService(
-      updateFile(f.ctx, { projectId: f.project.id, id: file.id, alt: "Ada at her desk" }, null),
+    await seedLiveThrough(f.ctx, f.project.id, (draft) =>
+      updateFile(f.ctx, { projectId: f.project.id, id: file.id, alt: "Ada at her desk" }, draft),
     );
 
     const read = await runService(getCollectionRecord(f.ctx, { ...f.authors, id: ada.id }));
@@ -388,13 +419,15 @@ describe("files in records", () => {
     const ada = await f.createAuthor("Ada", { _fileId: file.id });
     expect(await runService(getFileUsageCount(f.ctx, { id: file.id }, null))).toEqual({ count: 1 });
 
-    await runService(deleteFile(f.ctx, { id: file.id }, null));
+    // Publishing refuses to delete a file Live uses (ADR 0009), so the deletion stays in a draft.
+    const draft = await f.openDraft();
+    await runService(deleteFile(f.ctx, { id: file.id }, draft.scope));
 
-    const read = await runService(getCollectionRecord(f.ctx, { ...f.authors, id: ada.id }));
+    const read = await runService(getCollectionRecord(draft.ctx, { ...f.authors, id: ada.id }));
     expect(read.content.portrait).toBeNull();
     // An edit that leaves the deleted file in place still saves.
     const edited = await runService(
-      editRecord(f.ctx, {
+      editRecord(draft.ctx, {
         ...f.authors,
         id: ada.id,
         content: { name: "Ada Lovelace", portrait: { _fileId: file.id } },
@@ -405,12 +438,12 @@ describe("files in records", () => {
 });
 
 describe("records read their current content", () => {
-  it("serves an edit to visitors right away, with no publish", async () => {
+  it("serves a published record edit to visitors, with no edit to the page", async () => {
     const f = await fixture();
     const ada = await f.createAuthor("Ada");
     const article = await f.createArticle("Hello", null);
-    await runService(
-      editRecord(f.ctx, {
+    await f.live((c) =>
+      editRecord(c, {
         ...f.articles,
         id: article.id,
         content: { title: "Hello", author: ada.id },

@@ -1,7 +1,11 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, layouts, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -38,7 +42,7 @@ describe("singleton page ownership", () => {
     expect(await db.select().from(pages).where(eq(pages.projectId, project.id))).toEqual([]);
     for (const record of [singleton, derived]) {
       await expect(
-        runService(
+        seedLiveThrough(ctx, project.id, (draft) =>
           createPage(
             ctx,
             {
@@ -46,19 +50,19 @@ describe("singleton page ownership", () => {
               layoutId: record.layoutId,
               pathSegment: "other",
             },
-            null,
+            draft,
           ),
         ),
       ).rejects.toMatchObject({ status: 400 });
     }
     for (const pathSegment of ["pokedex", "%70okedex", "pokedex/"]) {
       await expect(
-        runService(
-          createPage(ctx, { projectId: project.id, layoutId: layout.layoutId, pathSegment }, null),
+        seedLiveThrough(ctx, project.id, (draft) =>
+          createPage(ctx, { projectId: project.id, layoutId: layout.layoutId, pathSegment }, draft),
         ),
       ).rejects.toMatchObject({ status: 409 });
     }
-    const { page } = await runService(
+    const { page } = await seedLiveThrough(ctx, project.id, (draft) =>
       createPage(
         ctx,
         {
@@ -66,14 +70,18 @@ describe("singleton page ownership", () => {
           layoutId: layout.layoutId,
           pathSegment: "about",
         },
-        null,
+        draft,
       ),
     );
     await expect(
-      runService(setPageLayout(ctx, { id: page.id, layoutId: singleton.layoutId }, null)),
+      seedLiveThrough(ctx, project.id, (draft) =>
+        setPageLayout(ctx, { id: page.id, layoutId: singleton.layoutId }, draft),
+      ),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
-      runService(updatePage(ctx, { id: page.id, pathSegment: "pokedex" }, null)),
+      seedLiveThrough(ctx, project.id, (draft) =>
+        updatePage(ctx, { id: page.id, pathSegment: "pokedex" }, draft),
+      ),
     ).rejects.toMatchObject({
       status: 409,
     });
@@ -84,11 +92,11 @@ describe("singleton page ownership", () => {
 
   it("syncs over existing URL and layout-use collisions, which content never blocks", async () => {
     const { ctx, project, layout, db, definitions, sync } = await setup("singleton-collision");
-    await runService(
+    await seedLiveThrough(ctx, project.id, (draft) =>
       createPage(
         ctx,
         { projectId: project.id, layoutId: layout.layoutId, pathSegment: "pokedex" },
-        null,
+        draft,
       ),
     );
     await sync();
@@ -110,7 +118,7 @@ describe("singleton page ownership", () => {
 
   it("protects nested singleton paths when moving an ancestor", async () => {
     const { ctx, project, layout, definitions, sync, db } = await setup("singleton-moves");
-    const { page: parent } = await runService(
+    const { page: parent } = await seedLiveThrough(ctx, project.id, (draft) =>
       createPage(
         ctx,
         {
@@ -118,10 +126,10 @@ describe("singleton page ownership", () => {
           layoutId: layout.layoutId,
           pathSegment: "old",
         },
-        null,
+        draft,
       ),
     );
-    const { page: child } = await runService(
+    const { page: child } = await seedLiveThrough(ctx, project.id, (draft) =>
       createPage(
         ctx,
         {
@@ -130,19 +138,23 @@ describe("singleton page ownership", () => {
           pathSegment: "pokedex",
           parentPageId: parent.id,
         },
-        null,
+        draft,
       ),
     );
     await sync([...definitions, { ...definitions[1], layoutId: "guide.pokedex" }]);
     await expect(
-      runService(updatePage(ctx, { id: parent.id, pathSegment: "guide" }, null)),
+      seedLiveThrough(ctx, project.id, (draft) =>
+        updatePage(ctx, { id: parent.id, pathSegment: "guide" }, draft),
+      ),
     ).rejects.toMatchObject({
       status: 409,
     });
     expect((await db.select().from(pages).where(eq(pages.id, child.id)).get())?.fullPath).toBe(
       "/old/pokedex",
     );
-    await runService(updatePage(ctx, { id: parent.id, pathSegment: "new" }, null));
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updatePage(ctx, { id: parent.id, pathSegment: "new" }, draft),
+    );
     expect((await db.select().from(pages).where(eq(pages.id, child.id)).get())?.fullPath).toBe(
       "/new/pokedex",
     );
@@ -181,7 +193,7 @@ describe("singleton page ownership", () => {
     expect(await db.select().from(pages).where(eq(pages.projectId, project.id))).toEqual([]);
     await sync([definitions[0]]);
     await expect(
-      runService(
+      seedLiveThrough(ctx, project.id, (draft) =>
         createPage(
           ctx,
           {
@@ -189,7 +201,7 @@ describe("singleton page ownership", () => {
             layoutId: layout.layoutId,
             pathSegment: "pokedex",
           },
-          null,
+          draft,
         ),
       ),
     ).resolves.toMatchObject({ fullPath: "/pokedex" });

@@ -16,7 +16,7 @@ import { files } from "../../schema";
 import { referencesTo } from "../_shared/references-to";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "../drafts/overlay";
-import type { DraftScope } from "../drafts/scope";
+import type { Draft, DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { homeOf, requestGeneration, saveValue, settleRequest } from "../generated-values/service";
 import {
@@ -375,7 +375,7 @@ export const getProjectFile = Effect.fn("files.getProjectFile")(function* (
 /** Changes a file as the scope reads it: in a draft, the first change copies it there. */
 const writeFile = Effect.fn("files.writeFile")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: Draft,
   file: FileRow,
   patch: Partial<FileRow>,
 ) {
@@ -396,7 +396,7 @@ const writeFile = Effect.fn("files.writeFile")(function* (
  */
 const writeMetadata = Effect.fn("files.writeMetadata")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: Draft,
   file: FileRow,
   write: MetadataWrite,
 ) {
@@ -417,7 +417,7 @@ const writeMetadata = Effect.fn("files.writeMetadata")(function* (
 export const updateFile = Effect.fn("files.updateFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof updateFileInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const input = yield* decodeInput(updateFileInput, rawInput);
   const file = yield* getProjectFile(ctx, input, scope);
@@ -429,7 +429,7 @@ export const updateFile = Effect.fn("files.updateFile")(function* (
 export const setFileAlt = Effect.fn("files.setFileAlt")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileAltInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const { id, alt } = yield* decodeInput(setFileAltInput, rawInput);
   const file = yield* authorizedFile(ctx, id, scope);
@@ -439,7 +439,7 @@ export const setFileAlt = Effect.fn("files.setFileAlt")(function* (
 export const setFileFilename = Effect.fn("files.setFileFilename")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileFilenameInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const { id, filename } = yield* decodeInput(setFileFilenameInput, rawInput);
   const file = yield* authorizedFile(ctx, id, scope);
@@ -452,7 +452,7 @@ export const setFileFilename = Effect.fn("files.setFileFilename")(function* (
  */
 const removeFiles = Effect.fn("files.removeFiles")(function* (
   ctx: ServiceContext,
-  scope: DraftScope,
+  scope: Draft,
   shown: FileRow[],
 ) {
   for (const file of shown) yield* overlay.remove(ctx.db, scope, files, file.id);
@@ -471,7 +471,7 @@ const removeFiles = Effect.fn("files.removeFiles")(function* (
 export const deleteFile = Effect.fn("files.deleteFile")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteFileInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const { id } = yield* decodeInput(deleteFileInput, rawInput);
   const file = yield* authorizedFile(ctx, id, scope);
@@ -482,7 +482,7 @@ export const deleteFile = Effect.fn("files.deleteFile")(function* (
 export const deleteFiles = Effect.fn("files.deleteFiles")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof deleteFilesInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const { ids } = yield* decodeInput(deleteFilesInput, rawInput);
   if (ids.length === 0) return [];
@@ -512,7 +512,7 @@ export const replaceFileContent = Effect.fn("files.replaceFileContent")(function
   target: z.input<typeof projectFileInput>,
   asset: FileAsset,
   rawMetadata: z.input<typeof fileMetadataInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const metadata = yield* decodeInput(fileMetadataInput, rawMetadata);
   const oldFile = yield* getProjectFile(ctx, target, scope);
@@ -573,7 +573,7 @@ export const createFile = Effect.fn("files.createFile")(function* (
     filename: string;
   },
   metadata: z.input<typeof fileMetadataInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const { alt, aiMetadata } = yield* decodeInput(fileMetadataInput, metadata);
   const raster = isRasterImage(values.mimeType);
@@ -612,7 +612,7 @@ export const createFile = Effect.fn("files.createFile")(function* (
 export const setFileAiMetadata = Effect.fn("files.setFileAiMetadata")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof setFileAiMetadataInput>,
-  scope: DraftScope,
+  scope: Draft,
 ) {
   const { id, enabled } = yield* decodeInput(setFileAiMetadataInput, rawInput);
   const file = yield* authorizedFile(ctx, id, scope);

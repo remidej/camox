@@ -1,7 +1,11 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createServiceContext } from "../../../test/fixtures";
+import {
+  createProjectFixture,
+  createServiceContext,
+  seedLiveThrough,
+} from "../../../test/fixtures";
 import { runService } from "../../lib/run-service";
 import { blocks, pages } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
@@ -59,9 +63,9 @@ async function fixture(suffix: string) {
 
 describe("createBlock defaults", () => {
   it("stores defaults and exposes them in reads and Markdown", async () => {
-    const { ctx, page } = await fixture("create-defaults");
-    const created = await runService(
-      createBlock(ctx, { pageId: page.id, type: "hero", content: {} }, null),
+    const { ctx, page, project } = await fixture("create-defaults");
+    const created = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "hero", content: {} }, draft),
     );
     const result = await runService(getBlock(ctx, { id: created.id }, null));
     expect(result.block.content).toMatchObject({
@@ -78,15 +82,15 @@ describe("createBlock defaults", () => {
 
   it("reads a layout's current slot Markdown publicly", async () => {
     const { ctx, db, layout, page, project } = await fixture("layout-markdown");
-    const created = await runService(
-      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "First" } }, null),
+    const created = await seedLiveThrough(ctx, project.id, (draft) =>
+      createBlock(ctx, { pageId: page.id, type: "hero", content: { title: "First" } }, draft),
     );
     await db
       .update(blocks)
       .set({ pageId: null, layoutId: layout.layoutId, slot: "before" })
       .where(eq(blocks.id, created.id));
-    await runService(
-      updateBlockContent(ctx, { id: created.id, content: { title: "Edited" } }, null),
+    await seedLiveThrough(ctx, project.id, (draft) =>
+      updateBlockContent(ctx, { id: created.id, content: { title: "Edited" } }, draft),
     );
 
     const publicCtx = createServiceContext(db, null);
@@ -99,9 +103,9 @@ describe("createBlock defaults", () => {
   });
 
   it("preserves supplied content but enforces repeater minimums", async () => {
-    const { ctx, page } = await fixture("create-explicit");
+    const { ctx, page, project } = await fixture("create-explicit");
     await expect(
-      runService(
+      seedLiveThrough(ctx, project.id, (draft) =>
         createBlock(
           ctx,
           {
@@ -109,11 +113,11 @@ describe("createBlock defaults", () => {
             type: "hero",
             content: { items: [] },
           },
-          null,
+          draft,
         ),
       ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const created = await runService(
+    const created = await seedLiveThrough(ctx, project.id, (draft) =>
       createBlock(
         ctx,
         {
@@ -122,7 +126,7 @@ describe("createBlock defaults", () => {
           content: { title: "", items: [{ title: "Explicit" }] },
           settings: { visible: false },
         },
-        null,
+        draft,
       ),
     );
     const result = await runService(getBlock(ctx, { id: created.id }, null));
@@ -132,7 +136,7 @@ describe("createBlock defaults", () => {
   });
 
   it("does not duplicate UI seed bundles and rejects bundles below the minimum", async () => {
-    const { ctx, page } = await fixture("create-ui-seeds");
+    const { ctx, page, project } = await fixture("create-ui-seeds");
     for (const repeatableItems of [
       [],
       [
@@ -147,7 +151,7 @@ describe("createBlock defaults", () => {
     ]) {
       if (repeatableItems.length === 0) {
         await expect(
-          runService(
+          seedLiveThrough(ctx, project.id, (draft) =>
             createBlock(
               ctx,
               {
@@ -156,13 +160,13 @@ describe("createBlock defaults", () => {
                 content: {},
                 repeatableItems,
               },
-              null,
+              draft,
             ),
           ),
         ).rejects.toMatchObject({ code: "BAD_REQUEST" });
         continue;
       }
-      const created = await runService(
+      const created = await seedLiveThrough(ctx, project.id, (draft) =>
         createBlock(
           ctx,
           {
@@ -171,7 +175,7 @@ describe("createBlock defaults", () => {
             content: {},
             repeatableItems,
           },
-          null,
+          draft,
         ),
       );
       const result = await runService(getBlock(ctx, { id: created.id }, null));
