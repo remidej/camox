@@ -9,6 +9,7 @@ import { validateContent } from "../blocks/validate-content";
 import { assetFileId } from "../collections/record-files";
 import type { DraftScope } from "../drafts/scope";
 import { definitionsIn } from "./definitions";
+import { defaultOf, type Field, fieldsOf, itemSchemas } from "./fields";
 import type { ServiceContext } from "./service-context";
 
 /**
@@ -24,30 +25,18 @@ import type { ServiceContext } from "./service-context";
  * finds its content again.
  */
 
-type Field = {
-  [key: string]: unknown;
-  fieldType?: string;
-  default?: unknown;
-  enum?: unknown[];
-  items?: unknown;
-  itemSettingsSchema?: unknown;
-};
-
-const assetTypes = new Set(["Image", "File", "ImageList", "FileList"]);
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function propertiesOf(schema: unknown): Record<string, Field> {
-  if (!isObject(schema) || !isObject(schema.properties)) return {};
-  return schema.properties as Record<string, Field>;
 }
 
 /** Whether a write would accept this value for the field: the same check, applied on read. */
 function blockValueHasKind(field: Field, value: unknown, rootSchema: unknown) {
   const exit = Effect.runSyncExit(
-    validateContent({ value }, { type: "object", properties: { value: field } }, { rootSchema }),
+    validateContent(
+      { value },
+      { type: "object", properties: { value: field.schema } },
+      { rootSchema },
+    ),
   );
   return Exit.isSuccess(exit);
 }
@@ -63,16 +52,16 @@ function conformBlockObject(
   rootSchema: unknown,
 ): Record<string, unknown> {
   const stored = isObject(value) ? value : {};
-  const properties = propertiesOf(schema);
+  const fields = new Map(fieldsOf(schema).map((field) => [field.name, field]));
   const candidate: Record<string, unknown> = {};
-  for (const [key, field] of Object.entries(properties)) {
-    if (field.fieldType === "Repeater") continue;
-    if (Object.hasOwn(stored, key)) {
-      candidate[key] = normalizeFieldValue(stored[key], field.fieldType);
+  for (const field of fields.values()) {
+    if (field.kind === "Repeater") continue;
+    if (Object.hasOwn(stored, field.name)) {
+      candidate[field.name] = normalizeFieldValue(stored[field.name], field.kind);
       continue;
     }
-    if (assetTypes.has(field.fieldType ?? "") || !Object.hasOwn(field, "default")) continue;
-    candidate[key] = structuredClone(field.default);
+    const fallback = defaultOf(field, "block");
+    if (fallback) candidate[field.name] = fallback.value;
   }
   // Most content already conforms: one check for the whole object, then field by field.
   const whole = Effect.runSyncExit(validateContent(candidate, schema, { rootSchema }));
@@ -80,13 +69,13 @@ function conformBlockObject(
 
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(candidate)) {
-    const field = properties[key];
+    const field = fields.get(key)!;
     if (blockValueHasKind(field, value, rootSchema)) {
       result[key] = value;
       continue;
     }
-    if (assetTypes.has(field.fieldType ?? "") || !Object.hasOwn(field, "default")) continue;
-    result[key] = structuredClone(field.default);
+    const fallback = defaultOf(field, "block");
+    if (fallback) result[key] = fallback.value;
   }
   return result;
 }
@@ -97,10 +86,10 @@ function conformBlockObject(
  */
 export function wrongKindBlockFields(value: unknown, schema: unknown, rootSchema: unknown) {
   const stored = isObject(value) ? value : {};
-  return Object.entries(propertiesOf(schema)).flatMap(([key, field]) => {
-    if (field.fieldType === "Repeater" || !Object.hasOwn(stored, key)) return [];
-    const normalized = normalizeFieldValue(stored[key], field.fieldType);
-    return blockValueHasKind(field, normalized, rootSchema) ? [] : [key];
+  return fieldsOf(schema).flatMap((field) => {
+    if (field.kind === "Repeater" || !Object.hasOwn(stored, field.name)) return [];
+    const normalized = normalizeFieldValue(stored[field.name], field.kind);
+    return blockValueHasKind(field, normalized, rootSchema) ? [] : [field.name];
   });
 }
 
@@ -133,28 +122,14 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
   items: readonly I[],
 ): { blocks: B[]; items: I[] } {
   const blockById = new Map(blocks.map((block) => [block.id, block]));
-  const itemById = new Map(items.map((item) => [item.id, item]));
-  // An item's repeater field, found by walking up to its block; null when the path is gone.
-  const repeaterOf = new Map<string, Field | null>();
-  // The schema an item's repeater field is in: its block's content, or its parent's repeater.
-  const containerOf = (item: I, seen: Set<string>): unknown => {
-    if (item.parentItemId === null) {
-      const block = blockById.get(item.blockId);
-      return block ? definitions.get(block.type)?.contentSchema : undefined;
-    }
-    const parent = itemById.get(item.parentItemId);
-    return parent ? resolve(parent, seen)?.items : undefined;
-  };
-  const resolve = (item: I, seen: Set<string>): Field | null => {
-    const known = repeaterOf.get(item.id);
-    if (known !== undefined) return known;
-    if (seen.has(item.id)) return null;
-    seen.add(item.id);
-    const field = propertiesOf(containerOf(item, seen))[item.fieldName];
-    const repeater = field?.fieldType === "Repeater" ? field : null;
-    repeaterOf.set(item.id, repeater);
-    return repeater;
-  };
+  const itemsByBlock = Map.groupBy(items, (item) => item.blockId);
+  const schemasOf = new Map(
+    [...itemsByBlock].flatMap(([blockId, blockItems]) => {
+      const block = blockById.get(blockId);
+      const root = block ? definitions.get(block.type)?.contentSchema : undefined;
+      return [...itemSchemas(root, blockItems)];
+    }),
+  );
 
   const conformedBlocks = blocks.map((block) => {
     const definition = definitions.get(block.type);
@@ -171,15 +146,15 @@ export function conformBlocks<B extends ConformableBlock, I extends ConformableI
     };
   });
   const conformedItems = items.flatMap((item) => {
-    const repeater = resolve(item, new Set());
-    if (!repeater) return [];
+    const schemas = schemasOf.get(item.id);
+    if (!schemas) return [];
     const block = blockById.get(item.blockId)!;
     const root = definitions.get(block.type)?.contentSchema;
     return [
       {
         ...item,
-        content: conformBlockObject(item.content, repeater.items, root),
-        settings: conformSettings(item.settings, repeater.itemSettingsSchema, root),
+        content: conformBlockObject(item.content, schemas.content, root),
+        settings: conformSettings(item.settings, schemas.settings, root),
       },
     ];
   });
@@ -228,15 +203,17 @@ function textOf(value: unknown): string | null {
 }
 
 function textHasKind(field: Field, text: string) {
-  if (typeof field.minLength === "number" && text.length < field.minLength) return false;
-  if (typeof field.maxLength === "number" && text.length > field.maxLength) return false;
-  if (typeof field.pattern === "string" && !new RegExp(field.pattern).test(text)) return false;
+  const { minLength, maxLength, pattern } = field.schema;
+  if (typeof minLength === "number" && text.length < minLength) return false;
+  if (typeof maxLength === "number" && text.length > maxLength) return false;
+  if (typeof pattern === "string" && !new RegExp(pattern).test(text)) return false;
   return true;
 }
 
 function listHasKind(field: Field, value: unknown[]) {
-  if (typeof field.minItems === "number" && value.length < field.minItems) return false;
-  return value.length <= (typeof field.maxItems === "number" ? field.maxItems : 100);
+  const { minItems, maxItems } = field.schema;
+  if (typeof minItems === "number" && value.length < minItems) return false;
+  return value.length <= (typeof maxItems === "number" ? maxItems : 100);
 }
 
 /** Records store assets as `{ _fileId }`; a file that is gone reads as empty on resolve. */
@@ -246,7 +223,7 @@ function assetHasKind(value: unknown) {
 
 /** The shapes collection writes store for each field kind. */
 function recordValueHasKind(field: Field, value: unknown): boolean {
-  switch (field.fieldType) {
+  switch (field.kind) {
     case "String": {
       const text = textOf(value);
       return text !== null && textHasKind(field, text);
@@ -254,7 +231,7 @@ function recordValueHasKind(field: Field, value: unknown): boolean {
     case "Embed":
       return typeof value === "string" && textHasKind(field, value);
     case "Enum":
-      return typeof value === "string" && (field.enum ?? []).includes(value);
+      return typeof value === "string" && field.options.includes(value);
     case "Boolean":
       return typeof value === "boolean";
     case "Reference":
@@ -281,26 +258,6 @@ function recordValueHasKind(field: Field, value: unknown): boolean {
   }
 }
 
-/** A collection field's value when it has no default. */
-function emptyRecordValue(field: Field): unknown {
-  switch (field.fieldType) {
-    case "Boolean":
-      return false;
-    case "Enum":
-      return field.enum?.[0] ?? "";
-    case "Image":
-    case "File":
-    case "Reference":
-      return null;
-    case "ImageList":
-    case "FileList":
-    case "ReferenceList":
-      return [];
-    default:
-      return "";
-  }
-}
-
 /** Conforms a collection record's content to its collection's content schema. */
 export function conformRecordContent(
   contentSchema: unknown,
@@ -308,14 +265,10 @@ export function conformRecordContent(
 ): Record<string, unknown> {
   const stored = isObject(content) ? content : {};
   const result: Record<string, unknown> = {};
-  for (const [key, field] of Object.entries(propertiesOf(contentSchema))) {
-    if (Object.hasOwn(stored, key) && recordValueHasKind(field, stored[key])) {
-      result[key] = stored[key];
-      continue;
-    }
-    // Asset defaults are preview placeholders, never authored record content.
-    const hasDefault = Object.hasOwn(field, "default") && !assetTypes.has(field.fieldType ?? "");
-    result[key] = hasDefault ? structuredClone(field.default) : emptyRecordValue(field);
+  for (const field of fieldsOf(contentSchema)) {
+    const { name } = field;
+    const holds = Object.hasOwn(stored, name) && recordValueHasKind(field, stored[name]);
+    result[name] = holds ? stored[name] : defaultOf(field, "record").value;
   }
   return result;
 }
@@ -326,7 +279,9 @@ export function conformRecordContent(
  */
 export function wrongKindRecordFields(contentSchema: unknown, content: unknown) {
   const stored = isObject(content) ? content : {};
-  return Object.entries(propertiesOf(contentSchema)).flatMap(([key, field]) =>
-    Object.hasOwn(stored, key) && !recordValueHasKind(field, stored[key]) ? [key] : [],
+  return fieldsOf(contentSchema).flatMap((field) =>
+    Object.hasOwn(stored, field.name) && !recordValueHasKind(field, stored[field.name])
+      ? [field.name]
+      : [],
   );
 }

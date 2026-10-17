@@ -10,6 +10,7 @@ import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "..
 import { blocks, layouts, pages, projects, repeatableItems, user } from "../../schema";
 import { injectRepeatableItemMarkers } from "../_shared/block-markers";
 import { definitionsIn } from "../_shared/definitions";
+import { collectFileIds } from "../_shared/fields";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import {
@@ -19,6 +20,7 @@ import {
 } from "../collections/references";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
+import { buildFileMap } from "../files/file-map";
 import type { FileView } from "../files/generated-metadata";
 import { type GenerationDeps, homeOf, requestGeneration } from "../generated-values/service";
 import { blocksOfLayout, layoutNamed } from "../layouts/identity";
@@ -28,7 +30,7 @@ import {
   pageServingProblems,
   servesPages,
 } from "../layouts/route-ownership";
-import { buildFileMap, collectFileIds, executePageSeo } from "./ai";
+import { executePageSeo } from "./ai";
 import { duplicatePathIds } from "./duplicate-paths";
 import { type PageView, pageView, seoGenerated, withSeo } from "./generated-seo";
 

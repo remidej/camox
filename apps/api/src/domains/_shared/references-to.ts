@@ -26,8 +26,13 @@ export type ReferencingContent =
 /**
  * The content that references `target`, in one project, as Live or a draft
  * reads it right now. Content is matched on whole JSON values, so an id never matches another id
- * it is a prefix of. Record references are the record's id as a string anywhere in content; file
- * references are `_fileId` markers. Run on demand: nothing indexes references ahead of time.
+ * it is a prefix of. Run on demand: nothing indexes references ahead of time.
+ *
+ * It runs in SQL, without schemas, so it agrees with the pointers `fields.ts` defines this way:
+ * - files: a `_fileId` marker anywhere in content, exactly what `collectFileIds` finds;
+ * - records: the record's id as a string anywhere in content. That includes every pointer
+ *   `pointersIn` finds, and also ids stored where nothing points any more (a removed field, a
+ *   list that became query-backed), so it may over-report a use but never misses one.
  */
 export const referencesTo = Effect.fn("references.referencesTo")(function* (
   db: Database,

@@ -35,6 +35,7 @@ import {
 } from "../../schema";
 import { conformBlocks, conformBlocksIn } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
+import { collectFileIds } from "../_shared/fields";
 import { readOwnerBlocks } from "../_shared/owner-blocks";
 import type { ServiceContext } from "../_shared/service-context";
 import type { ContentScope } from "../collections/identity";
@@ -48,6 +49,7 @@ import {
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
+import { buildFileMap } from "../files/file-map";
 import {
   copyValue,
   type GenerationDeps,
@@ -59,7 +61,6 @@ import {
 } from "../generated-values/service";
 import { blocksOfOwner, layoutNamed } from "../layouts/identity";
 import { servesPages } from "../layouts/route-ownership";
-import { buildFileMap, collectFileIds, sortItemsByPosition } from "../pages/ai";
 import { seoGenerated } from "../pages/generated-seo";
 import { requestPageSeo } from "../pages/service";
 import { descendantIdsOf, itemsUnder, rootColumns, type ItemRoot } from "../repeatable-items/roots";
@@ -389,7 +390,7 @@ const assembleBlockContent = Effect.fn("assembleBlockContent")(function* (
   const conformed = conformBlocks(
     new Map(def ? [[def.blockId, def]] : []),
     shown.blocks,
-    sortItemsByPosition(shown.items),
+    overlay.sortByPosition(shown.items),
   );
   const block = conformed.blocks[0];
   const items = conformed.items;
@@ -783,7 +784,7 @@ export const getBlock = Effect.fn("blocks.getBlock")(function* (
   );
   const conformed = yield* conformBlocksIn(ctx, stored, scope, shown.blocks, shown.items);
   const block = conformed.blocks[0];
-  const sorted = sortItemsByPosition(conformed.items);
+  const sorted = overlay.sortByPosition(conformed.items);
 
   // Build a map of parentItemId → grouped children by fieldName
   const childrenByParent = new Map<string | null, Map<string, typeof sorted>>();

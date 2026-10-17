@@ -1,8 +1,6 @@
-import { isQueryBacked } from "@camox/api-contract";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { pageTextLinkIds } from "../../lib/lexical-state";
 import {
   blockDefinitions,
   blocks,
@@ -18,13 +16,20 @@ import {
   wrongKindRecordFields,
 } from "../_shared/conform-content";
 import { definitionsIn } from "../_shared/definitions";
+import {
+  fieldOf,
+  fieldsOf,
+  itemSchemas,
+  type Pointer,
+  pointersIn,
+  pointersOf,
+} from "../_shared/fields";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   pageValue,
   recordPageLayouts,
   recordsSharingPageValues,
 } from "../collections/record-pages";
-import { itemSchemas, referenceListIds } from "../collections/references";
 import { pagesWithDuplicatePaths } from "../pages/duplicate-paths";
 import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
 import * as overlay from "./overlay";
@@ -60,8 +65,6 @@ export type ContentFinding = {
 };
 
 type Findings = { blockers: ContentFinding[]; warnings: ContentFinding[] };
-
-type Field = { fieldType?: string; title?: string; collectionId?: unknown; [key: string]: unknown };
 
 /** Whether the draft stores the row: it created or changed the entity. */
 const storedBy = (scope: Scope, row: { draftId: string | null }) => row.draftId === scope.id;
@@ -204,11 +207,6 @@ export type Holder = {
   rootSchema: unknown;
 };
 
-function propertiesOf(schema: unknown): Record<string, Field> {
-  const properties = (schema as { properties?: unknown } | null | undefined)?.properties;
-  return properties && typeof properties === "object" ? (properties as Record<string, Field>) : {};
-}
-
 /**
  * The content the scope reads in a project, each with the definition it's read by. Content
  * whose definition is gone reads as nothing (ADR 0007), and content the scope drops with its
@@ -294,7 +292,7 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
     if (!roots.has(root)) continue;
     const schemas = itemSchemas(roots.get(root), tree);
     for (const item of tree) {
-      const schema = schemas.get(item.id);
+      const schema = schemas.get(item.id)?.content;
       const projectId = item.projectId ?? blockProject.get(item.blockId ?? "");
       if (!schema || projectId === undefined) continue;
       holders.push({
@@ -325,33 +323,8 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   return holders;
 });
 
-/** What a field points at: records of a collection, or pages. */
-type Pointer = { kind: "record"; collectionId: string; id: string } | { kind: "page"; id: string };
-
-/** The records and pages a field's value points at. */
-function pointersOf(field: Field, value: unknown): Pointer[] {
-  const collectionId = String(field.collectionId);
-  switch (field.fieldType) {
-    case "Reference":
-      return typeof value === "string" && value !== ""
-        ? [{ kind: "record", collectionId, id: value }]
-        : [];
-    case "ReferenceList":
-      // A query-backed list resolves records: nothing it stores points anywhere.
-      if (isQueryBacked(field)) return [];
-      return referenceListIds(value).map((id) => ({ kind: "record", collectionId, id }));
-    case "Link": {
-      const link = value as { type?: unknown; pageId?: unknown } | null | undefined;
-      return link?.type === "page" && typeof link.pageId === "string" && link.pageId !== ""
-        ? [{ kind: "page", id: link.pageId }]
-        : [];
-    }
-    case "String":
-      return pageTextLinkIds(value).map((id) => ({ kind: "page", id }));
-    default:
-      return [];
-  }
-}
+/** What content checks point at: records and pages. Publishing checks files on its own. */
+type ContentPointer = Exclude<Pointer, { to: "file" }>;
 
 /**
  * References, reference-list entries and page links pointing at nothing. Content the draft
@@ -365,23 +338,23 @@ function checkDanglingPointers(
   found: Findings,
 ) {
   for (const holder of holders) {
-    const content = (holder.content ?? {}) as Record<string, unknown>;
-    if (typeof content !== "object") continue;
-    for (const [name, field] of Object.entries(propertiesOf(holder.schema))) {
-      const missing = pointersOf(field, content[name]).filter(
-        (pointer) => !exists.draft(keyOf(holder.projectId, pointer)),
-      );
-      if (missing.length === 0) continue;
+    const missingByField = new Map<string, { title: string; missing: ContentPointer[] }>();
+    for (const { field, pointer } of pointersIn(holder.schema, holder.content)) {
+      if (pointer.to === "file" || exists.draft(keyOf(holder.projectId, pointer))) continue;
+      const entry = missingByField.get(field.name) ?? { title: field.title, missing: [] };
+      entry.missing.push(pointer);
+      missingByField.set(field.name, entry);
+    }
+    for (const [name, { title, missing }] of missingByField) {
       const deletedByDraft = missing.some((pointer) =>
         exists.live(keyOf(holder.projectId, pointer)),
       );
-      const title = field.title ?? name;
-      const what = missing[0].kind === "page" ? "a page" : "a record";
+      const what = missing[0].to === "page" ? "a page" : "a record";
       const blocking = holder.changed || deletedByDraft;
       (blocking ? found.blockers : found.warnings).push({
         entity: holder.entity,
         id: holder.id,
-        code: missing[0].kind === "page" ? "danglingPageLink" : "danglingReference",
+        code: missing[0].to === "page" ? "danglingPageLink" : "danglingReference",
         field: name,
         message:
           !holder.changed && deletedByDraft
@@ -398,17 +371,16 @@ function checkDanglingPointers(
  */
 function checkEmptyRequiredReferences(holders: Holder[], found: Findings) {
   for (const holder of holders) {
-    const content = (holder.content ?? {}) as Record<string, unknown>;
-    for (const [name, field] of Object.entries(propertiesOf(holder.schema))) {
-      if (field.fieldType !== "Reference" || field.required !== true) continue;
-      const value = content[name];
-      if (value !== null && value !== undefined && value !== "") continue;
+    const content = isRecord(holder.content) ? holder.content : {};
+    for (const field of fieldsOf(holder.schema)) {
+      if (field.kind !== "Reference" || !field.required) continue;
+      if (pointersOf(field, content[field.name]).length > 0) continue;
       (holder.changed ? found.blockers : found.warnings).push({
         entity: holder.entity,
         id: holder.id,
         code: "emptyRequiredReference",
-        field: name,
-        message: `"${field.title ?? name}" is required but empty`,
+        field: field.name,
+        message: `"${field.title}" is required but empty`,
       });
     }
   }
@@ -424,9 +396,8 @@ function checkWrongKinds(holders: Holder[], found: Findings) {
       holder.entity === "record"
         ? wrongKindRecordFields(holder.schema, holder.content)
         : wrongKindBlockFields(holder.content, holder.schema, holder.rootSchema);
-    const properties = propertiesOf(holder.schema);
     for (const field of fields) {
-      const title = properties[field]?.title ?? field;
+      const title = fieldOf(holder.schema, field)?.title ?? field;
       (holder.changed ? found.blockers : found.warnings).push({
         entity: holder.entity,
         id: holder.id,
@@ -438,8 +409,12 @@ function checkWrongKinds(holders: Holder[], found: Findings) {
   }
 }
 
-function keyOf(projectId: number, pointer: Pointer) {
-  return pointer.kind === "page"
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function keyOf(projectId: number, pointer: ContentPointer) {
+  return pointer.to === "page"
     ? `${projectId}:page:${pointer.id}`
     : `${projectId}:record:${pointer.collectionId}:${pointer.id}`;
 }

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 
 import { InvalidInputError } from "../../lib/errors";
+import { fieldOf, fieldsOf, itemSchemas } from "../_shared/fields";
 import { validateReferenceSchema } from "../collections/references";
 import { initializeBlockContent } from "./initialize-content";
 import {
@@ -12,6 +13,13 @@ import {
 } from "./normalize-content";
 import { validateContent } from "./validate-content";
 
+function itemContentSchemaOf(schema: unknown, name: string) {
+  const field = fieldOf(schema, name);
+  return field?.kind === "Repeater"
+    ? (field.itemContentSchema as FieldSchema | undefined)
+    : undefined;
+}
+
 /** Reconstruct the authored JSON for validation; persistence still owns separate item rows. */
 export const contentWithSeeds = Effect.fn("contentWithSeeds")(function* (
   content: Record<string, unknown>,
@@ -20,8 +28,8 @@ export const contentWithSeeds = Effect.fn("contentWithSeeds")(function* (
   parentTempId: string | null = null,
 ): Effect.fn.Return<Record<string, unknown>, InvalidInputError> {
   const result = structuredClone(content);
-  for (const [name, field] of Object.entries(schema?.properties ?? {})) {
-    if (field.fieldType === "Repeater") result[name] = [];
+  for (const field of fieldsOf(schema)) {
+    if (field.kind === "Repeater") result[field.name] = [];
   }
   for (const seed of seeds) {
     if (seed.parentTempId !== parentTempId) continue;
@@ -36,7 +44,7 @@ export const contentWithSeeds = Effect.fn("contentWithSeeds")(function* (
       yield* contentWithSeeds(
         seed.content as Record<string, unknown>,
         seeds,
-        schema?.properties?.[seed.fieldName]?.items,
+        itemContentSchemaOf(schema, seed.fieldName),
         seed.tempId,
       ),
     );
@@ -65,17 +73,24 @@ export const prepareBlockContent = Effect.fn("prepareBlockContent")(function* (
   const seeds = [...(explicitSeeds ?? []), ...normalized.seeds].map((seed) => ({ ...seed }));
   yield* validateItemSeeds(seeds, schema?.properties, "repeatableItems", rootSchema);
 
-  const schemas = new Map<string, FieldSchema | undefined>();
+  // Seeds were validated above: each one sits in a repeater of its parent.
+  const schemas = itemSchemas(
+    schema,
+    seeds.map((seed) => ({
+      id: seed.tempId,
+      parentItemId: seed.parentTempId,
+      fieldName: seed.fieldName,
+    })),
+  );
   for (const seed of seeds) {
-    const parent = seed.parentTempId === null ? schema : schemas.get(seed.parentTempId);
-    const field = parent?.properties?.[seed.fieldName];
-    schemas.set(seed.tempId, field?.items);
+    const item = schemas.get(seed.tempId);
+    const content = item?.content as FieldSchema | undefined;
     seed.content = yield* sanitizeItemContent(
-      initializeBlockContent(seed.content, field?.items, false),
-      field?.items?.properties,
+      initializeBlockContent(seed.content, content, false),
+      content?.properties,
       rootSchema,
     );
-    seed.settings = yield* prepareSettings(seed.settings, field?.itemSettingsSchema, rootSchema);
+    seed.settings = yield* prepareSettings(seed.settings, item?.settings, rootSchema);
   }
 
   const bundle = yield* contentWithSeeds(normalized.content, seeds, schema);
@@ -109,12 +124,13 @@ export const prepareContentPatch = Effect.fn("prepareContentPatch")(function* (
   yield* validateContent(raw, null);
   const patch = { ...(raw as Record<string, unknown>) };
   for (const [key, value] of Object.entries(patch)) {
-    const field = schema?.properties?.[key];
-    if (field?.fieldType !== "Repeater" || !Array.isArray(value)) continue;
+    const field = fieldOf(schema, key);
+    if (field?.kind !== "Repeater" || !Array.isArray(value)) continue;
+    const itemSchema = field.itemContentSchema as FieldSchema | undefined;
     patch[key] = yield* Effect.forEach(value, (item: unknown) => {
       if (!item || typeof item !== "object" || Array.isArray(item)) return Effect.succeed(item);
-      if ("_itemId" in item) return prepareContentPatch(item, field.items);
-      return Effect.succeed(initializeBlockContent(item, field.items));
+      if ("_itemId" in item) return prepareContentPatch(item, itemSchema);
+      return Effect.succeed(initializeBlockContent(item, itemSchema));
     });
   }
   return patch;

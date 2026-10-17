@@ -6,7 +6,6 @@ import { withSharedContent } from "../blocks/shared-content";
 import * as overlay from "../drafts/overlay";
 import type { DraftScope } from "../drafts/scope";
 import { blocksOfLayout } from "../layouts/identity";
-import { sortItemsByPosition } from "../pages/ai";
 import { conformBlocksIn } from "./conform-content";
 import type { ServiceContext } from "./service-context";
 
@@ -46,6 +45,6 @@ export const readOwnerBlocks = Effect.fn("readOwnerBlocks")(function* (
     ownerBlocks[0],
     scope,
     shown.blocks,
-    sortItemsByPosition(shown.items),
+    overlay.sortByPosition(shown.items),
   );
 });
