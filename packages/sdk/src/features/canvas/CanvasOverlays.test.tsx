@@ -43,7 +43,7 @@ void test("outlines and interactive controls live above the frame, not in the pa
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
   const { createRoot } = await import("react-dom/client");
-  const { CanvasOverlays } = await import("./CanvasOverlays");
+  const { CanvasOverlays, CanvasOverlaysShownContext } = await import("./CanvasOverlays");
   const { previewStore } = await import("../preview/previewStore");
   const target = page.document.createElement("div");
   target.setAttribute("data-camox-block-id", "42");
@@ -78,18 +78,21 @@ void test("outlines and interactive controls live above the frame, not in the pa
   let activations = 0;
   const requests: unknown[] = [];
   host.parent!.postMessage = (message: unknown) => requests.push({ message, activations });
+  const overlays = (shown: boolean) => (
+    <CanvasOverlaysShownContext value={shown}>
+      <CanvasOverlays
+        document={page.document as unknown as Document}
+        activate={() => activations++}
+        canAddBlocks
+      >
+        <iframe title="page" />
+      </CanvasOverlays>
+    </CanvasOverlaysShownContext>
+  );
   previewStore.send({ type: "enterEditMode" });
   try {
     await React.act(async () => {
-      root.render(
-        <CanvasOverlays
-          document={page.document as unknown as Document}
-          activate={() => activations++}
-          canAddBlocks
-        >
-          <iframe title="page" />
-        </CanvasOverlays>,
-      );
+      root.render(overlays(true));
       await page.happyDOM.waitUntilComplete();
     });
     assert.equal(page.document.querySelector("button"), null);
@@ -146,6 +149,14 @@ void test("outlines and interactive controls live above the frame, not in the pa
       2,
       "seams do not depend on block hover or selection",
     );
+    await React.act(async () => {
+      root.render(overlays(false));
+    });
+    assert.equal(
+      (layer as unknown as HTMLElement).style.display,
+      "none",
+      "without a selection, the Canvas shows no overlays",
+    );
     await React.act(async () => previewStore.send({ type: "exitEditMode" }));
     assert.equal(layer.querySelector("button"), null);
     assert.equal((layer as unknown as HTMLElement).style.display, "none");
@@ -154,9 +165,11 @@ void test("outlines and interactive controls live above the frame, not in the pa
     await React.act(async () => {
       previewStore.send({ type: "enterEditMode" });
       root.render(
-        <CanvasOverlays document={page.document as unknown as Document} activate={() => {}}>
-          <iframe title="layout" />
-        </CanvasOverlays>,
+        <CanvasOverlaysShownContext value={true}>
+          <CanvasOverlays document={page.document as unknown as Document} activate={() => {}}>
+            <iframe title="layout" />
+          </CanvasOverlays>
+        </CanvasOverlaysShownContext>,
       );
     });
     assert.equal(host.document.querySelector("button"), null);

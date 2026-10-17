@@ -34,6 +34,7 @@ import {
   isCanvasShelfShown,
   positionCanvasShelves,
 } from "./canvasItems";
+import { CanvasOverlaysShownContext } from "./CanvasOverlays";
 import { CanvasPageFrame } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
 import { CANVAS_DEVICES, canvasPageQuery, getCanvasPages, type CanvasPage } from "./canvasPages";
@@ -428,129 +429,132 @@ function CanvasWorkspace({
       }}
     >
       <CanvasWorkspaceContext value={workspace}>
-        <div
-          ref={contentRef}
-          data-canvas-items
-          className="absolute top-0 left-0 flex w-max items-start"
-          style={{
-            gap: CANVAS_SHELF_GAP,
-            transform: CANVAS_WORLD_TRANSFORM,
-            transformOrigin: "0 0",
-            willChange: "transform",
-          }}
-        >
-          {shelves.map((shelf) => {
-            // An empty shelf that isn't shown has no marker and no place in the row.
-            if (!isCanvasShelfShown(shelf)) return null;
-            const collapsed = collapsedShelves.has(shelf.key) || shelf.items.length === 0;
-            return (
-              // A collapsed or empty shelf shrinks to a zero-width slot under its marker.
-              // Its items stay mounted in place, so expanding never reloads them, and
-              // keep their height, so the Canvas bounds and camera don't move.
-              <div
-                key={shelf.key}
-                data-canvas-shelf={shelf.key}
-                inert={collapsed}
-                className={`flex shrink-0 items-start ${collapsed ? "invisible w-0" : ""}`}
-                style={{ gap: CANVAS_ITEM_GAP }}
-              >
-                {shelf.items.map((item) => {
-                  if (item.kind === "block") {
+        {/* Overlays follow the selection being made, so they hide as soon as zooming out deselects. */}
+        <CanvasOverlaysShownContext value={!!intendedItemKey}>
+          <div
+            ref={contentRef}
+            data-canvas-items
+            className="absolute top-0 left-0 flex w-max items-start"
+            style={{
+              gap: CANVAS_SHELF_GAP,
+              transform: CANVAS_WORLD_TRANSFORM,
+              transformOrigin: "0 0",
+              willChange: "transform",
+            }}
+          >
+            {shelves.map((shelf) => {
+              // An empty shelf that isn't shown has no marker and no place in the row.
+              if (!isCanvasShelfShown(shelf)) return null;
+              const collapsed = collapsedShelves.has(shelf.key) || shelf.items.length === 0;
+              return (
+                // A collapsed or empty shelf shrinks to a zero-width slot under its marker.
+                // Its items stay mounted in place, so expanding never reloads them, and
+                // keep their height, so the Canvas bounds and camera don't move.
+                <div
+                  key={shelf.key}
+                  data-canvas-shelf={shelf.key}
+                  inert={collapsed}
+                  className={`flex shrink-0 items-start ${collapsed ? "invisible w-0" : ""}`}
+                  style={{ gap: CANVAS_ITEM_GAP }}
+                >
+                  {shelf.items.map((item) => {
+                    if (item.kind === "block") {
+                      return (
+                        <div
+                          key={item.key}
+                          data-canvas-slot={item.key}
+                          className="flex shrink-0 justify-start"
+                          style={{ width: CANVAS_SLOT_WIDTH }}
+                        >
+                          <div
+                            data-canvas-block={item.block._internal.id}
+                            className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
+                            style={{ width: viewport.width }}
+                          >
+                            <CanvasFrameBoundary subject="block">
+                              <CanvasBlockFrame
+                                block={item.block}
+                                projectId={projectId}
+                                runtimeBasePath={runtimeBasePath}
+                                width={viewport.width}
+                                viewportHeight={viewport.height}
+                                selected={item.block._internal.id === selectedBlock?._internal.id}
+                                onSelect={() => selectBlock(item.block)}
+                              />
+                            </CanvasFrameBoundary>
+                          </div>
+                        </div>
+                      );
+                    }
+                    const slot = pageSlots.get(item.key);
+                    if (!slot) return null;
+                    const { page, pathname } = slot;
+                    const selected = page.key === selectedPage?.key;
+                    // The Preview's page shows the Preview's own frame, so Edit Mode keeps its
+                    // state. Deselecting it keeps it there too, rather than remount it.
+                    const previewed =
+                      !!previewPageFrame &&
+                      page.key === previewedPage?.key &&
+                      pathname === previewedPath;
+                    const onPageActivate = (
+                      owner: EditingOwner,
+                      source: "selection" | "interaction",
+                    ) => {
+                      if (!pathname) return;
+                      onActivate(pathname, owner);
+                      if (source === "interaction") selectPage(pathname);
+                    };
                     return (
                       <div
-                        key={item.key}
-                        data-canvas-slot={item.key}
+                        key={page.key}
+                        data-canvas-slot={page.key}
                         className="flex shrink-0 justify-start"
                         style={{ width: CANVAS_SLOT_WIDTH }}
                       >
                         <div
-                          data-canvas-block={item.block._internal.id}
+                          data-canvas-page={page.key}
+                          data-canvas-pathname={pathname}
+                          {...(previewed ? { [PREVIEW_PAGE_SLOT_ATTRIBUTE]: "" } : {})}
                           className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
-                          style={{ width: viewport.width }}
+                          style={{ width: viewport.width, minHeight: viewport.height }}
                         >
-                          <CanvasFrameBoundary subject="block">
-                            <CanvasBlockFrame
-                              block={item.block}
-                              projectId={projectId}
-                              runtimeBasePath={runtimeBasePath}
-                              width={viewport.width}
-                              viewportHeight={viewport.height}
-                              selected={item.block._internal.id === selectedBlock?._internal.id}
-                              onSelect={() => selectBlock(item.block)}
-                            />
+                          <CanvasFrameBoundary key={pathname} subject="page" selected={selected}>
+                            {previewed ? (
+                              <CanvasPreviewPageSlot
+                                pageId={page.pageId}
+                                derivedLayoutId={page.derivedLayoutId}
+                                width={viewport.width}
+                                viewportHeight={viewport.height}
+                                selected={selected}
+                                hovered={hoveredPageKey === page.key}
+                                onActivate={onPageActivate}
+                              />
+                            ) : pathname ? (
+                              <CanvasPagePreview
+                                hovered={hoveredPageKey === page.key}
+                                pathname={pathname}
+                                runtimeBasePath={runtimeBasePath}
+                                derivedLayoutId={page.derivedLayoutId}
+                                pageId={page.pageId}
+                                viewport={viewport}
+                                selected={selected}
+                                onActivate={onPageActivate}
+                              />
+                            ) : (
+                              <CanvasMessage>
+                                Choose a page path above to preview this layout.
+                              </CanvasMessage>
+                            )}
                           </CanvasFrameBoundary>
                         </div>
                       </div>
                     );
-                  }
-                  const slot = pageSlots.get(item.key);
-                  if (!slot) return null;
-                  const { page, pathname } = slot;
-                  const selected = page.key === selectedPage?.key;
-                  // The Preview's page shows the Preview's own frame, so Edit Mode keeps its
-                  // state. Deselecting it keeps it there too, rather than remount it.
-                  const previewed =
-                    !!previewPageFrame &&
-                    page.key === previewedPage?.key &&
-                    pathname === previewedPath;
-                  const onPageActivate = (
-                    owner: EditingOwner,
-                    source: "selection" | "interaction",
-                  ) => {
-                    if (!pathname) return;
-                    onActivate(pathname, owner);
-                    if (source === "interaction") selectPage(pathname);
-                  };
-                  return (
-                    <div
-                      key={page.key}
-                      data-canvas-slot={page.key}
-                      className="flex shrink-0 justify-start"
-                      style={{ width: CANVAS_SLOT_WIDTH }}
-                    >
-                      <div
-                        data-canvas-page={page.key}
-                        data-canvas-pathname={pathname}
-                        {...(previewed ? { [PREVIEW_PAGE_SLOT_ATTRIBUTE]: "" } : {})}
-                        className="bg-background shrink-0 shadow-xl ring-1 ring-black/10"
-                        style={{ width: viewport.width, minHeight: viewport.height }}
-                      >
-                        <CanvasFrameBoundary key={pathname} subject="page" selected={selected}>
-                          {previewed ? (
-                            <CanvasPreviewPageSlot
-                              pageId={page.pageId}
-                              derivedLayoutId={page.derivedLayoutId}
-                              width={viewport.width}
-                              viewportHeight={viewport.height}
-                              selected={selected}
-                              hovered={hoveredPageKey === page.key}
-                              onActivate={onPageActivate}
-                            />
-                          ) : pathname ? (
-                            <CanvasPagePreview
-                              hovered={hoveredPageKey === page.key}
-                              pathname={pathname}
-                              runtimeBasePath={runtimeBasePath}
-                              derivedLayoutId={page.derivedLayoutId}
-                              pageId={page.pageId}
-                              viewport={viewport}
-                              selected={selected}
-                              onActivate={onPageActivate}
-                            />
-                          ) : (
-                            <CanvasMessage>
-                              Choose a page path above to preview this layout.
-                            </CanvasMessage>
-                          )}
-                        </CanvasFrameBoundary>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </CanvasOverlaysShownContext>
       </CanvasWorkspaceContext>
       <CanvasShelfMarkers
         markers={markers}

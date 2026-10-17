@@ -120,7 +120,7 @@ void test("canvas frames share the studio cache, activate their own owner, and f
     await React.act(async () => iframe.dispatchEvent(new dom.Event("load")));
     assert.equal(
       (host.querySelector("[data-canvas-overlays]") as unknown as HTMLElement).style.display,
-      "var(--canvas-overlays-display, block)",
+      "block",
       "edit mode shows the overlay layer",
     );
     await React.act(async () => {
