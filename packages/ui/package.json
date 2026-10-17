@@ -11,6 +11,10 @@
       "types": "./src/lib/utils.ts",
       "default": "./src/lib/utils.ts"
     },
+    "./accordion": {
+      "types": "./src/components/accordion.tsx",
+      "default": "./src/components/accordion.tsx"
+    },
     "./alert-dialog": {
       "types": "./src/components/alert-dialog.tsx",
       "default": "./src/components/alert-dialog.tsx"
@@ -34,6 +38,10 @@
     "./button": {
       "types": "./src/components/button.tsx",
       "default": "./src/components/button.tsx"
+    },
+    "./checkbox": {
+      "types": "./src/components/checkbox.tsx",
+      "default": "./src/components/checkbox.tsx"
     },
     "./command": {
       "types": "./src/components/command.tsx",
@@ -130,6 +138,10 @@
         "types": "./dist/lib/utils.d.ts",
         "default": "./dist/lib/utils.js"
       },
+      "./accordion": {
+        "types": "./dist/components/accordion.d.ts",
+        "default": "./dist/components/accordion.js"
+      },
       "./alert-dialog": {
         "types": "./dist/components/alert-dialog.d.ts",
         "default": "./dist/components/alert-dialog.js"
@@ -153,6 +165,10 @@
       "./button": {
         "types": "./dist/components/button.d.ts",
         "default": "./dist/components/button.js"
+      },
+      "./checkbox": {
+        "types": "./dist/components/checkbox.d.ts",
+        "default": "./dist/components/checkbox.js"
       },
       "./command": {
         "types": "./dist/components/command.d.ts",
