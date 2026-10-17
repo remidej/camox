@@ -18,6 +18,7 @@ import {
   type ServiceError,
   UnauthenticatedError,
 } from "./lib/errors";
+import { record, type Journal } from "./lib/journal";
 import { member, projects } from "./schema";
 
 // --- Definition Sync ---
@@ -38,6 +39,12 @@ export type SyncTarget = {
   draftCreated: boolean;
 };
 
+/** Records that a sync changed the definitions of its target, which all its content conforms to. */
+export const recordDefinitionsSynced = (
+  db: Database,
+  { project, scope }: Pick<SyncTarget, "project" | "scope">,
+) => record(db, { kind: "definitions", projectId: project.id, draftId: scope?.id ?? null });
+
 /**
  * Authorize code-definition writes and say where they go (ADR 0006). A release, with the
  * project's deploy token and no draft, writes Live. Dev mode, with a member's session and
@@ -49,7 +56,7 @@ export const assertSyncAccess = Effect.fn("assertSyncAccess")(function* (
   projectSlug: string,
   principal: SyncPrincipal,
   { create = false }: { create?: boolean } = {},
-): Effect.fn.Return<SyncTarget, ServiceError> {
+): Effect.fn.Return<SyncTarget, ServiceError, Journal> {
   const project = yield* Effect.promise(() =>
     db.select().from(projects).where(eq(projects.slug, projectSlug)).get(),
   );

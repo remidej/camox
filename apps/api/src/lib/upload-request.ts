@@ -9,6 +9,7 @@ import type { ServiceContext } from "../domains/_shared/service-context";
 import type { DraftRequest } from "../domains/drafts/scope";
 import type { AppEnv } from "../types";
 import { LiveReadOnlyError, type ServiceError } from "./errors";
+import type { Journal } from "./journal";
 import { runService, toORPCError } from "./run-service";
 
 // Uploads write content outside oRPC (multipart Hono routes), so they read the draft headers
@@ -54,7 +55,7 @@ export function uploadContextOf(
 /** Runs an upload's service, answering with its result or with its failure as oRPC would. */
 export async function respondToUpload<A>(
   c: Context<AppEnv>,
-  upload: Effect.Effect<A, ServiceError>,
+  upload: Effect.Effect<A, ServiceError, Journal>,
   status: ContentfulStatusCode,
 ) {
   try {

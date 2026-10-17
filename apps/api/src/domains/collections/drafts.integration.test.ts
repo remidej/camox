@@ -8,13 +8,6 @@ import { router } from "../../router";
 import { blockDefinitions, pages } from "../../schema";
 import type { ResolvedReference } from "../content/reader";
 
-const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
-  // Modules loaded by earlier test files would keep the real broadcaster.
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn(), broadcastDraftEnded: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation, broadcastDraftEnded }));
-
 type Headers = Record<string, string>;
 /** Headers naming a draft, creating it when missing. */
 const startingDraft = (id: string): Headers => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });

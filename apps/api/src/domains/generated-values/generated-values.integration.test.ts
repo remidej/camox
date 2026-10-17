@@ -17,18 +17,15 @@ import { upsertBlockDefinition } from "../block-definitions/service";
 import { runBlockSummaryJob } from "../blocks/service";
 import { runPageSeoJob } from "../pages/ai";
 
-const { chat, scheduleAiJob, broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
+const { chat, scheduleAiJob } = vi.hoisted(() => {
   vi.resetModules();
   return {
     chat: vi.fn(),
     scheduleAiJob: vi.fn().mockResolvedValue(undefined),
-    broadcastInvalidation: vi.fn(),
-    broadcastDraftEnded: vi.fn(),
   };
 });
 vi.mock("@tanstack/ai", () => ({ chat }));
 vi.mock("../../lib/schedule-ai-job", () => ({ scheduleAiJob }));
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation, broadcastDraftEnded }));
 
 afterEach(() => {
   vi.clearAllMocks();

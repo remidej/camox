@@ -1,10 +1,8 @@
 import { uuidv7Schema } from "@camox/api-contract/ids";
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
-import { broadcastInvalidation } from "../../lib/broadcast-invalidation";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, layouts, pages, projects, user } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
@@ -102,21 +100,6 @@ export const setPageSeoInput = z
 /** `layoutId` names the page's new layout. */
 export const setPageLayoutInput = z.object({ id: uuidv7Schema, layoutId: z.string() });
 export const generatePageSeoInput = z.object({ id: uuidv7Schema });
-function invalidatePage(ctx: ServiceContext, scope: DraftScope, projectId: number, pageId: string) {
-  broadcastInvalidation({
-    waitUntil: ctx.waitUntil,
-    projectRoomNamespace: ctx.env.ProjectRoom,
-    draftId: scope?.id ?? null,
-    projectId,
-    // Pages using a block change with page creation, renames and deletion.
-    targets: [
-      queryKeys.pages.list,
-      queryKeys.pages.getById(pageId),
-      queryKeys.blocks.getUsageCounts,
-    ],
-  });
-}
-
 // --- Reads ---
 //
 // Pages are read and written in the request's draft scope through the draft overlay (ADR 0005):
@@ -375,7 +358,6 @@ export const createPage = Effect.fn("pages.createPage")(function* (
 
   // A new page's SEO is generated: publishing waits for a meta title (ADR 0009).
   yield* requestPageSeo(ctx, scope, page, 0);
-  invalidatePage(ctx, scope, projectId, page.id);
 
   return { page: yield* shownPage(ctx, scope, page), fullPath: page.fullPath };
 }, Effect.scoped);
@@ -429,7 +411,6 @@ export const updatePage = Effect.fn("pages.updatePage")(function* (
     if (pageId === id) continue;
     yield* overlay.update(ctx.db, scope, pages, pageId, { fullPath, updatedAt: now });
   }
-  invalidatePage(ctx, scope, page.projectId, id);
   return yield* shownPage(ctx, scope, result);
 }, Effect.scoped);
 
@@ -442,9 +423,8 @@ export const deletePage = Effect.fn("pages.deletePage")(function* (
   rawInput: z.input<typeof deletePageInput>,
 ) {
   const { id } = yield* decodeInput(deletePageInput, rawInput);
-  const { scope, entity: page } = yield* accessTo(ctx, { page: id }, "write");
+  const { scope } = yield* accessTo(ctx, { page: id }, "write");
   const result = yield* overlay.remove(ctx.db, scope, pages, id);
-  invalidatePage(ctx, scope, page.projectId, id);
   return result;
 }, Effect.scoped);
 
@@ -460,7 +440,6 @@ const writePage = Effect.fn("pages.writePage")(function* (
     updatedAt: Math.max(Date.now(), page.updatedAt + 1),
   });
   if (!result) return yield* new NotFoundError();
-  invalidatePage(ctx, scope, page.projectId, page.id);
   return result;
 });
 
@@ -504,10 +483,9 @@ export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   rawInput: z.input<typeof generatePageSeoInput>,
 ) {
   const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
-  const { scope, project } = yield* accessTo(ctx, { page: id }, "member");
+  const { scope } = yield* accessTo(ctx, { page: id }, "member");
 
   yield* executePageSeo(ctx.db, ctx.env.OPEN_ROUTER_API_KEY, id, scope);
-  invalidatePage(ctx, scope, project.id, id);
   const page = yield* overlay.get(ctx.db, scope, pages, id);
   return page ? yield* shownPage(ctx, scope, page) : undefined;
 }, Effect.scoped);

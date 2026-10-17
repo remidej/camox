@@ -1,8 +1,9 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
@@ -10,20 +11,11 @@ import {
   createServiceContext,
   callSeedingLive,
 } from "../../../test/fixtures";
+import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { pages, repeatableItems } from "../../schema";
 import { upsertBlockDefinition } from "../block-definitions/service";
-
-const { broadcastInvalidation } = vi.hoisted(() => {
-  // Modules loaded by earlier test files would keep the real broadcaster.
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({
-  broadcastInvalidation,
-  broadcastDraftEnded: () => {},
-}));
 
 type Caller = "member" | "outsider" | "anonymous";
 
@@ -289,18 +281,19 @@ describe("block procedures in the draft a request names", () => {
     const { createBlock, editTitle, member, project } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
-    const broadcastDrafts = () =>
-      vi.mocked(broadcastInvalidation).mock.calls.map(([options]) => options.draftId);
+    const blockRefreshedIn = (scope: string | null) =>
+      refreshes(sentTo(project.id), scope, queryKeys.blocks.get(block.id));
 
-    vi.mocked(broadcastInvalidation).mockClear();
+    forgetSent(project.id);
     await editTitle(block.id, "Draft", startingDraft(draft));
-    expect(broadcastDrafts()).toEqual([draft]);
+    expect(blockRefreshedIn(draft)).toBe(true);
+    expect(blockRefreshedIn(null)).toBe(false);
 
     // Live changes only by publishing (ADR 0009).
-    vi.mocked(broadcastInvalidation).mockClear();
+    forgetSent(project.id);
     const input = { projectId: project.id };
     const { token } = await call(router.drafts.previewPublish, input, member(inDraft(draft)));
     await call(router.drafts.publish, { ...input, token }, member(inDraft(draft)));
-    expect(broadcastDrafts()).toEqual([null]);
+    expect(blockRefreshedIn(null)).toBe(true);
   });
 });

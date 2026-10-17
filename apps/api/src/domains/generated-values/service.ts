@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { record } from "../../lib/journal";
 import { scheduleAiJob } from "../../lib/schedule-ai-job";
 import type { Bindings } from "../../types";
 import * as overlay from "../drafts/overlay";
@@ -138,6 +139,10 @@ const conflictTarget = (draftId: string | null) =>
 const settled = (startedAt: number) =>
   sql`case when ${generatedValues.requestedAt} <= ${startedAt} then null else ${generatedValues.requestedAt} end`;
 
+/** Records that a value, or whether it's pending, changed: it shows with its entity. */
+const recordValue = (db: Database, home: ValueHome, key: ValueKey) =>
+  record(db, { kind: "generated", entity: key.entity, id: key.entityId, ...home });
+
 /**
  * Upserts a value row. A draft that ended meanwhile has no row to hold it: nothing is written,
  * as for any job whose draft ended.
@@ -154,7 +159,10 @@ const upsert = (
       .insert(generatedValues)
       .values({ ...home, ...key, ...insert })
       .onConflictDoUpdate({ ...conflictTarget(home.draftId), set }),
-  ).pipe(Effect.ignore);
+  ).pipe(
+    Effect.andThen(() => recordValue(db, home, key)),
+    Effect.ignore,
+  );
 
 /**
  * Stores a job's value where it was scheduled from, settling the job unless another one was
@@ -179,20 +187,23 @@ export const saveValue = <T extends GeneratedType>(
 
 /** Settles a job that generated nothing, e.g. because its group is manual. */
 export const settleRequest = (db: Database, home: ValueHome, key: ValueKey, startedAt: number) =>
-  Effect.promise(() =>
-    db
-      .update(generatedValues)
-      .set({ requestedAt: settled(startedAt) })
-      .where(
-        and(
-          eq(generatedValues.entity, key.entity),
-          eq(generatedValues.entityId, key.entityId),
-          eq(generatedValues.type, key.type),
-          home.draftId === null
-            ? isNull(generatedValues.draftId)
-            : eq(generatedValues.draftId, home.draftId),
+  Effect.andThen(
+    Effect.promise(() =>
+      db
+        .update(generatedValues)
+        .set({ requestedAt: settled(startedAt) })
+        .where(
+          and(
+            eq(generatedValues.entity, key.entity),
+            eq(generatedValues.entityId, key.entityId),
+            eq(generatedValues.type, key.type),
+            home.draftId === null
+              ? isNull(generatedValues.draftId)
+              : eq(generatedValues.draftId, home.draftId),
+          ),
         ),
-      ),
+    ),
+    recordValue(db, home, key),
   );
 
 const GENERATED_ENTITIES: GeneratedEntity[] = [

@@ -11,6 +11,7 @@ import {
   type ServiceError,
   UnauthenticatedError,
 } from "../../lib/errors";
+import type { Journal } from "../../lib/journal";
 import { blocks, files, member, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import * as overlay from "./overlay";
@@ -68,9 +69,9 @@ type FileRow = typeof files.$inferSelect;
 export type EntityOf<R extends ContentRef> = R extends { page: string }
   ? PageRow
   : R extends { block: string }
-    ? { block: BlockRow; pagePath: string | null }
+    ? { block: BlockRow }
     : R extends { item: string }
-      ? { item: ItemRow; pagePath: string | null }
+      ? { item: ItemRow }
       : R extends { file: string }
         ? FileRow
         : Project;
@@ -208,7 +209,7 @@ const resolveScope = Effect.fn("access.resolveScope")(function* (
   ctx: AccessContext & { user: User },
   project: Project,
   named: typeof drafts.$inferSelect | null,
-): Effect.fn.Return<{ scope: DraftScope; started: boolean }, ServiceError> {
+): Effect.fn.Return<{ scope: DraftScope; started: boolean }, ServiceError, Journal> {
   const requested = ctx.draft;
   if (!requested) return { scope: null, started: false };
   if ("development" in requested) {
@@ -254,16 +255,6 @@ const memberScope = Effect.fn("access.memberScope")(function* (
   return scope;
 });
 
-/** A block's or item's page path as the scope reads it, for the invalidations writes send. */
-const pagePathOf = Effect.fn("access.pagePathOf")(function* (
-  db: Database,
-  scope: DraftScope,
-  pageId: string | null,
-) {
-  if (!pageId) return null;
-  return (yield* overlay.get(db, scope, pages, pageId))?.fullPath ?? null;
-});
-
 /**
  * The entity a reference names as the scope reads it, from its candidates. An item names its
  * page through its block.
@@ -280,14 +271,14 @@ const entityIn = Effect.fn("access.entityIn")(function* (
   if (!row) return undefined;
   if ("block" in ref) {
     const block = row as BlockRow;
-    return { block, pagePath: yield* pagePathOf(db, scope, block.pageId) };
+    return { block };
   }
   if ("item" in ref) {
     const item = row as ItemRow;
     const block = item.blockId ? yield* overlay.get(db, scope, blocks, item.blockId) : undefined;
     // An item whose block the scope doesn't read has nothing to belong to.
     if (item.blockId && !block) return undefined;
-    return { item, pagePath: yield* pagePathOf(db, scope, block?.pageId ?? null) };
+    return { item };
   }
   return row;
 });
@@ -300,7 +291,7 @@ export const accessTo = <R extends ContentRef, M extends AccessMode>(
   ctx: AccessContext,
   ref: R,
   mode: M,
-): Effect.Effect<ContentAccess<R, M>, ServiceError, Scope.Scope> =>
+): Effect.Effect<ContentAccess<R, M>, ServiceError, Journal | Scope.Scope> =>
   Effect.gen(function* () {
     const { user } = ctx;
     // Live is public; naming a draft, or reading as a member, needs one.

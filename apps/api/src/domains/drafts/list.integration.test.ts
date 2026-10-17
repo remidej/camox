@@ -2,7 +2,7 @@ import { DRAFT_CREATE_HEADER, DRAFT_HEADER, type DraftKind } from "@camox/api-co
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
@@ -11,18 +11,12 @@ import {
   callSeedingLive,
   openDevelopmentDraft,
 } from "../../../test/fixtures";
+import { refreshes, sentTo } from "../../../test/project-rooms";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { drafts, member, pages, user } from "../../schema";
 import { syncBlockDefinitions } from "../block-definitions/service";
 import { syncLayouts } from "../layouts/service";
-
-const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
-  // Modules loaded by earlier test files would keep the real broadcaster.
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn(), broadcastDraftEnded: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation, broadcastDraftEnded }));
 
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
 const inDraft = (id: string) => ({ [DRAFT_HEADER]: id });
@@ -286,7 +280,7 @@ describe("getting a draft", () => {
 
 describe("renaming a draft", () => {
   it("lets any member rename any regular draft, for every member", async () => {
-    const { ada, me, createBlock, get, list, rename } = await fixture();
+    const { ada, me, createBlock, get, list, project, rename } = await fixture();
     const draft = generateUuidv7();
     await createBlock(me, startingDraft(draft));
 
@@ -296,9 +290,7 @@ describe("renaming a draft", () => {
     expect((await list(ada)).drafts.find((listed) => listed.id === draft)?.name).toBe(
       "Spring campaign",
     );
-    expect(broadcastInvalidation).toHaveBeenCalledWith(
-      expect.objectContaining({ draftId: null, targets: [queryKeys.drafts.all] }),
-    );
+    expect(refreshes(sentTo(project.id), null, [...queryKeys.drafts.list, project.id])).toBe(true);
   });
 
   it("clears the name back to the computed label when renamed to nothing", async () => {
@@ -346,9 +338,7 @@ describe("creating a draft", () => {
     expect((await list(me)).drafts.map((draft) => draft.id)).toEqual(
       expect.arrayContaining([named.id, unnamed.id]),
     );
-    expect(broadcastInvalidation).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: project.id, targets: [queryKeys.drafts.all] }),
-    );
+    expect(refreshes(sentTo(project.id), null, [...queryKeys.drafts.list, project.id])).toBe(true);
   });
 
   it("is refused to people outside the project", async () => {

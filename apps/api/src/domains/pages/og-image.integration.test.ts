@@ -8,20 +8,13 @@ import { call } from "@orpc/server";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 import { drafts, pages } from "../../schema";
 import type { AppEnv } from "../../types";
 import { pageHonoRoutes } from "./og-image-routes";
-
-const { broadcastInvalidation, broadcastDraftEnded } = vi.hoisted(() => {
-  // Modules loaded by earlier test files would keep the real broadcaster.
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn(), broadcastDraftEnded: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({ broadcastInvalidation, broadcastDraftEnded }));
 
 type Headers = Record<string, string>;
 

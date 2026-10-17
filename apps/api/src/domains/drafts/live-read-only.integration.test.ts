@@ -9,23 +9,13 @@ import { call, ORPCError, type AnyProcedure } from "@orpc/server";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 import { drafts } from "../../schema";
 import type { AppEnv } from "../../types";
 import { fileHonoRoutes } from "../files/routes";
-
-const { broadcastInvalidation } = vi.hoisted(() => {
-  // Modules loaded by earlier test files would keep the real broadcaster.
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({
-  broadcastInvalidation,
-  broadcastDraftEnded: () => {},
-}));
 
 async function fixture() {
   const base = await createProjectFixture(`live-read-only-${crypto.randomUUID()}`);

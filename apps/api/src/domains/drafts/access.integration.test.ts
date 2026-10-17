@@ -1,6 +1,6 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, type Scope } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -9,6 +9,7 @@ import {
   openDevelopmentDraft,
   seedLive,
 } from "../../../test/fixtures";
+import { journaled, type Journal } from "../../lib/journal";
 import { runService } from "../../lib/run-service";
 import {
   blocks,
@@ -24,6 +25,10 @@ import type { ServiceContext } from "../_shared/service-context";
 import { accessTo, type AccessMode, type ContentRef } from "./access";
 import * as overlay from "./overlay";
 import type { DraftRequest } from "./scope";
+
+/** Runs content access alone, in a journal announcing nothing: these tests look at access. */
+const alone = <A, E>(effect: Effect.Effect<A, E, Journal | Scope.Scope>) =>
+  journaled(Effect.scoped(effect), () => Effect.void);
 
 // The access matrix, once for every kind of reference: who may read and write what, in which
 // draft, and how each refusal fails.
@@ -130,7 +135,7 @@ async function fixture(suffix: string) {
     requested: DraftRequest | null = null,
   ) => {
     const ctx = { ...createServiceContext(db, as), draft: requested };
-    const exit = await Effect.runPromiseExit(Effect.scoped(accessTo(ctx, ref, mode)));
+    const exit = await Effect.runPromiseExit(alone(accessTo(ctx, ref, mode)));
     if (Exit.isSuccess(exit)) return `ok:${exit.value.scope?.id ?? "live"}`;
     const failure = exit.cause.toString();
     return failure.match(/(\w+Error)/)?.[1] ?? failure;
@@ -237,7 +242,7 @@ describe("content access", () => {
         });
         const outcomeIn = async (projectId: number) => {
           const exit = await Effect.runPromiseExit(
-            Effect.scoped(accessTo(ctx(projectId), f.refs[kind], "member")),
+            alone(accessTo(ctx(projectId), f.refs[kind], "member")),
           );
           return Exit.isSuccess(exit)
             ? "ok"
@@ -309,9 +314,9 @@ describe("content access", () => {
     const kept = generateUuidv7();
     const dropped = generateUuidv7();
 
-    await Effect.runPromise(Effect.scoped(accessTo(ctx(kept), { page: f.page.id }, "write")));
+    await Effect.runPromise(alone(accessTo(ctx(kept), { page: f.page.id }, "write")));
     const failed = await Effect.runPromiseExit(
-      Effect.scoped(
+      alone(
         Effect.andThen(accessTo(ctx(dropped), { page: f.page.id }, "write"), Effect.fail("boom")),
       ),
     );
@@ -323,21 +328,20 @@ describe("content access", () => {
     expect(await exists(dropped)).toBe(false);
   });
 
-  it("returns the entity as the scope sees it, with its page's path", async () => {
+  it("returns the entity as the scope sees it", async () => {
     const f = await fixture("access-entity");
     const scope = { id: f.draft, kind: "regular" as const, projectId: f.project.id };
-    await runService(overlay.update(f.db, scope, pages, f.page.id, { fullPath: "/home" }));
+    await runService(
+      overlay.update(f.db, scope, repeatableItems, f.item.id, { content: { label: "Draft" } }),
+    );
     const ctx = {
       ...createServiceContext(f.db, f.memberUser),
       draft: { id: f.draft, create: false },
     };
 
-    const result = await Effect.runPromise(
-      Effect.scoped(accessTo(ctx, { item: f.item.id }, "write")),
-    );
+    const result = await Effect.runPromise(alone(accessTo(ctx, { item: f.item.id }, "write")));
 
-    expect(result.entity.item.id).toBe(f.item.id);
-    expect(result.entity.pagePath).toBe("/home");
+    expect(result.entity.item).toMatchObject({ id: f.item.id, content: { label: "Draft" } });
     expect(result.project.id).toBe(f.project.id);
     expect(result.user.id).toBe(f.memberUser.id);
   });

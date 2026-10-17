@@ -1,6 +1,6 @@
 import { DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   createProjectFixture,
@@ -15,15 +15,6 @@ import { upsertBlockDefinition } from "../block-definitions/service";
 import { blockProcedures as blockRoutes } from "../blocks/routes";
 import { repeatableItemProcedures as itemRoutes } from "../repeatable-items/routes";
 import { pageProcedures as pageRoutes } from "./routes";
-
-const { broadcastInvalidation } = vi.hoisted(() => {
-  vi.resetModules();
-  return { broadcastInvalidation: vi.fn() };
-});
-vi.mock("../../lib/broadcast-invalidation", () => ({
-  broadcastInvalidation,
-  broadcastDraftEnded: () => {},
-}));
 
 // Independent of the shared schema: version nibble 7, RFC 4122 variant.
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
