@@ -1,11 +1,11 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
 import { useAuthContext, useProjectSlug } from "../../lib/auth";
-import { useDraftScope } from "../../lib/draft-scope";
-import { blockQueries, pageMutations, pageQueries, projectQueries } from "../../lib/queries";
+import { pageMutations } from "../../lib/queries";
+import { reads, useReadQueries, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import { getPageRecord, PageRecordContext } from "../preview/pageRecord";
@@ -17,7 +17,6 @@ import {
 import { PreviewPreparationContext } from "../preview/previewPreparation";
 import { previewStore, type EditingOwner } from "../preview/previewStore";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
-import { runtimePath } from "../runtime/navigationTarget";
 import { blockCatalogPath, matchBlockCatalogPath, STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CanvasBlockFrame } from "./CanvasBlockFrame";
 import { CanvasBlockHeader } from "./CanvasBlockHeader";
@@ -38,7 +37,7 @@ import {
 import { CanvasOverlaysShownContext } from "./CanvasOverlays";
 import { CanvasPageFrame } from "./CanvasPageFrame";
 import { CanvasPageHeader } from "./CanvasPageHeader";
-import { CANVAS_DEVICES, canvasPageQuery, getCanvasPages, type CanvasPage } from "./canvasPages";
+import { CANVAS_DEVICES, getCanvasPages, type CanvasPage } from "./canvasPages";
 import { CanvasPreviewPageSlot } from "./CanvasPreviewPageSlot";
 import {
   CANVAS_WORLD_TRANSFORM,
@@ -144,14 +143,10 @@ function CanvasPageFrameLoader({
   mode,
   onActivate,
 }: CanvasPagePreviewProps & { mode: CanvasFrameMode }) {
-  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
-  const { data, error, isPending, isFetching, refetch } = useQuery({
-    ...canvasPageQuery(draftScope, projectSlug, runtimeBasePath, pathname, derivedLayoutId),
-    retry: false,
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
-  });
+  const { data, error, isPending, isFetching, refetch } = useReadQuery(
+    reads.canvasFrame({ projectSlug, runtimeBasePath, pathname, derivedLayoutId }),
+  );
   usePreparationFailure(isFetching ? null : error, selected);
   if (isPending)
     return (
@@ -222,8 +217,7 @@ function CanvasBlockUsageHeader({
   block: Block;
   onSelect: () => void;
 }) {
-  const draftScope = useDraftScope();
-  const pages = useQuery(blockQueries.getPagesUsing(draftScope, projectId, block._internal.id));
+  const pages = useReadQuery(reads.pagesUsingBlock({ projectId, type: block._internal.id }));
   return <CanvasBlockHeader block={block} pageCount={pages.data?.length} onSelect={onSelect} />;
 }
 
@@ -267,12 +261,11 @@ function CanvasWorkspace({
   onSelectionIntent: (pathname: string) => void;
   ref?: React.Ref<CanvasWorkspaceHandle>;
 }) {
-  const draftScope = useDraftScope();
+  const studioCache = useStudioCache();
   const { apiUrl, projectSlug } = useAuthContext();
-  const queryClient = useQueryClient();
   const updatePage = useMutation(pageMutations.update());
   const renamePage = async (pageId: string, nickname: string) => {
-    const page = await queryClient.fetchQuery(pageQueries.getById(draftScope, pageId));
+    const page = await studioCache.ensure(reads.page({ id: pageId }));
     await updatePage.mutateAsync({
       id: pageId,
       nickname,
@@ -615,27 +608,16 @@ function useDiscoveredPreviewPaths(runtimeBasePath: string) {
   const layouts = useCamoxApp()
     .getLayouts()
     .filter((layout) => layout._internal.kind === "derived" && layout._internal.routes);
-  return useQueries({
-    queries: layouts.map(({ _internal: { id } }) => ({
-      queryKey: ["camox", "canvas", "routes", projectSlug, runtimeBasePath, id],
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        const url = new URL(runtimePath("/_camox/routes", runtimeBasePath), window.location.origin);
-        url.searchParams.set("layoutId", id);
-        const response = await fetch(url, { headers: { Accept: "application/json" }, signal });
-        if (!response.ok) throw new Error(`Could not discover pages of ${id}.`);
-        return [id, ((await response.json()) as { path: string | null }).path] as const;
-      },
-      staleTime: Infinity,
-      retry: false,
-    })),
+  const ids = layouts.map(({ _internal: { id } }) => id);
+  return useReadQueries(
+    ids.map((layoutId) => reads.discoveredPath({ projectSlug, runtimeBasePath, layoutId })),
     // Without a discovered page, the frame asks for a path, as it does without routes.
-    combine: (results) =>
-      new Map(results.flatMap(({ data }) => (data?.[1] ? [[data[0], data[1]] as const] : []))),
-  });
+    (results) =>
+      new Map(results.flatMap(({ data }, index) => (data ? [[ids[index]!, data] as const] : []))),
+  );
 }
 
 export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
-  const draftScope = useDraftScope();
   const app = useCamoxApp();
   const location = useLocation();
   const viewportMode = useSelector(previewStore, (state) => state.context.viewportMode);
@@ -664,9 +646,8 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
     };
   }, []);
   const projectSlug = useProjectSlug();
-  const project = useQuery(projectQueries.getBySlug(projectSlug));
-  const pages = useQuery({
-    ...pageQueries.list(draftScope, project.data?.id ?? 0),
+  const project = useReadQuery(reads.project({ slug: projectSlug }));
+  const pages = useReadQuery(reads.pageList({ projectSlug }), {
     enabled: !!project.data,
   });
   const discoveredPaths = useDiscoveredPreviewPaths(runtimeBasePath);
@@ -695,16 +676,15 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const navigate = useNavigate();
   const workspace = React.useRef<CanvasWorkspaceHandle>(null);
   // The intended frame's data names a record page's record. Its frame loads it; only read here.
-  const { data: intendedFrameInput } = useQuery({
-    ...canvasPageQuery(
-      draftScope,
+  const { data: intendedFrameInput } = useReadQuery(
+    reads.canvasFrame({
       projectSlug,
       runtimeBasePath,
-      intended.pathname,
-      intendedSelection.page?.derivedLayoutId,
-    ),
-    enabled: false,
-  });
+      pathname: intended.pathname,
+      derivedLayoutId: intendedSelection.page?.derivedLayoutId,
+    }),
+    { enabled: false },
+  );
   const recordResult = intendedSelection.page?.derivedLayoutId
     ? intendedFrameInput?.derived?.result
     : undefined;

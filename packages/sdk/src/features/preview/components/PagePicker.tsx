@@ -21,19 +21,19 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@camox/ui/popover";
 import { Skeleton } from "@camox/ui/skeleton";
 import { toast } from "@camox/ui/toaster";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useLocation, useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
 import type { Page } from "@/lib/queries";
-import { pageMutations, pageQueries, projectQueries } from "@/lib/queries";
+import { pageMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import type { Layout } from "../../../core/createLayout";
 import { matchDerivedLayout, routeSegments } from "../../../core/derivedRoutes";
-import { useDraftScope } from "../../../lib/draft-scope";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { DerivedLayoutDialog } from "./DerivedLayoutDialog";
@@ -46,7 +46,6 @@ const CREATE_PAGE_VALUE = "__create_page__";
 const DERIVED_LAYOUT_PREFIX = "__derived_layout__:";
 
 const PagePicker = () => {
-  const draftScope = useDraftScope();
   const [open, setOpen] = React.useState(false);
   const camoxApp = useCamoxApp();
   const derivedLayouts = camoxApp
@@ -56,10 +55,9 @@ const PagePicker = () => {
   const [pageToDelete, setPageToDelete] = React.useState<Page | null>(null);
 
   const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
   const deletePage = useMutation(pageMutations.delete());
-  const { data: pages } = useQuery({
-    ...pageQueries.list(draftScope, project?.id ?? 0),
+  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
     enabled: !!project,
   });
   const { pathname } = useLocation();

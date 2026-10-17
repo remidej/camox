@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import * as React from "react";
 import { createElement } from "react";
@@ -63,7 +62,8 @@ void test("token links SSR a styled sign-in page before loading any content or s
 void test("authenticated documents SSR real chrome and server-loaded project data", async () => {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { PageApp } = await import("./pageApp");
-  const { testDraftScope } = await import("../../lib/draft-scope.fixtures");
+  const { testDraftScope, testStudioCache } = await import("../../lib/draft-scope.fixtures");
+  const { reads } = await import("../../lib/studio-reads");
   const camoxApp = createApp({ blocks: [] });
   const queryClient = new QueryClient();
   const project = {
@@ -72,7 +72,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     slug: "test",
     organizationSlug: "team",
   } as NonNullable<PageRenderInput["project"]>;
-  queryClient.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), {
+  testStudioCache(queryClient).set(reads.pageStructure({ path: "/", projectSlug: "test" }), {
     page: { id: 1, blockIds: [] },
     layout: null,
     project,

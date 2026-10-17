@@ -28,7 +28,8 @@ Object.assign(globalThis, {
 const { createRoot } = await import("react-dom/client");
 const { ReviewDraftDialog } = await import("./ReviewDraftDialog");
 const { initApiClient } = await import("@/lib/api-client");
-const { createDraftScope, DraftScopeContext } = await import("@/lib/draft-scope");
+const { createDraftScope } = await import("@/lib/draft-scope");
+const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
 /** The draft scope the open review runs in. */
 let draftScope: import("@/lib/draft-scope").DraftScope;
 
@@ -138,9 +139,9 @@ async function openReview() {
   await React.act(async () =>
     root.render(
       <QueryClientProvider client={client}>
-        <DraftScopeContext.Provider value={draftScope}>
+        <StudioScopeProvider client={client} draftScope={draftScope}>
           <ReviewDraftDialog projectId={1} draftId={draftId} open onOpenChange={() => {}} />
-        </DraftScopeContext.Provider>
+        </StudioScopeProvider>
       </QueryClientProvider>,
     ),
   );

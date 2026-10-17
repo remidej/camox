@@ -17,14 +17,15 @@ import {
 } from "@/features/studio/routes";
 import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
-import {
-  collectionQueries,
-  fileQueries,
-  projectQueries,
-  type CollectionDefinition,
-} from "@/lib/queries";
+import { type CollectionDefinition } from "@/lib/queries";
 
-import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  readKey,
+  testStudioCache,
+} from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 import {
   collectionFormContent,
   collectionFormDefaults,
@@ -34,9 +35,6 @@ import {
 import { CollectionItemModalProvider, useCollectionItemModal } from "./CollectionItemModalContext";
 import { ContentSidebar } from "./components/ContentSidebar";
 import { ContentCollection, ContentCollectionItemEditor } from "./ContentCollection";
-
-/** Live, like the scope the rendered studio views. */
-const draftScope = testDraftScope();
 
 // tsx loads workspace UI sources with the classic JSX transform, unlike Vite.
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
@@ -103,7 +101,7 @@ void test("collections are hidden and not queried when experimental UI is unset 
           false,
         );
         // Cached collection data must not bypass the feature gate either.
-        client.setQueryData(collectionQueries.list(draftScope, "site").queryKey, collections);
+        testStudioCache(client).set(reads.collectionList({ projectSlug: "site" }), collections);
         assert.doesNotMatch(await renderContentPage(client, pathname), /Collections|Articles/);
         client.clear();
       }
@@ -127,7 +125,7 @@ void test("content index does not render Assets before redirecting", async () =>
 void test("the assets empty view offers a multi-file upload control", async () => {
   const client = new QueryClient();
   try {
-    client.setQueryData(projectQueries.getBySlug("site").queryKey, {
+    testStudioCache(client).set(reads.project({ slug: "site" }), {
       id: 1,
       slug: "site",
       name: "Site",
@@ -137,7 +135,7 @@ void test("the assets empty view offers a multi-file upload control", async () =
       createdAt: 0,
       updatedAt: 0,
     });
-    client.setQueryData(fileQueries.list(draftScope, 1).queryKey, []);
+    testStudioCache(client).set(reads.fileList({ projectId: 1 }), []);
     const html = await renderContentPage(client, STUDIO_ASSETS_PATH);
     assert.match(html, /No assets yet/);
     assert.match(html, /Upload images, videos, and files to use in your content/);
@@ -154,12 +152,18 @@ void test("experimental UI enables collection browsing and the new-item form", a
   const client = new QueryClient();
   try {
     Object.assign(globalThis, { __CAMOX_ENABLE_EXPERIMENTAL_FEATURES__: true });
-    client.setQueryData(collectionQueries.list(draftScope, "site").queryKey, collections);
-    client.setQueryData(collectionQueries.records(draftScope, "site", "articles").queryKey, []);
-    client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
-      ...collections[0],
-      contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
-    });
+    testStudioCache(client).set(reads.collectionList({ projectSlug: "site" }), collections);
+    testStudioCache(client).set(
+      reads.records({ projectSlug: "site", collectionId: "articles" }),
+      [],
+    );
+    testStudioCache(client).set(
+      reads.collection({ projectSlug: "site", collectionId: "articles" }),
+      {
+        ...collections[0],
+        contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
+      },
+    );
     const list = await renderContentPage(client, collectionContentPath("articles"));
     assert.match(list, /Collections/);
     assert.match(list, /Create item/);
@@ -218,8 +222,8 @@ function renderCollection(collection: CollectionDefinition, client: QueryClient)
 void test("each empty collection has its own title and empty view", () => {
   const client = new QueryClient();
   for (const collection of collections) {
-    client.setQueryData(
-      collectionQueries.records(draftScope, "site", collection.collectionId).queryKey,
+    testStudioCache(client).set(
+      reads.records({ projectSlug: "site", collectionId: collection.collectionId }),
       [],
     );
     const html = renderCollection(collection, client);
@@ -234,7 +238,7 @@ void test("each empty collection has its own title and empty view", () => {
 
 void test("nonempty collections render record labels rather than an empty state", () => {
   const client = new QueryClient();
-  client.setQueryData(collectionQueries.records(draftScope, "site", "articles").queryKey, [
+  testStudioCache(client).set(reads.records({ projectSlug: "site", collectionId: "articles" }), [
     { id: "one", label: "First article" },
     { id: "two", label: "" },
     { id: "three", label: "Edited article" },
@@ -260,7 +264,7 @@ void test("loading and failures are not presented as an empty collection", async
   assert.match(renderCollection(collections[0], client), /Loading items/);
   await assert.rejects(
     client.fetchQuery({
-      queryKey: collectionQueries.records(draftScope, "site", "articles").queryKey,
+      queryKey: readKey(reads.records({ projectSlug: "site", collectionId: "articles" })),
       queryFn: () => Promise.reject(new Error("Offline")),
     }),
   );
@@ -272,25 +276,37 @@ void test("loading and failures are not presented as an empty collection", async
 });
 
 void test("collection query keys isolate projects and collections", () => {
-  const first = collectionQueries.records(draftScope, "site", "articles").queryKey;
+  const first = readKey(reads.records({ projectSlug: "site", collectionId: "articles" }));
   assert.notDeepEqual(
     first,
-    collectionQueries.records(draftScope, "other-site", "articles").queryKey,
-  );
-  assert.notDeepEqual(first, collectionQueries.records(draftScope, "site", "authors").queryKey);
-  assert.notDeepEqual(collectionQueries.get(draftScope, "site", "articles").queryKey, first);
-  const record = collectionQueries.record(draftScope, "site", "articles", "one").queryKey;
-  assert.notDeepEqual(
-    record,
-    collectionQueries.record(draftScope, "site", "articles", "two").queryKey,
+    readKey(reads.records({ projectSlug: "other-site", collectionId: "articles" })),
   );
   assert.notDeepEqual(
-    record,
-    collectionQueries.record(draftScope, "other-site", "articles", "one").queryKey,
+    first,
+    readKey(reads.records({ projectSlug: "site", collectionId: "authors" })),
+  );
+  assert.notDeepEqual(
+    readKey(reads.collection({ projectSlug: "site", collectionId: "articles" })),
+    first,
+  );
+  const record = readKey(
+    reads.record({
+      projectSlug: "site",
+      collectionId: "articles",
+      id: "one",
+    }),
   );
   assert.notDeepEqual(
     record,
-    collectionQueries.record(draftScope, "site", "authors", "one").queryKey,
+    readKey(reads.record({ projectSlug: "site", collectionId: "articles", id: "two" })),
+  );
+  assert.notDeepEqual(
+    record,
+    readKey(reads.record({ projectSlug: "other-site", collectionId: "articles", id: "one" })),
+  );
+  assert.notDeepEqual(
+    record,
+    readKey(reads.record({ projectSlug: "site", collectionId: "authors", id: "one" })),
   );
 });
 
@@ -315,7 +331,7 @@ void test("collection paths identify list and new routes, including encoded IDs"
 
 void test("the new item route builds editable fields and media editors from the collection schema", () => {
   const client = new QueryClient();
-  client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
+  testStudioCache(client).set(reads.collection({ projectSlug: "site", collectionId: "articles" }), {
     ...collections[0],
     contentSchema: {
       properties: {
@@ -391,19 +407,22 @@ void test("collection item controls open the shared create and edit modal", asyn
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
+  testStudioCache(client).set(reads.collection({ projectSlug: "site", collectionId: "articles" }), {
     ...collections[0],
     contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
   });
-  client.setQueryData(collectionQueries.records(draftScope, "site", "articles").queryKey, [
+  testStudioCache(client).set(reads.records({ projectSlug: "site", collectionId: "articles" }), [
     { id: "one", label: "First article" },
   ]);
-  client.setQueryData(collectionQueries.record(draftScope, "site", "articles", "one").queryKey, {
-    id: "one",
-    content: { title: "Existing article" },
-    createdAt: 1,
-    updatedAt: 1,
-  });
+  testStudioCache(client).set(
+    reads.record({ projectSlug: "site", collectionId: "articles", id: "one" }),
+    {
+      id: "one",
+      content: { title: "Existing article" },
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  );
   const host = document.createElement("div");
   const root = createRoot(host);
   function ModalTargetProbe() {
@@ -597,18 +616,27 @@ void test("collection forms create and edit records, invalidate lists, and retai
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
-    client.setQueryData(collectionQueries.get(inDraft, "site", "articles").queryKey, {
-      ...collections[0],
-      contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
-    });
-    client.setQueryData(collectionQueries.records(inDraft, "site", "articles").queryKey, []);
+    testStudioCache(client, { draftScope: inDraft }).set(
+      reads.collection({ projectSlug: "site", collectionId: "articles" }),
+      {
+        ...collections[0],
+        contentSchema: { properties: { title: { fieldType: "String", default: "New article" } } },
+      },
+    );
+    testStudioCache(client, { draftScope: inDraft }).set(
+      reads.records({ projectSlug: "site", collectionId: "articles" }),
+      [],
+    );
     if (editing)
-      client.setQueryData(collectionQueries.record(inDraft, "site", "articles", id).queryKey, {
-        id,
-        content: { title: "Existing article" },
-        createdAt: 1,
-        updatedAt: 1,
-      });
+      testStudioCache(client, { draftScope: inDraft }).set(
+        reads.record({ projectSlug: "site", collectionId: "articles", id }),
+        {
+          id,
+          content: { title: "Existing article" },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      );
     const host = document.createElement("div");
     const root = createRoot(host);
     const navigations: string[] = [];
@@ -663,8 +691,12 @@ void test("collection forms create and edit records, invalidate lists, and retai
       });
       assert.deepEqual(navigations, [collectionContentPath("articles")]);
       assert.equal(
-        client.getQueryState(collectionQueries.records(inDraft, "site", "articles").queryKey)
-          ?.isInvalidated,
+        client.getQueryState(
+          readKey(
+            reads.records({ projectSlug: "site", collectionId: "articles" }),
+            inDraft.current(),
+          ),
+        )?.isInvalidated,
         true,
       );
     } finally {
@@ -718,17 +750,23 @@ void test("forms save the record without publishing, and refetches never replace
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
-    client.setQueryData(collectionQueries.get(draftScope, "site", "articles").queryKey, {
-      ...collections[0],
-      contentSchema: { properties: { title: { fieldType: "String", default: "Article" } } },
-    });
+    testStudioCache(client).set(
+      reads.collection({ projectSlug: "site", collectionId: "articles" }),
+      {
+        ...collections[0],
+        contentSchema: { properties: { title: { fieldType: "String", default: "Article" } } },
+      },
+    );
     if (editing)
-      client.setQueryData(collectionQueries.record(draftScope, "site", "articles", id).queryKey, {
-        id,
-        content: { title: "Article" },
-        createdAt: 1,
-        updatedAt: 1,
-      });
+      testStudioCache(client).set(
+        reads.record({ projectSlug: "site", collectionId: "articles", id }),
+        {
+          id,
+          content: { title: "Article" },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      );
     const host = document.createElement("div");
     const root = createRoot(host);
     const navigations: string[] = [];
@@ -773,12 +811,15 @@ void test("forms save the record without publishing, and refetches never replace
       assert.deepEqual(navigations, []);
       // A refetch must not replace what the form is about to save.
       await act(async () =>
-        client.setQueryData(collectionQueries.record(draftScope, "site", "articles", id).queryKey, {
-          id,
-          content: { title: "Someone else's edit" },
-          createdAt: 1,
-          updatedAt: 3,
-        }),
+        testStudioCache(client).set(
+          reads.record({ projectSlug: "site", collectionId: "articles", id }),
+          {
+            id,
+            content: { title: "Someone else's edit" },
+            createdAt: 1,
+            updatedAt: 3,
+          },
+        ),
       );
       assert.equal(host.querySelector("textarea")?.value, "Article");
       failSave = false;
@@ -790,8 +831,8 @@ void test("forms save the record without publishing, and refetches never replace
       assert.deepEqual(calls.at(-1)!.input.content, { title: "Article" });
       assert.deepEqual(navigations, [collectionContentPath("articles")]);
       assert.deepEqual(
-        client.getQueryData<{ content: unknown }>(
-          collectionQueries.record(draftScope, "site", "articles", id).queryKey,
+        testStudioCache(client).get(
+          reads.record({ projectSlug: "site", collectionId: "articles", id }),
         )?.content,
         { title: "Article" },
       );

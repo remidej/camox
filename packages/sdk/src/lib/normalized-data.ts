@@ -1,11 +1,7 @@
-import { inScope, queryKeys } from "@camox/api-contract/query-keys";
-import type { QueryClient } from "@tanstack/react-query";
-import { useQueries } from "@tanstack/react-query";
 import * as React from "react";
 
-import { useDraftScope } from "./draft-scope";
 import type { BlockBundle, PageStructure, PageWithBlocks } from "./queries";
-import { viewBlockQueries } from "./view-queries";
+import { reads, useReadQueries } from "./studio-reads";
 
 /* -------------------------------------------------------------------------------------------------
  * Types
@@ -209,7 +205,6 @@ export function usePageBlocks(pageStructure: {
   page: Pick<PageStructure["page"], "blockIds">;
   layout: PageStructure["layout"];
 }) {
-  const draftScope = useDraftScope();
   const blockIds = pageStructure.page.blockIds;
   const beforeIds = pageStructure.layout?.beforeBlockIds ?? EMPTY_IDS;
   const afterIds = pageStructure.layout?.afterBlockIds ?? EMPTY_IDS;
@@ -219,9 +214,7 @@ export function usePageBlocks(pageStructure: {
     [blockIds, beforeIds, afterIds],
   );
 
-  const results = useQueries({
-    queries: allIds.map((id) => viewBlockQueries.get(draftScope, id)),
-  });
+  const results = useReadQueries(allIds.map((id) => reads.blockBundle(id)));
 
   const bundleMap = React.useMemo(() => {
     const map = new Map<string, BlockBundle>();
@@ -304,43 +297,21 @@ function collectFileIdsFromContent(content: Record<string, unknown>, ids: Set<st
 }
 
 /**
- * Caches each block of a page read from Live (`draftId` null) or a draft under that scope's
- * keys, with the files its content, its items' content, and the records they link reference.
+ * The files a block places: in its content, its items' content, and the content of the records
+ * they link.
  */
-export function seedBlockCaches(
-  queryClient: QueryClient,
-  pageData: Pick<PageWithBlocks, "blocks" | "files" | "repeatableItems">,
-  draftId: string | null,
-) {
-  const filesById = new Map(pageData.files.map((f) => [f.id, f]));
-
-  for (const block of pageData.blocks) {
-    const blockItems = pageData.repeatableItems.filter((i) => i.blockId === block.id);
-
-    // Collect file IDs referenced by this block and its items
-    const fileIds = new Set<string>();
-    collectFileIdsFromContent(block.content as Record<string, unknown>, fileIds);
-    for (const record of linkedRecords((block as ReferenceBlock).references)) {
+export function collectFileIds(
+  block: Pick<NormalizedBlock, "content">,
+  items: ReadonlyArray<Pick<NormalizedItem, "content">>,
+): Set<string> {
+  const fileIds = new Set<string>();
+  for (const owner of [block, ...items]) {
+    collectFileIdsFromContent(owner.content as Record<string, unknown>, fileIds);
+    for (const record of linkedRecords((owner as ReferenceBlock).references)) {
       collectFileIdsFromContent(record.content, fileIds);
     }
-    for (const item of blockItems) {
-      collectFileIdsFromContent(item.content as Record<string, unknown>, fileIds);
-      for (const record of linkedRecords((item as ReferenceBlock).references)) {
-        collectFileIdsFromContent(record.content, fileIds);
-      }
-    }
-    const blockFiles = [...fileIds].map((id) => filesById.get(id)).filter((f) => f != null);
-
-    queryClient.setQueryData(inScope(queryKeys.blocks.get(block.id), draftId), {
-      block,
-      repeatableItems: blockItems,
-      files: blockFiles,
-    });
-
-    for (const file of blockFiles) {
-      queryClient.setQueryData(inScope(queryKeys.files.get(file.id), draftId), file);
-    }
   }
+  return fileIds;
 }
 
 /** Materialized collection revisions own their asset metadata. Only marker-only

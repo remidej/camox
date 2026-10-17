@@ -12,7 +12,7 @@ import { PanelContent, PanelHeader, PanelTitle } from "@camox/ui/panel";
 import { Switch } from "@camox/ui/switch";
 import { Textarea } from "@camox/ui/textarea";
 import { useForm } from "@tanstack/react-form";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { ListIcon, PlusCircleIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -22,13 +22,12 @@ import { ReferenceFieldEditor } from "@/features/preview/components/ReferenceFie
 import { ReferenceListFieldEditor } from "@/features/preview/components/ReferenceListFieldEditor";
 import { invalidateCollectionRecordViews } from "@/lib/collection-cache";
 import {
-  collectionQueries,
   collectionMutations,
   type CollectionDefinition,
   type CollectionRecord,
 } from "@/lib/queries";
 
-import { useDraftScope } from "../../lib/draft-scope";
+import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 import {
   collectionFormFields,
   collectionFormDefaults,
@@ -45,14 +44,13 @@ export const ContentCollection = ({
   projectSlug: string;
   collection: CollectionDefinition;
 }) => {
-  const draftScope = useDraftScope();
   const itemModal = useCollectionItemModal();
   const {
     data: records,
     isPending,
     isError,
     refetch,
-  } = useQuery(collectionQueries.records(draftScope, projectSlug, collection.collectionId));
+  } = useReadQuery(reads.records({ projectSlug, collectionId: collection.collectionId }));
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -170,12 +168,11 @@ function CollectionItemForm({
   initialContent?: Record<string, unknown>;
   onSaved: (record: CollectionRecord) => void | Promise<void>;
 }) {
-  const draftScope = useDraftScope();
+  const studioCache = useStudioCache();
   const fields = collectionFormFields(contentSchema, label);
   // Background refetches must not replace edits.
   const [savedRecord, setSavedRecord] = useState(record);
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
   const create = useMutation(collectionMutations.create());
   const edit = useMutation(collectionMutations.edit());
   const [submitting, setSubmitting] = useState(false);
@@ -197,18 +194,13 @@ function CollectionItemForm({
           : await create.mutateAsync(scope);
         // Advance only after our own successful save, never from a refetch.
         setSavedRecord(saved);
-        queryClient.setQueryData(
-          collectionQueries.record(draftScope, projectSlug, collectionId, saved.id).queryKey,
-          saved,
-        );
-        await invalidateCollectionRecordViews(queryClient, projectSlug, collectionId);
+        studioCache.set(reads.record({ projectSlug, collectionId, id: saved.id }), saved);
+        await invalidateCollectionRecordViews(studioCache, projectSlug, collectionId);
         await onSaved(saved);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Please try again.";
         setError(`Could not save item. ${message}`);
-        await queryClient.invalidateQueries({
-          queryKey: collectionQueries.records(draftScope, projectSlug, collectionId).queryKey,
-        });
+        await studioCache.invalidate(reads.records({ projectSlug, collectionId }));
       } finally {
         setSubmitting(false);
       }
@@ -363,9 +355,7 @@ export const ContentCollectionItemEditor = ({
   onSaved: (record: CollectionRecord) => void | Promise<void>;
   projectSlug: string;
 }) => {
-  const draftScope = useDraftScope();
-  const recordQuery = useQuery({
-    ...collectionQueries.record(draftScope, projectSlug, collectionId, itemId ?? ""),
+  const recordQuery = useReadQuery(reads.record({ projectSlug, collectionId, id: itemId ?? "" }), {
     enabled: !!itemId,
   });
   const {
@@ -373,9 +363,7 @@ export const ContentCollectionItemEditor = ({
     isPending,
     isError,
     refetch,
-  } = useQuery({
-    ...collectionQueries.get(draftScope, projectSlug, collectionId),
-  });
+  } = useReadQuery(reads.collection({ projectSlug, collectionId }));
 
   return (
     <>
@@ -459,10 +447,7 @@ function RecordUsage({
   collectionId: string;
   id: string;
 }) {
-  const draftScope = useDraftScope();
-  const { data: count } = useQuery(
-    collectionQueries.recordUsageCount(draftScope, projectSlug, collectionId, id),
-  );
+  const { data: count } = useReadQuery(reads.recordUsageCount({ projectSlug, collectionId, id }));
   if (count === undefined) return null;
   return (
     <>

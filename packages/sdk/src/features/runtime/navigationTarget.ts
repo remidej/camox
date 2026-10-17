@@ -15,8 +15,8 @@ export function fetchRuntimeJson(
   endpoint: string,
   runtimeBasePath: string,
   params: Record<string, string>,
-  signal: AbortSignal,
   draft: string | null,
+  signal: AbortSignal,
 ) {
   const url = new URL(runtimePath(endpoint, runtimeBasePath), window.location.origin);
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);

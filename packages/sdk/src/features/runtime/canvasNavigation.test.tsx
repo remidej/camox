@@ -6,8 +6,7 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import { createApp } from "../../core/createApp";
-import { DraftScopeContext } from "../../lib/draft-scope";
-import { testDraftScope } from "../../lib/draft-scope.fixtures";
+import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { PageNavigationProvider } from "./pageNavigation";
 import type { PageRenderInput } from "./runtime";
@@ -101,7 +100,7 @@ for (const base of ["", "/mounted"]) {
     try {
       await React.act(async () => {
         root.render(
-          <DraftScopeContext.Provider value={testDraftScope(queryClient)}>
+          <StudioScopeProvider client={queryClient}>
             <PageNavigationProvider
               camoxApp={createApp({ blocks: [] })}
               initialInput={input}
@@ -112,7 +111,7 @@ for (const base of ["", "/mounted"]) {
                 return <Workspace />;
               }}
             </PageNavigationProvider>
-          </DraftScopeContext.Provider>,
+          </StudioScopeProvider>,
         );
       });
       const push = t.mock.method(window.history, "pushState");

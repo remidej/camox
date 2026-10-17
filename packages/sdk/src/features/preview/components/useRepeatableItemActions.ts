@@ -1,11 +1,11 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { generateKeyBetween } from "fractional-indexing";
 import * as React from "react";
 
 import type { NormalizedItem } from "@/lib/normalized-data";
-import { blockQueries, repeatableItemMutations } from "@/lib/queries";
+import { repeatableItemMutations } from "@/lib/queries";
 
-import { useDraftScope } from "../../../lib/draft-scope";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { PreviewEditingOwnerContext } from "../previewSelection";
 import { previewStore, sameEditingOwner } from "../previewStore";
@@ -194,10 +194,8 @@ const getArraySchemaForItem = (
  * return disabled actions.
  */
 export const useCurrentItemActions = (blockId: string | null, itemId: string | null) => {
-  const draftScope = useDraftScope();
   const camoxApp = useCamoxApp();
-  const { data: blockBundle } = useQuery({
-    ...blockQueries.get(draftScope, blockId!),
+  const { data: blockBundle } = useReadQuery(reads.blockBundle(blockId!), {
     enabled: blockId != null,
   });
 

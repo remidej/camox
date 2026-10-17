@@ -1,24 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 
-import { seedBlockCaches } from "../../lib/normalized-data";
+import { testStudioCache } from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 import { getPageBlockTypes } from "./pageBlockTypes";
 
+/** The render input of a page whose blocks have these types, read in full on the server. */
 function seededState(types: string[]) {
   const queryClient = new QueryClient();
-  seedBlockCaches(
-    queryClient,
-    {
-      blocks: types.map((type, id) => ({ id, type, content: {}, settings: {}, position: "a" })),
-      files: [],
-      repeatableItems: [],
-    } as unknown as Parameters<typeof seedBlockCaches>[1],
-    null,
-  );
-  queryClient.setQueryData(queryKeys.pages.getByPath("/"), { page: { id: 1 } });
+  testStudioCache(queryClient).land(reads.pageStructure({ path: "/", projectSlug: "site" }), {
+    page: { id: "page-1" },
+    blocks: types.map((type, id) => ({ id: `block-${id}`, type, content: {}, settings: {} })),
+    files: [],
+    repeatableItems: [],
+  } as never);
   return dehydrate(queryClient);
 }
 

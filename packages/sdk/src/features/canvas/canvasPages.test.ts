@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CANVAS_DEVICES, getCanvasPages, validateCanvasPageInput } from "./canvasPages";
+import { validateCanvasFrame as validateCanvasPageInput } from "../../lib/studio-reads";
+import { CANVAS_DEVICES, getCanvasPages } from "./canvasPages";
 
 void test("canvas contains curated pages, singleton pages, and one frame per derived layout", () => {
   const pages = getCanvasPages(

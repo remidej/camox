@@ -1,31 +1,26 @@
 import type { EndedDraft } from "@camox/api-contract/drafts";
-import { scopeOfKey, type ProjectRoomMessage, type QueryKey } from "@camox/api-contract/query-keys";
-import { useQueryClient } from "@tanstack/react-query";
+import type { InvalidationMessage, ProjectRoomMessage } from "@camox/api-contract/query-keys";
 import { usePartySocket } from "partysocket/react";
 import { useRef } from "react";
 
 import { getAuthCookieHeader } from "./auth";
-import type { DraftScope } from "./draft-scope";
+import type { StudioCache } from "./studio-reads";
 
 const DEBOUNCE_MS = 300;
-
-type PendingInvalidation = { draftId: string | null; queryKey: QueryKey };
 
 /**
  * Follows the project's realtime room (ADR 0011). An invalidation from a draft refetches only
  * that draft's queries; one from Live refetches every draft's too, since drafts read Live
- * wherever they change nothing. The draft scope says which queries a draft's invalidation
- * reaches: dev mode keys them `development` rather than by its development draft's id.
+ * wherever they change nothing. The studio cache applies each one to the reads it reaches.
  */
 export function useProjectRoom(
   apiUrl: string,
   projectId: number | undefined,
-  draftScope: DraftScope,
+  studioCache: StudioCache,
   { onDraftEnded }: { onDraftEnded?: (ended: EndedDraft) => void } = {},
 ) {
-  const queryClient = useQueryClient();
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const pendingRef = useRef<PendingInvalidation[]>([]);
+  const pendingRef = useRef<InvalidationMessage[]>([]);
 
   const host = apiUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
@@ -68,27 +63,13 @@ export function useProjectRoom(
       }
       if (data.type !== "invalidate") return;
 
-      for (const queryKey of data.targets) {
-        pendingRef.current.push({ draftId: data.draftId ?? null, queryKey });
-      }
+      pendingRef.current.push(data);
 
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         const pending = pendingRef.current;
         pendingRef.current = [];
-
-        for (const { draftId, queryKey } of pending) {
-          if (draftId === null) {
-            void queryClient.invalidateQueries({ queryKey });
-            continue;
-          }
-          void draftScope.keyScopeOfDraft(draftId, projectId!).then((keyScope) =>
-            queryClient.invalidateQueries({
-              queryKey,
-              predicate: (query) => scopeOfKey(query.queryKey) === keyScope,
-            }),
-          );
-        }
+        for (const message of pending) void studioCache.receive(message, projectId!);
       }, DEBOUNCE_MS);
     },
   });

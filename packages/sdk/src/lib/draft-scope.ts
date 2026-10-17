@@ -6,7 +6,7 @@ import {
   type EndedDraft,
 } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { inScope, LIVE_KEY_SCOPE, scopeOfKey, type QueryKey } from "@camox/api-contract/query-keys";
+import { LIVE_KEY_SCOPE, scopeOfKey } from "@camox/api-contract/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
@@ -16,7 +16,8 @@ import { getApiClient } from "./api-client";
 /**
  * Which draft the studio is viewing (ADR 0011): a draft's id, or Live. There is one per server
  * request and one per browser window, provided through `DraftScopeContext` and handed to the API
- * client, so a server render reads the keys its request seeded without any shared state.
+ * client and the studio's reads (`studio-reads.ts`), so a server render reads the keys its
+ * request seeded without any shared state.
  *
  * The URL's `camox-draft` param names the draft. Content writes start one: the first on Live
  * mints an id and asks the API to create it, and the param lands in the URL once a write
@@ -33,8 +34,6 @@ export interface DraftScope {
   /** Calls `listener` after every move to another scope, or after leaving one. */
   subscribe: (listener: (change: DraftScopeChange) => void) => () => void;
 
-  /** A query key as cached for this scope: ending in the draft it reads, or `live`. */
-  keyFor: (key: QueryKey) => QueryKey;
   /**
    * Headers for an API request, and a callback to report whether it succeeded. A content write
    * on Live starts a draft, which the scope enters once one of its writes succeeds.
@@ -199,7 +198,6 @@ export function createDraftScope({
       return () => listeners.delete(listener);
     },
 
-    keyFor: (key) => inScope(key, current),
     requestHeaders: headersFor,
     hrefFor(to, { from, draft } = {}) {
       if (developmentMode) return to;

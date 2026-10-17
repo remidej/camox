@@ -1,11 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import { useProjectSlug } from "@/lib/auth";
-import { collectionQueries } from "@/lib/queries";
 
-import { useDraftScope } from "../../lib/draft-scope";
-import { latestContent, type ReferenceRecord, type SavedRecord } from "../lib/reference";
+import { reads, useReadQuery } from "../../lib/studio-reads";
+import { latestContent, type ReferenceRecord } from "../lib/reference";
 import { fieldPlainText } from "../recordItem";
 import type { LoadedRecord } from "../requestContext";
 
@@ -24,12 +22,13 @@ export function useLatestRecord({
   loaded: LoadedRecord | undefined;
 }): ReferenceRecord | undefined {
   const projectSlug = useProjectSlug();
-  const draftScope = useDraftScope();
-  const { data: saved } = useQuery<SavedRecord>({
-    queryKey: collectionQueries.record(draftScope, projectSlug, collectionId, loaded?.id ?? "")
-      .queryKey,
-    enabled: false,
-  });
+  // Only what saves store: the record page's loader read the record already.
+  const { data: saved } = useReadQuery(
+    reads.record({ projectSlug, collectionId, id: loaded?.id ?? "" }),
+    {
+      enabled: false,
+    },
+  );
   return React.useMemo(() => {
     if (!loaded) return undefined;
     const { content, updatedAt } = latestContent(loaded, saved);

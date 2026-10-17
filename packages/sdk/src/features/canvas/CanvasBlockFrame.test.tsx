@@ -7,10 +7,12 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
-import { StudioQueryClientProvider, testDraftScope } from "../../lib/draft-scope.fixtures";
-
-/** Live, like the scope the rendered studio views. */
-const draftScope = testDraftScope();
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 
 // Render the real frame and block, signed in, without the Camox provider.
 registerHooks({
@@ -332,7 +334,6 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
   const { createBlock } = await import("../../core/createBlock");
   const { BlockEditingRuntimeProvider } = await import("../../core/editing/BlockEditingRuntime");
   const { initApiClient } = await import("../../lib/api-client");
-  const { blockQueries } = await import("../../lib/queries");
   const { PreviewDocumentContext } = await import("../runtime/PreviewDocumentContext");
   const { previewStore } = await import("../preview/previewStore");
   const { CanvasBlockFrame } = await import("./CanvasBlockFrame");
@@ -382,17 +383,14 @@ void test("Synced Blocks show the project's shared content in their Block Catalo
   });
   const client = new QueryClient();
   // The project has shared content for the navbar, none yet for the footer.
-  client.setQueryData(
-    blockQueries.getSyncedContent(draftScope, projectId, "navbar").queryKey,
+  testStudioCache(client).set(
+    reads.syncedContent({ projectId, type: "navbar" }),
     sharedContent("navbar", "Shared navbar title") as never,
   );
-  client.setQueryData(
-    blockQueries.getSyncedContent(draftScope, projectId, "footer").queryKey,
-    null as never,
-  );
+  testStudioCache(client).set(reads.syncedContent({ projectId, type: "footer" }), null as never);
   // Placements of a block that isn't synced have their own content, never shared.
-  client.setQueryData(
-    blockQueries.getSyncedContent(draftScope, projectId, "banner").queryKey,
+  testStudioCache(client).set(
+    reads.syncedContent({ projectId, type: "banner" }),
     sharedContent("banner", "Placed banner title") as never,
   );
   const editingRenders: unknown[] = [];

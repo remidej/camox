@@ -12,13 +12,15 @@ import {
 import { FaviconDropZone, validateFaviconFile } from "@camox/ui/favicon-drop-zone";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Trash2, TriangleAlert } from "lucide-react";
 import * as React from "react";
 
 import { buildFaviconPlaceholderUrl, buildFaviconUrl } from "@/features/routes/pageRuntime";
 import { getApiUrl } from "@/lib/api-client";
-import { type Project, projectMutations, projectQueries } from "@/lib/queries";
+import { type Project, projectMutations } from "@/lib/queries";
+
+import { reads, useStudioCache } from "../../../lib/studio-reads";
 
 type PendingChange = { type: "upload"; file: File } | { type: "remove" } | null;
 
@@ -48,7 +50,7 @@ export function FaviconDialog({
 }
 
 function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => void }) {
-  const queryClient = useQueryClient();
+  const studioCache = useStudioCache();
   const [pending, setPending] = React.useState<PendingChange>(null);
   const [hasCurrent, setHasCurrent] = React.useState(false);
   const currentUrl = buildFaviconUrl(getApiUrl(), project, { placeholder: false });
@@ -77,12 +79,8 @@ function FaviconForm({ project, onSaved }: { project: Project; onSaved: () => vo
   }, [pendingUrl]);
 
   const onSuccess = async () => {
-    await queryClient.invalidateQueries({
-      queryKey: projectQueries.getBySlug(project.slug).queryKey,
-    });
-    const updated = queryClient.getQueryData<Project>(
-      projectQueries.getBySlug(project.slug).queryKey,
-    );
+    await studioCache.invalidate(reads.project({ slug: project.slug }));
+    const updated = studioCache.get(reads.project({ slug: project.slug }));
     refreshDocumentFavicon(buildFaviconUrl(getApiUrl(), updated ?? project));
     toast.success(pending?.type === "remove" ? "Favicon removed" : "Favicon updated");
     onSaved();

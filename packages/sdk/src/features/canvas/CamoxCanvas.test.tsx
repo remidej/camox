@@ -13,26 +13,30 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     if (!context.parentURL?.endsWith("/CamoxCanvas.tsx")) return nextResolve(specifier, context);
     let source: string | undefined;
-    if (specifier === "@tanstack/react-query")
-      source = `export const useQuery = (options) => globalThis.CanvasQueryProbe(options);
-        export const useQueries = ({ queries, combine }) => combine(queries.map(() => ({})));
-        export const useMutation = () => ({});
-        export const useQueryClient = () => ({});`;
+    if (specifier === "@tanstack/react-query") source = `export const useMutation = () => ({});`;
+    // Each read answers the probe under a name it dispatches on; a frame's names its path.
+    if (specifier.endsWith("/studio-reads"))
+      source = `export const reads = {
+          project: () => ({queryKey: ["project"]}),
+          pageList: () => ({queryKey: ["pages"]}),
+          page: () => ({queryKey: ["page"]}),
+          pagesUsingBlock: ({type}) => ({queryKey: ["blockPages", type]}),
+          canvasFrame: ({projectSlug, runtimeBasePath, pathname}) =>
+            ({queryKey: ["canvasFrame", projectSlug, runtimeBasePath, null, pathname]}),
+          discoveredPath: () => ({queryKey: ["discoveredPath"]}),
+        };
+        export const useReadQuery = (read, options) => globalThis.CanvasQueryProbe({...read, ...options});
+        export const useReadQueries = (list, combine) => combine(list.map(() => ({})));
+        export const useStudioCache = () => ({});`;
     if (specifier.endsWith("/auth"))
       source = `export const useProjectSlug = () => "site";
         export const useAuthContext = () => ({apiUrl: "", projectSlug: "site"});`;
     if (specifier.endsWith("/queries"))
-      source = `export const projectQueries = {getBySlug: () => ({queryKey: ["project"]})};
-        export const pageMutations = {update: () => ({})};
-        export const pageQueries = {list: () => ({queryKey: ["pages"]})};
-        export const layoutQueries = {list: () => ({queryKey: ["layouts"]})};
-        export const blockQueries = {getPagesUsing: (_scope, _projectId, type) => ({queryKey: ["blockPages", type]})};`;
+      source = `export const pageMutations = {update: () => ({})};`;
     if (specifier.endsWith("/navigation"))
       source = `export const useLocation = () => globalThis.CanvasLocation;
         export const useNavigate = () => globalThis.CanvasNavigate;
         export const NavigationProvider = (props) => globalThis.CanvasNavigationProbe(props);`;
-    if (specifier.endsWith("/draft-scope"))
-      source = `export const useDraftScope = () => ({keyFor: (key) => [...key, "live"], current: () => null});`;
     if (specifier.endsWith("/CamoxAppContext"))
       source =
         "export const useCamoxApp = () => ({getLayouts: () => [], getBlocks: () => globalThis.CanvasBlocks, getBlockById: (id) => globalThis.CanvasBlocks.find((block) => block._internal.id === id)})";

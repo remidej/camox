@@ -15,15 +15,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { useForm } from "@tanstack/react-form";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { useEffect, useMemo } from "react";
 
 import { useNavigate } from "@/features/navigation/navigation";
 import { useProjectSlug } from "@/lib/auth";
-import { layoutQueries, pageMutations, pageQueries, projectQueries } from "@/lib/queries";
+import { pageMutations } from "@/lib/queries";
 
-import { useDraftScope } from "../../../lib/draft-scope";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { previewStore } from "../previewStore";
 import { PageLocationFieldset } from "./PageLocationFieldset";
@@ -42,17 +42,14 @@ const slugifyPathSegment = (nickname: string) => {
 };
 
 const CreatePageModal = () => {
-  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const open = useSelector(previewStore, (state) => state.context.isCreatePageModalOpen);
   const createPage = useMutation(pageMutations.create());
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...pageQueries.list(draftScope, project?.id ?? 0),
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
     enabled: !!project,
   });
-  const { data: allLayouts } = useQuery({
-    ...layoutQueries.list(draftScope, project?.id ?? 0),
+  const { data: allLayouts } = useReadQuery(reads.layoutList({ projectId: project?.id ?? 0 }), {
     enabled: !!project,
   });
   const camoxApp = useCamoxApp();

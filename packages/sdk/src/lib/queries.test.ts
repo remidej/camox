@@ -13,15 +13,7 @@ Object.assign(globalThis, {
 });
 const { initApiClient } = await import("./api-client");
 const { createDraftScope } = await import("./draft-scope");
-const {
-  blockQueries,
-  collectionQueries,
-  fileQueries,
-  layoutQueries,
-  pageMutations,
-  pageQueries,
-  projectMutations,
-} = await import("./queries");
+const { pageMutations, projectMutations } = await import("./queries");
 
 /** Opens the studio at `url`, viewing the draft it names. */
 function openStudio(url: string) {
@@ -37,26 +29,6 @@ function openStudio(url: string) {
   initApiClient("http://api.test", draftScope);
   return draftScope;
 }
-
-/** Every query the studio reads content with, as built while the studio is at `url`. */
-function keysAt(url: string) {
-  const draftScope = openStudio(url);
-  return [
-    blockQueries.get(draftScope, "block-1").queryKey,
-    blockQueries.getUsageCounts(draftScope, 1).queryKey,
-    pageQueries.getByPath(draftScope, "/about", "site").queryKey,
-    pageQueries.list(draftScope, 1).queryKey,
-    fileQueries.get(draftScope, "file-1").queryKey,
-    layoutQueries.list(draftScope, 1).queryKey,
-    collectionQueries.records(draftScope, "site", "posts").queryKey,
-    collectionQueries.record(draftScope, "site", "posts", "record-1").queryKey,
-  ];
-}
-
-void test("query keys end in the draft the studio reads, or live", () => {
-  for (const key of keysAt("/about?camox-draft=d1")) assert.equal(key.at(-1), "d1", String(key));
-  for (const key of keysAt("/about")) assert.equal(key.at(-1), "live", String(key));
-});
 
 void test("changing a page's custom OG image on Live starts a draft, and the studio enters it", async (t) => {
   openStudio("/about");

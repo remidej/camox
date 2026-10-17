@@ -1,11 +1,10 @@
 import { Toaster, toast } from "@camox/ui/toaster";
-import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import studioCssUrl from "virtual:camox-studio-css";
 
 import { AuthContext, useAuthActions } from "../../lib/auth";
 import { useDraftScope } from "../../lib/draft-scope";
-import { projectQueries } from "../../lib/queries";
+import { reads, useReadQuery, useStudioCache } from "../../lib/studio-reads";
 import { useProjectRoom } from "../../lib/use-project-room";
 import { usePreviewPagesActions } from "../preview/CamoxPreview";
 import { useNavbarActions } from "../studio/components/Navbar";
@@ -23,14 +22,15 @@ export function AuthenticatedCamoxProvider({ children }: { children: React.React
   usePreviewPagesActions();
 
   const { apiUrl, projectSlug } = React.useContext(AuthContext)!;
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
   const draftScope = useDraftScope();
+  const studioCache = useStudioCache();
   // Say why the studio shows Live when the draft a member opened, or was in, can't be shown.
   React.useEffect(
     () => draftScope.onNotice((notice) => void toast(draftNoticeMessage(notice))),
     [draftScope],
   );
-  useProjectRoom(apiUrl, project?.id, draftScope, {
+  useProjectRoom(apiUrl, project?.id, studioCache, {
     onDraftEnded(ended) {
       if (ended.draftId !== draftScope.current()) return;
       draftScope.leave(ended, { notice: true });

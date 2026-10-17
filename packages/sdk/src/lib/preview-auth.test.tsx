@@ -20,8 +20,7 @@ const { createRoot } = await import("react-dom/client");
 const { createCamoxAuthClient, useProcessOtt } = await import("./auth");
 const { useLocation, useNavigate } = await import("../features/navigation/navigation");
 const { PageNavigationProvider } = await import("../features/runtime/pageNavigation");
-const { DraftScopeContext } = await import("./draft-scope");
-const { testDraftScope } = await import("./draft-scope.fixtures");
+const { StudioScopeProvider } = await import("./draft-scope.fixtures");
 
 void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces failures", async () => {
   let exchanges = 0;
@@ -95,7 +94,7 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
     await act(async () => {
       root.render(
         <StrictMode>
-          <DraftScopeContext.Provider value={testDraftScope(queryClient)}>
+          <StudioScopeProvider client={queryClient}>
             <PageNavigationProvider
               camoxApp={createApp({ blocks: [] })}
               initialInput={input}
@@ -103,7 +102,7 @@ void test("fresh browser handoff exchanges once, persists SSR auth, and surfaces
             >
               {() => <Harness />}
             </PageNavigationProvider>
-          </DraftScopeContext.Provider>
+          </StudioScopeProvider>
         </StrictMode>,
       );
     });

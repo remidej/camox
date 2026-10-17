@@ -5,7 +5,7 @@ import { Label } from "@camox/ui/label";
 import { Switch } from "@camox/ui/switch";
 import { toast } from "@camox/ui/toaster";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Check, Download, FileIcon, Info, Link, Loader2, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -14,9 +14,9 @@ import { UploadDropZone } from "@/features/content/components/UploadDropZone";
 import { getApiUrl } from "@/lib/api-client";
 import { getContentWriteHeaders } from "@/lib/api-client";
 import { getAuthCookieHeader, getAuthRequestCredentials } from "@/lib/auth";
-import { fileMutations, fileQueries } from "@/lib/queries";
+import { fileMutations } from "@/lib/queries";
 
-import { useDraftScope } from "../../../lib/draft-scope";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { DebouncedFieldEditor } from "./DebouncedFieldEditor";
 import { formatRelativeTime, Metadata, MetadataRow } from "./Metadata";
 
@@ -131,13 +131,12 @@ interface AssetLightboxProps {
 }
 
 const AssetLightbox = ({ open, onOpenChange, fileId }: AssetLightboxProps) => {
-  const draftScope = useDraftScope();
   const deleteFile = useMutation(fileMutations.delete());
   const setAiMetadata = useMutation(fileMutations.setAiMetadata());
   const setFilename = useMutation(fileMutations.setFilename());
   const setAlt = useMutation(fileMutations.setAlt());
-  const { data: file } = useQuery(fileQueries.get(draftScope, fileId));
-  const { data: usageCount } = useQuery(fileQueries.getUsageCount(fileId));
+  const { data: file } = useReadQuery(reads.file(fileId));
+  const { data: usageCount } = useReadQuery(reads.fileUsageCount(fileId));
   const [uploadState, setUploadState] = useState<{
     status: "uploading" | "committing" | "complete" | "error";
     progress: number;

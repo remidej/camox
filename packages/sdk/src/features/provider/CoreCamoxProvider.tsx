@@ -2,7 +2,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { CamoxApp } from "../../core/createApp";
-import { initApiClient } from "../../lib/api-client";
+import { getDraftReadClient, initApiClient } from "../../lib/api-client";
 import { AuthContext, createCamoxAuthClient, useProcessOtt } from "../../lib/auth";
 import {
   createDraftScope,
@@ -10,7 +10,8 @@ import {
   followUrl,
   DraftScopeContext,
 } from "../../lib/draft-scope";
-import { projectQueries, type Project } from "../../lib/queries";
+import type { Project } from "../../lib/queries";
+import { StudioCacheContext, createStudioCache, reads } from "../../lib/studio-reads";
 import { CamoxAppProvider } from "./components/CamoxAppContext";
 import { PreviewSignInPage } from "./PreviewSignInPage";
 
@@ -65,11 +66,18 @@ export function CoreCamoxProvider({
     // oxlint-disable-next-line react/refs -- see above
     initializedClient.current = { apiUrl, draftScope };
   }
+  const providedCache = React.useContext(StudioCacheContext);
+  const [ownCache] = React.useState(() =>
+    providedCache
+      ? null
+      : createStudioCache({ queryClient, scope: draftScope, api: getDraftReadClient }),
+  );
+  const studioCache = providedCache ?? ownCache!;
 
   const seededProject = React.useRef<Project | undefined>(undefined);
   // oxlint-disable-next-line react/refs -- the cache must be seeded before children query it
   if (initialProject && seededProject.current !== initialProject) {
-    queryClient.setQueryData(projectQueries.getBySlug(projectSlug).queryKey, initialProject);
+    studioCache.set(reads.project({ slug: projectSlug }), initialProject);
     // oxlint-disable-next-line react/refs -- see above
     seededProject.current = initialProject;
   }
@@ -93,17 +101,19 @@ export function CoreCamoxProvider({
 
   return (
     <DraftScopeContext.Provider value={draftScope}>
-      <AuthContext.Provider
-        value={{
-          authClient,
-          authenticationUrl,
-          apiUrl,
-          projectSlug,
-          initialAuthenticated,
-        }}
-      >
-        <CamoxAppProvider app={camoxApp}>{children}</CamoxAppProvider>
-      </AuthContext.Provider>
+      <StudioCacheContext.Provider value={studioCache}>
+        <AuthContext.Provider
+          value={{
+            authClient,
+            authenticationUrl,
+            apiUrl,
+            projectSlug,
+            initialAuthenticated,
+          }}
+        >
+          <CamoxAppProvider app={camoxApp}>{children}</CamoxAppProvider>
+        </AuthContext.Provider>
+      </StudioCacheContext.Provider>
     </DraftScopeContext.Provider>
   );
 }

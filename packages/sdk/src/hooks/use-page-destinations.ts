@@ -1,19 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import { getPageDestinations } from "../core/pageDestinations";
 import { useCamoxApp } from "../features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "../lib/auth";
-import { useDraftScope } from "../lib/draft-scope";
-import { pageQueries, projectQueries } from "../lib/queries";
+import { reads, useReadQuery } from "../lib/studio-reads";
 
 export function usePageDestinations() {
-  const draftScope = useDraftScope();
   const app = useCamoxApp();
   const projectSlug = useProjectSlug();
-  const { data: project } = useQuery(projectQueries.getBySlug(projectSlug));
-  const { data: pages } = useQuery({
-    ...pageQueries.list(draftScope, project?.id ?? 0),
+  const { data: project } = useReadQuery(reads.project({ slug: projectSlug }));
+  const { data: pages } = useReadQuery(reads.pageList({ projectSlug }), {
     enabled: !!project,
   });
   return useMemo(() => getPageDestinations(pages ?? [], app.getLayouts()), [app, pages]);

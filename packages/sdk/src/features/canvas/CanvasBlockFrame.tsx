@@ -1,13 +1,11 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
 import type { Block } from "../../core/createBlock";
 import { BlockEditingRuntimeProvider } from "../../core/editing/BlockEditingRuntime";
 import { ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
-import { useDraftScope } from "../../lib/draft-scope";
 import { NormalizedDataProvider } from "../../lib/normalized-data";
-import { blockQueries } from "../../lib/queries";
+import { reads, useRead } from "../../lib/studio-reads";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { PreviewDocumentContext } from "../runtime/PreviewDocumentContext";
 import { canvasDocumentStyles, canvasPageHref } from "./canvasFrameDocument";
@@ -150,10 +148,7 @@ function DefaultBlockContent({ block }: { block: Block }) {
 
 /** A Synced Block shows the project's shared content, or its defaults until it has some. */
 function SyncedBlockContent({ block, projectId }: { block: Block; projectId: number }) {
-  const draftScope = useDraftScope();
-  const { data: shared } = useSuspenseQuery(
-    blockQueries.getSyncedContent(draftScope, projectId, block._internal.id),
-  );
+  const shared = useRead(reads.syncedContent({ projectId, type: block._internal.id }));
   if (!shared) return <DefaultBlockContent block={block} />;
   return (
     <BlockContent

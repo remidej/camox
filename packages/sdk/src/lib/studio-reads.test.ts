@@ -1,0 +1,281 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { DEVELOPMENT_DRAFT } from "@camox/api-contract/drafts";
+import { queryKeys } from "@camox/api-contract/query-keys";
+import { QueryClient } from "@tanstack/react-query";
+
+import type { ApiClient } from "./api-client";
+import { createDraftScope } from "./draft-scope";
+import type { PageWithBlocks } from "./queries";
+import { createStudioCache, reads } from "./studio-reads";
+
+/** Every call an API stand-in received: the draft it named, the procedure and its input. */
+type Call = { draft: string | null; procedure: string; input: unknown };
+
+/** An API answering each procedure with `answers[procedure](input)`, recording every call. */
+function fakeApi(answers: Record<string, (input: any) => unknown> = {}) {
+  const calls: Call[] = [];
+  const clientFor = (draft: string | null, path: string[] = []): unknown =>
+    new Proxy(() => {}, {
+      get: (_target, name) => clientFor(draft, [...path, String(name)]),
+      apply: async (_target, _this, [input]) => {
+        const procedure = path.join(".");
+        calls.push({ draft, procedure, input });
+        const answer = answers[procedure];
+        if (!answer) throw new Error(`Unexpected call to ${procedure}`);
+        return answer(input);
+      },
+    });
+  return { calls, api: (draft: string | null) => clientFor(draft) as ApiClient };
+}
+
+function openCache(answers?: Record<string, (input: any) => unknown>, developmentMode = false) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const scope = createDraftScope({ queryClient, developmentMode });
+  const { api, calls } = fakeApi(answers);
+  return { queryClient, scope, calls, cache: createStudioCache({ queryClient, scope, api }) };
+}
+
+function file(id: string) {
+  return { id, url: `https://cdn.test/${id}.png`, alt: "", filename: `${id}.png` };
+}
+
+function record(id: string, content: Record<string, unknown>, references?: unknown) {
+  return { id, collectionId: "authors", label: id, content, references };
+}
+
+/** A page with one block whose reference links a record, which links another in turn. */
+function pageWithLinkedRecords() {
+  const nested = record("team", { logo: { _fileId: "team-logo" } });
+  const author = record("ada", { portrait: { _fileId: "portrait" } }, { team: nested });
+  return {
+    page: { id: "page-1", blockIds: ["block-1"] },
+    layout: null,
+    projectName: "Site",
+    project: { id: 1 },
+    blocks: [
+      {
+        id: "block-1",
+        type: "quote",
+        content: { photo: { _fileId: "block-photo" } },
+        settings: {},
+        references: { author },
+      },
+    ],
+    repeatableItems: [
+      {
+        id: "item-1",
+        blockId: "block-1",
+        content: {},
+        settings: {},
+        references: { authors: [record("grace", { portrait: { _fileId: "item-portrait" } })] },
+      },
+    ],
+    files: ["block-photo", "portrait", "team-logo", "item-portrait", "unused"].map(file),
+  } as unknown as PageWithBlocks;
+}
+
+const home = reads.pageStructure({ path: "/", projectSlug: "site" });
+
+void test("a page read in full fills each block's bundle with the files of the records its block and items link", () => {
+  const { cache } = openCache();
+
+  const structure = cache.land(home, pageWithLinkedRecords(), { in: null });
+
+  assert.deepEqual(structure.page, { id: "page-1", blockIds: ["block-1"] });
+  assert.equal("blocks" in structure, false, "the structure leaves the blocks to their reads");
+  const bundle = cache.get(reads.blockBundle("block-1"), { in: null })!;
+  assert.deepEqual(bundle.files.map((f) => f.id).sort(), [
+    "block-photo",
+    "item-portrait",
+    "portrait",
+    "team-logo",
+  ]);
+  assert.equal(bundle.repeatableItems.length, 1);
+  assert.ok(cache.get(reads.file("team-logo"), { in: null }));
+});
+
+void test("a read landed in a draft fills that draft's reads, never Live's", () => {
+  const { cache } = openCache();
+
+  cache.land(home, pageWithLinkedRecords(), { in: "d1" });
+
+  assert.ok(cache.get(reads.blockBundle("block-1"), { in: "d1" }));
+  assert.equal(cache.get(reads.blockBundle("block-1"), { in: null }), undefined);
+});
+
+void test("reads are keyed under the draft the studio views, and shared reads under none", () => {
+  const { cache, scope } = openCache();
+  scope.adopt({ draftId: "d1" });
+
+  assert.deepEqual(cache.options(reads.blockBundle("b")).queryKey, [
+    ...queryKeys.blocks.get("b"),
+    "d1",
+  ]);
+  assert.deepEqual(cache.options(reads.project({ slug: "site" })).queryKey, [
+    "camox",
+    "projects",
+    "getBySlug",
+    "site",
+  ]);
+  assert.deepEqual(cache.options(reads.draft({ projectId: 1, draftId: "d2" })).queryKey, [
+    ...queryKeys.drafts.get,
+    "d2",
+  ]);
+});
+
+void test("a read fetches the draft its key names, even once the studio moved to another", async () => {
+  const { cache, scope, calls } = openCache({
+    "blocks.get": ({ id }) => ({ block: { id }, repeatableItems: [], files: [] }),
+  });
+  scope.adopt({ draftId: "d1" });
+  const options = cache.options(reads.blockBundle("b"));
+
+  scope.adopt({ draftId: "d2" });
+  await options.queryFn({ signal: new AbortController().signal });
+
+  assert.deepEqual(
+    calls.map((call) => call.draft),
+    ["d1"],
+  );
+});
+
+void test("a draft's review reads that draft, whatever draft the studio views", async () => {
+  const { cache, calls } = openCache({ "drafts.previewPublish": () => ({ changes: [] }) });
+
+  await cache.ensure(reads.publishPreview({ projectId: 1, draftId: "d2" }));
+
+  assert.deepEqual(calls, [
+    { draft: "d2", procedure: "drafts.previewPublish", input: { projectId: 1 } },
+  ]);
+});
+
+void test("ensuring a page loads it in full only when absent", async () => {
+  const { cache, calls } = openCache({ "pages.getByPath": () => pageWithLinkedRecords() });
+
+  await cache.ensure(home);
+  await cache.ensure(home);
+
+  assert.deepEqual(
+    calls.map((call) => call.procedure),
+    ["pages.getByPath"],
+  );
+  assert.ok(cache.get(reads.blockBundle("block-1")), "its blocks are filled in");
+});
+
+void test("an optimistic change rolls back to what each read held, forgetting reads it created", () => {
+  const { cache } = openCache();
+  const bundle = reads.blockBundle("b");
+  const added = reads.blockBundle("added");
+  cache.set(bundle, { block: { id: "b", title: "Before" } } as never);
+
+  const edit = cache.edit();
+  edit.set(bundle, { block: { id: "b", title: "After" } } as never);
+  edit.set(added, { block: { id: "added" } } as never);
+  assert.deepEqual(cache.get(bundle), { block: { id: "b", title: "After" } });
+  edit.rollback();
+
+  assert.deepEqual(cache.get(bundle), { block: { id: "b", title: "Before" } });
+  assert.equal(cache.get(added), undefined);
+});
+
+void test("settling an optimistic change refreshes the reads it touched, in the draft it was made in", () => {
+  const { cache, queryClient, scope } = openCache();
+  scope.adopt({ draftId: "d1" });
+  const bundle = reads.blockBundle("b");
+  cache.set(bundle, { block: { id: "b" } } as never);
+  cache.set(reads.blockBundle("other"), { block: { id: "other" } } as never);
+
+  const edit = cache.edit();
+  edit.set(bundle, { block: { id: "b", title: "After" } } as never);
+  scope.adopt({ draftId: "d2" });
+  edit.settle();
+
+  const state = (draft: string, id: string) =>
+    queryClient.getQueryState(cache.options(reads.blockBundle(id), { in: draft }).queryKey);
+  assert.equal(state("d1", "b")?.isInvalidated, true);
+  assert.equal(state("d1", "other")?.isInvalidated, false);
+});
+
+void test("realtime refreshes a draft's reads for its own changes, and every scope's for Live's", async () => {
+  const { cache, queryClient } = openCache();
+  for (const draft of [null, "d1", "d2"])
+    cache.set(reads.blockBundle("b"), { block: { id: "b" } } as never, { in: draft });
+  const invalidated = () =>
+    [null, "d1", "d2"].filter(
+      (draft) =>
+        queryClient.getQueryState(cache.options(reads.blockBundle("b"), { in: draft }).queryKey)
+          ?.isInvalidated,
+    );
+
+  await cache.receive(
+    { type: "invalidate", draftId: "d1", targets: [queryKeys.blocks.get("b")] },
+    1,
+  );
+  assert.deepEqual(invalidated(), ["d1"]);
+
+  await cache.receive(
+    { type: "invalidate", draftId: null, targets: [queryKeys.blocks.get("b")] },
+    1,
+  );
+  assert.deepEqual(invalidated(), [null, "d1", "d2"]);
+});
+
+void test("realtime reaches dev mode's reads through its development draft's id", async () => {
+  const queryClient = new QueryClient();
+  const scope = createDraftScope({
+    queryClient,
+    developmentMode: true,
+    loadDevelopmentDraftId: async () => "dev-uuid",
+  });
+  const cache = createStudioCache({ queryClient, scope, api: fakeApi().api });
+  cache.set(reads.blockBundle("b"), { block: { id: "b" } } as never);
+
+  await cache.receive(
+    { type: "invalidate", draftId: "dev-uuid", targets: [queryKeys.blocks.get("b")] },
+    1,
+  );
+
+  const key = cache.options(reads.blockBundle("b")).queryKey;
+  assert.equal(key.at(-1), DEVELOPMENT_DRAFT);
+  assert.equal(queryClient.getQueryState(key)?.isInvalidated, true);
+});
+
+/** What the API broadcasts: the key prefixes its invalidations name (apps/api). */
+const BROADCAST_PREFIXES = [
+  queryKeys.pages.getByPathAll,
+  queryKeys.pages.list,
+  queryKeys.pages.getById(""),
+  queryKeys.blocks.getUsageCounts,
+  queryKeys.blocks.getPageMarkdown(""),
+  queryKeys.blocks.get(""),
+  queryKeys.files.list,
+  queryKeys.files.get(""),
+  queryKeys.layouts.all,
+  queryKeys.drafts.all,
+  queryKeys.collections.records("", ""),
+  queryKeys.collections.record("", "", ""),
+].map((prefix) => prefix.filter((segment) => segment !== ""));
+
+/** Reads realtime doesn't need to reach: the same for every viewer, or code-owned. */
+const UNREACHED = new Set(["project", "collectionList", "collection"]);
+
+void test("realtime reaches every read: each key sits under a prefix the API broadcasts", () => {
+  const params = new Proxy({}, { get: () => "x" });
+  for (const [name, entry] of Object.entries(reads)) {
+    if (UNREACHED.has(name)) continue;
+    const key = entry.definition.key(params as never);
+    const reached = BROADCAST_PREFIXES.some((prefix) =>
+      prefix.every((segment, index) => key[index] === segment),
+    );
+    assert.ok(reached, `${name}: ${JSON.stringify(key)}`);
+  }
+});
+
+void test("a block bundle's key names its block, and no other read's does", () => {
+  const { cache } = openCache();
+
+  assert.equal(reads.blockBundle.paramsOf(cache.options(reads.blockBundle("b")).queryKey), "b");
+  assert.equal(reads.blockBundle.paramsOf(cache.options(reads.file("b")).queryKey), null);
+});

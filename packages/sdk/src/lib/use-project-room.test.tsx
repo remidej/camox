@@ -20,6 +20,7 @@ Object.assign(globalThis, {
 const { createRoot } = await import("react-dom/client");
 const { useProjectRoom } = await import("./use-project-room");
 const { createDraftScope } = await import("./draft-scope");
+const { createStudioCache } = await import("./studio-reads");
 
 async function waitFor(check: () => boolean, message = "Expected live preview update") {
   for (let i = 0; i < 200 && !check(); i++) {
@@ -83,6 +84,11 @@ async function projectRoom(
     developmentMode: developmentDraftId !== undefined,
     loadDevelopmentDraftId: async () => developmentDraftId,
   });
+  const studioCache = createStudioCache({
+    queryClient,
+    scope: draftScope,
+    api: () => assert.fail("realtime reads nothing itself"),
+  });
   const host = document.createElement("div");
   const root = createRoot(host);
   const fetches = queryKeys.map(() => 0);
@@ -99,7 +105,7 @@ async function projectRoom(
     return <p>{query.data}</p>;
   }
   function Preview() {
-    useProjectRoom(apiUrl, 1, draftScope, options);
+    useProjectRoom(apiUrl, 1, studioCache, options);
     return queryKeys.map((key, index) => <Query key={JSON.stringify(key)} index={index} />);
   }
 

@@ -14,13 +14,14 @@ import { Button } from "@camox/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@camox/ui/dialog";
 import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useDraftScope } from "@/lib/draft-scope";
-import { draftMutations, draftQueries, type DraftSummary } from "@/lib/queries";
+import { draftMutations, type DraftSummary } from "@/lib/queries";
 
+import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 
 type Subject = PublishPreview["changes"][number];
@@ -173,14 +174,14 @@ function DraftName({
   draft: DraftSummary;
   startRenaming: boolean;
 }) {
-  const queryClient = useQueryClient();
+  const studioCache = useStudioCache();
   const [editing, setEditing] = React.useState(startRenaming);
   const [value, setValue] = React.useState(draft.name ?? "");
   const rename = useMutation({
     ...draftMutations.rename(),
     onSuccess: (renamed) => {
-      queryClient.setQueryData(draftQueries.get(projectId, draft.id).queryKey, renamed);
-      void queryClient.invalidateQueries({ queryKey: draftQueries.list(projectId).queryKey });
+      studioCache.set(reads.draft({ projectId, draftId: draft.id }), renamed);
+      void studioCache.invalidate(reads.draftList({ projectId }));
     },
     onError: (error) => toast.error(error.message || "Could not rename the draft"),
   });
@@ -248,11 +249,8 @@ export function ReviewDraftDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
-  const preview = useQuery({
-    ...draftQueries.previewPublish(projectId, draftId),
-    enabled: open,
-  });
-  const draft = useQuery({ ...draftQueries.get(projectId, draftId), enabled: open });
+  const preview = useReadQuery(reads.publishPreview({ projectId, draftId }), { enabled: open });
+  const draft = useReadQuery(reads.draft({ projectId, draftId }), { enabled: open });
   const leaveDraft = useLeaveDraft();
 
   const leave = (ended: EndedDraft | null) => {

@@ -34,7 +34,8 @@ const { DraftsControl } = await import("./DraftsControl");
 const { initApiClient } = await import("@/lib/api-client");
 const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
-const { createDraftScope, DraftScopeContext } = await import("@/lib/draft-scope");
+const { createDraftScope } = await import("@/lib/draft-scope");
+const { StudioScopeProvider } = await import("@/lib/draft-scope.fixtures");
 /** The draft scope of the rendered control, and whether it runs in dev mode. */
 let draftScope: import("@/lib/draft-scope").DraftScope;
 let developmentMode = false;
@@ -232,14 +233,14 @@ async function render(t: test.TestContext, at: string | null) {
   await React.act(async () =>
     root.render(
       <QueryClientProvider client={client}>
-        <DraftScopeContext.Provider value={draftScope}>
+        <StudioScopeProvider client={client} draftScope={draftScope}>
           <AuthContext.Provider value={auth}>
             <NavigationProvider navigate={(options) => void navigations.push(options)}>
               <DraftsControl />
               <Palette />
             </NavigationProvider>
           </AuthContext.Provider>
-        </DraftScopeContext.Provider>
+        </StudioScopeProvider>
       </QueryClientProvider>,
     ),
   );

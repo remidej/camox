@@ -4,7 +4,7 @@ import { Label } from "@camox/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@camox/ui/select";
 import { Spinner } from "@camox/ui/spinner";
 import { Switch } from "@camox/ui/switch";
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { CirclePlus, Trash2 } from "lucide-react";
 import * as React from "react";
@@ -12,10 +12,10 @@ import * as React from "react";
 import { fieldTypesDictionary } from "@/core/lib/fieldTypes";
 import { editorAssetField } from "@/features/content/collection-form";
 import { isFileMarker, type NormalizedItem } from "@/lib/normalized-data";
-import { blockMutations, blockQueries, fileQueries, repeatableItemMutations } from "@/lib/queries";
+import { blockMutations, repeatableItemMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-import { useDraftScope } from "../../../lib/draft-scope";
+import { reads, useReadQueries, useReadQuery } from "../../../lib/studio-reads";
 import { useCamoxApp } from "../../provider/components/CamoxAppContext";
 import { selectionHoverMessage, type OverlayMessage } from "../overlayMessages";
 import { usePageRecordPlacer } from "../pageRecord";
@@ -150,7 +150,6 @@ const PageEditorSidebar = () => {
 };
 
 const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
-  const draftScope = useDraftScope();
   const camoxApp = useCamoxApp();
   const updateSettings = useMutation(blockMutations.updateSettings());
   const updateRepeatableSettings = useMutation(repeatableItemMutations.updateSettings());
@@ -181,8 +180,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
   const currentItemId = selectionItemId(selection);
 
   // Look up the actual block data from individual block cache (granular caching)
-  const { data: blockBundle } = useQuery({
-    ...blockQueries.get(draftScope, blockId!),
+  const { data: blockBundle } = useReadQuery(reads.blockBundle(blockId!), {
     enabled: blockId != null,
   });
   const block = blockBundle?.block ?? null;
@@ -195,9 +193,7 @@ const PageEditorSidebarContent = ({ owner }: { owner: EditingOwner }) => {
     [blockBundle?.files],
   );
 
-  const fileResults = useQueries({
-    queries: fileIds.map((id) => fileQueries.get(draftScope, id)),
-  });
+  const fileResults = useReadQueries(fileIds.map((id) => reads.file(id)));
 
   const filesMap = React.useMemo(() => {
     const map = new Map((blockBundle?.files ?? []).map((f) => [f.id, f]));

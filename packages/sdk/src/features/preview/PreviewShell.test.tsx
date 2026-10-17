@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
-import { StudioQueryClientProvider } from "../../lib/draft-scope.fixtures";
+import { StudioQueryClientProvider, testStudioCache } from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 
 Object.assign(globalThis, { React });
 
@@ -28,14 +28,10 @@ registerHooks({
         "@/features/navigation/navigation":
           "export const useLocation = () => ({pathname: '/'}); export const useNavigate = () => (options) => { globalThis.testNavigations?.push(options) }",
         "@/hooks/use-page-destinations": "export const usePageDestinations = () => []",
-        "@/lib/api-client": `export const getApiClient = () => ({
-          pages: { getByPath: () => Promise.reject(new Error("No refetch in shell test")) },
-          layouts: { get: () => Promise.resolve({layout: globalThis.testPreviewLayout, blocks: [], files: [], repeatableItems: []}) },
-        })`,
         "@/lib/auth":
           "export const useIsAuthenticated = () => true; export const useProjectSlug = () => 'test'",
         "@/lib/normalized-data":
-          "export const NormalizedDataProvider = ({children}) => children; export const seedBlockCaches = () => {}; export const usePageBlocks = () => ({})",
+          "export const NormalizedDataProvider = ({children}) => children; export const usePageBlocks = () => ({})",
         "@/lib/queries": "export const blockQueries = {}",
         "@/lib/utils": "export const cn = (...args) => args.filter(Boolean).join(' ')",
         "../provider/components/CamoxAppContext": "export const useCamoxApp = () => ({})",
@@ -266,10 +262,10 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     beforeBlockIds: [],
     afterBlockIds: [],
   };
-  Object.assign(globalThis, { testPreviewLayout: layout });
-  client.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), {
-    page: { id: 3 },
-  });
+  // What the server filled in for each page it rendered.
+  const cache = testStudioCache(client);
+  cache.set(reads.pageStructure({ path: "/", projectSlug: "test" }), { page: { id: 3 } });
+  cache.set(reads.derivedLayout({ projectSlug: "test", layoutId: "article" }), layout);
   type Props = React.ComponentProps<typeof CamoxPreview>;
   const render = (derived?: Props["derived"], canvasOnly?: Props["canvasOnly"]) =>
     dom.render(
@@ -298,7 +294,6 @@ void test("curated and derived navigation retain the same Canvas workspace", asy
     await dom.close();
     client.clear();
     previewStore.send({ type: "exitEditMode" });
-    Reflect.deleteProperty(globalThis, "testPreviewLayout");
   }
 });
 
@@ -307,7 +302,9 @@ void test("a Canvas-only location keeps the last page mounted in the Preview", a
   const { CamoxPreview } = await import("./CamoxPreview");
   const { previewStore } = await import("./previewStore");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(inScope(queryKeys.pages.getByPath("/"), null), { page: { id: 3 } });
+  testStudioCache(client).set(reads.pageStructure({ path: "/", projectSlug: "test" }), {
+    page: { id: 3 },
+  });
   type Props = React.ComponentProps<typeof CamoxPreview>;
   const render = (canvasOnly?: Props["canvasOnly"]) =>
     dom.render(

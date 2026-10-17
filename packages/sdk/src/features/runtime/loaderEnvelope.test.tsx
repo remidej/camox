@@ -8,8 +8,7 @@ import { renderToString } from "react-dom/server";
 
 import { createApp } from "../../core/createApp";
 import { createLayout, notFound, type LayoutLoaderResult } from "../../core/createLayout";
-import { DraftScopeContext } from "../../lib/draft-scope";
-import { testDraftScope } from "../../lib/draft-scope.fixtures";
+import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { useNavigate } from "../navigation/navigation";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { readHydrationData } from "./hydrationData";
@@ -105,9 +104,9 @@ void test("real rendering, hydration and client navigation preserve loader envel
       try {
         return renderToString(
           <QueryClientProvider client={client}>
-            <DraftScopeContext.Provider value={testDraftScope(client)}>
+            <StudioScopeProvider client={client}>
               <DerivedPageContent camoxApp={app} derived={input.derived!} />
-            </DraftScopeContext.Provider>
+            </StudioScopeProvider>
           </QueryClientProvider>,
         );
       } finally {
@@ -180,7 +179,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
       root = hydrateRoot(
         document.getElementById("root")!,
         <QueryClientProvider client={queryClient}>
-          <DraftScopeContext.Provider value={testDraftScope(queryClient)}>
+          <StudioScopeProvider client={queryClient}>
             <PageNavigationProvider
               camoxApp={createApp({ blocks: [] })}
               initialInput={input}
@@ -193,7 +192,7 @@ void test("real rendering, hydration and client navigation preserve loader envel
                 </>
               )}
             </PageNavigationProvider>
-          </DraftScopeContext.Provider>
+          </StudioScopeProvider>
         </QueryClientProvider>,
         { onRecoverableError: (error) => errors.push(error) },
       );

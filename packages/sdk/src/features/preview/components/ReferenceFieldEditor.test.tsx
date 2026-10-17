@@ -17,13 +17,14 @@ import { CamoxAppProvider } from "@/features/provider/components/CamoxAppContext
 import { initApiClient } from "@/lib/api-client";
 import { AuthContext, createCamoxAuthClient } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
-import { collectionQueries } from "@/lib/queries";
 
-import { StudioQueryClientProvider, testDraftScope } from "../../../lib/draft-scope.fixtures";
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../../../lib/draft-scope.fixtures";
+import { reads } from "../../../lib/studio-reads";
 import { referencePickerFocus } from "../referencePickerFocus";
-
-/** Live, like the scope the rendered studio views. */
-const draftScope = testDraftScope();
 
 Object.assign(globalThis, { React, __CAMOX_TELEMETRY_DISABLED__: true });
 initApiClient("http://localhost:8788", testDraftScope());
@@ -109,17 +110,20 @@ async function renderReference(
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  client.setQueryData(
-    collectionQueries.records(draftScope, "site", "customers").queryKey,
+  testStudioCache(client).set(
+    reads.records({ projectSlug: "site", collectionId: "customers" }),
     options.records ?? defaultRecords,
   );
-  client.setQueryData(collectionQueries.get(draftScope, "site", "customers").queryKey, {
-    collectionId: "customers",
-    title: "Customers",
-    description: "",
-    label: "name",
-    contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
-  });
+  testStudioCache(client).set(
+    reads.collection({ projectSlug: "site", collectionId: "customers" }),
+    {
+      collectionId: "customers",
+      title: "Customers",
+      description: "",
+      label: "name",
+      contentSchema: JSON.parse(JSON.stringify(customers._internal.contentSchema)),
+    },
+  );
   const changes: (string | null)[] = [];
   const opened: string[] = [];
   const control = { reject: false };

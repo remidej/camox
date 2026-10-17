@@ -11,7 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@camox/ui/dropdown-menu";
 import { toast } from "@camox/ui/toaster";
-import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { ChevronDownIcon, Eye, Trash2 } from "lucide-react";
 import * as React from "react";
@@ -19,8 +18,9 @@ import * as React from "react";
 import { useNavigate } from "@/features/navigation/navigation";
 import { AuthContext } from "@/lib/auth";
 import { useCurrentDraftId, useDraftScope } from "@/lib/draft-scope";
-import { draftQueries, projectQueries, type DraftList, type DraftSummary } from "@/lib/queries";
+import { type DraftList, type DraftSummary } from "@/lib/queries";
 
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
@@ -68,17 +68,14 @@ export function DraftsControl() {
     [draftId],
   );
 
-  const project = useQuery({
-    ...projectQueries.getBySlug(authCtx?.projectSlug ?? ""),
+  const project = useReadQuery(reads.project({ slug: authCtx?.projectSlug ?? "" }), {
     enabled: !!authCtx?.projectSlug,
   });
   const projectId = project.data?.id;
-  const list = useQuery({
-    ...draftQueries.list(projectId ?? 0),
+  const list = useReadQuery(reads.draftList({ projectId: projectId ?? 0 }), {
     enabled: !!projectId && !developmentMode,
   });
-  const draft = useQuery({
-    ...draftQueries.get(projectId ?? 0, draftId ?? ""),
+  const draft = useReadQuery(reads.draft({ projectId: projectId ?? 0, draftId: draftId ?? "" }), {
     enabled: !!projectId && !!draftId,
   });
 

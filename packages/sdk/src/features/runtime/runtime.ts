@@ -11,12 +11,12 @@ import { getPageDestinations } from "../../core/pageDestinations";
 import { asCollectionItem, recordMarkdownTemplate, recordPlainText } from "../../core/recordItem";
 import { createRequestContext, type LayoutRequestContext } from "../../core/requestContext";
 import { draftNamedBy } from "../../lib/draft-scope";
-import { seedBlockCaches } from "../../lib/normalized-data";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
+import { reads } from "../../lib/studio-reads";
 import {
   buildCamoxPageHead,
   buildFaviconUrl,
@@ -24,6 +24,7 @@ import {
   createMarkdownResponse,
   parseMarkdownPath,
   createServerApiClient,
+  createServerStudioCache,
   isNotFoundError,
   loadCamoxPageForRequest,
   prefersMarkdown,
@@ -795,7 +796,27 @@ async function createDerivedResponse(
       studio && requestedDraft
         ? await readLayout().then(async (read) => [await runLoader(read.draftId), read] as const)
         : await Promise.all([runLoader(), readLayout()]);
-    seedBlockCaches(queryClient, shared, read.draftId ?? null);
+    // The studio shows the layout and its loader's result as read here, in the draft read.
+    const studioCache = createServerStudioCache(queryClient, {
+      apiUrl: options.apiUrl!,
+      authCookieHeader,
+    });
+    const projectSlug = options.projectSlug!;
+    const shownIn = { in: read.draftId ?? null };
+    studioCache.land(
+      reads.derivedLayout({ projectSlug, layoutId: match.layout._internal.id }),
+      shared,
+      shownIn,
+    );
+    studioCache.set(
+      reads.derivedPageData({
+        projectSlug,
+        runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+        pathname,
+      }),
+      serializedResult ?? null,
+      shownIn,
+    );
     // Code-owned pages have no editor metadata: the layout's title stands in for it.
     const record = asCollectionItem(serializedResult);
     const recordCollection = record && app.getCollectionById(record.collectionId);

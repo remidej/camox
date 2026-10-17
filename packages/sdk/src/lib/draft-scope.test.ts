@@ -54,8 +54,8 @@ void test("each scope keeps its own draft, so concurrent server renders read the
 
   first.adopt({ draftId: "d1" });
 
-  assert.deepEqual(first.keyFor(block), inScope(block, "d1"));
-  assert.deepEqual(second.keyFor(block), inScope(block, null));
+  assert.equal(first.current(), "d1");
+  assert.equal(second.current(), null);
 });
 
 void test("the first content write on Live enters the draft it started once it succeeds, from what Live showed", () => {
@@ -72,7 +72,7 @@ void test("the first content write on Live enters the draft it started once it s
   assert.equal(draftScope.current(), draftId);
   assert.equal(browser.location.href, `https://site.test/about?camox-draft=${draftId}#hero`);
   assert.deepEqual(changes, [{ draftId, move: "started" }]);
-  assert.deepEqual(queryClient.getQueryData(draftScope.keyFor(block)), { title: "Shown on Live" });
+  assert.deepEqual(queryClient.getQueryData(inScope(block, draftId)), { title: "Shown on Live" });
   assert.deepEqual(draftScope.requestHeaders(true).headers, { [DRAFT_HEADER]: draftId });
 });
 
@@ -105,12 +105,12 @@ void test("links keep the viewed draft unless they name one or switch drafts", (
   assert.equal(draftScope.hrefFor("https://other.test/"), "https://other.test/");
 });
 
-void test("dev mode names the development draft in every key and request, and leaves URLs alone", () => {
+void test("dev mode views the development draft, names it in every request, and leaves URLs alone", () => {
   const { draftScope, browser } = openScope("https://site.test/about?camox-draft=d1", {
     developmentMode: true,
   });
 
-  assert.deepEqual(draftScope.keyFor(block), inScope(block, DEVELOPMENT_DRAFT));
+  assert.equal(draftScope.current(), DEVELOPMENT_DRAFT);
   assert.deepEqual(draftScope.requestHeaders(true).headers, { [DRAFT_HEADER]: DEVELOPMENT_DRAFT });
   assert.equal(draftScope.hrefFor("/contact"), "/contact");
   assert.equal(browser.location.href, "https://site.test/about?camox-draft=d1");

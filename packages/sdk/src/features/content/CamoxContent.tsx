@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
 
 import { Navigate, useLocation, useNavigate } from "@/features/navigation/navigation";
@@ -9,9 +8,8 @@ import {
   STUDIO_CONTENT_PATH,
 } from "@/features/studio/routes";
 import { useProjectSlug } from "@/lib/auth";
-import { collectionQueries } from "@/lib/queries";
 
-import { useDraftScope } from "../../lib/draft-scope";
+import { reads, useReadQuery } from "../../lib/studio-reads";
 import {
   CollectionItemModalProvider,
   type CollectionItemModalTarget,
@@ -42,7 +40,6 @@ export const CamoxContent = () => {
 };
 
 const ExperimentalContent = () => {
-  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -51,7 +48,7 @@ const ExperimentalContent = () => {
     data: collections = [],
     isError,
     isPending,
-  } = useQuery(collectionQueries.list(draftScope, projectSlug));
+  } = useReadQuery(reads.collectionList({ projectSlug }));
   const collection = collections.find((entry) => entry.collectionId === route?.collectionId);
   const routeTarget =
     route && (route.isNew || route.itemId)

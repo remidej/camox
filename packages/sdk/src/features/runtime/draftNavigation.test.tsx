@@ -7,7 +7,8 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import { createApp } from "../../core/createApp";
-import { createDraftScope, DraftScopeContext } from "../../lib/draft-scope";
+import { createDraftScope } from "../../lib/draft-scope";
+import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { Link, useNavigate } from "../navigation/navigation";
 import type { DraftNotice } from "../routes/pageRuntime";
 import { PageNavigationProvider } from "./pageNavigation";
@@ -102,7 +103,7 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
   const root = createRoot(document.getElementById("root")!);
   await React.act(async () => {
     root.render(
-      <DraftScopeContext.Provider value={draftScope}>
+      <StudioScopeProvider client={queryClient} draftScope={draftScope}>
         <PageNavigationProvider
           camoxApp={createApp({ blocks: [] })}
           initialInput={input}
@@ -110,7 +111,7 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
         >
           {() => <Workspace />}
         </PageNavigationProvider>
-      </DraftScopeContext.Provider>,
+      </StudioScopeProvider>,
     );
   });
   t.after(async () => {

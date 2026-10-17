@@ -8,13 +8,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { NavigationProvider } from "../features/navigation/navigation";
 import { initApiClient } from "../lib/api-client";
 import { AuthContext } from "../lib/auth";
-import { StudioQueryClientProvider, testDraftScope } from "../lib/draft-scope.fixtures";
+import {
+  StudioQueryClientProvider,
+  testDraftScope,
+  testStudioCache,
+} from "../lib/draft-scope.fixtures";
 import { NormalizedDataProvider } from "../lib/normalized-data";
-import { viewPageQueries, viewProjectQueries } from "../lib/view-queries";
+import { reads } from "../lib/studio-reads";
 import { createBlock, type ContentFieldBuilder } from "./createBlock";
-
-/** Live, like the scope the rendered studio views. */
-const draftScope = testDraftScope();
 
 const options = {
   id: "navigation",
@@ -88,10 +89,10 @@ void test("a link field renders a link to an existing page and plain text for a 
   });
   const render = (pageId: string) => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(viewProjectQueries.getBySlug("test").queryKey, {
+    testStudioCache(queryClient).set(reads.project({ slug: "test" }), {
       id: projectId,
     } as never);
-    queryClient.setQueryData(viewPageQueries.list(draftScope, projectId).queryKey, [
+    testStudioCache(queryClient).set(reads.pageList({ projectSlug: "site" }), [
       { id: existingPageId, fullPath: "/pricing" },
     ]);
     return renderToStaticMarkup(

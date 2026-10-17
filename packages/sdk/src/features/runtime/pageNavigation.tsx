@@ -5,6 +5,7 @@ import type { ActiveHeadEntry, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
 import { draftNamedBy, DraftScopeContext } from "../../lib/draft-scope";
+import { reads } from "../../lib/studio-reads";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { createNavigationRequestTracker } from "./navigationRequest";
 import { fetchRuntimeJson, getNavigationTarget } from "./navigationTarget";
@@ -29,14 +30,8 @@ function preserveStableLayoutBlockCaches(
   return {
     ...dehydratedState,
     queries: dehydratedState.queries.filter((query: { queryKey?: unknown[] }) => {
-      const key = query.queryKey;
-      return !(
-        key?.[0] === "camox" &&
-        key[1] === "blocks" &&
-        key[2] === "get" &&
-        typeof key[3] === "string" &&
-        ids.has(key[3])
-      );
+      const blockId = query.queryKey && reads.blockBundle.paramsOf(query.queryKey);
+      return !(blockId && ids.has(blockId));
     }),
   };
 }
@@ -113,8 +108,8 @@ export function PageNavigationProvider({
             "/_camox/data",
             initialInput.runtimeBasePath,
             { path: target.pathname },
-            request.signal,
             targetDraft,
+            request.signal,
           );
           if (!response.ok) throw new Error(`Navigation failed: ${response.status}`);
           next = (await response.json()) as PageRenderInput;

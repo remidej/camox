@@ -1,24 +1,15 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
-import { useSuspenseQuery } from "@tanstack/react-query";
 import * as React from "react";
 
-import { getApiClient } from "../../lib/api-client";
 import { useProjectSlug } from "../../lib/auth";
-import { useDraftScope } from "../../lib/draft-scope";
 import { NormalizedDataProvider, usePageBlocks } from "../../lib/normalized-data";
-import { viewBlockQueries } from "../../lib/view-queries";
+import { reads, useRead } from "../../lib/studio-reads";
 import { useLocation } from "../navigation/navigation";
 import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedLayoutContent } from "./SharedLayoutContent";
 
-function pageStructureQueryFn(path: string, projectSlug: string) {
-  return () => getApiClient().pages.getStructure({ path, projectSlug });
-}
-
 function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout" }) {
-  const draftScope = useDraftScope();
-  const { data } = useSuspenseQuery(viewBlockQueries.get(draftScope, blockId));
+  const data = useRead(reads.blockBundle(blockId));
   const camoxApp = useCamoxApp();
   // Hydration and navigation load a page's blocks first; this only waits for one they missed.
   const blockDef =
@@ -50,15 +41,10 @@ function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout"
 
 /** A curated page as visitors see it, without editing. */
 export function CuratedPageContent() {
-  const draftScope = useDraftScope();
   const { pathname } = useLocation();
   const projectSlug = useProjectSlug();
   const camoxApp = useCamoxApp();
-  const { data: pageData } = useSuspenseQuery({
-    queryKey: draftScope.keyFor(queryKeys.pages.getByPath(pathname)),
-    queryFn: pageStructureQueryFn(pathname, projectSlug),
-    staleTime: Infinity,
-  });
+  const pageData = useRead(reads.pageStructure({ path: pathname, projectSlug }));
   const { pageBlocks, beforeBlocks, afterBlocks, layoutFiles, layoutItems } =
     usePageBlocks(pageData);
   const layout = pageData.layout ? camoxApp.getLayoutById(pageData.layout.layoutId) : undefined;

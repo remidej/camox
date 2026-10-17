@@ -1,6 +1,5 @@
 import { Button } from "@camox/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@camox/ui/tooltip";
-import { useQuery } from "@tanstack/react-query";
 import { Link2, X } from "lucide-react";
 import * as React from "react";
 
@@ -8,9 +7,8 @@ import { useCollectionItemModal } from "@/features/content/CollectionItemModalCo
 import { useCamoxApp } from "@/features/provider/components/CamoxAppContext";
 import { useProjectSlug } from "@/lib/auth";
 import type { NormalizedCollectionRecord } from "@/lib/normalized-data";
-import { collectionQueries } from "@/lib/queries";
 
-import { useDraftScope } from "../../../lib/draft-scope";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import type { OverlayMessage } from "../overlayMessages";
 import { referencePickerFocus, useReferencePickerFocusRequested } from "../referencePickerFocus";
 import { DrillRow } from "./DrillRow";
@@ -52,14 +50,13 @@ export function ReferenceFieldEditor({
   /** Offer Create item in the picker; off where the create modal would replace a form. */
   allowCreate?: boolean;
 }) {
-  const draftScope = useDraftScope();
   const projectSlug = useProjectSlug();
   const collection = useCamoxApp().getCollectionById(collectionId);
   const collectionTitle = collection?._internal.title ?? collectionId;
   const modal = useCollectionItemModal();
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const records = useQuery(collectionQueries.records(draftScope, projectSlug, collectionId));
+  const records = useReadQuery(reads.records({ projectSlug, collectionId }));
   const selectedId = typeof value === "string" && value ? value : null;
   const selected = records.data?.find((option) => option.id === value);
   const hydrated = record?.id === selectedId ? record : null;

@@ -1,12 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/store-react";
 import { ArrowLeft, FileText, Info, Layers, Search, Settings } from "lucide-react";
 import * as React from "react";
 
 import { useAuthContext } from "@/lib/auth";
-import { projectQueries } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { UserButton } from "../../studio/components/UserButton";
 import { previewStore, selectionBlockId, selectionForPage } from "../previewStore";
 import { PageEditorSidebar } from "./PageEditorSidebar";
@@ -39,7 +38,7 @@ export function MobilePreviewDrawer({
   const [isDragging, setIsDragging] = React.useState(false);
   const [screen, setScreen] = React.useState<DrawerScreen>("root");
   const authCtx = useAuthContext();
-  const { data: project } = useQuery(projectQueries.getBySlug(authCtx.projectSlug));
+  const { data: project } = useReadQuery(reads.project({ slug: authCtx.projectSlug }));
   const dragStartRef = React.useRef({ y: 0, height: COLLAPSED_HEIGHT });
   const dragDistanceRef = React.useRef(0);
   const rootContentRef = React.useRef<HTMLDivElement>(null);

@@ -1,39 +1,42 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
 
-import { initApiClient } from "./api-client";
 import { invalidateCollectionRecordViews } from "./collection-cache";
-import { testDraftScope } from "./draft-scope.fixtures";
-import { collectionQueries } from "./queries";
+import { testStudioCache } from "./draft-scope.fixtures";
+import { type Read, reads } from "./studio-reads";
 
-/** Live, like the scope the rendered studio views. */
-const draftScope = testDraftScope();
-
-void test("record edits invalidate the collection's placements and statuses, not other collections", async () => {
-  Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true });
-  initApiClient("http://localhost:8788", testDraftScope());
+void test("record edits refresh the collection's placements and lists in every scope, not other collections", async () => {
   const client = new QueryClient();
-  const placementKeys = [
-    queryKeys.blocks.get("1"),
-    queryKeys.blocks.get("2"),
-    queryKeys.pages.getByPath("/"),
-    ["camox", "layouts", "get", "site", "layout"],
-    queryKeys.pages.list,
-    collectionQueries.records(draftScope, "site", "customers").queryKey,
+  const cache = testStudioCache(client);
+  const placements: Read<unknown>[] = [
+    reads.blockBundle("1"),
+    reads.blockBundle("2"),
+    reads.pageStructure({ path: "/", projectSlug: "site" }),
+    reads.derivedLayout({ projectSlug: "site", layoutId: "layout" }),
+    reads.pageList({ projectSlug: "site" }),
+    reads.records({ projectSlug: "site", collectionId: "customers" }),
   ];
-  const untouchedKeys = [
-    collectionQueries.records(draftScope, "other-site", "customers").queryKey,
-    collectionQueries.records(draftScope, "site", "articles").queryKey,
-    ["other-app", "blocks", "get", 1],
+  const untouched: Read<unknown>[] = [
+    reads.records({ projectSlug: "other-site", collectionId: "customers" }),
+    reads.records({ projectSlug: "site", collectionId: "articles" }),
   ];
+  const scopes = [null, "d1"];
+  const invalidated = (read: Read<unknown>, draft: string | null) =>
+    client.getQueryState(cache.options(read, { in: draft }).queryKey)?.isInvalidated;
   try {
-    for (const key of [...placementKeys, ...untouchedKeys]) client.setQueryData(key, {});
-    await invalidateCollectionRecordViews(client, "site", "customers");
-    for (const key of placementKeys) assert.equal(client.getQueryState(key)?.isInvalidated, true);
-    for (const key of untouchedKeys) assert.equal(client.getQueryState(key)?.isInvalidated, false);
+    for (const read of [...placements, ...untouched])
+      for (const draft of scopes) cache.set(read, {}, { in: draft });
+
+    await invalidateCollectionRecordViews(cache as never, "site", "customers");
+
+    for (const read of placements)
+      for (const draft of scopes)
+        assert.equal(invalidated(read, draft), true, JSON.stringify(read.params));
+    for (const read of untouched)
+      for (const draft of scopes)
+        assert.equal(invalidated(read, draft), false, JSON.stringify(read.params));
   } finally {
     client.clear();
   }

@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 
-import { inScope, queryKeys } from "@camox/api-contract/query-keys";
 import { QueryClient } from "@tanstack/react-query";
 import { Window, type HTMLButtonElement } from "happy-dom";
 import * as React from "react";
 
 import type { Block } from "../../core/createBlock";
-import { StudioQueryClientProvider } from "../../lib/draft-scope.fixtures";
+import { StudioQueryClientProvider, testStudioCache } from "../../lib/draft-scope.fixtures";
+import { reads } from "../../lib/studio-reads";
 import { NavigationProvider } from "../navigation/navigation";
 import { getCanvasShelves } from "./canvasItems";
 import type { CanvasPage } from "./canvasPages";
@@ -33,8 +33,6 @@ registerHooks({
     if (context.parentURL?.endsWith("/CanvasSidebar.tsx")) {
       if (specifier.endsWith("/auth"))
         source = 'export const useProjectSlug = () => "test-project"';
-      if (specifier.endsWith("/api-client"))
-        source = "export const getApiClient = () => globalThis.canvasSidebarApi";
       if (specifier.endsWith("/CreatePageModal"))
         source = `${probeImports}
           export function CreatePageModal() {
@@ -66,11 +64,6 @@ registerHooks({
               onClick: () => navigate({to: "/articles/hello%20world"}),
             }, pageId ?? derivedLayout?.layoutId);
           }`;
-      if (specifier.endsWith("/queries"))
-        source = `export const blockQueries = {getPagesUsing: (scope, projectId, type) => ({
-          queryKey: scope.keyFor(["blockPages", projectId, type]),
-          queryFn: () => globalThis.canvasBlockPages[type] ?? [],
-        })};`;
     }
     if (source)
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
@@ -110,6 +103,12 @@ async function setup() {
         return pageStructure(input.path);
       },
     },
+    blocks: {
+      getPagesUsing: async ({ type }: { type: string }) =>
+        (globalThis as unknown as { canvasBlockPages: Record<string, unknown[]> }).canvasBlockPages[
+          type
+        ] ?? [],
+    },
     layouts: {
       get: async (input: { layoutId: string; projectSlug: string }) => {
         calls.push(input);
@@ -133,7 +132,6 @@ async function setup() {
     requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
     cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
     IS_REACT_ACT_ENVIRONMENT: true,
-    canvasSidebarApi: api,
     canvasBlockPages: {
       hero: [
         { id: "7", nickname: "Home", fullPath: "/" },
@@ -176,7 +174,7 @@ async function setup() {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
         root.render(
-          <StudioQueryClientProvider client={client}>
+          <StudioQueryClientProvider client={client} api={() => api as never}>
             <NavigationProvider
               location={{ pathname, href: url, search, hash }}
               navigate={(options) => {
@@ -265,7 +263,7 @@ void test("curated sidebar shares the selected path cache and forwards sidebar/d
 });
 
 function clientPage(client: QueryClient, path: string) {
-  return client.getQueryData(inScope(queryKeys.pages.getByPath(path), null));
+  return testStudioCache(client).get(reads.pageStructure({ path, projectSlug: "test-project" }));
 }
 
 void test("singleton and derived layout sidebars load shared layouts, seed their blocks, and use full URL pages", async () => {
@@ -290,7 +288,7 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
       { layoutId: "about", projectSlug: "test-project" },
       { layoutId: "articles.$slug", projectSlug: "test-project" },
     ]);
-    assert.deepEqual(dom.client.getQueryData(inScope(queryKeys.blocks.get("42"), null)), {
+    assert.deepEqual(testStudioCache(dom.client).get(reads.blockBundle("42")), {
       block: { id: "42", content: { text: "layout" } },
       files: [],
       repeatableItems: [],

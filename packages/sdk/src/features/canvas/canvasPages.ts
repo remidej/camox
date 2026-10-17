@@ -1,9 +1,4 @@
-import { queryKeys } from "@camox/api-contract/query-keys";
-
 import { getPageDestinations } from "../../core/pageDestinations";
-import type { DraftScope } from "../../lib/draft-scope";
-import { fetchRuntimeJson } from "../runtime/navigationTarget";
-import type { PageRenderInput } from "../runtime/runtime";
 
 type DestinationLayouts = Parameters<typeof getPageDestinations>[1];
 
@@ -15,48 +10,6 @@ export interface CanvasPage {
   pattern?: string;
   pageId?: string;
   layoutId?: string;
-}
-
-/**
- * A Canvas frame's page data. The sidebar reads the same query for the selected page. A
- * code-owned page's data is its loader's result, which reloads with record edits and
- * publication, like other layout reads.
- */
-export function canvasPageQuery(
-  draftScope: DraftScope,
-  projectSlug: string,
-  runtimeBasePath: string,
-  pathname: string,
-  derivedLayoutId: string | undefined,
-) {
-  // The frame reads the draft its key names, even if the studio has moved on by then.
-  const draft = draftScope.current();
-  return {
-    queryKey: derivedLayoutId
-      ? draftScope.keyFor([
-          ...queryKeys.layouts.all,
-          "canvas",
-          projectSlug,
-          runtimeBasePath,
-          pathname,
-          derivedLayoutId,
-        ])
-      : draftScope.keyFor(["camox", "canvas", projectSlug, runtimeBasePath, pathname]),
-    queryFn: async ({ signal }: { signal: AbortSignal }) => {
-      const response = await fetchRuntimeJson(
-        draftScope,
-        "/_camox/data",
-        runtimeBasePath,
-        { path: pathname },
-        signal,
-        draft,
-      );
-      if (!response.ok) throw new Error(`Could not load ${pathname} (${response.status}).`);
-      const input = (await response.json()) as PageRenderInput;
-      validateCanvasPageInput(input, pathname, derivedLayoutId);
-      return input;
-    },
-  };
 }
 
 export const CANVAS_DEVICES = {
@@ -97,24 +50,4 @@ export function getCanvasPages(
       };
     });
   return [...concrete, ...derivedLayouts];
-}
-
-export function validateCanvasPageInput(
-  input: Pick<PageRenderInput, "pathname" | "routeKind" | "dehydratedState" | "previewDocument"> & {
-    derived?: { layoutId: string };
-  },
-  pathname: string,
-  derivedLayoutId?: string,
-) {
-  if (
-    input.pathname !== pathname ||
-    input.routeKind ||
-    !input.dehydratedState ||
-    !input.previewDocument
-  )
-    throw new Error("The server did not return a page preview.");
-  // Curated routes take precedence over derived routes on the server. Matching
-  // the URL pattern alone does not prove this is a page of the derived layout.
-  if (derivedLayoutId && input.derived?.layoutId !== derivedLayoutId)
-    throw new Error(`This path does not render the selected derived layout (${derivedLayoutId}).`);
 }
